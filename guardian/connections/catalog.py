@@ -225,6 +225,11 @@ def _inference_oauth_entry(
     description: str,
     *,
     registry_provider_id: str | None = None,
+    setup_route: str | None = None,
+    implementation_state: str = _UNIMPLEMENTED,
+    default_setup_state: str = _UNAVAILABLE,
+    oauth_backend_handler_exists: bool = False,
+    setup_help: str | None = None,
 ) -> ConnectionCatalogEntry:
     return ConnectionCatalogEntry(
         id=entry_id,
@@ -233,12 +238,18 @@ def _inference_oauth_entry(
         description=description,
         auth_methods=(_OAUTH_BROWSER,),
         capabilities=frozenset({_CHAT}),
+        implementation_state=implementation_state,
+        default_setup_state=default_setup_state,
         runtime_binding=ConnectionRuntimeBinding(
-            subsystem="guardian.core.provider_registry",
+            subsystem="guardian.connectors.minimax"
+            if entry_id == "minimax_oauth"
+            else "guardian.core.provider_registry",
             registry_provider_id=registry_provider_id,
+            setup_route=setup_route,
+            oauth_backend_handler_exists=oauth_backend_handler_exists,
         ),
         scopes=("chat",),
-        setup_help=_OAUTH_UNAVAILABLE_HELP,
+        setup_help=setup_help or _OAUTH_UNAVAILABLE_HELP,
         oauth_provider_key=entry_id,
     )
 
@@ -509,10 +520,20 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             _inference_oauth_entry(
                 "minimax_oauth",
                 "MiniMax OAuth",
-                "MiniMax OAuth-style access. No backend OAuth handler "
-                "exists yet; the MiniMax API-key lane is registry-governed "
-                "separately.",
+                "MiniMax Global OAuth subscription-style setup. A backend "
+                "OAuth setup handler now exists; OAuth-to-inference "
+                "credential binding remains deliberately deferred. The "
+                "MiniMax API-key lane is registry-governed separately.",
                 registry_provider_id="minimax",
+                setup_route="/api/connect/minimax/start",
+                implementation_state=_PARTIAL,
+                default_setup_state=_NEEDS_SETUP,
+                oauth_backend_handler_exists=True,
+                setup_help=(
+                    "MiniMax OAuth setup uses the Codexify-owned application "
+                    "configuration on this node. Authentication/setup is "
+                    "implemented; OAuth-to-inference binding is not."
+                ),
             ),
             _inference_oauth_entry(
                 "qwen_oauth",

@@ -30,6 +30,25 @@ class PiHarnessResultClass(str, Enum):
     BLOCKED = "blocked"
 
 
+class PiAuthorizedFailureClass(str, Enum):
+    """Credential-safe failure classes for Guardian-authorized Pi execution."""
+
+    ADAPTER_TIMEOUT = "adapter_timeout"
+    WRAPPER_UNAVAILABLE = "wrapper_unavailable"
+    RUNTIME_MODULE_UNAVAILABLE = "runtime_module_unavailable"
+    AUTHORIZED_IDENTITY_REJECTED = "authorized_identity_rejected"
+    PROVIDER_UNRESOLVED = "provider_unresolved"
+    MODEL_UNRESOLVED = "model_unresolved"
+    OAUTH_AUTH_UNAVAILABLE = "oauth_auth_unavailable"
+    SESSION_INITIALIZATION_FAILED = "session_initialization_failed"
+    PROVIDER_REQUEST_FAILED = "provider_request_failed"
+    PROVIDER_TRANSPORT_FAILED = "provider_transport_failed"
+    WRAPPER_PROTOCOL_FAILED = "wrapper_protocol_failed"
+    ACTUAL_IDENTITY_MISSING = "actual_identity_missing"
+    TARGET_POSTURE_VIOLATION = "target_posture_violation"
+    UNKNOWN_ADAPTER_FAILURE = "unknown_adapter_failure"
+
+
 class PiProviderLaneClass(str, Enum):
     LOCAL = "local"
     REMOTE = "remote"
@@ -91,6 +110,9 @@ PI_INVOCATION_RECEIPT_TERMINAL_STATUSES: frozenset[str] = frozenset(
 PI_HARNESS_RESULT_CLASSES: frozenset[str] = frozenset(
     result_class.value for result_class in PiHarnessResultClass
 )
+PI_AUTHORIZED_FAILURE_CLASSES: frozenset[str] = frozenset(
+    failure_class.value for failure_class in PiAuthorizedFailureClass
+)
 PI_PROVIDER_LANE_CLASSES: frozenset[str] = frozenset(
     lane_class.value for lane_class in PiProviderLaneClass
 )
@@ -137,6 +159,14 @@ def normalize_pi_harness_result_class(value: str | None) -> str:
     )
 
 
+def normalize_pi_authorized_failure_class(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=PI_AUTHORIZED_FAILURE_CLASSES,
+        kind="pi_authorized_failure_class",
+    )
+
+
 def normalize_pi_provider_lane_class(value: str | None) -> str:
     return _normalize_token(
         value,
@@ -150,12 +180,14 @@ __all__ = [
     "PiInvocationEnvelopeStatus",
     "PiInvocationReceiptStatus",
     "PiHarnessResultClass",
+    "PiAuthorizedFailureClass",
     "PiProviderLaneClass",
     "PiValidationFailureReason",
     "PI_INVOCATION_ENVELOPE_STATUSES",
     "PI_INVOCATION_RECEIPT_STATUSES",
     "PI_INVOCATION_RECEIPT_TERMINAL_STATUSES",
     "PI_HARNESS_RESULT_CLASSES",
+    "PI_AUTHORIZED_FAILURE_CLASSES",
     "PI_PROVIDER_LANE_CLASSES",
     "PI_INVOCATION_VALIDATION_OUTCOMES",
     "PI_VALIDATION_FAILURE_REASONS",
@@ -163,5 +195,6 @@ __all__ = [
     "normalize_pi_validation_outcome",
     "normalize_pi_receipt_status",
     "normalize_pi_harness_result_class",
+    "normalize_pi_authorized_failure_class",
     "normalize_pi_provider_lane_class",
 ]

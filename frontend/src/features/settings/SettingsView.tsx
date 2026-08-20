@@ -472,10 +472,13 @@ export function SettingsView({
     states: runtimeRouteStates,
   } = useRuntimeRouteCapabilities([
     SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT,
+    SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTIONS,
     SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTORS,
   ]);
   const imprintCapability =
     runtimeRouteStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] ?? "unknown";
+  const connectionsCapability =
+    runtimeRouteStates[SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTIONS] ?? "unknown";
   const connectorsCapability =
     runtimeRouteStates[SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTORS] ?? "unknown";
 
@@ -1565,21 +1568,21 @@ export function SettingsView({
             className="space-y-[var(--shell-gap)]"
           >
             {runtimeCapabilitiesReady &&
-              connectorsCapability === "unavailable" && (
+              connectionsCapability === "unavailable" && (
                 <div className="text-sm" style={{ color: "var(--muted)" }}>
-                  Connectors are unavailable in this runtime profile.
+                  Connections are unavailable in this runtime profile.
                 </div>
               )}
             {!runtimeCapabilitiesReady && (
               <div className="text-sm" style={{ color: "var(--muted)" }}>
-                Checking connector availability…
+                Checking Connections availability…
               </div>
             )}
             {runtimeCapabilitiesReady &&
-              connectorsCapability !== "unavailable" && (
+              connectionsCapability !== "unavailable" && (
                 <ConnectionsBay
                   ready={runtimeCapabilitiesReady}
-                  unavailable={connectorsCapability === "unavailable"}
+                  unavailable={connectionsCapability === "unavailable"}
                 />
               )}
             <div>
@@ -1597,16 +1600,34 @@ export function SettingsView({
                 their existing configuration surface.
               </p>
             </div>
-            {loading && (
+            {runtimeCapabilitiesReady &&
+              connectorsCapability === "unavailable" && (
+                <div className="text-sm" style={{ color: "var(--muted)" }}>
+                  Sync connectors are unavailable in this runtime profile.
+                </div>
+              )}
+            {!runtimeCapabilitiesReady && (
               <div className="text-sm" style={{ color: "var(--muted)" }}>
-                Loading connectors…
+                Checking sync connector availability…
               </div>
             )}
-            {error && (
-              <div className="text-sm" style={{ color: "var(--danger-text)" }}>
-                {error}
-              </div>
-            )}
+            {runtimeCapabilitiesReady &&
+              connectorsCapability !== "unavailable" &&
+              loading && (
+                <div className="text-sm" style={{ color: "var(--muted)" }}>
+                  Loading connectors…
+                </div>
+              )}
+            {runtimeCapabilitiesReady &&
+              connectorsCapability !== "unavailable" &&
+              error && (
+                <div
+                  className="text-sm"
+                  style={{ color: "var(--danger-text)" }}
+                >
+                  {error}
+                </div>
+              )}
             {runtimeCapabilitiesReady &&
             connectorsCapability !== "unavailable" &&
             Array.isArray(connectors) &&

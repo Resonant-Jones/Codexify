@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
+from guardian.connections.catalog import get_catalog
+
 
 @contextmanager
 def _build_supported_profile_client(monkeypatch):
@@ -95,6 +97,37 @@ def test_supported_profile_mounts_obsidian_routes_without_widening_quarantine(
 
         assert client.get("/api/tools/manifest", headers=headers).status_code == 404
         assert client.get("/api/connectors", headers=headers).status_code == 404
+
+
+def test_supported_profile_promotes_bounded_settings_and_connections_only(
+    monkeypatch,
+) -> None:
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        openapi = client.get("/openapi.json").json()
+        paths = openapi.get("paths", {})
+
+        assert "/api/imprint/status" in paths
+        assert "/api/imprint/proposal" in paths
+        assert "/api/system_prompt/summary" in paths
+        assert "/api/system_docs" in paths
+        assert "/api/connections" in paths
+        assert "/api/connectors" not in paths
+
+        assert client.get("/api/connections", headers=headers).status_code == 200
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        wrong_headers = {"X-API-Key": "wrong-key"}
+        assert (
+            client.get("/api/imprint/status", headers=wrong_headers).status_code
+            in {401, 403}
+        )
+        assert (
+            client.get(
+                "/api/system_prompt/summary", headers=wrong_headers
+            ).status_code
+            in {401, 403}
+        )
 
 
 def test_coding_loop_execute_route_mounted_in_local_profile(
@@ -195,6 +228,67 @@ def test_unrelated_quarantined_routes_remain_unavailable(
         assert client.get("/api/tools/manifest", headers=headers).status_code == 404
         assert client.get("/api/connectors", headers=headers).status_code == 404
         assert client.get("/api/federation/ping", headers=headers).status_code == 404
+
+
+def test_supported_profile_exposes_read_only_connections_without_legacy_connectors(
+    monkeypatch,
+) -> None:
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        listing = client.get("/api/connections", headers=headers)
+        assert listing.status_code == 200
+        payload = listing.json()
+        assert payload["categories"] == ["inference", "messaging", "web"]
+        assert len(payload["items"]) == len(get_catalog())
+        assert len(payload["items"]) > 0
+
+        detail = client.get("/api/connections/deepseek", headers=headers)
+        assert detail.status_code == 200
+        assert detail.json()["id"] == "deepseek"
+        assert (
+            client.get(
+                "/api/connections/does_not_exist", headers=headers
+            ).status_code
+            == 404
+        )
+
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        paths = client.get("/openapi.json").json().get("paths", {})
+        assert "/api/connections" in paths
+        assert "/api/connections/{connection_id}" in paths
+        assert "/api/connectors" not in paths
+        assert set(paths["/api/connections"]) == {"get"}
+        assert set(paths["/api/connections/{connection_id}"]) == {"get"}
+
+
+def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
+    monkeypatch,
+) -> None:
+    """MiniMax OAuth provider-specific auth routes must be mounted under
+    the supported local profile but hidden from public OpenAPI according
+    to current internal-only behavior. Connector-quarantine assertions
+    are not weakened.
+    """
+
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        # Connector quarantine is unchanged.
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        paths = client.get("/openapi.json").json().get("paths", {})
+        # MiniMax OAuth routes are intentionally hidden from public
+        # OpenAPI per the internal-only posture. Their handlers do
+        # exist; the supported profile simply suppresses schema
+        # visibility.
+        assert "/api/connect/minimax/start" not in paths
+        assert "/api/connect/minimax/poll" not in paths
+        assert "/api/connect/minimax/disconnect" not in paths
+        assert "/api/connect/minimax/status" not in paths
+        # Other OAuth/connector surfaces remain absent.
+        assert "/api/connect/google/start" not in paths
 
 
 def test_agent_orchestration_chat_readback_enforced(

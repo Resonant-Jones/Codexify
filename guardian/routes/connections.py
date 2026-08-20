@@ -253,16 +253,46 @@ def _project_entry(
     oauth_key = entry.oauth_provider_key
     if oauth_key:
         item["oauth"] = {
-            "supported": False,
+            "supported": bool(
+                entry.runtime_binding.oauth_backend_handler_exists
+            ),
             "backend_handler_exists": (
                 entry.runtime_binding.oauth_backend_handler_exists
             ),
             "connection": oauth_rows.get(oauth_key),
+            "launchable": False,
+            "node_configured": False,
         }
+        if entry.runtime_binding.oauth_backend_handler_exists:
+            item["oauth"]["launchable"] = _oauth_launchable(entry)
+            item["oauth"]["node_configured"] = item["oauth"]["launchable"]
+            if not item["oauth"]["launchable"]:
+                # A node without legitimate OAuth application configuration
+                # must surface unavailable, even though the backend handler
+                # exists in code.
+                item["setup_state"] = ConnectionSetupState.UNAVAILABLE.value
     else:
         item["oauth"] = None
     item["authorization"] = inference_authorization
     return item
+
+
+def _oauth_launchable(entry: ConnectionCatalogEntry) -> bool:
+    """Return True iff this entry's OAuth setup can actually launch on this node."""
+
+    if not entry.runtime_binding.oauth_backend_handler_exists:
+        return False
+    if entry.id == "minimax_oauth":
+        try:
+            from guardian.connectors.minimax import node_oauth_configured
+
+            return bool(node_oauth_configured())
+        except Exception:  # pragma: no cover - defensive
+            return False
+    # Generic rule for future entries: a setup route must exist. The rule
+    # is intentionally conservative so future entries do not become
+    # accidentally clickable merely because a backend handler exists.
+    return bool(entry.runtime_binding.setup_route)
 
 
 def _project_all(user_id: str) -> list[dict[str, Any]]:

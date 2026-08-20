@@ -591,7 +591,7 @@ function normalizeThreadConfigResponse(
   );
 }
 
-type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
+type VoiceCapabilitiesStatus = "loading" | "ready" | "error" | "unavailable";
 
 const DEFAULT_VOICE_CAPABILITIES: VoiceCapabilities = {
   read_aloud_enabled: false,
@@ -1176,6 +1176,10 @@ export function GuardianChat({
     ready: systemPromptCapabilityReady,
     state: systemPromptCapability,
   } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT);
+  const {
+    ready: voiceCapabilityReady,
+    state: voiceCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.VOICE);
   const [llmHealth, setLlmHealth] = useState<LlmHealthSnapshot>({
     ok: null,
     status: "unknown",
@@ -1450,6 +1454,16 @@ export function GuardianChat({
       setVoiceCapabilities(normalizeVoiceCapabilities(response?.data));
       setVoiceCapabilitiesStatus("ready");
     } catch (error) {
+      if (
+        markRuntimeRouteUnavailableIfNotFound(
+          SUPPORTED_PROFILE_ROUTE_LABELS.VOICE,
+          error
+        )
+      ) {
+        setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
+        setVoiceCapabilitiesStatus("unavailable");
+        return;
+      }
       console.warn("[guardian] voice capabilities unavailable", error);
       setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
       setVoiceCapabilitiesStatus("error");
@@ -2731,8 +2745,19 @@ export function GuardianChat({
   }, [triggerReload]);
 
   useEffect(() => {
+    if (!voiceCapabilityReady) return;
+    if (voiceCapability === "unavailable") {
+      setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
+      setVoiceCapabilitiesStatus("unavailable");
+      return;
+    }
     void refreshVoiceCapabilities();
-  }, [effectiveThreadId, refreshVoiceCapabilities]);
+  }, [
+    effectiveThreadId,
+    refreshVoiceCapabilities,
+    voiceCapability,
+    voiceCapabilityReady,
+  ]);
 
   useEffect(() => {
     if (voiceReadAloudEnabled) return;

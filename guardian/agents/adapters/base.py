@@ -29,6 +29,13 @@ class AgentRunEnvelope(BaseModel):
     actual_model_id: str | None = None
     actual_harness_id: str | None = None
     actual_harness_version: str | None = None
+    failure_classification: str | None = None
+    failure_stage: str | None = None
+    return_code: int | None = None
+    runtime_identity_established: bool = False
+    session_initialized: bool | None = None
+    provider_request_started: bool | None = None
+    oauth_available: bool | None = None
 
     model_config = ConfigDict(extra="forbid")
 

@@ -14,6 +14,10 @@ from guardian.agents.adapters.base import (
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
+from guardian.pi.tokens import (
+    PI_AUTHORIZED_FAILURE_CLASSES,
+    PiAuthorizedFailureClass,
+)
 
 
 def _get_pi_wrapper_path() -> Path:
@@ -109,7 +113,9 @@ class PiCodexRunnerAdapter:
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi identity is incomplete",
-                errors=["authorized_identity_missing"],
+                errors=[],
+                failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+                failure_stage="authorization",
             )
 
         wrapper_path = _get_pi_wrapper_path()
@@ -139,15 +145,77 @@ class PiCodexRunnerAdapter:
         except subprocess.TimeoutExpired:
             return AgentRunEnvelope(
                 status="error",
-                summary=f"Execution timed out after {request.timeout_seconds}s",
-                errors=["timeout_expired"],
+                summary="Guardian-authorized Pi execution timed out",
+                failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
+                failure_stage="adapter_execution",
                 metrics={"timeout_seconds": request.timeout_seconds},
             )
         except FileNotFoundError:
             return AgentRunEnvelope(
                 status="error",
-                summary="Pi agent wrapper not found",
-                errors=["pi_wrapper_not_found"],
+                summary="Guardian-authorized Pi wrapper is unavailable",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value,
+                failure_stage="wrapper_launch",
+            )
+
+    def preflight_authorized(
+        self,
+        request: AgentExecutionRequest,
+        identity: AgentExecutionIdentity,
+    ) -> AgentRunEnvelope:
+        """Run the authorized Pi setup/readiness path without a model prompt."""
+        if not all(
+            (
+                identity.provider_id,
+                identity.model_id,
+                identity.harness_id,
+                identity.harness_version,
+            )
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi identity is incomplete",
+                failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+                failure_stage="authorization",
+            )
+
+        wrapper_path = _get_pi_wrapper_path()
+        env = os.environ.copy()
+        env.update(
+            {
+                "PI_PROVIDER": identity.provider_id,
+                "PI_MODEL": identity.model_id,
+                "PI_GUARDIAN_AUTHORIZED": "1",
+                "PI_GUARDIAN_HARNESS_ID": identity.harness_id,
+                "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
+                "PI_DISABLE_TOOLS": "1",
+            }
+        )
+        cmd = ["node", str(wrapper_path), "guardian-authorized-readiness"]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=request.cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=request.timeout_seconds,
+            )
+            return self._parse_result(result, require_runtime_identity=True)
+        except subprocess.TimeoutExpired:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi preflight timed out",
+                failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
+                failure_stage="preflight",
+            )
+        except FileNotFoundError:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi wrapper is unavailable",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value,
+                failure_stage="wrapper_launch",
             )
 
     def _parse_result(
@@ -161,25 +229,70 @@ class PiCodexRunnerAdapter:
         stderr = (result.stderr or "").strip()
 
         if result.returncode != 0:
+            failure_class = (
+                _classify_authorized_failure(stderr)
+                if require_runtime_identity
+                else None
+            )
             return AgentRunEnvelope(
                 status="error",
-                summary="Pi agent execution failed",
-                artifacts=[],
-                next_actions=[],
-                errors=[stderr or f"exit_code={result.returncode}"],
+                summary=(
+                    "Guardian-authorized Pi operation failed"
+                    if require_runtime_identity
+                    else "Pi agent execution failed"
+                ),
+                artifacts=[] if require_runtime_identity else [],
+                next_actions=[] if require_runtime_identity else [],
+                errors=[] if require_runtime_identity else [
+                    stderr or f"exit_code={result.returncode}"
+                ],
                 metrics={"returncode": result.returncode},
+                failure_classification=failure_class,
+                failure_stage=(
+                    _failure_stage_for_class(failure_class)
+                    if failure_class
+                    else None
+                ),
+                return_code=result.returncode,
             )
 
         if stdout:
             try:
                 data = json.loads(stdout)
                 runtime_identity = data.get("actual_runtime_identity")
+                if data.get("failure_class") in PI_AUTHORIZED_FAILURE_CLASSES:
+                    return AgentRunEnvelope(
+                        status="error",
+                        summary="Guardian-authorized Pi operation failed",
+                        failure_classification=data["failure_class"],
+                        failure_stage=_bounded_text(data.get("failure_stage")),
+                        runtime_identity_established=isinstance(
+                            runtime_identity, dict
+                        ),
+                        session_initialized=_bounded_bool(
+                            data.get("session_initialized")
+                        ),
+                        provider_request_started=_bounded_bool(
+                            data.get("provider_request_started")
+                        ),
+                        oauth_available=_bounded_bool(data.get("oauth_available")),
+                    )
                 if require_runtime_identity and not isinstance(runtime_identity, dict):
                     return AgentRunEnvelope(
                         status="error",
                         summary="Pi wrapper omitted runtime identity attestation",
-                        errors=["actual_identity_missing"],
+                        failure_classification=PiAuthorizedFailureClass.ACTUAL_IDENTITY_MISSING.value,
+                        failure_stage="identity_attestation",
                     )
+                runtime_identity_established = isinstance(runtime_identity, dict) and all(
+                    _bounded_text(runtime_identity.get(field))
+                    for field in (
+                        "actual_provider_id",
+                        "actual_model_id",
+                        "actual_harness_id",
+                        "actual_harness_version",
+                    )
+                )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
                     summary=data.get(
@@ -209,13 +322,16 @@ class PiCodexRunnerAdapter:
                         if isinstance(runtime_identity, dict)
                         else None
                     ),
+                    runtime_identity_established=runtime_identity_established,
+                    oauth_available=_bounded_bool(data.get("oauth_available")),
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:
                     return AgentRunEnvelope(
                         status="error",
                         summary="Pi wrapper returned a non-attested result",
-                        errors=["actual_identity_missing"],
+                        failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                        failure_stage="wrapper_protocol",
                     )
                 # Non-JSON output - wrap as text summary
                 return AgentRunEnvelope(
@@ -236,6 +352,53 @@ class PiCodexRunnerAdapter:
             ),
             artifacts=[],
             next_actions=[],
-            errors=["actual_identity_missing"] if require_runtime_identity else [],
+            errors=[],
             metrics={},
+            failure_classification=(
+                PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+                if require_runtime_identity
+                else None
+            ),
+            failure_stage="wrapper_protocol" if require_runtime_identity else None,
         )
+
+
+def _bounded_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text[:120] if text else None
+
+
+def _bounded_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _classify_authorized_failure(stderr: str) -> str:
+    text = str(stderr or "").lower()
+    if "cannot find package" in text or "cannot find module" in text:
+        return PiAuthorizedFailureClass.RUNTIME_MODULE_UNAVAILABLE.value
+    if "guardian_authorized_identity_missing" in text or "identity does not match" in text:
+        return PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value
+    if "model not found" in text:
+        return PiAuthorizedFailureClass.MODEL_UNRESOLVED.value
+    if "provider not found" in text or "unknown provider" in text:
+        return PiAuthorizedFailureClass.PROVIDER_UNRESOLVED.value
+    if any(token in text for token in ("no api key", "no credentials", "auth", "oauth")):
+        return PiAuthorizedFailureClass.OAUTH_AUTH_UNAVAILABLE.value
+    if any(token in text for token in ("econn", "fetch failed", "network", "socket")):
+        return PiAuthorizedFailureClass.PROVIDER_TRANSPORT_FAILED.value
+    if any(token in text for token in ("401", "403", "429", "provider request", "response")):
+        return PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value
+    return PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value
+
+
+def _failure_stage_for_class(failure_class: str | None) -> str:
+    return {
+        PiAuthorizedFailureClass.RUNTIME_MODULE_UNAVAILABLE.value: "runtime_load",
+        PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value: "authorization",
+        PiAuthorizedFailureClass.PROVIDER_UNRESOLVED.value: "provider_resolution",
+        PiAuthorizedFailureClass.MODEL_UNRESOLVED.value: "model_resolution",
+        PiAuthorizedFailureClass.OAUTH_AUTH_UNAVAILABLE.value: "oauth_readiness",
+        PiAuthorizedFailureClass.PROVIDER_TRANSPORT_FAILED.value: "provider_transport",
+        PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value: "provider_request",
+        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value: "wrapper_protocol",
+    }.get(failure_class, "adapter_execution")

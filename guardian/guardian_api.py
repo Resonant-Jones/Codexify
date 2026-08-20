@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connectors.google import router as google_connect_router
+from guardian.connectors.minimax import router as minimax_oauth_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
@@ -601,6 +602,7 @@ async def app_lifespan(app: FastAPI):
     ensure_system_dirs()
 
     settings = get_settings()
+    _refresh_supported_profile_state(app, settings)
     if getattr(app.state, "browser_host_attachment_adapter_enabled", False):
         logger.info(
             "[browser-host] development attachment adapter enabled prefix=/dev/browser-host/v1"
@@ -614,6 +616,11 @@ async def app_lifespan(app: FastAPI):
     except ConfigCoherenceError as exc:
         logger.error("[startup] Config coherence check failed: %s", exc)
         raise
+
+    # Publish the route inventory before health endpoints are first served.
+    # The frontend uses this mounted-route truth to avoid probing optional
+    # surfaces that the active supported profile intentionally quarantines.
+    _refresh_supported_profile_state(app, settings)
 
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
@@ -1279,14 +1286,22 @@ _include_router(
     include_fn=lambda: app.include_router(connectors_router),
 )
 _include_router(
-    label="connectors",
-    flag_name="CODEXIFY_ENABLE_CONNECTOR_ROUTES",
+    label="connections",
+    flag_name="CODEXIFY_ENABLE_CONNECTIONS_ROUTES",
     include_fn=lambda: app.include_router(connections_router),
 )
 _include_router(
     label="google_connect",
     flag_name="CODEXIFY_ENABLE_GOOGLE_CONNECT_ROUTES",
     include_fn=lambda: app.include_router(google_connect_router),
+)
+_include_router(
+    label="minimax_oauth",
+    flag_name="CODEXIFY_ENABLE_MINIMAX_OAUTH_ROUTES",
+    include_fn=lambda: app.include_router(
+        minimax_oauth_router,
+        include_in_schema=_include_internal_only_schema("minimax_oauth"),
+    ),
 )
 _include_router(
     label="media",
