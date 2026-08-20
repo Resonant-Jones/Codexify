@@ -19,10 +19,10 @@ def _settings(*, dev: bool, negotiation: bool, attachment: bool) -> SimpleNamesp
 
 def _routes(app: FastAPI) -> set[tuple[str, str]]:
     return {
-        (method, route.path)
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-        if route.path.startswith("/dev/browser-host/v1")
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/dev/browser-host/v1")
+        for method in operations
     }
 
 
@@ -99,6 +99,6 @@ def test_disabled_negotiation_does_not_create_policy_or_duplicate_routes(
         http_adapter.install_browser_host_negotiation_adapter(
             app, browser_host.negotiation_router
         )
-    assert len([route for route in app.routes if route.path.endswith("/negotiate")]) == 1
+    assert _routes(app) == {("POST", "/dev/browser-host/v1/negotiate")}
     assert http_adapter.shutdown_browser_host_negotiation_adapter(app) is True
     assert getattr(app.state, http_adapter.NEGOTIATION_POLICY_STATE_KEY) is None

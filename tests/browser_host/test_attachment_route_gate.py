@@ -18,10 +18,10 @@ def _settings(*, dev_mode: bool, adapter_enabled: bool) -> SimpleNamespace:
 
 def _route_paths(app: FastAPI) -> set[tuple[str, str]]:
     return {
-        (method, route.path)
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-        if route.path.startswith("/dev/browser-host/v1")
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/dev/browser-host/v1")
+        for method in operations
     }
 
 
