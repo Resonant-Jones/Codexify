@@ -40,8 +40,22 @@ CURRENT_STATE_PATH = REPO_ROOT / "docs" / "architecture" / "00-current-state.md"
 ADR_069_PATH = REPO_ROOT / "docs" / "architecture" / "adr" / "069-codexify-beta-runtime-support-boundary.md"
 SUPPORTED_PROFILE_PATH = REPO_ROOT / "config" / "supported_profiles" / "v1-local-core-web-mcp.yaml"
 
-# Audited pre-change full HEAD SHA. Recorded against the posture corpus.
+# Audited pre-change full HEAD SHA recorded against the original 2026-08-14 corpus.
 AUDITED_HEAD = "f4fece599e9e081154a7a7a96e1923f7f5c205b5"
+
+# Pre-change full HEAD SHA recorded against the current temporal continuity
+# assertion (beta-continuity-v2), the 2026-08-19 Anthropic conversation-import
+# Beta-boundary reconciliation. Contains the successful R2 runtime proof.
+CURRENT_HEAD = "0f494b398b79f73c077322ef82456027e51d38f1"
+
+FULL_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
+# The one currently active (open-ended) generic continuity assertion. Historical
+# records keep their own audited revisions and must never be selected by an
+# active posture lookup.
+ACTIVE_CONTINUITY_ASSERTION_ID = (
+    "codexify:assertion:product-architecture:beta-continuity-v2"
+)
 
 # Five human-facing release classes per ADR-069 §5.
 RELEASE_CLASS_HEADINGS = [
@@ -196,11 +210,21 @@ def test_authority_and_governing_ids_are_structurally_valid():
 # ---------------------------------------------------------------------------
 
 
+def _is_active(record: dict) -> bool:
+    """Open-ended posture assertions are the currently active records.
+
+    A record carrying ``effective_until`` is a closed historical record and is
+    never selected as current truth.
+    """
+    return not bool(record.get("effective_until"))
+
+
 def _posture_for(corpus: list, subject_id: str) -> dict | None:
     for record in corpus:
         if (
             record.get("assertion_kind") == "posture"
             and record.get("subject_id") == subject_id
+            and _is_active(record)
         ):
             return record.get("posture", {})
     return None
@@ -269,16 +293,119 @@ def test_local_inference_and_whooshd_are_supported():
 
 
 # ---------------------------------------------------------------------------
-# 13. Repository revision is the audited pre-change HEAD
+# 13. Repository revisions are temporal: every SHA valid, historical records
+#     keep their audited revisions, and active lookup never selects v1
 # ---------------------------------------------------------------------------
 
 
-def test_repository_revision_is_the_audited_head():
+def test_repository_revisions_are_full_shas():
     corpus = _load_json(CORPUS_PATH)
-    revisions = {record["repository_revision"] for record in corpus}
-    assert revisions == {AUDITED_HEAD}, (
-        f"Corpus must record only the audited pre-change HEAD; got {revisions}"
+    for record in corpus:
+        revision = record["repository_revision"]
+        assert FULL_SHA_PATTERN.match(revision), (
+            f"Record {record['assertion_id']} has invalid repository_revision "
+            f"{revision!r}; every revision must remain a full 40-hex SHA"
+        )
+
+
+def test_historical_records_keep_the_original_audited_revision():
+    corpus = _load_json(CORPUS_PATH)
+    for record in corpus:
+        if record["assertion_id"] == ACTIVE_CONTINUITY_ASSERTION_ID:
+            continue
+        assert record["repository_revision"] == AUDITED_HEAD, (
+            f"Historical record {record['assertion_id']} must keep the original "
+            f"audited revision {AUDITED_HEAD}; got {record['repository_revision']}"
+        )
+
+
+def test_every_required_subject_has_exactly_one_active_posture_assertion():
+    corpus = _load_json(CORPUS_PATH)
+    for subject_id in REQUIRED_SUBJECTS:
+        active = [
+            record
+            for record in corpus
+            if record.get("subject_id") == subject_id and _is_active(record)
+        ]
+        assert len(active) == 1, (
+            f"Subject {subject_id} must have exactly one currently active "
+            f"posture assertion; got {[r['assertion_id'] for r in active]}"
+        )
+
+
+def test_continuity_v1_is_a_closed_historical_record():
+    corpus = _load_json(CORPUS_PATH)
+    v1 = next(
+        record
+        for record in corpus
+        if record["assertion_id"]
+        == "codexify:assertion:product-architecture:beta-continuity-v1"
     )
+    v2 = next(
+        record
+        for record in corpus
+        if record["assertion_id"] == ACTIVE_CONTINUITY_ASSERTION_ID
+    )
+    # v1 is closed at the same timestamp v2 opens; both remain schema-valid.
+    assert v1.get("effective_until") == v2.get("effective_from"), (
+        "beta-continuity-v1 effective_until must equal "
+        "beta-continuity-v2 effective_from"
+    )
+    assert not _is_active(v1), "beta-continuity-v1 must be historical after its effective_until"
+    assert _is_active(v2), "beta-continuity-v2 must be the active continuity assertion"
+    # The historical record is not bulk-rewritten: identity, scope, evidence
+    # posture, and original repository revision are preserved.
+    assert v1["repository_revision"] == AUDITED_HEAD
+    assert v1["evidence_class"] == "documented-contract"
+    assert "Bounded import, migration" in v1["assertion_scope"]
+
+
+def test_active_continuity_lookup_selects_v2_not_v1():
+    corpus = _load_json(CORPUS_PATH)
+    posture = _posture_for(corpus, "codexify:capability:continuity")
+    assert posture is not None, "Active continuity posture lookup must resolve"
+    assert posture.get("support_posture") == "supported"
+    assert posture.get("integration_state") == "partial"
+    # Guard against accidentally selecting the expired v1 record: the active
+    # lookup must return exactly v2's posture dimensions.
+    v2 = next(
+        record
+        for record in corpus
+        if record["assertion_id"] == ACTIVE_CONTINUITY_ASSERTION_ID
+    )
+    assert posture == v2["posture"], (
+        "Active continuity posture lookup must select beta-continuity-v2, "
+        "never the expired beta-continuity-v1 record"
+    )
+
+
+def test_active_continuity_assertion_includes_anthropic_conversation_import_boundary():
+    corpus = _load_json(CORPUS_PATH)
+    v2 = next(
+        record
+        for record in corpus
+        if record["assertion_id"] == ACTIVE_CONTINUITY_ASSERTION_ID
+    )
+    scope_and_notes = f"{v2['assertion_scope']} {v2['notes']}".lower()
+    # The active continuity assertion names the Anthropic conversation-import
+    # boundary explicitly.
+    assert "anthropic" in scope_and_notes
+    assert "conversation import" in scope_and_notes
+    assert "openai" in scope_and_notes, (
+        "OpenAI / ChatGPT import must remain named in the active continuity scope"
+    )
+    # The boundary stays conservative: the Anthropic claim is bounded to the
+    # proven conversation-import path and the generic evidence class is not
+    # inflated to proven-live-runtime for the whole continuity scope.
+    assert "proven conversation-import path" in scope_and_notes
+    assert v2["evidence_class"] == "documented-contract"
+    assert "proven-live-runtime" in v2["notes"], (
+        "continuity-v2 notes must record the Anthropic conversation-import "
+        "sub-scope's proven-live-runtime receipt separately"
+    )
+    assert v2["posture"]["support_posture"] == "supported"
+    assert v2["posture"]["integration_state"] == "partial"
+    assert v2["repository_revision"] == CURRENT_HEAD
 
 
 # ---------------------------------------------------------------------------
