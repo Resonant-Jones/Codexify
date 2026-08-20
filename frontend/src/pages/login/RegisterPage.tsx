@@ -6,11 +6,14 @@ import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 
 export default function RegisterPage() {
   const remoteAuthMode = getRuntimeConfigSync().authMode === "remote";
-  const identityLabel = remoteAuthMode ? "Email address" : "Choose a username";
+  const identityLabel = remoteAuthMode
+    ? "Email address"
+    : "Choose a username";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accountAlreadyExists, setAccountAlreadyExists] = useState(false);
 
   const canSubmit = useMemo(
     () => username.trim().length > 0 && password.trim().length > 0,
@@ -22,6 +25,7 @@ export default function RegisterPage() {
     if (!canSubmit || loading) return;
     setLoading(true);
     setError(null);
+    setAccountAlreadyExists(false);
     try {
       await api.post("/auth/register", {
         username: username.trim(),
@@ -29,10 +33,26 @@ export default function RegisterPage() {
       });
       window.location.assign("/login");
     } catch (err) {
+      const status = Number(
+        (err as { response?: { status?: unknown } } | null)?.response?.status
+      );
+      if (status === 409) {
+        setAccountAlreadyExists(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  function signInWithEnteredIdentity() {
+    const identity = username.trim();
+    const query =
+      remoteAuthMode && identity
+        ? `?email=${encodeURIComponent(identity)}`
+        : "";
+    window.location.assign(`/login${query}`);
   }
 
   return (
@@ -88,7 +108,18 @@ export default function RegisterPage() {
             />
           </label>
 
-          {error ? (
+          {accountAlreadyExists ? (
+            <div
+              className="rounded-[var(--radius-tile,19px)] border border-[var(--accent)]/40 bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--text)]"
+              role="status"
+            >
+              <p className="font-semibold">Account already exists</p>
+              <p className="mt-1 text-[var(--text-subtle)]">
+                An account with this {remoteAuthMode ? "email" : "username"}{" "}
+                has already been created. Sign in instead.
+              </p>
+            </div>
+          ) : error ? (
             <div
               className="rounded-[var(--radius-tile,19px)] border border-[var(--danger-border)] bg-[var(--danger-surface)] px-4 py-3 text-sm text-[var(--danger-text)]"
               role="alert"
@@ -97,13 +128,23 @@ export default function RegisterPage() {
             </div>
           ) : null}
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={!canSubmit || loading}
-          >
-            {loading ? "Creating..." : "Create account"}
-          </Button>
+          {accountAlreadyExists ? (
+            <Button
+              type="button"
+              className="w-full"
+              onClick={signInWithEnteredIdentity}
+            >
+              SIGN IN
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!canSubmit || loading}
+            >
+              {loading ? "Creating..." : "Create account"}
+            </Button>
+          )}
         </form>
 
         {/* ── Divider ── */}

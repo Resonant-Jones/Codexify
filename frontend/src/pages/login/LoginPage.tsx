@@ -17,7 +17,12 @@ const LOGIN_FAILURE_MESSAGE =
 export default function LoginPage() {
   const auth = useAuth();
   const remoteAuthMode = getRuntimeConfigSync().authMode === "remote";
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => {
+    if (!remoteAuthMode || typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get("email")?.trim() ?? ""
+    );
+  });
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);

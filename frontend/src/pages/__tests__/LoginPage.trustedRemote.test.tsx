@@ -55,6 +55,7 @@ function prepareLoginMode(options: {
   authMode: "local" | "remote";
   devApiKey?: string;
   privatePreview?: boolean;
+  loginSearch?: string;
 }): void {
   vi.unstubAllEnvs();
   vi.stubEnv("VITE_GUARDIAN_API_KEY", options.devApiKey ?? "");
@@ -74,7 +75,7 @@ function prepareLoginMode(options: {
       href: "http://localhost:3000/login",
       origin: "http://localhost:3000",
       pathname: "/login",
-      search: "",
+      search: options.loginSearch ?? "",
     },
     writable: true,
   });
@@ -126,6 +127,20 @@ describe("trusted remote login page", () => {
     expect(
       screen.getByRole("button", { name: "ENTER WORKSPACE" })
     ).toBeInTheDocument();
+  });
+
+  it("prepopulates the remote email from duplicate-registration recovery", () => {
+    prepareLoginMode({
+      authMode: "remote",
+      loginSearch: "?email=existing%40example.com",
+    });
+
+    render(<LoginPage />);
+
+    expect(screen.getByLabelText("Email address")).toHaveValue(
+      "existing@example.com"
+    );
+    expect(screen.getByLabelText("Password")).toHaveValue("");
   });
 
   it("submits a trimmed email address and an unmodified password", async () => {
