@@ -13,6 +13,13 @@ export default function SettingsPanelDock({
   className,
   "data-testid": dataTestId = "settings-panel-dock",
 }: SettingsPanelDockProps) {
+  // The active tab inherits the canonical .pill-tab[data-state="active"]
+  // styling through the shared pill primitives — same as the Theme selector.
+  // No dock-local --pill-active-* overrides are set here, so the selected
+  // tab reads as the same filled glowing accent pill family as the rest of
+  // Codexify. The bounded Settings material hook (settings-panel-dock__glass)
+  // lives in index.css and handles the dark/light glass shell + perimeter
+  // fringe without redefining the active selector.
   return (
     <nav
       data-testid={dataTestId}
@@ -25,13 +32,6 @@ export default function SettingsPanelDock({
       )}
       style={
         {
-          "--settings-nav-surface":
-            "color-mix(in srgb, var(--panel-bg) 86%, var(--text) 14%)",
-          "--pill-active-bg": "transparent",
-          "--pill-active-text": "var(--text)",
-          "--pill-active-border": "var(--accent)",
-          "--pill-active-shadow":
-            "0 0 calc(var(--radius-micro) * 0.75) color-mix(in srgb, var(--accent-weak) 72%, transparent)",
           position: "sticky",
           top: SETTINGS_DENSITY.edgeChrome,
           paddingInline: SETTINGS_DENSITY.edgeChrome,
@@ -44,10 +44,9 @@ export default function SettingsPanelDock({
       }}
     >
       <div
-        className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
+        className="settings-panel-dock__glass glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
-            background: "var(--settings-nav-surface)",
             "--pill-gap": SETTINGS_DENSITY.dockGap,
             "--pill-font": SETTINGS_DENSITY.dockFontSize,
             "--settings-dock-gap": SETTINGS_DENSITY.dockGap,
