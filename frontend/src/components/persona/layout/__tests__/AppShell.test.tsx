@@ -87,6 +87,7 @@ const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 const guardianShellPropsSpy = vi.hoisted(() => vi.fn());
 const documentsSidebarPropsSpy = vi.hoisted(() => vi.fn());
 const roomModePropsSpy = vi.hoisted(() => vi.fn());
+const personaStudioPageRenderSpy = vi.hoisted(() => vi.fn());
 const authTestState = vi.hoisted(() => ({
   auth: { ready: true, status: "authenticated" as const, token: "test-token" },
   gateAllowed: true,
@@ -139,6 +140,13 @@ vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("@/features/personaStudio/__tests__/personaStudioApiMock"))
     .personaStudioApiMock
 );
+
+vi.mock("@/features/personaStudio/PersonaStudioPage", () => ({
+  default: () => {
+    personaStudioPageRenderSpy();
+    return <div data-testid="persona-studio-page-mock" />;
+  },
+}));
 
 vi.mock("@/hooks/useUploader", () => ({
   default: (config: {
@@ -522,6 +530,91 @@ function setViewportWidth(width: number) {
 beforeEach(() => {
   setViewportWidth(1280);
   setAuthenticatedAuthState();
+});
+
+describe("AppShell Persona Studio phone availability", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setRoutePath("/dashboard");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    personaStudioPageRenderSpy.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("omits Persona Studio from phone navigation and Guardian's mobile destinations", async () => {
+    act(() => {
+      setViewportWidth(390);
+    });
+    render(<AppShell />);
+
+    const topNavigation = await screen.findByTestId("app-shell-top-nav");
+    expect(
+      within(topNavigation).queryByRole("button", { name: "Persona Studio" })
+    ).not.toBeInTheDocument();
+
+    cleanup();
+    setRoutePath("/chat");
+    render(<AppShell />);
+
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    const latestProps = guardianShellPropsSpy.mock.calls.at(-1)?.[0];
+
+    expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+    expect(latestProps?.applicationDestinations).not.toContainEqual(
+      expect.objectContaining({ view: "personaStudio" })
+    );
+  });
+
+  it("keeps Persona Studio available through the desktop route", async () => {
+    setRoutePath("/persona-studio");
+
+    render(<AppShell />);
+
+    expect(await screen.findByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
+    expect(await screen.findByTestId("persona-studio-page-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/persona-studio");
+    expect(personaStudioPageRenderSpy).toHaveBeenCalled();
+  });
+
+  it("redirects the direct phone route to Dashboard without mounting Persona Studio", async () => {
+    setViewportWidth(390);
+    setRoutePath("/persona-studio");
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+    });
+    expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-page-mock")).not.toBeInTheDocument();
+    expect(personaStudioPageRenderSpy).not.toHaveBeenCalled();
+  });
+
+  it("exits Persona Studio when the shell becomes phone-sized", async () => {
+    setRoutePath("/persona-studio");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("persona-studio-page-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/persona-studio");
+
+    act(() => {
+      setViewportWidth(390);
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+    });
+    expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-page-mock")).not.toBeInTheDocument();
+  });
 });
 
 describe("AppShell logo wordmark color contract", () => {

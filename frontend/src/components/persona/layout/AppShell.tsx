@@ -320,6 +320,13 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
   }
 }
 
+function resolveAvailableAppShellView(
+  view: AppShellView,
+  isPhoneShell: boolean
+): AppShellView {
+  return isPhoneShell && view === "personaStudio" ? "dashboard" : view;
+}
+
 function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
   if (typeof window === "undefined") {
     return DEFAULT_FLOW_BUILDER_MODE;
@@ -1177,6 +1184,14 @@ export default function AppShell({
     window.localStorage.setItem("cfy.themeMode", mode)
   }, [mode])
 
+  const shellViewportProfile = useShellViewportProfile();
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
+  const personaStudioAvailable = !isPhoneShell;
+
   /* ─────────────────────────────────────────────────────────────────────────────
      🗂️ Persistent User and App State
      These state variables track user names, role, notes, and system prompt.
@@ -1207,11 +1222,13 @@ export default function AppShell({
   const [view, setView] = useState<AppShellView>(() => {
     if (typeof window !== "undefined") {
       const routeView = resolveViewFromPathname(window.location.pathname);
-      if (routeView) return routeView;
+      if (routeView) {
+        return resolveAvailableAppShellView(routeView, isPhoneShell);
+      }
 
       const storedView = window.localStorage.getItem("cfy.lastView");
       if (isAppShellView(storedView)) {
-        return storedView;
+        return resolveAvailableAppShellView(storedView, isPhoneShell);
       }
     }
 
@@ -1458,8 +1475,9 @@ export default function AppShell({
   }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
+      const availableView = resolveAvailableAppShellView(nextView, isPhoneShell);
       if (
-        nextView === "documents" &&
+        availableView === "documents" &&
         view !== "documents" &&
         !documentsEntrySeededRef.current
       ) {
@@ -1467,17 +1485,21 @@ export default function AppShell({
         documentsEntrySeededRef.current = true;
       }
       setActiveRoomId(null);
-      setView(nextView);
+      setView(availableView);
       if (typeof window === "undefined") return;
 
-      const nextPath = resolvePathForView(nextView, activeRouteThreadId);
+      const nextPath = resolvePathForView(availableView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
         window.history.pushState({}, "", nextPath);
       }
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
-    [activeRouteThreadId, seedDocumentsScopeFromGuardian, view]
+    [activeRouteThreadId, isPhoneShell, seedDocumentsScopeFromGuardian, view]
   );
+  useEffect(() => {
+    if (!isPhoneShell || view !== "personaStudio") return;
+    navigateToView("dashboard");
+  }, [isPhoneShell, navigateToView, view]);
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
 
@@ -1919,12 +1941,6 @@ export default function AppShell({
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
-  const shellViewportProfile = useShellViewportProfile();
-  const mobileShellProfile = useMemo(
-    () => getMobileShellProfile(shellViewportProfile),
-    [shellViewportProfile]
-  );
-  const isPhoneShell = mobileShellProfile.active;
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -3299,16 +3315,18 @@ export default function AppShell({
               >
                 Gallery
               </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={activeRoomId == null && view === "personaStudio" ? "active" : "inactive"}
-                aria-current={activeRoomId == null && view === "personaStudio" ? "page" : undefined}
-                onClick={() => navigateToView("personaStudio")}
-                style={getMobileNavPillStyle("personaStudio")}
-              >
-                Persona Studio
-              </PhonePressButton>
+              {personaStudioAvailable && (
+                <PhonePressButton
+                  isPhoneShell={isPhoneShell}
+                  className="pill-tab shrink-0 whitespace-nowrap"
+                  data-state={activeRoomId == null && view === "personaStudio" ? "active" : "inactive"}
+                  aria-current={activeRoomId == null && view === "personaStudio" ? "page" : undefined}
+                  onClick={() => navigateToView("personaStudio")}
+                  style={getMobileNavPillStyle("personaStudio")}
+                >
+                  Persona Studio
+                </PhonePressButton>
+              )}
             </div>
           </div>
         </div>
@@ -3820,7 +3838,10 @@ export default function AppShell({
               </FrameCard>
             </div>
           )}
-          {!startupLocked && activeRoomId == null && view === "personaStudio" && (
+          {!startupLocked &&
+            personaStudioAvailable &&
+            activeRoomId == null &&
+            view === "personaStudio" && (
             <div
               className="h-full w-full isolate"
               data-active-view="personaStudio"
