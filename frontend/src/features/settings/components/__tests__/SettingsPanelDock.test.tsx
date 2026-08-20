@@ -83,11 +83,11 @@ describe("SettingsPanelDock", () => {
     expect(rail).not.toHaveClass("flex-wrap", "whitespace-normal");
   });
 
-  test("drives the active selector from the system-accent tokens", () => {
-    // The selected tab must read as a luminous accent-backed pill, not a
-    // transparent placeholder. The color must follow the resolved
-    // --accent-strong token so it changes automatically when the system
-    // accent changes.
+  test("does not override the canonical active-selector tokens", () => {
+    // The active tab inherits the canonical .pill-tab[data-state="active"]
+    // styling through the shared pill primitives — same as the Theme
+    // selector. The dock does not set --pill-active-* on the <nav>, so the
+    // selected tab falls back to the canonical defaults.
     render(
       <SettingsPanelDock>
         <button type="button" role="tab" aria-selected="true">
@@ -99,23 +99,13 @@ describe("SettingsPanelDock", () => {
     const dock = screen.getByRole("tablist", { name: "Settings tabs" });
     const navStyle = dock.getAttribute("style") ?? "";
 
-    // The active fill is token-driven and non-transparent.
-    const activeBg = dock.style.getPropertyValue("--pill-active-bg");
-    expect(activeBg).not.toBe("");
-    expect(activeBg.trim().toLowerCase()).not.toBe("transparent");
-    expect(activeBg).toContain("var(--accent-strong)");
+    // The dock must not pin dock-specific --pill-active-* values.
+    expect(navStyle).not.toContain("--pill-active-bg");
+    expect(navStyle).not.toContain("--pill-active-border");
+    expect(navStyle).not.toContain("--pill-active-shadow");
+    expect(navStyle).not.toContain("--pill-active-text");
 
-    // The active border / shadow must derive from accent tokens.
-    const activeBorder = dock.style.getPropertyValue("--pill-active-border");
-    expect(activeBorder).toContain("var(--accent-strong)");
-
-    const activeShadow = dock.style.getPropertyValue("--pill-active-shadow");
-    expect(activeShadow).not.toBe("");
-    expect(activeShadow).toContain("var(--accent-strong)");
-    expect(activeShadow).toContain("var(--accent-weak)");
-
-    // No hardcoded hex/rgb brand color should be embedded in the active
-    // selector overrides — the accent must follow the token system.
+    // And it must not hardcode a brand color for the active selector.
     expect(navStyle.toLowerCase()).not.toMatch(/#[0-9a-f]{3,6}\b/);
   });
 

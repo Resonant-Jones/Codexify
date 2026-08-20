@@ -13,6 +13,13 @@ export default function SettingsPanelDock({
   className,
   "data-testid": dataTestId = "settings-panel-dock",
 }: SettingsPanelDockProps) {
+  // The active tab inherits the canonical .pill-tab[data-state="active"]
+  // styling through the shared pill primitives — same as the Theme selector.
+  // No dock-local --pill-active-* overrides are set here, so the selected
+  // tab reads as the same filled glowing accent pill family as the rest of
+  // Codexify. The bounded Settings material hook (settings-panel-dock__glass)
+  // lives in index.css and handles the dark/light glass shell + perimeter
+  // fringe without redefining the active selector.
   return (
     <nav
       data-testid={dataTestId}
@@ -25,19 +32,6 @@ export default function SettingsPanelDock({
       )}
       style={
         {
-          // Active selector uses the canonical accent-backed translucent fill
-          // (matches SegmentedThemeControl). The color follows the resolved
-          // --accent / --accent-strong tokens — no hardcoded brand color.
-          "--pill-active-bg":
-            "color-mix(in oklab, var(--accent-strong) 86%, transparent)",
-          "--pill-active-text": "var(--text)",
-          "--pill-active-border":
-            "color-mix(in oklab, var(--accent-strong) 40%, transparent)",
-          // Restrained layered accent glow — luminous but subordinate to
-          // the tab label. All values are derived from --accent-strong /
-          // --accent-weak; no raw color literals.
-          "--pill-active-shadow":
-            "0 0 0 1px color-mix(in oklab, var(--accent-strong) 38%, transparent), 0 8px 22px color-mix(in oklab, var(--accent-strong) 28%, transparent), 0 0 calc(var(--radius-micro) * 1.25) color-mix(in oklab, var(--accent-weak) 60%, transparent)",
           position: "sticky",
           top: SETTINGS_DENSITY.edgeChrome,
           paddingInline: SETTINGS_DENSITY.edgeChrome,
