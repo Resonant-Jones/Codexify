@@ -690,3 +690,54 @@ button.brand-tab,
   --pill-gap: 10px;      /* gap between segments */
   --pill-font: 15px;     /* font size for tabs + brand */
 }
+
+/* ─────────────────────────────────────────
+   Settings dock — active-tab specificity bump.
+   The Settings tab button is rendered through the shared
+   <Button variant="ghost"> wrapper, which adds Tailwind utility classes
+   (including .bg-transparent) to the button. The canonical
+   .pill-tab[data-state="active"] rule lives in @layer components and
+   therefore loses cascade priority to top-level Tailwind utilities.
+
+   This rule is placed at the top level (outside @layer components) and
+   uses a Settings-scoped selector with three classes so its specificity
+   beats Tailwind's single-class utilities. The rule mirrors the canonical
+   .pill-tab[data-state="active"] language exactly — same var names, same
+   fallbacks — so the Settings dock active tab reads as the same filled
+   glowing accent pill as the Theme selector and any other .pill-tab
+   consumer. It does not introduce a second selector system; it only
+   restores the canonical active state for the dock.
+   ───────────────────────────────────────── */
+.settings-panel-dock__glass .pill-tab[data-state="active"] {
+  background: var(
+    --pill-active-bg,
+    color-mix(in oklab, var(--accent-strong) 86%, transparent)
+  );
+  border-color: var(
+    --pill-active-border,
+    color-mix(in oklab, var(--accent-strong) 40%, transparent)
+  );
+  box-shadow: var(
+    --pill-active-shadow,
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38)
+  );
+  color: var(--pill-active-text, var(--text));
+}
+
+/* Dark-mode mirror of the rule above. The canonical .dark .pill-tab
+   rule lives in @layer components and therefore loses cascade priority
+   to top-level Tailwind utilities; this .dark-specific scoped rule
+   restores the same dark-mode active treatment for the Settings dock.
+   Values mirror the canonical dark-mode defaults exactly. */
+.dark .settings-panel-dock__glass .pill-tab[data-state="active"] {
+  background: var(
+    --pill-active-bg,
+    color-mix(in oklab, var(--accent-strong) 70%, rgba(15, 23, 42, 0.4))
+  );
+  box-shadow: var(
+    --pill-active-shadow,
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22)
+  );
+}
