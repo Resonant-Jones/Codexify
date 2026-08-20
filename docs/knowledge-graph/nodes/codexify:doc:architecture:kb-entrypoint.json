@@ -96,6 +96,15 @@
     "effective_from": "2026-02-17T16:32:37Z"
   },
   "content_hash": "5613024e025bf999e96bfec5468b39d5b257339bae4b6992d6d2049731e084e4",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:architecture:current-state",
+      "authority_scope": "release-truth routing and short-horizon architecture orientation",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }

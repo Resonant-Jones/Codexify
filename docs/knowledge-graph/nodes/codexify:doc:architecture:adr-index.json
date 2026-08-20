@@ -78,6 +78,23 @@
     "effective_from": "2026-04-14T20:56:05Z"
   },
   "content_hash": "796f0fe8d104669e4239d70581290619bcb0a043cefd035d2cf76dfd8999aa3e",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "ADR discovery and routing for the indexed Document Lifecycle Graph decision",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The ADR Index directly indexes ADR-056 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes."
+    },
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "authority_scope": "ADR discovery and routing for the indexed Product Architecture Ontology decision",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The ADR Index directly indexes ADR-057 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }
