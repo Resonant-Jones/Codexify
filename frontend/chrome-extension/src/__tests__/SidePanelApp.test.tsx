@@ -149,6 +149,20 @@ function apiMock(overrides: Partial<CodexifyExtensionApi> = {}): CodexifyExtensi
     listThreads: vi.fn(async () => [thread]),
     createThread: vi.fn(async () => thread),
     listMessages: vi.fn(async () => [userMessage, assistantMessage]),
+    listAgentRuns: vi.fn(async () => []),
+    listPendingApprovals: vi.fn(async () => []),
+    approveBrowserApproval: vi.fn(async (approvalId) => ({
+      approvalId,
+      operation: "evaluate",
+      status: "APPROVED",
+      target: null,
+    })),
+    denyBrowserApproval: vi.fn(async (approvalId) => ({
+      approvalId,
+      operation: "evaluate",
+      status: "DENIED",
+      target: null,
+    })),
     persistUserMessage: vi.fn(async () => undefined),
     requestCompletion: vi.fn(async () => receipt),
     cancelTask: vi.fn(async () => undefined),
@@ -343,6 +357,189 @@ describe("Codexify Chrome side panel", () => {
     expect(userArticle!.textContent).toContain("Persisted user message")
   })
 
+  it("projects the selected thread's Guardian approval above the composer", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({
+      listAgentRuns: vi.fn(async () => [{
+        run_id: "run_7",
+        runtime_target: "guardian",
+        status: "awaiting_approval",
+        thread_id: 7,
+        worktree_id: "worktree_7",
+        worktree_path: "/private/worktree-7",
+      }]),
+      listPendingApprovals: vi.fn(async () => [{
+        id: 17,
+        operation: "evaluate",
+        request_reason: "Guarded action for thread_id:7 run_7",
+        status: "PENDING",
+        target: "browser action",
+      }]),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    const card = await screen.findByTestId("side-panel-intervention")
+    const composer = screen.getByLabelText("Message Codexify")
+    expect(screen.getByText("Guardian needs your approval")).toBeVisible()
+    expect(screen.queryByText("Run: run_7")).not.toBeInTheDocument()
+    expect(
+      card.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Inspect context" }))
+    expect(screen.getByText("Run: run_7")).toBeVisible()
+  })
+
+  it("submits one exact approval decision and refreshes Guardian truth", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const listPendingApprovals = vi
+      .fn<CodexifyExtensionApi["listPendingApprovals"]>()
+      .mockResolvedValueOnce([{
+        id: 17,
+        operation: "evaluate",
+        request_reason: "thread_id:7 run_7",
+        status: "PENDING",
+        target: "browser action",
+      }])
+      .mockResolvedValue([])
+    const api = apiMock({
+      listAgentRuns: vi.fn(async () => [{
+        run_id: "run_7",
+        runtime_target: null,
+        status: "awaiting_approval",
+        thread_id: 7,
+        worktree_id: null,
+        worktree_path: null,
+      }]),
+      listPendingApprovals,
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    const approve = await screen.findByRole("button", {
+      name: "Approve Guardian request",
+    })
+    fireEvent.click(approve)
+    fireEvent.click(approve)
+
+    expect(await screen.findByText("Approved.")).toBeVisible()
+    expect(api.approveBrowserApproval).toHaveBeenCalledTimes(1)
+    expect(api.approveBrowserApproval).toHaveBeenCalledWith(
+      17,
+      "Approved from thread 7 side panel.",
+    )
+    expect(listPendingApprovals).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByRole("button", { name: "Approve Guardian request" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("submits one exact denial and never treats composer Enter as approval", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({
+      listAgentRuns: vi.fn(async () => [{
+        run_id: "run_7",
+        runtime_target: null,
+        status: "awaiting_approval",
+        thread_id: 7,
+        worktree_id: null,
+        worktree_path: null,
+      }]),
+      listPendingApprovals: vi.fn(async () => [{
+        id: 23,
+        operation: "evaluate",
+        request_reason: "thread_id:7 run_7",
+        status: "PENDING",
+        target: null,
+      }]),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    const composer = await screen.findByLabelText("Message Codexify")
+    fireEvent.change(composer, { target: { value: "Do something else" } })
+    fireEvent.keyDown(composer, { key: "Enter" })
+    expect(api.approveBrowserApproval).not.toHaveBeenCalled()
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Deny Guardian request" }),
+    )
+    await waitFor(() => {
+      expect(api.denyBrowserApproval).toHaveBeenCalledTimes(1)
+    })
+    expect(api.denyBrowserApproval).toHaveBeenCalledWith(
+      23,
+      "Denied from thread 7 side panel.",
+    )
+  })
+
+  it("removes stale intervention state when the selected thread changes", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const secondThread: CodexifyThread = {
+      ...thread,
+      id: 8,
+      title: "Second thread",
+    }
+    const api = apiMock({
+      listThreads: vi.fn(async () => [thread, secondThread]),
+      listAgentRuns: vi.fn(async (threadId) => threadId === 7 ? [{
+        run_id: "run_7",
+        runtime_target: null,
+        status: "awaiting_approval",
+        thread_id: 7,
+        worktree_id: null,
+        worktree_path: null,
+      }] : []),
+      listPendingApprovals: vi.fn(async () => [{
+        id: 17,
+        operation: "evaluate",
+        request_reason: "thread_id:7 run_7",
+        status: "PENDING",
+        target: null,
+      }]),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByTestId("side-panel-intervention")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: /Existing thread/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Second thread" }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("side-panel-intervention")).not.toBeInTheDocument()
+    })
+    expect(api.listAgentRuns).toHaveBeenCalledWith(8)
+  })
+
   it("renders assistant messages as Markdown and keeps user messages literal", async () => {
     const { storage } = memoryStorage(savedProfile())
     const mdAssistant: CodexifyMessage = {
@@ -444,6 +641,64 @@ describe("Codexify Chrome side panel", () => {
 
     // After terminal completion, the assistant message still uses the Markdown renderer.
     expect(document.querySelector(".codexify-markdown")).toBeTruthy()
+  })
+
+  it("refreshes intervention visibility from active task lifecycle evidence", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    let callbacks: TaskLifecycleCallbacks | null = null
+    const listAgentRuns = vi
+      .fn<CodexifyExtensionApi["listAgentRuns"]>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{
+        run_id: "run_lifecycle",
+        runtime_target: null,
+        status: "awaiting_approval",
+        thread_id: 7,
+        worktree_id: null,
+        worktree_path: null,
+      }])
+    const api = apiMock({
+      listAgentRuns,
+      listPendingApprovals: vi.fn(async () => [{
+        id: 41,
+        operation: "evaluate",
+        request_reason: "thread_id:7 run_lifecycle",
+        status: "PENDING",
+        target: null,
+      }]),
+      subscribeToTask: vi.fn((_receipt, nextCallbacks) => {
+        callbacks = nextCallbacks
+        return () => undefined
+      }),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    const composer = await screen.findByLabelText("Message Codexify")
+    fireEvent.change(composer, { target: { value: "Run guarded work" } })
+    fireEvent.submit(composer.closest("form") as HTMLFormElement)
+    expect(await screen.findByText("Completion accepted")).toBeVisible()
+    expect(screen.queryByTestId("side-panel-intervention")).not.toBeInTheDocument()
+
+    await act(async () => {
+      callbacks?.onEvent?.({
+        type: "task.running",
+        state: "running",
+        data: { task_id: receipt.taskId },
+      })
+    })
+
+    expect(await screen.findByTestId("side-panel-intervention")).toBeVisible()
+    expect(listAgentRuns).toHaveBeenCalledTimes(3)
+    expect(api.requestCompletion).toHaveBeenCalledTimes(1)
   })
 
   it("requests cancellation and waits for terminal cancelled evidence", async () => {

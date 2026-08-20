@@ -79,6 +79,30 @@ The side panel includes a compact accent-colour selector next to the connection 
 - If the backend cannot be reached, the accent falls back to the neutral default and chat continues normally.
 - The accent is a presentation-preference token, not a CSS literal or raw colour value. No accent value is written to Chrome local or sync storage.
 
+## Guardian intervention prompts
+
+For the selected thread, the side panel projects the same bounded Guardian
+approval, clarification, and blocked-intervention interpretation used by normal
+Guardian Chat. A supported pending approval appears immediately above the
+composer with explicit **Approve**, **Deny**, **Inspect context**, and **Tell
+Guardian what to do instead** controls. Clarification or blocked states without
+an actual pending approval ID offer redirection instead of presenting fake
+approval actions.
+
+Guardian remains the only approval authority. The extension reads existing
+thread-run and pending-approval state, submits a decision for the exact displayed
+approval ID, and then refreshes Guardian truth. It stores no authoritative
+approval state and does not replay, retry, or claim that work continued after a
+decision. Closing the card, changing threads, reconnecting, or pressing Enter in
+the composer never approves an action.
+
+Approval reads and decisions use the same authenticated request adapter as chat:
+local mode sends only `X-API-Key`, and remote mode sends only `Authorization:
+Bearer`. No Chrome permission, content script, tab/page access, browser
+automation authority, or service-worker responsibility is added. Generic
+command-bus and tool UI remain out of scope, and this bounded projection does not
+promote the private side panel into Codexify's supported Beta surface.
+
 ## Markdown rendering
 
 Assistant messages are rendered as safe Markdown using the same `react-markdown` + `remark-gfm` stack as the main Codexify frontend.
@@ -95,6 +119,7 @@ User-authored messages remain literal and are not reinterpreted as Markdown.
 - Remote sessions require a new login after Chrome restart or extension disable/reload/update; there is no refresh-token or silent-renewal flow.
 - Manual unpacked installation and manual rebuild/reload only.
 - The side panel observes task lifecycle events but renders only persisted assistant messages as final output; it does not fabricate token streaming.
+- Guardian intervention state is refreshed from backend truth; the extension does not retain an approval inbox or authoritative browser-local approval record.
 - Closing or reloading the side panel preserves the configured connection and selected thread, but does not persist an active task-event subscription. Reopen the selected thread to read any reply that completed while the panel was closed.
 - No page awareness, selected-text capture, content scripts, screenshots, tab control, browser automation, context menus, uploads, voice, provider/model selection, persona editing, or command-bus UI.
 - No full Codexify `AppShell`, workspace navigation, documents, gallery, settings application, or secondary inspector panels.
@@ -114,8 +139,10 @@ For a live proof, use an already-healthy backend and verify in order:
 7. **Completion accepted** remains pending until task-terminal evidence arrives.
 8. The completed assistant reply is re-read from the backend transcript.
 9. During a pending completion, **Cancel** requests cancellation and the panel remains pending until correlated `task.cancelled` evidence arrives.
-10. Closing and reopening the side panel restores the connection and selected thread within the same Chrome session.
-11. Disconnect returns to the connection form and clears the credential.
+10. A thread with a correlated pending Guardian approval shows the decision card; **Approve** or **Deny** submits exactly that displayed approval ID and refreshes the card.
+11. Switching to a thread without an intervention removes the prior thread's card, while **Tell Guardian what to do instead** prefills the ordinary composer without submitting.
+12. Closing and reopening the side panel restores the connection and selected thread within the same Chrome session.
+13. Disconnect returns to the connection form and clears the credential.
 
 When a completion is pending, **Cancel** calls the existing task-cancellation
 route for that accepted task. The panel remains observation-bound until a

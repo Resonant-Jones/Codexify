@@ -8,7 +8,7 @@ The smallest viable network is one operator-controlled Chrome profile, one confi
 
 ## Implementation status
 
-The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the dual-mode connection form, one extension-local profile, local API-key and remote session/JWT transports, thread/message/completion adapters, correlation-bound per-task event observation, explicit task cancellation, a side-panel chat shell, unit tests, and an installation runbook.
+The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the dual-mode connection form, one extension-local profile, local API-key and remote session/JWT transports, thread/message/completion adapters, correlation-bound per-task event observation, explicit task cancellation, a bounded Guardian thread-intervention projection, a side-panel chat shell, unit tests, and an installation runbook.
 
 The original API-key-only build was accepted by Chrome through **Load unpacked**, and its toolbar action opened the native side panel in a live operator screenshot. That proof does not cover the new dual-auth build, remote login, account-scoped chat, completion, session restore, or logout. Those remain code-path and automated-build evidence until the live proof below is completed. None of this is evidence that the extension is a supported Codexify client.
 
@@ -52,6 +52,7 @@ The extension page owns active React state, HTTP requests, and the task-event su
 | State | Source of truth | Consistency / conflict policy |
 |---|---|---|
 | Threads and messages | Existing Codexify backend | Backend-authoritative; the client refreshes derived views. Persisted assistant output is final truth. |
+| Thread intervention and approval decision | Existing Guardian agent-run and browser-approval records | Guardian-authoritative and thread-scoped. The client derives a transient presentation, submits only the exact displayed approval ID, and refreshes; it stores no approval truth and invents no continuation. |
 | Completion attempt | Existing backend task/queue state | Acceptance is non-terminal. Per-task SSE is an observation plane; missing events do not rewrite task truth. |
 | `taskId`, `requestId`, `turnId`, discovery URLs | Completion acceptance receipt | Preserved for the attempt; never silently replaced by a replay. |
 | Backend URL, auth mode, selected thread, verification timestamps | One extension-local record in `chrome.storage.local` | Local to the installed extension. Explicit Save, thread selection, or Disconnect wins. No cross-device merge or Sync. |
@@ -123,6 +124,10 @@ The observable sequence is:
 5. `completed`, `failed_retryable`, or `cancelled`: terminal task evidence.
 6. On completion only, refresh persisted messages and render the stored assistant reply.
 
+Relevant active-task lifecycle evidence also refreshes the selected thread's
+derived intervention projection. The refresh does not create another completion,
+replay work, or infer approval from elapsed time or model text.
+
 The client imports canonical `CHAT_REQUEST_STATES` instead of inventing parallel runtime tokens. `connection_lost` is an extension transport-view state, deliberately not the server-side `orphaned` request state.
 
 The MV3 service worker uses `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`. Chrome's [side-panel contract](https://developer.chrome.com/docs/extensions/reference/api/sidePanel) defines that action behavior, while Chrome's [service-worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle) requires the worker to tolerate termination rather than own long-running chat state.
@@ -137,6 +142,8 @@ The extension changes no routes and uses these current contracts directly:
 - `GET /api/user/profile` and `PATCH /api/user/profile` for the account-scoped accent colour preference.
 - `GET /api/chat/threads` and `POST /api/chat/threads` for persisted thread listing/creation.
 - `GET /api/chat/{threadId}/messages` and `POST /api/chat/{threadId}/messages` for authoritative transcript reads and user-message persistence.
+- `GET /api/chat/{threadId}/agent-runs` plus `GET /api/browser/approvals?status_value=PENDING` for the selected thread's derived intervention presentation.
+- `POST /api/browser/approvals/{approvalId}/approve` and `POST /api/browser/approvals/{approvalId}/deny` for one explicit decision bound to the exact displayed pending approval.
 - `POST /api/chat/{threadId}/complete` with a generated `turn_id`, `X-Request-ID`, and an optional `browser_context` payload carrying explicitly captured selection evidence for exactly that one completion attempt. The backend treats `browser_context` as untrusted, turn-scoped context that is never persisted, embedded, or written into message metadata, memory, retrieval, or identity stores; it is absent for normal web clients.
 - `GET /api/tasks/{taskId}/events` with the selected local API-key or remote Bearer credential for attempt lifecycle observation.
 - Completion receipt fields `task_id`, `thread_id`, `turn_id`, `acceptance_status`, `acceptance_warnings`, `messages_url`, and `trace_url`.
@@ -147,7 +154,15 @@ Shared reuse is deliberately bounded:
 - `frontend/src/contracts/runtimeTokens.ts` supplies canonical chat-request tokens.
 - `frontend/src/lib/guardianEventSource.ts` supplies authenticated SSE parsing and reconnect behavior.
 
-`runtimeConfig.ts`, `api.ts`, and `useLiveEvents.ts` are not imported because their current interfaces own normal-web/Tauri environment resolution, Axios/auth-shell behavior, browser `sessionStorage`, session-spine state, or application-global event coordination. `codexifyExtensionApi.ts` is therefore a contract-equivalent fetch adapter that preserves the same local-versus-remote header rule without importing application navigation or provider state. No existing frontend source file was changed to create this seam.
+`runtimeConfig.ts`, `api.ts`, and `useLiveEvents.ts` are not imported because their current interfaces own normal-web/Tauri environment resolution, Axios/auth-shell behavior, browser `sessionStorage`, session-spine state, or application-global event coordination. `codexifyExtensionApi.ts` is therefore a contract-equivalent fetch adapter that preserves the same local-versus-remote header rule without importing application navigation or provider state. The shared intervention interpreter contains no application-shell or authentication behavior.
+
+The transport-neutral interpretation module at
+`frontend/src/features/chat/approvals/threadIntervention.ts` is shared with
+normal Guardian Chat. It classifies actionable run states, correlates only
+pending Guardian approvals, and derives the presentation and redirection prompt.
+It owns no transport, authentication, React state, browser storage, or approval
+authority. Each client keeps surface-specific rendering while consuming this one
+semantic seam.
 
 ## Release-truth boundary
 
@@ -164,6 +179,9 @@ An installable build proves only that the extension artifacts exist. Unit tests 
 - Persisted assistant messages, not event payloads, are the final transcript.
 - The local API key, remote username/password, session token, and backend origin are runtime input, never build input.
 - Local and remote credentials are mutually exclusive on every protected request.
+- Guardian remains the only approval authority; the extension stores no authoritative approval state and cannot manufacture an approval ID.
+- Hiding, navigating, reconnecting, rerendering, or submitting the composer never approves an action.
+- Approval acceptance is not evidence that execution resumed; the client does not add replay, retry, or continuation semantics.
 - Remote passwords are never stored; remote session tokens are never written to `chrome.storage.local` or Sync.
 - The full `AppShell` and normal web navigation are absent.
 - No active-page or browser-control authority exists.
@@ -175,6 +193,8 @@ Automated proof:
 
 - URL/profile/storage/permission unit tests.
 - Side-panel first-run, connected-shell, empty-submit, acceptance/terminal, transcript-refresh, and disconnect tests.
+- Shared intervention classification/correlation tests plus side-panel thread hydration, thread switching, exact approve/deny, busy-state, redirection, and lifecycle-refresh tests.
+- Local approval reads/decisions send only `X-API-Key`; remote approval reads/decisions send only Bearer auth.
 - Independent Vite production build.
 - Generated-manifest and artifact inspection.
 - Existing frontend tests and diff hygiene.
@@ -191,7 +211,7 @@ Manual live proof still required for a specific environment:
 
 ## Non-goals and deferred features
 
-Not implemented: page awareness, selection capture, content scripts, page summarization, screenshots, tabs, form filling, browser automation, context menus, document upload, Workspace/Shelf/Scratchpad/Inspector, voice, provider/model/profile selectors, persona editing, tools/command-bus UI, Web Store packaging, automatic updates, hosted-auth redesign, backend changes, or release-support expansion.
+Not implemented: a generic approvals inbox, command-bus or arbitrary tool UI, page awareness, selection capture, content scripts, page summarization, screenshots, tabs, form filling, browser automation, context menus, document upload, Workspace/Shelf/Scratchpad/Inspector, voice, provider/model/profile selectors, persona editing, Web Store packaging, automatic updates, hosted-auth redesign, backend changes, or release-support expansion.
 
 Deferred deliberately:
 

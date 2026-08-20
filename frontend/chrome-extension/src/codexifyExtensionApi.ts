@@ -40,6 +40,30 @@ export interface CodexifyMessage {
   turnId: string | null
 }
 
+export interface CodexifyAgentRun {
+  run_id: string | null
+  runtime_target: string | null
+  status: string | null
+  thread_id: number | null
+  worktree_id: string | null
+  worktree_path: string | null
+}
+
+export interface CodexifyBrowserApproval {
+  id: number | null
+  operation: string | null
+  request_reason: string | null
+  status: string | null
+  target: string | null
+}
+
+export interface CodexifyApprovalDecision {
+  approvalId: number
+  operation: string | null
+  status: string
+  target: string | null
+}
+
 export interface CompletionReceipt {
   taskId: string
   requestId: string
@@ -88,6 +112,10 @@ export interface CodexifyExtensionApi {
   listThreads(): Promise<CodexifyThread[]>
   createThread(title?: string): Promise<CodexifyThread>
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
+  listAgentRuns(threadId: number): Promise<CodexifyAgentRun[]>
+  listPendingApprovals(): Promise<CodexifyBrowserApproval[]>
+  approveBrowserApproval(approvalId: number, reason: string): Promise<CodexifyApprovalDecision>
+  denyBrowserApproval(approvalId: number, reason: string): Promise<CodexifyApprovalDecision>
   persistUserMessage(threadId: number, content: string): Promise<void>
   requestCompletion(
     threadId: number,
@@ -166,6 +194,34 @@ function normalizeMessage(value: unknown, fallbackThreadId: number): CodexifyMes
     content,
     createdAt: firstString(record, "created_at", "createdAt"),
     turnId: firstString(record, "turn_id", "turnId"),
+  }
+}
+
+function normalizeAgentRun(value: unknown): CodexifyAgentRun | null {
+  const record = asRecord(value)
+  const status = firstString(record, "status")
+  if (!status) return null
+  return {
+    run_id: firstString(record, "run_id", "runId"),
+    runtime_target: firstString(record, "runtime_target", "runtimeTarget"),
+    status,
+    thread_id: parseThreadId(record.thread_id ?? record.threadId),
+    worktree_id: firstString(record, "worktree_id", "worktreeId"),
+    worktree_path: firstString(record, "worktree_path", "worktreePath"),
+  }
+}
+
+function normalizeBrowserApproval(value: unknown): CodexifyBrowserApproval | null {
+  const record = asRecord(value)
+  const idValue = typeof record.id === "number" ? record.id : Number(record.id)
+  const id = Number.isInteger(idValue) && idValue > 0 ? idValue : null
+  if (id === null) return null
+  return {
+    id,
+    operation: firstString(record, "operation"),
+    request_reason: firstString(record, "request_reason", "requestReason"),
+    status: firstString(record, "status"),
+    target: firstString(record, "target"),
   }
 }
 
@@ -381,6 +437,40 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     )
   }
 
+  async listAgentRuns(threadId: number): Promise<CodexifyAgentRun[]> {
+    const body = asRecord(
+      await this.requestJson(`/api/chat/${threadId}/agent-runs`),
+    )
+    const rawRuns = Array.isArray(body.runs) ? body.runs : []
+    return rawRuns
+      .map(normalizeAgentRun)
+      .filter((run): run is CodexifyAgentRun => run !== null)
+  }
+
+  async listPendingApprovals(): Promise<CodexifyBrowserApproval[]> {
+    const body = asRecord(
+      await this.requestJson("/api/browser/approvals?status_value=PENDING"),
+    )
+    const rawApprovals = Array.isArray(body.items) ? body.items : []
+    return rawApprovals
+      .map(normalizeBrowserApproval)
+      .filter((approval): approval is CodexifyBrowserApproval => approval !== null)
+  }
+
+  async approveBrowserApproval(
+    approvalId: number,
+    reason: string,
+  ): Promise<CodexifyApprovalDecision> {
+    return this.decideBrowserApproval(approvalId, "approve", reason)
+  }
+
+  async denyBrowserApproval(
+    approvalId: number,
+    reason: string,
+  ): Promise<CodexifyApprovalDecision> {
+    return this.decideBrowserApproval(approvalId, "deny", reason)
+  }
+
   async persistUserMessage(threadId: number, content: string): Promise<void> {
     await this.requestJson(`/api/chat/${threadId}/messages`, {
       method: "POST",
@@ -502,6 +592,29 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     return rawThreads
       .map(normalizeThread)
       .filter((thread): thread is CodexifyThread => thread !== null)
+  }
+
+  private async decideBrowserApproval(
+    approvalId: number,
+    decision: "approve" | "deny",
+    reason: string,
+  ): Promise<CodexifyApprovalDecision> {
+    const body = asRecord(
+      await this.requestJson(
+        `/api/browser/approvals/${approvalId}/${decision}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        },
+      ),
+    )
+    return {
+      approvalId:
+        typeof body.id === "number" ? body.id : approvalId,
+      operation: firstString(body, "operation"),
+      status: firstString(body, "status") ?? "UNKNOWN",
+      target: firstString(body, "target"),
+    }
   }
 
   private async fetchReachabilityProbe(): Promise<void> {

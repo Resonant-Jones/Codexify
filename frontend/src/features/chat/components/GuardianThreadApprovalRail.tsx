@@ -29,7 +29,6 @@ export default function GuardianThreadApprovalRail({
     intervention,
     loading,
     notice,
-    reload,
     submittingAction,
     visible,
   } = useGuardianThreadApprovalRail({ threadId, reloadSignal });
@@ -48,14 +47,17 @@ export default function GuardianThreadApprovalRail({
   }
 
   const railClassName = [
-    "rounded-xl border px-3 py-3",
+    "rounded-[var(--card-radius)] border p-[var(--card-pad)]",
     className ?? "",
   ]
     .filter(Boolean)
     .join(" ");
   const decisionBusy = submittingAction != null;
-  const decisionDisabled = decisionBusy || !canSubmitDecision;
   const hasContext = intervention.details.length > 0;
+  const contextId = `guardian-intervention-context-${intervention.id.replace(
+    /[^a-zA-Z0-9_-]/g,
+    "-"
+  )}`;
 
   const handleTellGuardian = () => {
     if (onTellGuardianWhatToDoInstead) {
@@ -78,56 +80,65 @@ export default function GuardianThreadApprovalRail({
     <section
       className={railClassName}
       style={{
-        background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
-        borderColor: "var(--panel-border)",
+        background:
+          "color-mix(in oklab, var(--panel-bg) 90%, var(--accent-weak) 10%)",
+        borderColor:
+          "color-mix(in oklab, var(--panel-border) 66%, var(--accent) 34%)",
+        marginBottom: "var(--card-pad)",
       }}
+      aria-busy={decisionBusy}
+      aria-labelledby={`${contextId}-title`}
       data-testid="guardian-thread-approval-rail"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.08em]"
-            style={{ color: "var(--muted)" }}
-          >
-            {intervention.statusLabel}
-          </div>
-          <h3 className="mt-1 text-sm font-semibold" style={{ color: "var(--text)" }}>
-            {intervention.title}
-          </h3>
-          <p className="mt-1 text-xs leading-5" style={{ color: "var(--muted)" }}>
-            {intervention.summary}
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="border border-[var(--panel-border)]"
-          onClick={() => void reload()}
-          disabled={loading || decisionBusy}
+      <div className="min-w-0">
+        <div
+          className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: "var(--accent)" }}
         >
-          {loading ? "Checking…" : "Reload"}
-        </Button>
+          {intervention.statusLabel}
+        </div>
+        <h3
+          id={`${contextId}-title`}
+          className="text-sm font-semibold"
+          style={{ color: "var(--text)", marginTop: "calc(var(--card-pad) / 3)" }}
+        >
+          {intervention.title}
+        </h3>
+        <p
+          className="text-xs leading-5"
+          style={{ color: "var(--muted)", marginTop: "calc(var(--card-pad) / 3)" }}
+        >
+          {intervention.summary}
+        </p>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void approve()}
-          disabled={decisionDisabled}
-        >
-          {submittingAction === "approve" ? "Approving…" : "Approve"}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="destructive"
-          onClick={() => void deny()}
-          disabled={decisionDisabled}
-        >
-          {submittingAction === "deny" ? "Denying…" : "Deny"}
-        </Button>
+      <div
+        className="flex flex-wrap"
+        style={{ gap: "calc(var(--card-pad) / 2)", marginTop: "var(--card-pad)" }}
+      >
+        {canSubmitDecision ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void approve()}
+              disabled={decisionBusy}
+              aria-label="Approve Guardian request"
+            >
+              {submittingAction === "approve" ? "Approving…" : "Approve"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => void deny()}
+              disabled={decisionBusy}
+              aria-label="Deny Guardian request"
+            >
+              {submittingAction === "deny" ? "Denying…" : "Deny"}
+            </Button>
+          </>
+        ) : null}
         {hasContext ? (
           <Button
             type="button"
@@ -135,6 +146,8 @@ export default function GuardianThreadApprovalRail({
             variant="ghost"
             className="border border-[var(--panel-border)]"
             onClick={() => setShowContext((current) => !current)}
+            aria-controls={contextId}
+            aria-expanded={showContext}
           >
             {showContext ? "Hide context" : "Inspect context"}
           </Button>
@@ -143,7 +156,7 @@ export default function GuardianThreadApprovalRail({
           <Button
             type="button"
             size="sm"
-            variant="ghost"
+            variant={canSubmitDecision ? "ghost" : "default"}
             className="border border-[var(--panel-border)]"
             onClick={handleTellGuardian}
           >
@@ -152,16 +165,16 @@ export default function GuardianThreadApprovalRail({
         ) : null}
       </div>
 
-      {!canSubmitDecision ? (
-        <p className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
-          Direct approve/deny is unavailable for this thread intervention.
-        </p>
-      ) : null}
-
       {showContext && hasContext ? (
         <ul
-          className="mt-2 space-y-1 rounded-lg border px-2 py-2 text-xs"
-          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+          id={contextId}
+          className="grid rounded-[var(--radius-micro)] border p-[var(--card-pad)] text-xs"
+          style={{
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+            gap: "calc(var(--card-pad) / 3)",
+            marginTop: "calc(var(--card-pad) / 2)",
+          }}
         >
           {intervention.details.map((item) => (
             <li key={item}>{item}</li>
@@ -171,11 +184,15 @@ export default function GuardianThreadApprovalRail({
 
       {notice ? (
         <div
-          className="mt-2 rounded-lg border px-2 py-1 text-xs"
+          className="rounded-[var(--radius-micro)] border text-xs"
           style={{
-            borderColor: "rgba(34, 197, 94, 0.35)",
-            background: "rgba(34, 197, 94, 0.12)",
+            borderColor:
+              "color-mix(in oklab, var(--accent) 34%, var(--panel-border))",
+            background:
+              "color-mix(in oklab, var(--accent-weak) 18%, var(--panel-bg))",
             color: "var(--text)",
+            marginTop: "calc(var(--card-pad) / 2)",
+            padding: "calc(var(--card-pad) / 2)",
           }}
           role="status"
         >
@@ -185,11 +202,13 @@ export default function GuardianThreadApprovalRail({
 
       {error ? (
         <div
-          className="mt-2 rounded-lg border px-2 py-1 text-xs"
+          className="rounded-[var(--radius-micro)] border text-xs"
           style={{
-            borderColor: "rgba(239, 68, 68, 0.35)",
-            background: "rgba(239, 68, 68, 0.12)",
-            color: "var(--text)",
+            borderColor: "var(--danger-border)",
+            background: "var(--danger-surface)",
+            color: "var(--danger-text)",
+            marginTop: "calc(var(--card-pad) / 2)",
+            padding: "calc(var(--card-pad) / 2)",
           }}
           role="alert"
         >
