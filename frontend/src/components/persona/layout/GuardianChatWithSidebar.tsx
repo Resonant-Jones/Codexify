@@ -1141,13 +1141,12 @@ export default function GuardianChatWithSidebar({
         );
       }
     } finally {
-      if (queryGeneration !== threadQueryGenerationRef.current) {
-        return;
+      if (queryGeneration === threadQueryGenerationRef.current) {
+        threadRefreshGuard.inFlight = false;
+        paginationRef.current.loading = false;
+        setThreadsLoadingMore(false);
+        setThreadsLoaded(true);
       }
-      threadRefreshGuard.inFlight = false;
-      paginationRef.current.loading = false;
-      setThreadsLoadingMore(false);
-      setThreadsLoaded(true);
     }
   }, [
     auth,
