@@ -255,6 +255,37 @@ textarea:disabled::placeholder {
   outline-offset: 2px;
 }
 
+/* Sidebar source navigation — local hierarchy contract. */
+.sidebar-source-navigation {
+  --sidebar-source-rail-height: 48px;
+  --sidebar-source-control-size: 40px;
+  --sidebar-source-mark-size: 22px;
+  min-height: var(--sidebar-source-rail-height);
+  align-items: center;
+  padding-block: 2px;
+}
+
+.sidebar-source-navigation__label {
+  align-self: center;
+}
+
+.sidebar-source-navigation__all {
+  height: var(--sidebar-source-control-size);
+}
+
+.sidebar-source-navigation__control {
+  width: var(--sidebar-source-control-size);
+  height: var(--sidebar-source-control-size);
+  padding: 0;
+}
+
+/* SourceLogoImage has a 16px inline default; this scoped rail hook raises
+   only these provider marks to the navigation contract's 22px target. */
+.sidebar-source-navigation__mark {
+  width: var(--sidebar-source-mark-size) !important;
+  height: var(--sidebar-source-mark-size) !important;
+}
+
 /* Active state: accent-backed pill */
 .pill-tab[data-state="active"] {
   color: var(--pill-active-text, var(--text));

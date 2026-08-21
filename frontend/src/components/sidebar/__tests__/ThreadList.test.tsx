@@ -282,11 +282,27 @@ describe("ThreadList source dock", () => {
     );
 
     const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
-    expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
+    expect(toolbar).toHaveClass(
+      "glass-pill",
+      "sidebar-source-navigation",
+      "flex",
+      "w-full",
+      "min-w-0",
+      "overflow-hidden"
+    );
 
     const scrollRail = toolbar.querySelector(".overflow-x-auto");
     expect(scrollRail).not.toBeNull();
     expect(scrollRail).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+
+    expect(within(toolbar).getByRole("button", { name: "All" })).toHaveClass(
+      "sidebar-source-navigation__all"
+    );
+    for (const label of ["Codexify", "ChatGPT", "Claude"]) {
+      expect(within(toolbar).getByRole("button", { name: label })).toHaveClass(
+        "sidebar-source-navigation__control"
+      );
+    }
   });
 
   it("keeps All mutually exclusive with the canonical source pills", () => {
@@ -321,7 +337,7 @@ describe("ThreadList source dock", () => {
     expect(claudeButton).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("renders compact source logos inside the canonical origin buttons", () => {
+  it("renders source marks inside the canonical navigation controls", () => {
     const onChange = vi.fn();
     render(<SourceDockHarness onChange={onChange} originOptions={ICON_SOURCE_OPTIONS} />);
 
@@ -337,16 +353,13 @@ describe("ThreadList source dock", () => {
       expect(icon).toHaveAttribute("aria-hidden", "true");
       expect(icon).toHaveClass(
         "block",
-        "h-4",
-        "w-4",
         "aspect-square",
-        "max-h-4",
-        "max-w-4",
         "shrink-0",
         "select-none",
-        "object-contain"
+        "object-contain",
+        "sidebar-source-navigation__mark"
       );
-      expect(icon).toHaveStyle({ width: "16px", height: "16px" });
+      expect(button).toHaveClass("sidebar-source-navigation__control");
     }
 
     const claudeButton = within(toolbar).getByRole("button", { name: "Claude" });

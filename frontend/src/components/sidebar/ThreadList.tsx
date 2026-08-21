@@ -200,16 +200,16 @@ function ThreadPreviewList({
         {showHeader && onOriginSystemChange && originOptions.length > 0 && (
           <div className="pb-2 px-3 min-w-0">
             <div
-              className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
+              className="glass-pill sidebar-source-navigation flex w-full max-w-full min-w-0 overflow-hidden px-1"
               role="toolbar"
               aria-label="Canonical conversation origin filter"
             >
-              <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
+              <span className="sidebar-source-navigation__label shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
                 Source
               </span>
               <button
                 type="button"
-                className="pill-tab shrink-0 text-[11px]"
+                className="pill-tab sidebar-source-navigation__all shrink-0 text-[11px]"
                 data-state={!originSystem ? "active" : undefined}
                 aria-pressed={!originSystem}
                 onClick={() => onOriginSystemChange(null)}
@@ -224,7 +224,7 @@ function ThreadPreviewList({
                       <button
                         key={option.value}
                         type="button"
-                        className="pill-tab h-8 w-8 shrink-0 p-0"
+                        className="pill-tab sidebar-source-navigation__control shrink-0"
                         data-state={active ? "active" : undefined}
                         aria-pressed={active}
                         aria-label={option.label}
@@ -232,7 +232,7 @@ function ThreadPreviewList({
                         onClick={() => onOriginSystemChange(option.value)}
                       >
                         {option.Icon ? (
-                          <option.Icon className="h-4 w-4" aria-hidden={true} />
+                          <option.Icon className="sidebar-source-navigation__mark" aria-hidden={true} />
                         ) : (
                           <span className="sr-only">{option.label}</span>
                         )}
