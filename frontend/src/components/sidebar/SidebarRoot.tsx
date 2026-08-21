@@ -4,6 +4,7 @@ import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 import ThreadList from "./ThreadList";
 import ProjectList from "./ProjectList";
 import CreateProjectModal from "./CreateProjectModal";
@@ -33,6 +34,8 @@ type Props = {
   onNewChat: () => void;
   projectId?: string | null;
   onProjectChange?: (id: string | null) => void;
+  originSystem?: ConversationOriginSystem | null;
+  onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
   projects?: Project[];
   projectCache?: UseProjectsCacheResult;
   creatingThread?: boolean;
@@ -131,6 +134,8 @@ export default function SidebarRoot({
   onNewChat,
   projectId = null,
   onProjectChange,
+  originSystem = null,
+  onOriginSystemChange,
   projects = [],
   projectCache,
   creatingThread,
@@ -177,9 +182,9 @@ export default function SidebarRoot({
     scopeLabel: hookScopeLabel,
     currentProjectId,
     setScope,
-    provenanceFilter,
-    setProvenanceFilter,
-    provenanceOptions,
+    originSystem: selectedOriginSystem,
+    setOriginSystem,
+    originOptions,
     renameThread,
     toggleArchiveThread,
     deleteThread,
@@ -187,18 +192,21 @@ export default function SidebarRoot({
     initialThreads: threads,
     projectId,
     onProjectChange,
+    originSystem,
+    onOriginSystemChange,
     projects: projectList,
     persistence,
   });
 
   const scopeLabel = React.useMemo(() => {
+    if (selectedOriginSystem) return hookScopeLabel;
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
       return proj ? cleanSidebarProjectTitle(proj) : hookScopeLabel;
     }
     return hookScopeLabel;
-  }, [currentProjectId, hookScopeLabel, projectList]);
+  }, [currentProjectId, hookScopeLabel, projectList, selectedOriginSystem]);
 
   React.useEffect(() => {
     if (!projectList.length) return;
@@ -587,9 +595,9 @@ export default function SidebarRoot({
             threads={filteredThreads}
             activeId={activeId}
             scopeLabel={scopeLabel}
-            provenanceFilter={provenanceFilter}
-            provenanceOptions={provenanceOptions}
-            onProvenanceFilterChange={setProvenanceFilter}
+            originSystem={selectedOriginSystem}
+            originOptions={originOptions}
+            onOriginSystemChange={setOriginSystem}
             onSelect={onSelect}
             onNewChat={onNewChat}
             creatingThread={creatingThread}

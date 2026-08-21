@@ -1,4 +1,5 @@
 import type { ChatExecution } from "@/types/chat";
+import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -49,6 +50,8 @@ export type Thread = {
   providerOverride?: string | null;
   modelOverride?: string | null;
   threadConfig?: ThreadConfig | null;
+  /** Immutable canonical lineage returned by the backend thread DTO. */
+  originSystem?: ConversationOriginSystem | null;
 };
 
 export type ExtColors = {

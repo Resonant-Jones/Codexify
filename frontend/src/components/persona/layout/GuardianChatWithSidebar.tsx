@@ -34,6 +34,10 @@ import {
 } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import {
+  parseConversationOriginSystem,
+  type ConversationOriginSystem,
+} from "@/contracts/conversationOrigin";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type {
   RuntimeHealthStatus,
@@ -143,6 +147,7 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
     && (a.providerOverride ?? null) === (b.providerOverride ?? null)
     && (a.modelOverride ?? null) === (b.modelOverride ?? null)
+    && (a.originSystem ?? null) === (b.originSystem ?? null)
     && sameThreadConfig(a.threadConfig, b.threadConfig);
 };
 
@@ -349,6 +354,8 @@ export default function GuardianChatWithSidebar({
   });
 
   const [selectedProjectName, setSelectedProjectName] = React.useState<string | null>(null);
+  const [selectedOriginSystem, setSelectedOriginSystem] =
+    React.useState<ConversationOriginSystem | null>(null);
 
   const handleSelectedProjectChange = React.useCallback((id: string | null, name: string | null) => {
     setSelectedProjectId(id);
@@ -794,6 +801,9 @@ export default function GuardianChatWithSidebar({
       const providerOverrideVal =
         raw.provider_override ?? raw.providerOverride ?? null;
       const modelOverrideVal = raw.model_override ?? raw.modelOverride ?? null;
+      const originSystem = parseConversationOriginSystem(
+        raw.origin_system ?? raw.originSystem
+      );
       const threadConfig = normalizeThreadConfig(
         raw.thread_config ?? raw.threadConfig ?? null
       );
@@ -821,6 +831,7 @@ export default function GuardianChatWithSidebar({
         modelOverride:
           modelOverrideVal != null ? String(modelOverrideVal) : null,
         threadConfig,
+        originSystem,
         metadata: metadata,
       };
     },
@@ -993,7 +1004,8 @@ export default function GuardianChatWithSidebar({
     try {
       const generalProjectId = readStoredGeneralProjectId();
       const projectFilter =
-        selectedProjectFilter != null
+        selectedOriginSystem == null
+        && selectedProjectFilter != null
           && !(generalProjectId != null && selectedProjectFilter === generalProjectId)
           ? selectedProjectFilter
           : null;
@@ -1001,6 +1013,9 @@ export default function GuardianChatWithSidebar({
         params: {
           limit: THREAD_PAGE_SIZE,
           offset,
+          ...(selectedOriginSystem != null
+            ? { origin_system: selectedOriginSystem }
+            : {}),
           ...(projectFilter != null ? { project_id: projectFilter } : {}),
         },
       });
@@ -1065,7 +1080,13 @@ export default function GuardianChatWithSidebar({
       setThreadsLoadingMore(false);
       setThreadsLoaded(true);
     }
-  }, [auth, mapThreadRecord, mergeThreadsPage, selectedProjectFilter]);
+  }, [
+    auth,
+    mapThreadRecord,
+    mergeThreadsPage,
+    selectedOriginSystem,
+    selectedProjectFilter,
+  ]);
 
   const handleDeleteThreadStateSync = React.useCallback(
     (threadId: string) => {
@@ -1179,14 +1200,15 @@ export default function GuardianChatWithSidebar({
       window.removeEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
   }, [handleNewChat]);
 
-  // Load once per project scope. Keep `loadThreads` out of the dependency list
-  // because its identity changes when unrelated thread state changes.
+  // Load once for the active canonical origin lens or ordinary project scope.
+  // Keep `loadThreads` out of the dependency list because its identity changes
+  // when unrelated thread state changes.
   React.useEffect(() => {
     void loadThreads({ reset: true });
-    // The project scope is the intentional trigger; `loadThreads` is recreated
+    // The query scope is the intentional trigger; `loadThreads` is recreated
     // by unrelated callback dependencies during normal state updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectFilter]);
+  }, [selectedOriginSystem, selectedProjectFilter]);
 
   const handleBranchThread = React.useCallback(
     async (threadId: number, options?: { title?: string }) => {
@@ -1990,6 +2012,8 @@ export default function GuardianChatWithSidebar({
                         projectId={selectedProjectId}
                         projectName={selectedProjectName}
                         onProjectChange={handleSelectedProjectChange}
+                        originSystem={selectedOriginSystem}
+                        onOriginSystemChange={setSelectedOriginSystem}
                         projectCache={projectCache}
                         hasMoreThreads={threadsHasMore}
                         loadingMoreThreads={threadsLoadingMore}
@@ -2074,6 +2098,8 @@ export default function GuardianChatWithSidebar({
                   projectId={selectedProjectId}
                   projectName={selectedProjectName}
                   onProjectChange={handleSelectedProjectChange}
+                  originSystem={selectedOriginSystem}
+                  onOriginSystemChange={setSelectedOriginSystem}
                   projectCache={projectCache}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}

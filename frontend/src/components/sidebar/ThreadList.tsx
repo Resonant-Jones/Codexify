@@ -12,16 +12,17 @@ import {
 } from "lucide-react";
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 import TileShell from "@/components/surface/TileShell";
-import type { SidebarProvenanceOption } from "./sidebarPresentation";
+import type { SidebarOriginOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
   threads: Thread[];
   activeId: string | null;
   scopeLabel: string;
-  provenanceFilter?: string | null;
-  provenanceOptions?: SidebarProvenanceOption[];
-  onProvenanceFilterChange?: (sourceKey: string | null) => void;
+  originSystem?: ConversationOriginSystem | null;
+  originOptions?: SidebarOriginOption[];
+  onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
@@ -74,9 +75,9 @@ export default function ThreadList({
   threads,
   activeId,
   scopeLabel,
-  provenanceFilter = null,
-  provenanceOptions = [],
-  onProvenanceFilterChange,
+  originSystem = null,
+  originOptions = [],
+  onOriginSystemChange,
   onSelect,
   onNewChat,
   onRename,
@@ -98,9 +99,9 @@ export default function ThreadList({
       rectH={44}
       showHeader
       scopeLabel={scopeLabel}
-      provenanceFilter={provenanceFilter}
-      provenanceOptions={provenanceOptions}
-      onProvenanceFilterChange={onProvenanceFilterChange}
+      originSystem={originSystem}
+      originOptions={originOptions}
+      onOriginSystemChange={onOriginSystemChange}
       onNewChat={onNewChat}
       onRename={onRename}
       onArchiveToggle={onArchiveToggle}
@@ -120,9 +121,9 @@ function ThreadPreviewList({
   rectH = 60,
   showHeader = false,
   scopeLabel,
-  provenanceFilter = null,
-  provenanceOptions = [],
-  onProvenanceFilterChange,
+  originSystem = null,
+  originOptions = [],
+  onOriginSystemChange,
   onNewChat,
   onRename,
   onArchiveToggle,
@@ -138,9 +139,9 @@ function ThreadPreviewList({
   rectH?: number;
   showHeader?: boolean;
   scopeLabel?: string;
-  provenanceFilter?: string | null;
-  provenanceOptions?: SidebarProvenanceOption[];
-  onProvenanceFilterChange?: (sourceKey: string | null) => void;
+  originSystem?: ConversationOriginSystem | null;
+  originOptions?: SidebarOriginOption[];
+  onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
   onNewChat?: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
@@ -196,12 +197,12 @@ function ThreadPreviewList({
             )}
           </div>
         )}
-        {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
+        {showHeader && onOriginSystemChange && originOptions.length > 0 && (
           <div className="pb-2 px-3 min-w-0">
             <div
               className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
               role="toolbar"
-              aria-label="Imported source filter"
+              aria-label="Conversation origin filter"
             >
               <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
                 Source
@@ -209,16 +210,16 @@ function ThreadPreviewList({
               <button
                 type="button"
                 className="pill-tab shrink-0 text-[11px]"
-                data-state={!provenanceFilter ? "active" : undefined}
-                aria-pressed={!provenanceFilter}
-                onClick={() => onProvenanceFilterChange(null)}
+                data-state={!originSystem ? "active" : undefined}
+                aria-pressed={!originSystem}
+                onClick={() => onOriginSystemChange(null)}
               >
                 All
               </button>
               <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
                 <div className="flex min-w-max items-center gap-1.5 pr-1">
-                  {provenanceOptions.map((option) => {
-                    const active = provenanceFilter === option.value;
+                  {originOptions.map((option) => {
+                    const active = originSystem === option.value;
                     return (
                       <button
                         key={option.value}
@@ -226,9 +227,9 @@ function ThreadPreviewList({
                         className="pill-tab h-8 w-8 shrink-0 p-0"
                         data-state={active ? "active" : undefined}
                         aria-pressed={active}
-                        aria-label={option.description ?? option.label}
+                        aria-label={option.label}
                         title={option.description ?? option.label}
-                        onClick={() => onProvenanceFilterChange(option.value)}
+                        onClick={() => onOriginSystemChange(option.value)}
                       >
                         {option.Icon ? (
                           <option.Icon className="h-4 w-4" aria-hidden={true} />
