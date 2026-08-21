@@ -281,7 +281,7 @@ describe("ThreadList source dock", () => {
       />
     );
 
-    const toolbar = screen.getByRole("toolbar", { name: "Conversation origin filter" });
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
     expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
 
     const scrollRail = toolbar.querySelector(".overflow-x-auto");
@@ -293,10 +293,10 @@ describe("ThreadList source dock", () => {
     const onChange = vi.fn();
     render(<SourceDockHarness onChange={onChange} />);
 
-    const toolbar = screen.getByRole("toolbar", { name: "Conversation origin filter" });
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
     const allButton = within(toolbar).getByRole("button", { name: "All" });
     const codexifyButton = within(toolbar).getByRole("button", { name: "Codexify" });
-    const openaiButton = within(toolbar).getByRole("button", { name: "OpenAI" });
+    const openaiButton = within(toolbar).getByRole("button", { name: "ChatGPT" });
     const claudeButton = within(toolbar).getByRole("button", { name: "Claude" });
 
     expect(allButton).toHaveAttribute("aria-pressed", "true");
@@ -325,8 +325,8 @@ describe("ThreadList source dock", () => {
     const onChange = vi.fn();
     render(<SourceDockHarness onChange={onChange} originOptions={ICON_SOURCE_OPTIONS} />);
 
-    const toolbar = screen.getByRole("toolbar", { name: "Conversation origin filter" });
-    const labels = ["Codexify", "OpenAI", "Claude"] as const;
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
+    const labels = ["Codexify", "ChatGPT", "Claude"] as const;
 
     for (const label of labels) {
       const button = within(toolbar).getByRole("button", { name: label });

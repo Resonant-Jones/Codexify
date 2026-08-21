@@ -290,7 +290,7 @@ describe("useSidebarThreads canonical origin lens", () => {
     ]);
     expect(result.current.originOptions.map((option) => option.label)).toEqual([
       "Codexify",
-      "OpenAI",
+      "ChatGPT",
       "Claude",
     ]);
     expect(result.current.scopeLabel).toBe("All projects");

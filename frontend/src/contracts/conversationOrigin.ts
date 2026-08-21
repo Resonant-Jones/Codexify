@@ -1,9 +1,10 @@
 /**
  * Frontend mirror of the bounded canonical conversation-origin API domain.
  *
- * Conversation origin is immutable lineage owned by the backend. This module
- * validates received DTO values and supplies only the exact API tokens; it
- * never infers origin from metadata, providers, or models.
+ * Conversation origin is immutable lineage owned by
+ * guardian/conversation_origin.py. This read/query-only frontend mirror
+ * validates received DTO values and supplies only exact API tokens; it never
+ * assigns or infers origin from metadata, providers, or models.
  */
 export const CONVERSATION_ORIGIN_SYSTEMS = [
   "codexify",

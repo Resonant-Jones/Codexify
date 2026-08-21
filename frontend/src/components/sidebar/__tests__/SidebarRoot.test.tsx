@@ -34,7 +34,7 @@ vi.mock("../useSidebarThreads", () => ({
     setOriginSystem: options.onOriginSystemChange,
     originOptions: [
       { value: "codexify", label: "Codexify", description: "Codexify" },
-      { value: "openai", label: "OpenAI", description: "OpenAI" },
+      { value: "openai", label: "ChatGPT", description: "ChatGPT" },
       { value: "anthropic", label: "Claude", description: "Claude" },
     ],
     renameThread: vi.fn().mockResolvedValue(undefined),
@@ -91,7 +91,7 @@ describe("SidebarRoot canonical origin filter wiring", () => {
       })
     );
 
-    const toolbar = screen.getByRole("toolbar", { name: "Conversation origin filter" });
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
     expect(toolbar).toBeInTheDocument();
     expect(within(toolbar).getByRole("button", { name: "All" })).toHaveAttribute(
       "aria-pressed",
@@ -102,9 +102,9 @@ describe("SidebarRoot canonical origin filter wiring", () => {
       "true"
     );
     expect(screen.getByRole("button", { name: "Codexify" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ChatGPT" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "OpenAI" }));
+    fireEvent.click(screen.getByRole("button", { name: "ChatGPT" }));
     expect(onOriginSystemChange).toHaveBeenCalledWith("openai");
   });
 
@@ -124,7 +124,7 @@ describe("SidebarRoot canonical origin filter wiring", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
 
     expect(screen.getByTestId("project-list")).toBeInTheDocument();
-    expect(screen.queryByRole("toolbar", { name: "Conversation origin filter" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Canonical conversation origin filter" })).not.toBeInTheDocument();
   });
 
   it("keeps the legacy Guardian tab key by default and isolates Documents tabs", () => {

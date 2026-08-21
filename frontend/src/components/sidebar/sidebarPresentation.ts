@@ -239,9 +239,9 @@ export const SIDEBAR_ORIGIN_OPTIONS: SidebarOriginOption[] = [
   },
   {
     value: "openai",
-    label: "OpenAI",
-    description: "Show all OpenAI-origin conversations",
-    Icon: createSidebarOriginIcon("OpenAI", openaiOfficialSrc),
+    label: "ChatGPT",
+    description: "Show all ChatGPT-origin conversations",
+    Icon: createSidebarOriginIcon("ChatGPT", openaiOfficialSrc),
   },
   {
     value: "anthropic",

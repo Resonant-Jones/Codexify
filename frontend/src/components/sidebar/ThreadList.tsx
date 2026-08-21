@@ -202,7 +202,7 @@ function ThreadPreviewList({
             <div
               className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
               role="toolbar"
-              aria-label="Conversation origin filter"
+              aria-label="Canonical conversation origin filter"
             >
               <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
                 Source
