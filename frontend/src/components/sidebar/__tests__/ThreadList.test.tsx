@@ -346,6 +346,7 @@ describe("ThreadList source dock", () => {
         "select-none",
         "object-contain"
       );
+      expect(icon).toHaveStyle({ width: "16px", height: "16px" });
     }
 
     const claudeButton = within(toolbar).getByRole("button", { name: "Claude" });

@@ -15,6 +15,7 @@ export default function SourceLogoImage({
   alt,
   title,
   className,
+  style,
   loading,
   decoding,
   draggable = false,
@@ -33,6 +34,7 @@ export default function SourceLogoImage({
       decoding={decoding ?? "async"}
       draggable={draggable}
       aria-hidden={ariaHidden}
+      style={{ ...style, width: 16, height: 16 }}
       className={clsx(
         "block h-4 w-4 aspect-square max-h-4 max-w-4 shrink-0 select-none object-contain",
         className
