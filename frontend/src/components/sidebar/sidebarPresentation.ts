@@ -4,6 +4,7 @@ import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import SourceLogoImage from "./icons/SourceLogoImage";
 import openaiOfficialSrc from "@/assets/brands/openai/openai-official.png";
+import anthropicOfficialSrc from "@/assets/brands/anthropic/Rusty-Butthole.png";
 import googleOfficialSrc from "@/assets/brands/google/google-official.png";
 import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
@@ -277,6 +278,8 @@ function createSidebarProvenanceIcon(
 const SIDEBAR_PROVENANCE_ICONS: Record<string, ComponentType<SidebarProvenanceIconProps>> = {
   chatgpt: createSidebarProvenanceIcon("ChatGPT", openaiOfficialSrc),
   openai: createSidebarProvenanceIcon("OpenAI", openaiOfficialSrc),
+  claude: createSidebarProvenanceIcon("Claude", anthropicOfficialSrc),
+  anthropic: createSidebarProvenanceIcon("Anthropic", anthropicOfficialSrc),
   gemini: createSidebarProvenanceIcon("Gemini", googleOfficialSrc),
   codexify: createSidebarProvenanceIcon("Codexify", codexifyMarkSrc),
 };

@@ -96,6 +96,8 @@ function SourceDockHarness({
 const ICON_SOURCE_OPTIONS = collectSidebarProvenanceOptions([
   createThread({ id: "thread-chatgpt", metadata: { import_source: "chatgpt" } }),
   createThread({ id: "thread-openai", metadata: { source: "openai" } }),
+  createThread({ id: "thread-claude", metadata: { import_source: "claude" } }),
+  createThread({ id: "thread-anthropic", metadata: { source: "anthropic" } }),
   createThread({ id: "thread-gemini", metadata: { provider: "gemini" } }),
   createThread({ id: "thread-codexify", metadata: { source: "codexify" } }),
 ]);
@@ -330,7 +332,7 @@ describe("ThreadList source dock", () => {
     render(<SourceDockHarness onChange={onChange} provenanceOptions={ICON_SOURCE_OPTIONS} />);
 
     const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
-    const labels = ["ChatGPT", "OpenAI", "Gemini", "Codexify"] as const;
+    const labels = ["ChatGPT", "OpenAI", "Claude", "Anthropic", "Gemini", "Codexify"] as const;
 
     for (const label of labels) {
       const button = within(toolbar).getByRole("button", { name: label });
@@ -351,6 +353,12 @@ describe("ThreadList source dock", () => {
         "object-contain"
       );
     }
+
+    expect(within(toolbar).getByRole("button", { name: "Claude" }).querySelector("img"))
+      .toHaveAttribute(
+        "src",
+        within(toolbar).getByRole("button", { name: "Anthropic" }).querySelector("img")?.getAttribute("src")
+      );
 
     const geminiButton = within(toolbar).getByRole("button", { name: "Gemini" });
     fireEvent.click(geminiButton);
