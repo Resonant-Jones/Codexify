@@ -1,12 +1,10 @@
-import importlib
-
 import pytest
 from fastapi import HTTPException
 
 from guardian.core.auth import issue_session_token
 
 
-def _reload_auth_modules(monkeypatch, **env_overrides):
+def _configure_auth_modules(monkeypatch, **env_overrides):
     monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
     for key, value in env_overrides.items():
         if value is None:
@@ -17,15 +15,15 @@ def _reload_auth_modules(monkeypatch, **env_overrides):
     import guardian.core.config as core_config
     import guardian.core.dependencies as dependencies
 
-    core_config = importlib.reload(core_config)
-    dependencies = importlib.reload(dependencies)
+    test_settings = core_config.Settings()
+    monkeypatch.setattr(core_config, "settings", test_settings)
     return core_config, dependencies
 
 
 def test_multi_user_mode_default_off_preserves_single_user_fallback(
     monkeypatch,
 ):
-    core_config, dependencies = _reload_auth_modules(
+    core_config, dependencies = _configure_auth_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="false",
@@ -41,7 +39,7 @@ def test_multi_user_mode_default_off_preserves_single_user_fallback(
 def test_multi_user_mode_enabled_rejects_missing_authenticated_subject(
     monkeypatch,
 ):
-    core_config, dependencies = _reload_auth_modules(
+    core_config, dependencies = _configure_auth_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="true",
@@ -60,7 +58,7 @@ def test_multi_user_mode_enabled_rejects_missing_authenticated_subject(
 def test_multi_user_mode_enabled_accepts_resolved_authenticated_subject(
     monkeypatch,
 ):
-    core_config, dependencies = _reload_auth_modules(
+    core_config, dependencies = _configure_auth_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="true",
