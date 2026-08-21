@@ -1020,9 +1020,19 @@ Close **Workspace Baseline Convergence** when all of the following are true:
 * [ ] Remaining gaps are primarily Mature UX, Advanced capabilities, differentiators, or individual adapters.
 * [ ] `00-current-state.md` and release posture accurately reflect the final proof.
 
-The Campaign must then close even though additional improvements remain possible.
+- The Campaign must then close even though additional improvements remain possible.
 
 Runtime maturity does not mean Codexify contains everything. It means adding the next useful capability no longer requires inventing another foundation underneath it.
+
+---
+
+## 11.1 Next-phase execution graph (steering overlay)
+
+A dated steering overlay now extends this Campaign and sequences the next phase from current runtime proof through canonical Connection authority for GitHub, Notion, and Google Workspace. It is not a new Campaign, not a replacement capability ledger, and not a release-readiness declaration. The frozen Campaign thesis, the capability ledger, and the deferred-capabilities register above remain governing.
+
+- [2026-08-21 next-phase execution graph](./2026-08-21-next-phase-execution-graph.md) — freezes the `NX-0` … `NX-11` critical path, the new-Connection migration doctrine, the attempt authority snapshot, the approval posture, the GitHub write specimen, the model-lane allocation table, the serialization rules, and the sole next task.
+
+That overlay names `NX-1` (current-tip supported-Compose runtime closure) as the sole next executable slice; `NX-0` is its mandatory preflight. The overlay also names `NX-3` (canonize new Connection authority) as explicitly ADR-gated, because the new canonical authority for GitHub, Notion, and Google Workspace changes an accepted authority boundary established by `ADR-071`. The overlay itself does not create that ADR.
 
 ---
 
