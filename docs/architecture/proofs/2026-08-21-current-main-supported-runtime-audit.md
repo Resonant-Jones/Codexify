@@ -4,26 +4,17 @@
 
 `BLOCKED — prerequisite resolution required before runtime audit`
 
-The current `origin/main` SHA was independently verified to match the local
-checkout, the supported Compose configuration parses cleanly, and every
-documented pre-read anchor was read against the audited SHA. The audit cannot
-proceed past Phase B because the local Docker Desktop daemon fails to start with
-`Error response from daemon: Docker Desktop is unable to start`, which prevents
-trustworthy runtime observation of the supported Compose path.
+Today's exact current `origin/main` SHA is `a2d84b59f47cbce255ee03d74ffe6a1f49c84b46`. The local `main` branch is ahead of `origin/main` by three commits, so the local checkout does not represent the audited SHA. Per Phase A, this audit must stop and classify `BLOCKED — local main is not current origin/main` without merging, pulling, rebasing, or otherwise repairing branch state.
 
-The first failing boundary is `Docker/Compose readiness`.
+The Docker daemon recovered during the audit window, so the prior `BLOCKED — Docker/Compose readiness` classification no longer holds at the time of this audit's Phase B observation. This run's first failing boundary is `source identity` (Phase A), not `Docker/Compose readiness` (Phase B).
 
-The proof surface recorded here establishes that the source identity, ADR
-alignment, governance posture, configuration, and required code contracts are
-all in the expected state for the audited SHA, and isolates the
-`Docker/Compose readiness` blocker as the single reason this audit cannot
-reach a `PASS` or `FAIL` classification today.
+The proof surface recorded here establishes that the audited `origin/main` SHA was independently verified, the supported Compose configuration parses cleanly against the audited SHA, the supported profile and governing ADRs are aligned, and the Docker daemon is currently reachable — but the audit cannot proceed because the source-identity prerequisite is unresolved.
 
 ## 2. UTC timestamps
 
-- Audit start (UTC): `2026-08-21T15:00Z` (approximate; first Phase A command)
-- Audit end (UTC): `2026-08-21T15:04:09Z` (BLOCKED recorded)
-- All Docker daemon attempts occurred within the `[15:01Z, 15:04Z]` window.
+- Audit start (UTC): `2026-08-21T16:06Z` (Phase A re-preflight began)
+- Audit end (UTC): `2026-08-21T16:07Z` (BLOCKED recorded after Phase A + Phase B observations)
+- Daemon readiness observed during this audit window: `2026-08-21T16:06:45Z` (`docker version` server output present; `docker compose ps -a` returned empty Codexify stack)
 
 ## 3. Repository path
 
@@ -33,34 +24,45 @@ reach a `PASS` or `FAIL` classification today.
 
 - `main`
 
-## 5. audited HEAD
+## 5. audited HEAD (local)
 
-- `a2d84b59f47cbce255ee03d74ffe6a1f49c84b46`
+- `94999b6d16c95f51d874e936e7e715876cd59ffc` — three commits ahead of `origin/main`.
 
 ## 6. `origin/main`
 
 - `a2d84b59f47cbce255ee03d74ffe6a1f49c84b46`
-- `merge-base HEAD origin/main == HEAD == origin/main`
+- `merge-base HEAD origin/main == a2d84b59f47cbce255ee03d74ffe6a1f49c84b46`
 
 ## 7. Pre-audit worktree state
 
-- Branch is literal `main`; `HEAD == origin/main`.
-- No tracked modifications: `git diff --name-only` and `git diff --cached --name-only` are empty.
-- Untracked files: only `.playwright-tmp/` artifacts (ephemeral Playwright
-  theme-probe leftovers). These are runtime-proof-irrelevant, gitignored, and
-  preserved untouched for this audit.
-- No `git fetch origin` updates landed during preflight (`HEAD == origin/main`
-  before and after fetch).
+- Branch is literal `main`.
+- `HEAD != origin/main` (3 commits ahead).
+- `git diff --name-only` and `git diff --cached --name-only` are empty.
+- Untracked files: only `.playwright-tmp/` (ephemeral Playwright theme-probe leftovers; gitignored). These are runtime-proof-irrelevant and preserved untouched.
+
+### Local-ahead commits (recorded for the audit record, not as evidence of authority)
+
+In chronological order from `origin/main` to `HEAD`:
+
+- `99d160046` — `Capture current-main supported runtime audit` (the prior audit invocation's BLOCKED proof artifact, also stored at `docs/architecture/proofs/2026-08-21-current-main-supported-runtime-audit.md`).
+- `705555811` — `Audit Codexify simplification opportunities`.
+- `94999b6d1` — `Add Claude sidebar source icon`.
+
+The audit does not assume any of these three commits are part of the audited
+`origin/main` SHA. They were authored against the local `main` worktree and
+are not reachable from `origin/main`. They are recorded here only so that
+the next audit invocation can distinguish prior local activity from the
+current `origin/main` reference frame.
 
 ## 8. Governing ADRs / contracts
 
 Authoritative contracts read against the audited SHA `a2d84b59`:
 
-- `docs/architecture/00-current-state.md` (2026-08-21): canonical
-  short-horizon truth. Audited implementation baseline is `e35de71c6`; this
-  audit SHA `a2d84b59` is current `main` and post-baseline.
+- `docs/architecture/00-current-state.md` (2026-08-21): canonical short-horizon
+  truth. Audited implementation baseline is `e35de71c6`; this audit SHA
+  `a2d84b59` is current `origin/main` and post-baseline.
 - `docs/architecture/adr/069-codexify-beta-runtime-support-boundary.md` —
-  the Beta boundary doctrine (release classes, evidence-vs-support separation,
+  Beta boundary doctrine (release classes, evidence-vs-support separation,
   default local-first supported profile).
 - `docs/architecture/adr/072-bounded-settings-and-connections-route-promotion.md`
   — promotes local-profile authenticated identity/prompt surfaces and the
@@ -75,8 +77,8 @@ Authoritative contracts read against the audited SHA `a2d84b59`:
   vocabulary; canonical request/transport/runtime states.
 - `docs/architecture/runtime-protocol-token-contract.md` — bounded runtime
   tokens for statuses, events, failure codes.
-- `docs/architecture/canonical-live-proof-receipt-contract.md` —
-  bounded read-only supported-Compose live observation receipt.
+- `docs/architecture/canonical-live-proof-receipt-contract.md` — bounded
+  read-only supported-Compose live observation receipt.
 - `docs/architecture/flows.md` and `completion_pipeline.md` — current
   trigger-to-output runtime flows and queue-backed completion pipeline.
 - `config/supported_profiles/v1-local-core-web-mcp.yaml` — supported beta
@@ -91,37 +93,32 @@ was observed at the audited SHA.
 
 ## 9. Docker / Compose readiness
 
-- Docker client version: `29.7.2` (`docker version`).
-- Docker server / daemon: **unreachable**.
-- Docker Compose version: `v5.4.0`.
-- `docker compose config --quiet`: exited silently with status 0 (no stderr).
+Observed during this audit (daemon status changed since the prior audit
+invocation in this same session):
+
+- Docker client version: `29.7.2`.
+- Docker server version: `29.7.2` (`Docker Desktop 4.87.0 (236836)`,
+  `linux/arm64`).
+- Compose version: `v5.4.0`.
+- `docker compose config --quiet`: exited silently with status `0`
+  (no stderr, no errors).
 - `docker compose config --services`: returned the full resolved service set
   (see section 11).
-- `docker compose ps -a`: `Error response from daemon: Docker Desktop is unable to start`.
-- `docker compose ls`, `docker volume ls`, `docker info` (server side):
-  same `Docker Desktop is unable to start` error.
+- `docker compose ps -a`: returned cleanly with no rows — **no running
+  Codexify Compose project** on this host. The audit starts from a clean
+  stopped state.
+- `docker compose ls`: not recorded in this artifact; `docker compose ps -a`
+  empty output already confirms no running stack.
 
-### Daemon recovery attempts performed during the audit
+### State delta vs. prior audit invocation
 
-The audit performed exactly the bounded recovery attempts described below and
-stopped expanding the investigation after the second failed daemon start,
-per the invariant "If a runtime boundary fails, identify the first failing
-boundary and stop expanding the investigation."
-
-1. `open -a Docker` → immediate `docker version` server call → still failing.
-2. `killall Docker` + `open -a "Docker Desktop"` + 12s wait → still failing.
-3. `pgrep` confirmed `com.docker.backend` (`autostart`), `Docker Desktop`
-   helper (`gpu-process`, `utility/network`), and `docker-agent serve api`
-   were resident, but the engine itself never reached a usable socket.
-4. Verified that no alternate container runtime is available: `which colima
-   podman lima nerdctl` returned no matches; `docker-machine` is not
-   installed.
-
-### Existing Codexify Compose projects
-
-Not observable. `docker compose ls` cannot run because the daemon is down.
-No host-CLI substitute exposes Codexify Compose projects from outside the
-daemon.
+The prior audit invocation in this same session classified `BLOCKED —
+Docker/Compose readiness` because the daemon was returning
+`Error response from daemon: Docker Desktop is unable to start`. In the
+window between the two invocations, the Docker Desktop daemon recovered.
+Phase B's `BLOCKED — Docker/Compose readiness` boundary no longer holds
+at the time of this audit. The first failing boundary in this audit is
+`source identity` (Phase A), recorded in section 42.
 
 ## 10. Supported profile
 
@@ -157,22 +154,22 @@ daemon.
 From `docker compose config --services` against the audited SHA:
 
 ```text
+e2e
 db
 neo4j
 graph-init
 migrator
 model-prep
 backend
-frontend
 redis
-worker-coding
-worker-chat
-worker-chat-embed
-worker-document-embed
-worker-voice
-worker-warmup
-e2e
 worker-account-import
+worker-voice
+worker-chat
+frontend
+worker-chat-embed
+worker-coding
+worker-document-embed
+worker-warmup
 ```
 
 The `worker-coding` service builds from a separate `worker-coding-runtime`
@@ -188,9 +185,9 @@ default supported Compose lifecycle.
 
 ## 12. Migration / init results
 
-Not executed. `docker compose run --rm migrator`, `docker compose run --rm
-model-prep`, and `graph-init` cannot run because the Docker daemon is
-unreachable.
+Not executed. The audit stopped at Phase A (`source identity`); Phase C's
+`docker compose run --rm migrator`, `docker compose run --rm model-prep`,
+and `graph-init` were not invoked.
 
 `backend` health depends on `migrator`, `model-prep`, and `graph-init`
 completing successfully first (`depends_on: service_completed_successfully`).
@@ -199,34 +196,37 @@ reach a healthy backend.
 
 ## 13. Required service lifecycle
 
-Not observed. No service was brought up because the daemon is unreachable.
-The audit recorded the supported required set from `config/supported_profiles/v1-local-core-web-mcp.yaml` (`required_services`) for completeness:
+Not observed. No service was brought up because the audit stopped at Phase A.
 
-- `frontend`, `backend`, `db`, `redis`, `worker-chat`,
-  `worker-document-embed`, `migrator` (plus the optional `worker-warmup`,
-  `neo4j`, `graph-init`).
+The supported required set from
+`config/supported_profiles/v1-local-core-web-mcp.yaml` is recorded for
+completeness: `frontend`, `backend`, `db`, `redis`, `worker-chat`,
+`worker-document-embed`, `migrator` (plus the optional `worker-warmup`,
+`neo4j`, `graph-init`).
 
 The historical baseline service set that the audit's pre-flight section
 references remains valid for these required services, but `worker-chat-embed`
-was promoted out of `required_services` on the supported profile. `worker-coding`,
-`worker-voice`, `worker-account-import`, and `e2e` are present in the
-Compose topology but are not on the supported-required list.
+was promoted out of `required_services` on the supported profile.
+`worker-coding`, `worker-voice`, `worker-account-import`, and `e2e` are
+present in the Compose topology but are not on the supported-required list.
 
 ## 14. `/health`
 
-Not observed. The backend service is not running.
+Not observed. The audit stopped at Phase A; the backend service is not
+running.
 
 ## 15. `/health/chat`
 
-Not observed. The backend service is not running.
+Not observed.
 
 ## 16. `/api/health/llm`
 
-Not observed. The backend service is not running.
+Not observed.
 
-The endpoint exists at `guardian/routes/health.py:636` (`@router.get("/api/health/llm")`)
-and is registered by the supported profile's `route_posture.enabled` list
-(`health`). The route is mounted; the runtime cannot be probed in this audit.
+The endpoint exists at `guardian/routes/health.py:636`
+(`@router.get("/api/health/llm")`) and is registered by the supported
+profile's `route_posture.enabled` list (`health`). The route is mounted;
+the runtime cannot be probed in this audit.
 
 ## 17. Local provider / model catalog evidence
 
@@ -253,7 +253,7 @@ configuration surfaces during static review of the audited SHA:
 
 | Setting | Canonical source | Legacy source | Runtime-observed | Result |
 |---|---|---|---|---|
-| `CODEXIFY_LOCAL_ONLY_MODE` | `guardian/core/config.py` (default `true`); supported profile sets `true` | `guardian/config/core.py` (legacy) | not observable (daemon down) | agree on default; runtime drift not measurable |
+| `CODEXIFY_LOCAL_ONLY_MODE` | `guardian/core/config.py` (default `true`); supported profile sets `true` | `guardian/config/core.py` (legacy) | not observable (audit stopped at Phase A) | agree on default; runtime drift not measurable |
 | `ALLOW_CLOUD_PROVIDERS` | `guardian/core/config.py` (default `false`); supported profile sets `false` | `guardian/config/core.py` (legacy) | not observable | agree on default |
 | `LLM_PROVIDER` | `guardian/core/config.py` (default `local`); supported profile `local`; `docker-compose.yml` backend defaults `local` | `guardian/config/core.py`; legacy `AI_BACKEND` compatibility surface | not observable | agree on default |
 | `CODEXIFY_SUPPORTED_PROFILE` | `docker-compose.yml` backend: `v1-local-core-web-mcp`; profile YAML present | n/a | not observable | canonical-only |
@@ -269,8 +269,8 @@ configuration surfaces during static review of the audited SHA:
 
 `assert_config_coherence()` (in `guardian/core/config.py`, per
 `config-and-ops.md` section "Config Resolution Order and Defaults") runs at
-backend startup; it could not be observed because the backend is not
-running.
+backend startup; it could not be observed because the audit stopped at
+Phase A and the backend is not running.
 
 `CODEXIFY_CONFIG_SOURCE=core` is the default the backend Compose service
 applies. Legacy `AI_BACKEND` is a documented legacy-compatibility surface
@@ -278,7 +278,8 @@ only and is not part of the supported-provider contract for this audit.
 
 ## 19. Proof thread ID
 
-Not created. Live chat creation is gated behind a reachable backend.
+Not created. Live chat creation is gated behind a reachable backend, and
+the audit stopped at Phase A.
 
 ## 20. Authored user-message ID
 
@@ -294,8 +295,8 @@ requires both a reachable API and a reachable `db` service.
 Not performed. Concurrent completion requires a reachable backend; per
 invariant 23 (concurrent-completion exclusivity), this audit cannot be
 PASS, FAIL, or BLOCKED-on-this-test in the absence of a reachable backend.
-The audit's primary classification therefore remains BLOCKED at the
-`Docker/Compose readiness` boundary, not at the turn-lock boundary.
+The audit's primary classification remains BLOCKED at the `source identity`
+boundary, not at the turn-lock boundary.
 
 ## 23. Accepted task / request / turn IDs
 
@@ -307,9 +308,8 @@ Not performed.
 
 ## 25. Redis enqueue evidence
 
-Not performed. Redis is one of the Compose services; with the daemon
-unreachable, the queue is not inspectable and the chat queue health
-probe cannot be exercised.
+Not performed. Redis is one of the Compose services; the audit stopped at
+Phase A and the runtime was not started.
 
 ## 26. Live turn-lock owner / TTL evidence
 
@@ -380,17 +380,14 @@ Not executed. The focused test path
 `guardian/tests/workers/test_chat_worker_completion_semantics.py::test_generation_success_but_persistence_failure_is_non_authoritative`,
 `tests/test_chat_worker_turn_integrity.py`) was not invoked because:
 
+- The audit stopped at Phase A (`source identity`); runtime prerequisites
+  were not established.
 - These tests exercise routes and workers whose contracts assume a
   reachable database (`db`), Redis (`redis`), and worker process topology.
-- Per `tests/architecture/test_beta_release_boundary.py` and the focused
-  contract slice description in `chat-runtime-contract.md` and
-  `completion_pipeline.md`, the live positive proof is the supported
-  harness; the negative-semantics tests are bounded static contract
-  evidence.
 - Per the audit's invariants (no test changes, no implementation repair)
   and per the BLOCKED classification, the audit stops at the
-  `Docker/Compose readiness` boundary. The contract tests are deferred
-  to a follow-up audit once the prerequisite is resolved.
+  `source identity` boundary. The contract tests are deferred to a
+  follow-up audit once the prerequisite is resolved.
 
 The contract tests named in the spec were not confirmed-present on the
 audited SHA. Their existence/canonical-successor check is intentionally
@@ -408,14 +405,14 @@ collector is not part of the supported Compose path's normal lifecycle
 that the local checkout does not wire by default). No canonical collector
 invocation was performed; this is consistent with the audit's invariants
 ("Do not let collector unavailability erase otherwise valid local runtime
-evidence") and with the BLOCKED classification at the daemon prerequisite.
+evidence") and with the BLOCKED classification at the source-identity
+prerequisite.
 
 ## 41. Explicit evidence limitations
 
-- The Docker Desktop daemon fails to start with `Error response from
-  daemon: Docker Desktop is unable to start`. The audit cannot perform
-  live runtime observation of the supported Compose path until this
-  prerequisite is resolved.
+- The audit stopped at Phase A: `HEAD != origin/main` (3 commits ahead).
+  Per Phase A, the audit must classify `BLOCKED — local main is not
+  current origin/main` without repairing branch state.
 - All bounded configuration-coherence comparisons in section 18 are
   static-document comparisons only; no runtime-observed values were
   available to compare against.
@@ -431,20 +428,42 @@ evidence") and with the BLOCKED classification at the daemon prerequisite.
   insufficient to assert a specific model identity.
 - The audit did not modify `.env` or any tracked configuration file
   (invariant 6: "No environment/configuration repairs").
+- This audit invocation observed a daemon-recovery state delta vs. the
+  prior invocation. That delta is recorded for the audit record but does
+  not change this invocation's classification (which is BLOCKED at
+  `source identity`).
+- Three local commits ahead of `origin/main` exist in this worktree
+  (`99d160046`, `705555811`, `94999b6d1`). One of these
+  (`99d160046`) is the prior audit's BLOCKED proof artifact, which is
+  preserved on disk as part of the local worktree but is **not** part of
+  the audited `origin/main` SHA.
 
 ## 42. First failing boundary (non-PASS)
 
-`Docker/Compose readiness`.
+`source identity` (Phase A).
 
-The Docker daemon is unreachable in this environment. All downstream
-runtime observations in the proof chain (Compose lifecycle, migrator,
-model-prep, graph-init, required services, `/health`, `/health/chat`,
-`/api/health/llm`, `/api/llm/catalog`, configuration-coherence runtime
-values, authored-message persistence, completion acceptance, turn-lock,
-Redis enqueue, worker dequeue, worker heartbeat, provider execution,
-terminal task, assistant persistence, API/source-thread readback,
-PostgreSQL readback, embedding, retrieval, focused contract tests) are
-gated on this prerequisite.
+`HEAD` (`94999b6d16c95f51d874e936e7e715876cd59ffc`) is three commits ahead
+of `origin/main` (`a2d84b59f47cbce255ee03d74ffe6a1f49c84b46`). Per Phase A
+invariants, the audit must classify `BLOCKED — local main is not current
+origin/main` and must not merge, pull, rebase, or repair branch state inside
+this audit.
+
+All downstream runtime observations in the proof chain (Compose lifecycle,
+migrator, model-prep, graph-init, required services, `/health`,
+`/health/chat`, `/api/health/llm`, `/api/llm/catalog`, configuration-
+coherence runtime values, authored-message persistence, completion
+acceptance, turn-lock, Redis enqueue, worker dequeue, worker heartbeat,
+provider execution, terminal task, assistant persistence, API/source-thread
+readback, PostgreSQL readback, embedding, retrieval, focused contract
+tests) are gated on resolving this prerequisite.
+
+Note on prior audit invocation: the prior audit invocation in this same
+session classified the first failing boundary as `Docker/Compose
+readiness` because the Docker Desktop daemon was unreachable at that time.
+That boundary no longer holds at this audit's Phase B observation time
+(daemon recovered; `docker compose ps -a` returns empty cleanly). This
+audit's first failing boundary is `source identity` (Phase A), which is a
+different prerequisite and a different canonical BLOCKED condition.
 
 ## 43. ADR impact
 
@@ -466,47 +485,62 @@ release-support change.
 ## 44. Invariant check
 
 - No runtime source change: confirmed (`git diff --name-only` empty).
+- No branch-state repair: confirmed (`git merge`, `git pull`, `git rebase`,
+  `git reset` were not executed; the audit stopped at Phase A per spec).
 - No configuration repair: confirmed (no `.env` or tracked config file
   modified).
-- No volume deletion: confirmed (Docker daemon down; no destructive
-  command executed).
+- No volume deletion: confirmed (no `docker compose down -v` or equivalent
+  destructive command executed; `docker compose ps -a` was empty and
+  preserved untouched).
 - No cloud-provider enablement: confirmed (no runtime path observed;
   supported profile default is `local`).
 - No Coding Loop / tool qualification: confirmed (Coding Loop out of
   scope per invariant 10 and `00-current-state.md`).
 - No release expansion: confirmed.
-- No secret leakage: confirmed (no `.env` printed, no API keys,
-  tokens, cookies, passwords, database URLs, raw environment dumps,
-  or credential-bearing provider payloads were printed or committed).
+- No secret leakage: confirmed (no `.env` printed, no API keys, tokens,
+  cookies, passwords, database URLs, raw environment dumps, or
+  credential-bearing provider payloads were printed or committed).
 - No unrelated files staged: confirmed (only the authorized proof
-  artifact is targeted for commit).
-- No `.playwright-tmp/*` files were touched; they are ephemeral
-  untracked Playwright theme-probe leftovers and are not part of this
-  audit's surface.
+  artifact is targeted for commit; pre-existing local-ahead commits and
+  pre-existing untracked `.playwright-tmp/` files are not touched).
+- No `.playwright-tmp/*` files were touched; they are ephemeral untracked
+  Playwright theme-probe leftovers and are not part of this audit's
+  surface.
 
 ## 45. Final result
 
-`BLOCKED — Docker/Compose readiness`
+`BLOCKED — source identity (Phase A)`
 
-First failing boundary: `Docker/Compose readiness` (Docker Desktop daemon
-unreachable with `Error response from daemon: Docker Desktop is unable to
-start`).
+First failing boundary: `source identity` — `HEAD != origin/main`
+(`94999b6d1` vs `a2d84b59`).
 
 The audited SHA `a2d84b59f47cbce255ee03d74ffe6a1f49c84b46` matches
-`origin/main`; the supported Compose configuration resolves; the
-supported profile, governing ADRs, and bounded configuration-coherence
-contract are aligned. The audit cannot proceed to live runtime
-observation until the Docker Desktop daemon is restored on this host.
+`origin/main`; the supported Compose configuration resolves cleanly
+against the audited SHA; the supported profile, governing ADRs, and
+bounded configuration-coherence contract are aligned; the Docker daemon
+is reachable with no running Codexify stack. The audit cannot proceed to
+live runtime observation of the audited SHA until the local `main` is
+either reset to `origin/main`, the local-ahead commits are pushed to
+`origin/main` (so they become part of the audited reference), or this
+worktree is replaced with one whose `HEAD == origin/main`.
+
+The prior audit invocation in this same session was BLOCKED at
+`Docker/Compose readiness`. That condition is no longer the first failing
+boundary; the daemon recovered during this audit's window. This audit's
+classification is `BLOCKED` at `source identity`.
 
 ## 46. Follow-up scope
 
 This audit is intentionally narrow:
 
-- It does not modify code, tests, configuration, or runtime.
-- It does not attempt to repair the Docker Desktop daemon, switch
-  container runtimes, or restart supporting services.
+- It does not modify code, tests, configuration, runtime, or branch
+  state.
+- It does not attempt to merge, pull, rebase, or reset the local
+  worktree.
+- It does not attempt to repair the Docker Desktop daemon (it recovered
+  on its own).
 - It does not perform the focused negative-semantics test slice because
-  that slice is a separate audit unit, not a substitute for live runtime
-  proof.
+  the audit stopped at Phase A; the slice is a separate audit unit, not
+  a substitute for live runtime proof.
 
 Axis will interpret the receipt and select the next atomic slice.
