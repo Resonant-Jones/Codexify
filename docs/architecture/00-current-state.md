@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-08-21
+2026-08-22
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first Beta hardening. The audited implementation baseline is `e35de71c6`, including bounded Settings/Connections route promotion, Anthropic account-export import reconciliation, Guardian Pi readiness diagnostics, and Settings dock UI polish. The Beta boundary remains governed by ADR-069; fresh current-tip supported-Compose proof is still open.
+`main` remains in local-first Beta hardening. Recent mainline work added audit evidence, a simplification-risk ledger, a frozen next-phase execution graph, a daily log, and a sidebar source icon; none expands the supported runtime. Fresh current-tip supported-Compose proof remains open.
 
 ## What changed recently
 
@@ -28,6 +28,10 @@ This file is authoritative for:
 - Canonicalized Guardian Pi authorized-readiness diagnostics and regression coverage; no live provider or OAuth support was established.
 - Repaired and requalified migration, psycopg3, Chroma-retirement, and supported-Compose proof seams; the current Compose closure receipt remains blocked at runtime selection/source provenance.
 - Merged Settings dock material and active-selector polish; this changes presentation, not release capability.
+- Captured a 2026-08-21 current-main supported-runtime audit; its preflight stopped at source identity and produced no new live health, chat, persistence, or retrieval evidence.
+- Added a simplification-opportunity audit; it does not change Beta posture and keeps canonical-versus-legacy configuration duplication as a high-risk reduction target.
+- Added a Claude sidebar source icon with regression coverage; this is presentation-only.
+- Froze the workspace-baseline next-phase execution graph; the document explicitly changes neither implementation nor release claims.
 
 ## Current supported reality
 
@@ -47,11 +51,12 @@ This file is authoritative for:
 - Do not assume Anthropic import includes Projects, `memories.json`, `users.json`, binary media reconstruction, arbitrary export shapes, or Anthropic inference.
 - Do not assume Connections catalog visibility provides a working adapter, configured credential, authorization, or live provider health; generic connector sync/mutation remains quarantined.
 - Do not assume TTS/voice execution, federation, graph writes, generic shell/filesystem tools, recursive agents, public Command Bus, or unattended automation are in Beta.
-- Do not count local branches, unmerged work, origin-only commits, or proof from another checkout as shipped reality.
+- Do not treat audit records, simplification recommendations, or the frozen next-phase graph as implementation or release proof.
+- Do not count feature branches, unmerged work, origin-only commits, or proof from another checkout as shipped reality.
 
 ## Active blockers
 
-- Fresh supported-Compose proof at current `main` is blocked: the latest closure receipt found no eligible target and rejected a cloud-capable, differently mounted Tester runtime as a substitute.
+- Fresh supported-Compose proof at current `main` is incomplete: the latest current-main audit stopped before live startup because its source-identity preflight did not match `origin/main`; no later current-tip runtime receipt is present on `main`.
 - Queue/worker/turn-lock/terminal-event behavior still lacks current-tip end-to-end proof with durable output and readback.
 - Canonical and legacy configuration paths coexist, leaving startup and operator-state drift risk.
 - Coding Loop and tool-enabled provider lanes lack current supported-profile proof of adapter execution, terminal completion, continuation, and durable source-thread readback.
