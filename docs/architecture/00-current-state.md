@@ -75,7 +75,8 @@ Real operational substrate or operator / developer mechanisms that may support B
 - direct Command Bus HTTP / control-plane surfaces;
 - plugin SDK internals;
 - developer-only diagnostics;
-- generic internal tooling or mutation surfaces that are not separately Beta-qualified.
+- generic internal tooling or mutation surfaces that are not separately Beta-qualified;
+- local Guardian Evidence bounded-read tooling (`scripts/guardian/read_bounded_evidence.py`; see also the Guardian Evidence bounded read contract and the static proof fixture `guardian-evidence-bounded-read.local-tooling.v1.json`) is present as Internal repository-local static evidence preparation over validated, allowlisted source references; it remains bounded and non-executing and does not authorize evidence ingestion, packet generation, authority promotion, source mutation, provider execution, WorkOrder or Execution Ledger writes, CI/default release gating, or release-support expansion.
 
 ### Qualification Pending
 
