@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-14T23:27:22Z",
-    "verified_commit": "f4fece599e9e081154a7a7a96e1923f7f5c205b5",
+    "verified_at": "2026-08-23T00:00:00Z",
+    "verified_commit": "3b13351ac27933eefa3a172abd1b6fb2adc92751",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB source routing after ADR-069 updated the Beta navigation order and support-boundary entry points; entrypoint, routing, and change-location guidance remain current."
+    "reason": "Re-verified Architecture KB entrypoint metadata against current main at the audited pre-change HEAD 3b13351ac; structural routing scope and read_when guidance remain accurate and source hash synchronized."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "1e0186da88eebd4d9f6bf3cdf19eab12e7aa8ea682741806102bc4f529d2b0a8",
+  "content_hash": "5613024e025bf999e96bfec5468b39d5b257339bae4b6992d6d2049731e084e4",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
