@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-22T14:30:45Z",
-    "verified_commit": "21d3353a99fb15e4621ef7cce48c6aa888d25b85",
+    "verified_at": "2026-08-22T16:31:55Z",
+    "verified_commit": "83298f13935d99f4c5562426595240f2a19f7352",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified architecture source routing after the ADR-069 release-class replay onto the canonical PR #736 DLG baseline; current-state remains the release-truth entrypoint and the Architecture KB's invalidating source anchors (README, current-state, architecture directory, etc.) are all still satisfied; ADR-069 class routing remains unchanged; no runtime proof or release expansion implied."
+    "reason": "Re-verified Architecture KB source routing after the committed current-state Internal bounded-read clarification; README bytes remain hash-valid, current-state remains the release-truth entrypoint, ADR-069 routing remains unchanged, and no runtime proof or release expansion is implied."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
