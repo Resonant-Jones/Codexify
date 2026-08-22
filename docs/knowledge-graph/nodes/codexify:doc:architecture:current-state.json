@@ -18,15 +18,15 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-20T00:03:57Z",
-    "verified_commit": "0f494b398b79f73c077322ef82456027e51d38f1",
+    "verified_at": "2026-08-23T00:00:00Z",
+    "verified_commit": "3b13351ac27933eefa3a172abd1b6fb2adc92751",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "window_days": 7,
-    "reason": "Re-verified Current State release truth after the 2026-08-19 Anthropic account-import Beta-boundary reconciliation: Anthropic / Claude account-export conversation import canonized as Beta Bounded / Conditional following the successful R2 supported-runtime proof; continuity posture advanced to beta-continuity-v2 at the audited pre-change revision 0f494b398; source hash synchronized."
+    "reason": "Re-verified Current State metadata against current main at the audited pre-change HEAD 3b13351ac; release authority scope and must_not_prove remain truthful and source hash synchronized."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -73,7 +73,7 @@
     "created_at": "2026-03-11T13:30:22Z",
     "effective_from": "2026-08-08T00:00:00Z"
   },
-  "content_hash": "20dc03816591bf445defbc9f9a921396a46b45fb95db3ebf5efc5dffdb419a53",
+  "content_hash": "076a885aa6e3c38f1ec289094598f986473e3de982ebd7bd07bb5d81fc8ce252",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
