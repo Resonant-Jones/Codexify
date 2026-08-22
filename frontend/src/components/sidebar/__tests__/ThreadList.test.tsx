@@ -5,16 +5,13 @@ import { useState } from "react";
 
 import ThreadList from "../ThreadList";
 import {
-  collectSidebarProvenanceOptions,
-  type SidebarProvenanceOption,
+  SIDEBAR_ORIGIN_OPTIONS,
+  type SidebarOriginOption,
 } from "../sidebarPresentation";
+import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 import type { Thread } from "@/types/ui";
 
-const SOURCE_OPTIONS: SidebarProvenanceOption[] = [
-  { value: "chatgpt", label: "ChatGPT" },
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-];
+const SOURCE_OPTIONS: SidebarOriginOption[] = SIDEBAR_ORIGIN_OPTIONS;
 
 function createThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -31,26 +28,26 @@ function createThread(overrides: Partial<Thread> = {}): Thread {
 function renderThreadList({
   threadOverrides = {},
   activeId = null,
-  provenanceFilter = null,
-  provenanceOptions = [],
-  onProvenanceFilterChange,
+  originSystem = null,
+  originOptions = [],
+  onOriginSystemChange,
 }: {
   threadOverrides?: Partial<Thread>;
   activeId?: string | null;
-  provenanceFilter?: string | null;
-  provenanceOptions?: SidebarProvenanceOption[];
-  onProvenanceFilterChange?: (sourceKey: string | null) => void;
+  originSystem?: ConversationOriginSystem | null;
+  originOptions?: SidebarOriginOption[];
+  onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
 } = {}) {
-  const handleProvenanceFilterChange = onProvenanceFilterChange ?? vi.fn();
+  const handleOriginSystemChange = onOriginSystemChange ?? vi.fn();
 
   return render(
     <ThreadList
       threads={[createThread(threadOverrides)]}
       activeId={activeId}
       scopeLabel="General"
-      provenanceFilter={provenanceFilter}
-      provenanceOptions={provenanceOptions}
-      onProvenanceFilterChange={handleProvenanceFilterChange}
+      originSystem={originSystem}
+      originOptions={originOptions}
+      onOriginSystemChange={handleOriginSystemChange}
       onSelect={vi.fn()}
       onNewChat={vi.fn()}
       onRename={vi.fn().mockResolvedValue(undefined)}
@@ -63,17 +60,17 @@ function renderThreadList({
 function SourceDockHarness({
   initialFilter = null,
   onChange,
-  provenanceOptions = SOURCE_OPTIONS,
+  originOptions = SOURCE_OPTIONS,
 }: {
-  initialFilter?: string | null;
-  onChange?: (sourceKey: string | null) => void;
-  provenanceOptions?: SidebarProvenanceOption[];
+  initialFilter?: ConversationOriginSystem | null;
+  onChange?: (originSystem: ConversationOriginSystem | null) => void;
+  originOptions?: SidebarOriginOption[];
 }) {
-  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(initialFilter);
+  const [originSystem, setOriginSystem] = useState<ConversationOriginSystem | null>(initialFilter);
 
-  const handleChange = (sourceKey: string | null) => {
-    onChange?.(sourceKey);
-    setProvenanceFilter(sourceKey);
+  const handleChange = (nextOriginSystem: ConversationOriginSystem | null) => {
+    onChange?.(nextOriginSystem);
+    setOriginSystem(nextOriginSystem);
   };
 
   return (
@@ -81,9 +78,9 @@ function SourceDockHarness({
       threads={[createThread()]}
       activeId={null}
       scopeLabel="General"
-      provenanceFilter={provenanceFilter}
-      provenanceOptions={provenanceOptions}
-      onProvenanceFilterChange={handleChange}
+      originSystem={originSystem}
+      originOptions={originOptions}
+      onOriginSystemChange={handleChange}
       onSelect={vi.fn()}
       onNewChat={vi.fn()}
       onRename={vi.fn().mockResolvedValue(undefined)}
@@ -93,14 +90,7 @@ function SourceDockHarness({
   );
 }
 
-const ICON_SOURCE_OPTIONS = collectSidebarProvenanceOptions([
-  createThread({ id: "thread-chatgpt", metadata: { import_source: "chatgpt" } }),
-  createThread({ id: "thread-openai", metadata: { source: "openai" } }),
-  createThread({ id: "thread-claude", metadata: { import_source: "claude" } }),
-  createThread({ id: "thread-anthropic", metadata: { source: "anthropic" } }),
-  createThread({ id: "thread-gemini", metadata: { provider: "gemini" } }),
-  createThread({ id: "thread-codexify", metadata: { source: "codexify" } }),
-]);
+const ICON_SOURCE_OPTIONS = SIDEBAR_ORIGIN_OPTIONS;
 
 describe("ThreadList dark mode surface contract", () => {
   afterEach(() => {
@@ -280,9 +270,9 @@ describe("ThreadList source dock", () => {
         threads={[createThread()]}
         activeId={null}
         scopeLabel="General"
-        provenanceFilter={null}
-        provenanceOptions={SOURCE_OPTIONS}
-        onProvenanceFilterChange={vi.fn()}
+        originSystem={null}
+        originOptions={SOURCE_OPTIONS}
+        onOriginSystemChange={vi.fn()}
         onSelect={vi.fn()}
         onNewChat={vi.fn()}
         onRename={vi.fn().mockResolvedValue(undefined)}
@@ -291,48 +281,68 @@ describe("ThreadList source dock", () => {
       />
     );
 
-    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
-    expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
+    expect(toolbar).toHaveClass(
+      "glass-pill",
+      "sidebar-source-navigation",
+      "flex",
+      "w-full",
+      "min-w-0",
+      "overflow-hidden"
+    );
 
     const scrollRail = toolbar.querySelector(".overflow-x-auto");
     expect(scrollRail).not.toBeNull();
     expect(scrollRail).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+
+    expect(within(toolbar).getByRole("button", { name: "All" })).toHaveClass(
+      "sidebar-source-navigation__all"
+    );
+    for (const label of ["Codexify", "ChatGPT", "Claude"]) {
+      expect(within(toolbar).getByRole("button", { name: label })).toHaveClass(
+        "sidebar-source-navigation__control"
+      );
+    }
   });
 
   it("keeps All mutually exclusive with the canonical source pills", () => {
     const onChange = vi.fn();
     render(<SourceDockHarness onChange={onChange} />);
 
-    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
     const allButton = within(toolbar).getByRole("button", { name: "All" });
-    const chatgptButton = within(toolbar).getByRole("button", { name: "ChatGPT" });
-    const openaiButton = within(toolbar).getByRole("button", { name: "OpenAI" });
+    const codexifyButton = within(toolbar).getByRole("button", { name: "Codexify" });
+    const openaiButton = within(toolbar).getByRole("button", { name: "ChatGPT" });
+    const claudeButton = within(toolbar).getByRole("button", { name: "Claude" });
 
     expect(allButton).toHaveAttribute("aria-pressed", "true");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
+    expect(codexifyButton).toHaveAttribute("aria-pressed", "false");
     expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    expect(claudeButton).toHaveAttribute("aria-pressed", "false");
 
-    fireEvent.click(chatgptButton);
+    fireEvent.click(claudeButton);
 
-    expect(onChange).toHaveBeenCalledWith("chatgpt");
+    expect(onChange).toHaveBeenCalledWith("anthropic");
     expect(allButton).toHaveAttribute("aria-pressed", "false");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "true");
+    expect(codexifyButton).toHaveAttribute("aria-pressed", "false");
     expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    expect(claudeButton).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(allButton);
 
     expect(onChange).toHaveBeenLastCalledWith(null);
     expect(allButton).toHaveAttribute("aria-pressed", "true");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
+    expect(codexifyButton).toHaveAttribute("aria-pressed", "false");
     expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    expect(claudeButton).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("renders compact source logos inside the provenance buttons", () => {
+  it("renders source marks inside the canonical navigation controls", () => {
     const onChange = vi.fn();
-    render(<SourceDockHarness onChange={onChange} provenanceOptions={ICON_SOURCE_OPTIONS} />);
+    render(<SourceDockHarness onChange={onChange} originOptions={ICON_SOURCE_OPTIONS} />);
 
-    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
-    const labels = ["ChatGPT", "OpenAI", "Claude", "Anthropic", "Gemini", "Codexify"] as const;
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
+    const labels = ["Codexify", "ChatGPT", "Claude"] as const;
 
     for (const label of labels) {
       const button = within(toolbar).getByRole("button", { name: label });
@@ -343,27 +353,19 @@ describe("ThreadList source dock", () => {
       expect(icon).toHaveAttribute("aria-hidden", "true");
       expect(icon).toHaveClass(
         "block",
-        "h-4",
-        "w-4",
         "aspect-square",
-        "max-h-4",
-        "max-w-4",
         "shrink-0",
         "select-none",
-        "object-contain"
+        "object-contain",
+        "sidebar-source-navigation__mark"
       );
+      expect(button).toHaveClass("sidebar-source-navigation__control");
     }
 
-    expect(within(toolbar).getByRole("button", { name: "Claude" }).querySelector("img"))
-      .toHaveAttribute(
-        "src",
-        within(toolbar).getByRole("button", { name: "Anthropic" }).querySelector("img")?.getAttribute("src")
-      );
+    const claudeButton = within(toolbar).getByRole("button", { name: "Claude" });
+    fireEvent.click(claudeButton);
 
-    const geminiButton = within(toolbar).getByRole("button", { name: "Gemini" });
-    fireEvent.click(geminiButton);
-
-    expect(onChange).toHaveBeenCalledWith("gemini");
-    expect(geminiButton).toHaveAttribute("aria-pressed", "true");
+    expect(onChange).toHaveBeenCalledWith("anthropic");
+    expect(claudeButton).toHaveAttribute("aria-pressed", "true");
   });
 });

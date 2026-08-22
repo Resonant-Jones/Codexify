@@ -2,10 +2,10 @@ import * as React from "react";
 import type { ComponentType } from "react";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 import SourceLogoImage from "./icons/SourceLogoImage";
 import openaiOfficialSrc from "@/assets/brands/openai/openai-official.png";
 import anthropicOfficialSrc from "@/assets/brands/anthropic/Rusty-Butthole.png";
-import googleOfficialSrc from "@/assets/brands/google/google-official.png";
 import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
 /* ================================
@@ -196,73 +196,27 @@ export function projectMatchesSidebarQuery(
     .includes(query.trim().toLowerCase());
 }
 
-/* ================================
-   Provenance System (main)
-================================ */
+/* =======================================
+   Canonical conversation-origin presentation
+======================================= */
 
-export type SidebarProvenanceOption = {
-  value: string;
+export type SidebarOriginOption = {
+  value: ConversationOriginSystem;
   label: string;
-  description?: string;
+  description: string;
   Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 };
 
-const CANONICAL_PROVENANCE_LABELS = new Map<string, string>([
-  ["chatgpt", "ChatGPT"],
-  ["openai", "OpenAI"],
-  ["claude", "Claude"],
-  ["anthropic", "Anthropic"],
-  ["gemini", "Gemini"],
-  ["perplexity", "Perplexity"],
-]);
-
-const CANONICAL_PROVENANCE_KEY_ALIASES = new Map<string, string>([
-  ["chatgpt-import", "chatgpt"],
-  ["chat-gpt", "chatgpt"],
-  ["imported-from-chatgpt", "chatgpt"],
-  ["chatgpt-imported", "chatgpt"],
-  ["open-ai", "openai"],
-]);
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function normalizeLookupKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function formatSidebarProvenanceLabel(key: string): string {
-  const canonical = CANONICAL_PROVENANCE_LABELS.get(key);
-  if (canonical) return canonical;
-
-  return key
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-type SidebarProvenanceDescriptor = {
-  key: string;
-  label: string;
-};
-
-type SidebarProvenanceIconProps = {
+type SidebarOriginIconProps = {
   className?: string;
   "aria-hidden"?: boolean;
 };
 
-function createSidebarProvenanceIcon(
+function createSidebarOriginIcon(
   name: string,
   src: string
-): ComponentType<SidebarProvenanceIconProps> {
-  const Icon = ({ className, "aria-hidden": ariaHidden }: SidebarProvenanceIconProps) =>
+): ComponentType<SidebarOriginIconProps> {
+  const Icon = ({ className, "aria-hidden": ariaHidden }: SidebarOriginIconProps) =>
     React.createElement(SourceLogoImage, {
       src,
       alt: "",
@@ -270,108 +224,29 @@ function createSidebarProvenanceIcon(
       "aria-hidden": ariaHidden ?? true,
     });
 
-  Icon.displayName = `${name}SidebarProvenanceIcon`;
+  Icon.displayName = `${name}SidebarOriginIcon`;
 
   return Icon;
 }
 
-const SIDEBAR_PROVENANCE_ICONS: Record<string, ComponentType<SidebarProvenanceIconProps>> = {
-  chatgpt: createSidebarProvenanceIcon("ChatGPT", openaiOfficialSrc),
-  openai: createSidebarProvenanceIcon("OpenAI", openaiOfficialSrc),
-  claude: createSidebarProvenanceIcon("Claude", anthropicOfficialSrc),
-  anthropic: createSidebarProvenanceIcon("Anthropic", anthropicOfficialSrc),
-  gemini: createSidebarProvenanceIcon("Gemini", googleOfficialSrc),
-  codexify: createSidebarProvenanceIcon("Codexify", codexifyMarkSrc),
-};
-
-function resolveSidebarProvenanceIcon(key: string): ComponentType<SidebarProvenanceIconProps> | null {
-  return SIDEBAR_PROVENANCE_ICONS[key] ?? null;
-}
-
-export function normalizeSidebarProvenanceKey(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = normalizeLookupKey(value);
-  if (!normalized) return null;
-  const alias = CANONICAL_PROVENANCE_KEY_ALIASES.get(normalized);
-  if (alias) return alias;
-  if (normalized.includes("chatgpt")) return "chatgpt";
-  if (normalized.includes("openai")) return "openai";
-  return normalized;
-}
-
-function resolveSidebarProvenanceDescriptor(
-  value: unknown
-): SidebarProvenanceDescriptor | null {
-  const key = normalizeSidebarProvenanceKey(value);
-  if (!key) return null;
-  return {
-    key,
-    label: formatSidebarProvenanceLabel(key),
-  };
-}
-
-export function normalizeSidebarProvenanceLabel(value: unknown): string | null {
-  return resolveSidebarProvenanceDescriptor(value)?.label ?? null;
-}
-
-function readThreadProvenanceCandidates(thread: Thread): unknown[] {
-  const metadata = asRecord(thread.metadata);
-  if (!metadata) return [];
-
-  const provenance = asRecord(metadata.provenance);
-
-  return [
-    metadata.import_source,
-    metadata.provider,
-    metadata.source,
-    provenance?.provider,
-    provenance?.source,
-  ];
-}
-
-function resolveThreadProvenanceDescriptor(
-  thread: Thread
-): SidebarProvenanceDescriptor | null {
-  for (const candidate of readThreadProvenanceCandidates(thread)) {
-    const descriptor = resolveSidebarProvenanceDescriptor(candidate);
-    if (descriptor) return descriptor;
-  }
-  return null;
-}
-
-export function getSidebarThreadProvenanceKey(thread: Thread): string | null {
-  return resolveThreadProvenanceDescriptor(thread)?.key ?? null;
-}
-
-export function getSidebarThreadProvenanceLabel(thread: Thread): string | null {
-  return resolveThreadProvenanceDescriptor(thread)?.label ?? null;
-}
-
-export function collectSidebarProvenanceOptions(
-  threads: Thread[]
-): SidebarProvenanceOption[] {
-  const seen = new Set<string>();
-  const options: SidebarProvenanceOption[] = [];
-
-  for (const thread of threads) {
-    const descriptor = resolveThreadProvenanceDescriptor(thread);
-    if (!descriptor || seen.has(descriptor.key)) continue;
-    seen.add(descriptor.key);
-    const Icon = resolveSidebarProvenanceIcon(descriptor.key);
-    options.push(
-      Icon
-        ? { value: descriptor.key, label: descriptor.label, Icon }
-        : { value: descriptor.key, label: descriptor.label }
-    );
-  }
-
-  return options;
-}
-
-export function threadMatchesSidebarProvenance(
-  thread: Thread,
-  selectedProvenance: string | null
-): boolean {
-  if (!selectedProvenance) return true;
-  return getSidebarThreadProvenanceKey(thread) === selectedProvenance;
-}
+/** Fixed UI choices. These are not derived from project-local metadata. */
+export const SIDEBAR_ORIGIN_OPTIONS: SidebarOriginOption[] = [
+  {
+    value: "codexify",
+    label: "Codexify",
+    description: "Show all Codexify-origin conversations",
+    Icon: createSidebarOriginIcon("Codexify", codexifyMarkSrc),
+  },
+  {
+    value: "openai",
+    label: "ChatGPT",
+    description: "Show all ChatGPT-origin conversations",
+    Icon: createSidebarOriginIcon("ChatGPT", openaiOfficialSrc),
+  },
+  {
+    value: "anthropic",
+    label: "Claude",
+    description: "Show all Claude-origin conversations",
+    Icon: createSidebarOriginIcon("Claude", anthropicOfficialSrc),
+  },
+];

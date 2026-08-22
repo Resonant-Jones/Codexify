@@ -15,16 +15,14 @@ function createThread(id: string): Thread {
   };
 }
 
-const mockSetProvenanceFilter = vi.fn();
 const useSidebarThreadsOptionsSpy = vi.fn();
 const mockSidebarState = vi.hoisted(() => ({
   currentProjectId: null as string | null,
-  provenanceFilter: null as string | null,
   projectList: [] as Array<{ id: string; name: string; icon?: string; description?: string }>,
 }));
 
 vi.mock("../useSidebarThreads", () => ({
-  default: (options: unknown) => {
+  default: (options: any) => {
     useSidebarThreadsOptionsSpy(options);
     return {
     threads: [createThread("thread-1")],
@@ -32,11 +30,12 @@ vi.mock("../useSidebarThreads", () => ({
     scopeLabel: "General",
     currentProjectId: mockSidebarState.currentProjectId,
     setScope: vi.fn(),
-    provenanceFilter: mockSidebarState.provenanceFilter,
-    setProvenanceFilter: mockSetProvenanceFilter,
-    provenanceOptions: [
-      { value: "chatgpt", label: "ChatGPT" },
-      { value: "openai", label: "OpenAI" },
+    originSystem: options.originSystem ?? null,
+    setOriginSystem: options.onOriginSystemChange,
+    originOptions: [
+      { value: "codexify", label: "Codexify", description: "Codexify" },
+      { value: "openai", label: "ChatGPT", description: "ChatGPT" },
+      { value: "anthropic", label: "Claude", description: "Claude" },
     ],
     renameThread: vi.fn().mockResolvedValue(undefined),
     toggleArchiveThread: vi.fn().mockResolvedValue(undefined),
@@ -63,44 +62,69 @@ vi.mock("../CreateProjectModal", () => ({
   default: () => null,
 }));
 
-describe("SidebarRoot provenance filter wiring", () => {
+describe("SidebarRoot canonical origin filter wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
     window.localStorage.setItem("cfy.sidebarTab", "threads");
     mockSidebarState.currentProjectId = null;
-    mockSidebarState.provenanceFilter = "chatgpt";
     mockSidebarState.projectList = [];
   });
 
-  it("renders the canonical source dock and forwards stable keys", () => {
-    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+  it("forwards the controlled canonical origin between the toolbar and parent loader seam", () => {
+    const onOriginSystemChange = vi.fn();
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+        originSystem="anthropic"
+        onOriginSystemChange={onOriginSystemChange}
+      />
+    );
 
-    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
+    expect(useSidebarThreadsOptionsSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        originSystem: "anthropic",
+        onOriginSystemChange,
+      })
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Canonical conversation origin filter" });
     expect(toolbar).toBeInTheDocument();
     expect(within(toolbar).getByRole("button", { name: "All" })).toHaveAttribute(
       "aria-pressed",
       "false"
     );
-    expect(screen.getByRole("button", { name: "ChatGPT" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Claude" })).toHaveAttribute(
       "aria-pressed",
       "true"
     );
-    expect(screen.getByRole("button", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Codexify" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ChatGPT" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "OpenAI" }));
-    expect(mockSetProvenanceFilter).toHaveBeenCalledWith("openai");
+    fireEvent.click(screen.getByRole("button", { name: "ChatGPT" }));
+    expect(onOriginSystemChange).toHaveBeenCalledWith("openai");
   });
 
-  it("keeps the provenance filter out of the Projects tab", () => {
-    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+  it("keeps the canonical origin filter out of the Projects tab", () => {
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+        onOriginSystemChange={vi.fn()}
+      />
+    );
 
-    expect(screen.getByRole("button", { name: "ChatGPT" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Claude" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
 
     expect(screen.getByTestId("project-list")).toBeInTheDocument();
-    expect(screen.queryByRole("toolbar", { name: "Imported source filter" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Canonical conversation origin filter" })).not.toBeInTheDocument();
   });
 
   it("keeps the legacy Guardian tab key by default and isolates Documents tabs", () => {

@@ -19,8 +19,11 @@ import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
-import api from "@/lib/api";
-import { fetchChatThread, moveChatThread } from "@/lib/api";
+import api, {
+  buildChatThreadsPath,
+  fetchChatThread,
+  moveChatThread,
+} from "@/lib/api";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
@@ -34,6 +37,10 @@ import {
 } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import {
+  parseConversationOriginSystem,
+  type ConversationOriginSystem,
+} from "@/contracts/conversationOrigin";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type {
   RuntimeHealthStatus,
@@ -143,6 +150,7 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
     && (a.providerOverride ?? null) === (b.providerOverride ?? null)
     && (a.modelOverride ?? null) === (b.modelOverride ?? null)
+    && (a.originSystem ?? null) === (b.originSystem ?? null)
     && sameThreadConfig(a.threadConfig, b.threadConfig);
 };
 
@@ -177,6 +185,18 @@ export function __resetThreadRefreshGuardForTests(): void {
   threadRefreshGuard.inFlight = false;
   threadRefreshGuard.retryAfter = 0;
   threadRefreshGuard.failureCount = 0;
+}
+
+function emitSidebarToast(message: string): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent("cfy:toast", {
+        detail: { kind: "error", message },
+      })
+    );
+  } catch {
+    // The loader can also run in non-DOM test and server environments.
+  }
 }
 
 function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
@@ -349,11 +369,8 @@ export default function GuardianChatWithSidebar({
   });
 
   const [selectedProjectName, setSelectedProjectName] = React.useState<string | null>(null);
-
-  const handleSelectedProjectChange = React.useCallback((id: string | null, name: string | null) => {
-    setSelectedProjectId(id);
-    setSelectedProjectName(name);
-  }, []);
+  const [selectedOriginSystem, setSelectedOriginSystem] =
+    React.useState<ConversationOriginSystem | null>(null);
 
   React.useEffect(() => {
     if (selectedProjectId == null) return;
@@ -391,6 +408,45 @@ export default function GuardianChatWithSidebar({
     refreshFailureCount: 0,
   });
   const threadsRef = React.useRef<Thread[]>([]);
+  const threadQueryGenerationRef = React.useRef(0);
+  const invalidateThreadQuery = React.useCallback(() => {
+    threadQueryGenerationRef.current += 1;
+    const threadRefreshGuard = getThreadRefreshGuard();
+    threadRefreshGuard.inFlight = false;
+    threadRefreshGuard.retryAfter = 0;
+    threadRefreshGuard.failureCount = 0;
+    paginationRef.current = {
+      offset: 0,
+      hasMore: true,
+      loading: false,
+      refreshRetryAfter: 0,
+      refreshFailureCount: 0,
+    };
+    threadsRef.current = [];
+    setThreads([]);
+    setThreadsHasMore(true);
+    setThreadsLoadingMore(false);
+    setThreadsLoaded(false);
+  }, []);
+  const handleSelectedProjectChange = React.useCallback(
+    (id: string | null, name: string | null = null) => {
+      // A project lens and a canonical origin lens are mutually exclusive.
+      // Clear the origin before loading the explicitly selected project.
+      invalidateThreadQuery();
+      setSelectedOriginSystem(null);
+      setSelectedProjectId(id);
+      setSelectedProjectName(name);
+    },
+    [invalidateThreadQuery]
+  );
+  const handleSelectedOriginSystemChange = React.useCallback(
+    (originSystem: ConversationOriginSystem | null) => {
+      if (originSystem === selectedOriginSystem) return;
+      invalidateThreadQuery();
+      setSelectedOriginSystem(originSystem);
+    },
+    [invalidateThreadQuery, selectedOriginSystem]
+  );
   const mobileSidebarTriggerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarCloseRef = React.useRef<HTMLButtonElement | null>(null);
@@ -794,6 +850,9 @@ export default function GuardianChatWithSidebar({
       const providerOverrideVal =
         raw.provider_override ?? raw.providerOverride ?? null;
       const modelOverrideVal = raw.model_override ?? raw.modelOverride ?? null;
+      const originSystem = parseConversationOriginSystem(
+        raw.origin_system ?? raw.originSystem
+      );
       const threadConfig = normalizeThreadConfig(
         raw.thread_config ?? raw.threadConfig ?? null
       );
@@ -821,6 +880,7 @@ export default function GuardianChatWithSidebar({
         modelOverride:
           modelOverrideVal != null ? String(modelOverrideVal) : null,
         threadConfig,
+        originSystem,
         metadata: metadata,
       };
     },
@@ -967,6 +1027,7 @@ export default function GuardianChatWithSidebar({
 
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
+    const queryGeneration = threadQueryGenerationRef.current;
     const threadRefreshGuard = getThreadRefreshGuard();
     if (!checkAuthGate(auth, "threads load")) {
       return;
@@ -993,17 +1054,24 @@ export default function GuardianChatWithSidebar({
     try {
       const generalProjectId = readStoredGeneralProjectId();
       const projectFilter =
-        selectedProjectFilter != null
+        selectedOriginSystem == null
+        && selectedProjectFilter != null
           && !(generalProjectId != null && selectedProjectFilter === generalProjectId)
           ? selectedProjectFilter
           : null;
-      const res = await api.get("/chat/threads", {
+      const res = await api.get(buildChatThreadsPath(), {
         params: {
           limit: THREAD_PAGE_SIZE,
           offset,
+          ...(selectedOriginSystem != null
+            ? { origin_system: selectedOriginSystem }
+            : {}),
           ...(projectFilter != null ? { project_id: projectFilter } : {}),
         },
       });
+      if (queryGeneration !== threadQueryGenerationRef.current) {
+        return;
+      }
       const data = res?.data;
       const rawList = Array.isArray(data?.threads)
         ? data.threads
@@ -1042,6 +1110,9 @@ export default function GuardianChatWithSidebar({
       threadRefreshGuard.retryAfter = 0;
       setThreadsHasMore(hasMore);
     } catch (err) {
+      if (queryGeneration !== threadQueryGenerationRef.current) {
+        return;
+      }
       console.warn("[guardian] failed to load threads", err);
       if (reset) {
         const failureCount = paginationRef.current.refreshFailureCount + 1;
@@ -1058,14 +1129,32 @@ export default function GuardianChatWithSidebar({
         );
         threadRefreshGuard.retryAfter = Date.now() + sharedRetryDelay;
       }
-      // Preserve last-known list when refresh fails; avoid transient UI data loss.
+      if (selectedOriginSystem != null) {
+        // A source query must never masquerade stale project results as source rows.
+        threadsRef.current = [];
+        setThreads([]);
+        paginationRef.current.offset = 0;
+        paginationRef.current.hasMore = false;
+        setThreadsHasMore(false);
+        emitSidebarToast(
+          "Could not load conversations for this source. Select All to return to project conversations."
+        );
+      }
     } finally {
-      threadRefreshGuard.inFlight = false;
-      paginationRef.current.loading = false;
-      setThreadsLoadingMore(false);
-      setThreadsLoaded(true);
+      if (queryGeneration === threadQueryGenerationRef.current) {
+        threadRefreshGuard.inFlight = false;
+        paginationRef.current.loading = false;
+        setThreadsLoadingMore(false);
+        setThreadsLoaded(true);
+      }
     }
-  }, [auth, mapThreadRecord, mergeThreadsPage, selectedProjectFilter]);
+  }, [
+    auth,
+    mapThreadRecord,
+    mergeThreadsPage,
+    selectedOriginSystem,
+    selectedProjectFilter,
+  ]);
 
   const handleDeleteThreadStateSync = React.useCallback(
     (threadId: string) => {
@@ -1179,14 +1268,16 @@ export default function GuardianChatWithSidebar({
       window.removeEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
   }, [handleNewChat]);
 
-  // Load once per project scope. Keep `loadThreads` out of the dependency list
-  // because its identity changes when unrelated thread state changes.
+  // Load once for the active canonical origin lens or ordinary project scope.
+  // Keep `loadThreads` out of the dependency list because its identity changes
+  // when unrelated thread state changes.
   React.useEffect(() => {
+    invalidateThreadQuery();
     void loadThreads({ reset: true });
-    // The project scope is the intentional trigger; `loadThreads` is recreated
+    // The query scope is the intentional trigger; `loadThreads` is recreated
     // by unrelated callback dependencies during normal state updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectFilter]);
+  }, [invalidateThreadQuery, selectedOriginSystem, selectedProjectFilter]);
 
   const handleBranchThread = React.useCallback(
     async (threadId: number, options?: { title?: string }) => {
@@ -1990,6 +2081,8 @@ export default function GuardianChatWithSidebar({
                         projectId={selectedProjectId}
                         projectName={selectedProjectName}
                         onProjectChange={handleSelectedProjectChange}
+                        originSystem={selectedOriginSystem}
+                        onOriginSystemChange={handleSelectedOriginSystemChange}
                         projectCache={projectCache}
                         hasMoreThreads={threadsHasMore}
                         loadingMoreThreads={threadsLoadingMore}
@@ -2074,6 +2167,8 @@ export default function GuardianChatWithSidebar({
                   projectId={selectedProjectId}
                   projectName={selectedProjectName}
                   onProjectChange={handleSelectedProjectChange}
+                  originSystem={selectedOriginSystem}
+                  onOriginSystemChange={handleSelectedOriginSystemChange}
                   projectCache={projectCache}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}

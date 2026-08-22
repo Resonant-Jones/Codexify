@@ -238,82 +238,82 @@ describe("useSidebarThreads persistence boundaries", () => {
   });
 });
 
-describe("useSidebarThreads provenance filters", () => {
+describe("useSidebarThreads canonical origin lens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
   });
 
-  it("deduplicates canonical provenance options by source key and filters every matching imported thread", () => {
+  it("keeps canonical origin results cross-project and does not use metadata as filter authority", () => {
     const initialThreads = [
       createThread("11", {
         projectId: "project-1",
-        title: "ChatGPT import A",
-        metadata: { import_source: "chatgpt" },
-      }),
-      createThread("22", {
-        projectId: "project-1",
-        title: "ChatGPT import B",
-        metadata: { provider: "ChatGPT" },
-      }),
-      createThread("33", {
-        projectId: "project-1",
-        title: "OpenAI import",
+        title: "Current Project thread",
+        originSystem: "anthropic",
         metadata: { source: "openai" },
       }),
-      createThread("44", {
-        projectId: "project-1",
-        title: "Native thread",
+      createThread("22", {
+        projectId: "project-2",
+        title: "Claude thread in another Project",
+        originSystem: "anthropic",
+        metadata: { import_source: "chatgpt" },
+      }),
+      createThread("33", {
+        projectId: "project-3",
+        title: "Another canonical origin result",
+        originSystem: "anthropic",
+        metadata: { provider: "gemini" },
       }),
     ];
+    const onOriginSystemChange = vi.fn();
 
-    const { result } = renderHook(
-      ({ threads }) =>
+    const { result, rerender } = renderHook(
+      ({ threads, originSystem }) =>
         useSidebarThreads({
           initialThreads: threads,
           projectId: "project-1",
-          projects: [{ id: "project-1", name: "Engineering", icon: "🧭" }],
+          originSystem,
+          onOriginSystemChange,
+          projects: [
+            { id: "project-1", name: "Engineering", icon: "🧭" },
+            { id: "project-2", name: "Imports", icon: "📁" },
+            { id: "project-3", name: "Research", icon: "🧭" },
+          ],
         }),
-      { initialProps: { threads: initialThreads } }
+      { initialProps: { threads: initialThreads, originSystem: "anthropic" as const } }
     );
 
-    expect(result.current.provenanceOptions).toEqual([
-      expect.objectContaining({
-        value: "chatgpt",
-        label: "ChatGPT",
-        Icon: expect.any(Function),
-      }),
-      expect.objectContaining({
-        value: "openai",
-        label: "OpenAI",
-        Icon: expect.any(Function),
-      }),
+    expect(result.current.originOptions.map((option) => option.value)).toEqual([
+      "codexify",
+      "openai",
+      "anthropic",
     ]);
+    expect(result.current.originOptions.map((option) => option.label)).toEqual([
+      "Codexify",
+      "ChatGPT",
+      "Claude",
+    ]);
+    expect(result.current.scopeLabel).toBe("All projects");
     expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
       "11",
       "22",
       "33",
-      "44",
     ]);
 
     act(() => {
-      result.current.setProvenanceFilter("chatgpt");
+      result.current.setOriginSystem?.("openai");
     });
-    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11", "22"]);
+    expect(onOriginSystemChange).toHaveBeenCalledWith("openai");
 
-    act(() => {
-      result.current.setProvenanceFilter("openai");
-    });
-    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["33"]);
-
-    act(() => {
-      result.current.setProvenanceFilter(null);
-    });
+    rerender({ threads: initialThreads, originSystem: null });
+    expect(result.current.scopeLabel).toBe("Engineering");
     expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
       "11",
-      "22",
-      "33",
-      "44",
     ]);
+
+    act(() => {
+      result.current.setOriginSystem?.(null);
+    });
+    expect(onOriginSystemChange).toHaveBeenLastCalledWith(null);
   });
 });
