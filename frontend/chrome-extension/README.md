@@ -79,6 +79,21 @@ The side panel includes a compact accent-colour selector next to the connection 
 - If the backend cannot be reached, the accent falls back to the neutral default and chat continues normally.
 - The accent is a presentation-preference token, not a CSS literal or raw colour value. No accent value is written to Chrome local or sync storage.
 
+## Thread navigation and context
+
+The connected side panel reads the existing account-scoped `/api/projects` and
+`/api/chat/threads` surfaces through its extension-specific authenticated
+adapter. It does not create a parallel thread or project store.
+
+- Open the thread switcher to choose an existing project as the thread-directory lens. A project change reloads the directory from its first bounded page; it never moves an existing thread.
+- Choose **Origin** to view a canonical conversation lineage (`codexify`, `openai`, or `anthropic`). This mirrors Guardian's main-client navigation: an origin lens owns the directory query until an explicit project is selected again. Provenance is backend-owned and is never inferred from titles or message text.
+- The directory initially reads 50 threads. **Load more** requests the next backend page, appends only new thread IDs, and stops when the backend reports exhaustion. The panel does not fetch an unbounded account history when it opens.
+- A selected thread remains selected even if it is outside the active page or directory lens. The compact context strip reports known project and canonical origin plus the persisted provider and model. It prefers persisted `thread_config` provider/model values, then preserves any backend overrides separately; absent configuration is shown as **Unspecified** rather than guessed.
+
+The extension retains the canonical thread configuration fields `inferenceMode`,
+`retrievalSource`, and `personaId` when returned, although this narrow surface
+does not expose controls for them.
+
 ## Guardian intervention prompts
 
 For the selected thread, the side panel projects the same bounded Guardian
@@ -120,8 +135,9 @@ User-authored messages remain literal and are not reinterpreted as Markdown.
 - Manual unpacked installation and manual rebuild/reload only.
 - The side panel observes task lifecycle events but renders only persisted assistant messages as final output; it does not fabricate token streaming.
 - Guardian intervention state is refreshed from backend truth; the extension does not retain an approval inbox or authoritative browser-local approval record.
+- Thread navigation supports existing projects, canonical origin filtering, and bounded pagination only. It does not create, edit, delete, move, or reparent projects or threads.
 - Closing or reloading the side panel preserves the configured connection and selected thread, but does not persist an active task-event subscription. Reopen the selected thread to read any reply that completed while the panel was closed.
-- No page awareness, selected-text capture, content scripts, screenshots, tab control, browser automation, context menus, uploads, voice, provider/model selection, persona editing, or command-bus UI.
+- No page awareness, selected-text capture, content scripts, screenshots, tab control, browser automation, context menus, uploads, voice, provider/model selection, retrieval/inference/persona controls, or command-bus UI.
 - No full Codexify `AppShell`, workspace navigation, documents, gallery, settings application, or secondary inspector panels.
 - Backend availability, exposure, TLS, authentication, provider readiness, queue health, and worker execution remain operator responsibilities.
 - The private Tailscale/session mode does not establish public remote-access, cloud-provider, or release-support claims.
@@ -133,8 +149,8 @@ For a live proof, use an already-healthy backend and verify in order:
 1. The toolbar action opens the side panel.
 2. The host prompt is limited to the configured origin.
 3. The selected authentication mode succeeds without the other credential header being sent.
-4. Existing threads and persisted messages load.
-5. **New Chat** creates a backend thread.
+4. Existing projects, threads, and persisted messages load. Use the thread switcher to verify a project/origin directory lens and **Load more** when a later page is available.
+5. **New Chat** creates a backend thread; with an explicit project lens, it uses that existing project association.
 6. Sending persists the user message before completion acceptance.
 7. **Completion accepted** remains pending until task-terminal evidence arrives.
 8. The completed assistant reply is re-read from the backend transcript.
