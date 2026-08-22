@@ -4,7 +4,7 @@ Use this guide only when preflight fails or the user asks how the delegation plu
 
 ## Architecture
 
-Codex invokes a local shell script. The script launches `pi` in non-interactive print mode with an ephemeral session, selects Pi's built-in `deepseek` provider and a currently registered model, restricts the available Pi tools according to the delegation mode, and saves the final response as a local artifact.
+Codex invokes a local shell script. The script launches `pi` in non-interactive print mode with an ephemeral session, selects the requested Pi provider and a currently registered model, restricts the available Pi tools according to the delegation mode, and saves the final response as a local artifact.
 
 Codex remains responsible for planning, repository permissions, diff review, testing, and integration.
 
@@ -89,7 +89,15 @@ Optionally set a default:
 export PI_DEEPSEEK_MODEL="deepseek-v4-pro"
 ```
 
-Model IDs change over time. Run `pi --list-models deepseek` after Pi upgrades and update your default if needed. The wrapper never selects a model that is absent from the current listing.
+Model IDs change over time. Run `pi --list-models deepseek` after Pi upgrades and update your default if needed. The wrapper never selects a model that is absent from the current listing when selection is implicit.
+
+The provider is configurable. To inspect another provider and its exact Pi inventory, pass `--provider`:
+
+```bash
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh --check --provider openai
+```
+
+If Pi returns a settings-lock or permission error, the wrapper reports `inventory_status=unavailable` and recommends setting `PI_CODING_AGENT_DIR` to a writable Pi agent directory, then authenticating that provider there. This is distinct from “the requested model is unavailable.”
 
 ## 4. Live probe
 
@@ -150,6 +158,21 @@ Set `DEEPSEEK_API_KEY` or authenticate through Pi. Do not pass the key through `
 ### No model selected
 
 Run `pi --list-models deepseek`, then set `PI_DEEPSEEK_MODEL` to an exact available identifier or matching pattern.
+
+For an intentionally exact model choice, pass `--model PROVIDER_MODEL`. This is allowed when inventory is temporarily unavailable; Pi will accept or reject the model at execution time and the result preserves that evidence. For recovery from an unresponsive model, use repeatable `--fallback-model` options together with `--fallback-on-failure`. Fallbacks are never selected implicitly.
+
+### Pi settings lock or `EPERM`
+
+Pi may fail before model discovery if its agent directory or settings lock is not writable. Do not delete or bypass the lock blindly. Point Pi at an operator-owned writable agent directory and authenticate there:
+
+```bash
+export PI_CODING_AGENT_DIR="$HOME/.pi/codex-agent"
+pi
+# use /login for the selected provider
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh --check --provider deepseek
+```
+
+Keep that directory outside the repository and never commit it. If the environment prevents creation of any writable Pi agent directory, inventory is unavailable; only an independently verified, explicitly selected model attempt can proceed.
 
 ### Provider or model rejected at runtime
 

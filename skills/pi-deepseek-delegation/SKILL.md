@@ -83,7 +83,7 @@ Model selection order:
 3. Otherwise the wrapper selects from `pi --list-models deepseek`, preferring:
    - `deepseek-v4-pro`
    - `deepseek-v4-flash`
-4. Falls back to the first listed model for the provider.
+4. Falls back to the first listed model for the provider when inventory succeeds.
 
 Never hardcode a stale model ID. Rely on Pi's current registry output.
 
@@ -93,7 +93,7 @@ Provider selection:
 2. Otherwise use `PI_DEEPSEEK_PROVIDER`.
 3. Defaults to Pi's built-in `deepseek` provider.
 
-Do not register a custom provider. Do not patch Pi core.
+Do not register a custom provider. Do not patch Pi core. An explicitly supplied model is passed through to Pi even when inventory is temporarily unavailable; Pi remains the authority for runtime acceptance.
 
 ## Construct the handoff
 
@@ -198,3 +198,24 @@ In the final engineering summary, include a compact delegation receipt:
 - Remaining uncertainty.
 
 Do not expose API keys, hidden reasoning, or raw credentials in logs or summaries.
+
+## Model inventory and explicit fallback
+
+The wrapper keeps `deepseek` as the default provider for compatibility, but it can inspect any Pi provider exposed by the local runtime:
+
+```bash
+bash {baseDir}/scripts/pi_deepseek_delegate.sh --check --provider openai
+```
+
+Inventory is evidence, not authority: it reports exact provider/model rows returned by Pi. If inventory fails because Pi cannot read its settings (for example an `EPERM` lock), the check reports the failure and a writable `PI_CODING_AGENT_DIR` remediation. An explicitly requested `--model` may still be attempted when authentication is configured; Pi remains the final runtime authority. Implicit selection remains fail-closed and never invents a model.
+
+Fallback is explicit and auditable. List exact alternatives and opt in to trying them only after the first model fails or times out:
+
+```bash
+bash {baseDir}/scripts/pi_deepseek_delegate.sh \
+  --provider deepseek --model deepseek-v4-pro \
+  --fallback-model deepseek-v4-flash \
+  --fallback-on-failure --task "..."
+```
+
+The wrapper emits each failed model, the next candidate, and the successful artifact path. It never silently substitutes a model.

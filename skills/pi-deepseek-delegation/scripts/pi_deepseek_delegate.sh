@@ -7,6 +7,8 @@ TASK_FILE=""
 CWD="$PWD"
 MODEL="${PI_DEEPSEEK_MODEL:-}"
 PROVIDER="${PI_DEEPSEEK_PROVIDER:-deepseek}"
+FALLBACK_MODELS=()
+FALLBACK_ON_FAILURE=0
 THINKING="${PI_DEEPSEEK_THINKING:-high}"
 OUTPUT_DIR=""
 CHECK_ONLY=0
@@ -30,7 +32,9 @@ Options:
   --context-file PATH       Repeatable. Passed to Pi as an @file argument.
   --cwd DIR                 Delegated working directory. Default: current directory.
   --provider PROVIDER       Pi provider ID. Default: deepseek (built-in).
-  --model MODEL             Pi model ID. Overrides PI_DEEPSEEK_MODEL.
+  --model MODEL             Exact Pi model ID. Overrides PI_DEEPSEEK_MODEL.
+  --fallback-model MODEL    Repeatable fallback model (requires --fallback-on-failure).
+  --fallback-on-failure     Try listed fallback models after a failed or timed-out run.
   --thinking LEVEL          off|minimal|low|medium|high|xhigh|max. Default: high.
   --timeout-seconds N       Timeout for the delegation. Default: 180.
   --output-dir DIR          Default: <cwd>/.codex/delegations/deepseek
@@ -90,6 +94,15 @@ while [[ $# -gt 0 ]]; do
       MODEL="$2"
       shift 2
       ;;
+    --fallback-model)
+      [[ $# -ge 2 ]] || fail "--fallback-model requires a value"
+      FALLBACK_MODELS+=("$2")
+      shift 2
+      ;;
+    --fallback-on-failure)
+      FALLBACK_ON_FAILURE=1
+      shift
+      ;;
     --thinking)
       [[ $# -ge 2 ]] || fail "--thinking requires a value"
       THINKING="$2"
@@ -146,7 +159,7 @@ command -v pi >/dev/null 2>&1 || fail "pi is not installed or not on PATH"
 CWD="$(cd "$CWD" && pwd)"
 
 AUTH_CONFIGURED=0
-if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
+if [[ -n "${DEEPSEEK_API_KEY:-}" && "$PROVIDER" == "deepseek" ]]; then
   AUTH_CONFIGURED=1
 elif [[ -f "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json" ]]; then
   if python3 -c "
@@ -154,7 +167,7 @@ import json, sys
 try:
     with open('${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json') as f:
         auth = json.load(f)
-    if 'deepseek' in auth:
+    if '${PROVIDER}' in auth:
         sys.exit(0)
 except Exception:
     pass
@@ -164,7 +177,10 @@ sys.exit(1)
   fi
 fi
 
-MODEL_LIST="$(pi --list-models "$PROVIDER" 2>&1 || true)"
+MODEL_LIST_STATUS=0
+MODEL_LIST="$(pi --list-models "$PROVIDER" 2>&1)" || MODEL_LIST_STATUS=$?
+
+AVAILABLE_MODELS="$(printf '%s\n' "$MODEL_LIST" | awk -v provider="$PROVIDER" '$1 == provider && $2 ~ /^[A-Za-z0-9._:\/*-]+$/ { print $2 }' | awk '!seen[$0]++')"
 
 select_model() {
   if [[ -n "$MODEL" ]]; then
@@ -176,7 +192,7 @@ select_model() {
   local candidate
 
   for candidate in $preferred_order; do
-    if printf '%s\n' "$MODEL_LIST" | awk '{print $2}' | grep -Fx "$candidate" >/dev/null 2>&1; then
+    if printf '%s\n' "$AVAILABLE_MODELS" | grep -Fx "$candidate" >/dev/null 2>&1; then
       printf '%s' "$candidate"
       return
     fi
@@ -184,7 +200,7 @@ select_model() {
 
   # Fall back to first listed model for the provider after the header line
   local first_model
-  first_model="$(printf '%s\n' "$MODEL_LIST" | awk 'NR>1 && NF>=2 {print $2; exit}')"
+  first_model="$(printf '%s\n' "$AVAILABLE_MODELS" | sed -n '1p')"
   if [[ -n "$first_model" ]]; then
     printf '%s' "$first_model"
     return
@@ -216,14 +232,18 @@ if [[ $CHECK_ONLY -eq 1 ]]; then
       printf '%s\n' "$MODEL_LIST"
       printf '%s\n' 'available_models_end'
     fi
+    printf 'inventory_status=%s\n' "$([[ $MODEL_LIST_STATUS -eq 0 ]] && printf available || printf unavailable)"
+    if [[ $MODEL_LIST_STATUS -ne 0 ]] && printf '%s' "$MODEL_LIST" | grep -Eiq 'eperm|permission|lock'; then
+      printf 'inventory_remediation=Set PI_CODING_AGENT_DIR to a writable Pi agent directory and authenticate this provider there.\n'
+    fi
   fi
   [[ $AUTH_CONFIGURED -eq 1 ]] || exit 2
   [[ -n "$MODEL" ]] || exit 3
   exit 0
 fi
 
-[[ -n "$MODEL" ]] || fail "no DeepSeek model selected; run 'pi --list-models $PROVIDER' and set PI_DEEPSEEK_MODEL"
-[[ $AUTH_CONFIGURED -eq 1 ]] || fail "DeepSeek authentication not detected; set DEEPSEEK_API_KEY or authenticate through Pi"
+[[ -n "$MODEL" ]] || fail "no model selected; run 'pi --list-models $PROVIDER' or pass --model PROVIDER_MODEL"
+[[ $AUTH_CONFIGURED -eq 1 ]] || fail "authentication not detected for provider '$PROVIDER'; set its API key or authenticate through Pi"
 
 if [[ $PROBE_ONLY -eq 1 ]]; then
   [[ "${CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK:-0}" == "1" ]] || fail "external-provider acknowledgement missing; set CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1 after user consent"
@@ -319,7 +339,21 @@ SAFE_MODE="$(printf '%s' "$MODE" | tr -cd '[:alnum:]_-')"
 RESULT_FILE="$OUTPUT_DIR/${STAMP}-${SAFE_MODE}.md"
 META_FILE="$OUTPUT_DIR/${STAMP}-${SAFE_MODE}.meta"
 
-CMD=(pi --provider "$PROVIDER" --model "$MODEL" --thinking "$THINKING" --tools "$TOOLS" --no-session -p --append-system-prompt "$SYSTEM_PROMPT")
+if [[ $FALLBACK_ON_FAILURE -eq 0 && ${#FALLBACK_MODELS[@]} -gt 0 ]]; then
+  fail "--fallback-model requires --fallback-on-failure"
+fi
+MODELS_TO_TRY=("$MODEL")
+if [[ $FALLBACK_ON_FAILURE -eq 1 ]]; then MODELS_TO_TRY+=("${FALLBACK_MODELS[@]}"); fi
+for candidate in "${MODELS_TO_TRY[@]}"; do
+  [[ "$candidate" =~ ^[A-Za-z0-9._:/*-]+$ ]] || fail "invalid model identifier: $candidate"
+done
+
+run_model() {
+  local run_model="$1"
+  MODEL="$run_model"
+  RESULT_FILE="$OUTPUT_DIR/${STAMP}-${SAFE_MODE}-${run_model//[^A-Za-z0-9._-]/_}.md"
+  META_FILE="$RESULT_FILE.meta"
+  CMD=(pi --provider "$PROVIDER" --model "$MODEL" --thinking "$THINKING" --tools "$TOOLS" --no-session -p --append-system-prompt "$SYSTEM_PROMPT")
 if ((${#PI_FILES[@]})); then
   CMD+=("${PI_FILES[@]}")
 fi
@@ -386,19 +420,20 @@ if [[ $STATUS -eq 124 ]]; then
   printf 'status=timeout\n' >> "$META_FILE"
   printf 'Pi delegation timed out after %s seconds.\n' "$TIMEOUT_SECONDS" >&2
   printf 'stderr_file=%s\n' "${RESULT_FILE}.stderr" >&2
-  exit 124
+  return 124
 fi
 
 if [[ $STATUS -ne 0 ]]; then
   printf 'status=worker_failed\n' >> "$META_FILE"
   printf 'Pi delegation failed with exit code %s.\n' "$STATUS" >&2
   printf 'stderr_file=%s\n' "${RESULT_FILE}.stderr" >&2
-  exit "$STATUS"
+  return "$STATUS"
 fi
 
 if [[ ! -s "$RESULT_FILE" ]]; then
   printf 'status=empty_result\n' >> "$META_FILE"
-  fail "Pi returned an empty result: $RESULT_FILE"
+  printf 'Pi returned an empty result for model %s: %s\n' "$MODEL" "$RESULT_FILE" >&2
+  return 1
 fi
 
 printf 'status=success\n' >> "$META_FILE"
@@ -407,3 +442,19 @@ printf 'delegation_metadata=%s\n' "$META_FILE"
 if [[ -s "${RESULT_FILE}.stderr" ]]; then
   printf 'delegation_stderr=%s\n' "${RESULT_FILE}.stderr"
 fi
+return 0
+}
+
+for index in "${!MODELS_TO_TRY[@]}"; do
+  candidate="${MODELS_TO_TRY[$index]}"
+  if run_model "$candidate"; then
+    exit 0
+  else
+    status=$?
+  fi
+  printf 'model_attempt_failed=%s exit_code=%s\n' "$candidate" "$status" >&2
+  if [[ $FALLBACK_ON_FAILURE -eq 0 || $index -eq $((${#MODELS_TO_TRY[@]} - 1)) ]]; then
+    exit "$status"
+  fi
+  printf 'model_fallback_next=%s\n' "${MODELS_TO_TRY[$((index + 1))]}" >&2
+done

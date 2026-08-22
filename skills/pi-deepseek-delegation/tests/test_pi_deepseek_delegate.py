@@ -14,7 +14,6 @@ from unittest import mock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -81,6 +80,22 @@ deepseek  deepseek-v4-pro    1M       384K     yes       no
 # ---------------------------------------------------------------------------
 
 class TestModelSelection:
+    def test_inventory_supports_non_deepseek_provider_rows(self, tmp_path):
+        """Inventory must expose exact provider/model rows beyond DeepSeek names."""
+        listing = """provider  model              context  max-out  thinking  images
+openai    gpt-5.1            400K     128K     yes       no
+openai    o4-mini            200K     64K      yes       no
+"""
+        pi = make_fake_pi(tmp_path, listing)
+        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
+               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+               "PI_DEEPSEEK_PROVIDER": "openai"}
+        make_fake_auth_json(tmp_path, ["openai"])
+        result = run_wrapper(["--check", "--provider", "openai"], env=env)
+        assert result.returncode == 0
+        assert "deepseek_model=gpt-5.1" in result.stdout
+        assert "openai    gpt-5.1" in result.stdout
+
     def test_explicit_model_wins(self, tmp_path):
         """Explicit --model should be used regardless of listing."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
@@ -322,6 +337,34 @@ class TestModes:
 # ---------------------------------------------------------------------------
 
 class TestExecution:
+    def test_explicit_fallback_runs_after_first_model_fails(self, tmp_path):
+        """Fallback is opt-in and tries the next exact model after failure."""
+        pi_path = tmp_path / "bin" / "pi"
+        pi_path.parent.mkdir(parents=True, exist_ok=True)
+        pi_path.write_text("""#!/usr/bin/env bash
+if [[ "$*" == *"--list-models"* ]]; then
+cat <<'EOF'
+provider  model              context  max-out  thinking  images
+deepseek  first-model        1M       384K     yes       no
+deepseek  second-model       1M       384K     yes       no
+EOF
+exit 0
+fi
+if [[ "$*" == *"--model first-model"* ]]; then exit 1; fi
+echo "FALLBACK_RESULT"
+exit 0
+""")
+        pi_path.chmod(0o755)
+        env = {"PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
+               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        make_fake_auth_json(tmp_path)
+        result = run_wrapper(["--mode", "analysis", "--task", "test", "--model", "first-model",
+                              "--fallback-model", "second-model", "--fallback-on-failure"], env=env, cwd=tmp_path)
+        assert result.returncode == 0
+        assert "model_fallback_next=second-model" in result.stderr
+        assert "second-model" in result.stdout
+
     def test_successful_worker_produces_result_and_metadata(self, tmp_path):
         """A successful delegation produces result and metadata files."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
