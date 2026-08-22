@@ -47,6 +47,8 @@ class PiValidationFailureReason(str, Enum):
     INCONSISTENT_INVOCATION_ID = "inconsistent_invocation_id"
     MISSING_HARNESS_ID = "missing_harness_id"
     MISSING_HARNESS_VERSION = "missing_harness_version"
+    MISSING_AUTHORIZATION_BINDING = "missing_authorization_binding"
+    AUTHORIZATION_BINDING_MISMATCH = "authorization_binding_mismatch"
     INVALID_ENVELOPE_STATUS = "invalid_envelope_status"
     INVALID_RECEIPT_STATUS = "invalid_receipt_status"
     INVALID_HARNESS_RESULT_CLASS = "invalid_harness_result_class"
@@ -106,9 +108,7 @@ class PiTokenError(ValueError):
     """Raised when a caller supplies an invalid Pi boundary token."""
 
 
-def _normalize_token(
-    value: str | None, *, allowed: frozenset[str], kind: str
-) -> str:
+def _normalize_token(value: str | None, *, allowed: frozenset[str], kind: str) -> str:
     token = str(value or "").strip()
     if token not in allowed:
         raise PiTokenError(f"Invalid {kind}: {value!r}")

@@ -6,14 +6,13 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from guardian.agents.adapters.base import (
-    AgentAdapter,
     AgentExecutionIdentity,
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
+from guardian.pi.contracts import PiPermissionGrant
 
 
 def _get_pi_wrapper_path() -> Path:
@@ -90,7 +89,8 @@ class PiCodexRunnerAdapter:
         request: AgentExecutionRequest,
         identity: AgentExecutionIdentity,
         *,
-        read_only: bool,
+        granted_permissions: tuple[PiPermissionGrant, ...],
+        authorization_digest: str,
     ) -> AgentRunEnvelope:
         """Execute exactly one Guardian-authorized Pi task.
 
@@ -104,12 +104,23 @@ class PiCodexRunnerAdapter:
                 identity.model_id,
                 identity.harness_id,
                 identity.harness_version,
+                authorization_digest,
             )
         ):
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi identity is incomplete",
                 errors=["authorized_identity_missing"],
+            )
+        if any(
+            permission.permission in {"files.read", "files.write"}
+            and not permission.resource
+            for permission in granted_permissions
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi permissions are incomplete",
+                errors=["granted_permission_scope_missing"],
             )
 
         wrapper_path = _get_pi_wrapper_path()
@@ -121,7 +132,12 @@ class PiCodexRunnerAdapter:
                 "PI_GUARDIAN_AUTHORIZED": "1",
                 "PI_GUARDIAN_HARNESS_ID": identity.harness_id,
                 "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
-                "PI_DISABLE_TOOLS": "1" if read_only else "0",
+                "PI_GUARDIAN_GRANTED_PERMISSIONS": json.dumps(
+                    [permission.to_payload() for permission in granted_permissions],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "PI_GUARDIAN_AUTHORIZATION_DIGEST": authorization_digest,
             }
         )
         cmd = ["node", str(wrapper_path), "guardian-authorized-task", request.prompt]
@@ -182,9 +198,7 @@ class PiCodexRunnerAdapter:
                     )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
-                    summary=data.get(
-                        "summary", data.get("text", "Task completed")
-                    ),
+                    summary=data.get("summary", data.get("text", "Task completed")),
                     artifacts=data.get("artifacts", []),
                     next_actions=data.get("next_actions", []),
                     errors=data.get("errors", []),

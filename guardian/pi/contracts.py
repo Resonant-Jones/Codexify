@@ -7,7 +7,9 @@ payload round-tripping. It does not execute adapters or providers.
 from __future__ import annotations
 
 import copy
-from dataclasses import asdict, dataclass, field
+import hashlib
+import json
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from guardian.pi.tokens import (
@@ -40,6 +42,11 @@ def _clean_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(value, Mapping) or not value:
         return {}
     return {str(key): copy.deepcopy(item) for key, item in value.items()}
+
+
+def _canonical_json(payload: Mapping[str, Any]) -> str:
+    """Serialize an authority payload deterministically for its digest."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _payload_from_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -123,9 +130,7 @@ class PiGuardianBoundary:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "owner_account_id", _clean_text(self.owner_account_id)
-        )
+        object.__setattr__(self, "owner_account_id", _clean_text(self.owner_account_id))
         object.__setattr__(
             self, "request_policy_owner", _clean_text(self.request_policy_owner)
         )
@@ -134,9 +139,7 @@ class PiGuardianBoundary:
             "transcript_lineage_owner",
             _clean_text(self.transcript_lineage_owner),
         )
-        object.__setattr__(
-            self, "provenance_owner", _clean_text(self.provenance_owner)
-        )
+        object.__setattr__(self, "provenance_owner", _clean_text(self.provenance_owner))
         object.__setattr__(
             self,
             "command_authority_owner",
@@ -159,22 +162,16 @@ class PiGuardianBoundary:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiGuardianBoundary:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiGuardianBoundary:
         data = _payload_from_mapping(payload)
         return cls(
             owner_account_id=data.get("owner_account_id")
             or data.get("account_id")
             or "",
             request_policy_owner=data.get("request_policy_owner", "guardian"),
-            transcript_lineage_owner=data.get(
-                "transcript_lineage_owner", "guardian"
-            ),
+            transcript_lineage_owner=data.get("transcript_lineage_owner", "guardian"),
             provenance_owner=data.get("provenance_owner", "guardian"),
-            command_authority_owner=data.get(
-                "command_authority_owner", "guardian"
-            ),
+            command_authority_owner=data.get("command_authority_owner", "guardian"),
             result_return_owner=data.get("result_return_owner", "guardian"),
             metadata=_clean_mapping(data.get("metadata")),
         )
@@ -189,9 +186,7 @@ class PiPermissionGrant:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "permission", _clean_text(self.permission))
-        object.__setattr__(
-            self, "resource", _clean_optional_text(self.resource)
-        )
+        object.__setattr__(self, "resource", _clean_optional_text(self.resource))
         object.__setattr__(self, "reason", _clean_optional_text(self.reason))
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
 
@@ -204,9 +199,7 @@ class PiPermissionGrant:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiPermissionGrant:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiPermissionGrant:
         data = _payload_from_mapping(payload)
         return cls(
             permission=data.get("permission") or data.get("key") or "",
@@ -230,9 +223,7 @@ class PiProviderLane:
         object.__setattr__(
             self, "provider_name", _clean_optional_text(self.provider_name)
         )
-        object.__setattr__(
-            self, "model_id", _clean_optional_text(self.model_id)
-        )
+        object.__setattr__(self, "model_id", _clean_optional_text(self.model_id))
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
 
     def to_payload(self) -> dict[str, Any]:
@@ -264,17 +255,13 @@ class PiCommandBusLinkage:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "command_run_id", _clean_text(self.command_run_id)
-        )
+        object.__setattr__(self, "command_run_id", _clean_text(self.command_run_id))
         object.__setattr__(
             self,
             "command_request_id",
             _clean_optional_text(self.command_request_id),
         )
-        object.__setattr__(
-            self, "dispatch_id", _clean_optional_text(self.dispatch_id)
-        )
+        object.__setattr__(self, "dispatch_id", _clean_optional_text(self.dispatch_id))
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
 
     def to_payload(self) -> dict[str, Any]:
@@ -286,14 +273,10 @@ class PiCommandBusLinkage:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiCommandBusLinkage:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiCommandBusLinkage:
         data = _payload_from_mapping(payload)
         return cls(
-            command_run_id=data.get("command_run_id")
-            or data.get("run_id")
-            or "",
+            command_run_id=data.get("command_run_id") or data.get("run_id") or "",
             command_request_id=data.get("command_request_id"),
             dispatch_id=data.get("dispatch_id"),
             metadata=_clean_mapping(data.get("metadata")),
@@ -317,9 +300,7 @@ class PiInvocationArtifact:
         artifact_type = _clean_optional_text(self.artifact_type)
         if artifact_ref is None:
             artifact_ref = (
-                artifact_class
-                or artifact_type
-                or _clean_optional_text(self.uri)
+                artifact_class or artifact_type or _clean_optional_text(self.uri)
             )
         if artifact_class is None:
             artifact_class = artifact_type
@@ -344,15 +325,11 @@ class PiInvocationArtifact:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiInvocationArtifact:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiInvocationArtifact:
         data = _payload_from_mapping(payload)
         return cls(
             artifact_id=data.get("artifact_id") or data.get("id") or "",
-            artifact_ref=data.get("artifact_ref")
-            or data.get("reference")
-            or "",
+            artifact_ref=data.get("artifact_ref") or data.get("reference") or "",
             artifact_class=data.get("artifact_class") or data.get("class"),
             artifact_type=data.get("artifact_type") or data.get("type"),
             uri=data.get("uri"),
@@ -370,12 +347,8 @@ class PiInvocationEnvelope:
     harness_id: str
     harness_version: str
     provider_lane: PiProviderLane | Mapping[str, Any] | str
-    requested_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
-    granted_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
+    requested_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
+    granted_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
     authored_request_id: str | None = None
     attempt_id: str | None = None
     execution_attempt_id: str | None = None
@@ -392,22 +365,14 @@ class PiInvocationEnvelope:
         object.__setattr__(
             self, "owner_account_id", _clean_text(boundary.owner_account_id)
         )
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
         object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
-        object.__setattr__(
-            self, "harness_version", _clean_text(self.harness_version)
-        )
-        object.__setattr__(
-            self, "provider_lane", _coerce_lane(self.provider_lane)
-        )
+        object.__setattr__(self, "harness_version", _clean_text(self.harness_version))
+        object.__setattr__(self, "provider_lane", _coerce_lane(self.provider_lane))
         object.__setattr__(
             self,
             "requested_permissions",
@@ -461,12 +426,10 @@ class PiInvocationEnvelope:
             "harness_version": self.harness_version,
             "provider_lane": self.provider_lane.to_payload(),
             "requested_permissions": [
-                permission.to_payload()
-                for permission in self.requested_permissions
+                permission.to_payload() for permission in self.requested_permissions
             ],
             "granted_permissions": [
-                permission.to_payload()
-                for permission in self.granted_permissions
+                permission.to_payload() for permission in self.granted_permissions
             ],
             "command_bus_linkage": (
                 self.command_bus_linkage.to_payload()
@@ -478,9 +441,7 @@ class PiInvocationEnvelope:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiInvocationEnvelope:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiInvocationEnvelope:
         data = _payload_from_mapping(payload)
         boundary = data.get("guardian_boundary")
         if boundary is None:
@@ -510,10 +471,45 @@ class PiInvocationEnvelope:
                 data.get("granted_permissions")
             ),
             command_bus_linkage=data.get("command_bus_linkage"),
-            status=data.get("status")
-            or PiInvocationEnvelopeStatus.PREPARED.value,
+            status=data.get("status") or PiInvocationEnvelopeStatus.PREPARED.value,
             validation_metadata=_clean_mapping(data.get("validation_metadata")),
         )
+
+
+def pi_authorization_binding_payload(
+    envelope: PiInvocationEnvelope,
+) -> dict[str, Any]:
+    """Return every authority-bearing value Guardian must bind before execution."""
+    return {
+        "guardian_boundary": envelope.guardian_boundary.to_payload(),
+        "source_thread_id": envelope.source_thread_id,
+        "source_message_id": envelope.source_message_id,
+        "authored_request_id": envelope.authored_request_id,
+        "attempt_id": envelope.attempt_id,
+        "execution_attempt_id": envelope.execution_attempt_id,
+        "invocation_id": envelope.invocation_id,
+        "harness_id": envelope.harness_id,
+        "harness_version": envelope.harness_version,
+        "provider_lane": envelope.provider_lane.to_payload(),
+        "requested_permissions": [
+            permission.to_payload() for permission in envelope.requested_permissions
+        ],
+        "granted_permissions": [
+            permission.to_payload() for permission in envelope.granted_permissions
+        ],
+        "command_bus_linkage": (
+            envelope.command_bus_linkage.to_payload()
+            if envelope.command_bus_linkage is not None
+            else None
+        ),
+    }
+
+
+def create_pi_authorization_digest(envelope: PiInvocationEnvelope) -> str:
+    """Create the canonical deterministic binding for one exact execution."""
+    return hashlib.sha256(
+        _canonical_json(pi_authorization_binding_payload(envelope)).encode("utf-8")
+    ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,12 +522,8 @@ class PiInvocationReceipt:
     harness_id: str
     harness_version: str
     provider_lane: PiProviderLane | Mapping[str, Any] | str
-    requested_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
-    granted_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
+    requested_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
+    granted_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
     authored_request_id: str | None = None
     attempt_id: str | None = None
     execution_attempt_id: str | None = None
@@ -550,22 +542,14 @@ class PiInvocationReceipt:
             self, "owner_account_id", _clean_text(boundary.owner_account_id)
         )
         object.__setattr__(self, "receipt_id", _clean_text(self.receipt_id))
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
         object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
-        object.__setattr__(
-            self, "harness_version", _clean_text(self.harness_version)
-        )
-        object.__setattr__(
-            self, "provider_lane", _coerce_lane(self.provider_lane)
-        )
+        object.__setattr__(self, "harness_version", _clean_text(self.harness_version))
+        object.__setattr__(self, "provider_lane", _coerce_lane(self.provider_lane))
         object.__setattr__(
             self,
             "requested_permissions",
@@ -599,9 +583,7 @@ class PiInvocationReceipt:
             "result_artifact_ref",
             _clean_optional_text(self.result_artifact_ref),
         )
-        object.__setattr__(
-            self, "receipt_status", _clean_text(self.receipt_status)
-        )
+        object.__setattr__(self, "receipt_status", _clean_text(self.receipt_status))
         object.__setattr__(
             self,
             "validation_metadata",
@@ -623,12 +605,10 @@ class PiInvocationReceipt:
             "harness_version": self.harness_version,
             "provider_lane": self.provider_lane.to_payload(),
             "requested_permissions": [
-                permission.to_payload()
-                for permission in self.requested_permissions
+                permission.to_payload() for permission in self.requested_permissions
             ],
             "granted_permissions": [
-                permission.to_payload()
-                for permission in self.granted_permissions
+                permission.to_payload() for permission in self.granted_permissions
             ],
             "command_bus_linkage": (
                 self.command_bus_linkage.to_payload()
@@ -641,9 +621,7 @@ class PiInvocationReceipt:
         }
 
     @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any] | None
-    ) -> PiInvocationReceipt:
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> PiInvocationReceipt:
         data = _payload_from_mapping(payload)
         boundary = data.get("guardian_boundary")
         if boundary is None:
@@ -654,9 +632,7 @@ class PiInvocationReceipt:
             }
         return cls(
             receipt_id=data.get("receipt_id") or data.get("id") or "",
-            owner_account_id=data.get("owner_account_id")
-            or data.get("owner")
-            or "",
+            owner_account_id=data.get("owner_account_id") or data.get("owner") or "",
             guardian_boundary=boundary,
             source_thread_id=data.get("source_thread_id") or "",
             source_message_id=data.get("source_message_id") or "",
@@ -693,12 +669,8 @@ class PiHarnessResult:
     harness_id: str
     harness_version: str
     provider_lane: PiProviderLane | Mapping[str, Any] | str
-    requested_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
-    granted_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
+    requested_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
+    granted_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
     artifact: PiInvocationArtifact | Mapping[str, Any] | None = None
     authored_request_id: str | None = None
     attempt_id: str | None = None
@@ -721,22 +693,14 @@ class PiHarnessResult:
             self, "harness_result_id", _clean_text(self.harness_result_id)
         )
         object.__setattr__(self, "receipt_id", _clean_text(self.receipt_id))
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
         object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
-        object.__setattr__(
-            self, "harness_version", _clean_text(self.harness_version)
-        )
-        object.__setattr__(
-            self, "provider_lane", _coerce_lane(self.provider_lane)
-        )
+        object.__setattr__(self, "harness_version", _clean_text(self.harness_version))
+        object.__setattr__(self, "provider_lane", _coerce_lane(self.provider_lane))
         object.__setattr__(
             self,
             "requested_permissions",
@@ -794,12 +758,10 @@ class PiHarnessResult:
             "harness_version": self.harness_version,
             "provider_lane": self.provider_lane.to_payload(),
             "requested_permissions": [
-                permission.to_payload()
-                for permission in self.requested_permissions
+                permission.to_payload() for permission in self.requested_permissions
             ],
             "granted_permissions": [
-                permission.to_payload()
-                for permission in self.granted_permissions
+                permission.to_payload() for permission in self.granted_permissions
             ],
             "artifact": self.artifact.to_payload() if self.artifact else None,
             "command_bus_linkage": (
@@ -823,13 +785,9 @@ class PiHarnessResult:
                 or ""
             }
         return cls(
-            harness_result_id=data.get("harness_result_id")
-            or data.get("id")
-            or "",
+            harness_result_id=data.get("harness_result_id") or data.get("id") or "",
             receipt_id=data.get("receipt_id") or "",
-            owner_account_id=data.get("owner_account_id")
-            or data.get("owner")
-            or "",
+            owner_account_id=data.get("owner_account_id") or data.get("owner") or "",
             guardian_boundary=boundary,
             source_thread_id=data.get("source_thread_id") or "",
             source_message_id=data.get("source_message_id") or "",
@@ -848,8 +806,7 @@ class PiHarnessResult:
             ),
             artifact=data.get("artifact"),
             command_bus_linkage=data.get("command_bus_linkage"),
-            result_class=data.get("result_class")
-            or PiHarnessResultClass.SUCCESS.value,
+            result_class=data.get("result_class") or PiHarnessResultClass.SUCCESS.value,
             failure_classification=data.get("failure_classification"),
             validation_metadata=_clean_mapping(data.get("validation_metadata")),
         )
@@ -874,24 +831,18 @@ class PiInvocationValidationResult:
             or outcome
             or PiInvocationValidationOutcome.FAILED_CLOSED.value
         )
-        self.validation_outcome = normalize_pi_validation_outcome(
-            resolved_outcome
-        )
+        self.validation_outcome = normalize_pi_validation_outcome(resolved_outcome)
         reasons: list[str] = []
         if failure_reasons:
             reasons.extend(
-                str(reason).strip()
-                for reason in failure_reasons
-                if str(reason).strip()
+                str(reason).strip() for reason in failure_reasons if str(reason).strip()
             )
         if failure_reason:
             reason = str(failure_reason).strip()
             if reason:
                 reasons.append(reason)
         self.failure_reasons = tuple(dict.fromkeys(reasons))
-        self.validation_metadata = _clean_mapping(
-            validation_metadata or metadata
-        )
+        self.validation_metadata = _clean_mapping(validation_metadata or metadata)
         self.message = _clean_optional_text(message)
 
     @property
@@ -900,9 +851,7 @@ class PiInvocationValidationResult:
 
     @property
     def failure_reason(self) -> str | None:
-        return (
-            self.failure_reasons[0] if len(self.failure_reasons) == 1 else None
-        )
+        return self.failure_reasons[0] if len(self.failure_reasons) == 1 else None
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -910,9 +859,7 @@ class PiInvocationValidationResult:
 
     @property
     def ok(self) -> bool:
-        return (
-            self.validation_outcome == PiInvocationValidationOutcome.VALID.value
-        )
+        return self.validation_outcome == PiInvocationValidationOutcome.VALID.value
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -937,8 +884,7 @@ class PiInvocationValidationResult:
             message=data.get("message"),
             validation_outcome=data.get("validation_outcome"),
             failure_reasons=data.get("failure_reasons"),
-            validation_metadata=data.get("validation_metadata")
-            or data.get("metadata"),
+            validation_metadata=data.get("validation_metadata") or data.get("metadata"),
         )
 
     def __eq__(self, other: object) -> bool:
@@ -962,14 +908,13 @@ class PiInvocationPolicyDecision:
     source_thread_id: str
     source_message_id: str
     harness_id: str
+    harness_version: str
+    provider_lane: PiProviderLane | Mapping[str, Any] | str
+    authorization_digest: str
     decision: str
     guardian_boundary: PiGuardianBoundary | Mapping[str, Any]
-    requested_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
-    granted_permissions: tuple[PiPermissionGrant, ...] = field(
-        default_factory=tuple
-    )
+    requested_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
+    granted_permissions: tuple[PiPermissionGrant, ...] = field(default_factory=tuple)
     permission_posture: str = ""
     actor_id: str | None = None
     policy_source: str | None = None
@@ -996,17 +941,18 @@ class PiInvocationPolicyDecision:
         object.__setattr__(
             self, "policy_decision_id", _clean_text(self.policy_decision_id)
         )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
+        object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
+        object.__setattr__(self, "harness_version", _clean_text(self.harness_version))
+        object.__setattr__(self, "provider_lane", _coerce_lane(self.provider_lane))
         object.__setattr__(
-            self, "harness_id", _clean_text(self.harness_id)
+            self,
+            "authorization_digest",
+            _clean_text(self.authorization_digest).lower(),
         )
         object.__setattr__(self, "decision", _clean_text(self.decision))
         object.__setattr__(
@@ -1022,9 +968,7 @@ class PiInvocationPolicyDecision:
         object.__setattr__(
             self, "permission_posture", _clean_text(self.permission_posture)
         )
-        object.__setattr__(
-            self, "actor_id", _clean_optional_text(self.actor_id)
-        )
+        object.__setattr__(self, "actor_id", _clean_optional_text(self.actor_id))
         object.__setattr__(
             self, "policy_source", _clean_optional_text(self.policy_source)
         )
@@ -1034,29 +978,19 @@ class PiInvocationPolicyDecision:
         object.__setattr__(
             self, "denial_reason", _clean_optional_text(self.denial_reason)
         )
-        object.__setattr__(
-            self, "decided_at", _clean_text(self.decided_at)
-        )
-        object.__setattr__(
-            self, "expires_at", _clean_optional_text(self.expires_at)
-        )
+        object.__setattr__(self, "decided_at", _clean_text(self.decided_at))
+        object.__setattr__(self, "expires_at", _clean_optional_text(self.expires_at))
         object.__setattr__(
             self,
             "command_bus_linkage",
             _coerce_linkage(self.command_bus_linkage),
         )
-        object.__setattr__(
-            self, "receipt_id", _clean_optional_text(self.receipt_id)
-        )
-        object.__setattr__(
-            self, "artifact_id", _clean_optional_text(self.artifact_id)
-        )
+        object.__setattr__(self, "receipt_id", _clean_optional_text(self.receipt_id))
+        object.__setattr__(self, "artifact_id", _clean_optional_text(self.artifact_id))
         object.__setattr__(
             self, "validation_status", _clean_text(self.validation_status)
         )
-        object.__setattr__(
-            self, "redaction_state", _clean_text(self.redaction_state)
-        )
+        object.__setattr__(self, "redaction_state", _clean_text(self.redaction_state))
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
 
     def to_payload(self) -> dict[str, Any]:
@@ -1066,16 +1000,17 @@ class PiInvocationPolicyDecision:
             "source_thread_id": self.source_thread_id,
             "source_message_id": self.source_message_id,
             "harness_id": self.harness_id,
+            "harness_version": self.harness_version,
+            "provider_lane": self.provider_lane.to_payload(),
+            "authorization_digest": self.authorization_digest,
             "decision": self.decision,
             "owner_account_id": self.owner_account_id,
             "guardian_boundary": self.guardian_boundary.to_payload(),
             "requested_permissions": [
-                permission.to_payload()
-                for permission in self.requested_permissions
+                permission.to_payload() for permission in self.requested_permissions
             ],
             "granted_permissions": [
-                permission.to_payload()
-                for permission in self.granted_permissions
+                permission.to_payload() for permission in self.granted_permissions
             ],
             "permission_posture": self.permission_posture,
             "actor_id": self.actor_id,
@@ -1109,13 +1044,14 @@ class PiInvocationPolicyDecision:
                 or ""
             }
         return cls(
-            policy_decision_id=data.get("policy_decision_id")
-            or data.get("id")
-            or "",
+            policy_decision_id=data.get("policy_decision_id") or data.get("id") or "",
             invocation_id=data.get("invocation_id") or "",
             source_thread_id=data.get("source_thread_id") or "",
             source_message_id=data.get("source_message_id") or "",
             harness_id=data.get("harness_id") or "",
+            harness_version=data.get("harness_version") or "",
+            provider_lane=data.get("provider_lane") or "",
+            authorization_digest=data.get("authorization_digest") or "",
             decision=data.get("decision") or "",
             owner_account_id=data.get("owner_account_id")
             or data.get("account_id")
@@ -1177,69 +1113,48 @@ class PiInvocationResultReturn:
         object.__setattr__(
             self, "owner_account_id", _clean_text(boundary.owner_account_id)
         )
-        object.__setattr__(
-            self, "result_return_id", _clean_text(self.result_return_id)
-        )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "result_return_id", _clean_text(self.result_return_id))
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
-        object.__setattr__(
-            self, "harness_id", _clean_text(self.harness_id)
-        )
-        object.__setattr__(
-            self, "return_state", _clean_text(self.return_state)
-        )
+        object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
+        object.__setattr__(self, "return_state", _clean_text(self.return_state))
         object.__setattr__(
             self, "validation_status", _clean_text(self.validation_status)
         )
+        object.__setattr__(self, "redaction_state", _clean_text(self.redaction_state))
+        object.__setattr__(self, "created_at", _clean_text(self.created_at))
+        object.__setattr__(self, "request_id", _clean_optional_text(self.request_id))
+        object.__setattr__(self, "attempt_id", _clean_optional_text(self.attempt_id))
+        object.__setattr__(self, "adapter_id", _clean_optional_text(self.adapter_id))
         object.__setattr__(
-            self, "redaction_state", _clean_text(self.redaction_state)
-        )
-        object.__setattr__(
-            self, "created_at", _clean_text(self.created_at)
-        )
-        object.__setattr__(
-            self, "request_id", _clean_optional_text(self.request_id)
-        )
-        object.__setattr__(
-            self, "attempt_id", _clean_optional_text(self.attempt_id)
-        )
-        object.__setattr__(
-            self, "adapter_id", _clean_optional_text(self.adapter_id)
-        )
-        object.__setattr__(
-            self, "policy_decision_id",
+            self,
+            "policy_decision_id",
             _clean_optional_text(self.policy_decision_id),
         )
+        object.__setattr__(self, "receipt_id", _clean_optional_text(self.receipt_id))
+        object.__setattr__(self, "artifact_id", _clean_optional_text(self.artifact_id))
         object.__setattr__(
-            self, "receipt_id", _clean_optional_text(self.receipt_id)
-        )
-        object.__setattr__(
-            self, "artifact_id", _clean_optional_text(self.artifact_id)
-        )
-        object.__setattr__(
-            self, "command_run_id",
+            self,
+            "command_run_id",
             _clean_optional_text(self.command_run_id),
         )
+        object.__setattr__(self, "result_kind", _clean_optional_text(self.result_kind))
         object.__setattr__(
-            self, "result_kind", _clean_optional_text(self.result_kind)
-        )
-        object.__setattr__(
-            self, "result_summary",
+            self,
+            "result_summary",
             _clean_optional_text(self.result_summary),
         )
         object.__setattr__(
-            self, "failure_reason",
+            self,
+            "failure_reason",
             _clean_optional_text(self.failure_reason),
         )
         object.__setattr__(
-            self, "returned_at",
+            self,
+            "returned_at",
             _clean_optional_text(self.returned_at),
         )
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
@@ -1284,9 +1199,7 @@ class PiInvocationResultReturn:
                 or ""
             }
         return cls(
-            result_return_id=data.get("result_return_id")
-            or data.get("id")
-            or "",
+            result_return_id=data.get("result_return_id") or data.get("id") or "",
             invocation_id=data.get("invocation_id") or "",
             source_thread_id=data.get("source_thread_id") or "",
             source_message_id=data.get("source_message_id") or "",
@@ -1355,95 +1268,83 @@ class PiInvocationOperatorEvidence:
             self, "owner_account_id", _clean_text(boundary.owner_account_id)
         )
         object.__setattr__(
-            self, "operator_evidence_id",
+            self,
+            "operator_evidence_id",
             _clean_text(self.operator_evidence_id),
         )
-        object.__setattr__(
-            self, "invocation_id", _clean_text(self.invocation_id)
-        )
-        object.__setattr__(
-            self, "source_thread_id", _clean_text(self.source_thread_id)
-        )
+        object.__setattr__(self, "invocation_id", _clean_text(self.invocation_id))
+        object.__setattr__(self, "source_thread_id", _clean_text(self.source_thread_id))
         object.__setattr__(
             self, "source_message_id", _clean_text(self.source_message_id)
         )
+        object.__setattr__(self, "harness_id", _clean_text(self.harness_id))
+        object.__setattr__(self, "evidence_state", _clean_text(self.evidence_state))
         object.__setattr__(
-            self, "harness_id", _clean_text(self.harness_id)
-        )
-        object.__setattr__(
-            self, "evidence_state", _clean_text(self.evidence_state)
-        )
-        object.__setattr__(
-            self, "policy_decision_summary",
+            self,
+            "policy_decision_summary",
             _clean_text(self.policy_decision_summary),
         )
         object.__setattr__(
-            self, "permission_posture",
+            self,
+            "permission_posture",
             _clean_text(self.permission_posture),
         )
         object.__setattr__(
             self, "validation_status", _clean_text(self.validation_status)
         )
+        object.__setattr__(self, "redaction_state", _clean_text(self.redaction_state))
+        object.__setattr__(self, "created_at", _clean_text(self.created_at))
+        object.__setattr__(self, "request_id", _clean_optional_text(self.request_id))
+        object.__setattr__(self, "attempt_id", _clean_optional_text(self.attempt_id))
+        object.__setattr__(self, "adapter_id", _clean_optional_text(self.adapter_id))
         object.__setattr__(
-            self, "redaction_state", _clean_text(self.redaction_state)
-        )
-        object.__setattr__(
-            self, "created_at", _clean_text(self.created_at)
-        )
-        object.__setattr__(
-            self, "request_id", _clean_optional_text(self.request_id)
-        )
-        object.__setattr__(
-            self, "attempt_id", _clean_optional_text(self.attempt_id)
-        )
-        object.__setattr__(
-            self, "adapter_id", _clean_optional_text(self.adapter_id)
-        )
-        object.__setattr__(
-            self, "policy_decision_id",
+            self,
+            "policy_decision_id",
             _clean_optional_text(self.policy_decision_id),
         )
         object.__setattr__(
-            self, "result_return_id",
+            self,
+            "result_return_id",
             _clean_optional_text(self.result_return_id),
         )
+        object.__setattr__(self, "receipt_id", _clean_optional_text(self.receipt_id))
+        object.__setattr__(self, "artifact_id", _clean_optional_text(self.artifact_id))
         object.__setattr__(
-            self, "receipt_id", _clean_optional_text(self.receipt_id)
-        )
-        object.__setattr__(
-            self, "artifact_id", _clean_optional_text(self.artifact_id)
-        )
-        object.__setattr__(
-            self, "command_run_id",
+            self,
+            "command_run_id",
             _clean_optional_text(self.command_run_id),
         )
         object.__setattr__(
-            self, "result_availability",
+            self,
+            "result_availability",
             _clean_optional_text(self.result_availability),
         )
         object.__setattr__(
-            self, "receipt_availability",
+            self,
+            "receipt_availability",
             _clean_optional_text(self.receipt_availability),
         )
         object.__setattr__(
-            self, "artifact_availability",
+            self,
+            "artifact_availability",
             _clean_optional_text(self.artifact_availability),
         )
         object.__setattr__(
-            self, "granted_permission_summary",
+            self,
+            "granted_permission_summary",
             _clean_optional_text(self.granted_permission_summary),
         )
         object.__setattr__(
-            self, "result_summary",
+            self,
+            "result_summary",
             _clean_optional_text(self.result_summary),
         )
         object.__setattr__(
-            self, "failure_reason",
+            self,
+            "failure_reason",
             _clean_optional_text(self.failure_reason),
         )
-        object.__setattr__(
-            self, "updated_at", _clean_optional_text(self.updated_at)
-        )
+        object.__setattr__(self, "updated_at", _clean_optional_text(self.updated_at))
         object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
 
     def to_payload(self) -> dict[str, Any]:
@@ -1520,9 +1421,7 @@ class PiInvocationOperatorEvidence:
             result_availability=data.get("result_availability"),
             receipt_availability=data.get("receipt_availability"),
             artifact_availability=data.get("artifact_availability"),
-            granted_permission_summary=data.get(
-                "granted_permission_summary"
-            ),
+            granted_permission_summary=data.get("granted_permission_summary"),
             result_summary=data.get("result_summary"),
             failure_reason=data.get("failure_reason"),
             updated_at=data.get("updated_at"),
@@ -1537,6 +1436,8 @@ __all__ = [
     "PiCommandBusLinkage",
     "PiInvocationArtifact",
     "PiInvocationEnvelope",
+    "pi_authorization_binding_payload",
+    "create_pi_authorization_digest",
     "PiInvocationReceipt",
     "PiHarnessResult",
     "PiInvocationPolicyDecision",

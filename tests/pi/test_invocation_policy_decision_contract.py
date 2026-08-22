@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import sys
 
-import pytest
-
 from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiInvocationPolicyDecision,
     PiPermissionGrant,
+    PiProviderLane,
 )
-from guardian.pi.tokens import PiValidationFailureReason
 from guardian.pi.validation import validate_pi_invocation_policy_decision
 
 
@@ -42,6 +40,13 @@ def _allowed_decision(**overrides: object) -> PiInvocationPolicyDecision:
         "source_thread_id": "thread-1",
         "source_message_id": "msg-1",
         "harness_id": "harness-1",
+        "harness_version": "1.0.0",
+        "provider_lane": PiProviderLane(
+            provider_lane_class="external",
+            provider_name="provider-1",
+            model_id="model-1",
+        ),
+        "authorization_digest": "a" * 64,
         "decision": "allowed",
         "guardian_boundary": _boundary(),
         "requested_permissions": (_read_permission(),),
@@ -61,16 +66,12 @@ class TestPolicyDecisionContract:
         assert result.ok
 
     def test_valid_denied_passes_with_empty_grants(self) -> None:
-        decision = _allowed_decision(
-            decision="denied", granted_permissions=()
-        )
+        decision = _allowed_decision(decision="denied", granted_permissions=())
         result = validate_pi_invocation_policy_decision(decision)
         assert result.ok
 
     def test_valid_blocked_passes_with_empty_grants(self) -> None:
-        decision = _allowed_decision(
-            decision="blocked", granted_permissions=()
-        )
+        decision = _allowed_decision(decision="blocked", granted_permissions=())
         result = validate_pi_invocation_policy_decision(decision)
         assert result.ok
 
@@ -182,7 +183,8 @@ class TestPolicyNoRuntime:
 
         route_key = "guardian.routes.agent_orchestration"
         was_present = route_key in sys.modules
-        import guardian.pi
+        importlib.import_module("guardian.pi")
+
         # Should not cause orchestration routes to be loaded if not already
         assert route_key not in sys.modules or was_present
 
@@ -197,6 +199,11 @@ class TestSerialization:
         assert restored.source_thread_id == decision.source_thread_id
         assert restored.source_message_id == decision.source_message_id
         assert restored.harness_id == decision.harness_id
+        assert restored.harness_version == decision.harness_version
+        assert restored.provider_lane == decision.provider_lane
+        assert restored.authorization_digest == decision.authorization_digest
         assert restored.decision == decision.decision
-        assert len(restored.requested_permissions) == len(decision.requested_permissions)
+        assert len(restored.requested_permissions) == len(
+            decision.requested_permissions
+        )
         assert len(restored.granted_permissions) == len(decision.granted_permissions)

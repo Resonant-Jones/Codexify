@@ -1,11 +1,11 @@
 # Pi Invocation Boundary Contract
 
-Implementation status (2026-05-08): backend-only Pi invocation boundary contracts now exist under `guardian/pi` for `PiInvocationEnvelope`, `PiInvocationReceipt`, `PiInvocationArtifact`, `PiHarnessResult`, and `PiInvocationValidationResult`, with pure deterministic validation helpers for envelope, receipt, and harness-result provenance/permission checks.
+Implementation status (2026-08-17): the contract records remain under `guardian/pi`, and the narrow Guardian-owned live rail is implemented at `guardian/pi/invocation.py`. It accepts only a Guardian-authorized envelope/policy decision pair, binds provider/model/harness/version and exact permission grants through a deterministic authorization digest, and returns a non-persisted bounded outcome. This is code-path and deterministic-test evidence only; it does not widen the supported beta release promise.
 
 As of 2026-07-24, a bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that uses Pi's built-in `deepseek` provider for read-only analysis delegation. This is dev-tooling only — no runtime integration, no provider widening, and no release-claim change. Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`. The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable. Codex remains the supervising agent; DeepSeek remains a bounded, untrusted external worker.
 
-This seam is contract and validation only:
-- no live Pi SDK call exists
+This seam remains narrowly bounded:
+- no provider was invoked by the deterministic proof suite
 - no Minimax provider behavior changed
 - no provider routing changed
 - no command execution was added
@@ -47,9 +47,9 @@ Source anchors:
   - Account export + restore contract
   - Existing identity/IDDB policy and Persona Studio identity-boundary rules
 - Brief reason:
-  - This contract defines a bounded architecture seam for future Pi-like harness invocation and clarifies provider-lane separation (including Minimax) without implementing runtime execution.
+  - This contract defines the bounded Guardian-authorized Pi invocation seam and clarifies provider-lane separation (including Minimax) without widening runtime support or provider governance.
 
-Implementation status: backend-only Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts now exist under `guardian/pi/`. They perform shape, provenance, and permission-posture validation only. No live Pi SDK call exists, no Minimax provider behavior changed, and no command execution, worker orchestration, sandboxing, runtime dispatch, or transcript persistence was added by this seam.
+Implementation status: `guardian/pi/` contains envelope, receipt, artifact, harness-result, and policy-decision contracts; pure validation; and one Guardian-owned invocation rail. The rail validates the exact authorization binding before adapter execution, passes the complete structural grant set to the adapter, and fails closed on identity or capability drift. No Minimax provider behavior, worker orchestration, sandboxing, autonomous dispatch, transcript persistence, or release support was added by this seam.
 
 ## Purpose and Problem Statement
 
@@ -207,9 +207,9 @@ Diagnostics must align with Codexify's existing observability posture. Noisy har
 
 ## Explicit Non-Goals
 
-This contract does not:
+Outside the existing narrow Guardian-owned rail, this contract does not:
 
-- implement Pi SDK integration
+- add another Pi SDK integration or provider lane
 - implement Minimax provider integration
 - implement a Pi adapter
 - add runtime execution
@@ -235,8 +235,8 @@ What is true now:
 
 What is not yet true by this task:
 
-- No Pi SDK integration is implemented.
-- No live Pi invocation is implemented.
+- No live provider invocation has been qualified as supported.
+- No wider Pi route, worker, queue, or Campaign Engine integration is implemented.
 - No Minimax provider change is made.
 - No autonomous coding-agent runtime is enabled.
 - No worker orchestration or sandbox execution is added.
@@ -253,8 +253,8 @@ Explicit deferrals in this task:
 
 Narrow first slice recommendation:
 
-- backend-only Pi invocation envelope contract
-- no live Pi SDK call
+- preserve the existing Guardian-owned invocation rail
+- do not add a second live Pi SDK call path
 - no Minimax provider change
 - no command execution
 - no worker orchestration

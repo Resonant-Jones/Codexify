@@ -15,7 +15,7 @@
  */
 
 import path from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Parse command line args
@@ -103,17 +103,91 @@ async function loadPiSdk() {
 	};
 }
 
-function requireGuardianAuthorizedIdentity() {
+function requireGuardianAuthorizedInvocation() {
 	const identity = {
 		providerId: String(process.env.PI_PROVIDER || "").trim(),
 		modelId: String(process.env.PI_MODEL || "").trim(),
 		harnessId: String(process.env.PI_GUARDIAN_HARNESS_ID || "").trim(),
 		harnessVersion: String(process.env.PI_GUARDIAN_HARNESS_VERSION || "").trim(),
 	};
-	if (process.env.PI_GUARDIAN_AUTHORIZED !== "1" || Object.values(identity).some(value => !value)) {
+	let grantedPermissions;
+	try {
+		grantedPermissions = JSON.parse(process.env.PI_GUARDIAN_GRANTED_PERMISSIONS || "");
+	} catch (_error) {
+		throw new Error("guardian_authorized_permission_scope_invalid");
+	}
+	const authorizationDigest = String(process.env.PI_GUARDIAN_AUTHORIZATION_DIGEST || "").trim();
+	if (
+		process.env.PI_GUARDIAN_AUTHORIZED !== "1" ||
+		Object.values(identity).some(value => !value) ||
+		!Array.isArray(grantedPermissions) ||
+		!authorizationDigest
+	) {
 		throw new Error("guardian_authorized_identity_missing");
 	}
-	return identity;
+	return { ...identity, grantedPermissions, authorizationDigest };
+}
+
+function pathIsInside(candidate, root) {
+	const relative = path.relative(root, candidate);
+	return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+async function resolvePathWithoutSymlinkEscape(candidate) {
+	let existingPath = candidate;
+	const suffix = [];
+	while (true) {
+		try {
+			return path.join(await realpath(existingPath), ...suffix);
+		} catch (_error) {
+			const parent = path.dirname(existingPath);
+			if (parent === existingPath) {
+				throw new Error("guardian_authorized_path_scope_unresolvable");
+			}
+			suffix.unshift(path.basename(existingPath));
+			existingPath = parent;
+		}
+	}
+}
+
+function grantedRoots(cwd, grantedPermissions, permission) {
+	return grantedPermissions
+		.filter(grant => grant && grant.permission === permission && typeof grant.resource === "string" && grant.resource.trim())
+		.map(grant => path.resolve(cwd, grant.resource));
+}
+
+function guardedFileTool(tool, cwd, roots) {
+	return {
+		...tool,
+		async execute(toolCallId, args, signal, onUpdate, context) {
+			const requestedPath = typeof args?.path === "string" ? args.path : args?.file_path;
+			if (typeof requestedPath !== "string") {
+				throw new Error("guardian_authorized_path_scope_violation");
+			}
+			const candidate = await resolvePathWithoutSymlinkEscape(path.resolve(cwd, requestedPath));
+			const resolvedRoots = await Promise.all(
+				roots.map(root => resolvePathWithoutSymlinkEscape(root)),
+			);
+			if (!resolvedRoots.some(root => pathIsInside(candidate, root))) {
+				throw new Error("guardian_authorized_path_scope_violation");
+			}
+			return tool.execute(toolCallId, args, signal, onUpdate, context);
+		},
+	};
+}
+
+function createGuardianAuthorizedTools(cwd, createCodingTools, grantedPermissions) {
+	const readRoots = grantedRoots(cwd, grantedPermissions, "files.read");
+	const writeRoots = grantedRoots(cwd, grantedPermissions, "files.write");
+	return createCodingTools(cwd).flatMap(tool => {
+		if (tool.name === "read" && readRoots.length > 0) {
+			return [guardedFileTool(tool, cwd, readRoots)];
+		}
+		if ((tool.name === "edit" || tool.name === "write") && writeRoots.length > 0) {
+			return [guardedFileTool(tool, cwd, writeRoots)];
+		}
+		return [];
+	});
 }
 
 async function checkReadiness() {
@@ -163,9 +237,11 @@ async function runAgent() {
 	let ModelRegistry;
 	let createCodingTools;
 	let getModel;
+	let harnessId;
+	let harnessVersion;
 
-	const authorizedIdentity = guardianAuthorizedMode
-		? requireGuardianAuthorizedIdentity()
+	const authorizedInvocation = guardianAuthorizedMode
+		? requireGuardianAuthorizedInvocation()
 		: null;
 
 	try {
@@ -191,17 +267,23 @@ async function runAgent() {
 	}
 
 	const resolvedModelId = guardianAuthorizedMode
-		? authorizedIdentity.modelId
+		? authorizedInvocation.modelId
 		: resolveModel(OPTIONS.model, getModel);
 	const resolvedProviderId = guardianAuthorizedMode
-		? authorizedIdentity.providerId
+		? authorizedInvocation.providerId
 		: OPTIONS.provider;
 
 	// Set up auth and model registry
 	const authStorage = AuthStorage.create();
 	const modelRegistry = ModelRegistry.create(authStorage);
 
-	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
+	const tools = guardianAuthorizedMode
+		? createGuardianAuthorizedTools(
+			OPTIONS.cwd,
+			createCodingTools,
+			authorizedInvocation.grantedPermissions,
+		)
+		: OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
 
 	// Get model
 	const model = getModel(resolvedProviderId, resolvedModelId);
@@ -218,10 +300,10 @@ async function runAgent() {
 		process.exit(1);
 	}
 	if (guardianAuthorizedMode && (
-		authorizedIdentity.harnessId !== harnessId ||
-		authorizedIdentity.harnessVersion !== harnessVersion ||
-		model.provider !== authorizedIdentity.providerId ||
-		model.id !== authorizedIdentity.modelId
+		authorizedInvocation.harnessId !== harnessId ||
+		authorizedInvocation.harnessVersion !== harnessVersion ||
+		model.provider !== authorizedInvocation.providerId ||
+		model.id !== authorizedInvocation.modelId
 	)) {
 		console.error("Guardian-authorized identity does not match the resolved Pi runtime.");
 		process.exit(1);

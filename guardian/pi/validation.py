@@ -10,13 +10,14 @@ from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiHarnessResult,
     PiInvocationEnvelope,
+    PiInvocationOperatorEvidence,
     PiInvocationPolicyDecision,
     PiInvocationReceipt,
     PiInvocationResultReturn,
-    PiInvocationOperatorEvidence,
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
+    create_pi_authorization_digest,
 )
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
@@ -34,9 +35,7 @@ GUARDIAN_OWNERSHIP_LABEL = "guardian"
 
 
 def _canonical_json(payload: Mapping[str, Any]) -> str:
-    return json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), default=str
-    )
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _permission_signature(permission: PiPermissionGrant) -> str:
@@ -99,9 +98,7 @@ def _validate_guardian_boundary(
     }
     if not boundary.owner_account_id:
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY
-            )
+            _invalid_reason(PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY)
         )
     if (
         boundary.request_policy_owner != GUARDIAN_OWNERSHIP_LABEL
@@ -111,9 +108,7 @@ def _validate_guardian_boundary(
         or boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
     return reasons, metadata
 
@@ -124,9 +119,7 @@ def _validate_provider_lane(
     reasons: list[str] = []
     metadata = provider_lane.to_payload()
     if provider_lane.provider_lane_class not in PI_PROVIDER_LANE_CLASSES:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.INVALID_PROVIDER_LANE)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_PROVIDER_LANE))
     if _metadata_requires_minimax(provider_lane.metadata):
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MINIMAX_METADATA_REQUIRED)
@@ -159,24 +152,23 @@ def _validate_permission_posture(
 
     if any(not permission.permission for permission in requested_permissions):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
-            )
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
         )
     if any(not permission.permission for permission in granted_permissions):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
-            )
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
         )
     if any(
-        signature not in requested_signatures
-        for signature in granted_signatures
+        permission.permission in {"files.read", "files.write"}
+        and not permission.resource
+        for permission in (*requested_permissions, *granted_permissions)
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
-            )
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if any(signature not in requested_signatures for signature in granted_signatures):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
         )
 
     metadata = {
@@ -207,9 +199,7 @@ def _validate_command_bus_linkage(
         return [], metadata
     if not command_bus_linkage.command_run_id:
         return [
-            _invalid_reason(
-                PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE
-            )
+            _invalid_reason(PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE)
         ], metadata
     return [], metadata
 
@@ -228,13 +218,9 @@ def _validate_envelope_core(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not envelope.invocation_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not envelope.harness_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
     if not envelope.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
@@ -290,21 +276,15 @@ def _validate_receipt_core(
     reasons.extend(guardian_reasons)
 
     if not receipt.receipt_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID))
     if not receipt.source_thread_id or not receipt.source_message_id:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not receipt.invocation_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not receipt.harness_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
     if not receipt.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
@@ -366,33 +346,22 @@ def _validate_harness_result_core(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_RESULT_ID)
         )
     if not harness_result.receipt_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID)
-        )
-    if (
-        not harness_result.source_thread_id
-        or not harness_result.source_message_id
-    ):
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID))
+    if not harness_result.source_thread_id or not harness_result.source_message_id:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not harness_result.invocation_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not harness_result.harness_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
     if not harness_result.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
         )
     if harness_result.result_class not in PI_HARNESS_RESULT_CLASSES:
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS
-            )
+            _invalid_reason(PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS)
         )
 
     provider_lane_reasons, provider_lane_metadata = _validate_provider_lane(
@@ -407,9 +376,7 @@ def _validate_harness_result_core(
     reasons.extend(permission_reasons)
 
     artifact_metadata = (
-        harness_result.artifact.to_payload()
-        if harness_result.artifact
-        else None
+        harness_result.artifact.to_payload() if harness_result.artifact else None
     )
     if (
         harness_result.artifact is None
@@ -417,9 +384,7 @@ def _validate_harness_result_core(
         or not harness_result.artifact.artifact_ref
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE
-            )
+            _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
         )
 
     linkage_reasons, linkage_metadata = _validate_command_bus_linkage(
@@ -457,14 +422,9 @@ def _compare_boundary(
     *,
     reasons: list[str],
 ) -> None:
-    if (
-        not envelope_boundary.owner_account_id
-        or not other_boundary.owner_account_id
-    ):
+    if not envelope_boundary.owner_account_id or not other_boundary.owner_account_id:
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY
-            )
+            _invalid_reason(PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY)
         )
     elif envelope_boundary.owner_account_id != other_boundary.owner_account_id:
         reasons.append(
@@ -476,45 +436,35 @@ def _compare_boundary(
         or other_boundary.request_policy_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
     if (
         envelope_boundary.transcript_lineage_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.transcript_lineage_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
     if (
         envelope_boundary.provenance_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.provenance_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
     if (
         envelope_boundary.command_authority_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.command_authority_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
     if (
         envelope_boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
-            )
+            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
         )
 
 
@@ -553,9 +503,7 @@ def _compare_signature_sets(
 ) -> None:
     if _permission_signatures(expected) != _permission_signatures(observed):
         reasons.append(
-            _invalid_reason(
-                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
-            )
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
         )
 
 
@@ -640,13 +588,8 @@ def validate_receipt_against_envelope(
         mismatch_reason=PiValidationFailureReason.RECEIPT_MISMATCH,
         reasons=reasons,
     )
-    if (
-        envelope.provider_lane.to_payload()
-        != receipt.provider_lane.to_payload()
-    ):
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.RECEIPT_MISMATCH)
-        )
+    if envelope.provider_lane.to_payload() != receipt.provider_lane.to_payload():
+        reasons.append(_invalid_reason(PiValidationFailureReason.RECEIPT_MISMATCH))
     _compare_signature_sets(
         expected=envelope.requested_permissions,
         observed=receipt.requested_permissions,
@@ -839,25 +782,36 @@ def validate_pi_invocation_policy_decision(
 
     # Required fields
     if not decision.policy_decision_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not decision.invocation_id:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not decision.source_thread_id or not decision.source_message_id:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not decision.harness_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+    if not decision.harness_version:
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
+        )
+    provider_lane_reasons, provider_lane_metadata = _validate_provider_lane(
+        decision.provider_lane
+    )
+    reasons.extend(provider_lane_reasons)
+    if len(decision.authorization_digest) != 64 or any(
+        character not in "0123456789abcdef"
+        for character in decision.authorization_digest
+    ):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_AUTHORIZATION_BINDING)
         )
 
     # Bounded decision values
     if decision.decision not in {"allowed", "denied", "blocked", "deferred"}:
-        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS)
+        )
 
     # Permissions
     if not decision.requested_permissions:
@@ -874,7 +828,9 @@ def validate_pi_invocation_policy_decision(
         for sig in granted:
             if sig not in requested:
                 reasons.append(
-                    _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+                    _invalid_reason(
+                        PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
+                    )
                 )
                 break
 
@@ -884,13 +840,9 @@ def validate_pi_invocation_policy_decision(
             _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
         )
     if not decision.validation_status:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not decision.redaction_state:
-        reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
-        )
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
 
     # Guardian boundary
     guardian_reasons, guardian_metadata = _validate_guardian_boundary(
@@ -905,6 +857,9 @@ def validate_pi_invocation_policy_decision(
         "source_thread_id": decision.source_thread_id,
         "source_message_id": decision.source_message_id,
         "harness_id": decision.harness_id,
+        "harness_version": decision.harness_version,
+        "provider_lane": provider_lane_metadata,
+        "authorization_digest": decision.authorization_digest,
         "decision": decision.decision,
         "permission_posture": decision.permission_posture,
         "guardian_boundary": guardian_metadata,
@@ -918,11 +873,8 @@ def validate_policy_decision_against_envelope(
 ) -> PiInvocationValidationResult:
     """Validate that Guardian authorized exactly the prepared invocation.
 
-    The policy decision deliberately does not duplicate provider/model values.
-    It authorizes the immutable envelope by matching its invocation, lineage,
-    Guardian boundary, harness, and exact permission posture.  Callers must
-    validate this relationship before deriving the envelope's explicit provider
-    and model as the authorized execution identity.
+    The policy decision duplicates every authority-bearing execution value and
+    carries a deterministic digest over the canonical envelope binding.
     """
     envelope_result = validate_invocation_envelope(envelope)
     decision_result = validate_pi_invocation_policy_decision(decision)
@@ -944,6 +896,18 @@ def validate_policy_decision_against_envelope(
     if envelope.harness_id != decision.harness_id:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if envelope.harness_version != decision.harness_version:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if envelope.provider_lane.to_payload() != decision.provider_lane.to_payload():
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if decision.authorization_digest != create_pi_authorization_digest(envelope):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.AUTHORIZATION_BINDING_MISMATCH)
         )
     if (
         envelope.guardian_boundary.to_payload()
@@ -972,6 +936,9 @@ def validate_policy_decision_against_envelope(
             "source_thread_id": decision.source_thread_id,
             "source_message_id": decision.source_message_id,
             "harness_id": decision.harness_id,
+            "harness_version": decision.harness_version,
+            "provider_lane": decision.provider_lane.to_payload(),
+            "authorization_digest": decision.authorization_digest,
             "decision": decision.decision,
         },
     }
@@ -988,12 +955,21 @@ def validate_pi_invocation_result_return(
     if not result_return.invocation_id:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not result_return.source_thread_id or not result_return.source_message_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
+        )
     if not result_return.harness_id:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
     if result_return.return_state not in {
-        "not_returned", "returned", "validation_failed", "blocked", "deferred"}:
-        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+        "not_returned",
+        "returned",
+        "validation_failed",
+        "blocked",
+        "deferred",
+    }:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS)
+        )
     if not result_return.validation_status:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not result_return.redaction_state:
@@ -1041,16 +1017,28 @@ def validate_pi_invocation_operator_evidence(
     if not evidence.invocation_id:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not evidence.source_thread_id or not evidence.source_message_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
+        )
     if not evidence.harness_id:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
     if evidence.evidence_state not in {
-        "unavailable", "available", "partial", "blocked", "deferred", "validation_failed"}:
-        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+        "unavailable",
+        "available",
+        "partial",
+        "blocked",
+        "deferred",
+        "validation_failed",
+    }:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS)
+        )
     if not evidence.policy_decision_summary:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not evidence.permission_posture:
-        reasons.append(_invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
     if not evidence.validation_status:
         reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
     if not evidence.redaction_state:
@@ -1070,7 +1058,9 @@ def validate_pi_invocation_operator_evidence(
             )
     elif evidence.evidence_state == "validation_failed":
         if not evidence.failure_reason:
-            reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+            )
 
     guardian_reasons, guardian_metadata = _validate_guardian_boundary(
         evidence.guardian_boundary

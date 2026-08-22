@@ -35,7 +35,6 @@ from guardian.pi.validation import (
     validate_receipt_against_envelope,
 )
 
-
 _SUCCESS_STATUSES = frozenset({"ok", "success", "succeeded", "completed"})
 _SENSITIVE_KEY_PARTS = frozenset(
     {
@@ -58,6 +57,7 @@ _SENSITIVE_KEY_NAMES = frozenset(
         "token",
     }
 )
+_NON_SECRET_AUTHORITY_KEYS = frozenset({"authorization_digest"})
 _GIT_TIMEOUT_SECONDS = 5
 
 
@@ -79,7 +79,16 @@ class PiAuthorizedHarnessRequest:
     cwd: Path
     timeout_seconds: int
     identity: PiAuthorizedExecutionIdentity
-    read_only: bool
+    granted_permissions: tuple[PiPermissionGrant, ...]
+    authorization_digest: str
+
+    @property
+    def read_only(self) -> bool:
+        """Compatibility view; authority remains the structural grant set."""
+        return not any(
+            permission.permission == "files.write"
+            for permission in self.granted_permissions
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +148,7 @@ def invoke_guardian_authorized_pi(
     authorization = validate_policy_decision_against_envelope(envelope, decision)
     if not authorization.ok:
         return _blocked(
-            PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH,
+            _authorization_failure_reason(authorization.failure_reasons),
             runner_call_count=0,
         )
     if decision.decision != "allowed":
@@ -176,7 +185,8 @@ def invoke_guardian_authorized_pi(
         cwd=target,
         timeout_seconds=max(1, int(timeout_seconds)),
         identity=identity,
-        read_only=not write_roots,
+        granted_permissions=envelope.granted_permissions,
+        authorization_digest=decision.authorization_digest,
     )
     runner = harness_runner or _run_with_pi_adapter
     evidence: PiHarnessRuntimeEvidence | None = None
@@ -311,7 +321,8 @@ def _run_with_pi_adapter(
             harness_id=request.identity.harness_id,
             harness_version=request.identity.harness_version,
         ),
-        read_only=request.read_only,
+        granted_permissions=request.granted_permissions,
+        authorization_digest=request.authorization_digest,
     )
     return PiHarnessRuntimeEvidence(
         status=result.status,
@@ -497,7 +508,7 @@ def _contains_sensitive_keys(value: object) -> bool:
     if isinstance(value, Mapping):
         for key, nested in value.items():
             key_text = str(key).strip().lower()
-            if (
+            if key_text not in _NON_SECRET_AUTHORITY_KEYS and (
                 key_text in _SENSITIVE_KEY_NAMES
                 or any(part in key_text for part in _SENSITIVE_KEY_PARTS)
             ):
@@ -521,6 +532,23 @@ def _blocked(
         retry_count=0,
         fallback_count=0,
     )
+
+
+def _authorization_failure_reason(
+    failure_reasons: tuple[str, ...],
+) -> PiValidationFailureReason:
+    """Preserve canonical missing-identity failures instead of flattening them."""
+    for reason in (
+        PiValidationFailureReason.MISSING_HARNESS_ID,
+        PiValidationFailureReason.MISSING_HARNESS_VERSION,
+        PiValidationFailureReason.MISSING_PROVIDER_ID,
+        PiValidationFailureReason.MISSING_MODEL_ID,
+        PiValidationFailureReason.MISSING_AUTHORIZATION_BINDING,
+        PiValidationFailureReason.AUTHORIZATION_BINDING_MISMATCH,
+    ):
+        if reason.value in failure_reasons:
+            return reason
+    return PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH
 
 
 __all__ = [
