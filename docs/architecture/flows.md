@@ -26,18 +26,20 @@ Trigger:
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
-2. The route acquires a Redis turn lock whose owner is the new `task_id`.
+2. `guardian/core/chat_completion_service.py::enqueue_chat_completion` acquires a Redis turn lock whose owner is the new `task_id`.
 3. If the thread already has a stale lock, recovery only occurs when real evidence says it is safe:
    - terminal task-stream evidence is enough to clear the old lock
    - or the old task is still nonterminal and the worker heartbeat is `stale`, `dead`, or `missing`
    - if task-stream or heartbeat evidence is `unknown`, recovery fails closed and the route returns `429 turn_in_flight`
-4. The route enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
-5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
-6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
-7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
+4. When supplied, one typed acceptance participant prepares bounded ephemeral state after lock acquisition and before task serialization/enqueue. No current route supplies one.
+5. The shared acceptance service enqueues a `ChatCompletionTask` on `codexify:queue:chat`. Enqueue or synchronous serialization failure invokes participant rollback when preparation succeeded, then follows the existing lock-release and bounded failure path.
+6. After successful enqueue, the optional participant commits before lifecycle-start publication. Commit failure cannot undo queue acceptance, release the accepted task's lock, or trigger automatic re-enqueue; it degrades the existing acceptance result.
+7. The shared acceptance service attempts to publish `task.created` as an independent best-effort lifecycle breadcrumb.
+8. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
+9. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
    - For `retrievalSource="workspace"`, the intended contract is that Obsidian-backed evidence can be selected and injected in executed completion context.
    - Current live behavior for that workspace-local Obsidian selection/injection path remains under active validation and is not currently treated as settled release evidence.
-8. The provider call executes through `guardian/core/ai_router.py`.
+10. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
@@ -49,14 +51,14 @@ Sequence:
    - Remote Recall evidence enters synthesis only as lower-authority bounded retrieval/context data. It is injected as a `user`-role message that is explicitly delimited and labeled as untrusted retrieved data; it MUST NOT be injected as `system` or `developer` authority, and must never be treated as executable instruction. Only Web Evidence Intake Gate-eligible envelopes are injected; blocked evidence remains trace/diagnostic-only.
    - Remote Recall proof depends on terminal task evidence, a persisted assistant message, and `trace["remote_recall"]` metadata (provider, source kinds, candidate/eligible/blocked counts, gate decisions). Route acceptance, a green health endpoint, and unit-test passes are not live proof. One live supported-path proof (PASS) exists on `feature/remote-retrieval` only, under intentionally enabled Groq/egress/posture overrides; it is **not proven on `main`** until the seam is merged and rerun there. See `remote-recall-live-proof.md`.
    - For the workspace proof harness, executed-path worker-visible completion payload evidence is the canonical proof surface; debug trace remains diagnostic-only and cannot replace the executed completion record.
-9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
-10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
+11. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
+12. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
    - The snapshot is expected to carry containment-grade retrieval policy, provenance, suppression, and image-routing truth when available, including explicit absence reasons rather than silent nulls.
    - For workspace-local completions, the terminal task payload and persisted snapshot keep the executed retrieval posture and evidence counts aligned with the worker attempt.
    - For workspace-local proof, the worker-visible task payload is the canonical evidence surface; the debug trace remains diagnostic and must not backfill missing workspace evidence.
-11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
-12. The worker publishes terminal task events and releases the turn lock in `finally`.
-13. The live debug RAG trace endpoint promotes completion metadata from the latest task event payload when available, and can fall back to the latest eval snapshot to expose retrieval policy, provenance, suppression summaries, image-routing decisions, and model-selection truth for operator diagnosis.
+13. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
+14. The worker publishes terminal task events and releases the turn lock in `finally`.
+15. The live debug RAG trace endpoint promotes completion metadata from the latest task event payload when available, and can fall back to the latest eval snapshot to expose retrieval policy, provenance, suppression summaries, image-routing decisions, and model-selection truth for operator diagnosis.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
@@ -80,9 +82,10 @@ Failure modes:
 - Task-event publish failures that degrade progress or terminal visibility without necessarily stopping execution
 
 Acceptance semantics:
-- Normal acceptance means the route acquired the turn lock and enqueued the task.
+- Normal acceptance means the shared acceptance service acquired the turn lock, enqueued the task, completed any supplied participant commit, and observed normal lifecycle-start visibility.
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
+- If enqueue succeeds but an optional participant cannot commit, queue acceptance remains authoritative and the existing `accepted_degraded` result records a separate participant warning. `task.created` is still attempted, and its failure remains distinguishable from participant degradation.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 - A canonical live-proof harness is still the intended way to validate the workspace retrieval seam end-to-end: `scripts/proofs/prove_workspace_obsidian_e2e.py`. A prior PASS interpretation was superseded by later testing, so current release interpretation remains in-progress pending renewed live evidence.
 - For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
@@ -116,6 +119,8 @@ Concrete anchors:
 sequenceDiagram
     participant UI as Frontend
     participant ChatAPI as chat route
+    participant Acceptance as acceptance service
+    participant Participant as optional participant
     participant Redis as Redis
     participant Worker as chat worker
     participant Service as completion service
@@ -123,9 +128,17 @@ sequenceDiagram
     participant PG as Postgres
 
     UI->>ChatAPI: POST /api/chat/{thread_id}/complete
-    ChatAPI->>Redis: acquire turn lock
-    ChatAPI->>Redis: enqueue ChatCompletionTask
-    ChatAPI->>Redis: best-effort task.created
+    ChatAPI->>Acceptance: authorized task input
+    Acceptance->>Redis: acquire turn lock
+    opt participant supplied
+        Acceptance->>Participant: prepare(task)
+    end
+    Acceptance->>Redis: enqueue ChatCompletionTask
+    opt participant supplied
+        Acceptance->>Participant: commit()
+    end
+    Acceptance->>Redis: best-effort task.created
+    Acceptance-->>ChatAPI: accepted or accepted_degraded
     ChatAPI-->>UI: accepted task_id and URLs
     Worker->>Redis: dequeue chat task
     Worker->>Redis: task.running
