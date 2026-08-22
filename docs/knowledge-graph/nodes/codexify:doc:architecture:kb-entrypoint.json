@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-22T16:31:55Z",
-    "verified_commit": "83298f13935d99f4c5562426595240f2a19f7352",
+    "verified_at": "2026-08-22T23:52:28Z",
+    "verified_commit": "85d741ddb926f9a897f081bd537eac9d673a5aed",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB source routing after the committed current-state Internal bounded-read clarification; README bytes remain hash-valid, current-state remains the release-truth entrypoint, ADR-069 routing remains unchanged, and no runtime proof or release expansion is implied."
+    "reason": "Re-verified Architecture KB source routing after current-state Internal packet-generator clarification; README bytes remain hash-valid, ADR-069 routing remains unchanged, and no runtime proof or support expansion is implied."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
