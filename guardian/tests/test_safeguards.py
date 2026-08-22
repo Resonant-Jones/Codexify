@@ -108,32 +108,6 @@ async def execute():
 
 
 @pytest.mark.asyncio
-async def test_memory_query_caching():
-    """Test memory query caching and rate limiting."""
-    store = MemoryStore(":memory:")  # Use in-memory SQLite
-
-    # Add test data
-    await store.store_memory(
-        "Test content", "2023-01-01T00:00:00Z", {"test": True}, ["test"]
-    )
-
-    # Make rapid queries
-    results = []
-    start_time = time.time()
-
-    for _ in range(10):
-        result = await store.query_by_tags(["test"])
-        results.append(len(result))
-        await asyncio.sleep(0.1)
-
-    duration = time.time() - start_time
-
-    # Should use cache after first query
-    assert all(r == results[0] for r in results), "Results should be consistent"
-    assert duration < 2.0, "Cached queries should be fast"
-
-
-@pytest.mark.asyncio
 async def test_safe_logger_batching():
     """Test logger batching and rate limiting."""
     test_log_dir = Path("test_logs")
