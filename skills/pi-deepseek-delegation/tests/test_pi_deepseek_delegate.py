@@ -24,7 +24,9 @@ WRAPPER = SCRIPTS_DIR / "pi_deepseek_delegate.sh"
 INSTALLER = SCRIPTS_DIR / "install.sh"
 
 
-def make_fake_pi(tmp_path: Path, model_list_output: str = "", exit_code: int = 0) -> Path:
+def make_fake_pi(
+    tmp_path: Path, model_list_output: str = "", exit_code: int = 0
+) -> Path:
     """Create a fake pi executable that prints the given model list and exits."""
     pi_path = tmp_path / "bin" / "pi"
     pi_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,18 +58,28 @@ def make_fake_auth_json(tmp_path: Path, providers: list | None = None) -> Path:
     return auth_path
 
 
-def run_wrapper(args: list, env: dict | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def run_wrapper(
+    args: list, env: dict | None = None, cwd: Path | None = None
+) -> subprocess.CompletedProcess:
     """Run the delegation wrapper with given args and env."""
     cmd = ["bash", str(WRAPPER), *args]
     merged_env = {**os.environ, **(env or {})}
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else str(SKILL_DIR), env=merged_env)
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd) if cwd else str(SKILL_DIR),
+        env=merged_env,
+    )
 
 
 def run_installer(args: list, env: dict | None = None) -> subprocess.CompletedProcess:
     """Run the installer with given args and env."""
     cmd = ["bash", str(INSTALLER), *args]
     merged_env = {**os.environ, **(env or {})}
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(SKILL_DIR), env=merged_env)
+    return subprocess.run(
+        cmd, capture_output=True, text=True, cwd=str(SKILL_DIR), env=merged_env
+    )
 
 
 MODEL_LIST_OUTPUT = """provider  model              context  max-out  thinking  images
@@ -79,6 +91,7 @@ deepseek  deepseek-v4-pro    1M       384K     yes       no
 # Model selection tests
 # ---------------------------------------------------------------------------
 
+
 class TestModelSelection:
     def test_inventory_supports_non_deepseek_provider_rows(self, tmp_path):
         """Inventory must expose exact provider/model rows beyond DeepSeek names."""
@@ -87,9 +100,11 @@ openai    gpt-5.1            400K     128K     yes       no
 openai    o4-mini            200K     64K      yes       no
 """
         pi = make_fake_pi(tmp_path, listing)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "PI_DEEPSEEK_PROVIDER": "openai"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "PI_DEEPSEEK_PROVIDER": "openai",
+        }
         make_fake_auth_json(tmp_path, ["openai"])
         result = run_wrapper(["--check", "--provider", "openai"], env=env)
         assert result.returncode == 0
@@ -99,8 +114,10 @@ openai    o4-mini            200K     64K      yes       no
     def test_explicit_model_wins(self, tmp_path):
         """Explicit --model should be used regardless of listing."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check", "--model", "deepseek-v4-flash"], env=env)
         assert "deepseek_model=deepseek-v4-flash" in result.stdout
@@ -108,9 +125,11 @@ openai    o4-mini            200K     64K      yes       no
     def test_env_model_wins_when_set(self, tmp_path):
         """PI_DEEPSEEK_MODEL should be used when no explicit --model."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "PI_DEEPSEEK_MODEL": "deepseek-v4-flash"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "PI_DEEPSEEK_MODEL": "deepseek-v4-flash",
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_model=deepseek-v4-flash" in result.stdout
@@ -118,8 +137,10 @@ openai    o4-mini            200K     64K      yes       no
     def test_prefers_pro_when_listed(self, tmp_path):
         """deepseek-v4-pro should be preferred when both Pro and Flash are listed."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_model=deepseek-v4-pro" in result.stdout
@@ -128,17 +149,23 @@ openai    o4-mini            200K     64K      yes       no
         """deepseek-v4-flash should be selected when Pro is absent."""
         flash_only = "provider  model              context  max-out  thinking  images\ndeepseek  deepseek-v4-flash  1M       384K     yes       no\n"
         pi = make_fake_pi(tmp_path, flash_only)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_model=deepseek-v4-flash" in result.stdout
 
     def test_missing_model_fails(self, tmp_path):
         """Should fail clearly when no model is available."""
-        pi = make_fake_pi(tmp_path, "provider  model  context  max-out  thinking  images\n")
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        pi = make_fake_pi(
+            tmp_path, "provider  model  context  max-out  thinking  images\n"
+        )
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_model=missing" in result.stdout
@@ -151,8 +178,10 @@ deepseek  deepseek-reasoner  1M       384K     yes       no
 deepseek  deepseek-chat      1M       384K     yes       no
 """
         pi = make_fake_pi(tmp_path, listing_with_legacy)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         # Fallback picks first listed model, which is deepseek-reasoner
@@ -167,8 +196,10 @@ deepseek  some-other-model   1M       384K     yes       no
 deepseek  another-model      1M       384K     yes       no
 """
         pi = make_fake_pi(tmp_path, custom_listing)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_model=some-other-model" in result.stdout
@@ -178,12 +209,15 @@ deepseek  another-model      1M       384K     yes       no
 # Authentication tests
 # ---------------------------------------------------------------------------
 
+
 class TestAuthentication:
     def test_auth_storage_detected(self, tmp_path):
         """Pi auth storage should be detected when auth.json contains deepseek."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path, ["deepseek"])
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_auth=configured" in result.stdout
@@ -192,8 +226,10 @@ class TestAuthentication:
     def test_auth_storage_missing_provider(self, tmp_path):
         """Auth should be missing when deepseek not in auth.json."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path, ["other-provider"])
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_auth=missing" in result.stdout
@@ -202,9 +238,11 @@ class TestAuthentication:
     def test_env_auth_detected(self, tmp_path):
         """DEEPSEEK_API_KEY env var should be detected."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "DEEPSEEK_API_KEY": "sk-fake-env-key"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "DEEPSEEK_API_KEY": "sk-fake-env-key",
+        }
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_auth=configured" in result.stdout
         assert "sk-fake-env-key" not in result.stdout
@@ -212,8 +250,10 @@ class TestAuthentication:
     def test_missing_auth_fails(self, tmp_path):
         """Missing authentication should cause check to fail."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         # No auth.json, no env key
         result = run_wrapper(["--check"], env=env)
         assert "deepseek_auth=missing" in result.stdout
@@ -224,12 +264,15 @@ class TestAuthentication:
 # Consent tests
 # ---------------------------------------------------------------------------
 
+
 class TestConsent:
     def test_check_no_ack_required(self, tmp_path):
         """--check must not require external-provider acknowledgement."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent")}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--check"], env=env)
         assert result.returncode == 0
@@ -237,23 +280,40 @@ class TestConsent:
     def test_real_delegation_requires_ack(self, tmp_path):
         """Real delegation must require CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "0"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "0",
+        }
         make_fake_auth_json(tmp_path)
         result = run_wrapper(["--task", "test", "--model", "deepseek-v4-pro"], env=env)
         assert result.returncode != 0
-        assert "external-provider acknowledgement" in result.stderr.lower() or "ack" in result.stderr.lower()
+        assert (
+            "external-provider acknowledgement" in result.stderr.lower()
+            or "ack" in result.stderr.lower()
+        )
 
     def test_implementation_requires_write_ack(self, tmp_path):
         """Implementation mode must require CODEX_DEEPSEEK_WRITE_DELEGATION."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
-               "CODEX_DEEPSEEK_WRITE_DELEGATION": "0"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+            "CODEX_DEEPSEEK_WRITE_DELEGATION": "0",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "implementation", "--task", "test", "--model", "deepseek-v4-pro"], env=env)
+        result = run_wrapper(
+            [
+                "--mode",
+                "implementation",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+            ],
+            env=env,
+        )
         assert result.returncode != 0
 
 
@@ -261,20 +321,35 @@ class TestConsent:
 # Mode tests
 # ---------------------------------------------------------------------------
 
+
 class TestModes:
     def test_analysis_excludes_shell_and_write(self, tmp_path):
         """Analysis mode must exclude shell and write/edit tools."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro", "--dry-run"], env=env)
+        result = run_wrapper(
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--dry-run",
+            ],
+            env=env,
+        )
         assert result.returncode == 0
         # The actual --tools argument should contain only read,grep,find,ls
         # Search for the exact --tools argument pattern
         import re
-        tools_match = re.search(r'--tools\s+(\S+)', result.stdout)
+
+        tools_match = re.search(r"--tools\s+(\S+)", result.stdout)
         assert tools_match, f"Could not find --tools in output: {result.stdout[:500]}"
         tools_val = tools_match.group(1)
         assert "read" in tools_val
@@ -285,13 +360,27 @@ class TestModes:
     def test_review_excludes_shell_and_write(self, tmp_path):
         """Review mode must exclude shell and write/edit tools."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "review", "--task", "test", "--model", "deepseek-v4-pro", "--dry-run"], env=env)
+        result = run_wrapper(
+            [
+                "--mode",
+                "review",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--dry-run",
+            ],
+            env=env,
+        )
         import re
-        tools_match = re.search(r'--tools\s+(\S+)', result.stdout)
+
+        tools_match = re.search(r"--tools\s+(\S+)", result.stdout)
         assert tools_match, f"Could not find --tools in output: {result.stdout[:500]}"
         tools_val = tools_match.group(1)
         assert "read" in tools_val
@@ -302,13 +391,27 @@ class TestModes:
     def test_test_mode_permits_bounded_shell(self, tmp_path):
         """Test mode permits bash but not write/edit."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "test", "--task", "test", "--model", "deepseek-v4-pro", "--dry-run"], env=env)
+        result = run_wrapper(
+            [
+                "--mode",
+                "test",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--dry-run",
+            ],
+            env=env,
+        )
         import re
-        tools_match = re.search(r'--tools\s+(\S+)', result.stdout)
+
+        tools_match = re.search(r"--tools\s+(\S+)", result.stdout)
         assert tools_match, f"Could not find --tools in output: {result.stdout[:500]}"
         tools_val = tools_match.group(1)
         assert "bash" in tools_val
@@ -318,12 +421,25 @@ class TestModes:
     def test_implementation_permits_write(self, tmp_path):
         """Implementation mode permits write/edit/bash."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
-               "CODEX_DEEPSEEK_WRITE_DELEGATION": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+            "CODEX_DEEPSEEK_WRITE_DELEGATION": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "implementation", "--task", "test", "--model", "deepseek-v4-pro", "--dry-run"], env=env)
+        result = run_wrapper(
+            [
+                "--mode",
+                "implementation",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--dry-run",
+            ],
+            env=env,
+        )
         tools_line = [l for l in result.stdout.split("\n") if "--tools" in l]
         if tools_line:
             tools_str = " ".join(tools_line)
@@ -335,6 +451,7 @@ class TestModes:
 # ---------------------------------------------------------------------------
 # Execution / result tests
 # ---------------------------------------------------------------------------
+
 
 class TestExecution:
     def test_explicit_fallback_runs_after_first_model_fails(self, tmp_path):
@@ -355,12 +472,27 @@ echo "FALLBACK_RESULT"
 exit 0
 """)
         pi_path.chmod(0o755)
-        env = {"PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "analysis", "--task", "test", "--model", "first-model",
-                              "--fallback-model", "second-model", "--fallback-on-failure"], env=env, cwd=tmp_path)
+        result = run_wrapper(
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test",
+                "--model",
+                "first-model",
+                "--fallback-model",
+                "second-model",
+                "--fallback-on-failure",
+            ],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode == 0
         assert "model_fallback_next=second-model" in result.stderr
         assert "second-model" in result.stdout
@@ -368,16 +500,28 @@ exit 0
     def test_successful_worker_produces_result_and_metadata(self, tmp_path):
         """A successful delegation produces result and metadata files."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
         output_dir = tmp_path / "output"
         output_dir.mkdir()
         result = run_wrapper(
-            ["--mode", "analysis", "--task", "test task", "--model", "deepseek-v4-pro",
-             "--output-dir", str(output_dir)],
-            env=env, cwd=tmp_path)
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test task",
+                "--model",
+                "deepseek-v4-pro",
+                "--output-dir",
+                str(output_dir),
+            ],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode == 0
         assert "delegation_result=" in result.stdout
         assert "delegation_metadata=" in result.stdout
@@ -385,11 +529,17 @@ exit 0
     def test_worker_failure_preserved(self, tmp_path):
         """Non-zero Pi exit must be preserved."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT, exit_code=1)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro"], env=env, cwd=tmp_path)
+        result = run_wrapper(
+            ["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro"],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode == 1
 
     def test_empty_result_rejected(self, tmp_path):
@@ -408,46 +558,78 @@ fi
 exit 0
 """)
         pi_path.chmod(0o755)
-        env = {"PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
-        result = run_wrapper(["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro"], env=env, cwd=tmp_path)
+        result = run_wrapper(
+            ["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro"],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode != 0
         assert "empty" in result.stderr.lower()
 
     def test_sensitive_context_file_rejected(self, tmp_path):
         """Context files with sensitive names must be rejected."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
         sensitive = tmp_path / ".env"
         sensitive.write_text("SECRET=value")
         result = run_wrapper(
-            ["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro",
-             "--context-file", str(sensitive)],
-            env=env, cwd=tmp_path)
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--context-file",
+                str(sensitive),
+            ],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode != 0
 
     def test_no_secret_in_output(self, tmp_path):
         """Output and metadata must never contain API key values."""
         pi = make_fake_pi(tmp_path, MODEL_LIST_OUTPUT)
-        env = {"PATH": str(pi.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
         output_dir = tmp_path / "output"
         output_dir.mkdir()
         result = run_wrapper(
-            ["--mode", "analysis", "--task", "test task", "--model", "deepseek-v4-pro",
-             "--output-dir", str(output_dir)],
-            env=env, cwd=tmp_path)
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test task",
+                "--model",
+                "deepseek-v4-pro",
+                "--output-dir",
+                str(output_dir),
+            ],
+            env=env,
+            cwd=tmp_path,
+        )
         assert "sk-fake-test-key" not in result.stdout
         assert "sk-fake-test-key" not in result.stderr
         # Check metadata file contents
-        result_path_line = [l for l in result.stdout.split("\n") if "delegation_metadata=" in l]
+        result_path_line = [
+            l for l in result.stdout.split("\n") if "delegation_metadata=" in l
+        ]
         if result_path_line:
             meta_path = result_path_line[0].split("=", 1)[-1]
             if os.path.exists(meta_path):
@@ -471,16 +653,28 @@ echo "FAKE_RESULT"
 exit 0
 """)
         pi_path.chmod(0o755)
-        env = {"PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
-               "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
-               "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1"}
+        env = {
+            "PATH": str(pi_path.parent) + ":" + os.environ["PATH"],
+            "PI_CODING_AGENT_DIR": str(tmp_path / ".pi" / "agent"),
+            "CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK": "1",
+        }
         make_fake_auth_json(tmp_path)
         output_dir = tmp_path / "output"
         output_dir.mkdir()
         result = run_wrapper(
-            ["--mode", "analysis", "--task", "test", "--model", "deepseek-v4-pro",
-             "--output-dir", str(output_dir)],
-            env=env, cwd=tmp_path)
+            [
+                "--mode",
+                "analysis",
+                "--task",
+                "test",
+                "--model",
+                "deepseek-v4-pro",
+                "--output-dir",
+                str(output_dir),
+            ],
+            env=env,
+            cwd=tmp_path,
+        )
         assert result.returncode == 0
         assert "delegation_stderr=" in result.stdout
 
@@ -489,11 +683,14 @@ exit 0
 # Installer tests
 # ---------------------------------------------------------------------------
 
+
 class TestInstaller:
     def test_dry_run_makes_no_changes(self, tmp_path):
         """--dry-run must not create files."""
         target = tmp_path / "skills" / "pi-deepseek-delegation"
-        result = run_installer(["--install", "--dry-run", "--target", str(target), "--dev"])
+        result = run_installer(
+            ["--install", "--dry-run", "--target", str(target), "--dev"]
+        )
         assert result.returncode == 0
         assert "Would install" in result.stdout
         assert not target.exists()
@@ -592,7 +789,9 @@ class TestInstaller:
         """Installer must reject relative target paths."""
         result = run_installer(["--install", "--target", "relative/path", "--dev"])
         assert result.returncode != 0
-        assert "absolute" in result.stdout.lower() or "absolute" in result.stderr.lower()
+        assert (
+            "absolute" in result.stdout.lower() or "absolute" in result.stderr.lower()
+        )
 
     def test_rejects_path_traversal_target(self, tmp_path):
         """Installer must reject target paths containing '..'."""
@@ -605,14 +804,20 @@ class TestInstaller:
 # Secret sentinel
 # ---------------------------------------------------------------------------
 
+
 class TestSecrets:
     def test_no_secret_in_source(self):
         """No API key patterns should appear in skill source files."""
         import re
-        secret_pattern = re.compile(r'sk-[a-zA-Z0-9]{20,}')
+
+        secret_pattern = re.compile(r"sk-[a-zA-Z0-9]{20,}")
         for root, dirs, files in os.walk(SKILL_DIR):
             # Skip .git, __pycache__, .pytest_cache, fixtures
-            dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache", "node_modules")]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in (".git", "__pycache__", ".pytest_cache", "node_modules")
+            ]
             for fname in files:
                 if fname.endswith(".pyc"):
                     continue
@@ -623,15 +828,24 @@ class TestSecrets:
                     continue
                 matches = secret_pattern.findall(content)
                 # The fake auth test has sk-fake-test-key which is fine
-                real_matches = [m for m in matches if "fake" not in m.lower() and "example" not in m.lower()]
-                assert not real_matches, f"Secret pattern found in {fpath}: {real_matches}"
+                real_matches = [
+                    m
+                    for m in matches
+                    if "fake" not in m.lower() and "example" not in m.lower()
+                ]
+                assert (
+                    not real_matches
+                ), f"Secret pattern found in {fpath}: {real_matches}"
 
     def test_no_api_key_value_in_source(self):
         """No hardcoded API key values in source (env var names are fine)."""
         import re
+
         key_value_pattern = re.compile(r'api[_-]?key[\s"\'=:]+sk-', re.IGNORECASE)
         for root, dirs, files in os.walk(SKILL_DIR):
-            dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache")]
+            dirs[:] = [
+                d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache")
+            ]
             for fname in files:
                 if fname.endswith((".pyc", ".py")):
                     continue
@@ -640,4 +854,6 @@ class TestSecrets:
                     content = fpath.read_text()
                 except Exception:
                     continue
-                assert not key_value_pattern.search(content), f"API key value in {fpath}"
+                assert not key_value_pattern.search(
+                    content
+                ), f"API key value in {fpath}"
