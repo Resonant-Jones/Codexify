@@ -43,6 +43,65 @@ This file is authoritative for:
 - Persona Studio core and repository intelligence are Beta Bounded / Conditional; authority remains Guardian-owned and scope-limited.
 - Architecture, schema, DLG, focused test, and proof-validation tooling is present on `main`; these checks do not substitute for live-service proof.
 
+## ADR-069 release-class interpretation
+
+The five human-facing Beta release classes are the canonical short-horizon interpretation of accepted ADR-069 posture. The classification of each surface below matches the current accepted authority; this section does not introduce a new taxonomy and does not promote or demote any capability.
+
+### Beta Supported
+
+The normal supported Beta envelope. Today this includes:
+
+- the local Docker Compose install path (`v1-local-core-web-mcp` with local-only defaults);
+- the local-only provider posture (`LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`);
+- Whoosh'd / local inference on the supported local profile;
+- ordinary chat, durable threads / messages / tasks, upload → embed → readback, and workspace-local retrieval;
+- the canonical operator health surfaces (`/health`, `/health/chat`, `/api/health/llm`).
+
+This envelope is not a claim of current-tip live proof or production-grade readiness.
+
+### Beta Bounded / Conditional
+
+Surfaces that are intentionally part of Beta but only inside an explicit authority, topology, provider, mode, or capability boundary. Today this includes:
+
+- authenticated local Settings routes and the read-only `/api/connections` catalog, within their existing contracts; catalog visibility does not imply setup, authorization, credentials, or live health;
+- Persona Studio core (profile create / edit / select / apply), where TTS / voice execution, unsupported permission authoring, unsupported retrieval-policy execution, and preview-UI equals-enforcement claims are not in this promotion;
+- repository intelligence (candidate discovery, explicit repository import, account / Project `RepositoryBinding`, direct Project-bound repository search, ordinary-chat exposure only when Guardian resolves exactly one valid active binding and existing authority checks pass), governed by ADR-065;
+- bounded import / continuity surfaces: OpenAI and bounded Anthropic account-export conversation import, Task Prompt Archive, and owner-scoped zero-write retry / recovery, only within their existing contracts.
+
+### Internal
+
+Real operational substrate or operator / developer mechanisms that may support Beta behavior but are not themselves a public / user-facing release promise. Examples include:
+
+- direct Command Bus HTTP / control-plane surfaces;
+- plugin SDK internals;
+- developer-only diagnostics;
+- generic internal tooling or mutation surfaces that are not separately Beta-qualified.
+
+### Qualification Pending
+
+Intended or plausible Beta surfaces whose implementation is present but whose named proof / authority / operational gate remains open. Each entry names its remaining gate.
+
+- **Coding Loop** — remaining gate: provider / adapter execution plus terminal durable result plus durable source-thread readback on the claimed supported profile.
+- **Hosted Rooms** — remaining gate: clean supported / tester startup plus owner / guest live semantic proof after the applicable migration repair.
+- **DeepSeek / private-preview provider lane** — remaining gate: required credentials, authenticated provider-specific persisted runtime proof, and explicit supported-profile promotion.
+
+None of these are promoted to Beta Supported by being listed here.
+
+### Out of Beta
+
+Surfaces explicitly excluded from the present Beta promise. They are intentionally Out of Beta, not qualification-pending, and are not promoted by being listed here.
+
+- TTS / voice execution — Out of Beta.
+- federation — Out of Beta.
+- unrestricted autonomous / recursive agent execution — Out of Beta.
+- arbitrary write-capability tool use — Out of Beta.
+- generic shell / filesystem execution through ordinary Beta chat — Out of Beta.
+- public Command Bus exposure — Out of Beta.
+- generic cron / unattended automation — Out of Beta.
+- generic connectors without separate qualification — Out of Beta.
+- graph-write / Neo4j-derived-write behavior where the supported path remains flagged off or quarantined — Out of Beta.
+- remote / multi-user repository execution not covered by a separately accepted authority contract and live proof — Out of Beta.
+
 ## Not yet true / do not assume
 
 - Do not assume a fresh current-tip Compose run proves health, model inventory, chat completion, persisted output, or retrieval.
