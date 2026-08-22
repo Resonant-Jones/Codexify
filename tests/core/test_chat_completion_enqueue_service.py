@@ -276,6 +276,100 @@ def test_participant_prepare_failure_releases_lock_without_enqueue(
     publish.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("field", "mutated_value"),
+    (
+        ("thread_id", 2),
+        ("user_id", "other-user"),
+        ("task_id", "other-task"),
+        ("provider", "ollama"),
+        ("requested_source_mode", "workspace"),
+        ("retrieval_override", {"mode": "personal_knowledge"}),
+    ),
+)
+def test_participant_cannot_mutate_authoritative_task_fields(
+    monkeypatch, immediate_redis, field, mutated_value
+):
+    task = _task()
+    task.requested_source_mode = "project"
+    task.retrieval_override = {"mode": "project"}
+    original_value = getattr(task, field)
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    enqueue = MagicMock()
+    publish = MagicMock()
+
+    def prepare(prepared_task):
+        events.append("prepare")
+        participant.prepare_calls += 1
+        participant.prepared_task = prepared_task
+        setattr(prepared_task, field, mutated_value)
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    participant.prepare = prepare
+    monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert exc_info.value.reason == (
+        "acceptance_participant_authoritative_fields_mutated"
+    )
+    assert events == ["prepare", "rollback", "lock_release"]
+    assert getattr(task, field) == original_value
+    assert participant.rollback_calls == 1
+    assert participant.commit_calls == 0
+    enqueue.assert_not_called()
+    publish.assert_not_called()
+
+
+def test_participant_cannot_mutate_retrieval_override_in_place(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    task.retrieval_override = {"mode": "project"}
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    enqueue = MagicMock()
+
+    def prepare(prepared_task):
+        events.append("prepare")
+        participant.prepare_calls += 1
+        prepared_task.retrieval_override["mode"] = "personal_knowledge"
+
+    participant.prepare = prepare
+    monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", lambda *_a: None)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert exc_info.value.reason == (
+        "acceptance_participant_authoritative_fields_mutated"
+    )
+    assert task.retrieval_override == {"mode": "project"}
+    assert participant.rollback_calls == 1
+    enqueue.assert_not_called()
+
+
 def test_participant_is_not_called_when_turn_lock_is_unavailable(
     monkeypatch, immediate_redis
 ):

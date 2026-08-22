@@ -7,6 +7,7 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -705,6 +706,26 @@ def enqueue_chat_completion(
 
     participant_prepared = False
     if participant is not None:
+        authoritative_fields = (
+            "task_id",
+            "user_id",
+            "thread_id",
+            "turn_id",
+            "turn_lock_owner",
+            "turn_lock",
+            "provider",
+            "model",
+            "requested_provider",
+            "requested_model",
+            "selection_source",
+            "provider_pinned",
+            "requested_source_mode",
+            "retrieval_override",
+        )
+        authoritative_snapshot = {
+            field: copy.deepcopy(getattr(task, field))
+            for field in authoritative_fields
+        }
         try:
             participant.prepare(task)
             participant_prepared = True
@@ -726,6 +747,37 @@ def enqueue_chat_completion(
                 "acceptance_participant_prepare_failed",
                 cause_class=type(exc).__name__,
             ) from None
+
+        mutated_fields = tuple(
+            field
+            for field, original_value in authoritative_snapshot.items()
+            if getattr(task, field) != original_value
+        )
+        if mutated_fields:
+            for field, original_value in authoritative_snapshot.items():
+                setattr(task, field, original_value)
+            logger.warning(
+                (
+                    "[chat.complete] acceptance participant mutated "
+                    "authoritative task fields thread_id=%s task_id=%s "
+                    "turn_id=%s participant_type=%s fields=%s"
+                ),
+                thread_id,
+                task_identity,
+                turn_id,
+                type(participant).__name__,
+                ",".join(mutated_fields),
+            )
+            _rollback_acceptance_participant(
+                participant,
+                thread_id=thread_id,
+                task_id=task_identity,
+                turn_id=turn_id,
+            )
+            _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+            raise ChatCompletionEnqueueError(
+                "acceptance_participant_authoritative_fields_mutated"
+            )
 
     try:
         run_with_redis_timeout(
