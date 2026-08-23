@@ -6,7 +6,7 @@ The Settings **Connectors** tab is Codexify's single user-facing destination
 for external connections. This document establishes the canonical
 **Connections control plane**: one backend-owned, typed catalog that the
 existing bay projects for discovering, inspecting, and setting up Messaging,
-Web, and Inference integrations.
+Web, Inference, and Knowledge integrations.
 
 Connections is a **control plane, not a new execution owner**. The underlying
 runtime systems retain their authority:
@@ -17,6 +17,8 @@ runtime systems retain their authority:
 - Inference execution authorization remains owned by
   `guardian/core/provider_registry.py` and supported-profile policy.
 - Web execution remains owned by the eventual web-tool/provider runtime.
+- Knowledge-provider execution remains owned by the future provider-specific
+  knowledge adapter and Command Bus authority seam.
 - Credential persistence remains server-side.
 
 The bay aggregates those systems into one setup experience without merging
@@ -35,11 +37,19 @@ their runtime domains.
 
 ## Category model
 
-Exactly three canonical categories exist:
+Exactly four canonical categories exist:
 
 - `messaging`
 - `web`
 - `inference`
+- `knowledge`
+
+`knowledge` is the catalog classification for external content systems whose
+primary value is access to user-authorized structured or semi-structured
+knowledge. It is not a runtime owner and does not imply ingestion,
+synchronization, indexing, memory writes, health, authorization, or write
+access. ADR-075 defines the bounded taxonomy extension and its future
+capability semantics.
 
 The desktop-only `connection` Settings tab is a different surface (Codexify's
 own backend/runtime connection) and is not part of this catalog. The legacy
@@ -54,8 +64,9 @@ Every entry exposes:
 - `auth_methods` — from the canonical method vocabulary:
   `oauth_browser`, `oauth_device`, `api_key`, `token`,
   `service_credentials`, `local_endpoint`, `none`
-- `capabilities` — canonical capability tokens; for web providers,
-  `search` and `extract` are modeled as **distinct** capabilities
+- `capabilities` — canonical capability tokens. Web providers use distinct
+  `search` and `extract` capabilities; Knowledge providers use distinct future
+  `content_search` and `content_read` capabilities as defined by ADR-075
 - `implementation_state` — one of `implemented`, `partial`,
   `unimplemented`, `experimental`
 - `setup_state` — one of `available`, `needs_setup`, `authenticating`,
@@ -151,6 +162,11 @@ no third-party private credentials were introduced by this slice.
   SearXNG, Brave, DDGS, Tavily, Exa, Parallel, or xAI/Grok does **not**
   change current search behavior: the legacy research search path and the
   separate remote-recall web seam are unaffected.
+- Knowledge entries bind to no runtime in this documentation slice. Future
+  provider-specific adapters own authenticated content-repository API
+  translation, and agent-invocable operations remain Command Bus governed;
+  catalog presence does not establish a credential, authorization, health, or
+  executable adapter.
 - Legacy sync connectors (GitHub) remain on the existing connector
   subsystem surface; their behavior is unchanged.
 
@@ -208,6 +224,22 @@ Every web entry is `unimplemented` in this slice. This task creates the
 control-plane vocabulary for later web-provider adapter tasks; it does not
 make any provider executable and does not modify
 `guardian/core/research/Modules/agent/search.py`.
+
+## Knowledge provider capability relationship
+
+Knowledge is distinct from Web retrieval. `content_search` means bounded
+discovery of objects visible through an authenticated or explicitly scoped
+provider connection; `content_read` means bounded normalized reading of one
+selected accessible object. Both return external evidence, not automatic
+ingestion, synchronization, embedding, document persistence, memory writes,
+or identity inference. Any later persistence path must retain source
+provenance.
+
+Notion is the first intended Knowledge Connection. Google Drive and Google
+Docs are representative future Knowledge Connections; Google Chat and Gemini
+remain Messaging and Inference identities. No Knowledge adapter, credential
+route, Command Bus command, or provider health claim is implemented by this
+documentation decision.
 
 ## OAuth posture
 
