@@ -109,6 +109,20 @@ const thread: CodexifyThread = {
   title: "Existing thread",
   createdAt: fixedTimestamp,
   updatedAt: fixedTimestamp,
+  projectId: null,
+  projectName: null,
+  originSystem: null,
+  providerOverride: null,
+  modelOverride: null,
+  threadConfig: null,
+}
+
+function threadPage(
+  threads: CodexifyThread[],
+  nextOffset = threads.length,
+  hasMore = false,
+) {
+  return { threads, nextOffset, hasMore }
 }
 
 const userMessage: CodexifyMessage = {
@@ -146,7 +160,9 @@ function apiMock(overrides: Partial<CodexifyExtensionApi> = {}): CodexifyExtensi
     logout: vi.fn(async () => undefined),
     getUserProfile: vi.fn(async () => "default"),
     updateAccentColor: vi.fn(async () => undefined),
-    listThreads: vi.fn(async () => [thread]),
+    listProjects: vi.fn(async () => []),
+    listThreads: vi.fn(async () => threadPage([thread], 1)),
+    getThread: vi.fn(async () => thread),
     createThread: vi.fn(async () => thread),
     listMessages: vi.fn(async () => [userMessage, assistantMessage]),
     listAgentRuns: vi.fn(async () => []),
@@ -357,6 +373,165 @@ describe("Codexify Chrome side panel", () => {
     expect(userArticle!.textContent).toContain("Persisted user message")
   })
 
+  it("observes project-scoped thread context and creates a New Chat in the explicit project lens", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const scopedThread: CodexifyThread = {
+      ...thread,
+      projectId: 12,
+      projectName: "Project Atlas",
+      originSystem: "openai",
+      providerOverride: "override-provider",
+      modelOverride: "override-model",
+      threadConfig: {
+        providerId: "canonical-provider",
+        modelId: "canonical-model",
+        inferenceMode: "deep",
+        retrievalSource: "personal_knowledge",
+        personaId: "persona-atlas",
+      },
+    }
+    const projectThread: CodexifyThread = {
+      ...scopedThread,
+      id: 12,
+      title: "Project-scoped conversation",
+    }
+    const api = apiMock({
+      listProjects: vi.fn(async () => [{ id: 12, name: "Project Atlas", icon: "atlas" }]),
+      listThreads: vi.fn(async (query) => query?.projectId === 12
+        ? threadPage([projectThread], 1)
+        : threadPage([scopedThread], 1)),
+      createThread: vi.fn(async () => projectThread),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText("Project Atlas")).toBeVisible()
+    expect(screen.getByText("Openai")).toBeVisible()
+    expect(screen.getByText("canonical-provider")).toBeVisible()
+    expect(screen.getByText("canonical-model")).toBeVisible()
+    expect(screen.queryByText("override-provider")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: /Existing thread/ }))
+    const projectScope = screen.getByLabelText("Project scope")
+    expect(screen.getByRole("option", { name: "Project Atlas" })).toBeVisible()
+    fireEvent.change(projectScope, { target: { value: "12" } })
+
+    await waitFor(() => {
+      expect(api.listThreads).toHaveBeenLastCalledWith({
+        limit: 50,
+        offset: 0,
+        projectId: 12,
+      })
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "New Chat" }))
+    await waitFor(() => {
+      expect(api.createThread).toHaveBeenCalledWith("New Chat", 12)
+    })
+  })
+
+  it("uses only the canonical provenance lens when the origin scope changes", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const importedThread: CodexifyThread = {
+      ...thread,
+      id: 22,
+      title: "Imported conversation",
+      originSystem: "anthropic",
+    }
+    const api = apiMock({
+      listThreads: vi.fn(async (query) => query?.originSystem === "anthropic"
+        ? threadPage([importedThread], 1)
+        : threadPage([thread], 1)),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /Existing thread/ }))
+    fireEvent.change(screen.getByLabelText("Conversation origin"), {
+      target: { value: "anthropic" },
+    })
+
+    await waitFor(() => {
+      expect(api.listThreads).toHaveBeenLastCalledWith({
+        limit: 50,
+        offset: 0,
+        originSystem: "anthropic",
+      })
+    })
+    expect(await screen.findByRole("button", { name: "Imported conversation" })).toBeVisible()
+  })
+
+  it("loads later pages without duplicates and retains selected-thread truth across a scope reset", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const secondThread: CodexifyThread = { ...thread, id: 8, title: "Second page seed" }
+    const laterThread: CodexifyThread = { ...thread, id: 9, title: "Later conversation" }
+    const projectThread: CodexifyThread = { ...thread, id: 12, title: "Project result", projectId: 12 }
+    const api = apiMock({
+      listProjects: vi.fn(async () => [{ id: 12, name: "Project Atlas", icon: null }]),
+      listThreads: vi.fn(async (query) => {
+        if (query?.projectId === 12) return threadPage([projectThread], 1)
+        if (query?.offset === 50) return threadPage([thread, laterThread], 52)
+        return threadPage([thread, secondThread], 50, true)
+      }),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /Existing thread/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
+    expect(await screen.findByRole("button", { name: "Later conversation" })).toBeVisible()
+    expect(screen.getAllByRole("button", { name: "Existing thread" })).toHaveLength(2)
+    expect(api.listThreads).toHaveBeenLastCalledWith({ limit: 50, offset: 50 })
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText("Project scope"), { target: { value: "12" } })
+    await waitFor(() => {
+      expect(api.listThreads).toHaveBeenLastCalledWith({
+        limit: 50,
+        offset: 0,
+        projectId: 12,
+      })
+    })
+    expect(screen.getByRole("button", { name: /Existing thread/ })).toBeVisible()
+    expect(screen.getByLabelText("Selected thread context")).toBeVisible()
+  })
+
+  it("renders an honest unspecified provider and model when selected configuration is absent", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => apiMock()}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByLabelText("Selected thread context")).toBeVisible()
+    expect(screen.getAllByText("Unspecified")).toHaveLength(2)
+  })
+
   it("projects the selected thread's Guardian approval above the composer", async () => {
     const { storage } = memoryStorage(savedProfile())
     const api = apiMock({
@@ -503,7 +678,11 @@ describe("Codexify Chrome side panel", () => {
       title: "Second thread",
     }
     const api = apiMock({
-      listThreads: vi.fn(async () => [thread, secondThread]),
+      listThreads: vi.fn(async () => ({
+        threads: [thread, secondThread],
+        nextOffset: 2,
+        hasMore: false,
+      })),
       listAgentRuns: vi.fn(async (threadId) => threadId === 7 ? [{
         run_id: "run_7",
         runtime_target: null,

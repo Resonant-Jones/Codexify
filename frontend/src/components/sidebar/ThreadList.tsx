@@ -200,7 +200,7 @@ function ThreadPreviewList({
         {showHeader && onOriginSystemChange && originOptions.length > 0 && (
           <div className="pb-2 px-3 min-w-0">
             <div
-              className="glass-pill sidebar-source-navigation flex w-full max-w-full min-w-0 overflow-hidden px-1"
+              className="glass-pill sidebar-source-navigation box-border flex w-full max-w-full min-w-0 overflow-hidden px-1"
               role="toolbar"
               aria-label="Canonical conversation origin filter"
             >
