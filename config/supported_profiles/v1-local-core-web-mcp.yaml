@@ -42,10 +42,12 @@ route_posture:
     - system_prompt
     - system_docs
     - connections
+    - notion_knowledge
   internal_only:
     - coding_work_orders
     - command_bus
     - minimax_oauth
+    - notion_setup
   quarantined:
     - neo
     - iddb

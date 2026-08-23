@@ -17,7 +17,7 @@ runtime systems retain their authority:
 - Inference execution authorization remains owned by
   `guardian/core/provider_registry.py` and supported-profile policy.
 - Web execution remains owned by the eventual web-tool/provider runtime.
-- Knowledge-provider execution remains owned by the future provider-specific
+- Knowledge-provider execution remains owned by the provider-specific
   knowledge adapter and Command Bus authority seam.
 - Credential persistence remains server-side.
 
@@ -65,7 +65,7 @@ Every entry exposes:
   `oauth_browser`, `oauth_device`, `api_key`, `token`,
   `service_credentials`, `local_endpoint`, `none`
 - `capabilities` — canonical capability tokens. Web providers use distinct
-  `search` and `extract` capabilities; Knowledge providers use distinct future
+  `search` and `extract` capabilities; Knowledge providers use distinct
   `content_search` and `content_read` capabilities as defined by ADR-075
 - `implementation_state` — one of `implemented`, `partial`,
   `unimplemented`, `experimental`
@@ -76,7 +76,8 @@ Every entry exposes:
   exists), the `provider_registry` provider id for inference entries, and
   whether a real backend OAuth authorization handler exists
 - `required_fields`, `scopes` (when applicable), `setup_help`, and a safe
-  `oauth` projection
+  `oauth` projection; provider-specific entries may also expose a safe
+  bounded validation projection
 
 ## The five distinctions
 
@@ -128,6 +129,10 @@ Setup state is the per-user projection merged by
   `authenticating`; `disconnected` projects `configured`.
 - A user-scoped `channel_configs` row for Slack/Discord/Telegram projects
   `configured`.
+- A user-scoped Notion credential record projects `needs_setup` when absent,
+  `configured` when saved but unvalidated, `connected` only after an explicit
+  successful validation, and `error` for bounded authorization, transport,
+  or provider validation failures. The status contains no token or raw error.
 - Registered inference providers project `configured` when registry
   authorization is available, `error` when authorization exists but
   availability is blocked, and `needs_setup` when credentials are absent.
@@ -145,8 +150,17 @@ raw authorization codes. The only OAuth material projected to the frontend
 is the safe metadata listed above, and raw `last_error` text is reduced to a
 bounded classification (`provider_error`).
 
-No OAuth exchange endpoints, no Hermes credentials, no OAuth client ids, and
-no third-party private credentials were introduced by this slice.
+No OAuth exchange endpoints, no Hermes credentials, and no OAuth client ids
+were introduced by this slice. The narrowly scoped Notion integration token
+is described below.
+
+The Notion integration token is not stored in `oauth_connections`: it is an
+integration token rather than an OAuth grant. Its one-per-user
+`notion_connection_credentials` record is encrypted using the existing
+server-side secret primitive and can only be configured or removed by its
+provider-specific setup route. Neither that encrypted value nor a token
+prefix, suffix, hash, authorization header, or upstream raw error is exposed
+through the Connections projection or browser storage.
 
 ## Runtime-binding ownership
 
@@ -162,11 +176,13 @@ no third-party private credentials were introduced by this slice.
   SearXNG, Brave, DDGS, Tavily, Exa, Parallel, or xAI/Grok does **not**
   change current search behavior: the legacy research search path and the
   separate remote-recall web seam are unaffected.
-- Knowledge entries bind to no runtime in this documentation slice. Future
-  provider-specific adapters own authenticated content-repository API
-  translation, and agent-invocable operations remain Command Bus governed;
-  catalog presence does not establish a credential, authorization, health, or
-  executable adapter.
+- The implemented Notion Knowledge entry binds to
+  `guardian.connections.notion`. Its adapter owns only Notion REST API
+  translation; `/api/connect/notion/*` owns configuration, validation,
+  status, and disconnect, while GET-only `/api/knowledge/notion/search` and
+  `/api/knowledge/notion/read/{object_id}` are the bounded operations that
+  Command Bus registers as read commands. The catalog remains a projection:
+  it does not own execution, credentials, authorization, or health.
 - Legacy sync connectors (GitHub) remain on the existing connector
   subsystem surface; their behavior is unchanged.
 
@@ -235,11 +251,15 @@ ingestion, synchronization, embedding, document persistence, memory writes,
 or identity inference. Any later persistence path must retain source
 provenance.
 
-Notion is the first intended Knowledge Connection. Google Drive and Google
-Docs are representative future Knowledge Connections; Google Chat and Gemini
-remain Messaging and Inference identities. No Knowledge adapter, credential
-route, Command Bus command, or provider health claim is implemented by this
-documentation decision.
+Notion is the first canonical, read-only Knowledge Connection. It implements
+only `content_search` and `content_read` for Notion pages shared with the
+configured integration, with bounded page/block pagination and normalized
+source provenance. It does not write Notion, ingest or synchronize content,
+create documents, embeddings, memory, graph records, or a global database
+binding. Google Drive and Google Docs remain representative future Knowledge
+Connections; Google Chat and Gemini remain Messaging and Inference identities.
+Implementation and focused tests prove the local adapter seam only; live
+Notion-account qualification remains separate and is not a release claim.
 
 ## OAuth posture
 
@@ -291,6 +311,11 @@ authoritative mutation surfaces: `/api/channels/*` for channels,
 `/api/connectors/*` for legacy sync connectors, and server configuration
 plus provider-registry policy for inference. The Connections API creates
 no duplicate mutation routes.
+
+Notion credential mutation is deliberately outside this router on the
+provider-specific, internal-only `/api/connect/notion/*` setup seam. The
+generic legacy `/api/connectors` route family remains quarantined and is not
+used by the Notion runtime.
 
 `guardian_api.py` registers the read-only Connections router under the
 distinct `connections` supported-profile route identity and the

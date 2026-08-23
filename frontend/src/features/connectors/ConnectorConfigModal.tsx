@@ -519,6 +519,52 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     }
   }
 
+  async function handleNotionValidate() {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await api.post<{
+        validation?: { state?: string };
+      }>("/api/connect/notion/validate", {});
+      const state = res?.data?.validation?.state;
+      setMessage(
+        state === "valid"
+          ? "Validation succeeded. Notion is reachable for this user."
+          : "Validation completed."
+      );
+      onChanged();
+    } catch (e: any) {
+      const code = e?.response?.data?.detail?.error;
+      setMessage(
+        code
+          ? `Validation failed: ${code}`
+          : "Validation could not reach the provider."
+      );
+      onChanged();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleNotionDisconnect() {
+    setLoading(true);
+    setMessage(null);
+    try {
+      await api.post("/api/connect/notion/disconnect", {});
+      setFields({});
+      setSaveSucceeded(false);
+      setMessage("Notion credential removed.");
+      onChanged();
+    } catch (e: any) {
+      setMessage(
+        e?.response?.data?.detail?.error ||
+          "Could not remove the Notion credential."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleMinimaxOAuthFlow(): Promise<void> {
     interface StartResponse {
       provider: string;
@@ -691,6 +737,17 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
             : ""}
         </div>
       )}
+      {connection.validation && (
+        <div
+          className="text-xs rounded-[var(--tile-radius,19px)] border border-[color:var(--panel-border)] p-2"
+          style={{ color: "var(--muted)" }}
+        >
+          Validation: {connection.validation.state}
+          {connection.validation.last_validated_at
+            ? ` · checked ${connection.validation.last_validated_at}`
+            : ""}
+        </div>
+      )}
     </div>
   );
 
@@ -781,6 +838,17 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
         </div>
       )}
       {message && <div className="text-xs">{message}</div>}
+      {connection.id === "notion" && saveSucceeded && (
+        <Button
+          className="rounded-xl"
+          size="sm"
+          onClick={handleNotionValidate}
+          disabled={loading}
+          data-testid="notion-validate"
+        >
+          Validate connection
+        </Button>
+      )}
       {loading && (
         <div className="flex items-center gap-2 text-sm opacity-80">
           <Loader2 className="h-4 w-4 animate-spin" /> Working…
@@ -797,6 +865,19 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           : "Configuration saved."}
       </div>
       {message && <div className="text-xs">{message}</div>}
+      {connection.id === "notion" &&
+        (connection.setup_state !== "needs_setup" || saveSucceeded) && (
+        <Button
+          variant="ghost"
+          className="rounded-xl"
+          size="sm"
+          onClick={handleNotionDisconnect}
+          disabled={loading}
+          data-testid="notion-disconnect"
+        >
+          Disconnect
+        </Button>
+      )}
     </div>
   );
 

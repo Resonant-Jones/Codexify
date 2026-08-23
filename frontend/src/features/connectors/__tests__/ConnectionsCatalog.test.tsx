@@ -12,7 +12,7 @@ import { ConnectionConfigModal } from "@/features/connectors/ConnectorConfigModa
 import SettingsView from "@/features/settings/SettingsView";
 
 const catalogPayload = {
-  categories: ["messaging", "web", "inference"],
+  categories: ["messaging", "web", "inference", "knowledge"],
   items: [
     {
       id: "slack",
@@ -108,6 +108,40 @@ const catalogPayload = {
       scopes: [],
       setup_help: "No Codexify web adapter exists for this provider yet.",
       oauth: null,
+      authorization: null,
+    },
+    {
+      id: "notion",
+      display_name: "Notion",
+      category: "knowledge",
+      description: "Read-only Notion knowledge retrieval.",
+      auth_methods: ["token"],
+      capabilities: ["content_search", "content_read"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.connections.notion",
+        adapter: "guardian.connections.notion.service.NotionClient",
+        setup_route: "/api/connect/notion/configure",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [
+        {
+          key: "integration_token",
+          label: "Notion integration token",
+          type: "password",
+          secret: true,
+        },
+      ],
+      scopes: ["content_read"],
+      setup_help: "Share the intended pages with the integration.",
+      oauth: null,
+      validation: {
+        configured: false,
+        state: "unconfigured",
+        last_validated_at: null,
+      },
       authorization: null,
     },
   ],
@@ -269,14 +303,68 @@ describe("Connections catalog bay", () => {
     window.sessionStorage.clear();
   });
 
-  it("renders category navigation for Messaging, Web, and Inference", async () => {
+  it("renders category navigation including Knowledge", async () => {
     await openConnectorsTab();
 
-    for (const category of ["all", "messaging", "web", "inference"]) {
+    for (const category of ["all", "messaging", "web", "inference", "knowledge"]) {
       expect(
         screen.getByTestId(`connections-category-${category}`)
       ).toBeInTheDocument();
     }
+  });
+
+  it("configures, validates, and disconnects Notion without browser secret storage", async () => {
+    const notion = catalogPayload.items.find((item) => item.id === "notion")!;
+    const changed = vi.fn();
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: { validation: { state: "unvalidated" } },
+      })
+      .mockResolvedValueOnce({ data: { validation: { state: "valid" } } })
+      .mockResolvedValueOnce({ data: { removed: true } });
+
+    render(
+      <ConnectionConfigModal
+        connection={notion}
+        open
+        onClose={vi.fn()}
+        onChanged={changed}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    const input = await screen.findByLabelText("Notion integration token");
+    expect(input).toHaveAttribute("type", "password");
+    fireEvent.change(input, { target: { value: "notion-browser-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/configure",
+        { settings: { integration_token: "notion-browser-secret" } }
+      );
+    });
+    expect(window.localStorage.getItem("integration_token")).toBeNull();
+    expect(window.sessionStorage.getItem("integration_token")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("notion-validate"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/validate",
+        {}
+      );
+    });
+    expect(screen.getByText(/Validation succeeded/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    fireEvent.click(screen.getByTestId("notion-disconnect"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/disconnect",
+        {}
+      );
+    });
+    expect(changed).toHaveBeenCalled();
   });
 
   it("does not advertise a browser setup flow for server-managed messaging credentials", async () => {

@@ -13,6 +13,7 @@ from guardian.connections.catalog import (
 )
 from guardian.protocol_tokens import (
     CONNECTION_AUTH_METHODS,
+    CONNECTION_CAPABILITIES,
     CONNECTION_CATEGORIES,
     CONNECTION_IMPLEMENTATION_STATES,
     CONNECTION_SETUP_STATES,
@@ -76,6 +77,24 @@ def test_states_and_methods_are_canonical_tokens() -> None:
         assert entry.default_setup_state in CONNECTION_SETUP_STATES
         for method in entry.auth_methods:
             assert method in CONNECTION_AUTH_METHODS
+        for capability in entry.capabilities:
+            assert capability in CONNECTION_CAPABILITIES
+
+
+def test_notion_is_the_single_implemented_read_only_knowledge_entry() -> None:
+    knowledge_entries = [
+        entry for entry in get_catalog() if entry.category == "knowledge"
+    ]
+    assert [entry.id for entry in knowledge_entries] == ["notion"]
+    notion = knowledge_entries[0]
+    assert notion.capabilities == {"content_search", "content_read"}
+    assert notion.auth_methods == ("token",)
+    assert notion.implementation_state == "implemented"
+    assert notion.runtime_binding.subsystem == "guardian.connections.notion"
+    assert notion.runtime_binding.setup_route == "/api/connect/notion/configure"
+    assert notion.required_fields[0].secret is True
+    assert "sync" not in notion.capabilities
+    assert "write" not in notion.capabilities
 
 
 def test_every_requested_messaging_entry_is_present() -> None:
