@@ -14,7 +14,7 @@ import pytest
 
 pytestmark = pytest.mark.asyncio
 
-from guardian.cache import lru_cache_safe, memoize_to_disk
+from guardian.cache import CacheConfig, lru_cache_safe, memoize_to_disk
 from guardian.config import Config
 from guardian.memory.memory_logger import memory_logger
 from guardian.threads_structure.plugin_executor import plugin_executor
@@ -61,8 +61,12 @@ def setup_test_env():
             file.unlink()
 
 
-def test_cache_decorators(setup_test_env):
+def test_cache_decorators(tmp_path, monkeypatch):
     """Test caching decorators."""
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setattr(CacheConfig, "CACHE_DIR", cache_dir)
+    monkeypatch.setattr(CacheConfig, "CACHE_ENABLED", True)
+
     call_count = 0
 
     @lru_cache_safe(maxsize=10, expire=1)
@@ -93,6 +97,7 @@ def test_cache_decorators(setup_test_env):
     assert disk_cached_func(5) == 15
     assert disk_cached_func(5) == 15
     assert call_count == 1
+    assert (cache_dir / "disk_cached_func.jsonl").is_file()
 
 
 async def test_batch_logging(setup_test_env):

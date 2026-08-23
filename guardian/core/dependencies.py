@@ -45,9 +45,44 @@ from guardian.core.preview_access import (
     is_private_preview,
     require_preview_principal,
 )
-from guardian.memory.query_memory import memory_store as _memory_store
+# NOTE: The legacy SQLite-backed `guardian.memory.query_memory.MemoryStore` import
+# was previously eager on this line:
+#     from guardian.memory.query_memory import memory_store as _memory_store
+# That eager import forced import-time SQLite schema initialization
+# (`MemoryStore.__init__` → `_init_db` → CREATE TABLE / CREATE INDEX), which surfaced
+# as NX-1 BLOCKED: `sqlite3.OperationalError: attempt to write a readonly database`
+# during backend module import on the supported local Docker Compose path (audited
+# SHA `29b01148a774a2e8f0fcacc47f44adf9f36f1e91`).
+#
+# Live consumer evidence on current `main` (`8cfe9daa5c15dbed59e626206f22dfd28032ed1c`)
+# establishes that `_memory_store` is dead effective startup coupling: the only
+# runtime consumers (chat_completion_service.py, routes/chat.py, core_loop_proof.py)
+# pass `dependencies._memory_store` positionally into `ContextBroker(memory_store=...)`,
+# which already declares `memory_store: Optional[Any] = None` and consumes
+# `self.memory` only inside guarded fallback paths (`elif self.memory:` at broker.py:1490
+# and `and self.memory` at broker.py:2456). The legacy SQLite `MemoryStore` class
+# defines `query_by_time / query_by_tags / query_by_content` only; it does not
+# implement the `search_related` method called by those guarded fallbacks, so the
+# fallback path is **dead code** for this MemoryStore class. The active memory
+# retrieval path goes through `ContextBroker._search_memory`, which uses
+# `self.memory_retriever` (the modern MemoryOS semantic retriever), not `self.memory`.
+#
+# Resolution: expose `_memory_store` as a lazy, default-`None` attribute on this
+# module. Importing `guardian.core.dependencies` no longer triggers SQLite
+# schema initialization at all; any caller that previously read
+# `dependencies._memory_store` now reads `None` and the downstream
+# `ContextBroker` falls through to the modern `memory_retriever` path that is
+# already exercised in production. Direct explicit `MemoryStore(temp_db_path)`
+# construction from focused tests (`guardian/tests/test_safeguards.py`,
+# `guardian/tests/test_context_broker_memory.py`) is unaffected because those
+# callers import the class directly from `guardian.memory.query_memory` rather
+# than reading the global instance through this module.
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
+
+# Legacy MemoryStore global instance slot. See NOTE above. Lazily resolved;
+# never initialized by `import guardian.core.dependencies` alone.
+_memory_store = None
 
 try:  # Optional; only used when remote auth mode validates JWT bearer tokens.
     import jwt  # type: ignore
