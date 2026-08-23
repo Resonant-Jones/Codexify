@@ -76,6 +76,11 @@ def _clean_subprocess_env() -> dict[str, str]:
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
         "PYTHONIOENCODING": "utf-8",
+        # The application entrypoint intentionally refuses to import without
+        # an API key. Supply a non-secret test value so the probe reaches its
+        # completion sentinels instead of mistaking config rejection for a
+        # successful no-write observation.
+        "GUARDIAN_API_KEY": "startup-boundary-test-key",
     }
     env["PYTHONPATH"] = str(REPO_ROOT)
     return env
@@ -119,6 +124,22 @@ def _run_isolated_import_check(
         timeout=timeout,
     )
     last_lines = (result.stdout or "").strip().splitlines()[-2:]
+    assert result.returncode == 0, (
+        f"isolated import of {target_module} failed with exit code "
+        f"{result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert len(last_lines) == 2, (
+        f"isolated import of {target_module} did not emit both completion "
+        f"sentinels; stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert last_lines[0] in {"DB_CREATED=True", "DB_CREATED=False"}, (
+        f"isolated import of {target_module} emitted an invalid DB_CREATED "
+        f"sentinel; stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert last_lines[1].startswith("DB_SIZE=") and last_lines[1][8:].isdigit(), (
+        f"isolated import of {target_module} emitted an invalid DB_SIZE "
+        f"sentinel; stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
     sentinels = {line.strip() for line in last_lines}
     db_created = "DB_CREATED=True" in sentinels
     store_db_exists_on_disk = (cwd / "guardian" / "memory" / "store.db").exists()
@@ -185,6 +206,15 @@ def test_import_seam_does_not_create_legacy_sqlite_store_db(
         f"in-probe sentinel for {target_module} reported DB_CREATED=True; "
         "the import-time eager-MemoryStore repair was not honored"
     )
+
+
+def test_isolated_import_probe_fails_when_target_import_fails(tmp_path: Path) -> None:
+    """A missing completion sentinel must not pass as a no-write result."""
+    with pytest.raises(AssertionError, match="isolated import .* failed"):
+        _run_isolated_import_check(
+            "guardian.module_that_does_not_exist",
+            cwd=tmp_path,
+        )
 
 
 def test_explicit_memory_store_construction_still_works(tmp_path: Path) -> None:
