@@ -2041,6 +2041,47 @@ class EventGraphEvent(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class GitHubWatchdogDeliveryReceipt(Base):
+    """Durable, bounded receipt for one authenticated GitHub delivery."""
+
+    __tablename__ = "github_watchdog_delivery_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    github_delivery_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    installation_id: Mapped[str | None] = mapped_column(String(64))
+    repository_id: Mapped[str | None] = mapped_column(String(64))
+    repository_full_name: Mapped[str | None] = mapped_column(String(512))
+    trigger_actor_id: Mapped[str | None] = mapped_column(String(64))
+    trigger_actor_login: Mapped[str | None] = mapped_column(String(255))
+    pull_request_number: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(64))
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_received_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_received_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    redelivery_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_github_watchdog_delivery_receipts_idempotency_key",
+        ),
+        Index(
+            "ix_github_watchdog_delivery_receipts_github_delivery_id",
+            "github_delivery_id",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class AuditLog(Base):
     """Generic audit trail for all entity changes."""
 

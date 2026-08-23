@@ -472,6 +472,13 @@ class Settings(BaseSettings):
         default=None,
         description="Comma-separated additional API keys for Guardian HTTP auth.",
     )
+    CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App webhook secret for authenticated "
+            "Watchdog delivery intake."
+        ),
+    )
     GUARDIAN_DATABASE_URL: str | None = Field(
         default=None,
         description="Primary Postgres connection URL for Guardian chatlog DB.",

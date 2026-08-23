@@ -25,6 +25,7 @@ Source anchors:
 |---|---|---|
 | `GUARDIAN_API_KEY` | Required at backend startup; app fails fast if absent | `guardian/guardian_api.py` |
 | `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET` | Server-side GitHub App webhook secret for `/api/watchdog/github/webhook`. It has no default: when absent, Watchdog delivery intake fails closed before payload parsing or persistence. Set it only in server-side secret management; never log, return, persist, or place it in repository-controlled configuration. | `guardian/core/config.py`, `guardian/watchdog/security.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
 | `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |

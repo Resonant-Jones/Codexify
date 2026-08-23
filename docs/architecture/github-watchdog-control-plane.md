@@ -2,11 +2,13 @@
 
 ## Status and scope
 
-This is the accepted architecture contract for the future Guardian-owned
-GitHub Watchdog under [ADR-073](./adr/073-github-watchdog-review-and-dispatch-control-plane.md).
-It is a documentation contract, not a GitHub App, webhook, worker, database
-migration, model invocation, GitHub API mutation, Settings UI, or supported
-release surface.
+This is the accepted architecture contract for the Guardian-owned GitHub
+Watchdog under [ADR-073](./adr/073-github-watchdog-review-and-dispatch-control-plane.md).
+The narrow webhook ingress is implemented: exact raw-body HMAC authentication,
+durable Postgres receipt/idempotency handling, and normalized bounded metadata.
+All policy evaluation, model selection or invocation, queueing, installation
+tokens and API publication, command parsing, Build Loop dispatch, GitHub
+mutation, and merge behavior remain deferred.
 
 The Watchdog extends rather than replaces [ADR-050](./adr/050-event-driven-campaign-control-plane.md).
 ADR-050 remains the GitHub-native deterministic, read-only, dry-run Campaign
@@ -15,7 +17,8 @@ explicit Guardian mutation-dispatch boundary; it does not make model opinion
 deterministic eligibility, merge authorization, or release truth.
 
 `docs/architecture/00-current-state.md` remains authoritative for current
-release reality. The Watchdog is not implemented or release-supported.
+release reality. This receipt boundary is not a supported Watchdog workflow or
+a release claim.
 
 ## Canonical topology and authority
 
@@ -75,7 +78,7 @@ The first implementation has only these useful event families:
 | Event | Actions | Eligibility |
 | --- | --- | --- |
 | `pull_request` | `opened`, `synchronize`, `reopened` | Policy may request deterministic Observe or automated Review for an immutable PR head. |
-| `issue_comment` | Applicable comment event | Only when the issue is a PR and the comment parses as an approved Watchdog command. |
+| `issue_comment` | `created` | The receipt boundary accepts only comments attached to a PR. It does not inspect comment text or parse commands. |
 
 `pull_request_review_comment`, `check_run`, `check_suite`, and `push` are
 explicitly deferred. The Watchdog must not depend on all GitHub event families
@@ -343,31 +346,33 @@ truths.
 
 ### Tokens
 
-Before runtime implementation spreads literals, define bounded canonical token
-domains for Watchdog operation, run state, review conclusion, supersession
-reason, model-selection source, and escalation reason. This docs-only slice
-does not add runtime protocol tokens, storage enums, event names, or tests.
+The receipt slice defines only bounded intake tokens for receipt disposition,
+error codes, and the accepted event/action tuples. Watchdog operation, run
+state, review conclusion, supersession reason, model-selection source, and
+escalation reason remain deferred until their owning runtime slices exist.
 
 ## Release and implementation boundary
 
 This contract does not alter `00-current-state.md`, supported-profile claims,
-or Beta posture. It accepts architecture only:
+or Beta posture. The implemented intake is limited to HMAC verification,
+bounded metadata normalization, and durable Postgres receipt/idempotency. It
+does not establish any downstream control-plane behavior:
 
 - webhook receipt is not model-review completion;
 - model-review completion is not mutation completion;
 - coding-worker completion is not merge approval; and
 - GitHub publication is not live-runtime or release proof.
 
-No GitHub App registration, webhook route, worker, Redis queue, Postgres
-schema/migration, OAuth/install flow, credential, provider call, model call,
-coding-worker dispatch, PR comment, Check Run, branch mutation, commit, push,
-merge, auto-fix, auto-merge, Settings UI, Connections implementation,
-provider-registry change, or runtime-token implementation is introduced here.
+No GitHub App registration, worker, Redis queue, OAuth/install flow,
+credential issuance, provider call, model call, coding-worker dispatch, PR
+comment, Check Run, branch mutation, commit, push, merge, auto-fix,
+auto-merge, Settings UI, Connections implementation, provider-registry change,
+or additional runtime-token implementation is introduced by the receipt slice.
 
 ## First implementation prerequisite
 
-Implement authenticated, idempotent GitHub App webhook intake with no model
-execution. That slice must stop after signature verification, bounded event
-normalization, durable receipt/idempotency handling, and prompt HTTP
-acknowledgement; model review, Check publication, and Guardian coding dispatch
-remain separately scoped work.
+The completed first prerequisite was authenticated, idempotent GitHub App
+webhook intake with no downstream execution. It stops after signature
+verification, bounded event normalization, durable receipt/idempotency
+handling, and prompt HTTP acknowledgement; model review, Check publication,
+and Guardian coding dispatch remain separately scoped work.

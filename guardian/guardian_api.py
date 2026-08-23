@@ -547,6 +547,7 @@ from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
 from guardian.routes import hosted_room_guest, hosted_rooms
+from guardian.routes import github_watchdog
 from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
 from guardian.routes import ui_session
@@ -1180,6 +1181,7 @@ _include_router(
     core_surface=True,
 )
 app.include_router(core_loop_proof_router)
+app.include_router(github_watchdog.router)
 _include_router(
     label="imprint",
     flag_name="CODEXIFY_ENABLE_IMPRINT_ROUTES",
