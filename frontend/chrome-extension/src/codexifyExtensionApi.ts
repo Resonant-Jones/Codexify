@@ -1,5 +1,9 @@
 import { GuardianEventSource } from "../../src/lib/guardianEventSource"
 import {
+  parseConversationOriginSystem,
+  type ConversationOriginSystem,
+} from "../../src/contracts/conversationOrigin"
+import {
   createRemoteSessionCredential,
   type ConnectionProfile,
   type RemoteSessionCredential,
@@ -29,6 +33,44 @@ export interface CodexifyThread {
   title: string
   createdAt: string | null
   updatedAt: string | null
+  projectId: number | null
+  projectName: string | null
+  originSystem: ConversationOriginSystem | null
+  providerOverride: string | null
+  modelOverride: string | null
+  threadConfig: CodexifyThreadConfig | null
+}
+
+/**
+ * The extension's transport-safe projection of the canonical persisted thread
+ * configuration. Fields stay nullable when the backend did not provide them;
+ * the adapter never invents a default provider, model, or retrieval posture.
+ */
+export interface CodexifyThreadConfig {
+  providerId: string | null
+  modelId: string | null
+  inferenceMode: string | null
+  retrievalSource: string | null
+  personaId: string | null
+}
+
+export interface CodexifyProject {
+  id: number
+  name: string
+  icon: string | null
+}
+
+export interface CodexifyThreadQuery {
+  limit?: number
+  offset?: number
+  projectId?: number | null
+  originSystem?: ConversationOriginSystem | null
+}
+
+export interface CodexifyThreadPage {
+  threads: CodexifyThread[]
+  nextOffset: number
+  hasMore: boolean
 }
 
 export interface CodexifyMessage {
@@ -109,8 +151,10 @@ export interface CodexifyExtensionApi {
   logout(): Promise<void>
   getUserProfile(): Promise<UserAccentToken>
   updateAccentColor(token: UserAccentToken): Promise<void>
-  listThreads(): Promise<CodexifyThread[]>
-  createThread(title?: string): Promise<CodexifyThread>
+  listProjects(): Promise<CodexifyProject[]>
+  listThreads(query?: CodexifyThreadQuery): Promise<CodexifyThreadPage>
+  getThread(threadId: number): Promise<CodexifyThread>
+  createThread(title?: string, projectId?: number | null): Promise<CodexifyThread>
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
   listAgentRuns(threadId: number): Promise<CodexifyAgentRun[]>
   listPendingApprovals(): Promise<CodexifyBrowserApproval[]>
@@ -161,6 +205,33 @@ function parseThreadId(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+function normalizeThreadConfig(value: unknown): CodexifyThreadConfig | null {
+  if (typeof value === "string") {
+    return normalizeThreadConfig(safeJson(value))
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const record = asRecord(value)
+  return {
+    providerId: firstString(record, "provider_id", "providerId", "provider"),
+    modelId: firstString(record, "model_id", "modelId", "model"),
+    inferenceMode: firstString(
+      record,
+      "inference_mode",
+      "inferenceMode",
+      "reasoning_mode",
+      "reasoningMode",
+    ),
+    retrievalSource: firstString(
+      record,
+      "retrieval_source",
+      "retrievalSource",
+      "source_mode",
+      "sourceMode",
+    ),
+    personaId: firstString(record, "persona_id", "personaId"),
+  }
+}
+
 function normalizeThread(value: unknown): CodexifyThread | null {
   const record = asRecord(value)
   const id = parseThreadId(record.id ?? record.thread_id)
@@ -170,6 +241,26 @@ function normalizeThread(value: unknown): CodexifyThread | null {
     title: firstString(record, "title", "name") ?? `Thread ${id}`,
     createdAt: firstString(record, "created_at", "createdAt"),
     updatedAt: firstString(record, "updated_at", "updatedAt"),
+    projectId: parseThreadId(record.project_id ?? record.projectId),
+    projectName: firstString(record, "project_name", "projectName"),
+    originSystem: parseConversationOriginSystem(
+      record.origin_system ?? record.originSystem,
+    ),
+    providerOverride: firstString(record, "provider_override", "providerOverride"),
+    modelOverride: firstString(record, "model_override", "modelOverride"),
+    threadConfig: normalizeThreadConfig(record.thread_config ?? record.threadConfig),
+  }
+}
+
+function normalizeProject(value: unknown): CodexifyProject | null {
+  const record = asRecord(value)
+  const id = parseThreadId(record.id ?? record.project_id ?? record.projectId)
+  const name = firstString(record, "name", "project_name", "projectName")
+  if (id === null || name === null) return null
+  return {
+    id,
+    name,
+    icon: firstString(record, "icon"),
   }
 }
 
@@ -397,7 +488,7 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
 
   async verifyConnection(): Promise<void> {
     await this.fetchReachabilityProbe()
-    await this.listThreadsWithLimit(1)
+    await this.listThreads({ limit: 1 })
   }
 
   async logout(): Promise<void> {
@@ -405,14 +496,69 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     await this.requestJson("/api/auth/logout", { method: "POST" })
   }
 
-  async listThreads(): Promise<CodexifyThread[]> {
-    return this.listThreadsWithLimit(100)
+  async listProjects(): Promise<CodexifyProject[]> {
+    const body = await this.requestJson("/api/projects")
+    const rawProjects = Array.isArray(body)
+      ? body
+      : Array.isArray(asRecord(body).projects)
+        ? asRecord(body).projects as unknown[]
+        : []
+    return rawProjects
+      .map(normalizeProject)
+      .filter((project): project is CodexifyProject => project !== null)
   }
 
-  async createThread(title = "New Chat"): Promise<CodexifyThread> {
+  async listThreads(query: CodexifyThreadQuery = {}): Promise<CodexifyThreadPage> {
+    const limit = query.limit ?? 50
+    const offset = query.offset ?? 0
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    })
+    if (query.projectId !== null && query.projectId !== undefined) {
+      params.set("project_id", String(query.projectId))
+    }
+    if (query.originSystem !== null && query.originSystem !== undefined) {
+      params.set("origin_system", query.originSystem)
+    }
+    const body = asRecord(await this.requestJson(`/api/chat/threads?${params.toString()}`))
+    const rawThreads = Array.isArray(body.threads) ? body.threads : []
+    const nextOffset = Number(body.next_offset ?? body.nextOffset)
+    const backendHasMore = typeof body.has_more === "boolean"
+      ? body.has_more
+      : typeof body.hasMore === "boolean"
+        ? body.hasMore
+        : rawThreads.length >= limit
+    return {
+      threads: rawThreads
+        .map(normalizeThread)
+        .filter((thread): thread is CodexifyThread => thread !== null),
+      nextOffset: Number.isFinite(nextOffset) && nextOffset > offset
+        ? nextOffset
+        : offset + rawThreads.length,
+      hasMore: rawThreads.length > 0 && backendHasMore,
+    }
+  }
+
+  async getThread(threadId: number): Promise<CodexifyThread> {
+    const body = asRecord(await this.requestJson(`/api/chat/threads/${threadId}`))
+    const thread = normalizeThread(body.thread ?? body)
+    if (!thread) {
+      throw new CodexifyApiError("invalid_response", "The backend returned an invalid thread.")
+    }
+    return thread
+  }
+
+  async createThread(
+    title = "New Chat",
+    projectId: number | null = null,
+  ): Promise<CodexifyThread> {
     const body = asRecord(await this.requestJson("/api/chat/threads", {
       method: "POST",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({
+        title,
+        ...(projectId !== null ? { project_id: projectId } : {}),
+      }),
     }))
     const thread = normalizeThread(body.thread ?? body)
     if (!thread) {
@@ -584,14 +730,6 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
       terminal = true
       source.close()
     }
-  }
-
-  private async listThreadsWithLimit(limit: number): Promise<CodexifyThread[]> {
-    const body = asRecord(await this.requestJson(`/api/chat/threads?limit=${limit}`))
-    const rawThreads = Array.isArray(body.threads) ? body.threads : []
-    return rawThreads
-      .map(normalizeThread)
-      .filter((thread): thread is CodexifyThread => thread !== null)
   }
 
   private async decideBrowserApproval(

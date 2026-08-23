@@ -41,7 +41,11 @@ describe("Codexify extension auth transport", () => {
       lastVerifiedAt: fixedTimestamp,
     })
 
-    await expect(createCodexifyExtensionApi(profile).listThreads()).resolves.toEqual([])
+    await expect(createCodexifyExtensionApi(profile).listThreads()).resolves.toEqual({
+      threads: [],
+      nextOffset: 0,
+      hasMore: false,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -63,8 +67,150 @@ describe("Codexify extension auth transport", () => {
 
     await expect(
       createCodexifyExtensionApi(profile, remoteSession).listThreads(),
-    ).resolves.toEqual([])
+    ).resolves.toEqual({
+      threads: [],
+      nextOffset: 0,
+      hasMore: false,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("normalizes rich thread fields and uses the current paginated query contract", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const parsed = new URL(url)
+      expect(parsed.pathname).toBe("/api/chat/threads")
+      expect(parsed.searchParams.get("limit")).toBe("50")
+      expect(parsed.searchParams.get("offset")).toBe("50")
+      expect(parsed.searchParams.get("project_id")).toBe("12")
+      const headers = new Headers(init?.headers)
+      expect(headers.get("X-API-Key")).toBe(localCredential())
+      expect(headers.get("Authorization")).toBeNull()
+      return new Response(JSON.stringify({
+        threads: [{
+          id: 17,
+          title: "Scoped conversation",
+          created_at: fixedTimestamp,
+          updated_at: "2026-07-21T12:01:00.000Z",
+          project_id: 12,
+          project_name: "Project Atlas",
+          origin_system: "openai",
+          provider_override: "override-provider",
+          model_override: "override-model",
+          thread_config: {
+            provider_id: "canonical-provider",
+            model_id: "canonical-model",
+            inference_mode: "deep",
+            retrieval_source: "personal_knowledge",
+            persona_id: "persona-7",
+          },
+        }, {
+          id: 18,
+          title: "Unknown origin stays neutral",
+          origin_system: "not-a-canonical-origin",
+        }],
+        next_offset: 52,
+        has_more: true,
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(createCodexifyExtensionApi(profile).listThreads({
+      limit: 50,
+      offset: 50,
+      projectId: 12,
+    })).resolves.toEqual({
+      threads: [{
+        id: 17,
+        title: "Scoped conversation",
+        createdAt: fixedTimestamp,
+        updatedAt: "2026-07-21T12:01:00.000Z",
+        projectId: 12,
+        projectName: "Project Atlas",
+        originSystem: "openai",
+        providerOverride: "override-provider",
+        modelOverride: "override-model",
+        threadConfig: {
+          providerId: "canonical-provider",
+          modelId: "canonical-model",
+          inferenceMode: "deep",
+          retrievalSource: "personal_knowledge",
+          personaId: "persona-7",
+        },
+      }, expect.objectContaining({
+        id: 18,
+        originSystem: null,
+        threadConfig: null,
+      })],
+      nextOffset: 52,
+      hasMore: true,
+    })
+  })
+
+  it("reads existing projects and sends the canonical origin query without a project alias", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get("X-API-Key")).toBe(localCredential())
+      expect(headers.get("Authorization")).toBeNull()
+      if (url.endsWith("/api/projects")) {
+        return new Response(JSON.stringify([{ id: 12, name: "Project Atlas", icon: "atlas" }]), {
+          status: 200,
+        })
+      }
+      const parsed = new URL(url)
+      expect(parsed.pathname).toBe("/api/chat/threads")
+      expect(parsed.searchParams.get("origin_system")).toBe("anthropic")
+      expect(parsed.searchParams.has("project_id")).toBe(false)
+      return new Response(JSON.stringify({ threads: [], next_offset: 0, has_more: false }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+    const api = createCodexifyExtensionApi(profile)
+
+    await expect(api.listProjects()).resolves.toEqual([
+      { id: 12, name: "Project Atlas", icon: "atlas" },
+    ])
+    await expect(api.listThreads({ originSystem: "anthropic" })).resolves.toMatchObject({
+      threads: [],
+      hasMore: false,
+    })
+  })
+
+  it("creates a thread under an explicitly selected project without a new association API", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://127.0.0.1:8888/api/chat/threads")
+      expect(init?.method).toBe("POST")
+      expect(JSON.parse(String(init?.body))).toEqual({
+        title: "Project conversation",
+        project_id: 12,
+      })
+      return new Response(JSON.stringify({
+        thread: { id: 19, title: "Project conversation", project_id: 12 },
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(
+      createCodexifyExtensionApi(profile).createThread("Project conversation", 12),
+    ).resolves.toMatchObject({ id: 19, projectId: 12 })
   })
 
   it("logs in with username and password and returns the opaque session", async () => {
