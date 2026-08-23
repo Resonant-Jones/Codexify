@@ -30,6 +30,61 @@ class WatchdogIntakeErrorCode(str, Enum):
     CONFLICTING_DELIVERY = "conflicting_delivery"
     PERSISTENCE_UNAVAILABLE = "persistence_unavailable"
     PERSISTENCE_FAILED = "persistence_failed"
+    REVIEW_ATTEMPT_PERSISTENCE_UNAVAILABLE = "review_attempt_persistence_unavailable"
+    REVIEW_ATTEMPT_PERSISTENCE_FAILED = "review_attempt_persistence_failed"
+
+
+class WatchdogOperation(str, Enum):
+    """Canonical Watchdog operation classes."""
+
+    AUTOMATED_REVIEW = "automated_review"
+    REQUESTED_REVIEW = "requested_review"
+    FIX = "fix"
+    ESCALATION = "escalation"
+
+
+class WatchdogReviewAttemptState(str, Enum):
+    """Durable lifecycle states implemented by the review-preparation slice."""
+
+    PREPARED = "prepared"
+    BLOCKED_POLICY = "blocked_policy"
+    SUPERSEDED = "superseded"
+
+
+class WatchdogPolicyResolutionState(str, Enum):
+    """Whether immutable attempt policy selection was authorized locally."""
+
+    RESOLVED = "resolved"
+    BLOCKED = "blocked"
+
+
+class WatchdogModelSelectionSource(str, Enum):
+    """Precedence source represented by the initial runtime slice."""
+
+    SYSTEM_DEFAULT = "system_default"
+
+
+class WatchdogEscalationMode(str, Enum):
+    """Escalation posture that may be snapshotted without execution."""
+
+    DISABLED = "disabled"
+    EXPLICIT_ONLY = "explicit_only"
+
+
+class WatchdogPolicyBlockReason(str, Enum):
+    """Bounded policy-denial reasons safe to store and return in diagnostics."""
+
+    CONFIGURATION_MISSING = "configuration_missing"
+    MODEL_MISSING = "model_missing"
+    PROVIDER_UNKNOWN = "provider_unknown"
+    PROVIDER_GOVERNANCE_DISABLED = "provider_governance_disabled"
+    CLOUD_PROVIDERS_DISABLED = "cloud_providers_disabled"
+    LOCAL_ONLY_MODE_FORBIDS_CLOUD = "local_only_mode_forbids_cloud"
+    EGRESS_POLICY_FORBIDS_PROVIDER = "egress_policy_forbids_provider"
+    HEAD_SHA_MISSING = "head_sha_missing"
+
+
+GITHUB_PULL_REQUEST_SYNCHRONIZE_ACTION = "synchronize"
 
 
 SUPPORTED_GITHUB_EVENT_ACTIONS = frozenset(
@@ -39,6 +94,28 @@ SUPPORTED_GITHUB_EVENT_ACTIONS = frozenset(
         ("pull_request", "reopened"),
         ("issue_comment", "created"),
     }
+)
+
+AUTOMATED_REVIEW_GITHUB_EVENT_ACTIONS = frozenset(
+    {
+        ("pull_request", "opened"),
+        ("pull_request", GITHUB_PULL_REQUEST_SYNCHRONIZE_ACTION),
+        ("pull_request", "reopened"),
+    }
+)
+
+WATCHDOG_REVIEW_ATTEMPT_STATES = frozenset(
+    state.value for state in WatchdogReviewAttemptState
+)
+WATCHDOG_POLICY_RESOLUTION_STATES = frozenset(
+    state.value for state in WatchdogPolicyResolutionState
+)
+WATCHDOG_ESCALATION_MODES = frozenset(mode.value for mode in WatchdogEscalationMode)
+WATCHDOG_MODEL_SELECTION_SOURCES = frozenset(
+    source.value for source in WatchdogModelSelectionSource
+)
+WATCHDOG_POLICY_BLOCK_REASONS = frozenset(
+    reason.value for reason in WatchdogPolicyBlockReason
 )
 
 
@@ -74,6 +151,11 @@ def github_action_from_payload(payload: object) -> str | None:
 def is_supported_github_event_action(event_name: str, action: str | None) -> bool:
     """Return whether an event/action pair belongs to this intake slice."""
     return (event_name, action or "") in SUPPORTED_GITHUB_EVENT_ACTIONS
+
+
+def is_automated_review_trigger(event_name: str, action: str) -> bool:
+    """Return whether this receipt can prepare the sole runtime operation."""
+    return (event_name, action) in AUTOMATED_REVIEW_GITHUB_EVENT_ACTIONS
 
 
 def is_supported_github_delivery(

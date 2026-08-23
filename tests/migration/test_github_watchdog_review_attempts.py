@@ -1,4 +1,4 @@
-"""Schema regression tests for GitHub Watchdog delivery receipts."""
+"""Schema regression tests for GitHub Watchdog review attempts."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from guardian.db.models import GitHubWatchdogDeliveryReceipt
+from guardian.db.models import GitHubWatchdogReviewAttempt
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-MIGRATION_FILENAME = "2a6b7c8d9e0f_add_github_watchdog_delivery_receipts.py"
-REVISION = "2a6b7c8d9e0f"
-DOWN_REVISION = "1c0a2b3c4d5e"
+MIGRATION_FILENAME = "3b7c8d9e0f1a_add_github_watchdog_review_attempts.py"
+REVISION = "3b7c8d9e0f1a"
+DOWN_REVISION = "2a6b7c8d9e0f"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -31,7 +31,7 @@ def _literal_assignment(tree: ast.Module, name: str) -> object:
     raise AssertionError(f"missing {name} assignment")
 
 
-def test_watchdog_receipt_migration_has_its_expected_lineage() -> None:
+def test_review_attempt_migration_descends_from_receipt_head() -> None:
     migration_path = VERSIONS_DIR / MIGRATION_FILENAME
     tree = ast.parse(migration_path.read_text())
 
@@ -43,39 +43,44 @@ def test_watchdog_receipt_migration_has_its_expected_lineage() -> None:
     script = ScriptDirectory.from_config(
         Config(str(REPO_ROOT / "backend" / "alembic.ini"))
     )
-    assert script.get_revision(REVISION) is not None
+    assert script.get_heads() == [REVISION]
 
 
-def test_watchdog_receipt_schema_is_bounded_and_idempotent() -> None:
-    columns = set(GitHubWatchdogDeliveryReceipt.__table__.columns.keys())
+def test_review_attempt_schema_is_receipt_bound_and_bounded() -> None:
+    columns = set(GitHubWatchdogReviewAttempt.__table__.columns.keys())
     assert {
-        "receipt_id",
+        "review_attempt_id",
+        "trigger_receipt_id",
         "github_delivery_id",
-        "idempotency_key",
-        "event_name",
-        "action",
-        "installation_id",
         "repository_id",
-        "repository_full_name",
-        "trigger_actor_id",
-        "trigger_actor_login",
         "pull_request_number",
         "head_sha",
-        "payload_sha256",
-        "first_received_at",
-        "last_received_at",
-        "redelivery_count",
+        "operation",
+        "attempt_number",
+        "attempt_state",
+        "policy_resolution_state",
+        "provider_id",
+        "model_id",
+        "model_selection_source",
+        "policy_fingerprint",
+        "escalation_mode",
+        "superseded_by_attempt_id",
     } <= columns
-    assert "payload" not in columns
-    assert "watchdog_run_id" not in columns
+    assert "raw_payload" not in columns
+    assert "model_output" not in columns
 
-    constraint_names = {
+    constraints = {
         constraint.name
-        for constraint in GitHubWatchdogDeliveryReceipt.__table__.constraints
+        for constraint in GitHubWatchdogReviewAttempt.__table__.constraints
     }
-    assert "uq_github_watchdog_delivery_receipts_idempotency_key" in constraint_names
+    assert "uq_github_watchdog_review_attempts_trigger_receipt_id" in constraints
+    foreign_keys = {
+        foreign_key.target_fullname
+        for foreign_key in GitHubWatchdogReviewAttempt.__table__.foreign_keys
+    }
+    assert "github_watchdog_delivery_receipts.receipt_id" in foreign_keys
 
     migration_source = (VERSIONS_DIR / MIGRATION_FILENAME).read_text()
-    assert "github_watchdog_delivery_receipts" in migration_source
-    assert "payload_sha256" in migration_source
+    assert "github_watchdog_review_attempts" in migration_source
+    assert "trigger_receipt_id" in migration_source
     assert "raw_payload" not in migration_source

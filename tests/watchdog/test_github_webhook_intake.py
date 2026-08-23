@@ -14,8 +14,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.db.models import GitHubWatchdogDeliveryReceipt
+from guardian.db.models import (
+    GitHubWatchdogDeliveryReceipt,
+    GitHubWatchdogReviewAttempt,
+)
 from guardian.routes import github_watchdog
+from guardian.watchdog.review_attempts import GitHubWatchdogReviewAttemptPreparer
 from guardian.watchdog.store import GitHubWatchdogDeliveryReceiptStore
 
 
@@ -34,15 +38,28 @@ class IntakeHarness:
             future=True,
         )
         GitHubWatchdogDeliveryReceipt.__table__.create(engine)
+        GitHubWatchdogReviewAttempt.__table__.create(engine)
         self.Session = sessionmaker(
             bind=engine, autoflush=False, autocommit=False, future=True
         )
         self.settings = SimpleNamespace(
-            CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET=WEBHOOK_SECRET
+            CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET=WEBHOOK_SECRET,
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER=None,
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL=None,
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE=None,
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE="disabled",
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER=None,
+            CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL=None,
+            CODEXIFY_LOCAL_ONLY_MODE=True,
+            ALLOW_CLOUD_PROVIDERS=False,
+            CODEXIFY_EGRESS_ALLOWLIST="",
         )
         app = FastAPI()
         app.state.github_watchdog_receipt_store = GitHubWatchdogDeliveryReceiptStore(
             session_factory=self.Session
+        )
+        app.state.github_watchdog_review_attempt_preparer = (
+            GitHubWatchdogReviewAttemptPreparer(session_factory=self.Session)
         )
         app.include_router(github_watchdog.router)
         monkeypatch.setattr(github_watchdog, "get_settings", lambda: self.settings)
@@ -51,6 +68,10 @@ class IntakeHarness:
     def receipt_rows(self) -> list[GitHubWatchdogDeliveryReceipt]:
         with self.Session() as session:
             return list(session.scalars(select(GitHubWatchdogDeliveryReceipt)))
+
+    def review_attempt_rows(self) -> list[GitHubWatchdogReviewAttempt]:
+        with self.Session() as session:
+            return list(session.scalars(select(GitHubWatchdogReviewAttempt)))
 
 
 @pytest.fixture()
@@ -183,6 +204,9 @@ def test_valid_delivery_persists_only_normalized_metadata(
         "action": "opened",
         "duplicate": False,
         "disposition": "accepted",
+        "reviewAttemptId": response.json()["reviewAttemptId"],
+        "reviewAttemptState": "blocked_policy",
+        "policyResolutionState": "blocked",
     }
     rows = intake.receipt_rows()
     assert len(rows) == 1
@@ -199,6 +223,32 @@ def test_valid_delivery_persists_only_normalized_metadata(
     assert receipt.payload_sha256 == hashlib.sha256(body).hexdigest()
     assert receipt.redelivery_count == 0
     assert "payload" not in GitHubWatchdogDeliveryReceipt.__table__.columns
+    attempts = intake.review_attempt_rows()
+    assert len(attempts) == 1
+    assert attempts[0].trigger_receipt_id == receipt.receipt_id
+    assert attempts[0].review_attempt_id == response.json()["reviewAttemptId"]
+    assert attempts[0].policy_reason_code == "configuration_missing"
+
+
+def test_configured_pr_delivery_prepares_a_review_attempt(
+    intake: IntakeHarness,
+) -> None:
+    intake.settings.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER = "local"
+    intake.settings.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL = (
+        "local-review-model"
+    )
+    intake.settings.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE = "think"
+    body = _body(_payload())
+
+    response = intake.client.post(WEBHOOK_PATH, content=body, headers=_headers(body))
+
+    assert response.status_code == 202
+    assert response.json()["reviewAttemptState"] == "prepared"
+    assert response.json()["policyResolutionState"] == "resolved"
+    attempts = intake.review_attempt_rows()
+    assert len(attempts) == 1
+    assert attempts[0].provider_id == "local"
+    assert attempts[0].model_id == "local-review-model"
 
 
 def test_valid_redelivery_reuses_receipt_and_records_evidence(
@@ -214,10 +264,12 @@ def test_valid_redelivery_reuses_receipt_and_records_evidence(
     assert first.json()["duplicate"] is False
     assert second.json()["duplicate"] is True
     assert second.json()["receiptId"] == first.json()["receiptId"]
+    assert second.json()["reviewAttemptId"] == first.json()["reviewAttemptId"]
     rows = intake.receipt_rows()
     assert len(rows) == 1
     assert rows[0].redelivery_count == 1
     assert rows[0].last_received_at >= rows[0].first_received_at
+    assert len(intake.review_attempt_rows()) == 1
 
 
 def test_conflicting_digest_does_not_overwrite_original_receipt(
@@ -286,6 +338,7 @@ def test_authenticated_issue_comment_not_on_a_pr_is_ignored(
     assert response.status_code == 202
     assert response.json()["disposition"] == "ignored"
     assert intake.receipt_rows() == []
+    assert intake.review_attempt_rows() == []
 
 
 def test_authenticated_issue_comment_on_a_pr_receipts_without_comment_parsing(
@@ -313,3 +366,4 @@ def test_authenticated_issue_comment_on_a_pr_receipts_without_comment_parsing(
     assert rows[0].event_name == "issue_comment"
     assert rows[0].pull_request_number == 12
     assert rows[0].head_sha is None
+    assert intake.review_attempt_rows() == []

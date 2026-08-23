@@ -82,6 +82,14 @@ from guardian.user_profile_tokens import (
     DEFAULT_USER_ACCENT_COLOR,
     USER_ACCENT_COLORS,
 )
+from guardian.watchdog.contracts import (
+    WATCHDOG_ESCALATION_MODES,
+    WATCHDOG_MODEL_SELECTION_SOURCES,
+    WATCHDOG_POLICY_BLOCK_REASONS,
+    WATCHDOG_POLICY_RESOLUTION_STATES,
+    WATCHDOG_REVIEW_ATTEMPT_STATES,
+    WatchdogOperation,
+)
 
 
 class Base(DeclarativeBase):
@@ -210,6 +218,39 @@ TTS_VOICE_MODE_VALUES_SQL = "','".join(TTS_VOICE_MODES)
 TTS_VOICE_MODE_CHECK = f"voice_mode IN ('{TTS_VOICE_MODE_VALUES_SQL}')"
 TTS_OUTPUT_FORMAT_VALUES_SQL = "','".join(TTS_OUTPUT_FORMATS)
 TTS_OUTPUT_FORMAT_CHECK = f"output_format IN ('{TTS_OUTPUT_FORMAT_VALUES_SQL}')"
+WATCHDOG_REVIEW_ATTEMPT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_ATTEMPT_STATES)
+)
+WATCHDOG_REVIEW_ATTEMPT_STATE_CHECK = (
+    "attempt_state IN " f"('{WATCHDOG_REVIEW_ATTEMPT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_POLICY_RESOLUTION_STATES)
+)
+WATCHDOG_POLICY_RESOLUTION_STATE_CHECK = (
+    "policy_resolution_state IN "
+    f"('{WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL}')"
+)
+WATCHDOG_ESCALATION_MODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_ESCALATION_MODES)
+)
+WATCHDOG_ESCALATION_MODE_CHECK = (
+    "escalation_mode IN " f"('{WATCHDOG_ESCALATION_MODE_VALUES_SQL}')"
+)
+WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_MODEL_SELECTION_SOURCES)
+)
+WATCHDOG_MODEL_SELECTION_SOURCE_CHECK = (
+    "model_selection_source IN "
+    f"('{WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL}')"
+)
+WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_POLICY_BLOCK_REASONS)
+)
+WATCHDOG_POLICY_BLOCK_REASON_CHECK = (
+    "policy_reason_code IS NULL OR policy_reason_code IN "
+    f"('{WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL}')"
+)
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
 )
@@ -2077,6 +2118,100 @@ class GitHubWatchdogDeliveryReceipt(Base):
         Index(
             "ix_github_watchdog_delivery_receipts_github_delivery_id",
             "github_delivery_id",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewAttempt(Base):
+    """Immutable policy snapshot prepared from one Watchdog delivery receipt."""
+
+    __tablename__ = "github_watchdog_review_attempts"
+
+    review_attempt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    trigger_receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_delivery_receipts.receipt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    github_delivery_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    installation_id: Mapped[str | None] = mapped_column(String(64))
+    repository_id: Mapped[str | None] = mapped_column(String(64))
+    repository_full_name: Mapped[str | None] = mapped_column(String(512))
+    pull_request_number: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(64))
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_resolution_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_id: Mapped[str | None] = mapped_column(String(64))
+    model_id: Mapped[str | None] = mapped_column(String(512))
+    inference_mode: Mapped[str | None] = mapped_column(String(64))
+    model_selection_source: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    policy_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    escalation_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    escalation_provider_id: Mapped[str | None] = mapped_column(String(64))
+    escalation_model_id: Mapped[str | None] = mapped_column(String(512))
+    policy_reason_code: Mapped[str | None] = mapped_column(String(64))
+    superseded_by_attempt_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="SET NULL",
+        ),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "trigger_receipt_id",
+            name="uq_github_watchdog_review_attempts_trigger_receipt_id",
+        ),
+        CheckConstraint(
+            f"operation = '{WatchdogOperation.AUTOMATED_REVIEW.value}'",
+            name="ck_github_watchdog_review_attempts_operation",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_ATTEMPT_STATE_CHECK,
+            name="ck_github_watchdog_review_attempts_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_POLICY_RESOLUTION_STATE_CHECK,
+            name="ck_github_watchdog_review_attempts_policy_resolution_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_ESCALATION_MODE_CHECK,
+            name="ck_github_watchdog_review_attempts_escalation_mode",
+        ),
+        CheckConstraint(
+            WATCHDOG_MODEL_SELECTION_SOURCE_CHECK,
+            name="ck_github_watchdog_review_attempts_model_selection_source",
+        ),
+        CheckConstraint(
+            WATCHDOG_POLICY_BLOCK_REASON_CHECK,
+            name="ck_github_watchdog_review_attempts_policy_reason_code",
+        ),
+        Index(
+            "ix_github_watchdog_review_attempts_repository_pr",
+            "repository_id",
+            "pull_request_number",
+        ),
+        Index(
+            "ix_github_watchdog_review_attempts_state",
+            "attempt_state",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}

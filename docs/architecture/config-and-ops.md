@@ -34,6 +34,16 @@ Source anchors:
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
 
+### GitHub Watchdog automatic-review preparation
+
+| Variable | Current behavior | Anchors |
+|---|---|---|
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER` | No default. The provider selected for an inert `automated_review` system-default policy snapshot. Empty or unset configuration produces a durable `blocked_policy` attempt; the value does not inherit the ambient chat provider. Canonical provider governance and stricter local/cloud/egress controls remain authoritative. | `guardian/core/config.py`, `guardian/watchdog/policy.py`, `guardian/core/provider_registry.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL` | No default. The intended model identity stored in the same inert system-default policy snapshot. Empty or unset configuration produces a durable `blocked_policy` attempt. This setting neither discovers nor invokes a model. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE` | Optional inference/reasoning posture stored with the policy snapshot. It is inert until a separately authorized execution slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE` | Defaults to `disabled`; the only accepted alternate value is `explicit_only`. It never triggers automatic escalation or fallback. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER`, `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL` | Optional pair stored only with `explicit_only` as inert snapshot data for a future explicit authorization path. The pair is not selected, invoked, or treated as a fallback in this slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+
 ### Database, queues, and event transport
 
 | Variable | Current behavior | Anchors |

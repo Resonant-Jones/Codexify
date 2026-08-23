@@ -15,6 +15,7 @@ from guardian.watchdog.contracts import (
     WatchdogIntakeErrorCode,
     WatchdogReceiptDisposition,
     github_action_from_payload,
+    is_automated_review_trigger,
     is_supported_github_delivery,
     normalize_github_delivery,
 )
@@ -27,6 +28,12 @@ from guardian.watchdog.store import (
     GitHubWatchdogDeliveryReceiptStore,
     WatchdogReceiptPersistenceError,
     WatchdogReceiptStoreUnavailable,
+)
+from guardian.watchdog.review_attempts import (
+    GitHubWatchdogReviewAttemptPreparer,
+    WatchdogReviewAttemptPersistenceError,
+    WatchdogReviewAttemptReceiptNotFound,
+    WatchdogReviewAttemptStoreUnavailable,
 )
 
 
@@ -61,6 +68,17 @@ def _receipt_store(request: Request) -> GitHubWatchdogDeliveryReceiptStore:
     if test_store is not None:
         return test_store
     return GitHubWatchdogDeliveryReceiptStore()
+
+
+def _review_attempt_preparer(
+    request: Request,
+) -> GitHubWatchdogReviewAttemptPreparer:
+    test_preparer = getattr(
+        request.app.state, "github_watchdog_review_attempt_preparer", None
+    )
+    if test_preparer is not None:
+        return test_preparer
+    return GitHubWatchdogReviewAttemptPreparer()
 
 
 def _log_rejection(
@@ -200,6 +218,41 @@ async def receive_github_watchdog_webhook(request: Request) -> JSONResponse:
         )
         return _error_response(WatchdogIntakeErrorCode.PERSISTENCE_FAILED)
 
+    review_attempt = None
+    if is_automated_review_trigger(event_name, action):
+        try:
+            review_attempt = _review_attempt_preparer(request).prepare_from_receipt(
+                trigger_receipt_id=result.receipt_id,
+                settings=settings,
+            )
+        except WatchdogReviewAttemptStoreUnavailable:
+            _log_rejection(
+                WatchdogIntakeErrorCode.REVIEW_ATTEMPT_PERSISTENCE_UNAVAILABLE,
+                delivery_id=delivery_id,
+                event_name=event_name,
+                action=action,
+                repository_id=delivery.repository_id,
+                pull_request_number=delivery.pull_request_number,
+            )
+            return _error_response(
+                WatchdogIntakeErrorCode.REVIEW_ATTEMPT_PERSISTENCE_UNAVAILABLE
+            )
+        except (
+            WatchdogReviewAttemptPersistenceError,
+            WatchdogReviewAttemptReceiptNotFound,
+        ):
+            _log_rejection(
+                WatchdogIntakeErrorCode.REVIEW_ATTEMPT_PERSISTENCE_FAILED,
+                delivery_id=delivery_id,
+                event_name=event_name,
+                action=action,
+                repository_id=delivery.repository_id,
+                pull_request_number=delivery.pull_request_number,
+            )
+            return _error_response(
+                WatchdogIntakeErrorCode.REVIEW_ATTEMPT_PERSISTENCE_FAILED
+            )
+
     logger.info(
         "GitHub Watchdog receipt accepted receipt_id=%s delivery_id=%s event=%s "
         "action=%s repository_id=%s pull_request_number=%s duplicate=%s",
@@ -211,14 +264,23 @@ async def receive_github_watchdog_webhook(request: Request) -> JSONResponse:
         delivery.pull_request_number,
         result.duplicate,
     )
+    response_content = {
+        "receiptId": result.receipt_id,
+        "deliveryId": delivery_id,
+        "event": event_name,
+        "action": action,
+        "duplicate": result.duplicate,
+        "disposition": WatchdogReceiptDisposition.ACCEPTED.value,
+    }
+    if review_attempt is not None:
+        response_content.update(
+            {
+                "reviewAttemptId": review_attempt.review_attempt_id,
+                "reviewAttemptState": review_attempt.attempt_state,
+                "policyResolutionState": (review_attempt.policy_resolution_state),
+            }
+        )
     return JSONResponse(
         status_code=202,
-        content={
-            "receiptId": result.receipt_id,
-            "deliveryId": delivery_id,
-            "event": event_name,
-            "action": action,
-            "duplicate": result.duplicate,
-            "disposition": WatchdogReceiptDisposition.ACCEPTED.value,
-        },
+        content=response_content,
     )

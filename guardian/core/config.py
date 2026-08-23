@@ -479,6 +479,54 @@ class Settings(BaseSettings):
             "Watchdog delivery intake."
         ),
     )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER: str | None = Field(
+        default=None,
+        description=(
+            "Operator-selected provider for inert GitHub Watchdog automated "
+            "review policy snapshots. No default provider is selected."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL: str | None = Field(
+        default=None,
+        description=(
+            "Operator-selected model for inert GitHub Watchdog automated "
+            "review policy snapshots. No default model is selected."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE: str | None = (
+        Field(
+            default=None,
+            description=(
+                "Optional existing reasoning-mode value snapshotted for a "
+                "future GitHub Watchdog automated review execution."
+            ),
+        )
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE: str = Field(
+        default="disabled",
+        description=(
+            "GitHub Watchdog automatic-review escalation posture: disabled "
+            "or explicit_only. This setting never triggers escalation."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER: (
+        str | None
+    ) = Field(
+        default=None,
+        description=(
+            "Explicit-only GitHub Watchdog escalation provider snapshot; "
+            "inert until a separately authorized execution slice."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL: str | None = (
+        Field(
+            default=None,
+            description=(
+                "Explicit-only GitHub Watchdog escalation model snapshot; "
+                "inert until a separately authorized execution slice."
+            ),
+        )
+    )
     GUARDIAN_DATABASE_URL: str | None = Field(
         default=None,
         description="Primary Postgres connection URL for Guardian chatlog DB.",

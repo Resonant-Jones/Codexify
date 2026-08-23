@@ -4,11 +4,18 @@
 
 This is the accepted architecture contract for the Guardian-owned GitHub
 Watchdog under [ADR-073](./adr/073-github-watchdog-review-and-dispatch-control-plane.md).
-The narrow webhook ingress is implemented: exact raw-body HMAC authentication,
-durable Postgres receipt/idempotency handling, and normalized bounded metadata.
-All policy evaluation, model selection or invocation, queueing, installation
-tokens and API publication, command parsing, Build Loop dispatch, GitHub
-mutation, and merge behavior remain deferred.
+The implemented preparation boundary provides exact raw-body HMAC
+authentication, normalized bounded metadata, durable Postgres delivery
+receipt/idempotency handling, and one receipt-bound automatic review attempt
+for each accepted automatic PR-review delivery. Each attempt binds the receipt
+head SHA to an immutable system-default policy snapshot and records either
+`prepared` or a bounded policy block. A newer `pull_request.synchronize` head
+supersedes older prepared attempts for the same repository and PR.
+
+Repository and installation/account policy persistence, invocation overrides,
+comment-command parsing, model invocation, Redis queueing, model-response
+parsing, GitHub Check Runs or PR review comments, Build Loop mutation dispatch,
+auto-fix, and merge authority remain deferred.
 
 The Watchdog extends rather than replaces [ADR-050](./adr/050-event-driven-campaign-control-plane.md).
 ADR-050 remains the GitHub-native deterministic, read-only, dry-run Campaign
@@ -17,8 +24,8 @@ explicit Guardian mutation-dispatch boundary; it does not make model opinion
 deterministic eligibility, merge authorization, or release truth.
 
 `docs/architecture/00-current-state.md` remains authoritative for current
-release reality. This receipt boundary is not a supported Watchdog workflow or
-a release claim.
+release reality. This preparation boundary is not a supported Watchdog workflow
+or a release claim.
 
 ## Canonical topology and authority
 
@@ -77,8 +84,8 @@ The first implementation has only these useful event families:
 
 | Event | Actions | Eligibility |
 | --- | --- | --- |
-| `pull_request` | `opened`, `synchronize`, `reopened` | Policy may request deterministic Observe or automated Review for an immutable PR head. |
-| `issue_comment` | `created` | The receipt boundary accepts only comments attached to a PR. It does not inspect comment text or parse commands. |
+| `pull_request` | `opened`, `synchronize`, `reopened` | Creates one automatic-review attempt for an immutable PR head, with a policy snapshot or a durable policy block. |
+| `issue_comment` | `created` | The receipt boundary accepts only comments attached to a PR. It creates no review attempt, does not inspect comment text, and does not parse commands. |
 
 `pull_request_review_comment`, `check_run`, `check_suite`, and `push` are
 explicitly deferred. The Watchdog must not depend on all GitHub event families
@@ -155,19 +162,21 @@ before dispatch, consistent with the Intent Spine's no-second-universe rule.
 
 ### Policy classes and configuration scope
 
-Model policy is provider-neutral and configuration-driven. It must represent
-at least these classes:
+Model policy is provider-neutral and configuration-driven. The canonical
+operation classes are:
 
 - `automated_review`;
 - `requested_review`;
 - `fix`;
 - `escalation`.
 
-The future configuration shape supports system defaults plus
-installation/account and repository scopes without code changes. A policy does
-not alter current supported-profile provider authorization; actual provider
-authorization, egress, credentials, availability, and capability checks remain
-separate controls.
+Only `automated_review` has a runtime trigger in this slice. Its only active
+selection source is the operator-configured system default. `requested_review`,
+`fix`, and `escalation` have no runtime trigger. Repository and
+installation/account scopes are deferred; their absence does not alter the
+eventual precedence. A policy does not alter current supported-profile provider
+authorization; canonical provider governance and the existing local/cloud and
+egress controls remain separate, stricter authorities.
 
 ### Deterministic precedence
 
@@ -178,28 +187,24 @@ The selection chain is fixed:
 3. installation/account Watchdog policy;
 4. system Watchdog default.
 
-An invocation override is allowed only when the command is authorized and its
-alias resolves through the allowed policy registry. Guardian records the
-override and selection source in the attempt. Prompt text, repository files,
-PR metadata, comments, and model output never participate in this precedence
-or select their own model.
+This implementation resolves only level 4 as `system_default`. The other
+levels are deferred, not treated as absent or collapsed. Prompt text,
+repository files, PR metadata, comments, and model output never participate in
+this precedence or select their own model.
 
 ### Immutable policy snapshot and economics
 
-Before the model/harness executes, Guardian records an immutable attempt
-snapshot containing at least:
+Before any future model/harness execution, this implementation records an
+immutable attempt snapshot containing:
 
 | Field | Meaning |
 | --- | --- |
-| `policyId`, `policyVersion` | Exact resolved policy identity. |
+| `policyFingerprint` | Deterministic fingerprint of the normalized operation, provider, model, inference mode, escalation posture, and selection source. |
 | `providerId`, `modelId` | Selected inference identity. |
-| `reasoningPosture` | Supported reasoning/inference posture when a provider exposes one. |
-| `maxAttemptCount` | Bounded attempt ceiling. |
-| `fallbackPolicy`, `escalationPolicy` | Allowed recovery and escalation behavior. |
+| `inferenceMode` | Optional configured inference/reasoning posture. |
 | `modelSelectionSource` | Which precedence level selected the outcome. |
-| `trigger` | Event or authorized command that requested the operation. |
-| `repositoryScope` | Scope to which the policy was applied. |
-| `adapterId` | Separate selected harness/adapter identity, when Mutate applies. |
+| `escalationMode`, `escalationProviderId`, `escalationModelId` | Inert `disabled` or explicitly configured `explicit_only` posture. |
+| `policyResolutionState`, `policyReasonCode` | The resolved or blocked decision and bounded reason when blocked. |
 
 **No silent expensive-model escalation.** The policy must be able to represent
 a cheap routine model, stronger requested-review model, mutation/fix model,
@@ -221,60 +226,57 @@ adapter routing instruction.
 
 ### Idempotency
 
-The delivery identity and the attempt identity solve different problems.
+The delivery identity and attempt identity solve different problems.
 
 ```text
 delivery identity = GitHub delivery id + installation + repository + event + action
-semantic event identity = normalized accepted event context for dedupe/audit
-watchdog run identity = Guardian-generated logical Watchdog run
-attempt identity = bounded execution attempt inside the Watchdog run
+delivery receipt identity = durable receipt of one accepted delivery
+attempt identity = distinct Guardian-generated review-attempt identity
 ```
 
 The durable delivery identity includes `githubDeliveryId` plus relevant
-installation/repository/event context. Redelivery can refresh safe receipt
-metadata, but a delivery already accepted must not create another semantic
-event, model review, Check Run, or mutation dispatch. A human-authorized rerun
-is a distinguishable new Watchdog run/attempt with explicit rerun provenance;
-it is not a duplicate delivery.
+installation/repository/event context. A database uniqueness boundary on the
+attempt's `triggerReceiptId` makes webhook redelivery reuse the same attempt.
+Distinct legitimate deliveries, including an `opened` and later `reopened`
+event for the same head, remain distinct attempts. A future human-authorized
+rerun will need its own deliberate provenance and attempt numbering; it is not
+implemented here.
 
 ### Immutable review snapshot and supersession
 
-Every Review attempt binds to an immutable `headSha`. When a
-`pull_request.synchronize` advances the head:
+Every prepared automatic-review attempt binds to an immutable `headSha`. An
+accepted automatic PR event missing its head SHA persists a `blocked_policy`
+attempt rather than a runnable-looking attempt. When a
+`pull_request.synchronize` provides a newer head:
 
-- queued old-head work is cancelled or marked superseded where cancellation is
-  unavailable;
-- running old-head work is marked stale/superseded if it cannot safely stop;
-- stale output never becomes the current review truth for the new head;
-- all inline findings carry the SHA they reviewed; and
-- the current Check surface makes its reviewed SHA and stale/superseded
-  condition legible.
+- older `prepared` automatic-review attempts for that repository and PR are
+  marked `superseded` and point to the new attempt;
+- their original policy snapshots remain unchanged; and
+- blocked-policy history is preserved rather than rewritten.
 
-Old findings are evidence about an old snapshot, not a claim about the current
-PR state.
+No work is queued, running, or published in this slice. Future execution and
+publication must preserve this stale-head relationship.
 
 ## Durable correlation vocabulary
 
-Future durable Watchdog entities must be modelled as Postgres-owned evidence,
-without prescribing a migration in this contract. They must carry at least:
+The implemented `github_watchdog_review_attempts` entity is Postgres-owned
+evidence bound to `github_watchdog_delivery_receipts`. It carries:
 
 | Field | Purpose |
 | --- | --- |
-| `githubDeliveryId` | GitHub delivery correlation, never a model-attempt ID. |
+| `reviewAttemptId`, `triggerReceiptId` | Distinct attempt identity and unique FK back to its triggering receipt. |
+| `githubDeliveryId` | GitHub delivery correlation, never the attempt ID. |
 | `githubInstallationId`, `repositoryId` | App and repository scope. |
 | `pullRequestNumber`, `headSha` | Immutable PR snapshot identity. |
-| `watchdogRunId`, `attemptNumber` | Guardian-owned logical run and bounded attempt identity. |
-| `triggerActorId`, `operation` | Actor and requested Observe/Review/Mutate class. |
-| `policyId`, `policyVersion` | Resolved policy provenance. |
-| `providerId`, `modelId` | Selected/attempted provider-model identity. |
-| `status`, `supersededBy` | Lifecycle and stale/supersession relationship. |
-| `guardianCodingRunId` | Guardian Build Loop correlation when Mutate is dispatched. |
-| `githubCheckRunId`, `githubReviewId` | Published GitHub evidence identifiers after publication. |
+| `operation`, `attemptNumber`, `attemptState` | This slice's automatic-review operation and lifecycle evidence. |
+| `policyResolutionState`, `policyReasonCode`, `policyFingerprint` | Immutable policy decision evidence. |
+| `providerId`, `modelId`, `inferenceMode`, `modelSelectionSource` | Immutable selected model-policy identity. |
+| `escalationMode`, `escalationProviderId`, `escalationModelId` | Inert escalation configuration, if explicitly present. |
+| `supersededByAttemptId` | Immutable-head stale/supersession relationship. |
 
-The eventual data model may separate durable delivery receipts, semantic
-events, Watchdog runs, model attempts, publication references, and Guardian
-dispatch links. It must preserve their correlation rather than collapsing them
-into a webhook log or Redis state.
+Future durable Watchdog runs, result records, publication references, and
+Guardian dispatch links must preserve their correlation rather than collapsing
+them into a webhook log or Redis state.
 
 ## GitHub output and permissions
 
@@ -346,17 +348,19 @@ truths.
 
 ### Tokens
 
-The receipt slice defines only bounded intake tokens for receipt disposition,
-error codes, and the accepted event/action tuples. Watchdog operation, run
-state, review conclusion, supersession reason, model-selection source, and
-escalation reason remain deferred until their owning runtime slices exist.
+The preparation slice defines bounded intake error codes and event/action
+tuples; Watchdog operation, attempt state, policy-resolution state,
+model-selection source, escalation mode, and policy-block reasons. Execution,
+review conclusion, publication, and retry tokens remain deferred until their
+owning runtime slices exist.
 
 ## Release and implementation boundary
 
 This contract does not alter `00-current-state.md`, supported-profile claims,
-or Beta posture. The implemented intake is limited to HMAC verification,
-bounded metadata normalization, and durable Postgres receipt/idempotency. It
-does not establish any downstream control-plane behavior:
+or Beta posture. The implemented preparation is limited to HMAC verification,
+bounded metadata normalization, durable Postgres receipt/idempotency, local
+policy evaluation, and durable policy snapshots. It does not establish any
+downstream control-plane behavior:
 
 - webhook receipt is not model-review completion;
 - model-review completion is not mutation completion;
@@ -366,13 +370,13 @@ does not establish any downstream control-plane behavior:
 No GitHub App registration, worker, Redis queue, OAuth/install flow,
 credential issuance, provider call, model call, coding-worker dispatch, PR
 comment, Check Run, branch mutation, commit, push, merge, auto-fix,
-auto-merge, Settings UI, Connections implementation, provider-registry change,
-or additional runtime-token implementation is introduced by the receipt slice.
+auto-merge, Settings UI, Connections implementation, or provider-registry
+change is introduced by this slice.
 
-## First implementation prerequisite
+## Current implementation boundary
 
-The completed first prerequisite was authenticated, idempotent GitHub App
-webhook intake with no downstream execution. It stops after signature
-verification, bounded event normalization, durable receipt/idempotency
-handling, and prompt HTTP acknowledgement; model review, Check publication,
-and Guardian coding dispatch remain separately scoped work.
+The current path ends after an authenticated automatic PR webhook has a durable
+receipt and one durable review attempt with a resolved or blocked immutable
+policy snapshot. `prepared` means policy resolved and durable attempt exists;
+it does not mean queued, dispatched, running, reviewed, or published. No model
+or provider API is invoked.
