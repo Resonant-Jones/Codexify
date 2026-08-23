@@ -146,6 +146,13 @@ def test_list_returns_all_four_categories(
     assert items["notion"]["capabilities"] == ["content_read", "content_search"]
     assert items["notion"]["setup_state"] == "needs_setup"
     assert items["notion"]["validation"]["state"] == "unconfigured"
+    assert items["google_drive"]["category"] == "knowledge"
+    assert items["google_drive"]["capabilities"] == ["content_read", "content_search"]
+    # The Google Drive adapter exists but cannot launch without a legitimate
+    # node-owned OAuth application registration.
+    assert items["google_drive"]["setup_state"] == "unavailable"
+    assert items["google_drive"]["oauth"]["backend_handler_exists"] is True
+    assert items["google_drive"]["oauth"]["launchable"] is False
 
 
 def test_channel_config_presence_marks_entry_configured(

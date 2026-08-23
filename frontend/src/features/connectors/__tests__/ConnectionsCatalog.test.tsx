@@ -144,6 +144,37 @@ const catalogPayload = {
       },
       authorization: null,
     },
+    {
+      id: "google_drive",
+      display_name: "Google Drive / Docs",
+      category: "knowledge",
+      description: "Read-only Google Docs discovery and reading.",
+      auth_methods: ["oauth_browser"],
+      capabilities: ["content_search", "content_read"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.connections.google_drive",
+        adapter: "guardian.connections.google_drive.service.GoogleDriveClient",
+        setup_route: "/api/connect/google-drive/start",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: true,
+      },
+      required_fields: [],
+      scopes: [
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+        "https://www.googleapis.com/auth/documents.readonly",
+      ],
+      setup_help: "Google OAuth is node-owned; tokens stay server-side.",
+      oauth: {
+        supported: true,
+        backend_handler_exists: true,
+        launchable: true,
+        node_configured: true,
+        connection: null,
+      },
+      authorization: null,
+    },
   ],
 };
 
@@ -365,6 +396,56 @@ describe("Connections catalog bay", () => {
       );
     });
     expect(changed).toHaveBeenCalled();
+  });
+
+  it("launches Google Drive OAuth through the backend and keeps browser storage secret-free", async () => {
+    const googleDrive = catalogPayload.items.find((item) => item.id === "google_drive")!;
+    const changed = vi.fn();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: {
+          authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe-state",
+        },
+      })
+      .mockResolvedValueOnce({ data: { removed: true } });
+
+    render(
+      <ConnectionConfigModal
+        connection={googleDrive}
+        open
+        onClose={vi.fn()}
+        onChanged={changed}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/google-drive/start",
+        {}
+      );
+    });
+    await waitFor(() => {
+      expect(open).toHaveBeenCalledWith(
+        expect.stringContaining("accounts.google.com"),
+        "google-drive-oauth",
+        "noopener,noreferrer"
+      );
+    });
+    expect(window.localStorage.getItem("access_token")).toBeNull();
+    expect(window.sessionStorage.getItem("refresh_token")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    fireEvent.click(screen.getByTestId("google-drive-disconnect"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/google-drive/disconnect",
+        {}
+      );
+    });
+    expect(changed).toHaveBeenCalled();
+    open.mockRestore();
   });
 
   it("does not advertise a browser setup flow for server-managed messaging credentials", async () => {

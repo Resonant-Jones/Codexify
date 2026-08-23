@@ -493,6 +493,13 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
         await handleMinimaxOAuthFlow();
         return;
       }
+      if (
+        connection.id === "google_drive" &&
+        route === "/api/connect/google-drive/start"
+      ) {
+        await handleGoogleDriveOAuthFlow();
+        return;
+      }
       let body: Record<string, unknown>;
       if (route === "/api/channels/configs") {
         body = { channel: connection.id, config_json: fields };
@@ -559,6 +566,44 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
       setMessage(
         e?.response?.data?.detail?.error ||
           "Could not remove the Notion credential."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleDriveOAuthFlow(): Promise<void> {
+    const startRes = await api.post<{
+      authorization_url?: string;
+      state?: string;
+    }>("/api/connect/google-drive/start", {});
+    const authorizationUrl = startRes?.data?.authorization_url;
+    if (!authorizationUrl) {
+      setMessage("Google authorization could not be started.");
+      return;
+    }
+    // This is browser navigation for user consent, not a browser-side Google
+    // API call. Tokens and the authorization-code exchange remain server-side.
+    window.open(authorizationUrl, "google-drive-oauth", "noopener,noreferrer");
+    setSaveSucceeded(true);
+    setMessage(
+      "Google authorization opened in a new window. Return here after consent."
+    );
+    onChanged();
+  }
+
+  async function handleGoogleDriveDisconnect() {
+    setLoading(true);
+    setMessage(null);
+    try {
+      await api.post("/api/connect/google-drive/disconnect", {});
+      setSaveSucceeded(false);
+      setMessage("Google Drive / Docs authorization removed.");
+      onChanged();
+    } catch (e: any) {
+      setMessage(
+        e?.response?.data?.detail?.error ||
+          "Could not remove the Google Drive / Docs authorization."
       );
     } finally {
       setLoading(false);
@@ -782,8 +827,14 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     <div className="space-y-3">
       {connection.required_fields.map((f) => (
         <div key={f.key} className="flex flex-col">
-          <label className="text-sm font-medium mb-1">{f.label}</label>
+          <label
+            htmlFor={`connection-field-${f.key}`}
+            className="text-sm font-medium mb-1"
+          >
+            {f.label}
+          </label>
           <input
+            id={`connection-field-${f.key}`}
             type={f.secret ? "password" : "text"}
             value={fields[f.key] || ""}
             onChange={(e) =>
@@ -874,6 +925,19 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           onClick={handleNotionDisconnect}
           disabled={loading}
           data-testid="notion-disconnect"
+        >
+          Disconnect
+        </Button>
+      )}
+      {connection.id === "google_drive" &&
+        (connection.setup_state !== "needs_setup" || saveSucceeded) && (
+        <Button
+          variant="ghost"
+          className="rounded-xl"
+          size="sm"
+          onClick={handleGoogleDriveDisconnect}
+          disabled={loading}
+          data-testid="google-drive-disconnect"
         >
           Disconnect
         </Button>

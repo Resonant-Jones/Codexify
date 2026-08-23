@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connectors.google import router as google_connect_router
 from guardian.connectors.minimax import router as minimax_oauth_router
+from guardian.connections.google_drive import router as google_drive_connection_routes
 from guardian.connections.notion import router as notion_connection_routes
 
 # Import core dependencies module (contains shared helpers)
@@ -695,6 +696,7 @@ async def _app_lifespan_body(app: FastAPI):
         command_bus_routes.configure_db(guardian_db)
         connections_routes.configure_db(guardian_db)
         notion_connection_routes.configure_db(guardian_db)
+        google_drive_connection_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         guardian_delegations.configure_db(guardian_db)
         tts_routes.configure_db(guardian_db)
@@ -1334,6 +1336,19 @@ _include_router(
     include_fn=lambda: app.include_router(
         notion_connection_routes.setup_router,
         include_in_schema=_include_internal_only_schema("notion_setup"),
+    ),
+)
+_include_router(
+    label="google_drive_knowledge",
+    flag_name="CODEXIFY_ENABLE_GOOGLE_DRIVE_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(google_drive_connection_routes.operations_router),
+)
+_include_router(
+    label="google_drive_setup",
+    flag_name="CODEXIFY_ENABLE_GOOGLE_DRIVE_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(
+        google_drive_connection_routes.setup_router,
+        include_in_schema=_include_internal_only_schema("google_drive_setup"),
     ),
 )
 _include_router(

@@ -98,8 +98,23 @@ def _user_channel_configs(db: Any, user_id: str) -> set[str]:
         return set()
 
 
-def _sanitize_oauth_error_kind(status: str) -> str | None:
+def _sanitize_oauth_error_kind(status: str, last_error: str | None) -> str | None:
     """Bounded classification only; raw error text is never serialized."""
+    if status == ConnectionSetupState.ERROR.value:
+        # Only provider-owned, enumerated Google Drive codes may be exposed.
+        # Existing generic OAuth rows can contain raw exception strings and
+        # continue to collapse to the older generic classification.
+        google_error_kinds = {
+            "google_drive_authorization_failed",
+            "google_drive_oauth_denied",
+            "google_drive_refresh_required",
+            "google_drive_oauth_transport_error",
+            "google_drive_transport_error",
+            "google_drive_oauth_provider_error",
+            "google_drive_provider_error",
+        }
+        if last_error in google_error_kinds:
+            return last_error
     if status == ConnectionSetupState.ERROR.value:
         return "provider_error"
     return None
@@ -132,7 +147,9 @@ def _user_oauth_rows(db: Any, user_id: str) -> dict[str, dict[str, Any]]:
             "last_refresh_at": (
                 row.last_refresh_at.isoformat() if row.last_refresh_at else None
             ),
-            "error_kind": _sanitize_oauth_error_kind(str(row.status)),
+            "error_kind": _sanitize_oauth_error_kind(
+                str(row.status), str(row.last_error or "") or None
+            ),
         }
     return projected
 
@@ -322,6 +339,13 @@ def _oauth_launchable(entry: ConnectionCatalogEntry) -> bool:
     if entry.id == "minimax_oauth":
         try:
             from guardian.connectors.minimax import node_oauth_configured
+
+            return bool(node_oauth_configured())
+        except Exception:  # pragma: no cover - defensive
+            return False
+    if entry.id == "google_drive":
+        try:
+            from guardian.connections.google_drive.oauth import node_oauth_configured
 
             return bool(node_oauth_configured())
         except Exception:  # pragma: no cover - defensive

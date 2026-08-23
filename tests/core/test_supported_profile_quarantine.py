@@ -264,6 +264,9 @@ def test_supported_profile_exposes_read_only_connections_without_legacy_connecto
         assert "/api/knowledge/notion/search" in paths
         assert "/api/knowledge/notion/read/{object_id}" in paths
         assert set(paths["/api/knowledge/notion/search"]) == {"get"}
+        assert "/api/knowledge/google-drive/search" in paths
+        assert "/api/knowledge/google-drive/read/{object_id}" in paths
+        assert set(paths["/api/knowledge/google-drive/search"]) == {"get"}
         command_manifest = client.get(
             "/api/guardian/commands/manifest", headers=headers
         ).json()
@@ -273,6 +276,8 @@ def test_supported_profile_exposes_read_only_connections_without_legacy_connecto
         }
         assert ("GET", "/api/knowledge/notion/search") in command_paths
         assert ("GET", "/api/knowledge/notion/read/{object_id}") in command_paths
+        assert ("GET", "/api/knowledge/google-drive/search") in command_paths
+        assert ("GET", "/api/knowledge/google-drive/read/{object_id}") in command_paths
 
 
 def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
@@ -306,11 +311,18 @@ def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
         assert "/api/connect/notion/configure" not in paths
         assert "/api/connect/notion/validate" not in paths
         assert "/api/connect/notion/disconnect" not in paths
+        assert "/api/connect/google-drive/start" not in paths
+        assert "/api/connect/google-drive/validate" not in paths
+        assert "/api/connect/google-drive/disconnect" not in paths
         # The internal route is mounted even though it is hidden from public
         # OpenAPI; a storage-unavailable response still proves it did not
         # regress to a quarantined 404.
         assert (
             client.get("/api/connect/notion/status", headers=headers).status_code
+            != 404
+        )
+        assert (
+            client.get("/api/connect/google-drive/status", headers=headers).status_code
             != 404
         )
 

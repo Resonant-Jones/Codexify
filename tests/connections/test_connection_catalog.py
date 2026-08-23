@@ -81,12 +81,13 @@ def test_states_and_methods_are_canonical_tokens() -> None:
             assert capability in CONNECTION_CAPABILITIES
 
 
-def test_notion_is_the_single_implemented_read_only_knowledge_entry() -> None:
+def test_implemented_read_only_knowledge_entries_preserve_provider_boundaries() -> None:
     knowledge_entries = [
         entry for entry in get_catalog() if entry.category == "knowledge"
     ]
-    assert [entry.id for entry in knowledge_entries] == ["notion"]
-    notion = knowledge_entries[0]
+    assert [entry.id for entry in knowledge_entries] == ["notion", "google_drive"]
+    notion = get_connection("notion")
+    assert notion is not None
     assert notion.capabilities == {"content_search", "content_read"}
     assert notion.auth_methods == ("token",)
     assert notion.implementation_state == "implemented"
@@ -95,6 +96,13 @@ def test_notion_is_the_single_implemented_read_only_knowledge_entry() -> None:
     assert notion.required_fields[0].secret is True
     assert "sync" not in notion.capabilities
     assert "write" not in notion.capabilities
+    google_drive = get_connection("google_drive")
+    assert google_drive is not None
+    assert google_drive.capabilities == {"content_search", "content_read"}
+    assert google_drive.auth_methods == ("oauth_browser",)
+    assert google_drive.implementation_state == "implemented"
+    assert google_drive.runtime_binding.subsystem == "guardian.connections.google_drive"
+    assert google_drive.runtime_binding.setup_route == "/api/connect/google-drive/start"
 
 
 def test_every_requested_messaging_entry_is_present() -> None:
@@ -216,6 +224,20 @@ def test_oauth_setup_route_uses_dedicated_provider_label() -> None:
     assert not setup_route.startswith("/api/connections")
     # Not on the quarantined legacy connector surface.
     assert not setup_route.startswith("/api/connectors")
+
+
+def test_google_drive_is_one_implemented_knowledge_identity() -> None:
+    entry = get_connection("google_drive")
+    assert entry is not None
+    assert entry.display_name == "Google Drive / Docs"
+    assert entry.category == "knowledge"
+    assert entry.capabilities == {"content_search", "content_read"}
+    assert entry.auth_methods == ("oauth_browser",)
+    assert entry.implementation_state == "implemented"
+    assert entry.oauth_provider_key == "google_drive"
+    assert entry.runtime_binding.setup_route == "/api/connect/google-drive/start"
+    assert entry.runtime_binding.oauth_backend_handler_exists is True
+    assert get_connection("google") is None
 
 
 def test_inference_registry_mapping_matches_provider_registry() -> None:

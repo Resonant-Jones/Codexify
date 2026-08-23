@@ -331,6 +331,43 @@ def _notion_knowledge_entry() -> ConnectionCatalogEntry:
     )
 
 
+def _google_drive_knowledge_entry() -> ConnectionCatalogEntry:
+    """Canonical Google Drive / Docs identity, scoped to native Docs reads."""
+    return ConnectionCatalogEntry(
+        id="google_drive",
+        display_name="Google Drive / Docs",
+        category=ConnectionCategory.KNOWLEDGE.value,
+        description=(
+            "Read-only discovery of accessible native Google Docs through "
+            "Drive metadata and normalized reading of one selected Google "
+            "Doc. Results remain external evidence; this connection does "
+            "not sync, ingest, or write."
+        ),
+        auth_methods=(_OAUTH_BROWSER,),
+        capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
+        implementation_state=_IMPLEMENTED,
+        default_setup_state=_NEEDS_SETUP,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.google_drive",
+            adapter="guardian.connections.google_drive.service.GoogleDriveClient",
+            setup_route="/api/connect/google-drive/start",
+            oauth_backend_handler_exists=True,
+        ),
+        scopes=(
+            "https://www.googleapis.com/auth/drive.metadata.readonly",
+            "https://www.googleapis.com/auth/documents.readonly",
+        ),
+        setup_help=(
+            "Authorize the Codexify node's Google OAuth application for "
+            "read-only Google Docs discovery and reading. Google classifies "
+            "the Drive metadata scope as restricted and Docs read-only as "
+            "sensitive; app verification and live account qualification "
+            "remain operator work. Tokens stay server-side."
+        ),
+        oauth_provider_key="google_drive",
+    )
+
+
 def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
     entries: list[ConnectionCatalogEntry] = []
 
@@ -550,7 +587,7 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
     )
 
     # =========================== Knowledge =================================
-    entries.append(_notion_knowledge_entry())
+    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry()])
 
     # ============================ Inference ================================
     entries.extend(

@@ -148,11 +148,20 @@ Credentials remain server-owned and user-scoped. The Connections API never
 serializes access tokens, refresh tokens, API keys, OAuth client secrets, or
 raw authorization codes. The only OAuth material projected to the frontend
 is the safe metadata listed above, and raw `last_error` text is reduced to a
-bounded classification (`provider_error`).
+bounded classification (`provider_error` or a provider-owned bounded code).
 
-No OAuth exchange endpoints, no Hermes credentials, and no OAuth client ids
-were introduced by this slice. The narrowly scoped Notion integration token
-is described below.
+Google Drive / Docs adds a provider-specific server-side authorization-code
+flow. Its node/operator-owned client id, client secret, and redirect URI are
+read only from `GOOGLE_DRIVE_OAUTH_CLIENT_ID`,
+`GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`, and
+`GOOGLE_DRIVE_OAUTH_REDIRECT_URI`; none is serialized through the catalog or
+frontend. Its state is signed, the PKCE verifier is server-only, and returned
+access/refresh credentials are encrypted at rest in `oauth_connections` under
+the user-scoped provider key `google_drive` / mode `node_local`. The browser
+receives only a server-generated authorization URL and never calls Google
+content APIs directly.
+
+The narrowly scoped Notion integration token is described below.
 
 The Notion integration token is not stored in `oauth_connections`: it is an
 integration token rather than an OAuth grant. Its one-per-user
@@ -183,6 +192,15 @@ through the Connections projection or browser storage.
   `/api/knowledge/notion/read/{object_id}` are the bounded operations that
   Command Bus registers as read commands. The catalog remains a projection:
   it does not own execution, credentials, authorization, or health.
+- The implemented Google Drive / Docs Knowledge entry binds to
+  `guardian.connections.google_drive`. Its server-owned OAuth setup routes
+  live under `/api/connect/google-drive/*`; GET-only
+  `/api/knowledge/google-drive/search` and
+  `/api/knowledge/google-drive/read/{object_id}` are the bounded Command Bus
+  read operations. Drive is used only for native Google Docs discovery and
+  metadata; the adapter translates one selected native Google Doc through the
+  Docs read API. It does not read Sheets, Slides, PDFs, ordinary files, Gmail,
+  Calendar, Contacts, or Chat, and it has no Google mutation path.
 - Legacy sync connectors (GitHub) remain on the existing connector
   subsystem surface; their behavior is unchanged.
 
@@ -256,10 +274,25 @@ only `content_search` and `content_read` for Notion pages shared with the
 configured integration, with bounded page/block pagination and normalized
 source provenance. It does not write Notion, ingest or synchronize content,
 create documents, embeddings, memory, graph records, or a global database
-binding. Google Drive and Google Docs remain representative future Knowledge
-Connections; Google Chat and Gemini remain Messaging and Inference identities.
-Implementation and focused tests prove the local adapter seam only; live
-Notion-account qualification remains separate and is not a release claim.
+binding.
+
+`google_drive` is the second canonical Knowledge Connection, displayed as
+Google Drive / Docs. Its `content_search` operation filters Drive discovery to
+the native Google Docs MIME type and returns bounded normalized metadata,
+opaque continuation state, and external provenance. Its `content_read`
+operation verifies that selected object type before using the Docs API,
+normalizes the default document tab's paragraphs, headings, list items, and
+straightforward tables into a bounded text result, and reports truncation. It
+requests exactly `drive.metadata.readonly` for discovery and
+`documents.readonly` for document reads: both are read-only, but Google
+currently classifies the former as restricted and the latter as sensitive.
+OAuth application verification/security assessment and live account/shared
+Drive qualification remain operator work, not a release claim. Google Chat
+and Gemini remain Messaging and Inference identities; Sheets, Slides, Gmail,
+Calendar, Contacts, and Chat remain separate future decisions.
+
+Both implementations and focused tests prove local adapter seams only; live
+provider-account qualification remains separate and is not a release claim.
 
 ## OAuth posture
 
@@ -270,11 +303,11 @@ The frontend may only enable an OAuth action when
 (`oauth.launchable`) is true. The launchability gate is intentionally
 narrower than "a backend handler exists in code": for a future OAuth entry
 to become clickable, it must additionally expose a real
-`runtime_binding.setup_route`, and (where the protocol requires it) the
-node must supply the legitimate application-owned configuration. A node
-without legitimate Codexify-owned MiniMax OAuth client configuration
-therefore keeps the entry visibly unavailable, even though the backend
-handler is mounted.
+`runtime_binding.setup_route`, and (where the protocol requires it) the node
+must supply legitimate application-owned configuration. A node without a
+complete Google Drive OAuth client id, client secret, redirect URI, and state
+signing secret therefore keeps `google_drive` visibly unavailable, even
+though its backend handler is mounted.
 
 MiniMax OAuth is the first provider-specific OAuth setup slice. Its
 provider-specific mutation routes (`/api/connect/minimax/start`,
@@ -294,6 +327,17 @@ and persisted under provider key `minimax_oauth`, mode `node_local`. The
 PKCE verifier, access tokens, refresh tokens, and any browser-visible
 flow metadata are kept server-side; the frontend polls only the backend
 poll route and never the upstream provider directly.
+
+Google Drive / Docs is a separate OAuth browser-flow identity, not a generic
+Google catalog entry. `/api/connect/google-drive/start` records only a pending
+user-scoped grant before returning a server-generated authorization URL;
+`/callback` verifies state and PKCE, exchanges the code server-side, performs
+a minimal read-only Drive validation, and exposes only safe state through the
+catalog. Access-token refresh is server-side, and disconnect clears the local
+`google_drive` encrypted grant without a provider write. A successful
+canonical connection clears the quarantined historical generic `google` OAuth
+row so two active local OAuth authorities do not represent the same Google
+content domain.
 
 All other provider-specific OAuth work (Codex/ChatGPT, Qwen, Gemini,
 xAI, Nous Portal, GitHub Copilot, Anthropic subscription) remains
@@ -315,7 +359,11 @@ no duplicate mutation routes.
 Notion credential mutation is deliberately outside this router on the
 provider-specific, internal-only `/api/connect/notion/*` setup seam. The
 generic legacy `/api/connectors` route family remains quarantined and is not
-used by the Notion runtime.
+used by either Knowledge runtime. Google Drive / Docs OAuth setup likewise
+stays outside this router on `/api/connect/google-drive/*`; only its bounded
+GET read operations appear in the enabled Knowledge/Command Bus surface. The
+historical `guardian/connectors/gsuite.py` implementation is a non-authoritative
+reference artifact and is not imported by the canonical Google Drive runtime.
 
 `guardian_api.py` registers the read-only Connections router under the
 distinct `connections` supported-profile route identity and the

@@ -43,6 +43,8 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.route_status("minimax_oauth") == "internal_only"
     assert manifest.route_status("notion_knowledge") == "enabled"
     assert manifest.route_status("notion_setup") == "internal_only"
+    assert manifest.route_status("google_drive_knowledge") == "enabled"
+    assert manifest.route_status("google_drive_setup") == "internal_only"
     # The read-only catalog promotion must not expose legacy connector
     # mutation or sync routes.
     assert manifest.route_status("connectors") == "quarantined"
