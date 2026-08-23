@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from dotenv import dotenv_values
 import pytest
 from fastapi import HTTPException
 
@@ -8,8 +11,13 @@ from guardian.core.ai_router import (
     resolve_local_execution_model,
 )
 from guardian.core.config import Settings
+from guardian.core.supported_profile import (
+    load_supported_profile,
+    validate_supported_profile_runtime,
+)
 
 _WHOOSHD_MODEL = "gemma-4-12b-it-qat-4bit"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _supported_profile_settings(**overrides) -> Settings:
@@ -29,14 +37,26 @@ def _supported_profile_settings(**overrides) -> Settings:
         "LLM_MODEL": _WHOOSHD_MODEL,
     }
     defaults.update(overrides)
-    settings = Settings(**defaults)
-    # LOCAL_RUNTIME_PRESET is supplied by the runtime preset seam but is not
-    # a declared Settings field on this branch. Bind it explicitly so this
-    # contract test exercises the supported-profile comparison.
-    object.__setattr__(
-        settings, "LOCAL_RUNTIME_PRESET", defaults["LOCAL_RUNTIME_PRESET"]
+    return Settings(**defaults)
+
+
+def test_env_example_satisfies_supported_profile_provider_contract() -> None:
+    manifest = load_supported_profile("v1-local-core-web-mcp")
+    template = dotenv_values(_REPO_ROOT / ".env.example")
+
+    missing = sorted(
+        key for key in manifest.provider_contract if key not in template
     )
-    return settings
+    assert not missing
+
+    settings = Settings(
+        **{
+            key: template[key]
+            for key in manifest.provider_contract
+        }
+    )
+
+    assert validate_supported_profile_runtime(manifest, settings=settings) == []
 
 
 def test_validate_llm_config_accepts_supported_profile_local_contract(
