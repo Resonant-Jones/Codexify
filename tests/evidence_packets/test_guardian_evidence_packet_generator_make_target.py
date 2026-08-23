@@ -15,6 +15,22 @@ def _generator_stdout() -> dict:
     return json.loads(proc.stdout)
 
 
+def _make_target_recipe(text: str, target: str) -> str:
+    target_definition = f"{target}:"
+    lines = text.splitlines()
+    target_lines = [index for index, line in enumerate(lines) if line == target_definition]
+    assert len(target_lines) == 1, f"expected exactly one {target_definition!r}"
+
+    recipe_lines = []
+    for line in lines[target_lines[0] + 1 :]:
+        if not line.startswith("\t"):
+            break
+        recipe_lines.append(line)
+
+    assert recipe_lines, f"expected recipe lines for {target_definition!r}"
+    return "\n".join(recipe_lines)
+
+
 def test_makefile_contains_target() -> None:
     text = (ROOT / "Makefile").read_text()
     assert "guardian-evidence-packet-generate" in text
@@ -36,6 +52,7 @@ def test_target_invokes_correct_command() -> None:
 
 def test_target_does_not_invoke_forbidden_tools() -> None:
     text = (ROOT / "Makefile").read_text()
+    section = _make_target_recipe(text, "guardian-evidence-packet-generate")
     for forbidden in (
         "read_bounded_evidence.py", "reducer_dry_run.py",
         "validate_reducer_input_bundle.py", "validate_reducer_input_bundles.py",
@@ -43,9 +60,21 @@ def test_target_does_not_invoke_forbidden_tools() -> None:
         "codexrun", "docker", "docker compose",
         "receipt", "CI",
     ):
-        section = text.split("guardian-evidence-packet-generate")[1]
-        section = section.split("\n\n")[0]
         assert forbidden not in section, f"'{forbidden}' found in target body"
+
+
+def test_make_target_recipe_extractor_is_scoped_to_exact_recipe() -> None:
+    text = (ROOT / "Makefile").read_text()
+    recipe = _make_target_recipe(text, "guardian-evidence-packet-generate")
+
+    assert "python3 scripts/guardian/generate_evidence_packet.py" in recipe
+    assert FIXTURE in recipe
+    assert "--json" in recipe
+    assert ".PHONY:" not in recipe
+    assert "canonical-audit-live-proof-receipt" not in recipe
+
+    sample = "unsafe-target:\n\tdocker run example\nnext-target:\n\t@true\n"
+    assert "docker" in _make_target_recipe(sample, "unsafe-target")
 
 
 def test_target_not_dependency_of_default_all_test_check_ci_release_preflight() -> None:
