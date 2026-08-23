@@ -15,6 +15,7 @@
 - Shared completion acceptance operation: `guardian/core/chat_completion_service.py::enqueue_chat_completion`
   - construct and normalize the canonical task acceptance identity
   - acquire and reconcile the per-thread turn lock, including evidence-based stale-lock recovery
+  - coordinate an optional typed participant after lock acquisition and around queue acceptance
   - enqueue onto the canonical chat queue
   - emit the best-effort `task.created` breadcrumb
   - calculate `accepted` versus `accepted_degraded` and reconcile queue failures
@@ -58,7 +59,9 @@ UI
      -> route authorization and task preparation
      -> enqueue_chat_completion
         -> Redis turn lock / stale-lock recovery
+        -> optional participant prepare
         -> Redis chat queue
+        -> optional participant commit
         -> best-effort task.created breadcrumb
         -> accepted or accepted_degraded result
      -> worker dequeues
@@ -95,7 +98,11 @@ UI
 
 4. Shared acceptance is queue acceptance, not completion success.
    - `enqueue_chat_completion` enqueues a `ChatCompletionTask` onto `codexify:queue:chat` after the lock is held.
+   - When a typed participant is supplied, its preparation runs after lock acquisition and before task serialization/enqueue. No current route supplies a participant.
+   - Preparation failure prevents enqueue and causes the service to release the lock through a bounded pre-acceptance failure.
+   - Enqueue or synchronous serialization failure after successful preparation invokes one best-effort participant rollback before the existing lock reconciliation. Rollback failure is recorded separately and never replaces the authoritative enqueue failure.
    - If enqueue fails, the operation reconciles the lock and returns a safe typed failure; the route maps it to the existing `503 queue_unavailable` response.
+   - After enqueue succeeds, the participant commit attempt runs before `task.created`. Commit failure cannot undo queue acceptance, release the accepted task's turn lock, or trigger automatic re-enqueue.
    - If enqueue succeeds, the route returns success with `task_id`, `turn_id`, and discovery URLs.
    - What this proves:
      - the task was accepted into the Redis-backed execution lane
@@ -106,9 +113,10 @@ UI
      - the task will complete successfully
 
 5. `task.created` is an important breadcrumb, but best-effort.
-   - The shared acceptance operation attempts to publish `task.created` after enqueue.
+   - The shared acceptance operation attempts to publish `task.created` after enqueue and after any participant commit attempt.
    - This breadcrumb is useful because it gives operators and clients evidence that lifecycle publication started.
    - It is not authoritative acceptance proof by itself because enqueue success is the stronger signal; the `task.created` publish can fail without causing the route to fail.
+   - Participant-commit failure and `task.created` failure are independent degradations and remain separately represented when both occur.
 
 6. Worker execution starts with explicit running state.
    - The chat worker dequeues from `codexify:queue:chat`.
@@ -170,10 +178,10 @@ UI
 ## Acceptance Semantics
 
 - `accepted`
-  - The shared acceptance operation acquired the turn lock, enqueued the task successfully, and observed the normal task-created visibility result.
+  - The shared acceptance operation acquired the turn lock, enqueued the task successfully, completed any supplied participant commit, and observed the normal task-created visibility result.
   - This is the normal acceptance case.
 - `accepted_degraded`
-  - Use this term for the current degraded acceptance class where execution was accepted but lifecycle visibility is weaker than normal, for example when the shared operation cannot publish `task.created` or receives no event ID after a successful enqueue.
+  - Use this term for the current degraded acceptance class where execution was accepted but post-acceptance coordination or lifecycle visibility is weaker than normal, for example when an optional participant cannot commit, the shared operation cannot publish `task.created`, or publication returns no event ID after a successful enqueue.
   - Queue publication must still succeed; queue failure is never degraded acceptance.
   - In other words: acceptance can be real while observability is degraded.
 
@@ -181,9 +189,15 @@ UI
 
 - `guardian/routes/chat.py` owns HTTP authentication, request parsing and validation, thread/account/project authorization, retrieval/context preparation, task-input preparation, response serialization, and HTTP error mapping.
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance transaction: canonical task identity, thread-scoped lock acquisition, stale-lock recovery, canonical queue publication, task-created publication, acceptance-status calculation, and queue-failure lock reconciliation.
+- The same operation may coordinate one optional typed participant. Preparation occurs after lock acquisition and before enqueue; rollback is pre-acceptance cleanup only; commit occurs after enqueue and before `task.created`. The participant never owns the lock, queue, event stream, worker, or persistence path and is never serialized into the task.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, assistant-message persistence, terminal events, and successful-turn lock release.
 - The existing task type and fields, queue name, lock key/TTL, and acceptance event sequence are unchanged. The worker has a bounded metadata-bearing branch, while ordinary worker behavior remains unchanged.
 - Hosted Room invocation routes reuse `enqueue_chat_completion`; they do not implement a parallel lock, queue, or task-event sequence. The worker receives validated provenance through the canonical persistence seam and does not insert a message and apply provenance through a later update.
+
+No current caller opts into the participant. This prerequisite exposes bounded
+orchestration capability only; it does not implement a Browser Context
+reference, attachment store, subject/thread binding, receipt field, or Chrome
+sidebar behavior.
 
 ## Bounded Hosted Room Invocation Context
 

@@ -77,17 +77,17 @@ repos:
             )
 
 -   repo: https://github.com/psf/black
-    rev: 23.3.0
+    rev: 26.5.1
     hooks:
     -   id: black
         language_version: python3
-        args: [--line-length=80]
+        args: [--line-length=88]
 
 -   repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
     -   id: isort
-        args: [--profile=black, --line-length=80]
+        args: [--profile=black, --line-length=88]
 
 -   repo: https://github.com/pycqa/flake8
     rev: 6.0.0

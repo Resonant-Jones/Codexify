@@ -7,6 +7,7 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -101,6 +102,7 @@ from guardian.core.request_correlation import (
     generate_attempt_id,
     normalize_request_id,
 )
+from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
 from guardian.core.chat_attachments import (
     extract_attachments_and_text,
     render_content_for_inference,
@@ -187,6 +189,9 @@ COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED = (
 )
 COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID = (
     "task_created_event_missing_event_id"
+)
+COMPLETION_ACCEPTANCE_WARNING_PARTICIPANT_COMMIT_FAILED = (
+    "acceptance_participant_commit_failed"
 )
 TASK_EVENT_TYPE_TASK_CREATED = TaskEventType.TASK_CREATED.value
 CHAT_COMPLETION_QUEUE_NAME = "codexify:queue:chat"
@@ -511,6 +516,60 @@ def _completion_acceptance_outcome(
     return AcceptanceStatus.ACCEPTED.value, ()
 
 
+def _rollback_acceptance_participant(
+    participant: ChatAcceptanceParticipant,
+    *,
+    thread_id: int,
+    task_id: str,
+    turn_id: str,
+) -> None:
+    """Best-effort participant cleanup without obscuring enqueue failure."""
+
+    try:
+        participant.rollback()
+    except Exception as exc:
+        logger.error(
+            (
+                "[chat.complete] acceptance participant rollback failed "
+                "thread_id=%s task_id=%s turn_id=%s participant_type=%s "
+                "cause_class=%s"
+            ),
+            thread_id,
+            task_id,
+            turn_id,
+            type(participant).__name__,
+            type(exc).__name__,
+        )
+
+
+def _commit_acceptance_participant(
+    participant: ChatAcceptanceParticipant,
+    *,
+    thread_id: int,
+    task_id: str,
+    turn_id: str,
+) -> bool:
+    """Commit post-enqueue state and report content-free degradation truth."""
+
+    try:
+        participant.commit()
+    except Exception as exc:
+        logger.error(
+            (
+                "[chat.complete] acceptance participant commit failed after "
+                "queue acceptance thread_id=%s task_id=%s turn_id=%s "
+                "participant_type=%s cause_class=%s"
+            ),
+            thread_id,
+            task_id,
+            turn_id,
+            type(participant).__name__,
+            type(exc).__name__,
+        )
+        return False
+    return True
+
+
 def _recover_orphaned_turn_lock(thread_id: int) -> bool:
     stale_lock = _run_completion_redis_op(
         lambda: get_turn_lock(thread_id),
@@ -609,6 +668,7 @@ def enqueue_chat_completion(
     thread_id: int,
     turn_id: str,
     request_id: str | None = None,
+    participant: ChatAcceptanceParticipant | None = None,
 ) -> ChatCompletionEnqueueResult:
     """Accept one canonical chat completion task into the chat execution lane."""
 
@@ -644,11 +704,93 @@ def enqueue_chat_completion(
         turn_id=turn_id,
     )
 
+    participant_prepared = False
+    if participant is not None:
+        authoritative_fields = (
+            "task_id",
+            "user_id",
+            "thread_id",
+            "turn_id",
+            "turn_lock_owner",
+            "turn_lock",
+            "provider",
+            "model",
+            "requested_provider",
+            "requested_model",
+            "selection_source",
+            "provider_pinned",
+            "requested_source_mode",
+            "retrieval_override",
+        )
+        authoritative_snapshot = {
+            field: copy.deepcopy(getattr(task, field))
+            for field in authoritative_fields
+        }
+        try:
+            participant.prepare(task)
+            participant_prepared = True
+        except Exception as exc:
+            logger.warning(
+                (
+                    "[chat.complete] acceptance participant prepare failed "
+                    "thread_id=%s task_id=%s turn_id=%s participant_type=%s "
+                    "cause_class=%s"
+                ),
+                thread_id,
+                task_identity,
+                turn_id,
+                type(participant).__name__,
+                type(exc).__name__,
+            )
+            _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+            raise ChatCompletionEnqueueError(
+                "acceptance_participant_prepare_failed",
+                cause_class=type(exc).__name__,
+            ) from None
+
+        mutated_fields = tuple(
+            field
+            for field, original_value in authoritative_snapshot.items()
+            if getattr(task, field) != original_value
+        )
+        if mutated_fields:
+            for field, original_value in authoritative_snapshot.items():
+                setattr(task, field, original_value)
+            logger.warning(
+                (
+                    "[chat.complete] acceptance participant mutated "
+                    "authoritative task fields thread_id=%s task_id=%s "
+                    "turn_id=%s participant_type=%s fields=%s"
+                ),
+                thread_id,
+                task_identity,
+                turn_id,
+                type(participant).__name__,
+                ",".join(mutated_fields),
+            )
+            _rollback_acceptance_participant(
+                participant,
+                thread_id=thread_id,
+                task_id=task_identity,
+                turn_id=turn_id,
+            )
+            _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+            raise ChatCompletionEnqueueError(
+                "acceptance_participant_authoritative_fields_mutated"
+            )
+
     try:
         run_with_redis_timeout(
             lambda: enqueue(task, CHAT_COMPLETION_QUEUE_NAME)
         )
     except QueueEnqueueError as exc:
+        if participant is not None and participant_prepared:
+            _rollback_acceptance_participant(
+                participant,
+                thread_id=thread_id,
+                task_id=task_identity,
+                turn_id=turn_id,
+            )
         _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
         raise ChatCompletionEnqueueError(
             "queue_unavailable",
@@ -663,11 +805,27 @@ def enqueue_chat_completion(
             ),
         ) from exc
     except (RedisOperationTimeout, Exception) as exc:
+        if participant is not None and participant_prepared:
+            _rollback_acceptance_participant(
+                participant,
+                thread_id=thread_id,
+                task_id=task_identity,
+                turn_id=turn_id,
+            )
         _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
         raise ChatCompletionEnqueueError(
             "queue_unavailable",
             cause_class=type(exc).__name__,
         ) from exc
+
+    participant_commit_succeeded = True
+    if participant is not None:
+        participant_commit_succeeded = _commit_acceptance_participant(
+            participant,
+            thread_id=thread_id,
+            task_id=task_identity,
+            turn_id=turn_id,
+        )
 
     try:
         task_created_publish_result = _publish_completion_start_event(
@@ -691,6 +849,12 @@ def enqueue_chat_completion(
             "event_id": task_created_event.event_id,
         }
     )
+    if not participant_commit_succeeded:
+        acceptance_status = AcceptanceStatus.ACCEPTED_DEGRADED.value
+        acceptance_warnings = (
+            COMPLETION_ACCEPTANCE_WARNING_PARTICIPANT_COMMIT_FAILED,
+            *acceptance_warnings,
+        )
     return ChatCompletionEnqueueResult(
         task=task,
         task_id=task_identity,

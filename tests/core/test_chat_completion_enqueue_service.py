@@ -49,6 +49,54 @@ def _event_result(task: ChatCompletionTask, *, event_id: str | None = "evt-1"):
     }
 
 
+class _FakeParticipant:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        prepare_error: Exception | None = None,
+        rollback_error: Exception | None = None,
+        commit_error: Exception | None = None,
+    ) -> None:
+        self.events = events
+        self.prepare_error = prepare_error
+        self.rollback_error = rollback_error
+        self.commit_error = commit_error
+        self.prepared_task: ChatCompletionTask | None = None
+        self.prepare_calls = 0
+        self.rollback_calls = 0
+        self.commit_calls = 0
+
+    def prepare(self, task: ChatCompletionTask) -> None:
+        self.events.append("prepare")
+        self.prepare_calls += 1
+        self.prepared_task = task
+        if self.prepare_error is not None:
+            raise self.prepare_error
+
+    def rollback(self) -> None:
+        self.events.append("rollback")
+        self.rollback_calls += 1
+        if self.rollback_error is not None:
+            raise self.rollback_error
+
+    def commit(self) -> None:
+        self.events.append("commit")
+        self.commit_calls += 1
+        if self.commit_error is not None:
+            raise self.commit_error
+
+
+def _failed_event_result(task: ChatCompletionTask) -> dict[str, object]:
+    return {
+        **_event_result(task, event_id=None),
+        "ok": False,
+        "error_code": "TASK_EVENT_PUBLISH_FAILED",
+        "failure_class": "RuntimeError",
+        "exception": RuntimeError("event transport unavailable"),
+    }
+
+
 @pytest.fixture
 def immediate_redis(monkeypatch):
     monkeypatch.setattr(
@@ -105,6 +153,558 @@ def test_success_preserves_queue_event_and_serialization_contract(
             "latest_turn_message_id": 7,
         },
     )
+
+
+def test_no_participant_preserves_exact_acceptance_order(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    lock = _lock(task, turn_id="turn-1")
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        events.append("enqueue")
+
+    def publish(*_args, **_kwargs):
+        events.append("task_created")
+        return _event_result(task)
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    result = service.enqueue_chat_completion(task, thread_id=1, turn_id="turn-1")
+
+    assert events == ["lock_acquired", "enqueue", "task_created"]
+    assert result.acceptance_status == AcceptanceStatus.ACCEPTED.value
+    assert result.acceptance_warnings == ()
+
+
+def test_participant_happy_path_has_exact_order_and_is_not_serialized(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    queued_payloads: list[dict[str, object]] = []
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(queued_task, _queue_name):
+        events.append("enqueue")
+        queued_payloads.append(queued_task.to_dict())
+
+    def publish(*_args, **_kwargs):
+        events.append("task_created")
+        return _event_result(task)
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    result = service.enqueue_chat_completion(
+        task,
+        thread_id=1,
+        turn_id="turn-1",
+        participant=participant,
+    )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue",
+        "commit",
+        "task_created",
+    ]
+    assert participant.prepared_task is task
+    assert participant.rollback_calls == 0
+    assert result.acceptance_status == AcceptanceStatus.ACCEPTED.value
+    assert result.acceptance_warnings == ()
+    assert len(queued_payloads) == 1
+    assert not any("participant" in key for key in queued_payloads[0])
+
+
+def test_participant_prepare_failure_releases_lock_without_enqueue(
+    monkeypatch, immediate_redis, caplog
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(
+        events,
+        prepare_error=RuntimeError("prepare secret must not escape"),
+    )
+    lock = _lock(task, turn_id="turn-1")
+    enqueue = MagicMock()
+    publish = MagicMock()
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert events == ["lock_acquired", "prepare", "lock_release"]
+    assert exc_info.value.reason == "acceptance_participant_prepare_failed"
+    assert exc_info.value.cause_class == "RuntimeError"
+    assert exc_info.value.__cause__ is None
+    assert "prepare secret" not in str(exc_info.value)
+    assert "prepare secret" not in caplog.text
+    assert participant.rollback_calls == 0
+    assert participant.commit_calls == 0
+    enqueue.assert_not_called()
+    publish.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("field", "mutated_value"),
+    (
+        ("thread_id", 2),
+        ("user_id", "other-user"),
+        ("task_id", "other-task"),
+        ("provider", "ollama"),
+        ("requested_source_mode", "workspace"),
+        ("retrieval_override", {"mode": "personal_knowledge"}),
+    ),
+)
+def test_participant_cannot_mutate_authoritative_task_fields(
+    monkeypatch, immediate_redis, field, mutated_value
+):
+    task = _task()
+    task.requested_source_mode = "project"
+    task.retrieval_override = {"mode": "project"}
+    original_value = getattr(task, field)
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    enqueue = MagicMock()
+    publish = MagicMock()
+
+    def prepare(prepared_task):
+        events.append("prepare")
+        participant.prepare_calls += 1
+        participant.prepared_task = prepared_task
+        setattr(prepared_task, field, mutated_value)
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    participant.prepare = prepare
+    monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert exc_info.value.reason == (
+        "acceptance_participant_authoritative_fields_mutated"
+    )
+    assert events == ["prepare", "rollback", "lock_release"]
+    assert getattr(task, field) == original_value
+    assert participant.rollback_calls == 1
+    assert participant.commit_calls == 0
+    enqueue.assert_not_called()
+    publish.assert_not_called()
+
+
+def test_participant_cannot_mutate_retrieval_override_in_place(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    task.retrieval_override = {"mode": "project"}
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    enqueue = MagicMock()
+
+    def prepare(prepared_task):
+        events.append("prepare")
+        participant.prepare_calls += 1
+        prepared_task.retrieval_override["mode"] = "personal_knowledge"
+
+    participant.prepare = prepare
+    monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", lambda *_a: None)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert exc_info.value.reason == (
+        "acceptance_participant_authoritative_fields_mutated"
+    )
+    assert task.retrieval_override == {"mode": "project"}
+    assert participant.rollback_calls == 1
+    enqueue.assert_not_called()
+
+
+def test_participant_is_not_called_when_turn_lock_is_unavailable(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    enqueue = MagicMock()
+    monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: None)
+    monkeypatch.setattr(service, "_recover_orphaned_turn_lock", lambda *_: False)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert exc_info.value.reason == "turn_in_flight"
+    assert events == []
+    assert participant.prepare_calls == 0
+    assert participant.rollback_calls == 0
+    assert participant.commit_calls == 0
+    enqueue.assert_not_called()
+
+
+def test_enqueue_failure_rolls_back_before_lock_release(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    publish = MagicMock()
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        events.append("enqueue_failure")
+        raise QueueEnqueueError(
+            "codexify:queue:chat",
+            cause=RuntimeError("redis down"),
+        )
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue_failure",
+        "rollback",
+        "lock_release",
+    ]
+    assert exc_info.value.reason == "queue_unavailable"
+    assert participant.rollback_calls == 1
+    assert participant.commit_calls == 0
+    publish.assert_not_called()
+
+
+def test_synchronous_serialization_failure_rolls_back_before_lock_release(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+    publish = MagicMock()
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        events.append("serialization_failure")
+        raise TypeError("task serialization failed")
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+        service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "serialization_failure",
+        "rollback",
+        "lock_release",
+    ]
+    assert exc_info.value.reason == "queue_unavailable"
+    assert exc_info.value.cause_class == "TypeError"
+    assert participant.rollback_calls == 1
+    assert participant.commit_calls == 0
+    publish.assert_not_called()
+
+
+def test_rollback_failure_preserves_enqueue_failure_and_releases_lock(
+    monkeypatch, immediate_redis, caplog
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(
+        events,
+        rollback_error=RuntimeError("rollback secret must not escape"),
+    )
+    lock = _lock(task, turn_id="turn-1")
+    enqueue_calls = 0
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        events.append("enqueue_failure")
+        raise QueueEnqueueError(
+            "codexify:queue:chat",
+            cause=RuntimeError("authoritative enqueue failure"),
+        )
+
+    def release(_thread_id, _owner):
+        events.append("lock_release")
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(service.ChatCompletionEnqueueError) as exc_info:
+            service.enqueue_chat_completion(
+                task,
+                thread_id=1,
+                turn_id="turn-1",
+                participant=participant,
+            )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue_failure",
+        "rollback",
+        "lock_release",
+    ]
+    assert exc_info.value.reason == "queue_unavailable"
+    assert enqueue_calls == 1
+    assert participant.commit_calls == 0
+    assert "acceptance participant rollback failed" in caplog.text
+    assert "cause_class=RuntimeError" in caplog.text
+    assert "rollback secret" not in caplog.text
+
+
+def test_commit_failure_is_accepted_degraded_without_rollback_or_reenqueue(
+    monkeypatch, immediate_redis, caplog
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(
+        events,
+        commit_error=RuntimeError("commit secret must not escape"),
+    )
+    lock = _lock(task, turn_id="turn-1")
+    enqueue_calls = 0
+    release = MagicMock()
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        events.append("enqueue")
+
+    def publish(*_args, **_kwargs):
+        events.append("task_created")
+        return _event_result(task)
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    with caplog.at_level("ERROR"):
+        result = service.enqueue_chat_completion(
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
+        )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue",
+        "commit",
+        "task_created",
+    ]
+    assert enqueue_calls == 1
+    assert participant.rollback_calls == 0
+    release.assert_not_called()
+    assert result.queue_accepted is True
+    assert result.acceptance_status == AcceptanceStatus.ACCEPTED_DEGRADED.value
+    assert result.acceptance_warnings == (
+        "acceptance_participant_commit_failed",
+    )
+    assert "acceptance participant commit failed" in caplog.text
+    assert "commit secret" not in caplog.text
+
+
+def test_start_event_failure_after_participant_commit_preserves_semantics(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(events)
+    lock = _lock(task, turn_id="turn-1")
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        events.append("enqueue")
+
+    def publish(*_args, **_kwargs):
+        events.append("task_created_failure")
+        return _failed_event_result(task)
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    result = service.enqueue_chat_completion(
+        task,
+        thread_id=1,
+        turn_id="turn-1",
+        participant=participant,
+    )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue",
+        "commit",
+        "task_created_failure",
+    ]
+    assert result.queue_accepted is True
+    assert result.acceptance_status == AcceptanceStatus.ACCEPTED_DEGRADED.value
+    assert result.acceptance_warnings == ("task_created_event_publish_failed",)
+    assert result.task_created_event.raised_publish_error is True
+
+
+def test_commit_and_start_event_failures_remain_distinguishable(
+    monkeypatch, immediate_redis
+):
+    task = _task()
+    events: list[str] = []
+    participant = _FakeParticipant(
+        events,
+        commit_error=RuntimeError("commit unavailable"),
+    )
+    lock = _lock(task, turn_id="turn-1")
+    enqueue_calls = 0
+    release = MagicMock()
+
+    def acquire(*_args, **_kwargs):
+        events.append("lock_acquired")
+        return lock
+
+    def enqueue(_task, _queue_name):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        events.append("enqueue")
+
+    def publish(*_args, **_kwargs):
+        events.append("task_created_failure")
+        return _failed_event_result(task)
+
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+
+    result = service.enqueue_chat_completion(
+        task,
+        thread_id=1,
+        turn_id="turn-1",
+        participant=participant,
+    )
+
+    assert events == [
+        "lock_acquired",
+        "prepare",
+        "enqueue",
+        "commit",
+        "task_created_failure",
+    ]
+    assert enqueue_calls == 1
+    assert participant.rollback_calls == 0
+    release.assert_not_called()
+    assert result.queue_accepted is True
+    assert result.acceptance_status == AcceptanceStatus.ACCEPTED_DEGRADED.value
+    assert result.acceptance_warnings == (
+        "acceptance_participant_commit_failed",
+        "task_created_event_publish_failed",
+    )
+    assert result.task_created_event.raised_publish_error is True
 
 
 def test_missing_event_id_is_accepted_degraded(monkeypatch, immediate_redis):
