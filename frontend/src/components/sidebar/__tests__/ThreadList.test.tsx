@@ -286,6 +286,7 @@ describe("ThreadList source dock", () => {
       "glass-pill",
       "sidebar-source-navigation",
       "flex",
+      "box-border",
       "w-full",
       "min-w-0",
       "overflow-hidden"
