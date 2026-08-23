@@ -2,18 +2,17 @@
 
 ## 1. Final classification
 
-`REPAIR PROOF BLOCKED`
+`REPAIR PROOF PASS`
 
 The live runtime evidence below remains valid: the actual Compose backend
 import passed, the historical readonly-SQLite failure did not recur, and the
 bounded backend startup progressed to the later configuration-coherence
-boundary. However, the original completion closeout could not truthfully
-count its MemoryStore-relevant safeguard gate as passed. Reconciliation
-retired that invalid stale test, then exercised the dedicated generic cache
-gate required to replace it. That valid gate currently errors during fixture
-setup because `guardian.config.Config` has no `CACHE_DIR` attribute. Under the
-task's explicit stop rule, the remaining focused reconciliation gates were not
-rerun and `REPAIR PROOF PASS` cannot be retained.
+boundary. The original completion closeout correctly became `BLOCKED` when its
+replacement generic cache gate failed before executing. That fixture ownership
+defect was repaired through `CacheConfig`, the repair stack was reconciled with
+current main at `c90d3ca3ac3e5d4e70563fbc96e31a06e8cabb36`, and the complete
+focused acceptance/cache/startup/ContextBroker/config gate now passes on the
+reconciled branch.
 
 The candidate commit `063505561c8b105708334b92de5abb567da59cba`
 removes NX-1's first material runtime blocker. Confirmed at three
@@ -103,9 +102,8 @@ clean state.)
 
 ### 5.1 Focused regression (startup boundary + ContextBroker)
 
-This is the successful result from the completed runtime proof. It was not
-rerun during safeguard reconciliation because the required cache gate in §5.2
-failed first.
+This is the successful result from the completed runtime proof. The complete
+focused gate was rerun on the reconciled branch in §5.4.
 
 ```text
 $ /Users/chriscastillo/.codex/worktrees/dda8/Codexify-main/venv/bin/python -m pytest -v \
@@ -175,9 +173,9 @@ The valid proof map is now:
 The Compose runtime proof in §6 was not rerun or altered by this
 reconciliation; the candidate runtime implementation remains unchanged.
 
-The replacement cache gate was invoked from the reconciliation worktree using
-the available repository test interpreter because the prescribed `python`
-alias is absent. It did **not** pass:
+The initial replacement cache gate was invoked from the reconciliation
+worktree using the available repository test interpreter because the
+prescribed `python` alias is absent. It did **not** pass:
 
 ```text
 $ /Users/chriscastillo/.codex/worktrees/dda8/Codexify-main/venv/bin/python -m pytest -v \
@@ -187,11 +185,12 @@ guardian/tests/test_efficiency.py E
 AttributeError: CACHE_DIR
 ```
 
-The failure occurs in `setup_test_env` while accessing
-`Config.CACHE_DIR`, before `test_cache_decorators` exercises either caching
-decorator. No cache implementation change is authorized here. Per the task's
-stop rule, the startup-boundary, ContextBroker, and config-coherence focused
-reconciliation commands were not rerun after this failed valid gate.
+The historical failure occurred in `setup_test_env` while accessing
+`Config.CACHE_DIR`, before `test_cache_decorators` exercised either caching
+decorator. Commit `3de4a5bfaf634a05b7558baedefa77df26c1ccd4` corrected that
+test fixture to configure its actual owner, `CacheConfig`, in pytest-owned
+temporary storage. No cache implementation change occurred. The repaired cache
+gate passes in the final reconciled-branch run in §5.4.
 
 After retiring the invalid MemoryStore test, the five remaining safeguards are
 deliberately **not** claimed green. Their prior model-call, plugin-limit,
@@ -201,9 +200,8 @@ repaired or suppressed by this reconciliation.
 
 ### 5.3 Config coherence (`tests/core/test_config_coherence.py`)
 
-This is the successful result from the completed runtime proof. It was not
-rerun during safeguard reconciliation because the required cache gate in §5.2
-failed first.
+This is the successful result from the completed runtime proof. The
+configuration-coherence gate was rerun on the reconciled branch in §5.4.
 
 ```text
 $ /Users/chriscastillo/.codex/worktrees/dda8/Codexify-main/venv/bin/python -m pytest --no-header -v tests/core/test_config_coherence.py
@@ -230,6 +228,45 @@ in `.env.example` vs. `http://host.docker.internal:8000/v1` required by
 configuration-contract issue **distinct from** the MemoryStore repair,
 out of scope here, and explicitly recorded as a separate later blocker
 in the original NX-1 canonical receipt §54.4.
+
+### 5.4 Final reconciled-branch focused gate
+
+The complete focused gate was rerun from reconciled merge commit
+`b4effd5ee7a16a35a1002fc85fc5768f84640f3a`. Its second parent is current
+main `c90d3ca3ac3e5d4e70563fbc96e31a06e8cabb36`; all four repair/proof
+commits remain ancestors. The required `python` alias is unavailable in this
+worktree, so each command used the repository's available virtual-environment
+interpreter. All results passed:
+
+| Focused contract | Command result |
+|---|---|
+| Current-main chat acceptance compatibility | `tests/core/test_chat_completion_enqueue_service.py`: **24 passed** |
+| Generic cache fixture | `guardian/tests/test_efficiency.py::test_cache_decorators`: **1 passed** |
+| Import purity and explicit MemoryStore construction | `tests/core/test_memory_store_startup_boundary.py`: **4 passed** |
+| ContextBroker repaired initialization | `guardian/tests/test_context_broker_memory.py`: **2 passed** |
+| Configuration-coherence regression | `tests/core/test_config_coherence.py`: **16 passed** |
+
+The stale MemoryStore safeguard search for
+`test_memory_query_caching`, `store_memory`, and awaited
+`query_by_tags` returned no matches. Collection of
+`guardian/tests/test_safeguards.py` reported exactly these five unexecuted
+baseline-debt tests:
+
+- `test_model_call_rate_limiting`
+- `test_plugin_execution_limits`
+- `test_safe_logger_batching`
+- `test_concurrent_plugin_limits`
+- `test_throttled_operations`
+
+They remain separate pre-existing safeguard debt and are not represented as
+passing. The existing MemoryStore implementation continuity diff from
+`063505561c8b105708334b92de5abb567da59cba` through this reconciled merge is
+empty for the repair's implementation and focused-test files.
+
+No Docker or Compose command was rerun at `b4effd5e...`. Sections 6.3–6.6
+remain historical live evidence exercised against `063505561...`; this section
+adds current reconciled-branch test compatibility only and does not turn that
+historical container evidence into current-tip Compose proof.
 
 ## 6. Container proof
 
@@ -442,23 +479,27 @@ filesystem write to that path.
 
 ## 7. Final classification
 
-`REPAIR PROOF BLOCKED`
+`REPAIR PROOF PASS`
 
-The runtime repair remains **proven-live-runtime** on the original
-candidate proof surface. The proof-integrity reconciliation is nevertheless
-blocked: a required valid replacement safeguard gate errors before executing
-its cache assertions. This document must not represent the full safeguard
-file as green or preserve `REPAIR PROOF PASS` while that gate is unresolved.
+The runtime repair remains **proven-live-runtime** on the original candidate
+proof surface. Its historical Compose import/startup evidence is preserved at
+the candidate SHA, and the implementation-continuity diff is empty through
+the reconciled branch. The repaired generic cache gate and the complete
+focused compatibility gate now pass, so the repair candidate is ready for
+publication. This classification does not close NX-1 or claim a new
+current-tip Compose run.
 
-Completed evidence and uncompleted reconciliation gates:
+Completed evidence:
 
 - [x] Candidate begins from exact `063505561...`
-- [x] Candidate implementation remained unchanged through the reconciliation
+- [x] Candidate implementation remained unchanged through reconciliation with current main
 - [x] The stale `test_memory_query_caching` test was retired because it assumes nonexistent async `store_memory` and async `query_by_tags` APIs
-- [ ] Generic cache decorator gate — **BLOCKED** at test fixture setup: `AttributeError: CACHE_DIR`
-- [ ] Focused startup-boundary, ContextBroker, and config-coherence gates — not rerun after the required cache gate failed
-- [x] Historical runtime-proof runs remain recorded: focused regression 6/6 and config coherence 16/16 in §§5.1 and 5.3
+- [x] Generic cache decorator gate — `CacheConfig` fixture repair; 1 passed
+- [x] Current-main acceptance compatibility — 24 passed
+- [x] Startup-boundary, ContextBroker, and configuration-coherence focused gates — 4 + 2 + 16 passed
+- [x] `guardian/tests/test_safeguards.py` contains no stale MemoryStore assumption and collects exactly five separate baseline-debt tests
 - [x] Remaining five safeguards remain visibly separate baseline debt; the file is not claimed green
+- [x] Current-main chat-acceptance changes were cleanly reconciled at `b4effd5e...`
 - [x] Fresh worktree begins without `guardian/memory/store.db`
 - [x] Compose `config --quiet` validates
 - [x] Actual backend-container import is executed (entrypoint=`python -c '...'`; exit 0; `guardian_api_import_ok` printed)
@@ -516,8 +557,9 @@ reviewer so the next steering task can plan accordingly.
   `test_memory_query_caching` was retired because it cannot exercise the
   current MemoryStore API. The remaining model-call, plugin-limit,
   logger-batching, plugin-concurrency, and throttling safeguards are unchanged
-  and are not claimed green. The replacement generic cache gate is separately
-  blocked at `Config.CACHE_DIR` fixture setup; no cache repair is authorized.
+  and are not claimed green. The generic cache gate was repaired only at its
+  test-fixture ownership boundary (`CacheConfig`) and passes; no cache runtime
+  implementation repair is claimed.
 
 ## 11. Specific evidence summary (one-screen reference)
 
@@ -531,7 +573,7 @@ reviewer so the next steering task can plan accordingly.
 | Fresh worktree store.db absent pre-proof | yes | §4 |
 | Focused regression | 6/6 pass | §5.1 |
 | Config coherence | 16/16 pass | §5.3 |
-| Safeguards | stale MemoryStore test retired; remaining 5 are not claimed green; valid cache replacement gate blocked at `Config.CACHE_DIR` fixture setup | §5.2 |
+| Safeguards | stale MemoryStore test retired; generic cache gate passes; remaining 5 are collected but not claimed green | §§5.2, 5.4 |
 | Compose `config --quiet` | exit 0 | §6.2 |
 | Container import probe | exit 0; `guardian_api_import_ok` printed | §6.3 |
 | Old SQLite error in container log | absent (grep = empty) | §6.3, §6.5 |
@@ -541,4 +583,4 @@ reviewer so the next steering task can plan accordingly.
 | First later blocker | `Config coherence check failed` | §6.4 |
 | Filesystem workaround | none used | §6.5/§6.6/§8 |
 | Implementation file changes during proof | none | §8 |
-| Final classification | `REPAIR PROOF BLOCKED` — live runtime repair remains proven, but valid safeguard reconciliation is blocked | §§1, 7 |
+| Final classification | `REPAIR PROOF PASS` — historical live repair evidence plus reconciled-branch focused gate | §§1, 5.4, 7 |
