@@ -69,6 +69,25 @@ def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
     config_module.validate_llm_config(settings)
 
 
+def test_validate_llm_config_accepts_tester_operator_selected_local_model(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("LOCAL_CHAT_MODEL", _WHOOSHD_MODEL)
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_CHAT_MODEL=_WHOOSHD_MODEL,
+        LOCAL_LLM_MODEL=_WHOOSHD_MODEL,
+        LLM_MODEL=_WHOOSHD_MODEL,
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+
+    config_module.validate_llm_config(settings)
+
+
 def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
     settings = _supported_profile_settings(

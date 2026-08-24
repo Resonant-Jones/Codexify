@@ -234,6 +234,14 @@ def _normalize_expected(value: Any) -> Any:
     return value
 
 
+def _is_explicit_operator_model_selection(key: str, actual: Any) -> bool:
+    """Keep an operator-selected local chat model distinct from a profile default."""
+    if key != "LOCAL_CHAT_MODEL":
+        return False
+    selected = (os.getenv("LOCAL_CHAT_MODEL") or "").strip()
+    return bool(selected) and _normalize_expected(actual) == selected
+
+
 def supported_profile_actual_provider_contract(
     settings: Any,
 ) -> dict[str, Any]:
@@ -293,6 +301,8 @@ def validate_supported_profile_runtime(
     actual_contract = supported_profile_actual_provider_contract(settings)
     for key, expected in manifest.provider_contract.items():
         actual = actual_contract.get(key)
+        if _is_explicit_operator_model_selection(key, actual):
+            continue
         if _normalize_expected(actual) != _normalize_expected(expected):
             mismatches.append(
                 f"{key} expected {expected!r} but found {actual!r}"
