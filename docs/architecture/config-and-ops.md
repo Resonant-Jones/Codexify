@@ -52,6 +52,28 @@ installation access tokens are short-lived process-memory values: they are not
 stored in Postgres or Redis, never returned by a route, and do not establish a
 live configured GitHub App or a supported Watchdog runtime workflow.
 
+### GitHub Watchdog dispatch worker
+
+`GITHUB_WATCHDOG_REVIEW_QUEUE_NAME` names the Redis transport queue for an
+already-captured review and defaults to `codexify:queue:github-watchdog-review`.
+It is transport configuration, not durable Watchdog state. The opt-in
+`worker-watchdog-review` Compose service is enabled only with
+`docker compose --profile watchdog ...`; default supported Compose does not
+start it or require a Watchdog worker.
+
+The worker re-reads its attempt, captured snapshot, dispatch, and result from
+Postgres before it can call the existing review executor. Postgres owns the
+durable dispatch lifecycle and result correlation; Redis carries only a bounded
+task/dispatch/attempt envelope. Thus Redis restart or list loss cannot erase a
+durable accepted dispatch record, and `queued` means Redis transport acceptance,
+not worker dequeue, model execution, result persistence, or publication.
+
+The worker consumes no GitHub App credential and performs no GitHub read or
+write. It needs only the existing canonical database, Redis, provider, and
+model runtime configuration needed to execute the attempt's already-snapshotted
+provider/model selection. This opt-in seam is not a release-support claim;
+there is no automatic replay, retry, stale-running recovery, or operator API.
+
 ### Database, queues, and event transport
 
 | Variable | Current behavior | Anchors |
@@ -60,6 +82,7 @@ live configured GitHub App or a supported Watchdog runtime workflow.
 | `REDIS_URL` | Defaults to `redis://redis:6379/0` | `guardian/queue/redis_queue.py` |
 | `CHAT_TURN_LOCK_TTL_SECONDS` | Defaults to `300` seconds | `guardian/queue/redis_queue.py` |
 | `CHAT_EMBED_QUEUE_NAME` | Defaults to `codexify:queue:chat-embed` | `guardian/queue/redis_queue.py` |
+| `GITHUB_WATCHDOG_REVIEW_QUEUE_NAME` | Defaults to `codexify:queue:github-watchdog-review`; Redis transport only for an explicitly dispatched captured Watchdog review. Its durable lineage is Postgres-backed. | `guardian/queue/redis_queue.py`, `guardian/watchdog/review_dispatch.py`, `guardian/workers/watchdog_review_worker.py` |
 | document embed queue env | Defaults to `codexify:queue:document-embed` through queue module constants | `guardian/queue/document_embed_queue.py` |
 | cron queue env | Defaults to `codexify:queue:cron` through scheduler/worker constants | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
 | outbox envs | Poll interval, batch size, and tenant semantics are parsed defensively for `/api/events` | `guardian/core/outbox.py`, `guardian/guardian_api.py` |

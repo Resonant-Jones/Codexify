@@ -88,11 +88,27 @@ from guardian.watchdog.contracts import (
     WATCHDOG_POLICY_BLOCK_REASONS,
     WATCHDOG_POLICY_RESOLUTION_STATES,
     WATCHDOG_REVIEW_ATTEMPT_STATES,
+    WATCHDOG_REVIEW_DISPATCH_ERROR_CODES,
+    WATCHDOG_REVIEW_DISPATCH_STATES,
     WATCHDOG_REVIEW_EXECUTION_ERROR_CODES,
     WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES,
     WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES,
     WATCHDOG_REVIEW_RESULT_STATES,
     WatchdogOperation,
+)
+
+WATCHDOG_REVIEW_DISPATCH_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_DISPATCH_STATES)
+)
+WATCHDOG_REVIEW_DISPATCH_STATE_CHECK = (
+    f"dispatch_state IN ('{WATCHDOG_REVIEW_DISPATCH_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_DISPATCH_ERROR_CODES)
+)
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_CHECK = (
+    "terminal_error_code IS NULL OR terminal_error_code IN "
+    f"('{WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_VALUES_SQL}')"
 )
 
 
@@ -2386,6 +2402,85 @@ class GitHubWatchdogReviewResult(Base):
         Index(
             "ix_github_watchdog_review_results_state",
             "result_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewDispatch(Base):
+    """Durable transport lineage for one captured Watchdog review attempt."""
+
+    __tablename__ = "github_watchdog_review_dispatches"
+
+    dispatch_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    review_input_snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_input_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    head_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    queue_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    enqueue_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    last_enqueue_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    worker_id: Mapped[str | None] = mapped_column(String(255))
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    review_result_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_results.result_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    terminal_error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_dispatches_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_DISPATCH_STATE_CHECK,
+            name="ck_github_watchdog_review_dispatches_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_dispatches_terminal_error_code",
+        ),
+        CheckConstraint(
+            "(dispatch_state IN ('completed','failed','blocked',"
+            "'discarded_superseded','enqueue_failed') AND completed_at IS NOT NULL) "
+            "OR (dispatch_state IN ('pending_enqueue','queued','running') "
+            "AND completed_at IS NULL)",
+            name="ck_github_watchdog_review_dispatches_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_dispatches_state",
+            "dispatch_state",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}

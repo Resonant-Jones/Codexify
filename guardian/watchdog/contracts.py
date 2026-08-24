@@ -126,6 +126,37 @@ class WatchdogReviewResultState(str, Enum):
     DISCARDED_SUPERSEDED = "discarded_superseded"
 
 
+class WatchdogReviewDispatchState(str, Enum):
+    """Durable Postgres lifecycle for transport of one captured review."""
+
+    PENDING_ENQUEUE = "pending_enqueue"
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    DISCARDED_SUPERSEDED = "discarded_superseded"
+    ENQUEUE_FAILED = "enqueue_failed"
+
+
+class WatchdogReviewDispatchErrorCode(str, Enum):
+    """Bounded dispatch/worker errors; inference errors retain their source code."""
+
+    ATTEMPT_NOT_FOUND = "attempt_not_found"
+    ATTEMPT_NOT_ELIGIBLE = "attempt_not_eligible"
+    ATTEMPT_SUPERSEDED = "attempt_superseded"
+    SNAPSHOT_MISSING = "snapshot_missing"
+    SNAPSHOT_NOT_CAPTURED = "snapshot_not_captured"
+    SNAPSHOT_IDENTITY_MISMATCH = "snapshot_identity_mismatch"
+    SNAPSHOT_DIGEST_MISSING = "snapshot_digest_missing"
+    REVIEW_RESULT_EXISTS = "review_result_exists"
+    DISPATCH_PERSISTENCE_FAILED = "dispatch_persistence_failed"
+    QUEUE_ENQUEUE_FAILED = "queue_enqueue_failed"
+    INVALID_QUEUE_ENVELOPE = "invalid_queue_envelope"
+    QUEUE_IDENTITY_MISMATCH = "queue_identity_mismatch"
+    WORKER_PRE_INFERENCE_FAILED = "worker_pre_inference_failed"
+
+
 class WatchdogReviewExecutionErrorCode(str, Enum):
     """Bounded execution errors that never expose provider or GitHub secrets."""
 
@@ -249,9 +280,15 @@ WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES = frozenset(
 WATCHDOG_REVIEW_RESULT_STATES = frozenset(
     state.value for state in WatchdogReviewResultState
 )
+WATCHDOG_REVIEW_DISPATCH_STATES = frozenset(
+    state.value for state in WatchdogReviewDispatchState
+)
 WATCHDOG_REVIEW_EXECUTION_ERROR_CODES = frozenset(
     code.value for code in WatchdogReviewExecutionErrorCode
 )
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODES = frozenset(
+    code.value for code in WatchdogReviewDispatchErrorCode
+) | WATCHDOG_REVIEW_EXECUTION_ERROR_CODES
 
 # Model-neutral v1 source-evidence bounds. A capture either contains the whole
 # bounded PR file set or is terminally blocked; it never claims partial input.

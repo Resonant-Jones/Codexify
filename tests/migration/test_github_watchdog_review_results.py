@@ -15,6 +15,7 @@ VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
 MIGRATION_FILENAME = "5d8e9f0a1b2c_add_github_watchdog_review_results.py"
 REVISION = "5d8e9f0a1b2c"
 DOWN_REVISION = "4c7d8e9f0a1b"
+CURRENT_HEAD = "6e9f0a1b2c3"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -42,7 +43,7 @@ def test_review_result_migration_is_the_single_new_head() -> None:
     script = ScriptDirectory.from_config(
         Config(str(REPO_ROOT / "backend" / "alembic.ini"))
     )
-    assert script.get_heads() == [REVISION]
+    assert script.get_heads() == [CURRENT_HEAD]
 
 
 def test_review_result_schema_is_snapshot_bound_and_immutable() -> None:

@@ -14,9 +14,9 @@ either `prepared` or a bounded policy block. A newer
 for the same repository and PR.
 
 Repository and installation/account policy persistence, invocation overrides,
-comment-command parsing, automatic Redis queue/worker invocation, GitHub Check
-Runs or PR review comments, Build Loop mutation dispatch, auto-fix, and merge
-authority remain deferred.
+comment-command parsing, automatic webhook-to-capture/dispatch orchestration,
+GitHub Check Runs or PR review comments, Build Loop mutation dispatch, auto-fix,
+and merge authority remain deferred.
 
 The Watchdog extends rather than replaces [ADR-050](./adr/050-event-driven-campaign-control-plane.md).
 ADR-050 remains the GitHub-native deterministic, read-only, dry-run Campaign
@@ -68,9 +68,10 @@ bounded observed facts and no silently truncated captured content. Postgres
 enforces one terminal snapshot record per review attempt; repeated callers
 converge on that immutable record.
 
-Still deferred: automatic queue or worker capture, GitHub Check publication,
-PR comments or reviews, command parsing, Build Loop dispatch, mutation, and
-merge authority. No snapshot capture is wired into webhook intake.
+Still deferred: automatic webhook-to-capture/dispatch orchestration, GitHub
+Check publication, PR comments or reviews, command parsing, Build Loop
+dispatch, mutation, and merge authority. No snapshot capture is wired into
+webhook intake.
 
 ## Implemented captured-review execution
 
@@ -117,10 +118,55 @@ running model call returns after supersession, it stores the response evidence
 as `discarded_superseded`, preserves the attempt's `superseded` state, and
 makes the result permanently non-current for any future publication path.
 
-Still deferred: automatic queue/worker execution, stale-running recovery,
-retry/rerun, escalation execution, GitHub Check publication, PR review/comment
-publication, command parsing, Build Loop dispatch, mutation, and merge
-authority. Nothing in this callable seam publishes to GitHub.
+Still deferred: automatic webhook-to-capture/dispatch orchestration,
+stale-running recovery, retry/rerun, escalation execution, GitHub Check
+publication, PR review/comment publication, command parsing, Build Loop
+dispatch, mutation, and merge authority. Nothing in this callable seam
+publishes to GitHub.
+
+## Implemented durable dispatch and dedicated worker
+
+An explicit caller may now dispatch one eligible, already-captured review
+attempt. The dispatcher first locks and revalidates the immutable attempt and
+captured snapshot, creates the unique Postgres dispatch record in
+`pending_enqueue`, and commits it before attempting Redis. The durable record
+binds the attempt, snapshot ID/digest, reviewed head SHA, queue task ID,
+enqueue count, worker provenance, lifecycle, terminal error, and review-result
+correlation. It never copies a prompt, PR body/patch, provider credential, or
+review findings.
+
+Redis is transport only. Its `github_watchdog_review` envelope contains just a
+queue task ID, dispatch ID, attempt ID, and creation timestamp. A successful
+enqueue changes the durable record to `queued`; a failure remains visible as
+`enqueue_failed` with a bounded error code and leaves the review attempt
+`prepared`. `queued` proves only Redis accepted the envelope. It does not prove
+dequeue, model execution, result persistence, or GitHub publication. Redis
+loss cannot erase the durable Postgres dispatch record.
+
+The opt-in `worker-watchdog-review` Compose profile consumes only that queue.
+It treats every Redis field as untrusted transport input, reloads and locks the
+canonical Postgres record, verifies envelope/dispatch/attempt identity, then
+changes a valid `queued` dispatch to `running` before calling the existing
+`GitHubWatchdogReviewExecutionService`. The review model remains the sole
+author of review findings and assessment; the worker never authors or rewrites
+them. The executor remains the sole model-execution and result-persistence
+boundary, and its unique Postgres result claim is the final
+duplicate-inference-spend guard. Duplicate delivery therefore makes at most one
+model call and one result.
+
+Completed, runtime-blocked, provider/output failure, and superseded execution
+results map to `completed`, `blocked`, `failed`, and `discarded_superseded`
+dispatch truth respectively, with the result ID retained separately from
+structured findings. Supersession before dequeue makes no model call; if it
+arrives during execution, the existing executor returns discarded evidence and
+the worker mirrors that state. A process interruption after dispatch claim
+leaves durable `running` state. There is deliberately no automatic retry,
+replay, stale-running reclaim, dead-letter path, or model fallback.
+
+The worker performs no GitHub read or write, snapshot capture, webhook wiring,
+Command Bus call, coding-worker dispatch, Build Loop invocation, mutation, or
+publication. Webhook intake still ends after receipt and attempt preparation;
+capture and dispatch remain separate explicit calls.
 
 ## Canonical topology and authority
 
@@ -145,7 +191,7 @@ GitHub App
 | Watchdog policy evaluator | Operation classification and policy snapshot resolution. | A replacement provider registry, adapter registry, command bus, or queue universe. |
 | Provider/model | The selected bounded inference execution dependency. | Authority, policy alteration, merge approval, or durable transcript ownership. |
 | Coding harness/adapter | The selected Build Loop execution dependency for an authorized mutation. | GitHub-comment authority, direct webhook authority, or Guardian lineage ownership. |
-| Postgres | Durable receipts, attempts, correlations, and results. | Ephemeral queue coordination. |
+| Postgres | Durable receipts, attempts, snapshots, dispatch lineage, correlations, and results. | Ephemeral queue coordination. |
 | Redis | Queue transport, locks, cancellation, transient coordination, and progress visibility. | Canonical Watchdog audit/persistence truth. |
 | GitHub Check / review output | External advisory publication tied to a SHA. | Human review truth, merge authority, or release proof. |
 
@@ -450,9 +496,10 @@ truths.
 ### Tokens
 
 The implemented slices define bounded intake, GitHub App, review-input capture,
-and review-execution/result error codes; event/action tuples; Watchdog
-operation, attempt, snapshot-capture, review-result, policy-resolution,
-model-selection-source, escalation-mode, and policy-block vocabularies.
+review-execution/result, and dispatch/worker error codes; event/action tuples;
+Watchdog operation, attempt, snapshot-capture, review-result, dispatch-state,
+policy-resolution, model-selection-source, escalation-mode, and policy-block
+vocabularies. The dedicated queue task type is `github_watchdog_review`.
 Publication and worker-retry tokens remain deferred until their owning runtime
 slices exist.
 
@@ -462,15 +509,16 @@ This contract does not alter `00-current-state.md`, supported-profile claims,
 or Beta posture. The implemented boundary is limited to HMAC verification,
 bounded metadata normalization, durable Postgres receipt/idempotency, local
 policy evaluation, GitHub App read authentication, callable immutable
-review-input capture, and callable one-attempt model review/result persistence.
-It does not establish dispatch or publication behavior:
+review-input capture, callable one-attempt model review/result persistence, and
+an opt-in Postgres-first dispatch/worker seam. It does not establish automatic
+dispatch or publication behavior:
 
 - webhook receipt is not model-review completion;
 - model-review completion is not mutation completion;
 - coding-worker completion is not merge approval; and
 - GitHub publication is not live-runtime or release proof.
 
-No GitHub App registration, worker, Redis queue, OAuth/install flow,
+No GitHub App registration, default-topology worker, OAuth/install flow,
 credential storage, coding-worker dispatch, PR comment, Check Run, branch
 mutation, commit, push, merge, auto-fix,
 auto-merge, Settings UI, Connections implementation, or provider-registry
@@ -480,10 +528,10 @@ change is introduced by this slice.
 
 The webhook path still ends after an authenticated automatic PR webhook has a
 durable receipt and one durable review attempt with a resolved or blocked
-immutable policy snapshot. Separately, a later caller may capture a complete
-bounded review-input snapshot and explicitly invoke the one-attempt execution
-service; neither capture nor execution is wired to webhook intake or queued.
-`prepared` means policy resolved and a durable attempt exists; it does not mean
-queued or dispatched. A successful explicit execution is advisory evidence,
-not GitHub publication, mutation, merge approval, live-runtime proof, or
-release support.
+immutable policy snapshot. Separately, a caller may capture a complete bounded
+review-input snapshot, explicitly dispatch it, and allow the opt-in worker to
+call the one-attempt execution service. Neither capture nor dispatch is wired
+to webhook intake. `prepared` means policy resolved and a durable attempt
+exists; it does not mean queued or dispatched. A successful explicit execution
+is advisory evidence, not GitHub publication, mutation, merge approval,
+live-runtime proof, or release support.
