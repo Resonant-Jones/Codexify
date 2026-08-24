@@ -2,12 +2,12 @@
 
 > **Classification:** operator runbook
 > **Profile:** `v1-whooshd-deepseek-web`
-> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040, ADR-052, ADR-053 (Node-Hosted Room Access Boundary)
+> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040, ADR-052, ADR-053 (Node-Hosted Room Access Boundary), ADR-074 (Tester Provider / Model Configuration Authority)
 > **Last updated:** 2026-08-12
 
 ## Purpose
 
-This runbook documents how to run a stable, isolated Codexify instance for invited friends/family testers. The Tester enables the auth router (register, login, logout) so testers can create real accounts, while keeping the default dev profile (`v1-local-core-web-mcp`) unchanged. Its supported runtime profile is the permanent dual-provider profile from ADR-052: local Whoosh'd/Gemma is the global default and DeepSeek is an allowed, thread-selected cloud egress lane.
+This runbook documents how to run a stable, isolated Codexify instance for invited friends/family testers. The Tester enables the auth router (register, login, logout) so testers can create real accounts, while keeping the default dev profile (`v1-local-core-web-mcp`) unchanged. Its supported runtime profile is the permanent dual-provider topology from ADR-052, with the local-model configuration-authority substrate governed by ADR-074: local Whoosh'd is the global default and DeepSeek is an allowed, thread-selected cloud egress lane.
 
 It also gives the tester UI a separate Tailscale identity, `codexify-test`. The Docker sidecar and the `frontend` share one network namespace, and Tailscale Serve proxies only the frontend to tailnet-only HTTPS on TCP 443. The sidecar is not VaultNode's host Tailscale identity, does not use host networking, and does not advertise subnets or an exit node.
 
@@ -33,10 +33,10 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 | User accounts | N/A (single-user dev) | Register/login/logout |
 | State isolation | Dev Postgres/Redis/Neo4j volumes | Separate volumes via project name |
 | Supported profile | `v1-local-core-web-mcp` | `v1-whooshd-deepseek-web` |
-| Default chat provider | Local runtime | Whoosh'd Gemma (`gemma-4-12b-it-qat-4bit`) |
+| Default chat provider | Local runtime | Whoosh'd, with the model selected by the operator environment |
 | Cloud chat provider | Not enabled by this profile | DeepSeek `deepseek-v4-flash`, only when selected in the durable thread configuration |
 
-The Tester keeps `LLM_PROVIDER=local` and the Whoosh'd Gemma model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and `modelId=deepseek-v4-flash` through the ordinary thread configuration API. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`.
+The Tester keeps `LLM_PROVIDER=local` and the operator-selected Whoosh'd model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and `modelId=deepseek-v4-flash` through the ordinary thread configuration API. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`. Per ADR-074, the supported profile owns allowed/default provider posture, `.env.tester` supplies the concrete local model, Compose forwards the four chat-model aliases from `${LOCAL_CHAT_MODEL}`, and live inventory remains fail-closed runtime truth. The restored tracked Qwen default is not a current availability claim.
 
 ## Hosted Room Route Posture (Private Preview)
 
@@ -251,7 +251,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 curl -i http://localhost:8889/health
 ```
 
-Expected: `200 OK`, `"status": "ok"`, `"supported_profile": {"name": "v1-whooshd-deepseek-web"}`. The global LLM health reports the local Whoosh'd/Gemma default; DeepSeek availability is a separate, thread-selected cloud lane.
+Expected: `200 OK`, `"status": "ok"`, `"supported_profile": {"name": "v1-whooshd-deepseek-web"}`. The global LLM health reports the resolved local Whoosh'd model; compare it with the operator-selected value and live inventory. DeepSeek availability is a separate, thread-selected cloud lane.
 
 ### Tailscale identity and Serve configuration
 
@@ -468,4 +468,5 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 - [Config and Ops](../architecture/config-and-ops.md) — env vars, config resolution, health checks
 - [System Overview](../architecture/system-overview.md) — runtime components and topology
 - [ADR-052](../architecture/adr/ADR-052-whooshd-deepseek-dual-provider-startup-profile.md) — Tester dual-provider startup profile
+- [ADR-074](../architecture/adr/074-tester-provider-model-configuration-authority.md) — Tester local-model configuration authority and fail-closed inventory reconciliation
 - [Account Export + Restore Contract](../architecture/account-export-restore-contract.md) — export/restore guarantees (deferred for tester profile)

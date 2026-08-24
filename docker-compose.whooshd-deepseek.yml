@@ -1,4 +1,4 @@
-# Dual-provider startup overlay: Whoosh'd Gemma 12B + approved DeepSeek V4 Flash.
+# Dual-provider startup overlay: Whoosh'd local model + approved DeepSeek V4 Flash.
 # Secrets remain in the selected env file; this overlay contains no credentials.
 
 services:
@@ -14,15 +14,16 @@ services:
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
-      LOCAL_LLM_MODEL: "gemma-4-12b-it-qat-4bit"
-      DEFAULT_LOCAL_MODEL: "gemma-4-12b-it-qat-4bit"
-      LLM_MODEL: "gemma-4-12b-it-qat-4bit"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_LLM_MODEL: "${LOCAL_CHAT_MODEL}"
+      DEFAULT_LOCAL_MODEL: "${LOCAL_CHAT_MODEL}"
+      LLM_MODEL: "${LOCAL_CHAT_MODEL}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
       LLM_REQUEST_TIMEOUT_SECONDS: "600"
-      # Keep auxiliary local selectors on the one served model.
-      LOCAL_VISION_MODEL: "gemma-4-12b-it-qat-4bit"
-      LOCAL_GGUF_MODEL: "gemma-4-12b-it-qat-4bit"
+      # ADR-074: Compose transports the one operator-selected chat model.
+      # Vision and GGUF are independent model domains.
+      LOCAL_VISION_MODEL: "${LOCAL_VISION_MODEL}"
+      LOCAL_GGUF_MODEL: "${LOCAL_GGUF_MODEL}"
 
   worker-chat:
     environment: *whooshd_deepseek_env

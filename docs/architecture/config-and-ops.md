@@ -372,10 +372,22 @@ curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
 `v1-whooshd-deepseek-web` is the ADR-052-governed private-preview profile. It
 does not replace `v1-local-core-web-mcp` or widen the supported beta promise.
 Its provider contract keeps `LLM_PROVIDER=local`, selects the `whooshd-mlx`
-runtime preset and `gemma-4-12b-it-qat-4bit`, permits cloud execution only with
+runtime preset and the operator-supplied local chat model, permits cloud execution only with
 `ALLOW_CLOUD_PROVIDERS=true` and `CODEXIFY_LOCAL_ONLY_MODE=false`, and restricts
 `CODEXIFY_EGRESS_ALLOWLIST` to the canonical provider-policy token `deepseek`.
 DeepSeek uses `deepseek-v4-flash`; no unrelated cloud provider is admitted.
+
+Per **ADR-074** (Tester provider / model configuration authority), the
+supported profile owns the allowed/default provider posture; the untracked
+operator environment (`.env.tester`) supplies the concrete Tester chat-model
+selection; and the Whoosh'd/DeepSeek Compose overlay transports that selection
+through `${LOCAL_CHAT_MODEL}` for `LOCAL_CHAT_MODEL`, `LOCAL_LLM_MODEL`,
+`DEFAULT_LOCAL_MODEL`, and `LLM_MODEL`. Vision and GGUF remain independent
+model domains. Live Whoosh'd inventory reports current availability but cannot
+rewrite Codexify configuration. Any configured-model/inventory disagreement is
+the fail-closed `configured_model_not_advertised_by_whooshd` condition, not a
+model substitution. The tracked `qwen3.8-27b-4bit` profile default is restored
+historical configuration evidence, not current runtime-availability proof.
 
 The private-preview overlay exposes one loopback Nginx origin at
 `127.0.0.1:8081`. Whoosh'd remains a loopback host process reached from Docker
@@ -397,7 +409,8 @@ Operators must read these truth surfaces separately:
 8. Persisted transcript readback proves durable assistant output.
 
 Provider-specific signoff requires two separate threads: one explicit local
-Whoosh'd/Gemma turn and one explicit DeepSeek V4 Flash turn. Each must persist
+Whoosh'd turn using the reconciled operator-selected model and one explicit
+DeepSeek V4 Flash turn. Each must persist
 exactly one assistant response whose task evidence identifies the expected
 attempted and final provider/model. Automatic rescue or any other fallback
 fails the requested provider's proof even when a response persists. Use

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LIFECYCLE = ROOT / "scripts" / "ops" / "codexify_tester.sh"
 BASE_COMPOSE = ROOT / "docker-compose.yml"
 TESTER_COMPOSE = ROOT / "docker-compose.tester.yml"
+WHOOSHD_DEEPSEEK_OVERLAY = ROOT / "docker-compose.whooshd-deepseek.yml"
 
 EXPECTED_START_SERVICES = [
     "backend",
@@ -169,3 +170,35 @@ def test_tester_status_accepts_a_running_account_import_worker(tmp_path: Path) -
     assert result.returncode == 0
     assert "required_service=worker-account-import state=running healthy=true" in result.stdout
     assert "tester_status=healthy" in result.stdout
+
+
+def _whooshd_deepseek_environment_block() -> str:
+    text = WHOOSHD_DEEPSEEK_OVERLAY.read_text(encoding="utf-8")
+    match = re.search(
+        r"environment:\s*&whooshd_deepseek_env\s*\n((?:[ \t]+.+\n)+)",
+        text,
+    )
+    assert match is not None, "whooshd_deepseek_env anchor not found in overlay"
+    return match.group(1)
+
+
+def test_whooshd_deepseek_overlay_interpolates_one_chat_model_authority() -> None:
+    block = _whooshd_deepseek_environment_block()
+    for alias in (
+        "LOCAL_CHAT_MODEL",
+        "LOCAL_LLM_MODEL",
+        "DEFAULT_LOCAL_MODEL",
+        "LLM_MODEL",
+    ):
+        assert f'{alias}: "${{LOCAL_CHAT_MODEL}}"' in block
+
+
+def test_whooshd_deepseek_overlay_keeps_non_chat_models_independent() -> None:
+    block = _whooshd_deepseek_environment_block()
+    assert 'LOCAL_VISION_MODEL: "${LOCAL_VISION_MODEL}"' in block
+    assert 'LOCAL_GGUF_MODEL: "${LOCAL_GGUF_MODEL}"' in block
+
+
+def test_whooshd_deepseek_overlay_preserves_deepseek_posture() -> None:
+    block = _whooshd_deepseek_environment_block()
+    assert 'DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"' in block

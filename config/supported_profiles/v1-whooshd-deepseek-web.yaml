@@ -1,4 +1,4 @@
-# v1-whooshd-deepseek-web: local Gemma serving with an approved DeepSeek lane.
+# v1-whooshd-deepseek-web: dual-provider Tester topology with operator-supplied local model selection.
 #
 # This is an operator-controlled candidate profile for load observation. It
 # does not change the default beta profile or imply that cloud inference is
@@ -7,7 +7,15 @@
 #
 # Governing ADRs: ADR-005 (runtime mode and account boundary invariants),
 # ADR-052 (Whoosh'd Gemma and approved DeepSeek startup profile),
-# ADR-053 (node-hosted Room access boundary; tester-only route posture).
+# ADR-053 (node-hosted Room access boundary; tester-only route posture),
+# ADR-074 (Tester provider/model configuration authority; partially supersedes
+# ADR-052 only for the exact local-model pin and configuration authority).
+#
+# Per ADR-074, this profile owns the allowed/default provider posture. The
+# operator environment supplies the concrete local chat-model selection and
+# the Whoosh'd/DeepSeek overlay transports it with interpolation. The tracked
+# Qwen default below is restored historical configuration evidence; it is not
+# a claim that Qwen is currently advertised or selected by a running Tester.
 #
 # Route posture: this canonical friends/family tester profile mounts the
 # existing Hosted Room owner/guest route families for private-preview
@@ -94,7 +102,7 @@ provider_contract:
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
-  LOCAL_CHAT_MODEL: gemma-4-12b-it-qat-4bit
+  LOCAL_CHAT_MODEL: qwen3.8-27b-4bit
   DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
 criticality:
   tier0:
