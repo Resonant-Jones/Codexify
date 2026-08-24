@@ -131,11 +131,11 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
     assert trace is not None
     assert trace["retrieval_target"] == "latest_turn"
     assert trace["retrieval_query"] == (
-        "Attached document: Project Plan.pdf\n\nPlease summarize this."
+        "Attached document: Project Plan.pdf Please summarize this."
     )
     assert bundle["docs"]["thread"][0]["title"] == "Project Plan.pdf"
     assert captured["query"] == (
-        "Attached document: Project Plan.pdf\n\nPlease summarize this."
+        "Attached document: Project Plan.pdf Please summarize this."
     )
     assert bundle["_prompt_meta"]["docs"]["count"] == 1
     assert bundle["_prompt_meta"]["docs"]["injected"] is True

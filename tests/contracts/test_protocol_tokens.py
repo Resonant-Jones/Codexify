@@ -784,6 +784,39 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE.value == (
         "malformed_command_bus_linkage"
     )
+    assert PiValidationFailureReason.AUTHORIZATION_DENIED.value == (
+        "authorization_denied"
+    )
+    assert PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH.value == (
+        "policy_envelope_mismatch"
+    )
+    assert PiValidationFailureReason.MISSING_PROVIDER_ID.value == "missing_provider_id"
+    assert PiValidationFailureReason.MISSING_MODEL_ID.value == "missing_model_id"
+    assert PiValidationFailureReason.ACTUAL_IDENTITY_MISSING.value == (
+        "actual_identity_missing"
+    )
+    assert PiValidationFailureReason.PROVIDER_IDENTITY_MISMATCH.value == (
+        "provider_identity_mismatch"
+    )
+    assert PiValidationFailureReason.MODEL_IDENTITY_MISMATCH.value == (
+        "model_identity_mismatch"
+    )
+    assert PiValidationFailureReason.HARNESS_IDENTITY_MISMATCH.value == (
+        "harness_identity_mismatch"
+    )
+    assert PiValidationFailureReason.MUTATION_SCOPE_VIOLATION.value == (
+        "mutation_scope_violation"
+    )
+    assert PiValidationFailureReason.GIT_MUTATION_VIOLATION.value == (
+        "git_mutation_violation"
+    )
+    assert PiValidationFailureReason.READ_ONLY_VIOLATION.value == "read_only_violation"
+    assert PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE.value == (
+        "adapter_execution_failure"
+    )
+    assert PiValidationFailureReason.CREDENTIAL_MATERIAL_REJECTED.value == (
+        "credential_material_rejected"
+    )
     assert PI_VALIDATION_FAILURE_REASONS == {
         "missing_owner_account_identity",
         "owner_account_mismatch",
@@ -806,6 +839,19 @@ def test_pi_invocation_boundary_tokens() -> None:
         "missing_harness_result_id",
         "missing_artifact_reference",
         "malformed_command_bus_linkage",
+        "authorization_denied",
+        "policy_envelope_mismatch",
+        "missing_provider_id",
+        "missing_model_id",
+        "actual_identity_missing",
+        "provider_identity_mismatch",
+        "model_identity_mismatch",
+        "harness_identity_mismatch",
+        "mutation_scope_violation",
+        "git_mutation_violation",
+        "read_only_violation",
+        "adapter_execution_failure",
+        "credential_material_rejected",
     }
 
     assert ExecutorEscalationKind.NEEDS_CLARIFICATION.value == "needs_clarification"

@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-08-22
+2026-08-24
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening. An NX-1 supported-runtime audit receipt is now merged, but it is not successful supported-runtime closure: it advanced through source identity, Docker / Compose readiness, migrations / init, model preparation, and core data-plane health before backend startup failed. Current-tip supported-Compose closure remains open because the receipt audited a then-current `origin/main` SHA, not today's newer `main` tip, and no HTTP/runtime proof could continue after the backend failure.
+`main` remains in local-first Beta hardening. The latest merged NX-1 supported-Compose observation cleared dependency startup, migrations / init, model preparation, and backend-container Guardian application import; the historical MemoryStore readonly-write failure did not recur. Startup then failed during lifespan on supported local-gateway configuration coherence before healthy HTTP. PR #745 aligned `.env.example` with the existing supported profile, but no post-alignment supported-Compose rerun is recorded, so current-tip closure remains open.
 
 ## What changed recently
 
@@ -27,7 +27,7 @@ This file is authoritative for:
 - Canonized Anthropic / Claude account-export conversation import as Beta Bounded / Conditional after the R2 proof recorded 63 threads and 784 messages through the durable worker path.
 - Canonicalized Guardian Pi authorized-readiness diagnostics and regression coverage; no live provider or OAuth support was established.
 - Repaired and requalified migration, psycopg3, Chroma-retirement, and supported-Compose proof seams; no resulting work widened the supported profile.
-- PR #737 (merge `8cfe9daa5c15dbed59e626206f22dfd28032ed1c`) canonicalized the NX-1 receipt. In a fresh isolated worktree pinned to then-current `origin/main` at `29b01148a774a2e8f0fcacc47f44adf9f36f1e91`, source identity, Docker / Compose, migrations / init, and model preparation cleared; Postgres, Redis, and Neo4j were healthy. Backend startup then failed at module import in `guardian.memory.query_memory` with `sqlite3.OperationalError: attempt to write a readonly database`, before HTTP binding. No health, chat, queue/worker, persistence, or retrieval support claim resulted.
+- PR #744/#745 advanced the NX-1 startup boundary. At audited SHA `7aae1807492313d4cf10eb7876c3ebde92408819`, dependency services, migrations / init, model preparation, and backend-container Guardian import succeeded; `guardian_api_import_ok` was emitted, `guardian/memory/store.db` was not created, and the historical `sqlite3.OperationalError` readonly-write failure did not recur. Lifespan then stopped on `LLMConfigError` because five local-gateway template values diverged from the active supported profile. PR #745 aligned `.env.example` with that existing profile contract and added static coverage; it did not prove a post-repair supported-Compose rerun, healthy HTTP, chat, persistence, or retrieval. No release support widened.
 - Merged Settings dock material and active-selector polish; this changes presentation, not release capability.
 - Added a simplification-opportunity audit; it does not change Beta posture and keeps canonical-versus-legacy configuration duplication as a high-risk reduction target.
 - Added a Claude sidebar source icon with regression coverage; this is presentation-only.
@@ -56,6 +56,10 @@ This file is authoritative for:
 ### Internal
 
 - Direct Command Bus HTTP/control-plane APIs, plugin SDK internals, developer-only diagnostics, unsafe operator mutation surfaces, and generic tools / API-tools mechanisms remain Internal or quarantined operational substrate, not user-facing Beta promises.
+- local Guardian Evidence bounded-read tooling (`scripts/guardian/read_bounded_evidence.py`; see also the Guardian Evidence bounded read contract and the static proof fixture `guardian-evidence-bounded-read.local-tooling.v1.json`) is present as Internal repository-local static evidence preparation over validated, allowlisted source references; it remains bounded and non-executing and does not authorize evidence ingestion, packet generation, authority promotion, source mutation, provider execution, WorkOrder or Execution Ledger writes, CI/default release gating, or release-support expansion.
+- local Guardian Evidence packet-generator tooling (`scripts/guardian/generate_evidence_packet.py`) is present as Internal stdout-only static packet preparation over bounded-read artifacts and remains governed by the Guardian Evidence Packet generator contract (`docs/architecture/guardian-evidence-packet-generator-contract.md`); it reads only supplied bounded-read results and does not authorize source-target reads, evidence ingestion, execution, authority promotion, source mutation, provider execution, WorkOrder or Execution Ledger writes, CI/default release gating, or release-support expansion.
+- local Guardian Evidence reducer input-bundle dry-run loader tooling (`scripts/guardian/reducer_dry_run.py --json --input-bundle ...`) is present as Internal diagnostics-only tooling and remains governed by the input-bundle dry-run loader contract (`docs/architecture/guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md`); it validates only the explicitly selected bundle before mapping metadata into reducer input objects, reads the bundle file but not `source_ref` targets, returns `packet=null` and `validation_result=null`, keeps all authority locks false, and does not provide evidence ingestion, packet generation, runtime reducer behavior, command-bus/Codex Runner/Pi/provider execution, source mutation, WorkOrder or Execution Ledger writes, CI/default release gating, or release-support expansion.
+- the static Guardian Evidence Reducer input bundle template (`docs/architecture/templates/guardian-evidence-reducer-input-bundle-template.v1.json`) and local-tooling fixture (`docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json`) are present as Internal authoring aids for future reducer-input shape; they are not evidence and do not authorize file reads, evidence ingestion, packet generation, runtime reducer behavior, UI support, Command Bus/Codex Runner/Pi/provider execution, source mutation, WorkOrder or Execution Ledger writes, CI/default release gating, or release-support expansion.
 
 ### Qualification Pending
 
@@ -72,8 +76,9 @@ This file is authoritative for:
 
 ## Not yet true / do not assume
 
-- Do not assume the present latest `main` SHA has passed supported-Compose closure; NX-1 audited `29b01148a774a2e8f0fcacc47f44adf9f36f1e91`, and `main` has advanced since that receipt.
+- Do not assume the present latest `main` SHA has passed supported-Compose closure: the latest merged NX-1 observation audited `7aae1807492313d4cf10eb7876c3ebde92408819`, and no post-PR-745 live rerun is proven.
 - Do not assume backend startup is healthy, or that NX-1 reached `/health`, `/health/chat`, `/api/health/llm`, a live provider/model inventory, ordinary chat completion, queue dequeue, turn-lock concurrency, terminal task events, assistant persistence, source-thread readback, PostgreSQL assistant readback, or upload/embed/retrieval closure.
+- Do not assume `.env.example` alignment, static configuration tests, or the cleared historical MemoryStore failure prove current-tip healthy HTTP, model inventory, terminal chat, persistence, retrieval, queue/worker, or turn-lock closure.
 - Do not assume green unit tests, route registration, health responses, or proof receipts establish end-to-end runtime readiness.
 - Do not assume Coding Loop, provider/tool turns, DeepSeek/private-preview execution, Hosted Rooms, Browser Host, or packaged desktop distribution are release-supported.
 - Do not assume Anthropic import includes Projects, `memories.json`, `users.json`, binary media reconstruction, arbitrary export shapes, or Anthropic inference.
@@ -83,8 +88,8 @@ This file is authoritative for:
 
 ## Active blockers
 
-- The first material NX-1 runtime blocker is backend runtime-readiness → import-time SQLite write attempt → `guardian.memory.query_memory` → `sqlite3.OperationalError: attempt to write a readonly database` → backend exits before binding its HTTP port. This was observed at audited SHA `29b01148a774a2e8f0fcacc47f44adf9f36f1e91`.
-- Current-tip supported-Compose closure remains incomplete: a successful repair still requires a fresh rerun from current `origin/main`, because NX-1 is not proof of today's newest `main` tip.
+- The historical NX-1 MemoryStore readonly-write failure is cleared evidence, not the active blocker: at audited SHA `7aae1807492313d4cf10eb7876c3ebde92408819`, backend-container Guardian import emitted `guardian_api_import_ok`, did not create `guardian/memory/store.db`, and did not emit `sqlite3.OperationalError` or `attempt to write a readonly database`.
+- The active supported-runtime blocker is that fresh supported-Compose closure has not been rerun after the merged `.env.example` supported-profile alignment. The latest observation instead stopped before healthy HTTP on `LLMConfigError` from five local-gateway configuration mismatches; PR #745 repaired the template contract statically but did not prove the required live rerun.
 - Queue/worker/turn-lock/terminal-event behavior still lacks current-tip end-to-end proof with durable output and readback.
 - Canonical and legacy configuration paths coexist, leaving startup and operator-state drift risk.
 - Coding Loop and tool-enabled provider lanes lack current supported-profile proof of adapter execution, terminal completion, continuation, and durable source-thread readback.
@@ -92,17 +97,16 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Repair or correctly fence the MemoryStore / `guardian.memory.query_memory` import-time SQLite write that blocks backend startup.
-2. Rerun supported-Compose closure from current `origin/main`.
-3. Prove health, model inventory, terminal chat, persistence, queue/worker/turn-lock behavior, and retrieval on that same supported profile.
-4. Continue Coding Loop and provider/tool qualification only after the dependent runtime proof is available; otherwise keep those lanes quarantined.
-5. Reconcile canonical-versus-legacy configuration paths, retain explicit operator diagnostics, and fix the bounded Connections P3 light-theme contrast defect without widening capability claims.
+1. Rerun fresh current-main supported-Compose closure using the merged aligned template.
+2. Prove health, model inventory, terminal chat, persistence, queue/worker/turn-lock behavior, and retrieval on that same supported profile.
+3. Continue Coding Loop and provider/tool qualification only after the dependent runtime proof is available; otherwise keep those lanes quarantined.
+4. Reconcile canonical-versus-legacy configuration paths, retain explicit operator diagnostics, and fix the bounded Connections P3 light-theme contrast defect without widening capability claims.
 
 ## Release definition right now
 
 - [x] The supported profile, local-only defaults, Beta envelope, and ADR-069 release classes are defined on `main`.
 - [x] Settings/Connections boundaries, generic connector quarantine, and Out-of-Beta surfaces are explicit.
-- [x] PR #737 merged the bounded NX-1 receipt; the receipt records a first material backend-startup blocker without changing support classifications.
+- [x] The latest merged NX-1 proof clears the historical MemoryStore import-time readonly-write failure, and PR #745 aligns `.env.example` with the existing supported profile; neither establishes a post-repair live closure or changes support classifications.
 - [ ] Current-tip supported-Compose closure confirms healthy backend startup, health, model inventory, terminal chat, persistence, and retrieval.
 - [ ] Queue, worker, lock, migration, configuration, and recovery behavior is green on the supported install path.
 - [ ] Qualification-pending lanes have their named proof receipts; until then, they remain visibly quarantined.

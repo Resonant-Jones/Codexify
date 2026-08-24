@@ -5,8 +5,36 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from guardian.core import chat_completion_service
 from guardian.routes import chat as chat_routes
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
+
+
+def _capture_accepted_completion(captured: dict[str, object]):
+    def fake_enqueue(task, **_kwargs):
+        captured["task"] = task
+        task_created_event = chat_completion_service.ChatCompletionTaskCreatedEventResult(
+            ok=True,
+            task_id=task.task_id,
+            event_type="task.created",
+            event_id=f"{task.task_id}:created",
+            visibility_scope="progress",
+            terminal_visibility=False,
+            execution_continued=True,
+        )
+        return chat_completion_service.ChatCompletionEnqueueResult(
+            task=task,
+            task_id=task.task_id,
+            acceptance_status="accepted",
+            acceptance_warnings=(),
+            queue_accepted=True,
+            degraded=False,
+            turn_lock_acquired=True,
+            turn_lock={},
+            task_created_event=task_created_event,
+        )
+
+    return fake_enqueue
 
 
 @pytest.mark.asyncio
@@ -33,18 +61,10 @@ async def test_chat_complete_injects_local_user_id_into_task_payload(
     )
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
     monkeypatch.setattr(
         chat_routes,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        chat_routes,
-        "_publish_completion_start_event",
-        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+        "enqueue_chat_completion",
+        _capture_accepted_completion(captured),
     )
     monkeypatch.setattr(
         chat_routes,
@@ -99,18 +119,10 @@ async def test_chat_complete_uses_request_account_id_for_task_payload(
     )
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
     monkeypatch.setattr(
         chat_routes,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        chat_routes,
-        "_publish_completion_start_event",
-        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+        "enqueue_chat_completion",
+        _capture_accepted_completion(captured),
     )
     monkeypatch.setattr(
         chat_routes,

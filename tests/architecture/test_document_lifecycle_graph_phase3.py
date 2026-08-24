@@ -192,6 +192,7 @@ def test_current_canonical_node_corpus_validates() -> None:
     assert not result.has_errors
     assert result.schema_valid_node_count == 10
     assert result.source_hash_match_count == 10
+    assert result.orphans == []
 
 
 def test_current_relationship_baseline_and_target_resolution() -> None:
@@ -199,13 +200,13 @@ def test_current_relationship_baseline_and_target_resolution() -> None:
         REPO_ROOT, current_repository_revision(), BASE_GENERATED_AT
     )
 
-    assert result.edge_count == 8
+    assert result.edge_count == 13
     assert result.predicate_counts() == {
-        "depends_on": 2,
-        "evidence_for": 4,
+        "depends_on": 6,
+        "evidence_for": 5,
         "governed_by": 2,
     }
-    assert result.target_resolution_count == 8
+    assert result.target_resolution_count == 13
     assert result.self_relation_count == 0
 
 
@@ -640,4 +641,4 @@ def test_validator_cli_runs_without_runtime_services() -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     summary = json.loads(completed.stdout)
     assert summary["corpus"]["node_count"] == 10
-    assert summary["corpus"]["edge_count"] == 8
+    assert summary["corpus"]["edge_count"] == 13

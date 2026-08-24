@@ -99,6 +99,7 @@ def _make_broker(
                 src_url="/tmp/thread-evidence.txt",
                 source_tag="uploaded",
                 parsed_text="thread-scoped evidence",
+                embedding_status="ready",
                 deleted_at=None,
             )
         ],

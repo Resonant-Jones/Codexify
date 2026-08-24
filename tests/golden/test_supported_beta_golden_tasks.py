@@ -301,19 +301,24 @@ def test_golden_completion_acceptance_contract(monkeypatch):
         raising=False,
     )
     monkeypatch.setattr(
-        chat,
+        chat_completion_service,
+        "run_with_redis_timeout",
+        lambda operation, *_args, **_kwargs: operation(),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
         "acquire_turn_lock",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        chat,
+        chat_completion_service,
         "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        chat.task_events,
+        chat_completion_service.task_events,
         "publish_with_visibility",
         lambda task_id, event_type, data: _accepted_task_created_event(task_id),
     )

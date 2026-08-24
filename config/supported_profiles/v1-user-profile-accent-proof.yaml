@@ -36,15 +36,19 @@ route_posture:
     - migration
     - embeddings
     - obsidian
-  internal_only:
-    - coding_work_orders
-    - command_bus
-    - user_profile
-  quarantined:
-    - neo
+    - agent_orchestration
+    - agent_orchestration_chat
     - imprint
     - system_prompt
     - system_docs
+    - connections
+  internal_only:
+    - coding_work_orders
+    - command_bus
+    - minimax_oauth
+    - user_profile
+  quarantined:
+    - neo
     - iddb
     - backfill
     - memory
@@ -65,8 +69,6 @@ route_posture:
     - websocket
     - cron
     - ui_session
-    - agent_orchestration
-    - agent_orchestration_chat
 provider_contract:
   LLM_PROVIDER: local
   ALLOW_CLOUD_PROVIDERS: false

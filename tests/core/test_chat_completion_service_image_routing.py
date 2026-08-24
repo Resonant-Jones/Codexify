@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.protocol_tokens import (
     ImageRoutingPath,
     TraceSnapshotAbsenceReason,
@@ -113,6 +114,16 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
     )
 
     return mock_chatlog_db, settings
+
+
+def _successful_local_stream(text: str, *, provider: str, model: str):
+    if text:
+        yield text
+    return successful_non_stream_terminal(
+        provider=provider,
+        model=model,
+        finish_reason="stop",
+    ).with_visible_output(bool(text))
 
 
 def test_image_routing_native_vision_builds_multimodal_payload(
@@ -244,7 +255,9 @@ def test_image_routing_origin_hints_mark_local_model_substitution_absence(
     monkeypatch.setattr(
         chat_completion_service,
         "stream_local",
-        lambda *_args, **_kwargs: "ok",
+        lambda _messages, model, **_kwargs: _successful_local_stream(
+            "ok", provider="local", model=model
+        ),
     )
 
     task = ChatCompletionTask(
@@ -370,7 +383,11 @@ def test_image_routing_text_only_uses_local_blip_captioning(
         captured["messages"] = messages
         captured["model"] = model
         captured["kwargs"] = kwargs
-        return "yes, I do see the image of green hills and floating clouds."
+        return _successful_local_stream(
+            "yes, I do see the image of green hills and floating clouds.",
+            provider="local",
+            model=model,
+        )
 
     monkeypatch.setattr(
         chat_completion_service, "stream_local", _capture_stream
@@ -469,7 +486,11 @@ def test_image_routing_local_model_substitution_is_machine_readable(
         captured["messages"] = messages
         captured["model"] = model
         captured["kwargs"] = kwargs
-        return "local model substitution reply"
+        return _successful_local_stream(
+            "local model substitution reply",
+            provider="local",
+            model=model,
+        )
 
     monkeypatch.setattr(
         chat_completion_service,
@@ -551,7 +572,11 @@ def test_image_routing_local_only_reports_requested_override_reason(
         captured["messages"] = messages
         captured["model"] = model
         captured["kwargs"] = kwargs
-        return "yes, I do see the image of green hills and floating clouds."
+        return _successful_local_stream(
+            "yes, I do see the image of green hills and floating clouds.",
+            provider="local",
+            model=model,
+        )
 
     monkeypatch.setattr(
         chat_completion_service, "stream_local", _capture_stream
@@ -889,7 +914,9 @@ def test_image_routing_snapshot_marks_local_model_substitution_absence(
     monkeypatch.setattr(
         chat_completion_service,
         "stream_local",
-        lambda *args, **kwargs: "ok",
+        lambda _messages, model, **_kwargs: _successful_local_stream(
+            "ok", provider="local", model=model
+        ),
     )
     monkeypatch.setattr(
         chat_completion_service,
@@ -956,6 +983,11 @@ def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
             ),
         },
     }
+    terminal_evidence = successful_non_stream_terminal(
+        provider="local",
+        model="library2/ministral-3:8b",
+        finish_reason="stop",
+    ).as_dict()
 
     monkeypatch.setattr(
         chat_completion_service,
@@ -964,7 +996,9 @@ def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
             "assistant_text": "ok",
             "provider": "local",
             "model": "library2/ministral-3:8b",
+            "terminal_evidence": terminal_evidence,
             "payload_summary": {
+                "terminal_evidence": terminal_evidence,
                 "image_attachment_count": 1,
                 "image_routing_path": None,
                 "image_routing_absence_reason": stale_reason,
@@ -1067,6 +1101,11 @@ def test_worker_completion_normalizes_stale_nested_image_routing_reason(
     canonical_reason = (
         TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
+    terminal_evidence = successful_non_stream_terminal(
+        provider="local",
+        model="library2/ministral-3:8b",
+        finish_reason="stop",
+    ).as_dict()
 
     async def _fake_build_messages_for_llm_compat(task, user_id=None):
         return (
@@ -1113,7 +1152,9 @@ def test_worker_completion_normalizes_stale_nested_image_routing_reason(
             "assistant_text": "ok",
             "provider": "local",
             "model": "library2/ministral-3:8b",
+            "terminal_evidence": terminal_evidence,
             "payload_summary": {
+                "terminal_evidence": terminal_evidence,
                 "image_attachment_count": 1,
                 "image_routing_path": None,
                 "image_routing_absence_reason": stale_reason,
@@ -1297,7 +1338,9 @@ def test_image_turn_local_substitution_zero_retained_results_completes(
     monkeypatch.setattr(
         chat_completion_service,
         "stream_local",
-        lambda *_args, **_kwargs: "ok",
+        lambda _messages, model, **_kwargs: _successful_local_stream(
+            "ok", provider="local", model=model
+        ),
     )
     monkeypatch.setattr(
         chat_completion_service,

@@ -65,6 +65,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     delegation = script.get_revision("d4e5f6a7b8c9")
     email_login_alias = script.get_revision("c1a2b3c4d5e6")
     repository_bindings = script.get_revision("6e2b9c4a7d1f")
+    origin_system = script.get_revision("1c0a2b3c4d5e")
 
     hosted_foundation = script.get_revision("b2c3d4e5f6a8")
 
@@ -92,8 +93,16 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert repository_bindings.down_revision == "c1a2b3c4d5e6"
     assert isinstance(repository_bindings.down_revision, str)
 
+    assert origin_system is not None
+    assert (
+        Path(origin_system.path).name
+        == "1c0a2b3c4d5e_add_chat_threads_origin_system.py"
+    )
+    assert origin_system.down_revision == "9d4c2a7e1b6f"
+    assert isinstance(origin_system.down_revision, str)
+
     heads = script.get_heads()
-    assert heads == ["9d4c2a7e1b6f"]
+    assert heads == ["1c0a2b3c4d5e"]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",

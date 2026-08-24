@@ -26,6 +26,7 @@ _MISSING = object()
 _PSYCOPG_MODULE_NAMES = (
     "psycopg",
     "psycopg.errors",
+    "psycopg.sql",
     "psycopg.rows",
     "psycopg.types",
     "psycopg.types.json",
@@ -47,6 +48,7 @@ def _fake_module(name: str) -> types.ModuleType:
 def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     psycopg_stub = _fake_module("psycopg")
     errors_stub = _fake_module("psycopg.errors")
+    sql_stub = _fake_module("psycopg.sql")
     rows_stub = _fake_module("psycopg.rows")
     types_stub = _fake_module("psycopg.types")
     json_stub = _fake_module("psycopg.types.json")
@@ -55,11 +57,13 @@ def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     json_stub.Json = lambda value, dumps=None: value
     types_stub.json = json_stub
     psycopg_stub.errors = errors_stub
+    psycopg_stub.sql = sql_stub
     psycopg_stub.rows = rows_stub
     psycopg_stub.types = types_stub
 
     monkeypatch.setitem(sys.modules, "psycopg", psycopg_stub)
     monkeypatch.setitem(sys.modules, "psycopg.errors", errors_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.sql", sql_stub)
     monkeypatch.setitem(sys.modules, "psycopg.rows", rows_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types", types_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types.json", json_stub)
@@ -188,6 +192,7 @@ class OpenAIImportStore:
         summary: str = "",
         project_id: int | None = None,
         metadata: dict[str, Any] | None = None,
+        origin_system: str = "codexify",
         parent_id: int | None = None,
     ) -> dict[str, Any]:
         thread_id = self._next_thread_id
@@ -199,6 +204,7 @@ class OpenAIImportStore:
             "summary": summary,
             "project_id": project_id,
             "metadata": metadata or {},
+            "origin_system": origin_system,
             "parent_id": parent_id,
         }
         self.threads[thread_id] = thread
@@ -558,6 +564,8 @@ def test_sharded_import_is_idempotent_on_reimport(
     )
 
     first = import_openai_export_path(export_root, user_id="tester")
+    created_thread = next(iter(store.threads.values()))
+    assert created_thread["origin_system"] == "openai"
     second = import_openai_export_path(export_root, user_id="tester")
 
     assert first["threads_imported"] == 1
