@@ -41,9 +41,36 @@ This is an operator-configured bridge, not a second Connections credential
 truth. It honors the existing egress gate and exposes no GitHub write methods.
 It is not invoked from webhook intake or any Watchdog runtime yet.
 
-Still deferred: runtime invocation, PR-diff and changed-file capture, durable
-review-input snapshots, queues, model execution, GitHub Check publication, PR
-comments or reviews, and Build Loop mutation dispatch.
+The client itself remains uncoupled from runtime invocation, queues, model
+execution, GitHub Check publication, PR comments or reviews, and Build Loop
+mutation dispatch.
+
+## Implemented immutable review-input snapshots
+
+A callable Watchdog service can now capture one bounded, immutable PR
+review-input snapshot for an eligible `prepared`, policy-resolved
+`automated_review` attempt. It reads PR metadata before and after paginated
+GitHub App changed-file retrieval; the initial live head must equal the
+attempt's immutable `headSha`, and the post-read head and base SHA must match
+the pre-read source identity. A stale head or source change produces a terminal
+`blocked_stale` record, never a mixed-state captured snapshot.
+
+Captured snapshots include normalized PR title/body, base/head identity,
+author/draft metadata, normalized changed-file metadata and available patches,
+aggregate change counts, and a deterministic SHA-256 digest of the canonical
+review input. Files are canonically sorted by filename then previous filename.
+Missing GitHub patches remain `null`; they are counted rather than fabricated.
+
+The model-neutral v1 capture limits are 300 changed files and 1,000,000 UTF-8
+patch bytes. Exceeding either produces a terminal `blocked_limits` record with
+bounded observed facts and no silently truncated captured content. Postgres
+enforces one terminal snapshot record per review attempt; repeated callers
+converge on that immutable record.
+
+Still deferred: automatic queue or worker capture, model invocation, review
+prompt construction, structured model results, GitHub Check publication, PR
+comments or reviews, command parsing, Build Loop dispatch, mutation, and merge
+authority. No snapshot capture is wired into webhook intake.
 
 ## Canonical topology and authority
 
@@ -292,6 +319,12 @@ evidence bound to `github_watchdog_delivery_receipts`. It carries:
 | `escalationMode`, `escalationProviderId`, `escalationModelId` | Inert escalation configuration, if explicitly present. |
 | `supersededByAttemptId` | Immutable-head stale/supersession relationship. |
 
+`github_watchdog_review_input_snapshots` is a distinct Postgres-owned terminal
+evidence entity with one unique row per review attempt. It records capture
+state, expected/observed source identity, base identity, normalized bounded PR
+input, aggregate facts, missing-patch count, and a captured-only digest. It
+never stores GitHub credentials, model prompts, or model output.
+
 Future durable Watchdog runs, result records, publication references, and
 Guardian dispatch links must preserve their correlation rather than collapsing
 them into a webhook log or Redis state.
@@ -366,19 +399,19 @@ truths.
 
 ### Tokens
 
-The preparation slice defines bounded intake error codes and event/action
-tuples; Watchdog operation, attempt state, policy-resolution state,
-model-selection source, escalation mode, and policy-block reasons. Execution,
-review conclusion, publication, and retry tokens remain deferred until their
-owning runtime slices exist.
+The implemented slices define bounded intake, GitHub App, and review-input
+capture error codes; event/action tuples; Watchdog operation, attempt,
+snapshot-capture, policy-resolution, model-selection-source, escalation-mode,
+and policy-block vocabularies. Execution, review conclusion, publication, and
+worker-retry tokens remain deferred until their owning runtime slices exist.
 
 ## Release and implementation boundary
 
 This contract does not alter `00-current-state.md`, supported-profile claims,
-or Beta posture. The implemented preparation is limited to HMAC verification,
+or Beta posture. The implemented boundary is limited to HMAC verification,
 bounded metadata normalization, durable Postgres receipt/idempotency, local
-policy evaluation, and durable policy snapshots. It does not establish any
-downstream control-plane behavior:
+policy evaluation, GitHub App read authentication, and callable immutable
+review-input capture. It does not establish model or dispatch behavior:
 
 - webhook receipt is not model-review completion;
 - model-review completion is not mutation completion;
@@ -386,15 +419,17 @@ downstream control-plane behavior:
 - GitHub publication is not live-runtime or release proof.
 
 No GitHub App registration, worker, Redis queue, OAuth/install flow,
-credential issuance, provider call, model call, coding-worker dispatch, PR
+credential storage, provider call, model call, coding-worker dispatch, PR
 comment, Check Run, branch mutation, commit, push, merge, auto-fix,
 auto-merge, Settings UI, Connections implementation, or provider-registry
 change is introduced by this slice.
 
 ## Current implementation boundary
 
-The current path ends after an authenticated automatic PR webhook has a durable
+The webhook path ends after an authenticated automatic PR webhook has a durable
 receipt and one durable review attempt with a resolved or blocked immutable
-policy snapshot. `prepared` means policy resolved and durable attempt exists;
-it does not mean queued, dispatched, running, reviewed, or published. No model
-or provider API is invoked.
+policy snapshot. Separately, a later caller may capture a complete bounded
+review-input snapshot for an eligible prepared attempt; capture is neither
+wired to webhook intake nor queued. `prepared` means policy resolved and a
+durable attempt exists; it does not mean queued, dispatched, running, reviewed,
+or published. No model or provider API is invoked.

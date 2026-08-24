@@ -88,6 +88,8 @@ from guardian.watchdog.contracts import (
     WATCHDOG_POLICY_BLOCK_REASONS,
     WATCHDOG_POLICY_RESOLUTION_STATES,
     WATCHDOG_REVIEW_ATTEMPT_STATES,
+    WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES,
+    WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES,
     WatchdogOperation,
 )
 
@@ -250,6 +252,19 @@ WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL = "','".join(
 WATCHDOG_POLICY_BLOCK_REASON_CHECK = (
     "policy_reason_code IS NULL OR policy_reason_code IN "
     f"('{WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES)
+)
+WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_CHECK = (
+    "capture_state IN " f"('{WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES)
+)
+WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_CHECK = (
+    "block_error_code IS NULL OR block_error_code IN "
+    f"('{WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
@@ -2212,6 +2227,77 @@ class GitHubWatchdogReviewAttempt(Base):
         Index(
             "ix_github_watchdog_review_attempts_state",
             "attempt_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewInputSnapshot(Base):
+    """One immutable terminal source-evidence record for a review attempt."""
+
+    __tablename__ = "github_watchdog_review_input_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    installation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    repository_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    repository_full_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    pull_request_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    capture_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_head_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_head_sha: Mapped[str | None] = mapped_column(String(64))
+    base_sha: Mapped[str | None] = mapped_column(String(64))
+    observed_base_sha: Mapped[str | None] = mapped_column(String(64))
+    pull_request_title: Mapped[str | None] = mapped_column(Text)
+    pull_request_body: Mapped[str | None] = mapped_column(Text)
+    author_id: Mapped[str | None] = mapped_column(String(64))
+    author_login: Mapped[str | None] = mapped_column(String(255))
+    draft: Mapped[bool | None] = mapped_column(Boolean)
+    changed_file_count: Mapped[int | None] = mapped_column(Integer)
+    files_without_patch_count: Mapped[int | None] = mapped_column(Integer)
+    aggregate_additions: Mapped[int | None] = mapped_column(Integer)
+    aggregate_deletions: Mapped[int | None] = mapped_column(Integer)
+    aggregate_changes: Mapped[int | None] = mapped_column(Integer)
+    changed_files_json: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+    captured_patch_bytes: Mapped[int | None] = mapped_column(Integer)
+    snapshot_sha256: Mapped[str | None] = mapped_column(String(64))
+    block_error_code: Mapped[str | None] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_input_snapshots_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_CHECK,
+            name="ck_github_watchdog_review_input_snapshots_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_input_snapshots_block_error_code",
+        ),
+        CheckConstraint(
+            "(capture_state = 'captured' AND snapshot_sha256 IS NOT NULL "
+            "AND block_error_code IS NULL) OR "
+            "(capture_state != 'captured' AND snapshot_sha256 IS NULL "
+            "AND block_error_code IS NOT NULL)",
+            name="ck_github_watchdog_review_input_snapshots_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_input_snapshots_capture_state",
+            "capture_state",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}

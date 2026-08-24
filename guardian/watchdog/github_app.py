@@ -20,8 +20,11 @@ import requests
 from guardian.connectors.github import API_ROOT as GITHUB_API_ROOT
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.watchdog.contracts import (
+    WATCHDOG_REVIEW_INPUT_MAX_CHANGED_FILES,
+    WATCHDOG_REVIEW_INPUT_MAX_PATCH_BYTES,
     WatchdogGitHubAppError,
     WatchdogGitHubAppErrorCode,
+    WatchdogReviewInputCaptureErrorCode,
 )
 
 GITHUB_EGRESS_TARGET = "github"
@@ -31,6 +34,7 @@ GITHUB_WATCHDOG_USER_AGENT = "codexify-watchdog/1.0"
 GITHUB_REQUEST_TIMEOUT_SECONDS = 15
 GITHUB_APP_JWT_BACKDATE_SECONDS = 60
 GITHUB_APP_JWT_LIFETIME_SECONDS = 9 * 60
+GITHUB_PULL_REQUEST_FILES_PAGE_SIZE = 100
 
 
 class WatchdogPullRequestHeadState(str, Enum):
@@ -58,6 +62,7 @@ class GitHubPullRequestMetadata:
     repository_full_name: str
     pull_request_number: int
     title: str
+    body: str | None
     state: str
     base_sha: str
     head_sha: str
@@ -69,6 +74,30 @@ class GitHubPullRequestMetadata:
     head_repository_owner_id: str | None
     head_repository_owner_login: str | None
     head_is_fork: bool
+
+
+@dataclass(frozen=True)
+class GitHubPullRequestFile:
+    """Bounded normalized GitHub changed-file evidence."""
+
+    filename: str
+    previous_filename: str | None
+    status: str
+    additions: int
+    deletions: int
+    changes: int
+    patch: str | None
+
+
+@dataclass(frozen=True)
+class GitHubPullRequestFilesResult:
+    """A complete bounded changed-file set or explicit capture-limit evidence."""
+
+    files: tuple[GitHubPullRequestFile, ...]
+    changed_file_count: int
+    patch_bytes: int
+    files_without_patch_count: int
+    limit_error_code: WatchdogReviewInputCaptureErrorCode | None
 
 
 @dataclass(frozen=True)
@@ -181,6 +210,86 @@ class GitHubWatchdogAppReadClient:
         """Return bounded metadata for one PR using a fresh installation token."""
         owner, repository = _normalize_repository_full_name(repository_full_name)
         number = _normalize_pull_request_number(pull_request_number)
+        installation_token = self._read_installation_token()
+        response = self._get_json(
+            f"{self._api_base_url}/repos/{quote(owner, safe='')}/"
+            f"{quote(repository, safe='')}/pulls/{number}",
+            token=installation_token.token,
+        )
+        return _normalize_pull_request_metadata(
+            response,
+            requested_repository_full_name=repository_full_name,
+            requested_pull_request_number=number,
+        )
+
+    def get_pull_request_files(
+        self,
+        repository_full_name: str,
+        pull_request_number: int,
+    ) -> GitHubPullRequestFilesResult:
+        """Read every changed file within the canonical model-neutral bounds."""
+        owner, repository = _normalize_repository_full_name(repository_full_name)
+        number = _normalize_pull_request_number(pull_request_number)
+        installation_token = self._read_installation_token()
+        files: list[GitHubPullRequestFile] = []
+        patch_bytes = 0
+        files_without_patch_count = 0
+        page = 1
+
+        while True:
+            url = (
+                f"{self._api_base_url}/repos/{quote(owner, safe='')}/"
+                f"{quote(repository, safe='')}/pulls/{number}/files?per_page="
+                f"{GITHUB_PULL_REQUEST_FILES_PAGE_SIZE}&page={page}"
+            )
+            response = self._get_response(url, token=installation_token.token)
+            payload = _response_json_array(response)
+            for record in payload:
+                changed_file = _normalize_pull_request_file(record)
+                observed_file_count = len(files) + 1
+                if observed_file_count > WATCHDOG_REVIEW_INPUT_MAX_CHANGED_FILES:
+                    return GitHubPullRequestFilesResult(
+                        files=tuple(files),
+                        changed_file_count=observed_file_count,
+                        patch_bytes=patch_bytes,
+                        files_without_patch_count=files_without_patch_count,
+                        limit_error_code=(
+                            WatchdogReviewInputCaptureErrorCode.CAPTURE_FILE_LIMIT_EXCEEDED
+                        ),
+                    )
+
+                observed_patch_bytes = patch_bytes + _patch_byte_count(
+                    changed_file.patch
+                )
+                if observed_patch_bytes > WATCHDOG_REVIEW_INPUT_MAX_PATCH_BYTES:
+                    return GitHubPullRequestFilesResult(
+                        files=tuple(files),
+                        changed_file_count=observed_file_count,
+                        patch_bytes=observed_patch_bytes,
+                        files_without_patch_count=files_without_patch_count,
+                        limit_error_code=(
+                            WatchdogReviewInputCaptureErrorCode.CAPTURE_PATCH_BYTE_LIMIT_EXCEEDED
+                        ),
+                    )
+
+                files.append(changed_file)
+                patch_bytes = observed_patch_bytes
+                if changed_file.patch is None:
+                    files_without_patch_count += 1
+
+            if not _has_next_page(response):
+                break
+            page += 1
+
+        return GitHubPullRequestFilesResult(
+            files=tuple(files),
+            changed_file_count=len(files),
+            patch_bytes=patch_bytes,
+            files_without_patch_count=files_without_patch_count,
+            limit_error_code=None,
+        )
+
+    def _read_installation_token(self) -> GitHubInstallationAccessToken:
         try:
             assert_egress_allowed(GITHUB_EGRESS_TARGET, settings=self._settings)
         except EgressDeniedError as exc:
@@ -194,17 +303,7 @@ class GitHubWatchdogAppReadClient:
             private_key=private_key,
             now=self._now_factory(),
         )
-        installation_token = self._exchange_installation_token(app_jwt)
-        response = self._get_json(
-            f"{self._api_base_url}/repos/{quote(owner, safe='')}/"
-            f"{quote(repository, safe='')}/pulls/{number}",
-            token=installation_token.token,
-        )
-        return _normalize_pull_request_metadata(
-            response,
-            requested_repository_full_name=repository_full_name,
-            requested_pull_request_number=number,
-        )
+        return self._exchange_installation_token(app_jwt)
 
     def _exchange_installation_token(self, app_jwt: str) -> GitHubInstallationAccessToken:
         response = self._post_json(
@@ -243,6 +342,9 @@ class GitHubWatchdogAppReadClient:
         return _response_json_object(response)
 
     def _get_json(self, url: str, *, token: str) -> Mapping[str, object]:
+        return _response_json_object(self._get_response(url, token=token))
+
+    def _get_response(self, url: str, *, token: str) -> Any:
         try:
             response = self._session.get(
                 url,
@@ -277,7 +379,7 @@ class GitHubWatchdogAppReadClient:
             raise WatchdogGitHubAppError(
                 WatchdogGitHubAppErrorCode.GITHUB_API_REQUEST_REJECTED
             )
-        return _response_json_object(response)
+        return response
 
 
 def _configured_app_identity(settings: Any) -> tuple[str, str]:
@@ -372,6 +474,20 @@ def _response_json_object(response: Any) -> Mapping[str, object]:
     return payload
 
 
+def _response_json_array(response: Any) -> list[object]:
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise WatchdogGitHubAppError(
+            WatchdogGitHubAppErrorCode.MALFORMED_GITHUB_RESPONSE
+        ) from exc
+    if not isinstance(payload, list):
+        raise WatchdogGitHubAppError(
+            WatchdogGitHubAppErrorCode.MALFORMED_GITHUB_RESPONSE
+        )
+    return payload
+
+
 def _normalize_pull_request_metadata(
     payload: Mapping[str, object],
     *,
@@ -406,6 +522,7 @@ def _normalize_pull_request_metadata(
         repository_full_name=repository_full_name,
         pull_request_number=pull_request_number,
         title=_required_response_text(payload.get("title")),
+        body=_optional_raw_response_text(payload.get("body")),
         state=_required_response_text(payload.get("state")),
         base_sha=_required_response_text(base.get("sha")),
         head_sha=_required_response_text(head.get("sha")),
@@ -446,6 +563,16 @@ def _optional_response_text(value: object) -> str | None:
     return _required_response_text(value)
 
 
+def _optional_raw_response_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise WatchdogGitHubAppError(
+            WatchdogGitHubAppErrorCode.MALFORMED_GITHUB_RESPONSE
+        )
+    return value
+
+
 def _required_response_identifier(value: object) -> str:
     normalized = _optional_response_identifier(value)
     if normalized is None:
@@ -471,6 +598,38 @@ def _required_positive_int(value: object) -> int:
             WatchdogGitHubAppErrorCode.MALFORMED_GITHUB_RESPONSE
         )
     return value
+
+
+def _required_nonnegative_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise WatchdogGitHubAppError(
+            WatchdogGitHubAppErrorCode.MALFORMED_GITHUB_RESPONSE
+        )
+    return value
+
+
+def _normalize_pull_request_file(value: object) -> GitHubPullRequestFile:
+    payload = _object(value)
+    return GitHubPullRequestFile(
+        filename=_required_response_text(payload.get("filename")),
+        previous_filename=_optional_response_text(payload.get("previous_filename")),
+        status=_required_response_text(payload.get("status")),
+        additions=_required_nonnegative_int(payload.get("additions")),
+        deletions=_required_nonnegative_int(payload.get("deletions")),
+        changes=_required_nonnegative_int(payload.get("changes")),
+        patch=_optional_raw_response_text(payload.get("patch")),
+    )
+
+
+def _patch_byte_count(patch: str | None) -> int:
+    return len(patch.encode("utf-8")) if patch is not None else 0
+
+
+def _has_next_page(response: Any) -> bool:
+    link_header = _response_header(response, "Link")
+    if not link_header:
+        return False
+    return any('rel="next"' in section for section in link_header.split(","))
 
 
 def _parse_github_expiration(value: object) -> datetime:
@@ -503,6 +662,8 @@ def _utcnow() -> datetime:
 __all__ = [
     "GITHUB_API_ROOT",
     "GitHubPullRequestMetadata",
+    "GitHubPullRequestFile",
+    "GitHubPullRequestFilesResult",
     "GitHubWatchdogAppReadClient",
     "WatchdogPullRequestHeadState",
     "WatchdogPullRequestHeadValidation",

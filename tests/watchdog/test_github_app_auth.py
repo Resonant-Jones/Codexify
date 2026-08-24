@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from guardian.watchdog.contracts import (
     WatchdogGitHubAppError,
     WatchdogGitHubAppErrorCode,
+    WatchdogReviewInputCaptureErrorCode,
 )
 from guardian.watchdog.github_app import (
     GITHUB_API_VERSION,
@@ -122,6 +123,7 @@ def _pull_request_response(*, head_sha: str = "a" * 40) -> FakeResponse:
         payload={
             "number": 17,
             "title": "Watchdog boundary",
+            "body": "Bounded review source.",
             "state": "open",
             "draft": False,
             "user": {"id": 7, "login": "octocat"},
@@ -252,6 +254,7 @@ def test_installation_exchange_and_pr_read_use_separate_ephemeral_credentials(
     assert pull_request.repository_full_name == "octo/example"
     assert pull_request.pull_request_number == 17
     assert pull_request.title == "Watchdog boundary"
+    assert pull_request.body == "Bounded review source."
     assert pull_request.state == "open"
     assert pull_request.base_sha == "b" * 40
     assert pull_request.head_sha == "a" * 40
@@ -372,7 +375,7 @@ def test_egress_gate_blocks_before_credentials_or_network(
     assert session.calls == []
 
 
-def test_repository_facing_client_exposes_only_get_pull_request(
+def test_repository_facing_client_exposes_only_bounded_read_methods(
     app_private_key: str,
 ) -> None:
     client = _client(
@@ -384,4 +387,112 @@ def test_repository_facing_client_exposes_only_get_pull_request(
         name for name in dir(client) if not name.startswith("_") and callable(getattr(client, name))
     }
 
-    assert public_callables == {"get_pull_request"}
+    assert public_callables == {"get_pull_request", "get_pull_request_files"}
+
+
+def test_changed_file_reads_paginate_and_normalize_metadata(
+    app_private_key: str,
+) -> None:
+    session = RecordingSession(
+        post_responses=[_installation_token_response()],
+        get_responses=[
+            FakeResponse(
+                status_code=200,
+                payload=[
+                    {
+                        "filename": "src/a.py",
+                        "status": "modified",
+                        "additions": 3,
+                        "deletions": 1,
+                        "changes": 4,
+                        "patch": "@@ -1 +1 @@\n-old\n+new\n",
+                    }
+                ],
+                headers={"Link": '<https://api.github.com/page=2>; rel="next"'},
+            ),
+            FakeResponse(
+                status_code=200,
+                payload=[
+                    {
+                        "filename": "assets/logo.png",
+                        "status": "added",
+                        "additions": 0,
+                        "deletions": 0,
+                        "changes": 0,
+                        "patch": None,
+                    }
+                ],
+            ),
+        ],
+    )
+    client = _client(
+        settings=_settings(CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY=app_private_key),
+        session=session,
+    )
+
+    files = client.get_pull_request_files("octo/example", 17)
+
+    assert files.limit_error_code is None
+    assert files.changed_file_count == 2
+    assert files.files_without_patch_count == 1
+    assert files.files[0].filename == "src/a.py"
+    assert files.files[0].patch == "@@ -1 +1 @@\n-old\n+new\n"
+    assert files.files[1].previous_filename is None
+    assert files.files[1].patch is None
+    get_calls = [call for call in session.calls if call["method"] == "GET"]
+    assert [call["url"].endswith(f"page={page}") for page, call in enumerate(get_calls, 1)] == [
+        True,
+        True,
+    ]
+    assert all(
+        call["headers"]["Authorization"] == f"Bearer {INSTALLATION_TOKEN}"
+        for call in get_calls
+    )
+
+
+def test_changed_file_limit_is_explicit_not_silent(
+    app_private_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from guardian.watchdog import github_app
+
+    monkeypatch.setattr(github_app, "WATCHDOG_REVIEW_INPUT_MAX_CHANGED_FILES", 1)
+    session = RecordingSession(
+        post_responses=[_installation_token_response()],
+        get_responses=[
+            FakeResponse(
+                status_code=200,
+                payload=[
+                    {
+                        "filename": "src/a.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "one",
+                    },
+                    {
+                        "filename": "src/b.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "two",
+                    },
+                ],
+            )
+        ],
+    )
+    client = _client(
+        settings=_settings(CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY=app_private_key),
+        session=session,
+    )
+
+    files = client.get_pull_request_files("octo/example", 17)
+
+    assert (
+        files.limit_error_code
+        is WatchdogReviewInputCaptureErrorCode.CAPTURE_FILE_LIMIT_EXCEEDED
+    )
+    assert files.changed_file_count == 2
+    assert len(files.files) == 1

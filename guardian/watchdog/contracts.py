@@ -84,6 +84,47 @@ class WatchdogPolicyBlockReason(str, Enum):
     HEAD_SHA_MISSING = "head_sha_missing"
 
 
+class WatchdogReviewInputSnapshotState(str, Enum):
+    """Terminal capture truth for a Watchdog review-input snapshot."""
+
+    CAPTURED = "captured"
+    BLOCKED_STALE = "blocked_stale"
+    BLOCKED_LIMITS = "blocked_limits"
+
+
+class WatchdogReviewInputCaptureErrorCode(str, Enum):
+    """Bounded errors for immutable Watchdog review-input capture."""
+
+    ATTEMPT_NOT_FOUND = "attempt_not_found"
+    ATTEMPT_NOT_ELIGIBLE = "attempt_not_eligible"
+    ATTEMPT_SUPERSEDED = "attempt_superseded"
+    INSTALLATION_ID_MISSING = "installation_id_missing"
+    REPOSITORY_IDENTITY_MISSING = "repository_identity_missing"
+    PULL_REQUEST_IDENTITY_MISSING = "pull_request_identity_missing"
+    EXPECTED_HEAD_MISSING = "expected_head_missing"
+    LIVE_HEAD_MISMATCH = "live_head_mismatch"
+    SOURCE_CHANGED_DURING_CAPTURE = "source_changed_during_capture"
+    CAPTURE_FILE_LIMIT_EXCEEDED = "capture_file_limit_exceeded"
+    CAPTURE_PATCH_BYTE_LIMIT_EXCEEDED = "capture_patch_byte_limit_exceeded"
+    GITHUB_READ_FAILURE = "github_read_failure"
+    MALFORMED_GITHUB_RESPONSE = "malformed_github_response"
+    SNAPSHOT_PERSISTENCE_FAILED = "snapshot_persistence_failed"
+
+
+class WatchdogReviewInputCaptureError(RuntimeError):
+    """A sanitized capture error; retryability never creates implicit retries."""
+
+    def __init__(
+        self,
+        code: WatchdogReviewInputCaptureErrorCode,
+        *,
+        retryable: bool = False,
+    ) -> None:
+        self.code = code
+        self.retryable = retryable
+        super().__init__(code.value)
+
+
 class WatchdogGitHubAppErrorCode(str, Enum):
     """Bounded failures for the GitHub App read-authentication boundary."""
 
@@ -146,6 +187,17 @@ WATCHDOG_MODEL_SELECTION_SOURCES = frozenset(
 WATCHDOG_POLICY_BLOCK_REASONS = frozenset(
     reason.value for reason in WatchdogPolicyBlockReason
 )
+WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES = frozenset(
+    state.value for state in WatchdogReviewInputSnapshotState
+)
+WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES = frozenset(
+    code.value for code in WatchdogReviewInputCaptureErrorCode
+)
+
+# Model-neutral v1 source-evidence bounds. A capture either contains the whole
+# bounded PR file set or is terminally blocked; it never claims partial input.
+WATCHDOG_REVIEW_INPUT_MAX_CHANGED_FILES = 300
+WATCHDOG_REVIEW_INPUT_MAX_PATCH_BYTES = 1_000_000
 
 
 class GitHubWebhookPayloadError(ValueError):
