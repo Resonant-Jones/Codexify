@@ -180,3 +180,67 @@ docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /pri
 queue-to-model result was proven. The first BLOCKED observation above remains
 unchanged and the configured-policy observation does not alter Beta or support
 posture.
+
+## Third qualification — BLOCKED: canonical Watchdog qualification model is not advertised by current Whoosh'd inventory
+
+### Receipt
+
+- **Observed at:** `2026-08-24T15:39:21Z`
+- **Branch / source commit:** `codex/define-github-watchdog-control-plane` / `9cf9795a63c8c8d4abfecc200ac24988a2b65113`
+- **Prerequisite ancestry:** `9cf9795a63c8c8d4abfecc200ac24988a2b65113`, `52c07cec672bdd87b409d6cf8b9481e2bb231924`, and `c0cef2be3c6c9c72883e490274d7d78cb6c73a51` are all ancestors of the source commit.
+- **Compose project:** `codexify-watchdog-proof-20260824`.
+- **Required canonical Watchdog model:** `qwen3.8-27b-4bit`.
+- **Result:** **BLOCKED** — canonical Watchdog qualification model is not advertised by current Whoosh'd inventory.
+
+### Live inventory gate
+
+The live canonical local inventory query completed through the worker's
+configured Whoosh'd endpoint:
+
+| Field | Observed value |
+| --- | --- |
+| Inventory state | `available` |
+| Inventory source | `whooshd:/v1/models` |
+| Inventory URL | `http://host.docker.internal:8000/v1/models` |
+| Advertised model IDs | `gemma-4-12b-it-qat-4bit` |
+| `qwen3.8-27b-4bit` advertised | `false` |
+
+The exact canonical Qwen ID is absent. Per the inventory fail-closed rule, no
+alternate model was selected and the existing Llama proof override was not
+changed. No Whoosh'd model was installed, downloaded, loaded, restarted, or
+reconfigured.
+
+### Safe stop
+
+The qualification stopped at live inventory membership, before binding an
+explicit Qwen Watchdog policy. Ambient `LLM_PROVIDER` and `LOCAL_CHAT_MODEL`
+were not changed and did not provide Watchdog authority. No receipt,
+policy-resolved attempt, immutable snapshot, dispatch, Redis envelope, worker
+dequeue, provider invocation, prompt, raw output, or result lineage was
+created. Therefore no fallback, escalation, retry, GitHub I/O, Command Bus,
+Build Loop, mutation, or publication occurred.
+
+The repository migration declaration remains at `6e9f0a1b2c3 (head)`.
+The isolated proof database was observed stopped during this preflight, but it
+was not restarted or otherwise repaired because the independent model-inventory
+gate had already failed.
+
+### Validation
+
+```text
+git status --short --branch
+git rev-parse HEAD
+git merge-base --is-ancestor 9cf9795a63c8c8d4abfecc200ac24988a2b65113 HEAD
+git merge-base --is-ancestor 52c07cec672bdd87b409d6cf8b9481e2bb231924 HEAD
+git merge-base --is-ancestor c0cef2be3c6c9c72883e490274d7d78cb6c73a51 HEAD
+.venv/bin/python -m alembic -c backend/alembic.ini heads
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml --profile watchdog ps -a
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml --profile watchdog exec -T worker-watchdog-review python -c "... discover_local_model_inventory(get_settings(), timeout_seconds=5) ..."
+```
+
+The inventory command returned `target_available=false` for the only accepted
+qualification ID. The proof did not continue to Compose restart, policy
+binding, capture, dispatch, or execution validation. As with the prior two
+BLOCKED observations, `docs/architecture/github-watchdog-control-plane.md` and
+`docs/architecture/00-current-state.md` remain unchanged: no queue-to-model
+path is live-proven and the Watchdog Beta/support posture is unchanged.
