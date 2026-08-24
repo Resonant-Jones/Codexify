@@ -18,15 +18,15 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-24T09:00:37Z",
-    "verified_commit": "e3044932bc70c57e5b8445559f24d2dd4066105c",
+    "verified_at": "2026-08-24T10:47:32Z",
+    "verified_commit": "c4e2708655e1b1581eb480e1c42aa7803389ef21",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "window_days": 7,
-    "reason": "Internal current-state linkage for implemented input-bundle dry-run loader contract was reverified; source hash synchronized; diagnostics-only authority unchanged; release posture unchanged; no live-runtime proof implied."
+    "reason": "Current-state was reverified after integrating PR #744/#745; latest NX-1 evidence clears the historical MemoryStore import failure; template alignment is merged but not live-rerun; WBC Guardian Evidence Internal classifications were preserved; release posture did not widen."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -73,7 +73,7 @@
     "created_at": "2026-03-11T13:30:22Z",
     "effective_from": "2026-08-08T00:00:00Z"
   },
-  "content_hash": "a46db74e23f23483ab966ede9eeafb2cabc863f2ce01e6307f663602cf7b7af8",
+  "content_hash": "ee92b193d9f8d829d1c3f1f14368348e1ff4a0fd73714dd3f93005322139bda7",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }

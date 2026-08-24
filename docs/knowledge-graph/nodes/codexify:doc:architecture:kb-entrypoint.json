@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-24T09:00:37Z",
-    "verified_commit": "e3044932bc70c57e5b8445559f24d2dd4066105c",
+    "verified_at": "2026-08-24T10:47:32Z",
+    "verified_commit": "c4e2708655e1b1581eb480e1c42aa7803389ef21",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "KB routing reverified after current-state loader-contract linkage; no release routing changed."
+    "reason": "KB routing was reverified after current-state/current-main convergence; no release-routing semantics changed."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
