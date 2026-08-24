@@ -144,6 +144,7 @@ async def _wait_for_terminal_event(
     return events
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_rag_integration_memory_loop(monkeypatch):
     """POST message -> embed queue -> completion queue -> worker completion -> retrieval output."""
