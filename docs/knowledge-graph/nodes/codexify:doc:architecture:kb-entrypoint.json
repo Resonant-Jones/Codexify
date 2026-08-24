@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-24T10:47:32Z",
-    "verified_commit": "c4e2708655e1b1581eb480e1c42aa7803389ef21",
+    "verified_at": "2026-08-24T13:06:45Z",
+    "verified_commit": "ce389e6bc31ba4e7ceb1cd6207328e85fe06e939",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "KB routing was reverified after current-state/current-main convergence; no release-routing semantics changed."
+    "reason": "KB routing was reverified after current-state static input-bundle authoring-aid linkage; README bytes did not change; no release routing changed."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
