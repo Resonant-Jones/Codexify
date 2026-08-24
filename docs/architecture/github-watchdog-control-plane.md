@@ -8,14 +8,15 @@ The implemented preparation boundary provides exact raw-body HMAC
 authentication, normalized bounded metadata, durable Postgres delivery
 receipt/idempotency handling, and one receipt-bound automatic review attempt
 for each accepted automatic PR-review delivery. Each attempt binds the receipt
-head SHA to an immutable system-default policy snapshot and records either
-`prepared` or a bounded policy block. A newer `pull_request.synchronize` head
-supersedes older prepared attempts for the same repository and PR.
+head SHA to an immutable system-default policy snapshot and initially records
+either `prepared` or a bounded policy block. A newer
+`pull_request.synchronize` head supersedes older prepared or running attempts
+for the same repository and PR.
 
 Repository and installation/account policy persistence, invocation overrides,
-comment-command parsing, model invocation, Redis queueing, model-response
-parsing, GitHub Check Runs or PR review comments, Build Loop mutation dispatch,
-auto-fix, and merge authority remain deferred.
+comment-command parsing, automatic Redis queue/worker invocation, GitHub Check
+Runs or PR review comments, Build Loop mutation dispatch, auto-fix, and merge
+authority remain deferred.
 
 The Watchdog extends rather than replaces [ADR-050](./adr/050-event-driven-campaign-control-plane.md).
 ADR-050 remains the GitHub-native deterministic, read-only, dry-run Campaign
@@ -39,7 +40,7 @@ returned through a route.
 
 This is an operator-configured bridge, not a second Connections credential
 truth. It honors the existing egress gate and exposes no GitHub write methods.
-It is not invoked from webhook intake or any Watchdog runtime yet.
+It is not invoked from webhook intake or the captured-review execution service.
 
 The client itself remains uncoupled from runtime invocation, queues, model
 execution, GitHub Check publication, PR comments or reviews, and Build Loop
@@ -67,10 +68,59 @@ bounded observed facts and no silently truncated captured content. Postgres
 enforces one terminal snapshot record per review attempt; repeated callers
 converge on that immutable record.
 
-Still deferred: automatic queue or worker capture, model invocation, review
-prompt construction, structured model results, GitHub Check publication, PR
-comments or reviews, command parsing, Build Loop dispatch, mutation, and merge
-authority. No snapshot capture is wired into webhook intake.
+Still deferred: automatic queue or worker capture, GitHub Check publication,
+PR comments or reviews, command parsing, Build Loop dispatch, mutation, and
+merge authority. No snapshot capture is wired into webhook intake.
+
+## Implemented captured-review execution
+
+A separate callable service can now execute one eligible captured review attempt
+without entering the ordinary chat-completion service. It first commits the
+single Postgres-backed result claim and changes the attempt from `prepared` to
+`running`; only then can it invoke the canonical `chat_with_ai` inference
+boundary. A unique result row per attempt prevents a concurrent caller from
+spending inference and returns the already-durable execution state instead. If
+a process dies after that claim, the durable `running` state is deliberately
+left unrecovered: automatic reclaim/retry could double-spend an uncertain
+upstream invocation and is deferred.
+
+The executor consumes only the captured snapshot and the attempt's immutable
+provider, model, and inference-mode policy snapshot. Before inference it
+re-enforces current provider governance, local-only, cloud-enable, credential,
+and canonical egress controls. A newly disallowed choice becomes
+`blocked_runtime_policy`; it is not rerouted, retried, escalated, or replaced
+with an ambient chat model. The strict router invocation preserves the exact
+provider/model, sends no tools, uses temperature zero, and sets a 4096-token
+output ceiling. No fallback, repair call, second model, or escalation model is
+used.
+
+`github-watchdog-review-v1` deterministically binds the immutable snapshot ID
+and digest, review operation, and v1 review schema into the exact submitted
+messages. The system instruction treats PR title/body, filenames, patches, and
+code as untrusted evidence rather than instructions; snapshot content appears
+only in the user/evidence message. The result stores the prompt version/digest,
+snapshot digest, requested and invoked provider/model, inference mode, bounded
+raw-output digest/byte count, trustworthy provider usage/request metadata when
+available, and a strict provider-neutral JSON result when valid. Raw output is
+limited to 131072 UTF-8 bytes; oversized or malformed responses terminally
+become `failed_output_contract` without a repair call.
+
+The v1 result has only `no_findings` or `findings` assessments, up to 50
+bounded findings, canonical severity/category values, nullable positive line
+numbers, confidence from 0.0 through 1.0, and file paths limited to files in
+the captured snapshot. No GitHub approval/request-changes or publication token
+exists in this result contract.
+
+Newer `pull_request.synchronize` receipts can now supersede both `prepared`
+and `running` older attempts. The executor does not cancel upstream HTTP. If a
+running model call returns after supersession, it stores the response evidence
+as `discarded_superseded`, preserves the attempt's `superseded` state, and
+makes the result permanently non-current for any future publication path.
+
+Still deferred: automatic queue/worker execution, stale-running recovery,
+retry/rerun, escalation execution, GitHub Check publication, PR review/comment
+publication, command parsing, Build Loop dispatch, mutation, and merge
+authority. Nothing in this callable seam publishes to GitHub.
 
 ## Canonical topology and authority
 
@@ -294,7 +344,7 @@ accepted automatic PR event missing its head SHA persists a `blocked_policy`
 attempt rather than a runnable-looking attempt. When a
 `pull_request.synchronize` provides a newer head:
 
-- older `prepared` automatic-review attempts for that repository and PR are
+- older `prepared` or `running` automatic-review attempts for that repository and PR are
   marked `superseded` and point to the new attempt;
 - their original policy snapshots remain unchanged; and
 - blocked-policy history is preserved rather than rewritten.
@@ -399,19 +449,21 @@ truths.
 
 ### Tokens
 
-The implemented slices define bounded intake, GitHub App, and review-input
-capture error codes; event/action tuples; Watchdog operation, attempt,
-snapshot-capture, policy-resolution, model-selection-source, escalation-mode,
-and policy-block vocabularies. Execution, review conclusion, publication, and
-worker-retry tokens remain deferred until their owning runtime slices exist.
+The implemented slices define bounded intake, GitHub App, review-input capture,
+and review-execution/result error codes; event/action tuples; Watchdog
+operation, attempt, snapshot-capture, review-result, policy-resolution,
+model-selection-source, escalation-mode, and policy-block vocabularies.
+Publication and worker-retry tokens remain deferred until their owning runtime
+slices exist.
 
 ## Release and implementation boundary
 
 This contract does not alter `00-current-state.md`, supported-profile claims,
 or Beta posture. The implemented boundary is limited to HMAC verification,
 bounded metadata normalization, durable Postgres receipt/idempotency, local
-policy evaluation, GitHub App read authentication, and callable immutable
-review-input capture. It does not establish model or dispatch behavior:
+policy evaluation, GitHub App read authentication, callable immutable
+review-input capture, and callable one-attempt model review/result persistence.
+It does not establish dispatch or publication behavior:
 
 - webhook receipt is not model-review completion;
 - model-review completion is not mutation completion;
@@ -419,17 +471,19 @@ review-input capture. It does not establish model or dispatch behavior:
 - GitHub publication is not live-runtime or release proof.
 
 No GitHub App registration, worker, Redis queue, OAuth/install flow,
-credential storage, provider call, model call, coding-worker dispatch, PR
-comment, Check Run, branch mutation, commit, push, merge, auto-fix,
+credential storage, coding-worker dispatch, PR comment, Check Run, branch
+mutation, commit, push, merge, auto-fix,
 auto-merge, Settings UI, Connections implementation, or provider-registry
 change is introduced by this slice.
 
 ## Current implementation boundary
 
-The webhook path ends after an authenticated automatic PR webhook has a durable
-receipt and one durable review attempt with a resolved or blocked immutable
-policy snapshot. Separately, a later caller may capture a complete bounded
-review-input snapshot for an eligible prepared attempt; capture is neither
-wired to webhook intake nor queued. `prepared` means policy resolved and a
-durable attempt exists; it does not mean queued, dispatched, running, reviewed,
-or published. No model or provider API is invoked.
+The webhook path still ends after an authenticated automatic PR webhook has a
+durable receipt and one durable review attempt with a resolved or blocked
+immutable policy snapshot. Separately, a later caller may capture a complete
+bounded review-input snapshot and explicitly invoke the one-attempt execution
+service; neither capture nor execution is wired to webhook intake or queued.
+`prepared` means policy resolved and a durable attempt exists; it does not mean
+queued or dispatched. A successful explicit execution is advisory evidence,
+not GitHub publication, mutation, merge approval, live-runtime proof, or
+release support.

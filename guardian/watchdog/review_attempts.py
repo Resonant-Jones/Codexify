@@ -171,7 +171,7 @@ class GitHubWatchdogReviewAttemptPreparer:
                         ) from exc
                     return self._result(existing)
 
-                self._supersede_older_prepared_attempts(
+                self._supersede_older_nonterminal_attempts(
                     session, receipt=receipt, replacement=row, now=now
                 )
                 try:
@@ -224,7 +224,7 @@ class GitHubWatchdogReviewAttemptPreparer:
         )
 
     @staticmethod
-    def _supersede_older_prepared_attempts(
+    def _supersede_older_nonterminal_attempts(
         session: Session,
         *,
         receipt: GitHubWatchdogDeliveryReceipt,
@@ -246,8 +246,12 @@ class GitHubWatchdogReviewAttemptPreparer:
                 == receipt.pull_request_number,
                 GitHubWatchdogReviewAttempt.operation
                 == WatchdogOperation.AUTOMATED_REVIEW.value,
-                GitHubWatchdogReviewAttempt.attempt_state
-                == WatchdogReviewAttemptState.PREPARED.value,
+                GitHubWatchdogReviewAttempt.attempt_state.in_(
+                    (
+                        WatchdogReviewAttemptState.PREPARED.value,
+                        WatchdogReviewAttemptState.RUNNING.value,
+                    )
+                ),
                 GitHubWatchdogReviewAttempt.head_sha != receipt.head_sha,
             )
             .with_for_update()

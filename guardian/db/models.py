@@ -88,8 +88,10 @@ from guardian.watchdog.contracts import (
     WATCHDOG_POLICY_BLOCK_REASONS,
     WATCHDOG_POLICY_RESOLUTION_STATES,
     WATCHDOG_REVIEW_ATTEMPT_STATES,
+    WATCHDOG_REVIEW_EXECUTION_ERROR_CODES,
     WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES,
     WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES,
+    WATCHDOG_REVIEW_RESULT_STATES,
     WatchdogOperation,
 )
 
@@ -265,6 +267,19 @@ WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL = "','".join(
 WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_CHECK = (
     "block_error_code IS NULL OR block_error_code IN "
     f"('{WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_RESULT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_RESULT_STATES)
+)
+WATCHDOG_REVIEW_RESULT_STATE_CHECK = (
+    "result_state IN " f"('{WATCHDOG_REVIEW_RESULT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_EXECUTION_ERROR_CODES)
+)
+WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_CHECK = (
+    "terminal_error_code IS NULL OR terminal_error_code IN "
+    f"('{WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
@@ -2298,6 +2313,79 @@ class GitHubWatchdogReviewInputSnapshot(Base):
         Index(
             "ix_github_watchdog_review_input_snapshots_capture_state",
             "capture_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewResult(Base):
+    """One immutable model-execution record for a Watchdog review attempt."""
+
+    __tablename__ = "github_watchdog_review_results"
+
+    result_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    review_input_snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_input_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoked_provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoked_model_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    inference_mode: Mapped[str | None] = mapped_column(String(64))
+    requested_max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_output_text: Mapped[str | None] = mapped_column(Text)
+    raw_output_sha256: Mapped[str | None] = mapped_column(String(64))
+    raw_output_bytes: Mapped[int | None] = mapped_column(Integer)
+    structured_review_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+    provider_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_total_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128))
+    terminal_error_code: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_results_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_RESULT_STATE_CHECK,
+            name="ck_github_watchdog_review_results_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_results_terminal_error_code",
+        ),
+        CheckConstraint(
+            "(result_state = 'running' AND completed_at IS NULL) OR "
+            "(result_state != 'running' AND completed_at IS NOT NULL)",
+            name="ck_github_watchdog_review_results_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_results_state",
+            "result_state",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}

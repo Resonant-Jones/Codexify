@@ -47,6 +47,10 @@ class WatchdogReviewAttemptState(str, Enum):
     """Durable lifecycle states implemented by the review-preparation slice."""
 
     PREPARED = "prepared"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BLOCKED_RUNTIME_POLICY = "blocked_runtime_policy"
     BLOCKED_POLICY = "blocked_policy"
     SUPERSEDED = "superseded"
 
@@ -109,6 +113,55 @@ class WatchdogReviewInputCaptureErrorCode(str, Enum):
     GITHUB_READ_FAILURE = "github_read_failure"
     MALFORMED_GITHUB_RESPONSE = "malformed_github_response"
     SNAPSHOT_PERSISTENCE_FAILED = "snapshot_persistence_failed"
+
+
+class WatchdogReviewResultState(str, Enum):
+    """Durable execution truth for one immutable Watchdog review attempt."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    BLOCKED_RUNTIME_POLICY = "blocked_runtime_policy"
+    FAILED_PROVIDER = "failed_provider"
+    FAILED_OUTPUT_CONTRACT = "failed_output_contract"
+    DISCARDED_SUPERSEDED = "discarded_superseded"
+
+
+class WatchdogReviewExecutionErrorCode(str, Enum):
+    """Bounded execution errors that never expose provider or GitHub secrets."""
+
+    ATTEMPT_NOT_FOUND = "attempt_not_found"
+    ATTEMPT_NOT_ELIGIBLE = "attempt_not_eligible"
+    ATTEMPT_SUPERSEDED = "attempt_superseded"
+    SNAPSHOT_MISSING = "snapshot_missing"
+    SNAPSHOT_NOT_CAPTURED = "snapshot_not_captured"
+    SNAPSHOT_IDENTITY_MISMATCH = "snapshot_identity_mismatch"
+    SNAPSHOT_DIGEST_MISSING = "snapshot_digest_missing"
+    PROVIDER_OR_MODEL_MISSING = "provider_or_model_missing"
+    RUNTIME_PROVIDER_UNKNOWN = "runtime_provider_unknown"
+    RUNTIME_PROVIDER_GOVERNANCE_DISABLED = "runtime_provider_governance_disabled"
+    RUNTIME_LOCAL_ONLY_BLOCKED = "runtime_local_only_blocked"
+    RUNTIME_CLOUD_DISABLED = "runtime_cloud_disabled"
+    RUNTIME_EGRESS_DENIED = "runtime_egress_denied"
+    RUNTIME_CREDENTIALS_UNAVAILABLE = "runtime_credentials_unavailable"
+    PROVIDER_AUTHENTICATION_FAILED = "provider_authentication_failed"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    PROVIDER_TIMEOUT = "provider_timeout"
+    PROVIDER_RATE_LIMITED = "provider_rate_limited"
+    PROVIDER_TRANSPORT_FAILED = "provider_transport_failed"
+    PROVIDER_FAILED = "provider_failed"
+    EMPTY_RESPONSE = "empty_response"
+    RAW_OUTPUT_LIMIT_EXCEEDED = "raw_output_limit_exceeded"
+    OUTPUT_NOT_JSON = "output_not_json"
+    OUTPUT_SCHEMA_INVALID = "output_schema_invalid"
+    RESULT_PERSISTENCE_FAILED = "result_persistence_failed"
+
+
+class WatchdogReviewExecutionError(RuntimeError):
+    """A bounded execution error; this service never schedules a retry."""
+
+    def __init__(self, code: WatchdogReviewExecutionErrorCode) -> None:
+        self.code = code
+        super().__init__(code.value)
 
 
 class WatchdogReviewInputCaptureError(RuntimeError):
@@ -193,11 +246,29 @@ WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES = frozenset(
 WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES = frozenset(
     code.value for code in WatchdogReviewInputCaptureErrorCode
 )
+WATCHDOG_REVIEW_RESULT_STATES = frozenset(
+    state.value for state in WatchdogReviewResultState
+)
+WATCHDOG_REVIEW_EXECUTION_ERROR_CODES = frozenset(
+    code.value for code in WatchdogReviewExecutionErrorCode
+)
 
 # Model-neutral v1 source-evidence bounds. A capture either contains the whole
 # bounded PR file set or is terminally blocked; it never claims partial input.
 WATCHDOG_REVIEW_INPUT_MAX_CHANGED_FILES = 300
 WATCHDOG_REVIEW_INPUT_MAX_PATCH_BYTES = 1_000_000
+
+# The execution service owns a separate, bounded result vocabulary. These
+# values are deliberately model/provider neutral and do not imply a provider
+# structured-output feature.
+WATCHDOG_REVIEW_PROMPT_VERSION = "github-watchdog-review-v1"
+WATCHDOG_REVIEW_RESULT_SCHEMA_VERSION = "github-watchdog-review-result-v1"
+WATCHDOG_REVIEW_MAX_OUTPUT_TOKENS = 4096
+WATCHDOG_REVIEW_MAX_RAW_OUTPUT_BYTES = 131_072
+WATCHDOG_REVIEW_MAX_FINDINGS = 50
+WATCHDOG_REVIEW_MAX_SUMMARY_CHARS = 4_000
+WATCHDOG_REVIEW_MAX_FINDING_TITLE_CHARS = 240
+WATCHDOG_REVIEW_MAX_FINDING_BODY_CHARS = 8_000
 
 
 class GitHubWebhookPayloadError(ValueError):

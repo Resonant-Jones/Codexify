@@ -288,6 +288,38 @@ def test_new_synchronize_head_supersedes_older_prepared_attempt(
     assert new_attempt.head_sha == "b" * 40
 
 
+def test_new_synchronize_head_supersedes_older_running_attempt(
+    harness: AttemptHarness,
+) -> None:
+    opened_receipt = harness.persist_receipt(delivery_id="delivery-opened")
+    first = harness.preparer.prepare_from_receipt(
+        trigger_receipt_id=opened_receipt,
+        settings=_settings(),
+    )
+    with harness.Session() as session:
+        attempt = session.get(GitHubWatchdogReviewAttempt, first.review_attempt_id)
+        assert attempt is not None
+        attempt.attempt_state = "running"
+        session.commit()
+
+    sync_receipt = harness.persist_receipt(
+        delivery_id="delivery-synchronize",
+        action="synchronize",
+        head_sha="b" * 40,
+    )
+    second = harness.preparer.prepare_from_receipt(
+        trigger_receipt_id=sync_receipt,
+        settings=_settings(),
+    )
+
+    attempts = harness.attempts()
+    old_attempt = next(
+        item for item in attempts if item.review_attempt_id == first.review_attempt_id
+    )
+    assert old_attempt.attempt_state == "superseded"
+    assert old_attempt.superseded_by_attempt_id == second.review_attempt_id
+
+
 def test_same_head_distinct_delivery_creates_a_distinct_attempt(
     harness: AttemptHarness,
 ) -> None:

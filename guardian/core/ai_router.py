@@ -1827,12 +1827,15 @@ def chat_with_ai(
     provider: Optional[str] = None,
     reasoning_mode: Optional[str] = None,
     temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
     request_id: str | None = None,
     task_id: str | None = None,
     attempt_id: str | None = None,
+    strict_provider_model: bool = False,
+    strict_single_request: bool = False,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1859,7 +1862,9 @@ def chat_with_ai(
                 status_code=400,
                 detail=local_model_resolution.error_detail(),
             )
-        if local_model_resolution.strict or model is None:
+        if not strict_provider_model and (
+            local_model_resolution.strict or model is None
+        ):
             target_model = local_model_resolution.model
 
     if not target_model:
@@ -1915,11 +1920,14 @@ def chat_with_ai(
                 {
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "tools": tools,
                     "settings": settings,
                     "request_id": request_id,
                     "task_id": task_id,
                     "attempt_id": attempt_id,
+                    "strict_provider_model": strict_provider_model,
+                    "strict_single_request": strict_single_request,
                 },
             ),
         )
@@ -1931,6 +1939,7 @@ def chat_with_ai(
                 call_groq,
                 {
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "settings": settings,
                 },
             ),
@@ -1938,11 +1947,16 @@ def chat_with_ai(
     if provider_name == "openai":
         return call_openai(
             messages,
-            _normalize_openai_model(target_model, settings),
+            (
+                target_model
+                if strict_provider_model
+                else _normalize_openai_model(target_model, settings)
+            ),
             **_filter_callable_kwargs(
                 call_openai,
                 {
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "settings": settings,
                 },
             ),
@@ -1956,6 +1970,7 @@ def chat_with_ai(
                 {
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "tools": tools,
                     "settings": settings,
                 },
@@ -1969,6 +1984,7 @@ def chat_with_ai(
                 call_alibaba,
                 {
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "settings": settings,
                 },
             ),
@@ -1982,6 +1998,7 @@ def chat_with_ai(
                 {
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "prompt_meta": prompt_meta,
                     "settings": settings,
                 },
@@ -2492,6 +2509,8 @@ def call_local(
     request_id: str | None = None,
     task_id: str | None = None,
     attempt_id: str | None = None,
+    strict_provider_model: bool = False,
+    strict_single_request: bool = False,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2503,7 +2522,8 @@ def call_local(
             status_code=400,
             detail=local_model_resolution.error_detail(),
         )
-    model = local_model_resolution.model or model
+    if not strict_provider_model:
+        model = local_model_resolution.model or model
     try:
         structured_transport = prepare_structured_transport(
             provider_vendor=getattr(settings, "LOCAL_PROVIDER_VENDOR", None),
@@ -2569,6 +2589,8 @@ def call_local(
         payload["threadwake_segments"] = tw_segments
 
     base_urls = _resolve_local_base_candidates(settings)
+    if strict_single_request:
+        base_urls = base_urls[:1]
 
     # Routing policy:
     # - If LOCAL_BASE_URL ends with /v1, treat it as an OpenAI-compatible gateway.
@@ -2604,9 +2626,13 @@ def call_local(
         attempt_urls = _local_attempt_urls(
             base_url,
             compat_first=compat_first,
-            enable_generate_fallback=enable_generate_fallback,
+            enable_generate_fallback=(
+                enable_generate_fallback and not strict_single_request
+            ),
             allow_generate=True,
         )
+        if strict_single_request:
+            attempt_urls = attempt_urls[:1]
         for kind, url in attempt_urls:
             if structured_transport is not None and kind != "openai":
                 attempt_failures.append(
@@ -3475,6 +3501,7 @@ def call_groq(
     model: str,
     *,
     temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -3498,6 +3525,8 @@ def call_groq(
         "messages": messages,
         "temperature": 0.7 if temperature is None else float(temperature),
     }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
     base_url = (settings.GROQ_BASE_URL or _DEFAULT_GROQ_BASE).rstrip("/")
     url = f"{base_url}/openai/v1/chat/completions"
 
@@ -3583,6 +3612,7 @@ def _call_openai_compatible_chat(
     messages,
     model: str,
     temperature: Optional[float],
+    max_tokens: Optional[int],
     timeout: float,
     settings: Settings,
     typed_failure_kinds: bool = False,
@@ -3615,6 +3645,8 @@ def _call_openai_compatible_chat(
         "messages": messages,
         "temperature": 0.7 if temperature is None else float(temperature),
     }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
     url = f"{resolved_base}{base_path}"
 
     try:
@@ -3717,6 +3749,7 @@ def call_openai(
     model: str,
     *,
     temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -3731,6 +3764,7 @@ def call_openai(
         messages=messages,
         model=model,
         temperature=temperature,
+        max_tokens=max_tokens,
         timeout=30.0,
         settings=settings,
     )
@@ -3742,6 +3776,7 @@ def call_deepseek(
     *,
     temperature: Optional[float] = None,
     reasoning_mode: Optional[str] = None,
+    max_tokens: Optional[int] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
 ):
@@ -3772,6 +3807,8 @@ def call_deepseek(
         temperature=temperature,
         tools=request_tools,
     )
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
     url = f"{base}/v1/chat/completions"
     try:
         response = requests.post(
@@ -3819,6 +3856,7 @@ def call_alibaba(
     model: str,
     *,
     temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -3870,6 +3908,7 @@ def call_alibaba(
         messages=messages,
         model=model,
         temperature=temperature,
+        max_tokens=max_tokens,
         timeout=float(
             getattr(
                 settings,
@@ -4139,6 +4178,7 @@ def call_minimax(
     *,
     reasoning_mode: Optional[str] = None,
     temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
 ):
@@ -4199,7 +4239,11 @@ def call_minimax(
             "messages": anthropic_messages,
             "temperature": 0.7 if temperature is None else float(temperature),
             "max_tokens": int(
-                getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
+                (
+                    max_tokens
+                    if max_tokens is not None
+                    else getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
+                )
             ),
         }
         if system_prompt:
@@ -4228,6 +4272,8 @@ def call_minimax(
             "temperature": 0.7 if temperature is None else float(temperature),
             "reasoning_split": True,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
