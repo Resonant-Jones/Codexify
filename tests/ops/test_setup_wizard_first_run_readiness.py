@@ -5,10 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from guardian.core.local_runtime_presets import WHOOSHD_MODEL as _WHOOSHD_MODEL
 from guardian.ops import setup_wizard
-
-
-_WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 
 
 def _write_env(path: Path, **values: str) -> None:
@@ -253,7 +251,7 @@ def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> 
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/api/tags"):
-            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+            return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -279,7 +277,7 @@ def test_classifies_frontend_not_running(tmp_path: Path, monkeypatch: Any) -> No
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/api/tags"):
-            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+            return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
         if "5173" in url:
             raise ConnectionError("frontend stopped")
         return 200, '{"status":"ok"}'
@@ -306,7 +304,7 @@ def test_classifies_ready(tmp_path: Path, monkeypatch: Any) -> None:
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/api/tags"):
-            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+            return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
