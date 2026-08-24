@@ -114,6 +114,7 @@ services:
         echo "[graph-init] Done."
   migrator:
     image: *backend_runtime_image
+    build: *backend_runtime_build
     pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
