@@ -26,6 +26,8 @@ Source anchors:
 | `GUARDIAN_API_KEY` | Required at backend startup; app fails fast if absent | `guardian/guardian_api.py` |
 | `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
 | `CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET` | Server-side GitHub App webhook secret for `/api/watchdog/github/webhook`. It has no default: when absent, Watchdog delivery intake fails closed before payload parsing or persistence. Set it only in server-side secret management; never log, return, persist, or place it in repository-controlled configuration. | `guardian/core/config.py`, `guardian/watchdog/security.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_APP_ID` | Server-side GitHub App identity for the Watchdog installation-auth read boundary. It has no default. This is distinct from the webhook HMAC secret and is not frontend-visible. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY` | The sole server-side private-key source for the Watchdog GitHub App read boundary. It has no default and is used only to mint an ephemeral App JWT. It must be held in operator secret management, never logged, returned, persisted, or committed. This temporary configuration bridge does not create a Connections credential record. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
 | `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
@@ -43,6 +45,12 @@ Source anchors:
 | `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE` | Optional inference/reasoning posture stored with the policy snapshot. It is inert until a separately authorized execution slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
 | `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE` | Defaults to `disabled`; the only accepted alternate value is `explicit_only`. It never triggers automatic escalation or fallback. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
 | `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER`, `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL` | Optional pair stored only with `explicit_only` as inert snapshot data for a future explicit authorization path. The pair is not selected, invoked, or treated as a fallback in this slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+
+The Watchdog GitHub App client is an operator-configured, read-only credential
+bridge until a canonical Connections representation exists. Its App JWT and
+installation access tokens are short-lived process-memory values: they are not
+stored in Postgres or Redis, never returned by a route, and do not establish a
+live configured GitHub App or a supported Watchdog runtime workflow.
 
 ### Database, queues, and event transport
 
@@ -63,7 +71,7 @@ Source anchors:
 | `LLM_PROVIDER` | Canonical provider default in core settings; defaults to `local` | `guardian/core/config.py` |
 | `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers such as OpenAI, Groq, DeepSeek, Alibaba, and MiniMax | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_LOCAL_ONLY_MODE` | Default `true`; keeps the system local-first unless explicitly relaxed | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted; cloud entries include `openai`, `groq`, `deepseek`, `alibaba`, and `minimax` | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted; cloud entries include `openai`, `groq`, `deepseek`, `alibaba`, and `minimax`. The read-only Watchdog GitHub App seam additionally requires an explicit `github` entry; it remains blocked by `CODEXIFY_LOCAL_ONLY_MODE=true` but is not a routed cloud-model provider. | `guardian/core/config.py`, `guardian/core/egress.py`, `guardian/watchdog/github_app.py` |
 | `CODEXIFY_SUPPORTED_PROFILE` | Names the supported-profile manifest to load at startup; supported Compose sets this explicitly for the local beta profile | `guardian/core/supported_profile.py`, `guardian/guardian_api.py`, `docker-compose.yml` |
 | `CODEXIFY_SUPPORTED_PROFILE_DIR` | Optional override for the manifest directory; default is `config/supported_profiles`, and the supported Compose backend mounts `./config:/app/config:ro` so the manifest is available | `guardian/core/supported_profile.py`, `docker-compose.yml` |
 | `LOCAL_RUNTIME_PRESET`, `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_PROVIDER_DISPLAY_NAME`, `LOCAL_PROVIDER_VENDOR`, `LOCAL_COMPAT_FIRST`, `LOCAL_EMBED_MODEL` | Local runtime preset, connectivity, and model selection. Presets include `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible`; all remain behind `LLM_PROVIDER=local` | `guardian/core/config.py`, `guardian/core/local_runtime_presets.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |

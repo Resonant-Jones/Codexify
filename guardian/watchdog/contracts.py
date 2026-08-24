@@ -84,6 +84,35 @@ class WatchdogPolicyBlockReason(str, Enum):
     HEAD_SHA_MISSING = "head_sha_missing"
 
 
+class WatchdogGitHubAppErrorCode(str, Enum):
+    """Bounded failures for the GitHub App read-authentication boundary."""
+
+    CONFIGURATION_MISSING = "configuration_missing"
+    PRIVATE_KEY_INVALID = "private_key_invalid"
+    JWT_CREATION_FAILED = "jwt_creation_failed"
+    INSTALLATION_UNKNOWN_OR_UNAUTHORIZED = "installation_unknown_or_unauthorized"
+    INSTALLATION_TOKEN_EXCHANGE_REJECTED = "installation_token_exchange_rejected"
+    GITHUB_API_AUTHENTICATION_REJECTED = "github_api_authentication_rejected"
+    GITHUB_API_FORBIDDEN = "github_api_forbidden"
+    GITHUB_API_RATE_LIMITED = "github_api_rate_limited"
+    GITHUB_API_REQUEST_REJECTED = "github_api_request_rejected"
+    PULL_REQUEST_NOT_FOUND = "pull_request_not_found"
+    TRANSPORT_FAILURE = "transport_failure"
+    MALFORMED_GITHUB_RESPONSE = "malformed_github_response"
+    EXPECTED_HEAD_MISMATCH = "expected_head_mismatch"
+    EXPECTED_HEAD_MISSING_OR_INVALID = "expected_head_missing_or_invalid"
+    INVALID_READ_REQUEST = "invalid_read_request"
+    EGRESS_DENIED = "egress_denied"
+
+
+class WatchdogGitHubAppError(RuntimeError):
+    """A sanitized GitHub App error safe for callers and diagnostics."""
+
+    def __init__(self, code: WatchdogGitHubAppErrorCode) -> None:
+        self.code = code
+        super().__init__(code.value)
+
+
 GITHUB_PULL_REQUEST_SYNCHRONIZE_ACTION = "synchronize"
 
 

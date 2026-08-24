@@ -27,6 +27,24 @@ deterministic eligibility, merge authorization, or release truth.
 release reality. This preparation boundary is not a supported Watchdog workflow
 or a release claim.
 
+## Implemented installation-auth read boundary
+
+Guardian now has a narrowly scoped GitHub App authentication primitive: it
+creates a short-lived RS256 App JWT from server-side Watchdog configuration,
+exchanges it for an ephemeral installation token, and exposes a read-only
+client that retrieves bounded PR metadata and validates the immutable expected
+`headSha`. The webhook HMAC secret and App private key remain separate
+credentials. App JWTs and installation tokens are never persisted, logged, or
+returned through a route.
+
+This is an operator-configured bridge, not a second Connections credential
+truth. It honors the existing egress gate and exposes no GitHub write methods.
+It is not invoked from webhook intake or any Watchdog runtime yet.
+
+Still deferred: runtime invocation, PR-diff and changed-file capture, durable
+review-input snapshots, queues, model execution, GitHub Check publication, PR
+comments or reviews, and Build Loop mutation dispatch.
+
 ## Canonical topology and authority
 
 ```text

@@ -119,7 +119,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
-            "Supported entries include: openai, groq, deepseek, alibaba, minimax, elevenlabs, federation, webhook."
+            "Supported entries include: openai, groq, deepseek, alibaba, minimax, github, elevenlabs, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(
@@ -477,6 +477,20 @@ class Settings(BaseSettings):
         description=(
             "Server-side GitHub App webhook secret for authenticated "
             "Watchdog delivery intake."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_APP_ID: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App ID used only for Watchdog installation "
+            "authentication. No default is permitted."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App private key used only to mint short-lived "
+            "Watchdog App JWTs. No default is permitted."
         ),
     )
     CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER: str | None = Field(
