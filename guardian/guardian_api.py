@@ -60,6 +60,10 @@ from guardian.connectors.minimax import router as minimax_oauth_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
+from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
+    STARTUP_PHASE_APPLICATION_LIFESPAN,
+    startup_failure_receipt_boundary,
+)
 from guardian.core.config import (
     VECTOR_STORE_BACKEND_CHROMA,
     VECTOR_STORE_PROOF_STATUS_MISMATCH,
@@ -591,7 +595,7 @@ _CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
 
 
 @asynccontextmanager
-async def app_lifespan(app: FastAPI):
+async def _app_lifespan_body(app: FastAPI):
     """
     Application lifespan context manager.
     Handles startup and shutdown logic.
@@ -859,6 +863,16 @@ async def app_lifespan(app: FastAPI):
     shutdown_browser_host_negotiation_adapter(app)
 
     logger.info("[shutdown] Guardian API stopped")
+
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    """Emit one receipt for an unhandled application-startup failure only."""
+    async with startup_failure_receipt_boundary(
+        _app_lifespan_body(app),
+        startup_phase=STARTUP_PHASE_APPLICATION_LIFESPAN,
+    ):
+        yield
 
 
 # =========================

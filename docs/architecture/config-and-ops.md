@@ -36,6 +36,19 @@ Source anchors:
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
 
+### Backend startup-failure receipt
+
+If the backend exits during application startup, inspect its bounded container
+logs for the JSON event `backend_startup_failure` (prefixed
+`CODEXIFY_STARTUP_FAILURE_RECEIPT`). This is diagnostic evidence in the normal
+log stream, not canonical runtime state and not a recovery instruction.
+
+The receipt records a bounded redacted message, exception identity, causal
+chain, code-location metadata, and `message_sha256` for correlation. It
+intentionally omits environment values, credentials, traceback locals, source
+lines, provider/model authority, and request or user data. The message hash is
+for correlating a failure without retaining its original text.
+
 ### GitHub Watchdog automatic-review preparation
 
 | Variable | Current behavior | Anchors |
