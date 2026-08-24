@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-23T03:12:04Z",
-    "verified_commit": "3dcd16cbec7917b84f122c73e97601d6f8772447",
+    "verified_at": "2026-08-24T09:00:37Z",
+    "verified_commit": "e3044932bc70c57e5b8445559f24d2dd4066105c",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB source routing after current-state generator-contract linkage; README bytes remain hash-valid, release routing unchanged, and no runtime proof or support expansion is implied."
+    "reason": "KB routing reverified after current-state loader-contract linkage; no release routing changed."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
