@@ -1,4 +1,5 @@
 export const SUPPORTED_PROFILE_ROUTE_LABELS = {
+  AUTH: "auth",
   IMPRINT: "imprint",
   SYSTEM_PROMPT: "system_prompt",
   SYSTEM_DOCS: "system_docs",

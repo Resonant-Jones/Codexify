@@ -59,6 +59,8 @@ import {
   type DesktopStartupRoutingDecision,
   type LauncherSetupReadiness,
 } from "./lib/runtimeConfig";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "./contracts/supportedProfileRoutes";
+import { useRuntimeRouteCapability } from "./lib/runtimeRouteCapabilities";
 
 /**
  * App entry with a gated UI Playground ("Tune Rack").
@@ -133,6 +135,34 @@ function getShareToken() {
   if (typeof window === "undefined") return null;
   const match = window.location.pathname.match(/^\/share\/(.+)$/);
   return match ? match[1] : null;
+}
+
+function AuthRouteUnavailable() {
+  return (
+    <main
+      className="flex min-h-screen items-center justify-center p-6"
+      data-testid="auth-route-unavailable"
+    >
+      <section
+        aria-labelledby="auth-route-unavailable-heading"
+        className="w-full max-w-md rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--panel-bg)]/95 p-8 text-[var(--text)] shadow-2xl backdrop-blur-xl"
+      >
+        <p className="text-xs uppercase tracking-[0.3em] text-[var(--text-subtle)]">
+          Codexify
+        </p>
+        <h1
+          className="mt-3 text-2xl font-semibold tracking-[-0.03em]"
+          id="auth-route-unavailable-heading"
+        >
+          Account login unavailable
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-[var(--text-subtle)]">
+          This runtime profile does not provide account registration or login.
+          Use the configured local workspace access path instead.
+        </p>
+      </section>
+    </main>
+  );
 }
 
 type BootstrapPhase = "bootstrap" | "welcome" | "unlocked";
@@ -579,6 +609,9 @@ export default function App() {
   const profileRoute = isProfileRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const desktopRuntime = isTauriRuntime();
+  const { state: authRouteCapability } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.AUTH
+  );
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
@@ -1259,10 +1292,18 @@ export default function App() {
     return <DevTuneGate />;
   }
   if (loginRoute) {
-    return <LoginPage />;
+    return authRouteCapability === "available" ? (
+      <LoginPage />
+    ) : (
+      <AuthRouteUnavailable />
+    );
   }
   if (registerRoute && import.meta.env.VITE_PRIVATE_PREVIEW !== "true") {
-    return <RegisterPage />;
+    return authRouteCapability === "available" ? (
+      <RegisterPage />
+    ) : (
+      <AuthRouteUnavailable />
+    );
   }
   if (profileRoute) {
     return <UserProfilePage />;

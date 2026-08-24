@@ -291,6 +291,16 @@ def supported_profile_actual_provider_contract(
     }
 
 
+def _effective_auth_mode() -> str:
+    """Reuse Guardian's canonical effective auth-boundary resolution."""
+    # Keep this invariant tied to the same exposure-aware resolver used by
+    # protected routes.  In particular, public_allowlist forces remote mode
+    # even when GUARDIAN_AUTH_MODE is set to a local alias.
+    from guardian.core.dependencies import _auth_mode
+
+    return _auth_mode()
+
+
 def validate_supported_profile_runtime(
     manifest: SupportedProfileManifest,
     *,
@@ -307,6 +317,13 @@ def validate_supported_profile_runtime(
             mismatches.append(
                 f"{key} expected {expected!r} but found {actual!r}"
             )
+
+    auth_mode = _effective_auth_mode()
+    if auth_mode == "remote" and manifest.route_status("auth") == "quarantined":
+        mismatches.append(
+            "GUARDIAN_AUTH_MODE='remote' requires an available auth route, "
+            f"but profile {manifest.name!r} quarantines 'auth'"
+        )
 
     route_set = {
         str(label).strip()

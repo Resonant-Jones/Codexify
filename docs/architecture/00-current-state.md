@@ -37,6 +37,7 @@ This file is authoritative for:
 
 - Local Docker Compose is the supported install path, using `v1-local-core-web-mcp` with local-only defaults: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The accepted Beta support boundary and current live qualification are distinct: a supported surface is not thereby proven by NX-1, and the NX-1 receipt is not proof of the present `main` tip.
+- `v1-local-core-web-mcp` is a single-user, local-auth profile: authenticated local Settings routes and the read-only `/api/connections` catalog use the existing local API-key and canonical single-user identity path. Normal account registration/login/logout is not part of this profile because its `auth` router is quarantined; remote account login remains isolated to profiles that explicitly enable it.
 - Architecture, schema, DLG, focused test, and proof-validation tooling is present on `main`; these checks do not substitute for live-service proof.
 
 ## Release classes
