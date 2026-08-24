@@ -112,3 +112,71 @@ The smallest next slice is operator configuration of one authorized Watchdog
 provider, exact model identity, and optional inference mode in the runtime
 environment, followed by a fresh synthetic captured-snapshot qualification.
 That follow-up must use a new attempt and must not reuse this blocked receipt.
+
+## Second qualification — BLOCKED: explicitly selected model unavailable
+
+### Receipt
+
+- **Observed at:** `2026-08-24T15:12:47Z`
+- **Branch / source commit:** `codex/define-github-watchdog-control-plane` / `52c07cec672bdd87b409d6cf8b9481e2bb231924`
+- **Compose project:** `codexify-watchdog-proof-20260824`
+- **Migration head:** `6e9f0a1b2c3`
+- **Worker:** `worker-watchdog-review`, container `a814c360d7f7dd52be6c1879cda9aa2d151c05270ca7a3607bdf8b99666d7eb0`, running.
+- **Queue:** `github_watchdog_review`.
+- **Result:** **BLOCKED** — explicitly configured Watchdog model is unavailable.
+
+### Explicit policy binding and separation proof
+
+The existing canonical settings were bound through a non-secret isolated
+Compose override; no tracked environment file or application default was
+changed:
+
+| Canonical setting | Bound value |
+| --- | --- |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER` | `local` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL` | `mlx-community/Llama-3.2-3B-Instruct-4bit` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE` | `default` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE` | `disabled` |
+
+The worker process read those Watchdog-specific values while the ambient
+`LLM_PROVIDER=local` and `LOCAL_CHAT_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit`
+remained unchanged. The binding therefore did not inherit or derive Watchdog
+authority from ambient chat configuration. Local-only remained `true` and cloud
+providers remained disabled.
+
+### First blocker and safe stop
+
+The canonical local inventory query reached a live Whoosh'd `/v1/models`
+endpoint (`inventory_state=available`, `inventory_source=whooshd:/v1/models`),
+but the exact bound model was not advertised (`target_available=false`). This
+is a provider-runtime inventory blocker, outside the Watchdog policy,
+dispatch, worker, or queue implementation seams. No substitute model was
+selected.
+
+The proof stopped before creating a receipt, policy-resolved attempt, captured
+snapshot, dispatch, Redis envelope, result, prompt, raw output, or model
+request. The existing worker reached its normal queue loop after the binding,
+but it did not dequeue a qualification item. Therefore no policy fingerprint,
+attempt/result state transition, token usage, cost, or model-correlation value
+exists to report, and no GitHub I/O, Command Bus, Build Loop, mutation,
+fallback, escalation, or retry occurred.
+
+### Validation
+
+```text
+git merge-base --is-ancestor 52c07cec672bdd87b409d6cf8b9481e2bb231924 HEAD
+git merge-base --is-ancestor c0cef2be3c6c9c72883e490274d7d78cb6c73a51 HEAD
+git merge-base --is-ancestor 79a5df7bd11f0430a3da95805616d120cce334d3 HEAD
+.venv/bin/python -m alembic -c backend/alembic.ini heads
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml --profile watchdog config >/dev/null
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml --profile watchdog up -d --no-deps --force-recreate worker-watchdog-review
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml exec -T worker-watchdog-review python -c "import json; from guardian.core.config import get_settings; s=get_settings(); print(json.dumps({'ambient_provider': s.LLM_PROVIDER, 'ambient_model': s.LOCAL_CHAT_MODEL, 'watchdog_provider': s.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER, 'watchdog_model': s.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL, 'watchdog_inference_mode': s.CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE, 'local_only': s.CODEXIFY_LOCAL_ONLY_MODE, 'cloud_allowed': s.ALLOW_CLOUD_PROVIDERS}, sort_keys=True))"
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml exec -T worker-watchdog-review python -c "import json; from guardian.core.ai_router import discover_local_model_inventory; from guardian.core.config import get_settings; names, resolution = discover_local_model_inventory(get_settings(), timeout_seconds=5); target='mlx-community/Llama-3.2-3B-Instruct-4bit'; print(json.dumps({'target_available': target in names, 'inventory_state': resolution.get('state'), 'inventory_endpoint': resolution.get('inventory_endpoint'), 'inventory_source': resolution.get('inventory_source')}, sort_keys=True))"
+docker compose -p codexify-watchdog-proof-20260824 -f docker-compose.yml -f /private/tmp/codexify-watchdog-runtime-proof-ports.yml logs --no-color --tail=30 worker-watchdog-review
+```
+
+`docs/architecture/github-watchdog-control-plane.md` and
+`docs/architecture/00-current-state.md` remain unchanged because no live
+queue-to-model result was proven. The first BLOCKED observation above remains
+unchanged and the configured-policy observation does not alter Beta or support
+posture.

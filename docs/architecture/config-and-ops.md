@@ -46,6 +46,14 @@ Source anchors:
 | `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE` | Defaults to `disabled`; the only accepted alternate value is `explicit_only`. It never triggers automatic escalation or fallback. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
 | `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER`, `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL` | Optional pair stored only with `explicit_only` as inert snapshot data for a future explicit authorization path. The pair is not selected, invoked, or treated as a fallback in this slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
 
+These system-default fields are Watchdog-only authority: they are resolved and
+snapshotted at attempt creation, never inherited from ambient `LLM_PROVIDER` or
+`LOCAL_CHAT_MODEL`. An explicit provider and model must satisfy the existing
+local-only/cloud/egress gates. Operators must verify the exact selected model
+against the provider's live inventory before dispatch; missing configuration or
+an unavailable model must not be replaced by model substitution, fallback, or
+escalation.
+
 The Watchdog GitHub App client is an operator-configured, read-only credential
 bridge until a canonical Connections representation exists. Its App JWT and
 installation access tokens are short-lived process-memory values: they are not
