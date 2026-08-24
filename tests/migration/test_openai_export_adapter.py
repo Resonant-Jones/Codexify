@@ -192,6 +192,7 @@ class OpenAIImportStore:
         summary: str = "",
         project_id: int | None = None,
         metadata: dict[str, Any] | None = None,
+        origin_system: str = "codexify",
         parent_id: int | None = None,
     ) -> dict[str, Any]:
         thread_id = self._next_thread_id
@@ -203,6 +204,7 @@ class OpenAIImportStore:
             "summary": summary,
             "project_id": project_id,
             "metadata": metadata or {},
+            "origin_system": origin_system,
             "parent_id": parent_id,
         }
         self.threads[thread_id] = thread
@@ -562,6 +564,8 @@ def test_sharded_import_is_idempotent_on_reimport(
     )
 
     first = import_openai_export_path(export_root, user_id="tester")
+    created_thread = next(iter(store.threads.values()))
+    assert created_thread["origin_system"] == "openai"
     second = import_openai_export_path(export_root, user_id="tester")
 
     assert first["threads_imported"] == 1
