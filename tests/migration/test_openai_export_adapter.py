@@ -26,6 +26,7 @@ _MISSING = object()
 _PSYCOPG_MODULE_NAMES = (
     "psycopg",
     "psycopg.errors",
+    "psycopg.sql",
     "psycopg.rows",
     "psycopg.types",
     "psycopg.types.json",
@@ -47,6 +48,7 @@ def _fake_module(name: str) -> types.ModuleType:
 def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     psycopg_stub = _fake_module("psycopg")
     errors_stub = _fake_module("psycopg.errors")
+    sql_stub = _fake_module("psycopg.sql")
     rows_stub = _fake_module("psycopg.rows")
     types_stub = _fake_module("psycopg.types")
     json_stub = _fake_module("psycopg.types.json")
@@ -55,11 +57,13 @@ def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     json_stub.Json = lambda value, dumps=None: value
     types_stub.json = json_stub
     psycopg_stub.errors = errors_stub
+    psycopg_stub.sql = sql_stub
     psycopg_stub.rows = rows_stub
     psycopg_stub.types = types_stub
 
     monkeypatch.setitem(sys.modules, "psycopg", psycopg_stub)
     monkeypatch.setitem(sys.modules, "psycopg.errors", errors_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.sql", sql_stub)
     monkeypatch.setitem(sys.modules, "psycopg.rows", rows_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types", types_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types.json", json_stub)
