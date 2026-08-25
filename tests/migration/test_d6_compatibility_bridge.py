@@ -22,7 +22,8 @@ D6_REVISION = "d6f7a8b9c0d1"
 SIBLING_HEAD = "6e2b9c4a7d1f"
 MERGE_REVISION = "8f3c1a7d2e6b"
 NORMALIZATION_REVISION = "9d4c2a7e1b6f"
-CANONICAL_HEAD = "1c0a2b3c4d5e"
+ORIGIN_SYSTEM_REVISION = "1c0a2b3c4d5e"
+CANONICAL_HEAD = "6e9f0a1b2c3"
 
 D6_FILENAME = "d6f7a8b9c0d1_add_threadspace_node_membership.py"
 MERGE_FILENAME = "8f3c1a7d2e6b_merge_d6f7a8b9c0d1_compatibility.py"
@@ -221,14 +222,18 @@ def test_normalization_revision_is_singleton_after_merge() -> None:
     assert SIBLING_HEAD in ancestors
 
 
-def test_canonical_head_preserves_d6_compatibility_ancestry() -> None:
+def test_canonical_head_preserves_origin_system_and_d6_compatibility_ancestry() -> None:
     script = _script()
+    origin_system = script.get_revision(ORIGIN_SYSTEM_REVISION)
+    assert origin_system is not None
+    assert origin_system.down_revision == NORMALIZATION_REVISION
+    assert isinstance(origin_system.down_revision, str)
+
     canonical_head = script.get_revision(CANONICAL_HEAD)
     assert canonical_head is not None
-    assert canonical_head.down_revision == NORMALIZATION_REVISION
-    assert isinstance(canonical_head.down_revision, str)
 
     ancestors = _ancestor_revisions(script, CANONICAL_HEAD)
+    assert ORIGIN_SYSTEM_REVISION in ancestors
     assert NORMALIZATION_REVISION in ancestors
     assert MERGE_REVISION in ancestors
     assert D6_REVISION in ancestors
