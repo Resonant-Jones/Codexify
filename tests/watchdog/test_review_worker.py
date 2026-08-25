@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.core.config import get_settings as get_core_settings
 from guardian.db.models import (
     GitHubWatchdogDeliveryReceipt,
     GitHubWatchdogReviewAttempt,
@@ -31,6 +32,7 @@ from guardian.watchdog.review_execution import (
     GitHubWatchdogReviewExecutionService,
     WatchdogReviewExecutionError,
 )
+from guardian.workers import watchdog_review_worker
 from guardian.workers.watchdog_review_worker import GitHubWatchdogReviewWorker
 
 HEAD_SHA = "a" * 40
@@ -286,6 +288,10 @@ def _worker(
         dequeue_fn=dequeue_fn,
         worker_id="watchdog-review:test:1",
     )
+
+
+def test_watchdog_worker_uses_canonical_core_settings_factory() -> None:
+    assert watchdog_review_worker.get_core_settings is get_core_settings
 
 
 def test_worker_maps_completed_result_and_duplicate_delivery_invokes_once(
