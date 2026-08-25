@@ -120,7 +120,7 @@ no browser consent action was requested.
 
 ## Authority and release boundaries
 
-- ADR impact: aligned with ADR-071, ADR-072, and ADR-073; no new ADR and no
+- ADR impact: aligned with ADR-071, ADR-072, and ADR-075; no new ADR and no
   decision change.
 - Connections remains a read-only projection and did not become an execution
   owner.

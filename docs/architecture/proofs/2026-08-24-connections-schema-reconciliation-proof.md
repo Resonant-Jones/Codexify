@@ -151,5 +151,5 @@ that repaired graph, verify the physical schema and `GuardianDB` binding, and
 only then resume the Google Drive safe-status and actor-control reads.
 
 ADR impact: none. This records a runtime migration-lineage blocker; it does
-not change ADR-005, ADR-069, ADR-071, ADR-072, ADR-073, release truth, or the
+not change ADR-005, ADR-069, ADR-071, ADR-072, ADR-075, release truth, or the
 Google Drive qualification boundary.

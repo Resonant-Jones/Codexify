@@ -144,7 +144,7 @@ evidence was created by this task.
 
 ## Scope and architecture boundaries
 
-- ADR impact: aligned with ADR-071, ADR-072, and ADR-073; no ADR changed.
+- ADR impact: aligned with ADR-071, ADR-072, and ADR-075; no ADR changed.
 - The supported profile remains local-only and cloud execution remains
   disabled.
 - Connections remained projection-only and Command Bus authority was neither

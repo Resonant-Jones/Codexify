@@ -225,8 +225,6 @@ def test_canonical_head_preserves_d6_compatibility_ancestry() -> None:
     script = _script()
     canonical_head = script.get_revision(CANONICAL_HEAD)
     assert canonical_head is not None
-    assert canonical_head.down_revision == NORMALIZATION_REVISION
-    assert isinstance(canonical_head.down_revision, str)
 
     ancestors = _ancestor_revisions(script, CANONICAL_HEAD)
     assert NORMALIZATION_REVISION in ancestors

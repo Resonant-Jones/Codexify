@@ -97,7 +97,7 @@ memory, document, embedding, graph, sync, or Command Bus record was created.
 - No implementation, test, migration, checked-in configuration, or release
   documentation file changed.
 - ADR impact: none. The task is aligned with the existing authority and
-  credential boundaries in ADR-071, ADR-072, and ADR-073.
+  credential boundaries in ADR-071, ADR-072, and ADR-075.
 - Release truth is unchanged.
 
 ## Validation

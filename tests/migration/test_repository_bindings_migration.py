@@ -160,7 +160,7 @@ def test_repository_bindings_migration_round_trip(
 
     project_id, project_before = _seed_preexisting_project(engine)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, REPOSITORY_BINDING_REVISION)
     inspector.clear_cache()
     assert "repository_bindings" in inspector.get_table_names(schema="public")
     with engine.connect() as connection:
@@ -276,7 +276,7 @@ def test_repository_bindings_migration_round_trip(
     assert "repository_bindings" not in inspector.get_table_names(schema="public")
     assert _project_snapshot(engine, project_id) == project_before
 
-    command.upgrade(config, "head")
+    command.upgrade(config, REPOSITORY_BINDING_REVISION)
     inspector.clear_cache()
     assert "repository_bindings" in inspector.get_table_names(schema="public")
     with engine.connect() as connection:

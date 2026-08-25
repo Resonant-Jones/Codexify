@@ -76,7 +76,7 @@ release qualification.
 
 ## Architecture alignment
 
-This receipt is aligned with ADR-071, ADR-072, and ADR-073. It changes no
+This receipt is aligned with ADR-071, ADR-072, and ADR-075. It changes no
 architecture, runtime behavior, supported-profile posture, Connections
 read-only boundary, credential ownership boundary, Command Bus authority, or
 release truth.

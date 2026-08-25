@@ -110,4 +110,4 @@ verification. Only that later proof can establish live Connections storage
 readiness.
 
 ADR impact: none. This repair follows the migration-safety doctrine and does
-not alter ADR-031, ADR-071, ADR-072, ADR-073, or release truth.
+not alter ADR-031, ADR-071, ADR-072, ADR-073, ADR-075, or release truth.
