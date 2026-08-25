@@ -114,6 +114,7 @@ services:
         echo "[graph-init] Done."
   migrator:
     image: *backend_runtime_image
+    build: *backend_runtime_build
     pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
@@ -518,6 +519,47 @@ services:
       - ./models:/models
     restart: unless-stopped
     command: ["-m", "guardian.workers.chat_worker"]
+
+  worker-watchdog-review:
+    image: *backend_runtime_image
+    pull_policy: never
+    working_dir: /app
+    profiles:
+      - watchdog
+    entrypoint: ["python"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    environment:
+      <<: [*postgres_env, *local_llm]
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
+      REDIS_URL: redis://redis:6379/0
+      CODEXIFY_LOCAL_ONLY_MODE: "${CODEXIFY_LOCAL_ONLY_MODE:-true}"
+      ALLOW_CLOUD_PROVIDERS: "${ALLOW_CLOUD_PROVIDERS:-false}"
+      CODEXIFY_EGRESS_ALLOWLIST: "${CODEXIFY_EGRESS_ALLOWLIST:-}"
+      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY:-}"
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    command: ["-m", "guardian.workers.watchdog_review_worker"]
 
   worker-coding:
     image: codexify-worker-coding-runtime:latest

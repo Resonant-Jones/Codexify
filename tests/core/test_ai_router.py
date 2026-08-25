@@ -194,6 +194,48 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
     assert captured["settings"] is settings
 
 
+def test_strict_explicit_provider_model_preserves_exact_model_and_token_bound(
+    monkeypatch,
+):
+    _disable_supported_profile(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def _mock_call_openai(
+        messages,
+        model: str,
+        *,
+        temperature=None,
+        max_tokens=None,
+        settings=None,
+    ):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["temperature"] = temperature
+        captured["max_tokens"] = max_tokens
+        captured["settings"] = settings
+        return "strict result"
+
+    monkeypatch.setattr(ai_router, "call_openai", _mock_call_openai)
+    settings = Settings(LLM_PROVIDER="openai", OPENAI_API_KEY="test-key")
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "Review this."}],
+        provider="openai",
+        model="gpt-4.1",
+        temperature=0,
+        max_tokens=4096,
+        strict_provider_model=True,
+        strict_single_request=True,
+        settings=settings,
+    )
+
+    assert result == "strict result"
+    assert captured["model"] == "gpt-4.1"
+    assert captured["temperature"] == 0
+    assert captured["max_tokens"] == 4096
+    assert captured["settings"] is settings
+
+
 def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
     _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}

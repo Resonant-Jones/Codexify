@@ -60,6 +60,10 @@ from guardian.connectors.minimax import router as minimax_oauth_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
+from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
+    STARTUP_PHASE_APPLICATION_LIFESPAN,
+    startup_failure_receipt_boundary,
+)
 from guardian.core.config import (
     VECTOR_STORE_BACKEND_CHROMA,
     VECTOR_STORE_PROOF_STATUS_MISMATCH,
@@ -547,6 +551,7 @@ from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
 from guardian.routes import hosted_room_guest, hosted_rooms
+from guardian.routes import github_watchdog
 from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
 from guardian.routes import ui_session
@@ -590,7 +595,7 @@ _CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
 
 
 @asynccontextmanager
-async def app_lifespan(app: FastAPI):
+async def _app_lifespan_body(app: FastAPI):
     """
     Application lifespan context manager.
     Handles startup and shutdown logic.
@@ -858,6 +863,16 @@ async def app_lifespan(app: FastAPI):
     shutdown_browser_host_negotiation_adapter(app)
 
     logger.info("[shutdown] Guardian API stopped")
+
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    """Emit one receipt for an unhandled application-startup failure only."""
+    async with startup_failure_receipt_boundary(
+        _app_lifespan_body(app),
+        startup_phase=STARTUP_PHASE_APPLICATION_LIFESPAN,
+    ):
+        yield
 
 
 # =========================
@@ -1180,6 +1195,7 @@ _include_router(
     core_surface=True,
 )
 app.include_router(core_loop_proof_router)
+app.include_router(github_watchdog.router)
 _include_router(
     label="imprint",
     flag_name="CODEXIFY_ENABLE_IMPRINT_ROUTES",

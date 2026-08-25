@@ -23,6 +23,7 @@ PyYAML
 # Security & Sanitation
 bleach
 defusedxml
+PyJWT[crypto]
 
 # Guardian Core
 click

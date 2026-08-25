@@ -23,6 +23,8 @@ from guardian.core.request_correlation import (
 )
 from guardian.hosted_rooms.actor_tokens import GUARDIAN_REF, RESIDENT_SOURCE
 
+GITHUB_WATCHDOG_REVIEW_TASK_TYPE = "github_watchdog_review"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

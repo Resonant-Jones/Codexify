@@ -82,6 +82,34 @@ from guardian.user_profile_tokens import (
     DEFAULT_USER_ACCENT_COLOR,
     USER_ACCENT_COLORS,
 )
+from guardian.watchdog.contracts import (
+    WATCHDOG_ESCALATION_MODES,
+    WATCHDOG_MODEL_SELECTION_SOURCES,
+    WATCHDOG_POLICY_BLOCK_REASONS,
+    WATCHDOG_POLICY_RESOLUTION_STATES,
+    WATCHDOG_REVIEW_ATTEMPT_STATES,
+    WATCHDOG_REVIEW_DISPATCH_ERROR_CODES,
+    WATCHDOG_REVIEW_DISPATCH_STATES,
+    WATCHDOG_REVIEW_EXECUTION_ERROR_CODES,
+    WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES,
+    WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES,
+    WATCHDOG_REVIEW_RESULT_STATES,
+    WatchdogOperation,
+)
+
+WATCHDOG_REVIEW_DISPATCH_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_DISPATCH_STATES)
+)
+WATCHDOG_REVIEW_DISPATCH_STATE_CHECK = (
+    f"dispatch_state IN ('{WATCHDOG_REVIEW_DISPATCH_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_DISPATCH_ERROR_CODES)
+)
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_CHECK = (
+    "terminal_error_code IS NULL OR terminal_error_code IN "
+    f"('{WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_VALUES_SQL}')"
+)
 
 
 class Base(DeclarativeBase):
@@ -210,6 +238,65 @@ TTS_VOICE_MODE_VALUES_SQL = "','".join(TTS_VOICE_MODES)
 TTS_VOICE_MODE_CHECK = f"voice_mode IN ('{TTS_VOICE_MODE_VALUES_SQL}')"
 TTS_OUTPUT_FORMAT_VALUES_SQL = "','".join(TTS_OUTPUT_FORMATS)
 TTS_OUTPUT_FORMAT_CHECK = f"output_format IN ('{TTS_OUTPUT_FORMAT_VALUES_SQL}')"
+WATCHDOG_REVIEW_ATTEMPT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_ATTEMPT_STATES)
+)
+WATCHDOG_REVIEW_ATTEMPT_STATE_CHECK = (
+    "attempt_state IN " f"('{WATCHDOG_REVIEW_ATTEMPT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_POLICY_RESOLUTION_STATES)
+)
+WATCHDOG_POLICY_RESOLUTION_STATE_CHECK = (
+    "policy_resolution_state IN "
+    f"('{WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL}')"
+)
+WATCHDOG_ESCALATION_MODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_ESCALATION_MODES)
+)
+WATCHDOG_ESCALATION_MODE_CHECK = (
+    "escalation_mode IN " f"('{WATCHDOG_ESCALATION_MODE_VALUES_SQL}')"
+)
+WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_MODEL_SELECTION_SOURCES)
+)
+WATCHDOG_MODEL_SELECTION_SOURCE_CHECK = (
+    "model_selection_source IN "
+    f"('{WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL}')"
+)
+WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_POLICY_BLOCK_REASONS)
+)
+WATCHDOG_POLICY_BLOCK_REASON_CHECK = (
+    "policy_reason_code IS NULL OR policy_reason_code IN "
+    f"('{WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATES)
+)
+WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_CHECK = (
+    "capture_state IN " f"('{WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODES)
+)
+WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_CHECK = (
+    "block_error_code IS NULL OR block_error_code IN "
+    f"('{WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_RESULT_STATE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_RESULT_STATES)
+)
+WATCHDOG_REVIEW_RESULT_STATE_CHECK = (
+    "result_state IN " f"('{WATCHDOG_REVIEW_RESULT_STATE_VALUES_SQL}')"
+)
+WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_VALUES_SQL = "','".join(
+    sorted(WATCHDOG_REVIEW_EXECUTION_ERROR_CODES)
+)
+WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_CHECK = (
+    "terminal_error_code IS NULL OR terminal_error_code IN "
+    f"('{WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_VALUES_SQL}')"
+)
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
 )
@@ -2038,6 +2125,364 @@ class EventGraphEvent(Base):
         JSON().with_variant(JSONB, "postgresql")
     )
 
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogDeliveryReceipt(Base):
+    """Durable, bounded receipt for one authenticated GitHub delivery."""
+
+    __tablename__ = "github_watchdog_delivery_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    github_delivery_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    installation_id: Mapped[str | None] = mapped_column(String(64))
+    repository_id: Mapped[str | None] = mapped_column(String(64))
+    repository_full_name: Mapped[str | None] = mapped_column(String(512))
+    trigger_actor_id: Mapped[str | None] = mapped_column(String(64))
+    trigger_actor_login: Mapped[str | None] = mapped_column(String(255))
+    pull_request_number: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(64))
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_received_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_received_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    redelivery_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_github_watchdog_delivery_receipts_idempotency_key",
+        ),
+        Index(
+            "ix_github_watchdog_delivery_receipts_github_delivery_id",
+            "github_delivery_id",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewAttempt(Base):
+    """Immutable policy snapshot prepared from one Watchdog delivery receipt."""
+
+    __tablename__ = "github_watchdog_review_attempts"
+
+    review_attempt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    trigger_receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_delivery_receipts.receipt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    github_delivery_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    installation_id: Mapped[str | None] = mapped_column(String(64))
+    repository_id: Mapped[str | None] = mapped_column(String(64))
+    repository_full_name: Mapped[str | None] = mapped_column(String(512))
+    pull_request_number: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(64))
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_resolution_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_id: Mapped[str | None] = mapped_column(String(64))
+    model_id: Mapped[str | None] = mapped_column(String(512))
+    inference_mode: Mapped[str | None] = mapped_column(String(64))
+    model_selection_source: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    policy_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    escalation_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    escalation_provider_id: Mapped[str | None] = mapped_column(String(64))
+    escalation_model_id: Mapped[str | None] = mapped_column(String(512))
+    policy_reason_code: Mapped[str | None] = mapped_column(String(64))
+    superseded_by_attempt_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="SET NULL",
+        ),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "trigger_receipt_id",
+            name="uq_github_watchdog_review_attempts_trigger_receipt_id",
+        ),
+        CheckConstraint(
+            f"operation = '{WatchdogOperation.AUTOMATED_REVIEW.value}'",
+            name="ck_github_watchdog_review_attempts_operation",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_ATTEMPT_STATE_CHECK,
+            name="ck_github_watchdog_review_attempts_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_POLICY_RESOLUTION_STATE_CHECK,
+            name="ck_github_watchdog_review_attempts_policy_resolution_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_ESCALATION_MODE_CHECK,
+            name="ck_github_watchdog_review_attempts_escalation_mode",
+        ),
+        CheckConstraint(
+            WATCHDOG_MODEL_SELECTION_SOURCE_CHECK,
+            name="ck_github_watchdog_review_attempts_model_selection_source",
+        ),
+        CheckConstraint(
+            WATCHDOG_POLICY_BLOCK_REASON_CHECK,
+            name="ck_github_watchdog_review_attempts_policy_reason_code",
+        ),
+        Index(
+            "ix_github_watchdog_review_attempts_repository_pr",
+            "repository_id",
+            "pull_request_number",
+        ),
+        Index(
+            "ix_github_watchdog_review_attempts_state",
+            "attempt_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewInputSnapshot(Base):
+    """One immutable terminal source-evidence record for a review attempt."""
+
+    __tablename__ = "github_watchdog_review_input_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    installation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    repository_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    repository_full_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    pull_request_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    capture_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_head_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_head_sha: Mapped[str | None] = mapped_column(String(64))
+    base_sha: Mapped[str | None] = mapped_column(String(64))
+    observed_base_sha: Mapped[str | None] = mapped_column(String(64))
+    pull_request_title: Mapped[str | None] = mapped_column(Text)
+    pull_request_body: Mapped[str | None] = mapped_column(Text)
+    author_id: Mapped[str | None] = mapped_column(String(64))
+    author_login: Mapped[str | None] = mapped_column(String(255))
+    draft: Mapped[bool | None] = mapped_column(Boolean)
+    changed_file_count: Mapped[int | None] = mapped_column(Integer)
+    files_without_patch_count: Mapped[int | None] = mapped_column(Integer)
+    aggregate_additions: Mapped[int | None] = mapped_column(Integer)
+    aggregate_deletions: Mapped[int | None] = mapped_column(Integer)
+    aggregate_changes: Mapped[int | None] = mapped_column(Integer)
+    changed_files_json: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+    captured_patch_bytes: Mapped[int | None] = mapped_column(Integer)
+    snapshot_sha256: Mapped[str | None] = mapped_column(String(64))
+    block_error_code: Mapped[str | None] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_input_snapshots_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_INPUT_SNAPSHOT_STATE_CHECK,
+            name="ck_github_watchdog_review_input_snapshots_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_INPUT_CAPTURE_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_input_snapshots_block_error_code",
+        ),
+        CheckConstraint(
+            "(capture_state = 'captured' AND snapshot_sha256 IS NOT NULL "
+            "AND block_error_code IS NULL) OR "
+            "(capture_state != 'captured' AND snapshot_sha256 IS NULL "
+            "AND block_error_code IS NOT NULL)",
+            name="ck_github_watchdog_review_input_snapshots_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_input_snapshots_capture_state",
+            "capture_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewResult(Base):
+    """One immutable model-execution record for a Watchdog review attempt."""
+
+    __tablename__ = "github_watchdog_review_results"
+
+    result_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    review_input_snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_input_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoked_provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoked_model_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    inference_mode: Mapped[str | None] = mapped_column(String(64))
+    requested_max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_output_text: Mapped[str | None] = mapped_column(Text)
+    raw_output_sha256: Mapped[str | None] = mapped_column(String(64))
+    raw_output_bytes: Mapped[int | None] = mapped_column(Integer)
+    structured_review_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+    provider_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_total_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128))
+    terminal_error_code: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_results_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_RESULT_STATE_CHECK,
+            name="ck_github_watchdog_review_results_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_EXECUTION_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_results_terminal_error_code",
+        ),
+        CheckConstraint(
+            "(result_state = 'running' AND completed_at IS NULL) OR "
+            "(result_state != 'running' AND completed_at IS NOT NULL)",
+            name="ck_github_watchdog_review_results_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_results_state",
+            "result_state",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GitHubWatchdogReviewDispatch(Base):
+    """Durable transport lineage for one captured Watchdog review attempt."""
+
+    __tablename__ = "github_watchdog_review_dispatches"
+
+    dispatch_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    review_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_attempts.review_attempt_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    review_input_snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_input_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    head_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    queue_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    enqueue_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    last_enqueue_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    worker_id: Mapped[str | None] = mapped_column(String(255))
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    review_result_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "github_watchdog_review_results.result_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    terminal_error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_attempt_id",
+            name="uq_github_watchdog_review_dispatches_review_attempt_id",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_DISPATCH_STATE_CHECK,
+            name="ck_github_watchdog_review_dispatches_state",
+        ),
+        CheckConstraint(
+            WATCHDOG_REVIEW_DISPATCH_ERROR_CODE_CHECK,
+            name="ck_github_watchdog_review_dispatches_terminal_error_code",
+        ),
+        CheckConstraint(
+            "(dispatch_state IN ('completed','failed','blocked',"
+            "'discarded_superseded','enqueue_failed') AND completed_at IS NOT NULL) "
+            "OR (dispatch_state IN ('pending_enqueue','queued','running') "
+            "AND completed_at IS NULL)",
+            name="ck_github_watchdog_review_dispatches_terminal_shape",
+        ),
+        Index(
+            "ix_github_watchdog_review_dispatches_state",
+            "dispatch_state",
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
 
 

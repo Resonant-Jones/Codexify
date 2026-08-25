@@ -119,7 +119,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
-            "Supported entries include: openai, groq, deepseek, alibaba, minimax, elevenlabs, federation, webhook."
+            "Supported entries include: openai, groq, deepseek, alibaba, minimax, github, elevenlabs, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(
@@ -471,6 +471,75 @@ class Settings(BaseSettings):
     GUARDIAN_API_KEYS: str | None = Field(
         default=None,
         description="Comma-separated additional API keys for Guardian HTTP auth.",
+    )
+    CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App webhook secret for authenticated "
+            "Watchdog delivery intake."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_APP_ID: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App ID used only for Watchdog installation "
+            "authentication. No default is permitted."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY: str | None = Field(
+        default=None,
+        description=(
+            "Server-side GitHub App private key used only to mint short-lived "
+            "Watchdog App JWTs. No default is permitted."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER: str | None = Field(
+        default=None,
+        description=(
+            "Operator-selected provider for inert GitHub Watchdog automated "
+            "review policy snapshots. No default provider is selected."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL: str | None = Field(
+        default=None,
+        description=(
+            "Operator-selected model for inert GitHub Watchdog automated "
+            "review policy snapshots. No default model is selected."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE: str | None = (
+        Field(
+            default=None,
+            description=(
+                "Optional existing reasoning-mode value snapshotted for a "
+                "future GitHub Watchdog automated review execution."
+            ),
+        )
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE: str = Field(
+        default="disabled",
+        description=(
+            "GitHub Watchdog automatic-review escalation posture: disabled "
+            "or explicit_only. This setting never triggers escalation."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER: (
+        str | None
+    ) = Field(
+        default=None,
+        description=(
+            "Explicit-only GitHub Watchdog escalation provider snapshot; "
+            "inert until a separately authorized execution slice."
+        ),
+    )
+    CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL: str | None = (
+        Field(
+            default=None,
+            description=(
+                "Explicit-only GitHub Watchdog escalation model snapshot; "
+                "inert until a separately authorized execution slice."
+            ),
+        )
     )
     GUARDIAN_DATABASE_URL: str | None = Field(
         default=None,

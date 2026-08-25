@@ -14,7 +14,11 @@ ENV_FILE="${CODEXIFY_ENV_FILE:-.env.tester}"
 WHOOSHD_BASE_URL="${WHOOSHD_BASE_URL:-http://127.0.0.1:8000}"
 BACKEND_URL="${CODEXIFY_BACKEND_URL:-http://127.0.0.1:8889}"
 WHOOSHD_LABEL="${WHOOSHD_LAUNCHD_LABEL:-system/com.resonant.whooshd}"
-EXPECTED_MODEL="gemma-4-12b-it-qat-4bit"
+# ADR-074: this is an assertion input, not a second runtime selection source.
+# The historical tracked default is retained until a separate live-inventory
+# reconciliation establishes the current operator selection. Operators may
+# supply EXPECTED_MODEL for that assertion without changing Compose authority.
+EXPECTED_MODEL="${EXPECTED_MODEL:-qwen3.8-27b-4bit}"
 WHOOSHD_READINESS_TIMEOUT_SECONDS="${WHOOSHD_READINESS_TIMEOUT_SECONDS:-120}"
 CODEXIFY_READINESS_TIMEOUT_SECONDS="${CODEXIFY_READINESS_TIMEOUT_SECONDS:-120}"
 
@@ -111,7 +115,7 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-codexify_tester}" \
   up -d frontend backend db redis worker-chat worker-document-embed migrator
 
 python3 - "$BACKEND_URL" "$CODEXIFY_READINESS_TIMEOUT_SECONDS" <<'PY'
-import json, sys, time, urllib.error, urllib.request
+import json, os, sys, time, urllib.error, urllib.request
 
 base, readiness_timeout = sys.argv[1:]
 deadline = time.monotonic() + float(readiness_timeout)
@@ -145,12 +149,13 @@ with urllib.request.urlopen(base + '/api/llm/catalog', timeout=15) as response:
 by_id = {str(item.get('id') or '').strip(): item for item in providers}
 if set(by_id) != {'local', 'deepseek'}:
     raise SystemExit(f'provider pin failed; expected local and deepseek only: {sorted(by_id)}')
-if [str(item.get('id') or '').strip() for item in by_id['local'].get('models', [])] != ['gemma-4-12b-it-qat-4bit']:
-    raise SystemExit('local provider is not pinned to Gemma 12B IT QAT')
+expected_model = os.environ.get('EXPECTED_MODEL', 'qwen3.8-27b-4bit')
+if [str(item.get('id') or '').strip() for item in by_id['local'].get('models', [])] != [expected_model]:
+    raise SystemExit(f'local provider is not pinned to {expected_model!r}')
 if [str(item.get('id') or '').strip() for item in by_id['deepseek'].get('models', [])] != ['deepseek-v4-flash']:
     raise SystemExit('DeepSeek provider is not pinned to DeepSeek V4 Flash')
-print('provider catalog pinned: local Gemma + deepseek-v4-flash')
+print(f'provider catalog pinned: local {expected_model} + deepseek-v4-flash')
 PY
 
-echo "Dual-provider Codexify profile is up: local Gemma + approved DeepSeek V4 Flash."
+echo "Dual-provider Codexify profile is up: local ${EXPECTED_MODEL} + approved DeepSeek V4 Flash."
 echo "Bounded Whoosh'd x2 concurrency gate passed before startup."

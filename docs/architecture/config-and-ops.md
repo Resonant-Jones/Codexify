@@ -25,6 +25,9 @@ Source anchors:
 |---|---|---|
 | `GUARDIAN_API_KEY` | Required at backend startup; app fails fast if absent | `guardian/guardian_api.py` |
 | `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_WEBHOOK_SECRET` | Server-side GitHub App webhook secret for `/api/watchdog/github/webhook`. It has no default: when absent, Watchdog delivery intake fails closed before payload parsing or persistence. Set it only in server-side secret management; never log, return, persist, or place it in repository-controlled configuration. | `guardian/core/config.py`, `guardian/watchdog/security.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_APP_ID` | Server-side GitHub App identity for the Watchdog installation-auth read boundary. It has no default. This is distinct from the webhook HMAC secret and is not frontend-visible. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY` | The sole server-side private-key source for the Watchdog GitHub App read boundary. It has no default and is used only to mint an ephemeral App JWT. It must be held in operator secret management, never logged, returned, persisted, or committed. This temporary configuration bridge does not create a Connections credential record. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
 | `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
@@ -32,6 +35,65 @@ Source anchors:
 | `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
+
+### Backend startup-failure receipt
+
+If the backend exits during application startup, inspect its bounded container
+logs for the JSON event `backend_startup_failure` (prefixed
+`CODEXIFY_STARTUP_FAILURE_RECEIPT`). This is diagnostic evidence in the normal
+log stream, not canonical runtime state and not a recovery instruction.
+
+The receipt records a bounded redacted message, exception identity, causal
+chain, code-location metadata, and `message_sha256` for correlation. It
+intentionally omits environment values, credentials, traceback locals, source
+lines, provider/model authority, and request or user data. The message hash is
+for correlating a failure without retaining its original text.
+
+### GitHub Watchdog automatic-review preparation
+
+| Variable | Current behavior | Anchors |
+|---|---|---|
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER` | No default. The provider selected for an inert `automated_review` system-default policy snapshot. Empty or unset configuration produces a durable `blocked_policy` attempt; the value does not inherit the ambient chat provider. Canonical provider governance and stricter local/cloud/egress controls remain authoritative. | `guardian/core/config.py`, `guardian/watchdog/policy.py`, `guardian/core/provider_registry.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL` | No default. The intended model identity stored in the same inert system-default policy snapshot. Empty or unset configuration produces a durable `blocked_policy` attempt. This setting neither discovers nor invokes a model. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE` | Optional inference/reasoning posture stored with the policy snapshot. It is inert until a separately authorized execution slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODE` | Defaults to `disabled`; the only accepted alternate value is `explicit_only`. It never triggers automatic escalation or fallback. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+| `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_PROVIDER`, `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_ESCALATION_MODEL` | Optional pair stored only with `explicit_only` as inert snapshot data for a future explicit authorization path. The pair is not selected, invoked, or treated as a fallback in this slice. | `guardian/core/config.py`, `guardian/watchdog/policy.py` |
+
+These system-default fields are Watchdog-only authority: they are resolved and
+snapshotted at attempt creation, never inherited from ambient `LLM_PROVIDER` or
+`LOCAL_CHAT_MODEL`. An explicit provider and model must satisfy the existing
+local-only/cloud/egress gates. Operators must verify the exact selected model
+against the provider's live inventory before dispatch; missing configuration or
+an unavailable model must not be replaced by model substitution, fallback, or
+escalation.
+
+The Watchdog GitHub App client is an operator-configured, read-only credential
+bridge until a canonical Connections representation exists. Its App JWT and
+installation access tokens are short-lived process-memory values: they are not
+stored in Postgres or Redis, never returned by a route, and do not establish a
+live configured GitHub App or a supported Watchdog runtime workflow.
+
+### GitHub Watchdog dispatch worker
+
+`GITHUB_WATCHDOG_REVIEW_QUEUE_NAME` names the Redis transport queue for an
+already-captured review and defaults to `codexify:queue:github-watchdog-review`.
+It is transport configuration, not durable Watchdog state. The opt-in
+`worker-watchdog-review` Compose service is enabled only with
+`docker compose --profile watchdog ...`; default supported Compose does not
+start it or require a Watchdog worker.
+
+The worker re-reads its attempt, captured snapshot, dispatch, and result from
+Postgres before it can call the existing review executor. Postgres owns the
+durable dispatch lifecycle and result correlation; Redis carries only a bounded
+task/dispatch/attempt envelope. Thus Redis restart or list loss cannot erase a
+durable accepted dispatch record, and `queued` means Redis transport acceptance,
+not worker dequeue, model execution, result persistence, or publication.
+
+The worker consumes no GitHub App credential and performs no GitHub read or
+write. It needs only the existing canonical database, Redis, provider, and
+model runtime configuration needed to execute the attempt's already-snapshotted
+provider/model selection. This opt-in seam is not a release-support claim;
+there is no automatic replay, retry, stale-running recovery, or operator API.
 
 ### Database, queues, and event transport
 
@@ -41,6 +103,7 @@ Source anchors:
 | `REDIS_URL` | Defaults to `redis://redis:6379/0` | `guardian/queue/redis_queue.py` |
 | `CHAT_TURN_LOCK_TTL_SECONDS` | Defaults to `300` seconds | `guardian/queue/redis_queue.py` |
 | `CHAT_EMBED_QUEUE_NAME` | Defaults to `codexify:queue:chat-embed` | `guardian/queue/redis_queue.py` |
+| `GITHUB_WATCHDOG_REVIEW_QUEUE_NAME` | Defaults to `codexify:queue:github-watchdog-review`; Redis transport only for an explicitly dispatched captured Watchdog review. Its durable lineage is Postgres-backed. | `guardian/queue/redis_queue.py`, `guardian/watchdog/review_dispatch.py`, `guardian/workers/watchdog_review_worker.py` |
 | document embed queue env | Defaults to `codexify:queue:document-embed` through queue module constants | `guardian/queue/document_embed_queue.py` |
 | cron queue env | Defaults to `codexify:queue:cron` through scheduler/worker constants | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
 | outbox envs | Poll interval, batch size, and tenant semantics are parsed defensively for `/api/events` | `guardian/core/outbox.py`, `guardian/guardian_api.py` |
@@ -52,7 +115,7 @@ Source anchors:
 | `LLM_PROVIDER` | Canonical provider default in core settings; defaults to `local` | `guardian/core/config.py` |
 | `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers such as OpenAI, Groq, DeepSeek, Alibaba, and MiniMax | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_LOCAL_ONLY_MODE` | Default `true`; keeps the system local-first unless explicitly relaxed | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted; cloud entries include `openai`, `groq`, `deepseek`, `alibaba`, and `minimax` | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted; cloud entries include `openai`, `groq`, `deepseek`, `alibaba`, and `minimax`. The read-only Watchdog GitHub App seam additionally requires an explicit `github` entry; it remains blocked by `CODEXIFY_LOCAL_ONLY_MODE=true` but is not a routed cloud-model provider. | `guardian/core/config.py`, `guardian/core/egress.py`, `guardian/watchdog/github_app.py` |
 | `CODEXIFY_SUPPORTED_PROFILE` | Names the supported-profile manifest to load at startup; supported Compose sets this explicitly for the local beta profile | `guardian/core/supported_profile.py`, `guardian/guardian_api.py`, `docker-compose.yml` |
 | `CODEXIFY_SUPPORTED_PROFILE_DIR` | Optional override for the manifest directory; default is `config/supported_profiles`, and the supported Compose backend mounts `./config:/app/config:ro` so the manifest is available | `guardian/core/supported_profile.py`, `docker-compose.yml` |
 | `LOCAL_RUNTIME_PRESET`, `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_PROVIDER_DISPLAY_NAME`, `LOCAL_PROVIDER_VENDOR`, `LOCAL_COMPAT_FIRST`, `LOCAL_EMBED_MODEL` | Local runtime preset, connectivity, and model selection. Presets include `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible`; all remain behind `LLM_PROVIDER=local` | `guardian/core/config.py`, `guardian/core/local_runtime_presets.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
@@ -322,10 +385,22 @@ curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
 `v1-whooshd-deepseek-web` is the ADR-052-governed private-preview profile. It
 does not replace `v1-local-core-web-mcp` or widen the supported beta promise.
 Its provider contract keeps `LLM_PROVIDER=local`, selects the `whooshd-mlx`
-runtime preset and `gemma-4-12b-it-qat-4bit`, permits cloud execution only with
+runtime preset and the operator-supplied local chat model, permits cloud execution only with
 `ALLOW_CLOUD_PROVIDERS=true` and `CODEXIFY_LOCAL_ONLY_MODE=false`, and restricts
 `CODEXIFY_EGRESS_ALLOWLIST` to the canonical provider-policy token `deepseek`.
 DeepSeek uses `deepseek-v4-flash`; no unrelated cloud provider is admitted.
+
+Per **ADR-074** (Tester provider / model configuration authority), the
+supported profile owns the allowed/default provider posture; the untracked
+operator environment (`.env.tester`) supplies the concrete Tester chat-model
+selection; and the Whoosh'd/DeepSeek Compose overlay transports that selection
+through `${LOCAL_CHAT_MODEL}` for `LOCAL_CHAT_MODEL`, `LOCAL_LLM_MODEL`,
+`DEFAULT_LOCAL_MODEL`, and `LLM_MODEL`. Vision and GGUF remain independent
+model domains. Live Whoosh'd inventory reports current availability but cannot
+rewrite Codexify configuration. Any configured-model/inventory disagreement is
+the fail-closed `configured_model_not_advertised_by_whooshd` condition, not a
+model substitution. The tracked `qwen3.8-27b-4bit` profile default is restored
+historical configuration evidence, not current runtime-availability proof.
 
 The private-preview overlay exposes one loopback Nginx origin at
 `127.0.0.1:8081`. Whoosh'd remains a loopback host process reached from Docker
@@ -347,7 +422,8 @@ Operators must read these truth surfaces separately:
 8. Persisted transcript readback proves durable assistant output.
 
 Provider-specific signoff requires two separate threads: one explicit local
-Whoosh'd/Gemma turn and one explicit DeepSeek V4 Flash turn. Each must persist
+Whoosh'd turn using the reconciled operator-selected model and one explicit
+DeepSeek V4 Flash turn. Each must persist
 exactly one assistant response whose task evidence identifies the expected
 attempted and final provider/model. Automatic rescue or any other fallback
 fails the requested provider's proof even when a response persists. Use

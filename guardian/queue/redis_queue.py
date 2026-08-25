@@ -19,6 +19,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.protocol_tokens import ErrorCode
+from guardian.tasks.types import GITHUB_WATCHDOG_REVIEW_TASK_TYPE
 from guardian.utils.log_safety import install_safe_logging
 
 install_safe_logging()
@@ -43,6 +44,10 @@ CHAT_IMPORT_EMBED_TASK_TYPE = "chat_import_embed"
 CANDIDATE_INGEST_QUEUE = "codexify:queue:candidate_ingest"
 GRAPH_WRITE_QUEUE = "codexify:queue:graph-write"
 CODING_EXECUTION_QUEUE = "codexify:queue:coding-execution"
+GITHUB_WATCHDOG_REVIEW_QUEUE_NAME = os.getenv(
+    "GITHUB_WATCHDOG_REVIEW_QUEUE_NAME",
+    "codexify:queue:github-watchdog-review",
+)
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 _QUEUE_CLIENT: Any = None
@@ -667,6 +672,33 @@ def dequeue_coding_execution(
 ) -> dict[str, Any] | None:
     """Dequeue a coding execution task."""
     return dequeue(CODING_EXECUTION_QUEUE, block=block, timeout=timeout)
+
+
+def enqueue_watchdog_review(
+    *,
+    task_id: str,
+    dispatch_id: str,
+    review_attempt_id: str,
+    created_at: str,
+) -> None:
+    """Transport only bounded Watchdog correlation metadata through Redis."""
+    enqueue(
+        {
+            "task_id": task_id,
+            "type": GITHUB_WATCHDOG_REVIEW_TASK_TYPE,
+            "dispatch_id": dispatch_id,
+            "review_attempt_id": review_attempt_id,
+            "created_at": created_at,
+        },
+        GITHUB_WATCHDOG_REVIEW_QUEUE_NAME,
+    )
+
+
+def dequeue_watchdog_review(
+    *, block: bool = True, timeout: int | None = None
+) -> dict[str, Any] | None:
+    """Consume only the dedicated Watchdog review transport queue."""
+    return dequeue(GITHUB_WATCHDOG_REVIEW_QUEUE_NAME, block=block, timeout=timeout)
 
 
 def cancel(task_id: str) -> None:

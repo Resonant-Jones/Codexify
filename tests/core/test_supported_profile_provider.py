@@ -17,6 +17,9 @@ from guardian.core.supported_profile import (
 )
 
 _WHOOSHD_MODEL = "gemma-4-12b-it-qat-4bit"
+# ADR-074 restores the historical tracked Tester default and one-authority
+# contract. It is intentionally not a claim about current Whoosh'd inventory.
+_HISTORICAL_TRACKED_DEFAULT_MODEL = "qwen3.8-27b-4bit"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -76,9 +79,28 @@ def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
         CODEXIFY_EGRESS_ALLOWLIST="deepseek",
         LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
         LOCAL_PROVIDER_VENDOR="whooshd",
-        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
-        LOCAL_LLM_MODEL="gemma-4-12b-it-qat-4bit",
-        LLM_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_CHAT_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
+        LOCAL_LLM_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
+        LLM_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+
+    config_module.validate_llm_config(settings)
+
+
+def test_validate_llm_config_accepts_tester_operator_selected_local_model(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("LOCAL_CHAT_MODEL", _WHOOSHD_MODEL)
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_CHAT_MODEL=_WHOOSHD_MODEL,
+        LOCAL_LLM_MODEL=_WHOOSHD_MODEL,
+        LLM_MODEL=_WHOOSHD_MODEL,
         DEEPSEEK_API_KEY="test-deepseek-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
     )
@@ -92,7 +114,7 @@ def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
         CODEXIFY_EGRESS_ALLOWLIST="deepseek",
-        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_CHAT_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
         DEEPSEEK_API_KEY="test-deepseek-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
     )
@@ -104,7 +126,7 @@ def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
     )
     assert resolution.ok
     assert resolution.strict is True
-    assert resolution.model == "gemma-4-12b-it-qat-4bit"
+    assert resolution.model == _HISTORICAL_TRACKED_DEFAULT_MODEL
 
 
 def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
@@ -144,3 +166,44 @@ def test_resolve_local_base_rejects_supported_profile_runtime_base_drift(
 
     with pytest.raises(HTTPException, match="requires LOCAL_BASE_URL"):
         _resolve_local_base(settings)
+
+
+def test_supported_profile_keeps_deepseek_posture_under_restored_authority(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_CHAT_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+
+    assert _local_chat_model_is_authoritative(settings) is True
+    resolution = resolve_local_execution_model(
+        settings=settings,
+        requested_model="stale-local-model",
+    )
+    assert resolution.ok
+    assert resolution.strict is True
+    assert resolution.model == _HISTORICAL_TRACKED_DEFAULT_MODEL
+
+
+def test_non_strict_alias_fallback_keeps_one_operator_selected_model(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    settings = _supported_profile_settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        LOCAL_LLM_MODEL=_HISTORICAL_TRACKED_DEFAULT_MODEL,
+    )
+    object.__setattr__(settings, "LOCAL_CHAT_MODEL", "")
+    object.__setattr__(settings, "DEFAULT_LOCAL_MODEL", "")
+    object.__setattr__(settings, "LLM_MODEL", "")
+    object.__setattr__(settings, "LOCAL_LLM_MODEL", _HISTORICAL_TRACKED_DEFAULT_MODEL)
+
+    assert _local_chat_model_is_authoritative(settings) is False
+    resolution = resolve_local_execution_model(settings=settings)
+    assert resolution.ok
+    assert resolution.model == _HISTORICAL_TRACKED_DEFAULT_MODEL
