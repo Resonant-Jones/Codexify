@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import guardian.agents.adapters.pi_codex_runner as pi_codex_runner
 from guardian.agents.adapters.base import (
     AgentExecutionIdentity,
     AgentExecutionRequest,
@@ -381,7 +382,7 @@ def test_authorized_timeout_and_missing_wrapper_are_classified_without_raw_error
     def timeout(*_args: object, **_kwargs: object) -> None:
         raise subprocess.TimeoutExpired("node", 1)
 
-    monkeypatch.setattr("guardian.agents.adapters.pi_codex_runner.subprocess.run", timeout)
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", timeout)
     timeout_result = adapter.execute_authorized(request, identity, read_only=True)
     assert timeout_result.failure_classification == PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value
     assert "timed out after" not in timeout_result.summary
@@ -389,7 +390,7 @@ def test_authorized_timeout_and_missing_wrapper_are_classified_without_raw_error
     def missing(*_args: object, **_kwargs: object) -> None:
         raise FileNotFoundError("/secret/path")
 
-    monkeypatch.setattr("guardian.agents.adapters.pi_codex_runner.subprocess.run", missing)
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", missing)
     missing_result = adapter.execute_authorized(request, identity, read_only=True)
     assert missing_result.failure_classification == PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value
     assert "/secret/path" not in missing_result.model_dump_json()
