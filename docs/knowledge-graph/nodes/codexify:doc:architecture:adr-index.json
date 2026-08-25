@@ -18,14 +18,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-23T00:00:00Z",
-    "verified_commit": "3b13351ac27933eefa3a172abd1b6fb2adc92751",
+    "verified_at": "2026-08-25T15:42:32Z",
+    "verified_commit": "a3d7882b8dfe826bc2f7ce3407e0677e827fcc17",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-verified the ADR Index metadata against current main at the audited pre-change HEAD 3b13351ac; ADR discovery scope remains a structural routing authority and source hash synchronized."
+    "reason": "Re-verified the ADR Index after current-main ADR additions; ADR discovery/routing remains structural authority, the DLG governance links remain valid, and the source hash is synchronized to a3d7882."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "796f0fe8d104669e4239d70581290619bcb0a043cefd035d2cf76dfd8999aa3e",
+  "content_hash": "82472842e334038d2adc5f21111fdee44e78324bc2d378aad420f927d26af141",
   "relations": [
     {
       "relation_type": "depends_on",
