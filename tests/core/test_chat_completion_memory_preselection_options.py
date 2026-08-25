@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -494,13 +495,21 @@ def test_missing_options_preserve_tool_loop_invocation_inputs(
         captured["execute_provider"] = provider
         captured["execute_model"] = model
         captured["execute_messages"] = list(messages_for_llm)
+        terminal_evidence = successful_non_stream_terminal(
+            provider=provider,
+            model=model,
+            finish_reason="stop",
+        ).as_dict()
+        payload_summary = dict(kwargs.get("base_payload_summary") or {})
+        payload_summary["terminal_evidence"] = terminal_evidence
         return {
             "assistant_text": "ok",
             "provider": provider,
             "model": model,
             "bundle": kwargs.get("bundle"),
             "trace": kwargs.get("trace"),
-            "payload_summary": dict(kwargs.get("base_payload_summary") or {}),
+            "payload_summary": payload_summary,
+            "terminal_evidence": terminal_evidence,
             "execution": {
                 "attempted_provider": provider,
                 "attempted_model": model,

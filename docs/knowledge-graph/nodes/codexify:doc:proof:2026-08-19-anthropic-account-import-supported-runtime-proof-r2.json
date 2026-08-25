@@ -74,6 +74,15 @@
     "effective_from": "2026-08-19T00:00:00Z"
   },
   "content_hash": "7dd544e67dad176b1382562468644c968ea69b5e12cc665206e865602d25d4f8",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:architecture:current-state",
+      "authority_scope": "Anthropic / Claude account-export conversation import Beta Bounded / Conditional support on the proven supported local Web/runtime path",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The immutable R2 supported-runtime receipt is the proven-live-runtime evidence for the bounded Anthropic account-export conversation-import posture already recorded by current release truth; it does not prove arbitrary Anthropic import, Projects, memories/persona/profile import, media reconstruction, Anthropic inference, cloud authorization, or current-head runtime health."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }

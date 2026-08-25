@@ -87,6 +87,15 @@
     "effective_from": "2026-07-15T17:21:01Z"
   },
   "content_hash": "94cfcae9b3cbd1f8d85d997729c7d895901c522eaa184e67b9654ef2cfb2ba09",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:architecture:current-state",
+      "authority_scope": "Axis orientation for current release and support claims",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The Axis Node entrypoint explicitly requires 00-current-state.md before any release or support claim and states that current-state remains release truth rather than allowing Axis Node to become a parallel truth store."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }

@@ -1,12 +1,10 @@
-import importlib
-
 import pytest
 from fastapi import HTTPException
 
 from guardian.core.auth import issue_session_token
 
 
-def _reload_identity_modules(monkeypatch, **env_overrides):
+def _configure_identity_modules(monkeypatch, **env_overrides):
     monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
     for key, value in env_overrides.items():
         if value is None:
@@ -17,13 +15,13 @@ def _reload_identity_modules(monkeypatch, **env_overrides):
     import guardian.core.config as core_config
     import guardian.core.dependencies as dependencies
 
-    core_config = importlib.reload(core_config)
-    dependencies = importlib.reload(dependencies)
+    test_settings = core_config.Settings()
+    monkeypatch.setattr(core_config, "settings", test_settings)
     return core_config, dependencies
 
 
 def test_single_user_mode_remains_compatible(monkeypatch):
-    core_config, dependencies = _reload_identity_modules(
+    core_config, dependencies = _configure_identity_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="false",
@@ -42,7 +40,7 @@ def test_single_user_mode_remains_compatible(monkeypatch):
 def test_multi_user_authenticated_subject_resolves_to_stable_account_id(
     monkeypatch,
 ):
-    core_config, dependencies = _reload_identity_modules(
+    core_config, dependencies = _configure_identity_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="true",
@@ -79,7 +77,7 @@ def test_multi_user_authenticated_subject_resolves_to_stable_account_id(
 
 
 def test_multi_user_missing_principal_mapping_fails_closed(monkeypatch):
-    _, dependencies = _reload_identity_modules(
+    _, dependencies = _configure_identity_modules(
         monkeypatch,
         CODEXIFY_SINGLE_USER_ID="single-user",
         CODEXIFY_MULTI_USER_ENABLED="true",

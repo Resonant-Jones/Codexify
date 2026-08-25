@@ -11,6 +11,10 @@ import {
   type ChatRequestState,
 } from "../../src/contracts/runtimeTokens"
 import {
+  CONVERSATION_ORIGIN_SYSTEMS,
+  type ConversationOriginSystem,
+} from "../../src/contracts/conversationOrigin"
+import {
   interpretGuardianThreadIntervention,
   type GuardianThreadIntervention,
 } from "../../src/features/chat/approvals/threadIntervention"
@@ -32,11 +36,13 @@ import {
 } from "./chromeStorage"
 import {
   classifyCodexifyError,
+  CodexifyApiError,
   createCodexifyExtensionApi,
   loginRemoteSession,
   type CodexifyExtensionApi,
   type CodexifyBrowserApproval,
   type CodexifyMessage,
+  type CodexifyProject,
   type CodexifyThread,
   type CompletionReceipt,
   type RemoteLoginCredentials,
@@ -65,6 +71,26 @@ type CompletionViewState =
 type MessageLoadState = "idle" | "loading" | "ready" | "failed"
 type ProfileSyncState = "idle" | "loading" | "ready" | "failed"
 type InterventionDecisionAction = "approve" | "deny"
+
+const THREAD_PAGE_SIZE = 50
+
+function originLabel(originSystem: ConversationOriginSystem): string {
+  return originSystem.slice(0, 1).toUpperCase() + originSystem.slice(1)
+}
+
+function selectedThreadMetadata(
+  thread: CodexifyThread | null,
+): Array<{ label: string; value: string }> {
+  if (!thread) return []
+  const provider = thread.threadConfig?.providerId ?? thread.providerOverride ?? null
+  const model = thread.threadConfig?.modelId ?? thread.modelOverride ?? null
+  return [
+    ...(thread.projectName ? [{ label: "Project", value: thread.projectName }] : []),
+    ...(thread.originSystem ? [{ label: "Origin", value: originLabel(thread.originSystem) }] : []),
+    { label: "Provider", value: provider ?? "Unspecified" },
+    { label: "Model", value: model ?? "Unspecified" },
+  ]
+}
 
 export interface SidePanelAppProps {
   storage?: ConnectionStorage
@@ -329,8 +355,15 @@ export function SidePanelApp({
   const [usernameInput, setUsernameInput] = useState("")
   const [passwordInput, setPasswordInput] = useState("")
   const [threads, setThreads] = useState<CodexifyThread[]>([])
+  const [projects, setProjects] = useState<CodexifyProject[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const [selectedOriginSystem, setSelectedOriginSystem] =
+    useState<ConversationOriginSystem | null>(null)
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null)
+  const [selectedThreadRecord, setSelectedThreadRecord] = useState<CodexifyThread | null>(null)
   const [threadsLoading, setThreadsLoading] = useState(false)
+  const [threadsHasMore, setThreadsHasMore] = useState(false)
+  const [threadsLoadingMore, setThreadsLoadingMore] = useState(false)
   const [threadDrawerOpen, setThreadDrawerOpen] = useState(false)
   const [messages, setMessages] = useState<CodexifyMessage[]>([])
   const [messageLoadState, setMessageLoadState] = useState<MessageLoadState>("idle")
@@ -359,14 +392,21 @@ export function SidePanelApp({
   const interventionLoadVersionRef = useRef(0)
   const interventionDecisionInFlightRef = useRef(false)
   const selectedThreadIdRef = useRef<number | null>(null)
+  const threadQueryVersionRef = useRef(0)
+  const threadNextOffsetRef = useRef(0)
 
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId
   }, [selectedThreadId])
 
   const selectedThread = useMemo(
-    () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
-    [selectedThreadId, threads],
+    () => threads.find((thread) => thread.id === selectedThreadId)
+      ?? (selectedThreadRecord?.id === selectedThreadId ? selectedThreadRecord : null),
+    [selectedThreadId, selectedThreadRecord, threads],
+  )
+  const selectedMetadata = useMemo(
+    () => selectedThreadMetadata(selectedThread),
+    [selectedThread],
   )
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.role === "user" || message.role === "assistant"),
@@ -468,36 +508,128 @@ export function SidePanelApp({
     await storage.updateSelectedThreadId(threadId)
   }, [storage])
 
+  const loadProjects = useCallback(async (api: CodexifyExtensionApi): Promise<void> => {
+    try {
+      setProjects(await api.listProjects())
+    } catch (error) {
+      // Project navigation is additive observability. A project-list failure
+      // must not clear an otherwise usable persisted chat transcript.
+      recordConnectionFailure(error)
+    }
+  }, [recordConnectionFailure])
+
+  const loadThreadPage = useCallback(async (
+    api: CodexifyExtensionApi,
+    {
+      reset,
+      projectId,
+      originSystem,
+    }: {
+      reset: boolean
+      projectId: number | null
+      originSystem: ConversationOriginSystem | null
+    },
+  ): Promise<CodexifyThread[]> => {
+    const queryVersion = threadQueryVersionRef.current
+    if (reset) {
+      threadNextOffsetRef.current = 0
+      setThreadsLoading(true)
+    } else {
+      setThreadsLoadingMore(true)
+    }
+    try {
+      const page = await api.listThreads({
+        limit: THREAD_PAGE_SIZE,
+        offset: reset ? 0 : threadNextOffsetRef.current,
+        // Guardian's existing navigation semantics make project and origin
+        // lenses mutually exclusive: an active origin query owns the directory.
+        ...(originSystem !== null
+          ? { originSystem }
+          : projectId !== null
+            ? { projectId }
+            : {}),
+      })
+      if (queryVersion !== threadQueryVersionRef.current) return []
+
+      const pageThreadIds = new Set<number>()
+      const pageThreads = page.threads.filter((thread) => {
+        if (pageThreadIds.has(thread.id)) return false
+        pageThreadIds.add(thread.id)
+        return true
+      })
+      setThreads((current) => {
+        if (reset) return pageThreads
+        const seen = new Set(current.map((thread) => thread.id))
+        return [...current, ...pageThreads.filter((thread) => !seen.has(thread.id))]
+      })
+      threadNextOffsetRef.current = page.nextOffset
+      setThreadsHasMore(page.hasMore)
+      return pageThreads
+    } catch (error) {
+      if (queryVersion === threadQueryVersionRef.current) {
+        recordConnectionFailure(error)
+        if (reset) {
+          setThreads([])
+          setThreadsHasMore(false)
+        }
+      }
+      return []
+    } finally {
+      if (queryVersion === threadQueryVersionRef.current) {
+        if (reset) setThreadsLoading(false)
+        else setThreadsLoadingMore(false)
+      }
+    }
+  }, [recordConnectionFailure])
+
   const hydrateChat = useCallback(async (
     api: CodexifyExtensionApi,
     preferredThreadId: number | null,
+    projectId: number | null = null,
+    originSystem: ConversationOriginSystem | null = null,
   ): Promise<void> => {
-    setThreadsLoading(true)
-    try {
-      const nextThreads = await api.listThreads()
-      setThreads(nextThreads)
-      const preferredExists = nextThreads.some((thread) => thread.id === preferredThreadId)
-      const nextSelectedThreadId = preferredExists
-        ? preferredThreadId
-        : nextThreads[0]?.id ?? null
-      setSelectedThreadId(nextSelectedThreadId)
-      await rememberSelectedThread(nextSelectedThreadId)
-      if (nextSelectedThreadId === null) {
-        setMessages([])
-        setMessageLoadState("ready")
-        await loadIntervention(api, null)
-      } else {
-        await Promise.all([
-          loadMessages(api, nextSelectedThreadId),
-          loadIntervention(api, nextSelectedThreadId),
-        ])
+    const firstPage = await loadThreadPage(api, {
+      reset: true,
+      projectId,
+      originSystem,
+    })
+    let nextSelectedThread = preferredThreadId === null
+      ? firstPage[0] ?? null
+      : firstPage.find((thread) => thread.id === preferredThreadId) ?? null
+
+    let selectedThreadReadFailed = false
+    if (preferredThreadId !== null && nextSelectedThread === null) {
+      try {
+        // A scoped directory page is not an existence check for the selected
+        // backend thread. Read the canonical record before changing selection.
+        nextSelectedThread = await api.getThread(preferredThreadId)
+      } catch (error) {
+        // Only an explicit 404 proves the saved thread is gone. A filtered
+        // page, transient error, or auth/runtime failure must not clear it.
+        if (error instanceof CodexifyApiError && error.status === 404) {
+          nextSelectedThread = firstPage[0] ?? null
+        } else {
+          selectedThreadReadFailed = true
+        }
       }
-    } catch (error) {
-      recordConnectionFailure(error)
-    } finally {
-      setThreadsLoading(false)
     }
-  }, [loadIntervention, loadMessages, recordConnectionFailure, rememberSelectedThread])
+    const nextSelectedThreadId = nextSelectedThread?.id
+      ?? (selectedThreadReadFailed ? preferredThreadId : null)
+    setSelectedThreadId(nextSelectedThreadId)
+    selectedThreadIdRef.current = nextSelectedThreadId
+    setSelectedThreadRecord(nextSelectedThread)
+    await rememberSelectedThread(nextSelectedThreadId)
+    if (nextSelectedThreadId === null) {
+      setMessages([])
+      setMessageLoadState("ready")
+      await loadIntervention(api, null)
+      return
+    }
+    await Promise.all([
+      loadMessages(api, nextSelectedThreadId),
+      loadIntervention(api, nextSelectedThreadId),
+    ])
+  }, [loadIntervention, loadMessages, loadThreadPage, rememberSelectedThread])
 
   useEffect(() => {
     let cancelled = false
@@ -556,6 +688,7 @@ export function SidePanelApp({
         }).catch(() => {
           if (!cancelled) setProfileSyncState("failed")
         })
+        void loadProjects(api)
         await hydrateChat(api, verifiedProfile.selectedThreadId)
       } catch (error) {
         if (!cancelled) recordConnectionFailure(error)
@@ -715,6 +848,7 @@ export function SidePanelApp({
         lastConfirmedAccentRef.current = token
         setProfileSyncState("ready")
       }).catch(() => setProfileSyncState("failed"))
+      void loadProjects(api)
       await hydrateChat(api, verifiedProfile.selectedThreadId)
     } catch (error) {
       await permissionClient.remove(permissionPattern).catch(() => false)
@@ -789,6 +923,7 @@ export function SidePanelApp({
       await storage.save(verifiedProfile)
       setProfile(verifiedProfile)
       setConnectionState("ready")
+      void loadProjects(api)
       await hydrateChat(api, verifiedProfile.selectedThreadId)
     } catch (error) {
       recordConnectionFailure(error)
@@ -808,7 +943,13 @@ export function SidePanelApp({
       apiRef.current = null
       setProfile(null)
       setThreads([])
+      setProjects([])
+      setSelectedProjectId(null)
+      setSelectedOriginSystem(null)
       setSelectedThreadId(null)
+      setSelectedThreadRecord(null)
+      setThreadsHasMore(false)
+      setThreadsLoadingMore(false)
       setMessages([])
       setComposerValue("")
       setBackendInput("")
@@ -845,6 +986,9 @@ export function SidePanelApp({
     setCompletionReceipt(null)
     selectedThreadIdRef.current = threadId
     setSelectedThreadId(threadId)
+    setSelectedThreadRecord(
+      threads.find((thread) => thread.id === threadId) ?? null,
+    )
     setMessages([])
     setIntervention(null)
     setInterventionError(null)
@@ -858,16 +1002,58 @@ export function SidePanelApp({
     ])
   }
 
+  const changeProjectScope = async (projectId: number | null): Promise<void> => {
+    const api = apiRef.current
+    if (!api) return
+    threadQueryVersionRef.current += 1
+    setSelectedProjectId(projectId)
+    // Match Guardian's main navigation: an explicit project supersedes any
+    // active provenance lens without changing a thread's backend association.
+    setSelectedOriginSystem(null)
+    setSurfaceError(null)
+    await loadThreadPage(api, {
+      reset: true,
+      projectId,
+      originSystem: null,
+    })
+  }
+
+  const changeOriginScope = async (
+    originSystem: ConversationOriginSystem | null,
+  ): Promise<void> => {
+    const api = apiRef.current
+    if (!api) return
+    threadQueryVersionRef.current += 1
+    setSelectedOriginSystem(originSystem)
+    setSurfaceError(null)
+    await loadThreadPage(api, {
+      reset: true,
+      projectId: selectedProjectId,
+      originSystem,
+    })
+  }
+
+  const loadMoreThreads = async (): Promise<void> => {
+    const api = apiRef.current
+    if (!api || threadsLoadingMore || !threadsHasMore) return
+    await loadThreadPage(api, {
+      reset: false,
+      projectId: selectedProjectId,
+      originSystem: selectedOriginSystem,
+    })
+  }
+
   const createNewThread = async (title = "New Chat"): Promise<CodexifyThread | null> => {
     const api = apiRef.current
     if (!api) return null
     setOperationBusy(true)
     setSurfaceError(null)
     try {
-      const thread = await api.createThread(title)
+      const thread = await api.createThread(title, selectedProjectId)
       setThreads((current) => [thread, ...current.filter((item) => item.id !== thread.id)])
       setSelectedThreadId(thread.id)
       selectedThreadIdRef.current = thread.id
+      setSelectedThreadRecord(thread)
       setMessages([])
       setIntervention(null)
       setInterventionError(null)
@@ -1326,6 +1512,51 @@ export function SidePanelApp({
               </button>
             </div>
 
+            <div className="thread-scopes">
+              <label>
+                <span>Project</span>
+                <select
+                  aria-label="Project scope"
+                  value={selectedProjectId ?? ""}
+                  onChange={(event) => {
+                    const projectId = Number(event.target.value)
+                    void changeProjectScope(
+                      Number.isInteger(projectId) && projectId > 0 ? projectId : null,
+                    )
+                  }}
+                >
+                  <option value="">All projects</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Origin</span>
+                <select
+                  aria-label="Conversation origin"
+                  value={selectedOriginSystem ?? ""}
+                  onChange={(event) => {
+                    const originSystem = event.target.value
+                    void changeOriginScope(
+                      CONVERSATION_ORIGIN_SYSTEMS.includes(
+                        originSystem as ConversationOriginSystem,
+                      )
+                        ? originSystem as ConversationOriginSystem
+                        : null,
+                    )
+                  }}
+                >
+                  <option value="">All origins</option>
+                  {CONVERSATION_ORIGIN_SYSTEMS.map((originSystem) => (
+                    <option key={originSystem} value={originSystem}>
+                      {originLabel(originSystem)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div className="thread-list">
               {threadsLoading ? <p className="list-state">Loading threads…</p> : null}
               {!threadsLoading && threads.length === 0 ? (
@@ -1342,6 +1573,16 @@ export function SidePanelApp({
                   {thread.id === selectedThreadId ? <span aria-hidden="true">•</span> : null}
                 </button>
               ))}
+              {threadsHasMore ? (
+                <button
+                  className="load-more-threads"
+                  type="button"
+                  disabled={threadsLoadingMore}
+                  onClick={() => void loadMoreThreads()}
+                >
+                  {threadsLoadingMore ? "Loading more…" : "Load more"}
+                </button>
+              ) : null}
             </div>
 
             <div className="drawer-footer">
@@ -1357,6 +1598,17 @@ export function SidePanelApp({
             </div>
           </aside>
         </>
+      ) : null}
+
+      {selectedThread ? (
+        <section className="selected-thread-context" aria-label="Selected thread context">
+          {selectedMetadata.map((item) => (
+            <span className="selected-thread-context__item" key={item.label}>
+              <strong>{item.label}</strong>
+              <span>{item.value}</span>
+            </span>
+          ))}
+        </section>
       ) : null}
 
       <main className="message-lane">

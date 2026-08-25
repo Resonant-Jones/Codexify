@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-23T00:00:00Z",
-    "verified_commit": "3b13351ac27933eefa3a172abd1b6fb2adc92751",
+    "verified_at": "2026-08-24T13:06:45Z",
+    "verified_commit": "ce389e6bc31ba4e7ceb1cd6207328e85fe06e939",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB entrypoint metadata against current main at the audited pre-change HEAD 3b13351ac; structural routing scope and read_when guidance remain accurate and source hash synchronized."
+    "reason": "KB routing was reverified after current-state static input-bundle authoring-aid linkage; README bytes did not change; no release routing changed."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -96,6 +96,15 @@
     "effective_from": "2026-02-17T16:32:37Z"
   },
   "content_hash": "5613024e025bf999e96bfec5468b39d5b257339bae4b6992d6d2049731e084e4",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:architecture:current-state",
+      "authority_scope": "release-truth routing and short-horizon architecture orientation",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }

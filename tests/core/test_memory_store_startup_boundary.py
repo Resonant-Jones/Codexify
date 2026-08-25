@@ -115,12 +115,14 @@ def _run_isolated_import_check(
         "sys.stdout.write(f'DB_CREATED={created}\\nDB_SIZE={size}\\n')\n"
         "sys.exit(0)\n"
     )
+    env = _clean_subprocess_env()
+    env["STORAGE_BASE_PATH"] = str(cwd / "data" / "media")
     result = subprocess.run(
         [sys.executable, "-E", "-c", probe],
         capture_output=True,
         text=True,
         cwd=str(cwd),
-        env=_clean_subprocess_env(),
+        env=env,
         timeout=timeout,
     )
     last_lines = (result.stdout or "").strip().splitlines()[-2:]
@@ -195,6 +197,12 @@ def test_import_seam_does_not_create_legacy_sqlite_store_db(
     if stderr:
         sys.stderr.write(
             f"[{target_module}] subprocess stderr: {stderr[:2000]}\n"
+        )
+
+    if target_module == "guardian.guardian_api":
+        assert (subprocess_cwd / "data" / "media").is_dir(), (
+            "Guardian application import must initialize media storage beneath "
+            "the probe-owned temporary path"
         )
 
     assert not store_db_exists, (

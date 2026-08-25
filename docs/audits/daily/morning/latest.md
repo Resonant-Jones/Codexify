@@ -1,13 +1,15 @@
-# Daily Audit — 2026-08-08
+# Daily Audit — 2026-08-09
 
 ## Repo Status
-- Date: 2026-08-08
+- Date: 2026-08-09
 - Phase: `morning`
-- Branch: `main`
-- HEAD: `fc2bb353ea7ca7db1964c949b0a7444a856b3602`
+- Branch: `codex/reconcile-dlg-pao-history`
+- HEAD: `68f080029368395dd77a18df0ca724c24ea51a04`
 - Worktree: dirty
 - Status lines:
-  - `?? docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-publication-proof.md`
+  - `?? .worktrees/utility-unifying-frameworks/`
+  - `?? docs/Plans/2026-08-08-unify-agent-tools-terminal-and-coding-loop.md`
+  - `?? docs/research/codexify-vs-hermes-architecture-comparison-2026-08-08.md`
 
 ## Audit CLI Summary
 - Selected mode: `json`
@@ -31,29 +33,21 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 9
-- Unique files changed: 27
-- Files changed: `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-inventory.md`, `docs/architecture/README.md`, `docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/architecture/product-lanes-and-boundaries.md`, `docs/axis-node/README.md`, `docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json`, `tests/architecture/test_product_architecture_ontology.py`, `docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md`, `schemas/knowledge/product-architecture-assertion.schema.json`, `schemas/knowledge/product-architecture-ontology.schema.json`, `docs/knowledge-graph/examples/agent-reading-packet.example.json`, `docs/knowledge-graph/examples/document-lifecycle-graph.example.json`, `docs/knowledge-graph/examples/product-architecture-assertions.example.json`, `schemas/knowledge/agent-reading-packet.schema.json`, `schemas/knowledge/document-lifecycle-graph.schema.json`, `docs/architecture/adr/056-document-lifecycle-graph-control-plane.md`, `.gitattributes`, `docs/audits/daily/morning/2026-08-06-audit.json`, `docs/audits/daily/morning/2026-08-06-audit.md`, `docs/audits/daily/morning/2026-08-07-audit.json`, `docs/audits/daily/morning/2026-08-07-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`
+- Commit count: 3
+- Unique files changed: 9
+- Files changed: `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `docs/audits/daily/morning/2026-08-08-audit.json`, `docs/audits/daily/morning/2026-08-08-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-publication-proof.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `fc2bb353ea7c` | docs: inventory DLG architecture control plane | `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-inventory.md` |
-| `a38865a6c3c3` | docs: accept product architecture ontology | `docs/architecture/README.md`, `docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/architecture/product-lanes-and-boundaries.md`, `docs/axis-node/README.md`, `docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json`, `tests/architecture/test_product_architecture_ontology.py` |
-| `fe296e2d5bc3` | docs: verify DLG PAO canonical publication | `docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md` |
-| `6e62b17e9416` | docs: record DLG PAO history reconciliation | `docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md`, `tests/architecture/test_product_architecture_ontology.py` |
-| `f5161fc80cc7` | docs: repair product architecture relation semantics | `docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md`, `docs/architecture/product-lanes-and-boundaries.md`, `schemas/knowledge/product-architecture-assertion.schema.json`, `schemas/knowledge/product-architecture-ontology.schema.json`, `tests/architecture/test_product_architecture_ontology.py` |
-| `6f3400267dbd` | docs: define product architecture ontology | `docs/architecture/README.md`, `docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/architecture/product-lanes-and-boundaries.md`, `docs/axis-node/README.md`, `docs/knowledge-graph/examples/agent-reading-packet.example.json`, `docs/knowledge-graph/examples/document-lifecycle-graph.example.json`, `docs/knowledge-graph/examples/product-architecture-assertions.example.json`, `docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json`, `schemas/knowledge/agent-reading-packet.schema.json`, `schemas/knowledge/document-lifecycle-graph.schema.json`, `schemas/knowledge/product-architecture-assertion.schema.json`, `schemas/knowledge/product-architecture-ontology.schema.json`, `tests/architecture/test_product_architecture_ontology.py` |
-| `397f73c8b55d` | docs: accept document lifecycle graph architecture | `docs/architecture/README.md`, `docs/architecture/adr/056-document-lifecycle-graph-control-plane.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/axis-node/README.md` |
-| `b706095af08c` | docs: define document lifecycle graph control plane | `.gitattributes`, `docs/architecture/README.md`, `docs/architecture/adr/056-document-lifecycle-graph-control-plane.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/axis-node/README.md`, `docs/knowledge-graph/examples/agent-reading-packet.example.json`, `docs/knowledge-graph/examples/document-lifecycle-graph.example.json`, `schemas/knowledge/agent-reading-packet.schema.json`, `schemas/knowledge/document-lifecycle-graph.schema.json` |
-| `5c73a0d4b498` | docs: record daily audit reports | `docs/audits/daily/morning/2026-08-06-audit.json`, `docs/audits/daily/morning/2026-08-06-audit.md`, `docs/audits/daily/morning/2026-08-07-audit.json`, `docs/audits/daily/morning/2026-08-07-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `68f080029368` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `9f76c80c246a` | docs: record daily audit for 2026-08-08 | `docs/audits/daily/morning/2026-08-08-audit.json`, `docs/audits/daily/morning/2026-08-08-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `d8763b0466a8` | docs: verify canonical DLG Phase 0 inventory | `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-publication-proof.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 13 | `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-inventory.md`, `docs/architecture/README.md`, `docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/document-lifecycle-graph-contract.md`, `docs/architecture/product-lanes-and-boundaries.md`, `docs/axis-node/README.md`, `docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json`, `docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md`, `docs/knowledge-graph/examples/agent-reading-packet.example.json`, `docs/knowledge-graph/examples/document-lifecycle-graph.example.json`, `docs/knowledge-graph/examples/product-architecture-assertions.example.json`, `docs/architecture/adr/056-document-lifecycle-graph-control-plane.md` |
-| `audit` | 8 | `docs/audits/daily/morning/2026-08-06-audit.json`, `docs/audits/daily/morning/2026-08-06-audit.md`, `docs/audits/daily/morning/2026-08-07-audit.json`, `docs/audits/daily/morning/2026-08-07-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `tests` | 1 | `tests/architecture/test_product_architecture_ontology.py` |
-| `unknown` | 5 | `schemas/knowledge/product-architecture-assertion.schema.json`, `schemas/knowledge/product-architecture-ontology.schema.json`, `schemas/knowledge/agent-reading-packet.schema.json`, `schemas/knowledge/document-lifecycle-graph.schema.json`, `.gitattributes` |
+| `docs` | 3 | `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `docs/architecture/proofs/2026-08-08-dlg-architecture-control-plane-phase0-publication-proof.md` |
+| `audit` | 6 | `docs/audits/daily/morning/2026-08-08-audit.json`, `docs/audits/daily/morning/2026-08-08-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
