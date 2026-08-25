@@ -8,6 +8,7 @@ from typing import Callable
 
 import pytest
 
+import guardian.agents.adapters.pi_codex_runner as pi_codex_runner
 from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
 from guardian.agents.adapters.codex import CodexAdapter
 from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
@@ -557,9 +558,7 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
             stderr="",
         )
 
-    monkeypatch.setattr(
-        "guardian.agents.adapters.pi_codex_runner.subprocess.run", _run
-    )
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
     monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
     monkeypatch.setenv("PI_MODEL", "ambient-model")
     result = PiCodexRunnerAdapter().execute_authorized(
@@ -597,9 +596,7 @@ def test_legacy_pi_adapter_keeps_task_mode_and_output_shape(monkeypatch: pytest.
             stderr="",
         )
 
-    monkeypatch.setattr(
-        "guardian.agents.adapters.pi_codex_runner.subprocess.run", _run
-    )
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
     result = PiCodexRunnerAdapter().execute(
         AgentExecutionRequest(prompt="legacy", cwd=str(tmp_path), timeout_seconds=12)
     )
