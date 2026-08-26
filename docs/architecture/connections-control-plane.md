@@ -6,7 +6,7 @@ The Settings **Connectors** tab is Codexify's single user-facing destination
 for external connections. This document establishes the canonical
 **Connections control plane**: one backend-owned, typed catalog that the
 existing bay projects for discovering, inspecting, and setting up Messaging,
-Web, and Inference integrations.
+Web, Inference, and Knowledge integrations.
 
 Connections is a **control plane, not a new execution owner**. The underlying
 runtime systems retain their authority:
@@ -17,6 +17,8 @@ runtime systems retain their authority:
 - Inference execution authorization remains owned by
   `guardian/core/provider_registry.py` and supported-profile policy.
 - Web execution remains owned by the eventual web-tool/provider runtime.
+- Knowledge-provider execution remains owned by the provider-specific
+  knowledge adapter and Command Bus authority seam.
 - Credential persistence remains server-side.
 
 The bay aggregates those systems into one setup experience without merging
@@ -35,11 +37,19 @@ their runtime domains.
 
 ## Category model
 
-Exactly three canonical categories exist:
+Exactly four canonical categories exist:
 
 - `messaging`
 - `web`
 - `inference`
+- `knowledge`
+
+`knowledge` is the catalog classification for external content systems whose
+primary value is access to user-authorized structured or semi-structured
+knowledge. It is not a runtime owner and does not imply ingestion,
+synchronization, indexing, memory writes, health, authorization, or write
+access. ADR-075 defines the bounded taxonomy extension and its future
+capability semantics.
 
 The desktop-only `connection` Settings tab is a different surface (Codexify's
 own backend/runtime connection) and is not part of this catalog. The legacy
@@ -54,8 +64,9 @@ Every entry exposes:
 - `auth_methods` — from the canonical method vocabulary:
   `oauth_browser`, `oauth_device`, `api_key`, `token`,
   `service_credentials`, `local_endpoint`, `none`
-- `capabilities` — canonical capability tokens; for web providers,
-  `search` and `extract` are modeled as **distinct** capabilities
+- `capabilities` — canonical capability tokens. Web providers use distinct
+  `search` and `extract` capabilities; Knowledge providers use distinct
+  `content_search` and `content_read` capabilities as defined by ADR-075
 - `implementation_state` — one of `implemented`, `partial`,
   `unimplemented`, `experimental`
 - `setup_state` — one of `available`, `needs_setup`, `authenticating`,
@@ -65,7 +76,8 @@ Every entry exposes:
   exists), the `provider_registry` provider id for inference entries, and
   whether a real backend OAuth authorization handler exists
 - `required_fields`, `scopes` (when applicable), `setup_help`, and a safe
-  `oauth` projection
+  `oauth` projection; provider-specific entries may also expose a safe
+  bounded validation projection
 
 ## The five distinctions
 
@@ -117,6 +129,10 @@ Setup state is the per-user projection merged by
   `authenticating`; `disconnected` projects `configured`.
 - A user-scoped `channel_configs` row for Slack/Discord/Telegram projects
   `configured`.
+- A user-scoped Notion credential record projects `needs_setup` when absent,
+  `configured` when saved but unvalidated, `connected` only after an explicit
+  successful validation, and `error` for bounded authorization, transport,
+  or provider validation failures. The status contains no token or raw error.
 - Registered inference providers project `configured` when registry
   authorization is available, `error` when authorization exists but
   availability is blocked, and `needs_setup` when credentials are absent.
@@ -132,10 +148,28 @@ Credentials remain server-owned and user-scoped. The Connections API never
 serializes access tokens, refresh tokens, API keys, OAuth client secrets, or
 raw authorization codes. The only OAuth material projected to the frontend
 is the safe metadata listed above, and raw `last_error` text is reduced to a
-bounded classification (`provider_error`).
+bounded classification (`provider_error` or a provider-owned bounded code).
 
-No OAuth exchange endpoints, no Hermes credentials, no OAuth client ids, and
-no third-party private credentials were introduced by this slice.
+Google Drive / Docs adds a provider-specific server-side authorization-code
+flow. Its node/operator-owned client id, client secret, and redirect URI are
+read only from `GOOGLE_DRIVE_OAUTH_CLIENT_ID`,
+`GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`, and
+`GOOGLE_DRIVE_OAUTH_REDIRECT_URI`; none is serialized through the catalog or
+frontend. Its state is signed, the PKCE verifier is server-only, and returned
+access/refresh credentials are encrypted at rest in `oauth_connections` under
+the user-scoped provider key `google_drive` / mode `node_local`. The browser
+receives only a server-generated authorization URL and never calls Google
+content APIs directly.
+
+The narrowly scoped Notion integration token is described below.
+
+The Notion integration token is not stored in `oauth_connections`: it is an
+integration token rather than an OAuth grant. Its one-per-user
+`notion_connection_credentials` record is encrypted using the existing
+server-side secret primitive and can only be configured or removed by its
+provider-specific setup route. Neither that encrypted value nor a token
+prefix, suffix, hash, authorization header, or upstream raw error is exposed
+through the Connections projection or browser storage.
 
 ## Runtime-binding ownership
 
@@ -151,6 +185,22 @@ no third-party private credentials were introduced by this slice.
   SearXNG, Brave, DDGS, Tavily, Exa, Parallel, or xAI/Grok does **not**
   change current search behavior: the legacy research search path and the
   separate remote-recall web seam are unaffected.
+- The implemented Notion Knowledge entry binds to
+  `guardian.connections.notion`. Its adapter owns only Notion REST API
+  translation; `/api/connect/notion/*` owns configuration, validation,
+  status, and disconnect, while GET-only `/api/knowledge/notion/search` and
+  `/api/knowledge/notion/read/{object_id}` are the bounded operations that
+  Command Bus registers as read commands. The catalog remains a projection:
+  it does not own execution, credentials, authorization, or health.
+- The implemented Google Drive / Docs Knowledge entry binds to
+  `guardian.connections.google_drive`. Its server-owned OAuth setup routes
+  live under `/api/connect/google-drive/*`; GET-only
+  `/api/knowledge/google-drive/search` and
+  `/api/knowledge/google-drive/read/{object_id}` are the bounded Command Bus
+  read operations. Drive is used only for native Google Docs discovery and
+  metadata; the adapter translates one selected native Google Doc through the
+  Docs read API. It does not read Sheets, Slides, PDFs, ordinary files, Gmail,
+  Calendar, Contacts, or Chat, and it has no Google mutation path.
 - Legacy sync connectors (GitHub) remain on the existing connector
   subsystem surface; their behavior is unchanged.
 
@@ -209,6 +259,41 @@ control-plane vocabulary for later web-provider adapter tasks; it does not
 make any provider executable and does not modify
 `guardian/core/research/Modules/agent/search.py`.
 
+## Knowledge provider capability relationship
+
+Knowledge is distinct from Web retrieval. `content_search` means bounded
+discovery of objects visible through an authenticated or explicitly scoped
+provider connection; `content_read` means bounded normalized reading of one
+selected accessible object. Both return external evidence, not automatic
+ingestion, synchronization, embedding, document persistence, memory writes,
+or identity inference. Any later persistence path must retain source
+provenance.
+
+Notion is the first canonical, read-only Knowledge Connection. It implements
+only `content_search` and `content_read` for Notion pages shared with the
+configured integration, with bounded page/block pagination and normalized
+source provenance. It does not write Notion, ingest or synchronize content,
+create documents, embeddings, memory, graph records, or a global database
+binding.
+
+`google_drive` is the second canonical Knowledge Connection, displayed as
+Google Drive / Docs. Its `content_search` operation filters Drive discovery to
+the native Google Docs MIME type and returns bounded normalized metadata,
+opaque continuation state, and external provenance. Its `content_read`
+operation verifies that selected object type before using the Docs API,
+normalizes the default document tab's paragraphs, headings, list items, and
+straightforward tables into a bounded text result, and reports truncation. It
+requests exactly `drive.metadata.readonly` for discovery and
+`documents.readonly` for document reads: both are read-only, but Google
+currently classifies the former as restricted and the latter as sensitive.
+OAuth application verification/security assessment and live account/shared
+Drive qualification remain operator work, not a release claim. Google Chat
+and Gemini remain Messaging and Inference identities; Sheets, Slides, Gmail,
+Calendar, Contacts, and Chat remain separate future decisions.
+
+Both implementations and focused tests prove local adapter seams only; live
+provider-account qualification remains separate and is not a release claim.
+
 ## OAuth posture
 
 The method vocabulary can represent `oauth_browser`, `oauth_device`,
@@ -218,11 +303,11 @@ The frontend may only enable an OAuth action when
 (`oauth.launchable`) is true. The launchability gate is intentionally
 narrower than "a backend handler exists in code": for a future OAuth entry
 to become clickable, it must additionally expose a real
-`runtime_binding.setup_route`, and (where the protocol requires it) the
-node must supply the legitimate application-owned configuration. A node
-without legitimate Codexify-owned MiniMax OAuth client configuration
-therefore keeps the entry visibly unavailable, even though the backend
-handler is mounted.
+`runtime_binding.setup_route`, and (where the protocol requires it) the node
+must supply legitimate application-owned configuration. A node without a
+complete Google Drive OAuth client id, client secret, redirect URI, and state
+signing secret therefore keeps `google_drive` visibly unavailable, even
+though its backend handler is mounted.
 
 MiniMax OAuth is the first provider-specific OAuth setup slice. Its
 provider-specific mutation routes (`/api/connect/minimax/start`,
@@ -243,6 +328,17 @@ PKCE verifier, access tokens, refresh tokens, and any browser-visible
 flow metadata are kept server-side; the frontend polls only the backend
 poll route and never the upstream provider directly.
 
+Google Drive / Docs is a separate OAuth browser-flow identity, not a generic
+Google catalog entry. `/api/connect/google-drive/start` records only a pending
+user-scoped grant before returning a server-generated authorization URL;
+`/callback` verifies state and PKCE, exchanges the code server-side, performs
+a minimal read-only Drive validation, and exposes only safe state through the
+catalog. Access-token refresh is server-side, and disconnect clears the local
+`google_drive` encrypted grant without a provider write. A successful
+canonical connection clears the quarantined historical generic `google` OAuth
+row so two active local OAuth authorities do not represent the same Google
+content domain.
+
 All other provider-specific OAuth work (Codex/ChatGPT, Qwen, Gemini,
 xAI, Nous Portal, GitHub Copilot, Anthropic subscription) remains
 deferred. Their `oauth.backend_handler_exists` flag stays false.
@@ -259,6 +355,15 @@ authoritative mutation surfaces: `/api/channels/*` for channels,
 `/api/connectors/*` for legacy sync connectors, and server configuration
 plus provider-registry policy for inference. The Connections API creates
 no duplicate mutation routes.
+
+Notion credential mutation is deliberately outside this router on the
+provider-specific, internal-only `/api/connect/notion/*` setup seam. The
+generic legacy `/api/connectors` route family remains quarantined and is not
+used by either Knowledge runtime. Google Drive / Docs OAuth setup likewise
+stays outside this router on `/api/connect/google-drive/*`; only its bounded
+GET read operations appear in the enabled Knowledge/Command Bus surface. The
+historical `guardian/connectors/gsuite.py` implementation is a non-authoritative
+reference artifact and is not imported by the canonical Google Drive runtime.
 
 `guardian_api.py` registers the read-only Connections router under the
 distinct `connections` supported-profile route identity and the

@@ -260,7 +260,7 @@ def test_hosted_room_migration_applies_to_a_clean_database(
     from alembic import command
 
     config, database_url = temporary_postgres
-    command.upgrade(config, "head")
+    command.upgrade(config, HOSTED_ROOM_REVISION)
 
     engine = create_engine(database_url, future=True)
     try:
@@ -291,7 +291,7 @@ def test_hosted_room_migration_round_trip_preserves_existing_chat_state(
         _seed_existing_chat_state(engine)
         _assert_existing_chat_state(engine)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, HOSTED_ROOM_REVISION)
         inspector = inspect(engine)
         assert HOSTED_ROOM_TABLES <= set(inspector.get_table_names())
 
@@ -536,7 +536,7 @@ def test_hosted_room_migration_round_trip_preserves_existing_chat_state(
         _assert_existing_chat_state(engine)
 
         engine.dispose()
-        command.upgrade(config, "head")
+        command.upgrade(config, HOSTED_ROOM_REVISION)
         engine = create_engine(database_url, future=True)
         assert HOSTED_ROOM_TABLES <= set(inspect(engine).get_table_names())
         _assert_existing_chat_state(engine)

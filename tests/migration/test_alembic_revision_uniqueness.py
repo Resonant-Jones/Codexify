@@ -102,7 +102,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert isinstance(origin_system.down_revision, str)
 
     heads = script.get_heads()
-    assert heads == ["1c0a2b3c4d5e"]
+    assert heads == ["9c66e490a42b"]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",

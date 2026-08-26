@@ -12,7 +12,7 @@ import { ConnectionConfigModal } from "@/features/connectors/ConnectorConfigModa
 import SettingsView from "@/features/settings/SettingsView";
 
 const catalogPayload = {
-  categories: ["messaging", "web", "inference"],
+  categories: ["messaging", "web", "inference", "knowledge"],
   items: [
     {
       id: "slack",
@@ -108,6 +108,71 @@ const catalogPayload = {
       scopes: [],
       setup_help: "No Codexify web adapter exists for this provider yet.",
       oauth: null,
+      authorization: null,
+    },
+    {
+      id: "notion",
+      display_name: "Notion",
+      category: "knowledge",
+      description: "Read-only Notion knowledge retrieval.",
+      auth_methods: ["token"],
+      capabilities: ["content_search", "content_read"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.connections.notion",
+        adapter: "guardian.connections.notion.service.NotionClient",
+        setup_route: "/api/connect/notion/configure",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [
+        {
+          key: "integration_token",
+          label: "Notion integration token",
+          type: "password",
+          secret: true,
+        },
+      ],
+      scopes: ["content_read"],
+      setup_help: "Share the intended pages with the integration.",
+      oauth: null,
+      validation: {
+        configured: false,
+        state: "unconfigured",
+        last_validated_at: null,
+      },
+      authorization: null,
+    },
+    {
+      id: "google_drive",
+      display_name: "Google Drive / Docs",
+      category: "knowledge",
+      description: "Read-only Google Docs discovery and reading.",
+      auth_methods: ["oauth_browser"],
+      capabilities: ["content_search", "content_read"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.connections.google_drive",
+        adapter: "guardian.connections.google_drive.service.GoogleDriveClient",
+        setup_route: "/api/connect/google-drive/start",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: true,
+      },
+      required_fields: [],
+      scopes: [
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+        "https://www.googleapis.com/auth/documents.readonly",
+      ],
+      setup_help: "Google OAuth is node-owned; tokens stay server-side.",
+      oauth: {
+        supported: true,
+        backend_handler_exists: true,
+        launchable: true,
+        node_configured: true,
+        connection: null,
+      },
       authorization: null,
     },
   ],
@@ -269,13 +334,151 @@ describe("Connections catalog bay", () => {
     window.sessionStorage.clear();
   });
 
-  it("renders category navigation for Messaging, Web, and Inference", async () => {
+  it("renders category navigation including Knowledge", async () => {
     await openConnectorsTab();
 
-    for (const category of ["all", "messaging", "web", "inference"]) {
+    for (const category of ["all", "messaging", "web", "inference", "knowledge"]) {
       expect(
         screen.getByTestId(`connections-category-${category}`)
       ).toBeInTheDocument();
+    }
+  });
+
+  it("configures, validates, and disconnects Notion without browser secret storage", async () => {
+    const notion = catalogPayload.items.find((item) => item.id === "notion")!;
+    const changed = vi.fn();
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: { validation: { state: "unvalidated" } },
+      })
+      .mockResolvedValueOnce({ data: { validation: { state: "valid" } } })
+      .mockResolvedValueOnce({ data: { removed: true } });
+
+    render(
+      <ConnectionConfigModal
+        connection={notion}
+        open
+        onClose={vi.fn()}
+        onChanged={changed}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    const input = await screen.findByLabelText("Notion integration token");
+    expect(input).toHaveAttribute("type", "password");
+    fireEvent.change(input, { target: { value: "notion-browser-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/configure",
+        { settings: { integration_token: "notion-browser-secret" } }
+      );
+    });
+    expect(window.localStorage.getItem("integration_token")).toBeNull();
+    expect(window.sessionStorage.getItem("integration_token")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("notion-validate"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/validate",
+        {}
+      );
+    });
+    expect(screen.getByText(/Validation succeeded/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    fireEvent.click(screen.getByTestId("notion-disconnect"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/notion/disconnect",
+        {}
+      );
+    });
+    expect(changed).toHaveBeenCalled();
+  });
+
+  it("launches Google Drive OAuth through the backend and keeps browser storage secret-free", async () => {
+    const googleDrive = catalogPayload.items.find((item) => item.id === "google_drive")!;
+    const changed = vi.fn();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: {
+          authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe-state",
+        },
+      })
+      .mockResolvedValueOnce({ data: { removed: true } });
+
+    render(
+      <ConnectionConfigModal
+        connection={googleDrive}
+        open
+        onClose={vi.fn()}
+        onChanged={changed}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/google-drive/start",
+        {}
+      );
+    });
+    await waitFor(() => {
+      expect(open).toHaveBeenCalledWith(
+        expect.stringContaining("accounts.google.com"),
+        "google-drive-oauth",
+        "noopener,noreferrer"
+      );
+    });
+    expect(window.localStorage.getItem("access_token")).toBeNull();
+    expect(window.sessionStorage.getItem("refresh_token")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    fireEvent.click(screen.getByTestId("google-drive-disconnect"));
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        "/api/connect/google-drive/disconnect",
+        {}
+      );
+    });
+    expect(changed).toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it("does not offer or start Google OAuth when the node is not configured", async () => {
+    const googleDrive = catalogPayload.items.find(
+      (item) => item.id === "google_drive"
+    )!;
+    const previousLaunchable = googleDrive.oauth.launchable;
+    const previousNodeConfigured = googleDrive.oauth.node_configured;
+    googleDrive.oauth.launchable = false;
+    googleDrive.oauth.node_configured = false;
+
+    try {
+      await openConnectorsTab();
+
+      const googleDriveRow = screen.getByTestId("connection-row-google_drive");
+      expect(
+        within(googleDriveRow).getByRole("button", { name: /^configure$/i })
+      ).toBeDisabled();
+
+      render(
+        <ConnectionConfigModal
+          connection={googleDrive}
+          open
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />
+      );
+      expect(screen.getByText("Overview · Done")).toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole("button", { name: /^continue$/i })[0]);
+      expect(mockedApi.post).not.toHaveBeenCalled();
+    } finally {
+      googleDrive.oauth.launchable = previousLaunchable;
+      googleDrive.oauth.node_configured = previousNodeConfigured;
     }
   });
 

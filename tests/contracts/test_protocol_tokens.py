@@ -116,6 +116,10 @@ from guardian.protocol_tokens import (
     TraceSnapshotAbsenceReason,
     TraceSuppressionReason,
     WebEvidenceGateDecision,
+    ConnectionCapability,
+    ConnectionCategory,
+    CONNECTION_CAPABILITIES,
+    CONNECTION_CATEGORIES,
 )
 
 
@@ -123,6 +127,14 @@ def test_acceptance_status_tokens() -> None:
     assert AcceptanceStatus.ACCEPTED.value == "accepted"
     assert AcceptanceStatus.ACCEPTED_DEGRADED.value == "accepted_degraded"
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
+
+
+def test_connections_knowledge_protocol_tokens() -> None:
+    assert ConnectionCategory.KNOWLEDGE.value == "knowledge"
+    assert ConnectionCapability.CONTENT_SEARCH.value == "content_search"
+    assert ConnectionCapability.CONTENT_READ.value == "content_read"
+    assert "knowledge" in CONNECTION_CATEGORIES
+    assert {"content_search", "content_read"} <= CONNECTION_CAPABILITIES
 
 
 def test_completion_terminal_status_tokens() -> None:

@@ -29,7 +29,7 @@ Source anchors:
 | `CODEXIFY_GITHUB_WATCHDOG_APP_ID` | Server-side GitHub App identity for the Watchdog installation-auth read boundary. It has no default. This is distinct from the webhook HMAC secret and is not frontend-visible. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
 | `CODEXIFY_GITHUB_WATCHDOG_APP_PRIVATE_KEY` | The sole server-side private-key source for the Watchdog GitHub App read boundary. It has no default and is used only to mint an ephemeral App JWT. It must be held in operator secret management, never logged, returned, persisted, or committed. This temporary configuration bridge does not create a Connections credential record. | `guardian/core/config.py`, `guardian/watchdog/github_app.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
-| `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
+| `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise. It must remain coherent with the active supported-profile auth-route posture. | `guardian/core/dependencies.py`, `guardian/core/supported_profile.py` |
 | `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
 | `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED` | Default `false`; independent second gate for the credential-free development-only Browser Host negotiation adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
 | `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
@@ -169,6 +169,21 @@ Route registration is selected once during backend startup from the active
 supported-profile manifest. An unlisted route label defaults to `quarantined`;
 an `enabled` label is registered and visible in OpenAPI; an `internal_only`
 label is registered but hidden from OpenAPI.
+
+`v1-local-core-web-mcp` is the single-user local-auth profile. Its canonical
+`auth` route label remains quarantined, so normal account registration, login,
+and logout are not part of that runtime. Protected local surfaces, including
+the read-only Connections catalog, use the existing local API-key boundary and
+canonical single-user identity path. `GUARDIAN_AUTH_MODE=remote` is therefore
+an invalid composition for this profile: startup fails with an operator-legible
+supported-profile mismatch instead of exposing a login form whose backend route
+cannot exist.
+
+Normal user registration/login/session operation belongs to tester and
+private-preview profiles that explicitly enable `auth`, such as
+`v1-friends-family-web` and `v1-whooshd-deepseek-web`. Remote mode continues to
+reject static API keys as user authority; this profile-coherence rule does not
+create a fallback or change Guardian identity resolution.
 
 The isolated `v1-friends-family-web` tester profile explicitly enables the
 `hosted_rooms` and `hosted_room_guest` labels. These map to the owner router
