@@ -448,6 +448,40 @@ describe("Connections catalog bay", () => {
     open.mockRestore();
   });
 
+  it("does not offer or start Google OAuth when the node is not configured", async () => {
+    const googleDrive = catalogPayload.items.find(
+      (item) => item.id === "google_drive"
+    )!;
+    const previousLaunchable = googleDrive.oauth.launchable;
+    const previousNodeConfigured = googleDrive.oauth.node_configured;
+    googleDrive.oauth.launchable = false;
+    googleDrive.oauth.node_configured = false;
+
+    try {
+      await openConnectorsTab();
+
+      const googleDriveRow = screen.getByTestId("connection-row-google_drive");
+      expect(
+        within(googleDriveRow).getByRole("button", { name: /^configure$/i })
+      ).toBeDisabled();
+
+      render(
+        <ConnectionConfigModal
+          connection={googleDrive}
+          open
+          onClose={vi.fn()}
+          onChanged={vi.fn()}
+        />
+      );
+      expect(screen.getByText("Overview · Done")).toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole("button", { name: /^continue$/i })[0]);
+      expect(mockedApi.post).not.toHaveBeenCalled();
+    } finally {
+      googleDrive.oauth.launchable = previousLaunchable;
+      googleDrive.oauth.node_configured = previousNodeConfigured;
+    }
+  });
+
   it("does not advertise a browser setup flow for server-managed messaging credentials", async () => {
     await openConnectorsTab();
 

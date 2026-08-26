@@ -164,7 +164,13 @@ export function isConnectionEntry(value: unknown): value is ConnectionEntry {
 /** A setup action may launch only when a real backing route exists. */
 export function canLaunchSetup(entry: ConnectionEntry): boolean {
   if (entry.implementation_state === "unimplemented") return false;
-  return Boolean(entry.runtime_binding.setup_route);
+  if (!entry.runtime_binding.setup_route) return false;
+  const oauthOnly =
+    entry.auth_methods.length > 0 &&
+    entry.auth_methods.every(
+      (method) => method === "oauth_browser" || method === "oauth_device"
+    );
+  return !oauthOnly || canLaunchOAuth(entry);
 }
 
 /** OAuth may launch only when a real backend authorization handler exists AND
