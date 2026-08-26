@@ -39,18 +39,37 @@ def _configure_chat_complete_route(mock_db, monkeypatch) -> dict[str, object]:
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
+
+    def _capture_accepted_completion(task, **_kwargs):
+        captured["task"] = task
+        captured["acceptance_calls"] = (
+            int(captured.get("acceptance_calls", 0)) + 1
+        )
+        task_created_event = chat_completion_service.ChatCompletionTaskCreatedEventResult(
+            ok=True,
+            task_id=task.task_id,
+            event_type="task.created",
+            event_id=f"{task.task_id}:created",
+            visibility_scope="progress",
+            terminal_visibility=False,
+            execution_continued=True,
+        )
+        return chat_completion_service.ChatCompletionEnqueueResult(
+            task=task,
+            task_id=task.task_id,
+            acceptance_status="accepted",
+            acceptance_warnings=(),
+            queue_accepted=True,
+            degraded=False,
+            turn_lock_acquired=True,
+            turn_lock={},
+            task_created_event=task_created_event,
+        )
+
     monkeypatch.setattr(
         chat_routes,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        chat_routes,
-        "_publish_completion_start_event",
-        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+        "enqueue_chat_completion",
+        _capture_accepted_completion,
     )
     monkeypatch.setattr(
         chat_routes,
@@ -124,6 +143,7 @@ def test_chat_complete_accepts_valid_context_directive_snake_case(
             "execution_required": False,
         }
     ]
+    assert captured["acceptance_calls"] == 1
 
 
 def test_chat_complete_accepts_valid_context_directive_camel_case(
@@ -168,6 +188,7 @@ def test_chat_complete_accepts_valid_context_directive_camel_case(
             "execution_required": False,
         }
     ]
+    assert captured["acceptance_calls"] == 1
 
 
 @pytest.mark.parametrize(
@@ -287,12 +308,16 @@ def test_chat_complete_rejects_unsupported_directive_before_enqueue(
     }
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
-    def _enqueue_should_not_run(*_args, **_kwargs):
+    def _acceptance_should_not_run(*_args, **_kwargs):
         raise AssertionError(
-            "enqueue should not run for unsupported directives"
+            "acceptance service should not run for unsupported directives"
         )
 
-    monkeypatch.setattr(chat_routes, "enqueue", _enqueue_should_not_run)
+    monkeypatch.setattr(
+        chat_routes,
+        "enqueue_chat_completion",
+        _acceptance_should_not_run,
+    )
 
     response = test_client.post(
         "/chat/1/complete",
@@ -325,6 +350,7 @@ def test_chat_complete_without_context_directives_remains_accepted(
     origin = getattr(captured["task"], "origin")
     assert "|context_directives=" not in origin
     assert "|context_request_plans=" not in origin
+    assert captured["acceptance_calls"] == 1
 
 
 def test_chat_complete_returns_400_when_resolver_plan_classification_fails(
@@ -339,10 +365,14 @@ def test_chat_complete_returns_400_when_resolver_plan_classification_fails(
     }
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
-    def _enqueue_should_not_run(*_args, **_kwargs):
-        raise AssertionError("enqueue should not run when resolver fails")
+    def _acceptance_should_not_run(*_args, **_kwargs):
+        raise AssertionError("acceptance service should not run when resolver fails")
 
-    monkeypatch.setattr(chat_routes, "enqueue", _enqueue_should_not_run)
+    monkeypatch.setattr(
+        chat_routes,
+        "enqueue_chat_completion",
+        _acceptance_should_not_run,
+    )
     monkeypatch.setattr(
         chat_routes,
         "resolve_context_request_plans",
@@ -400,4 +430,5 @@ def test_chat_complete_context_directive_validation_does_not_execute_completion_
     )
 
     assert response.status_code == 200
-    assert captured["queue_name"] == "codexify:queue:chat"
+    assert captured["acceptance_calls"] == 1
+    assert captured["task"]
