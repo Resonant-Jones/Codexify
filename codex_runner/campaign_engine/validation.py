@@ -251,6 +251,52 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared role binding"
             )
+            continue
+        attempt_binding = bindings[attempt["role_binding_id"]]
+        if attempt_binding["role"] != "executor":
+            errors.append(
+                f"attempt {attempt['attempt_id']} must use an executor role binding"
+            )
+            continue
+        attempt_execution_mode = attempt.get("execution_mode")
+        binding_execution_mode = attempt_binding.get("execution_mode")
+        if attempt_execution_mode == "live":
+            if binding_execution_mode != "live":
+                errors.append(
+                    f"attempt {attempt['attempt_id']} is live but its "
+                    f"executor binding {attempt_binding['binding_id']} is not live"
+                )
+            if "expected_provider_id" in attempt:
+                if (
+                    attempt["expected_provider_id"]
+                    != attempt_binding["provider_id"]
+                ):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} expected_provider_id "
+                        f"does not match executor binding provider_id"
+                    )
+            if "expected_model_id" in attempt:
+                if (
+                    attempt["expected_model_id"]
+                    != attempt_binding["model_id"]
+                ):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} expected_model_id "
+                        f"does not match executor binding model_id"
+                    )
+
+    for binding in bindings.values():
+        if binding.get("execution_mode") != "live":
+            continue
+        if "live_role_binding" not in binding:
+            continue
+        granted = binding["live_role_binding"].get("granted_permissions", [])
+        requested = binding["live_role_binding"].get("requested_permissions", [])
+        if set(granted) - set(requested):
+            errors.append(
+                f"binding {binding['binding_id']} live_role_binding granted_permissions "
+                f"must be a subset of requested_permissions"
+            )
 
     for evaluation in evaluations.values():
         if evaluation["task_id"] not in tasks:
