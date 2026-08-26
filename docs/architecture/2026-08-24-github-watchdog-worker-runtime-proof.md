@@ -244,3 +244,88 @@ binding, capture, dispatch, or execution validation. As with the prior two
 BLOCKED observations, `docs/architecture/github-watchdog-control-plane.md` and
 `docs/architecture/00-current-state.md` remain unchanged: no queue-to-model
 path is live-proven and the Watchdog Beta/support posture is unchanged.
+
+## Fourth qualification — BLOCKED: ordinary Tester runtime unavailable before Watchdog execution
+
+### Receipt
+
+- **Observed at:** `2026-08-25T11:09:14Z`.
+- **Branch / source commit:** `codex/diagnose-tester-fresh-chroma-failure` /
+  `0ff80e332fa19edea85abc977275bd37fc8d409a`.
+- **Required ancestry:** the authenticated Tester local/Gemma proof
+  (`0ff80e33`), proof-session (`c9ba4564`), Watchdog execution/dispatch
+  (`79a5df7b`, `c0cef2be`), and prior Watchdog runtime receipt (`e17d7bc6`)
+  are all present in this checkout's ancestry.
+- **Compose project under qualification:** `codexify_tester` with the existing
+  Tester and Whoosh'd overlays.
+- **Result:** **BLOCKED** — `TESTER_RUNTIME_UNAVAILABLE`.
+
+### First causal blocker
+
+The required ordinary Tester runtime was not live at the pre-qualification
+health gate:
+
+| Component | Observation |
+| --- | --- |
+| `codexify_tester-backend-1` | Docker state `created`; no health state; restart count `0`; no published backend port |
+| `codexify_tester-worker-chat-1` | Docker state `created`; restart count `0` |
+| `GET http://127.0.0.1:8889/health/chat` | connection refused |
+| Tester Postgres / Redis | running and Docker healthy |
+| Normal chat queue | not rechecked after the failed backend gate; no task was submitted |
+
+The task requires the already-proven ordinary backend and chat worker to stay
+healthy while the isolated Watchdog worker is qualified. Proceeding would
+require starting or recreating the ordinary Tester runtime, which this proof
+does not casually do. The qualification therefore stopped before an isolated
+Watchdog override, worker start, receipt, attempt, captured snapshot, dispatch,
+Redis envelope, provider request, or result.
+
+### Independent model-inventory observation
+
+The direct local Whoosh'd `GET /v1/models` observation made while confirming
+the failed runtime gate advertised only:
+
+```text
+/Volumes/Dev_SSD/whooshd/model-weights/Qwen3.8-27B-4bit
+mlx-community/Llama-3.2-3B-Instruct-4bit
+```
+
+`gemma-4-12b-it-qat-4bit` was absent. That would independently fail the exact
+Gemma inventory gate, but it was not used to substitute a model or to continue
+past the earlier ordinary-runtime blocker. No model was installed, loaded,
+reconfigured, or invoked.
+
+### Preserved authority and no-work boundary
+
+The intended canonical settings remain confirmed in source, but none was bound
+at runtime for this blocked qualification:
+
+- `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_PROVIDER`
+- `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_MODEL`
+- `CODEXIFY_GITHUB_WATCHDOG_AUTOMATED_REVIEW_INFERENCE_MODE`
+
+Consequently no Watchdog selection source, policy fingerprint, attempt,
+snapshot, dispatch, result, token usage, cost, provider correlation, retry,
+fallback, escalation, tool call, or DeepSeek request exists for this fourth
+receipt. The ordinary `LOCAL_CHAT_MODEL` was not read as Watchdog authority.
+
+No GitHub webhook/API action, Check Run, review/comment, branch mutation,
+Command Bus call, coding-worker call, Build Loop action, Redis mutation,
+Postgres Watchdog lineage write, or ordinary chat task occurred. The earlier
+three BLOCKED receipts above are unchanged.
+
+### Static and read-only validation
+
+- Source and Tester database both reported the single legitimate Alembic head
+  `6e9f0a1b2c3`.
+- Default and Watchdog-profile Tester Compose renders passed; they emitted only
+  the pre-existing optional-unset `LOCAL_GGUF_MODEL` and `LOCAL_VISION_MODEL`
+  warnings.
+- Focused Watchdog regression suite passed: `39 passed`.
+- Runtime state was inspected read-only; no repair, configuration change,
+  service lifecycle action, or Watchdog operation followed the first blocker.
+
+`docs/architecture/github-watchdog-control-plane.md`,
+`docs/architecture/config-and-ops.md`, and
+`docs/architecture/00-current-state.md` remain unchanged. This receipt does
+not widen Watchdog support or Beta posture.

@@ -26,6 +26,7 @@ This file is authoritative for:
 - Classified a fresh Chroma startup failure after guarded recovery; Postgres remains canonical and Chroma remains derived, with no retry, restore, or repair authorized.
 - Merged Guardian-owned GitHub Watchdog control-plane preparation and canonical worker settings; qualification stopped before review receipt creation or model invocation because the required policy/model was unavailable.
 - Recorded loss of the previously qualified immutable backend image and replacement of the mutable `latest` tag; deletion mechanism and actor remain unproven.
+- [Attempted the disposable Docker archive-retention qualification](proofs/2026-08-25-disposable-docker-image-archive-retention-qualification-proof.md), but the selected `desktop-linux` authority was unavailable; the run stopped at preflight without producing a retention result or mutating Docker state.
 - Repaired the Pi diagnostic test seam and refreshed DLG metadata hashes; neither change established provider, OAuth, or runtime support.
 
 ## Current supported reality
@@ -34,6 +35,36 @@ This file is authoritative for:
 - The accepted Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
 - Authenticated local Settings read surfaces, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; catalog or import presence does not imply generic connector sync, provider inference, or cloud support.
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts are Internal or proof-only surfaces. Static validation and tester evidence do not substitute for supported-path live proof.
+
+## Release classes
+
+These human-facing interpretations preserve ADR-069's distinction between support posture and evidence maturity. They do not add schema tokens or claim current-tip proof.
+
+### Beta Supported
+
+The intended supported local-first Beta boundary is the local Docker Compose path with local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics. This is support doctrine, not current-tip qualification.
+
+### Beta Bounded / Conditional
+
+Bounded Beta surfaces include Persona Studio core, bounded import/continuity entry surfaces, repository intelligence, bounded Guardian-authorized tool execution, and bounded extension/client surfaces accepted by ADR-069. Authenticated local Settings read surfaces and the read-only Connections catalog retain their existing bounded contracts; catalog visibility does not imply provider authorization, adapter health, generic sync, cloud inference, or release promotion. Google Drive remains unqualified.
+
+### Internal
+
+Watchdog control-plane/runtime qualification machinery, Pi diagnostics, proof tooling, tester-stack receipts, and direct/internal Command Bus/control-plane mechanisms remain Internal or proof-only rather than user-facing Beta promises.
+
+### Qualification Pending
+
+- Coding Loop — remaining gate: supported-profile adapter/provider execution with terminal durable result and source-thread readback.
+- Hosted Rooms — remaining gate: clean supported/tester startup plus owner/guest live semantic proof after migration repair.
+- DeepSeek / private-preview provider lane — remaining gate: required credentials, authenticated provider-specific persisted runtime proof, and explicit supported-profile promotion.
+- Browser side-panel / Browser Host release surface — remaining gate: current host, auth, and release qualification proof for the applicable surface.
+- Desktop packaging outside the bounded local-client claim — remaining gate: packaged distribution proof without establishing separate runtime or persistence authority.
+
+### Out of Beta
+
+- TTS / voice — Out of Beta.
+- federation — Out of Beta.
+- Unrestricted autonomous / recursive execution, arbitrary write-capability tools, ordinary-Beta generic shell/filesystem authority, public Command Bus exposure, generic unattended automation, unqualified generic connector mutation/sync, unqualified graph-write behavior, and unsupported remote/multi-user repository execution remain Out of Beta.
 
 ## Not yet true / do not assume
 
@@ -49,7 +80,7 @@ This file is authoritative for:
 - Current-tip proof is still missing for health, chat, durable assistant readback, retrieval, queue/worker execution, turn locks, terminal events, and recovery behavior on one supported profile.
 - Fresh-state Chroma startup / retrieval qualification remains blocked after the classified compatibility failure; no historical restore or implementation repair is proven.
 - Watchdog qualification lacks an explicit available provider/model policy and therefore stops before review receipt and model execution.
-- The qualified immutable replay image is unavailable, so retention qualification cannot proceed; canonical-versus-legacy configuration paths also leave startup and operator-state drift risk.
+- Disposable archive-retention qualification is blocked on restoring the intended `desktop-linux` Docker authority and rerunning from a fresh observed `origin/main`; the failed preflight produced no retention result. Canonical-versus-legacy configuration paths also leave startup and operator-state drift risk.
 
 ## This week’s priorities
 
@@ -57,7 +88,7 @@ This file is authoritative for:
 2. Prove health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
 3. Requalify Chroma only under an explicitly authorized, newly classified proof path; keep derived state non-canonical.
 4. Bind one explicit Watchdog provider/model policy and requalify without ambient-model substitution.
-5. Run the disposable image-retention reproduction and reconcile canonical-versus-legacy configuration drift.
+5. Restore the intended `desktop-linux` Docker authority, rerun the disposable image-retention reproduction from a fresh observed `origin/main`, and reconcile canonical-versus-legacy configuration drift.
 
 ## Release definition right now
 

@@ -42,6 +42,8 @@ _NONE = ConnectionAuthMethod.NONE.value
 _SEARCH = ConnectionCapability.SEARCH.value
 _EXTRACT = ConnectionCapability.EXTRACT.value
 _CHAT = ConnectionCapability.CHAT_COMPLETION.value
+_CONTENT_SEARCH = ConnectionCapability.CONTENT_SEARCH.value
+_CONTENT_READ = ConnectionCapability.CONTENT_READ.value
 _IMPLEMENTED = ConnectionImplementationState.IMPLEMENTED.value
 _PARTIAL = ConnectionImplementationState.PARTIAL.value
 _UNIMPLEMENTED = ConnectionImplementationState.UNIMPLEMENTED.value
@@ -290,6 +292,82 @@ def _inference_api_entry(
     )
 
 
+def _notion_knowledge_entry() -> ConnectionCatalogEntry:
+    """The first implemented, read-only Knowledge connection.
+
+    This is deliberately provider-specific setup metadata, not a generic
+    connector or a claim that search/read persists anything locally.
+    """
+    return ConnectionCatalogEntry(
+        id="notion",
+        display_name="Notion",
+        category=ConnectionCategory.KNOWLEDGE.value,
+        description=(
+            "Read-only search and page reading for content shared with a "
+            "user-authorized Notion integration. Results remain external "
+            "evidence; this connection does not sync, ingest, or write."
+        ),
+        auth_methods=(_TOKEN,),
+        capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
+        implementation_state=_IMPLEMENTED,
+        default_setup_state=_NEEDS_SETUP,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.notion",
+            adapter="guardian.connections.notion.service.NotionClient",
+            setup_route="/api/connect/notion/configure",
+        ),
+        required_fields=(
+            ConnectionFieldSpec(
+                "integration_token", "Notion integration token", "password", True
+            ),
+        ),
+        scopes=("content_read",),
+        setup_help=(
+            "Create or select a Notion integration with read-content access, "
+            "then share the pages or data sources you want it to search with "
+            "that integration. The token is stored server-side and is never "
+            "returned to the browser."
+        ),
+    )
+
+
+def _google_drive_knowledge_entry() -> ConnectionCatalogEntry:
+    """Canonical Google Drive / Docs identity, scoped to native Docs reads."""
+    return ConnectionCatalogEntry(
+        id="google_drive",
+        display_name="Google Drive / Docs",
+        category=ConnectionCategory.KNOWLEDGE.value,
+        description=(
+            "Read-only discovery of accessible native Google Docs through "
+            "Drive metadata and normalized reading of one selected Google "
+            "Doc. Results remain external evidence; this connection does "
+            "not sync, ingest, or write."
+        ),
+        auth_methods=(_OAUTH_BROWSER,),
+        capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
+        implementation_state=_IMPLEMENTED,
+        default_setup_state=_NEEDS_SETUP,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.google_drive",
+            adapter="guardian.connections.google_drive.service.GoogleDriveClient",
+            setup_route="/api/connect/google-drive/start",
+            oauth_backend_handler_exists=True,
+        ),
+        scopes=(
+            "https://www.googleapis.com/auth/drive.metadata.readonly",
+            "https://www.googleapis.com/auth/documents.readonly",
+        ),
+        setup_help=(
+            "Authorize the Codexify node's Google OAuth application for "
+            "read-only Google Docs discovery and reading. Google classifies "
+            "the Drive metadata scope as restricted and Docs read-only as "
+            "sensitive; app verification and live account qualification "
+            "remain operator work. Tokens stay server-side."
+        ),
+        oauth_provider_key="google_drive",
+    )
+
+
 def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
     entries: list[ConnectionCatalogEntry] = []
 
@@ -507,6 +585,9 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             ),
         ]
     )
+
+    # =========================== Knowledge =================================
+    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry()])
 
     # ============================ Inference ================================
     entries.extend(
