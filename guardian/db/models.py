@@ -1912,6 +1912,53 @@ class OAuthConnection(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class NotionConnectionCredential(Base):
+    """One encrypted Notion integration token per user.
+
+    This intentionally does not reuse ``oauth_connections``: a Notion
+    integration token is not an OAuth grant, refresh token, or relay grant.
+    Validation status is a bounded operational projection; raw provider
+    responses and token material never leave this record.
+    """
+
+    __tablename__ = "notion_connection_credentials"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_integration_token: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="unvalidated"
+    )
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", name="uq_notion_connection_credentials_user"
+        ),
+        CheckConstraint(
+            "validation_status IN "
+            "('unvalidated', 'valid', 'authorization_error', "
+            "'transport_error', 'provider_error')",
+            name="ck_notion_connection_credentials_validation_status",
+        ),
+    )
+
+
 # =========================
 # Inference Provider State
 # =========================

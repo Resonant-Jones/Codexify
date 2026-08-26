@@ -4,7 +4,8 @@ The Connections API is a projection seam, not a mutation authority:
 
 - static catalog metadata comes from ``guardian.connections.catalog``;
 - per-user setup state is derived from user-scoped channel config and
-  ``oauth_connections`` rows (safe fields only);
+  ``oauth_connections`` rows plus provider-specific credential projections
+  (safe fields only);
 - runtime implementation truth is the catalog's code-proven
   ``implementation_state``;
 - runtime authorization truth for inference entries is projected from
@@ -27,6 +28,7 @@ from guardian.connections.catalog import (
     get_catalog,
     get_connection,
 )
+from guardian.connections.notion import credentials as notion_credentials
 from guardian.core.dependencies import get_request_user_id, require_api_key
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
@@ -50,6 +52,15 @@ _OAUTH_STATUS_TO_SETUP_STATE: dict[str, str] = {
     "error": ConnectionSetupState.ERROR.value,
     "pending": ConnectionSetupState.AUTHENTICATING.value,
     "disconnected": ConnectionSetupState.CONFIGURED.value,
+}
+
+_NOTION_VALIDATION_TO_SETUP_STATE: dict[str, str] = {
+    "unconfigured": ConnectionSetupState.NEEDS_SETUP.value,
+    notion_credentials.VALIDATION_UNVALIDATED: ConnectionSetupState.CONFIGURED.value,
+    notion_credentials.VALIDATION_VALID: ConnectionSetupState.CONNECTED.value,
+    notion_credentials.VALIDATION_AUTHORIZATION_ERROR: ConnectionSetupState.ERROR.value,
+    notion_credentials.VALIDATION_TRANSPORT_ERROR: ConnectionSetupState.ERROR.value,
+    notion_credentials.VALIDATION_PROVIDER_ERROR: ConnectionSetupState.ERROR.value,
 }
 
 
@@ -87,8 +98,23 @@ def _user_channel_configs(db: Any, user_id: str) -> set[str]:
         return set()
 
 
-def _sanitize_oauth_error_kind(status: str) -> str | None:
+def _sanitize_oauth_error_kind(status: str, last_error: str | None) -> str | None:
     """Bounded classification only; raw error text is never serialized."""
+    if status == ConnectionSetupState.ERROR.value:
+        # Only provider-owned, enumerated Google Drive codes may be exposed.
+        # Existing generic OAuth rows can contain raw exception strings and
+        # continue to collapse to the older generic classification.
+        google_error_kinds = {
+            "google_drive_authorization_failed",
+            "google_drive_oauth_denied",
+            "google_drive_refresh_required",
+            "google_drive_oauth_transport_error",
+            "google_drive_transport_error",
+            "google_drive_oauth_provider_error",
+            "google_drive_provider_error",
+        }
+        if last_error in google_error_kinds:
+            return last_error
     if status == ConnectionSetupState.ERROR.value:
         return "provider_error"
     return None
@@ -121,9 +147,27 @@ def _user_oauth_rows(db: Any, user_id: str) -> dict[str, dict[str, Any]]:
             "last_refresh_at": (
                 row.last_refresh_at.isoformat() if row.last_refresh_at else None
             ),
-            "error_kind": _sanitize_oauth_error_kind(str(row.status)),
+            "error_kind": _sanitize_oauth_error_kind(
+                str(row.status), str(row.last_error or "") or None
+            ),
         }
     return projected
+
+
+def _user_notion_validation(db: Any, user_id: str) -> dict[str, Any]:
+    """Project only safe Notion credential state for the current user."""
+    try:
+        return notion_credentials.status_projection(db, user_id)
+    except Exception as exc:  # pragma: no cover - DB degraded
+        logger.warning(
+            "[connections] notion credential lookup failed kind=%s",
+            exc.__class__.__name__,
+        )
+        return {
+            "configured": False,
+            "state": "storage_unavailable",
+            "last_validated_at": None,
+        }
 
 
 def _inference_authorization(
@@ -200,11 +244,18 @@ def _resolve_setup_state(
     *,
     channel_configs: set[str],
     oauth_rows: dict[str, dict[str, Any]],
+    notion_validation: dict[str, Any] | None,
     inference_authorization: dict[str, Any] | None,
 ) -> str:
     """Resolve per-user setup state without ever implying live health."""
     if entry.implementation_state == "unimplemented":
         return ConnectionSetupState.UNAVAILABLE.value
+
+    if entry.id == "notion":
+        validation_state = str((notion_validation or {}).get("state") or "")
+        return _NOTION_VALIDATION_TO_SETUP_STATE.get(
+            validation_state, ConnectionSetupState.ERROR.value
+        )
 
     oauth_key = entry.oauth_provider_key
     if oauth_key and oauth_key in oauth_rows:
@@ -241,6 +292,7 @@ def _project_entry(
     *,
     channel_configs: set[str],
     oauth_rows: dict[str, dict[str, Any]],
+    notion_validation: dict[str, Any] | None,
 ) -> dict[str, Any]:
     inference_authorization = _inference_authorization(entry)
     item = entry.as_dict()
@@ -248,6 +300,7 @@ def _project_entry(
         entry,
         channel_configs=channel_configs,
         oauth_rows=oauth_rows,
+        notion_validation=notion_validation,
         inference_authorization=inference_authorization,
     )
     oauth_key = entry.oauth_provider_key
@@ -273,6 +326,7 @@ def _project_entry(
                 item["setup_state"] = ConnectionSetupState.UNAVAILABLE.value
     else:
         item["oauth"] = None
+    item["validation"] = notion_validation if entry.id == "notion" else None
     item["authorization"] = inference_authorization
     return item
 
@@ -289,6 +343,13 @@ def _oauth_launchable(entry: ConnectionCatalogEntry) -> bool:
             return bool(node_oauth_configured())
         except Exception:  # pragma: no cover - defensive
             return False
+    if entry.id == "google_drive":
+        try:
+            from guardian.connections.google_drive.oauth import node_oauth_configured
+
+            return bool(node_oauth_configured())
+        except Exception:  # pragma: no cover - defensive
+            return False
     # Generic rule for future entries: a setup route must exist. The rule
     # is intentionally conservative so future entries do not become
     # accidentally clickable merely because a backend handler exists.
@@ -299,14 +360,17 @@ def _project_all(user_id: str) -> list[dict[str, Any]]:
     db = _get_db()
     channel_configs: set[str] = set()
     oauth_rows: dict[str, dict[str, Any]] = {}
+    notion_validation: dict[str, Any] | None = None
     if db is not None:
         channel_configs = _user_channel_configs(db, user_id)
         oauth_rows = _user_oauth_rows(db, user_id)
+        notion_validation = _user_notion_validation(db, user_id)
     return [
         _project_entry(
             entry,
             channel_configs=channel_configs,
             oauth_rows=oauth_rows,
+            notion_validation=notion_validation,
         )
         for entry in get_catalog()
     ]
@@ -335,11 +399,14 @@ def get_connection_details(
     db = _get_db()
     channel_configs: set[str] = set()
     oauth_rows: dict[str, dict[str, Any]] = {}
+    notion_validation: dict[str, Any] | None = None
     if db is not None:
         channel_configs = _user_channel_configs(db, user_id)
         oauth_rows = _user_oauth_rows(db, user_id)
+        notion_validation = _user_notion_validation(db, user_id)
     return _project_entry(
         entry,
         channel_configs=channel_configs,
         oauth_rows=oauth_rows,
+        notion_validation=notion_validation,
     )

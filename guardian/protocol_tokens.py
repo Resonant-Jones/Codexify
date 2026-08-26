@@ -626,6 +626,7 @@ class ConnectionCategory(str, Enum):
     MESSAGING = "messaging"
     WEB = "web"
     INFERENCE = "inference"
+    KNOWLEDGE = "knowledge"
 
 
 class ConnectionImplementationState(str, Enum):
@@ -649,8 +650,8 @@ class ConnectionSetupState(str, Enum):
     credential/configuration presence is derivable for the current user;
     it does not prove authorization, and neither proves live health.
     ``connected`` is only ever derived from an explicit persisted
-    connection status (e.g. an oauth_connections row), never from
-    credential presence alone.
+    connection or validation status (for example an ``oauth_connections``
+    row), never from credential presence alone.
     """
 
     AVAILABLE = "available"
@@ -695,6 +696,8 @@ class ConnectionCapability(str, Enum):
     OUTBOUND_MESSAGING = "outbound_messaging"
     INBOUND_MESSAGING = "inbound_messaging"
     SYNC_INGEST = "sync_ingest"
+    CONTENT_SEARCH = "content_search"
+    CONTENT_READ = "content_read"
 
 
 CONNECTION_CATEGORIES: frozenset[str] = frozenset(

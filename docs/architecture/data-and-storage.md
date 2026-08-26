@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-07-27
+Last updated: 2026-08-24
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -134,6 +134,22 @@ must fail closed with bounded evidence. Schema/history reconciliation still
 occurs through normal Alembic execution and version advancement. Stamping,
 direct `alembic_version` edits, and manual schema repair are not substitutes
 for migration execution.
+
+### Restored Watchdog and Connections migration lineage
+
+The deployed GitHub Watchdog lineage is represented by the exact historical
+revisions 2a6b7c8d9e0f through 6e9f0a1b2c3. Its terminal revision and the
+independent Connections revision d2e3f4a5b6c7 share
+1c0a2b3c4d5e as their parent. Revision 9c66e490a42b is their sole
+metadata-only Alembic merge head: it performs no schema operations and records
+that both sibling histories are required.
+
+The associated compatibility proof covers clean, historical-Watchdog,
+current-Connections, and backup-derived disposable Postgres databases. It does
+not migrate the qualifying database. That database remains at
+6e9f0a1b2c3 until a separately authorized live migration window uses the
+canonical migrator; manual stamping, direct version-table edits, and manual DDL
+remain prohibited.
 
 ### Canonical conversation-origin column
 

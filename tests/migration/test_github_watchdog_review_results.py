@@ -15,7 +15,7 @@ VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
 MIGRATION_FILENAME = "5d8e9f0a1b2c_add_github_watchdog_review_results.py"
 REVISION = "5d8e9f0a1b2c"
 DOWN_REVISION = "4c7d8e9f0a1b"
-CURRENT_HEAD = "6e9f0a1b2c3"
+CURRENT_HEAD = "9c66e490a42b"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:

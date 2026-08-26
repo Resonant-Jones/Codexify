@@ -83,6 +83,10 @@ const routeCapabilityState = {
   ready: true,
   state: "available" as const,
 };
+const authRouteCapabilityState = {
+  ready: true,
+  state: "available" as "available" | "unavailable" | "unknown",
+};
 const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 const guardianShellPropsSpy = vi.hoisted(() => vi.fn());
 const documentsSidebarPropsSpy = vi.hoisted(() => vi.fn());
@@ -113,9 +117,15 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
 }));
 
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
-  useRuntimeRouteCapability: () => ({
-    ready: routeCapabilityState.ready,
-    state: routeCapabilityState.state,
+  useRuntimeRouteCapability: (label: string) => ({
+    ready:
+      label === "auth"
+        ? authRouteCapabilityState.ready
+        : routeCapabilityState.ready,
+    state:
+      label === "auth"
+        ? authRouteCapabilityState.state
+        : routeCapabilityState.state,
     mounted: [],
     declared: {},
   }),
@@ -675,6 +685,8 @@ describe("AppShell Guardian mobile navigation seam", () => {
     setRoutePath("/chat");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
+    authRouteCapabilityState.ready = true;
+    authRouteCapabilityState.state = "available";
     resetPersonaStudioApiMock();
     guardianShellPropsSpy.mockClear();
     mockApi.get.mockClear();
@@ -1081,6 +1093,24 @@ describe("AppShell dashboard create project flow", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/login"));
     expect(draftListener).not.toHaveBeenCalled();
     expect(screen.queryByTestId("guardian-chat-with-sidebar-mock")).not.toBeInTheDocument();
+    expect(mockApi.post).not.toHaveBeenCalled();
+    window.removeEventListener("cfy:chat:new-draft", draftListener);
+  });
+
+  it("does not redirect an unauthenticated dashboard action to unavailable login", async () => {
+    setUnauthenticatedAuthState();
+    authRouteCapabilityState.state = "unavailable";
+    const draftListener = vi.fn();
+    window.addEventListener("cfy:chat:new-draft", draftListener);
+    setRoutePath("/");
+
+    render(<AppShell />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New Thread" }));
+    });
+
+    expect(window.location.pathname).toBe("/");
+    expect(draftListener).not.toHaveBeenCalled();
     expect(mockApi.post).not.toHaveBeenCalled();
     window.removeEventListener("cfy:chat:new-draft", draftListener);
   });

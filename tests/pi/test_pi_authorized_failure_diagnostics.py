@@ -490,3 +490,119 @@ def _readiness_block(source: str) -> str:
             if depth == 0:
                 return source[body_open : i + 1]
     raise AssertionError("checkGuardianAuthorizedReadiness body close brace not found")
+
+
+# Regression guard for the live `runAgent()` task-mode path.
+#
+# The CE-L0 live qualification proof (2026-08-26) established that
+# `runAgent()` destructures `harnessId` and `harnessVersion` from
+# `await loadPiSdk()` without first declaring those bindings. Because
+# the wrapper runs as an ES module (strict mode), the destructuring
+# assignment raised `ReferenceError: harnessId is not defined` before
+# provider execution. The readiness path (`checkGuardianAuthorizedReadiness`)
+# does not exercise this destructuring, and the Python `test_pi_live_invocation`
+# suite stubs `harness_runner` before the wrapper subprocess reaches this
+# code, so the existing tests cannot catch this regression. These static
+# regressions lock the binding declarations in place.
+_HARNESS_ID_LET_PATTERN = re.compile(r"^\s*let\s+harnessId\s*;\s*$", re.MULTILINE)
+_HARNESS_VERSION_LET_PATTERN = re.compile(r"^\s*let\s+harnessVersion\s*;\s*$", re.MULTILINE)
+_RUN_AGENT_DESTRUCTURES_HARNESS_ID_PATTERN = re.compile(
+    r"\bharnessId\s*,\s*\n\s*harnessVersion\s*,"
+)
+
+
+def _run_agent_block(source: str) -> str:
+    """Locate the bounded `runAgent` body in agent-wrapper.js.
+
+    Returns the function body (between the `async function runAgent() {` opener
+    and the closing brace) so static assertions evaluate only the live task
+    body, not the readiness body or help text.
+    """
+
+    fn_marker = "async function runAgent"
+    fn_start = source.find(fn_marker)
+    assert fn_start != -1, "runAgent not found in agent-wrapper.js"
+    body_open = source.find("{", fn_start)
+    assert body_open != -1, "runAgent body open brace not found"
+    depth = 0
+    for i in range(body_open, len(source)):
+        ch = source[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return source[body_open : i + 1]
+    raise AssertionError("runAgent body close brace not found")
+
+
+def test_run_agent_declares_harness_id_before_load_pi_sdk_destructuring() -> None:
+    """Static regression: `runAgent()` must declare `harnessId` with `let`.
+
+    The destructuring assignment `({ ..., harnessId, harnessVersion } = await
+    loadPiSdk())` requires both names to be declared before assignment; in
+    ES-module strict mode an undeclared binding raises `ReferenceError`,
+    which the rail classifies as `wrapper_unavailable / runtime_load`.
+    """
+
+    wrapper_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "codex_runner"
+        / "src"
+        / "agent-wrapper.js"
+    )
+    source = wrapper_path.read_text(encoding="utf-8")
+
+    run_agent_body = _run_agent_block(source)
+    assert _HARNESS_ID_LET_PATTERN.search(run_agent_body) is not None, (
+        "agent-wrapper.js runAgent() must declare `let harnessId;` so the "
+        "`await loadPiSdk()` destructuring assignment does not raise "
+        "`ReferenceError: harnessId is not defined` in strict ES-module mode."
+    )
+
+
+def test_run_agent_declares_harness_version_before_load_pi_sdk_destructuring() -> None:
+    """Static regression: `runAgent()` must declare `harnessVersion` with `let`.
+
+    Same rationale as the `harnessId` regression: `harnessVersion` is
+    destructured from `loadPiSdk()` and must be declared first.
+    """
+
+    wrapper_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "codex_runner"
+        / "src"
+        / "agent-wrapper.js"
+    )
+    source = wrapper_path.read_text(encoding="utf-8")
+
+    run_agent_body = _run_agent_block(source)
+    assert _HARNESS_VERSION_LET_PATTERN.search(run_agent_body) is not None, (
+        "agent-wrapper.js runAgent() must declare `let harnessVersion;` so the "
+        "`await loadPiSdk()` destructuring assignment does not raise "
+        "`ReferenceError: harnessVersion is not defined` in strict ES-module mode."
+    )
+
+
+def test_run_agent_still_destructures_harness_id_and_version_from_load_pi_sdk() -> None:
+    """Static regression: `runAgent()` must keep destructuring both bindings.
+
+    The repair adds the local `let` declarations; the destructuring
+    assignment from `await loadPiSdk()` must remain unchanged so harness
+    identity still flows from the SDK/runtime rather than being hardcoded.
+    """
+
+    wrapper_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "codex_runner"
+        / "src"
+        / "agent-wrapper.js"
+    )
+    source = wrapper_path.read_text(encoding="utf-8")
+
+    run_agent_body = _run_agent_block(source)
+    assert _RUN_AGENT_DESTRUCTURES_HARNESS_ID_PATTERN.search(run_agent_body) is not None, (
+        "agent-wrapper.js runAgent() must continue destructuring "
+        "`harnessId, harnessVersion` from `await loadPiSdk()` so the "
+        "harness identity remains SDK-derived rather than hardcoded."
+    )

@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 
 PREVIOUS_REVISION = "b2c3d4e5f6a8"
 PROVENANCE_REVISION = "7a91c4e2f6b8"
+PROVENANCE_TEST_HEAD = "8c4d2e7f1a9b"
 NEW_COLUMNS = {"hosted_room_participant_id", "sender_display_name_snapshot"}
 
 
@@ -115,7 +116,7 @@ def upgraded_db(temporary_postgres, monkeypatch):
         str(repo_root / "guardian" / "db" / "migrations"),
     )
 
-    command.upgrade(config, "head")
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
 
     engine = create_engine(temporary_postgres, future=True)
     yield engine
@@ -224,7 +225,7 @@ def test_matching_preexisting_schema_reconciles_and_preserves_data(parent_db):
         ).fetchall()
 
     _create_matching_preexisting_schema(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
 
     _assert_provenance_schema(engine)
     with engine.connect() as connection:
@@ -254,7 +255,7 @@ def test_matching_preexisting_schema_reconciles_and_preserves_data(parent_db):
             )
         ).one()
     assert after == before
-    assert versions == ["8c4d2e7f1a9b"]
+    assert versions == [PROVENANCE_TEST_HEAD]
     assert tuple(sequence_owner) == (
         "chat_messages_id_seq",
         "chat_messages",
@@ -369,10 +370,10 @@ def test_invalid_existing_paired_data_fails_closed(parent_db):
 def test_repeated_existing_schema_inspection_is_safe(parent_db):
     config, engine, command = parent_db
     _create_matching_preexisting_schema(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
     command.downgrade(config, PREVIOUS_REVISION)
     _assert_provenance_schema(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
     _assert_provenance_schema(engine)
 
 
@@ -781,8 +782,9 @@ def test_downgrade_removes_provenance_columns(temporary_postgres, monkeypatch):
         str(repo_root / "guardian" / "db" / "migrations"),
     )
 
-    # Upgrade to head
-    command.upgrade(config, "head")
+    # Upgrade only through this migration's historical successor so the
+    # focused downgrade does not cross a later fail-closed migration.
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
 
     # Insert some data
     engine = create_engine(temporary_postgres, future=True)
@@ -818,7 +820,7 @@ def test_downgrade_removes_provenance_columns(temporary_postgres, monkeypatch):
     engine2.dispose()
 
     # Re-upgrade
-    command.upgrade(config, "head")
+    command.upgrade(config, PROVENANCE_TEST_HEAD)
 
     engine3 = create_engine(temporary_postgres, future=True)
     inspector3 = inspect(engine3)
