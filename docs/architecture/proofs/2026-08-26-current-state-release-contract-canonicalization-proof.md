@@ -57,8 +57,13 @@ this task. Exactly those two nodes were refreshed, changing only
 
 | Node | Source SHA-256 | Verified commit | Verified at |
 | --- | --- | --- | --- |
-| `current-state` | `72592dffb1f28cf4d6892f85524e69ce186ac725a0c3fb562305f8fd1abf63e0` | `6c4c801ea80ce71e55b1b9f169411092be6ba78e` | `2026-08-26T14:57:59Z` |
-| `kb-entrypoint` | `997c0c1f98da107b71e1c384ce9fccb694c51f88d1d084011289721635f129bd` | `6c4c801ea80ce71e55b1b9f169411092be6ba78e` | `2026-08-26T14:57:59Z` |
+| `current-state` | `72592dffb1f28cf4d6892f85524e69ce186ac725a0c3fb562305f8fd1abf63e0` | `61a0295d4695458ade2cf325564728937d5d6e2a` | `2026-08-26T14:57:59Z` |
+| `kb-entrypoint` | `997c0c1f98da107b71e1c384ce9fccb694c51f88d1d084011289721635f129bd` | `61a0295d4695458ade2cf325564728937d5d6e2a` | `2026-08-26T14:57:59Z` |
+
+Both verification SHAs now name the reviewed metadata commit in this branch's
+direct ancestry. The descendant correction commit therefore preserves the
+required source/metadata topology and prevents validation against the reviewed
+head from reporting `verified_commit_not_ancestor`.
 
 Final DLG validation passed with 10 schema-valid nodes, 10 source-hash
 matches, 13 target resolutions, and zero errors. Six pre-existing broken-local
