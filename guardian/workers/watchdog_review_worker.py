@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from guardian.core.config import get_settings
+from guardian.core.config import get_settings as get_core_settings
 from guardian.core.dependencies import get_database_dsn
 from guardian.db.models import (
     GitHubWatchdogReviewAttempt,
@@ -474,7 +474,7 @@ def run_worker_loop() -> None:
         session_factory=session_factory,
         execution_service=GitHubWatchdogReviewExecutionService(
             session_factory=session_factory,
-            settings=get_settings(),
+            settings=get_core_settings(),
         ),
     )
     logger.info("[watchdog-review-worker] started worker_id=%s", worker.worker_id)
