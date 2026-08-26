@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from guardian.config import get_settings
+from guardian.core.config import get_settings
 from guardian.core.dependencies import get_database_dsn
 from guardian.db.models import (
     GitHubWatchdogReviewAttempt,
