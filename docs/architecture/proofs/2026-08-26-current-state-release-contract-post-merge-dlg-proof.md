@@ -185,3 +185,28 @@ The only intended tracked changes are the two DLG nodes and this new
 post-merge receipt. The next task may resume the paused Google Drive
 qualification sequence from canonical `main`; it must use this post-merge DLG
 state rather than the obsolete PR/reconciliation lineage.
+
+## Canonical publication qualification
+
+This appendix qualifies publication of the already-proven post-merge DLG
+reconciliation. It does not revise the historical evidence above.
+
+- Proven source commit: `e250610d0cdffa04c2d7218eacf3b8e17f241fce`
+- Proven source commit parent: `d1463fe85ba23c82edc719aaed356df71dd026c0`
+- Exact proven tree boundary: the two DLG nodes and this proof receipt only.
+- Revalidation: DLG validator passed with 10/10 source hashes, 13/13
+  relation targets, and zero errors; DLG Phase 3 passed 38 tests; the ADR-069
+  Beta boundary passed 31 tests; full local Architecture Contracts passed
+  425 tests; documentation validation and `make docs PYTHON=python3` passed.
+- The two DLG nodes were not changed after `e250610d...`; this appendix is
+  the only publication-qualification edit.
+- Observed `origin/main`: `cc78c58f1ac81d92f458620ff9d4eefd337c5368`.
+  Its movement beyond the task-generation `d1463fe...` tip was limited to
+  unrelated `codex_runner` campaign-engine validation/schema/test files and
+  did not cross the release-contract/DLG publication seam.
+- Required publication method: a history-preserving GitHub merge using
+  `merge`.
+- Squash and rebase are forbidden for this publication because the proven
+  `e250610d...` commit must remain in canonical ancestry.
+- No release-truth, release-class, runtime, implementation, configuration,
+  migration, OAuth, provider, Google API, or Google Drive behavior changed.
