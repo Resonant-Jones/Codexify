@@ -9,7 +9,11 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "@/lib/api";
 
-export type ConnectionCategory = "messaging" | "web" | "inference";
+export type ConnectionCategory =
+  | "messaging"
+  | "web"
+  | "inference"
+  | "knowledge";
 
 export type ImplementationState =
   | "implemented"
@@ -80,6 +84,14 @@ export interface ConnectionAuthorization {
   note?: string;
 }
 
+/** Safe provider validation state. It intentionally contains no credential or
+ * raw upstream error payload. */
+export interface ConnectionValidation {
+  configured: boolean;
+  state: string;
+  last_validated_at: string | null;
+}
+
 export interface ConnectionEntry {
   id: string;
   display_name: string;
@@ -94,6 +106,7 @@ export interface ConnectionEntry {
   scopes: string[];
   setup_help: string;
   oauth: ConnectionOAuthProjection | null;
+  validation?: ConnectionValidation | null;
   authorization: ConnectionAuthorization | null;
 }
 
@@ -106,6 +119,7 @@ export const CATEGORY_LABELS: Record<ConnectionCategory, string> = {
   messaging: "Messaging",
   web: "Web",
   inference: "Inference",
+  knowledge: "Knowledge",
 };
 
 export const IMPLEMENTATION_STATE_LABELS: Record<ImplementationState, string> = {
@@ -150,7 +164,13 @@ export function isConnectionEntry(value: unknown): value is ConnectionEntry {
 /** A setup action may launch only when a real backing route exists. */
 export function canLaunchSetup(entry: ConnectionEntry): boolean {
   if (entry.implementation_state === "unimplemented") return false;
-  return Boolean(entry.runtime_binding.setup_route);
+  if (!entry.runtime_binding.setup_route) return false;
+  const oauthOnly =
+    entry.auth_methods.length > 0 &&
+    entry.auth_methods.every(
+      (method) => method === "oauth_browser" || method === "oauth_device"
+    );
+  return !oauthOnly || canLaunchOAuth(entry);
 }
 
 /** OAuth may launch only when a real backend authorization handler exists AND
@@ -213,7 +233,10 @@ export function useConnections(options: UseConnectionsOptions = {}) {
         setCategories(
           listed.filter(
             (c): c is ConnectionCategory =>
-              c === "messaging" || c === "web" || c === "inference"
+              c === "messaging" ||
+              c === "web" ||
+              c === "inference" ||
+              c === "knowledge"
           )
         );
       } else {

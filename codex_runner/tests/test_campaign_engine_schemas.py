@@ -202,6 +202,52 @@ def _cross_object_errors(document: dict[str, Any]) -> list[str]:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared role binding"
             )
+            continue
+        attempt_binding = bindings[attempt["role_binding_id"]]
+        if attempt_binding["role"] != "executor":
+            errors.append(
+                f"attempt {attempt['attempt_id']} must use an executor role binding"
+            )
+            continue
+        attempt_execution_mode = attempt.get("execution_mode")
+        binding_execution_mode = attempt_binding.get("execution_mode")
+        if attempt_execution_mode == "live":
+            if binding_execution_mode != "live":
+                errors.append(
+                    f"attempt {attempt['attempt_id']} is live but its "
+                    f"executor binding {attempt_binding['binding_id']} is not live"
+                )
+            if "expected_provider_id" in attempt:
+                if (
+                    attempt["expected_provider_id"]
+                    != attempt_binding["provider_id"]
+                ):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} expected_provider_id "
+                        f"does not match executor binding provider_id"
+                    )
+            if "expected_model_id" in attempt:
+                if (
+                    attempt["expected_model_id"]
+                    != attempt_binding["model_id"]
+                ):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} expected_model_id "
+                        f"does not match executor binding model_id"
+                    )
+
+    for binding in bindings.values():
+        if binding.get("execution_mode") != "live":
+            continue
+        if "live_role_binding" not in binding:
+            continue
+        granted = binding["live_role_binding"].get("granted_permissions", [])
+        requested = binding["live_role_binding"].get("requested_permissions", [])
+        if set(granted) - set(requested):
+            errors.append(
+                f"binding {binding['binding_id']} live_role_binding granted_permissions "
+                f"must be a subset of requested_permissions"
+            )
 
     for evaluation in evaluations.values():
         if evaluation["task_id"] not in tasks:
@@ -710,3 +756,138 @@ def test_existing_invalid_fixtures_remain_invalid() -> None:
     document["role_bindings"][0]["binding_state"] = "draft"
     errors = _validation_errors(document)
     assert any("locked" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------
+# CE-L1 prerequisite: live Executor cross-object regression tests.
+# ---------------------------------------------------------------------------
+
+
+def test_live_executor_attempt_must_reference_executor_role_binding() -> None:
+    """An Attempt must use an executor RoleBinding, not auditor or evaluator."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    # Point the attempt at the auditor binding.
+    auditor_id = next(b for b in bindings.values() if b["role"] == "auditor")[
+        "binding_id"
+    ]
+    attempt["role_binding_id"] = auditor_id
+    errors = _validation_errors(document)
+    assert any(
+        "must use an executor role binding" in error for error in errors
+    )
+
+
+def test_live_executor_attempt_must_reference_live_executor_binding() -> None:
+    """A live Attempt's referenced RoleBinding must itself be a live binding."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    executor_id = next(b for b in bindings.values() if b["role"] == "executor")[
+        "binding_id"
+    ]
+    # Strip the live discriminator and live evidence from the Executor binding.
+    bindings[executor_id].pop("execution_mode", None)
+    bindings[executor_id].pop("redaction_status", None)
+    bindings[executor_id].pop("live_role_binding", None)
+    errors = _validation_errors(document)
+    assert any(
+        "is live but its executor binding" in error for error in errors
+    )
+
+
+def test_live_executor_attempt_expected_provider_must_match_binding() -> None:
+    """A live Attempt's expected_provider_id must match the binding's provider_id."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    attempt["expected_provider_id"] = "wrong-provider"
+    errors = _validation_errors(document)
+    assert any(
+        "expected_provider_id does not match executor binding provider_id"
+        in error
+        for error in errors
+    )
+
+
+def test_live_executor_attempt_expected_model_must_match_binding() -> None:
+    """A live Attempt's expected_model_id must match the binding's model_id."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    attempt["expected_model_id"] = "wrong-model"
+    errors = _validation_errors(document)
+    assert any(
+        "expected_model_id does not match executor binding model_id" in error
+        for error in errors
+    )
+
+
+def test_live_role_binding_granted_permissions_must_be_subset_of_requested() -> None:
+    """granted_permissions must be a subset of requested_permissions for live bindings."""
+    document = deepcopy(_load_live_role_campaign())
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    executor = next(b for b in bindings.values() if b["role"] == "executor")
+    # Add a permission that is not in the requested set.
+    executor["live_role_binding"]["granted_permissions"].append("network.unbound")
+    errors = _validation_errors(document)
+    assert any(
+        "live_role_binding granted_permissions must be a subset" in error
+        for error in errors
+    )
+
+
+def test_live_role_binding_valid_granted_subset_passes() -> None:
+    """A live binding whose granted set is a strict subset of the requested set passes."""
+    document = deepcopy(_load_live_role_campaign())
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    executor = next(b for b in bindings.values() if b["role"] == "executor")
+    # Sanity: original granted is a subset of original requested.
+    assert set(executor["live_role_binding"]["granted_permissions"]).issubset(
+        executor["live_role_binding"]["requested_permissions"]
+    )
+    assert _validation_errors(document) == []
+
+
+def test_role_binding_execution_mode_live_requires_redaction_status() -> None:
+    """If execution_mode == 'live', top-level redaction_status is required."""
+    document = deepcopy(_load_live_role_campaign())
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    executor = next(b for b in bindings.values() if b["role"] == "executor")
+    del executor["redaction_status"]
+    errors = _validation_errors(document)
+    assert any("redaction_status" in error for error in errors)
+
+
+def test_role_binding_live_role_binding_requires_execution_mode_live() -> None:
+    """A live_role_binding block requires execution_mode == 'live' at the top level."""
+    document = deepcopy(_load_live_role_campaign())
+    bindings = {b["binding_id"]: b for b in document["role_bindings"]}
+    executor = next(b for b in bindings.values() if b["role"] == "executor")
+    # Replace execution_mode with provider_free while keeping the live_role_binding block.
+    executor["execution_mode"] = "provider_free"
+    errors = _validation_errors(document)
+    # Schema-level error path is the execution_mode key; message may not contain the field name.
+    assert any(
+        "execution_mode" in error or "live" in error for error in errors
+    )
+
+
+def test_attempt_mutation_count_zero_must_not_include_changed_files() -> None:
+    """source_mutation_count == 0 forbids changed_files."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    attempt["source_mutation_count"] = 0
+    # Fixture currently has changed_files; keeping it should fail.
+    errors = _validation_errors(document)
+    assert any("changed_files" in error for error in errors)
+
+
+def test_attempt_mutation_count_zero_without_changed_files_passes() -> None:
+    """source_mutation_count == 0 with changed_files absent passes the new rule."""
+    document = deepcopy(_load_live_role_campaign())
+    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
+    attempt["source_mutation_count"] = 0
+    del attempt["changed_files"]
+    errors = _validation_errors(document)
+    # The new rule should not flag this; other unrelated errors should also be absent.
+    assert not any("changed_files" in error for error in errors)

@@ -827,6 +827,9 @@ export default function AppShell({
     ready: codexCapabilityReady,
     state: codexCapability,
   } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.CODEX);
+  const { state: authRouteCapability } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.AUTH
+  );
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -2529,7 +2532,10 @@ export default function AppShell({
   }, [navigateToView]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
-      if (typeof window !== "undefined") {
+      if (
+        authRouteCapability === "available" &&
+        typeof window !== "undefined"
+      ) {
         window.history.pushState({}, "", "/login");
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
@@ -2549,7 +2555,7 @@ export default function AppShell({
         console.warn("[dashboard] draft-thread event failed", eventErr);
       }
     }
-  }, [auth, closeWorkspaceDrawer, navigateToView]);
+  }, [auth, authRouteCapability, closeWorkspaceDrawer, navigateToView]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");

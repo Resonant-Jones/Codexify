@@ -36,6 +36,7 @@ class _TestDB:
             tables=[
                 db_models.ChannelConfig.__table__,
                 db_models.OAuthConnection.__table__,
+                db_models.NotionConnectionCredential.__table__,
             ],
         )
         self._SessionLocal = sessionmaker(
@@ -127,20 +128,31 @@ def test_connections_requires_api_key(
     assert response.json()["detail"] == "Missing API key"
 
 
-def test_list_returns_all_three_categories(
+def test_list_returns_all_four_categories(
     client: tuple[TestClient, _TestDB],
 ) -> None:
     test_client, _ = client
     response = test_client.get("/api/connections", headers=_headers())
     assert response.status_code == 200
     payload = response.json()
-    assert payload["categories"] == ["inference", "messaging", "web"]
+    assert payload["categories"] == ["inference", "knowledge", "messaging", "web"]
     items = _items_by_id(payload)
     assert {"slack", "discord", "telegram"} <= set(items)
     assert {"firecrawl", "searxng", "brave", "ddgs", "tavily", "exa",
             "parallel", "xai_grok"} <= set(items)
     assert {"deepseek", "openai_api", "openrouter", "minimax_api",
             "codex_chatgpt"} <= set(items)
+    assert items["notion"]["category"] == "knowledge"
+    assert items["notion"]["capabilities"] == ["content_read", "content_search"]
+    assert items["notion"]["setup_state"] == "needs_setup"
+    assert items["notion"]["validation"]["state"] == "unconfigured"
+    assert items["google_drive"]["category"] == "knowledge"
+    assert items["google_drive"]["capabilities"] == ["content_read", "content_search"]
+    # The Google Drive adapter exists but cannot launch without a legitimate
+    # node-owned OAuth application registration.
+    assert items["google_drive"]["setup_state"] == "unavailable"
+    assert items["google_drive"]["oauth"]["backend_handler_exists"] is True
+    assert items["google_drive"]["oauth"]["launchable"] is False
 
 
 def test_channel_config_presence_marks_entry_configured(

@@ -109,7 +109,7 @@ def test_tool_jobs_cleanup_migration_round_trip(tmp_path, monkeypatch):
         }
         assert "tool_jobs_status_check" in tool_job_constraints
 
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "d7e8f9a0b1c2")
 
         inspector = inspect(engine)
         tables_after_cleanup = set(inspector.get_table_names())

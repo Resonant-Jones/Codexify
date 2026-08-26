@@ -239,7 +239,7 @@ def test_supported_profile_exposes_read_only_connections_without_legacy_connecto
         listing = client.get("/api/connections", headers=headers)
         assert listing.status_code == 200
         payload = listing.json()
-        assert payload["categories"] == ["inference", "messaging", "web"]
+        assert payload["categories"] == ["inference", "knowledge", "messaging", "web"]
         assert len(payload["items"]) == len(get_catalog())
         assert len(payload["items"]) > 0
 
@@ -261,6 +261,23 @@ def test_supported_profile_exposes_read_only_connections_without_legacy_connecto
         assert "/api/connectors" not in paths
         assert set(paths["/api/connections"]) == {"get"}
         assert set(paths["/api/connections/{connection_id}"]) == {"get"}
+        assert "/api/knowledge/notion/search" in paths
+        assert "/api/knowledge/notion/read/{object_id}" in paths
+        assert set(paths["/api/knowledge/notion/search"]) == {"get"}
+        assert "/api/knowledge/google-drive/search" in paths
+        assert "/api/knowledge/google-drive/read/{object_id}" in paths
+        assert set(paths["/api/knowledge/google-drive/search"]) == {"get"}
+        command_manifest = client.get(
+            "/api/guardian/commands/manifest", headers=headers
+        ).json()
+        command_paths = {
+            (command["method"], command["path_template"])
+            for command in command_manifest["commands"]
+        }
+        assert ("GET", "/api/knowledge/notion/search") in command_paths
+        assert ("GET", "/api/knowledge/notion/read/{object_id}") in command_paths
+        assert ("GET", "/api/knowledge/google-drive/search") in command_paths
+        assert ("GET", "/api/knowledge/google-drive/read/{object_id}") in command_paths
 
 
 def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
@@ -289,6 +306,25 @@ def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
         assert "/api/connect/minimax/status" not in paths
         # Other OAuth/connector surfaces remain absent.
         assert "/api/connect/google/start" not in paths
+        # Credential mutation routes remain mounted but schema-hidden as an
+        # internal provider-specific setup surface.
+        assert "/api/connect/notion/configure" not in paths
+        assert "/api/connect/notion/validate" not in paths
+        assert "/api/connect/notion/disconnect" not in paths
+        assert "/api/connect/google-drive/start" not in paths
+        assert "/api/connect/google-drive/validate" not in paths
+        assert "/api/connect/google-drive/disconnect" not in paths
+        # The internal route is mounted even though it is hidden from public
+        # OpenAPI; a storage-unavailable response still proves it did not
+        # regress to a quarantined 404.
+        assert (
+            client.get("/api/connect/notion/status", headers=headers).status_code
+            != 404
+        )
+        assert (
+            client.get("/api/connect/google-drive/status", headers=headers).status_code
+            != 404
+        )
 
 
 def test_agent_orchestration_chat_readback_enforced(

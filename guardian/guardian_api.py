@@ -57,6 +57,8 @@ logger = logging.getLogger(__name__)
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connectors.google import router as google_connect_router
 from guardian.connectors.minimax import router as minimax_oauth_router
+from guardian.connections.google_drive import router as google_drive_connection_routes
+from guardian.connections.notion import router as notion_connection_routes
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
@@ -563,6 +565,7 @@ from guardian.routes.chat import simple_chat_router
 from guardian.routes.codex import router as codex_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
+from guardian.routes import connections as connections_routes
 from guardian.routes.connections import router as connections_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
 from guardian.routes.flows import router as flows_router
@@ -691,6 +694,9 @@ async def _app_lifespan_body(app: FastAPI):
         agent_orchestration.configure_db(guardian_db)
         coding_work_orders.configure_db(guardian_db)
         command_bus_routes.configure_db(guardian_db)
+        connections_routes.configure_db(guardian_db)
+        notion_connection_routes.configure_db(guardian_db)
+        google_drive_connection_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         guardian_delegations.configure_db(guardian_db)
         tts_routes.configure_db(guardian_db)
@@ -1317,6 +1323,32 @@ _include_router(
     include_fn=lambda: app.include_router(
         minimax_oauth_router,
         include_in_schema=_include_internal_only_schema("minimax_oauth"),
+    ),
+)
+_include_router(
+    label="notion_knowledge",
+    flag_name="CODEXIFY_ENABLE_NOTION_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(notion_connection_routes.operations_router),
+)
+_include_router(
+    label="notion_setup",
+    flag_name="CODEXIFY_ENABLE_NOTION_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(
+        notion_connection_routes.setup_router,
+        include_in_schema=_include_internal_only_schema("notion_setup"),
+    ),
+)
+_include_router(
+    label="google_drive_knowledge",
+    flag_name="CODEXIFY_ENABLE_GOOGLE_DRIVE_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(google_drive_connection_routes.operations_router),
+)
+_include_router(
+    label="google_drive_setup",
+    flag_name="CODEXIFY_ENABLE_GOOGLE_DRIVE_KNOWLEDGE_ROUTES",
+    include_fn=lambda: app.include_router(
+        google_drive_connection_routes.setup_router,
+        include_in_schema=_include_internal_only_schema("google_drive_setup"),
     ),
 )
 _include_router(

@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-25T15:42:32Z",
-    "verified_commit": "a3d7882b8dfe826bc2f7ce3407e0677e827fcc17",
+    "verified_at": "2026-08-26T10:36:36Z",
+    "verified_commit": "495321e3df7c085f68d94b64bf49139a8a254bf5",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified the Architecture KB entrypoint after current-main routing additions; its structural source-routing role, current-state authority boundary, and existing DLG classification remain unchanged, and the source hash is synchronized to a3d7882."
+    "reason": "Reverified after merging the 2026-08-26 KB entrypoint and preserving the accepted ADR-075 structural entry; source hash synchronized without changing release authority."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "252ff0efec55f14cb7d9f42429d393813e0ce4bb564d4ad5941b7b44481ae1f2",
+  "content_hash": "6c6dbcc078d92711aef6026f9b63a23f9fff6cf9c3f460bac71d7b4b3371581e",
   "relations": [
     {
       "relation_type": "depends_on",
