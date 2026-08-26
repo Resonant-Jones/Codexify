@@ -97,7 +97,8 @@ def test_multi_user_message_list_returns_owned_thread_data(monkeypatch):
 
     assert response["ok"] is True
     assert response["messages"][0]["content"] == "Owned thread message"
-    assert db.list_messages.call_args.args[0] == 21
+    db.list_messages.assert_called_once()
+    assert db.list_messages.call_args.kwargs["thread_id"] == 21
 
 
 def test_multi_user_message_post_rejects_cross_account_thread(monkeypatch):
