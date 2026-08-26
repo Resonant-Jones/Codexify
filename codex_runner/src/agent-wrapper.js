@@ -314,6 +314,8 @@ async function runAgent() {
 	let createCodingTools;
 	let getModel;
 	let getProviders;
+	let harnessId;
+	let harnessVersion;
 
 	const authorizedIdentity = guardianAuthorizedMode
 		? requireGuardianAuthorizedIdentity()
