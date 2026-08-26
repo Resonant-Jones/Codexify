@@ -26,6 +26,7 @@ This file is authoritative for:
 - Classified a fresh Chroma startup failure after guarded recovery; Postgres remains canonical and Chroma remains derived, with no retry, restore, or repair authorized.
 - Merged Guardian-owned GitHub Watchdog control-plane preparation and canonical worker settings; qualification stopped before review receipt creation or model invocation because the required policy/model was unavailable.
 - Recorded loss of the previously qualified immutable backend image and replacement of the mutable `latest` tag; deletion mechanism and actor remain unproven.
+- [Attempted the disposable Docker archive-retention qualification](proofs/2026-08-25-disposable-docker-image-archive-retention-qualification-proof.md), but the selected `desktop-linux` authority was unavailable; the run stopped at preflight without producing a retention result or mutating Docker state.
 - Repaired the Pi diagnostic test seam and refreshed DLG metadata hashes; neither change established provider, OAuth, or runtime support.
 
 ## Current supported reality
@@ -49,7 +50,7 @@ This file is authoritative for:
 - Current-tip proof is still missing for health, chat, durable assistant readback, retrieval, queue/worker execution, turn locks, terminal events, and recovery behavior on one supported profile.
 - Fresh-state Chroma startup / retrieval qualification remains blocked after the classified compatibility failure; no historical restore or implementation repair is proven.
 - Watchdog qualification lacks an explicit available provider/model policy and therefore stops before review receipt and model execution.
-- The qualified immutable replay image is unavailable, so retention qualification cannot proceed; canonical-versus-legacy configuration paths also leave startup and operator-state drift risk.
+- Disposable archive-retention qualification is blocked on restoring the intended `desktop-linux` Docker authority and rerunning from a fresh observed `origin/main`; the failed preflight produced no retention result. Canonical-versus-legacy configuration paths also leave startup and operator-state drift risk.
 
 ## This week’s priorities
 
@@ -57,7 +58,7 @@ This file is authoritative for:
 2. Prove health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
 3. Requalify Chroma only under an explicitly authorized, newly classified proof path; keep derived state non-canonical.
 4. Bind one explicit Watchdog provider/model policy and requalify without ambient-model substitution.
-5. Run the disposable image-retention reproduction and reconcile canonical-versus-legacy configuration drift.
+5. Restore the intended `desktop-linux` Docker authority, rerun the disposable image-retention reproduction from a fresh observed `origin/main`, and reconcile canonical-versus-legacy configuration drift.
 
 ## Release definition right now
 
