@@ -35,6 +35,36 @@ This file is authoritative for:
 - Authenticated local Settings read surfaces, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; catalog or import presence does not imply generic connector sync, provider inference, or cloud support.
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts are Internal or proof-only surfaces. Static validation and tester evidence do not substitute for supported-path live proof.
 
+## Release classes
+
+These human-facing interpretations preserve ADR-069's distinction between support posture and evidence maturity. They do not add schema tokens or claim current-tip proof.
+
+### Beta Supported
+
+The intended supported local-first Beta boundary is the local Docker Compose path with local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics. This is support doctrine, not current-tip qualification.
+
+### Beta Bounded / Conditional
+
+Bounded Beta surfaces include Persona Studio core, bounded import/continuity entry surfaces, repository intelligence, bounded Guardian-authorized tool execution, and bounded extension/client surfaces accepted by ADR-069. Authenticated local Settings read surfaces and the read-only Connections catalog retain their existing bounded contracts; catalog visibility does not imply provider authorization, adapter health, generic sync, cloud inference, or release promotion. Google Drive remains unqualified.
+
+### Internal
+
+Watchdog control-plane/runtime qualification machinery, Pi diagnostics, proof tooling, tester-stack receipts, and direct/internal Command Bus/control-plane mechanisms remain Internal or proof-only rather than user-facing Beta promises.
+
+### Qualification Pending
+
+- Coding Loop — remaining gate: supported-profile adapter/provider execution with terminal durable result and source-thread readback.
+- Hosted Rooms — remaining gate: clean supported/tester startup plus owner/guest live semantic proof after migration repair.
+- DeepSeek / private-preview provider lane — remaining gate: required credentials, authenticated provider-specific persisted runtime proof, and explicit supported-profile promotion.
+- Browser side-panel / Browser Host release surface — remaining gate: current host, auth, and release qualification proof for the applicable surface.
+- Desktop packaging outside the bounded local-client claim — remaining gate: packaged distribution proof without establishing separate runtime or persistence authority.
+
+### Out of Beta
+
+- TTS / voice — Out of Beta.
+- federation — Out of Beta.
+- Unrestricted autonomous / recursive execution, arbitrary write-capability tools, ordinary-Beta generic shell/filesystem authority, public Command Bus exposure, generic unattended automation, unqualified generic connector mutation/sync, unqualified graph-write behavior, and unsupported remote/multi-user repository execution remain Out of Beta.
+
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose startup, health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, or turn-lock closure.
