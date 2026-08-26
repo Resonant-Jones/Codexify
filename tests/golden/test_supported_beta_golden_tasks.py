@@ -268,16 +268,50 @@ def _supported_help_startup_client(
         multi_user_enabled=False,
     )
 
-    with TestClient(
-        guardian_api.app, headers=get_test_auth_headers()
-    ) as client:
-        try:
+    route_db_bindings = (
+        (guardian_api.cron_routes, guardian_api.cron_routes._db),
+        (
+            guardian_api.account_observability,
+            guardian_api.account_observability._db,
+        ),
+        (guardian_api.documents, guardian_api.documents._db),
+        (guardian_api.share, guardian_api.share._db),
+        (guardian_api.websocket_routes, guardian_api.websocket_routes._db),
+        (
+            guardian_api.agent_orchestration,
+            guardian_api.agent_orchestration._store.db,
+        ),
+        (
+            guardian_api.coding_work_orders,
+            guardian_api.coding_work_orders._store.db,
+        ),
+        (guardian_api.command_bus_routes, guardian_api.command_bus_routes._db),
+        (
+            guardian_api.delegations,
+            guardian_api.delegations.get_service()._db,
+        ),
+        (
+            guardian_api.guardian_delegations,
+            guardian_api.guardian_delegations.get_service().db,
+        ),
+        (guardian_api.tts_routes, guardian_api.tts_routes._db),
+        (guardian_api.collaboration, guardian_api.collaboration._db),
+    )
+
+    try:
+        with TestClient(
+            guardian_api.app, headers=get_test_auth_headers()
+        ) as client:
             yield client, fake_guardian_db, ingest_calls
-        finally:
+    finally:
+        try:
             from guardian.core import event_bus
 
             event_bus.reset()
             importlib.reload(guardian_api)
+        finally:
+            for route_module, previous_db in route_db_bindings:
+                route_module.configure_db(previous_db)
 
 
 def test_golden_completion_acceptance_contract(monkeypatch):
