@@ -11,6 +11,9 @@ from guardian.core.provider_registry import (
 from guardian.core.supported_profile import load_supported_profile
 
 
+_TESTER_TRACKED_DEFAULT_MODEL = "qwen3.8-27b-4bit"
+
+
 def test_v1_supported_profile_manifest_loads() -> None:
     manifest = load_supported_profile("v1-local-core-web-mcp")
 
@@ -137,7 +140,7 @@ def test_whooshd_deepseek_profile_pins_both_provider_lanes() -> None:
         "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
         "LOCAL_API_KEY": "local",
         "LOCAL_PROVIDER_VENDOR": "whooshd",
-        "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
+        "LOCAL_CHAT_MODEL": _TESTER_TRACKED_DEFAULT_MODEL,
         "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
     }
 
@@ -218,7 +221,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
         LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
         LOCAL_API_KEY="local",
         LOCAL_PROVIDER_VENDOR="whooshd",
-        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_CHAT_MODEL=_TESTER_TRACKED_DEFAULT_MODEL,
         DEEPSEEK_API_KEY="inert-deepseek-test-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
         OPENAI_API_KEY=None,

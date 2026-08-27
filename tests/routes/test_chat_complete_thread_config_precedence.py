@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from guardian.core import chat_completion_service
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
@@ -14,6 +15,33 @@ def _override_request_scope(test_client, user_id: str) -> None:
         account_id=user_id,
         multi_user_enabled=False,
     )
+
+
+def _capture_accepted_completion(captured: dict[str, object]):
+    def fake_enqueue(task, **_kwargs):
+        captured["task"] = task
+        task_created_event = chat_completion_service.ChatCompletionTaskCreatedEventResult(
+            ok=True,
+            task_id=task.task_id,
+            event_type="task.created",
+            event_id=f"{task.task_id}:created",
+            visibility_scope="progress",
+            terminal_visibility=False,
+            execution_continued=True,
+        )
+        return chat_completion_service.ChatCompletionEnqueueResult(
+            task=task,
+            task_id=task.task_id,
+            acceptance_status="accepted",
+            acceptance_warnings=(),
+            queue_accepted=True,
+            degraded=False,
+            turn_lock_acquired=True,
+            turn_lock={},
+            task_created_event=task_created_event,
+        )
+
+    return fake_enqueue
 
 
 def test_chat_complete_thread_config_beats_request_overrides(
@@ -36,19 +64,9 @@ def test_chat_complete_thread_config_beats_request_overrides(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        chat_routes, "acquire_turn_lock", lambda *args, **kwargs: True
-    )
-    monkeypatch.setattr(
         chat_routes,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        chat_routes,
-        "_publish_completion_start_event",
-        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+        "enqueue_chat_completion",
+        _capture_accepted_completion(captured),
     )
     monkeypatch.setattr(
         chat_routes,
@@ -75,7 +93,6 @@ def test_chat_complete_thread_config_beats_request_overrides(
 
     assert response.status_code == 200
     assert response.json()["source_mode"] == "project"
-    assert captured["queue_name"] == "codexify:queue:chat"
     task = captured["task"]
     assert getattr(task, "provider") == "local"
     assert getattr(task, "model") == "override-model"
@@ -97,19 +114,9 @@ def test_chat_complete_legacy_thread_without_thread_config_still_completes(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        chat_routes, "acquire_turn_lock", lambda *args, **kwargs: True
-    )
-    monkeypatch.setattr(
         chat_routes,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        chat_routes,
-        "_publish_completion_start_event",
-        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+        "enqueue_chat_completion",
+        _capture_accepted_completion(captured),
     )
     monkeypatch.setattr(
         chat_routes,
@@ -136,7 +143,6 @@ def test_chat_complete_legacy_thread_without_thread_config_still_completes(
 
     assert response.status_code == 200
     assert response.json()["source_mode"] == "personal_knowledge"
-    assert captured["queue_name"] == "codexify:queue:chat"
     task = captured["task"]
     assert getattr(task, "provider") == "groq"
     assert getattr(task, "model") == "override-model"

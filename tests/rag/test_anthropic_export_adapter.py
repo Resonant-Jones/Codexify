@@ -448,30 +448,16 @@ def test_claude_text_extraction_handles_text_blocks():
 
 
 # ---------------------------------------------------------------------------
-# File metadata does not produce media persistence
+# File metadata remains source metadata
 # ---------------------------------------------------------------------------
 
 
-def test_metadata_only_files_do_not_persist(tmp_path: Path, monkeypatch):
-    """When the adapter is invoked, ``files[]`` references with only
-    ``file_uuid``/``file_name`` (no bytes) must NOT cause any media-asset
-    write to occur. We assert this by monkey-patching the existing OpenAI
-    media import helper to fail the test if the worker would call it for
-    Anthropic."""
-
-    sentinel = SimpleNamespace(calls=0)
-
-    def _fail_if_called(*_args, **_kwargs):
-        sentinel.calls += 1
-        raise AssertionError(
-            "Anthropic adapter must not call the OpenAI media ingestion path."
-        )
-
-    monkeypatch.setattr(
-        "guardian.workers.account_import_worker.import_image_record",
-        _fail_if_called,
-        raising=False,
-    )
+def test_metadata_only_files_remain_source_metadata(tmp_path: Path):
+    """Metadata-only Anthropic references remain source metadata, not
+    fabricated binary-media representation. Worker-level proof that Anthropic
+    dispatch bypasses the OpenAI image-import path belongs in
+    ``tests/workers/test_account_import_worker.py``.
+    """
 
     conversation = _anthropic_conversation(
         conv_uuid="c-files",
@@ -495,15 +481,21 @@ def test_metadata_only_files_do_not_persist(tmp_path: Path, monkeypatch):
     )
     _write_anthropic_export(tmp_path, conversations=[conversation])
 
-    # The adapter is read-only at this layer. We verify the worker dispatch
-    # never invokes ``import_image_record`` by exercising the dispatch branch
-    # in isolation against a stub service. The full worker behavior is
-    # covered in tests/workers/test_account_import_worker.py.
     inventory = scan_anthropic_export_root(tmp_path)
     extracted = extract_anthropic_conversations(inventory)
     assert len(extracted) == 1
-    assert extracted[0].conversation["chat_messages"][0]["files"] == [
+    message = extracted[0].conversation["chat_messages"][0]
+    assert message["files"] == [
         {"file_uuid": "u-photo-1", "file_name": "photo"}
+    ]
+    assert set(message["files"][0]) == {"file_uuid", "file_name"}
+    assert message["attachments"] == [
+        {
+            "extracted_content": "metadata-only",
+            "file_name": "photo",
+            "file_size": 1234,
+            "file_type": "image/png",
+        }
     ]
 
 

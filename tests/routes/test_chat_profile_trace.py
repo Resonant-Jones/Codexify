@@ -11,11 +11,19 @@ from guardian.core.chat_completion_service import (
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
 )
+from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.core.dependencies import RequestUserScope
 from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.routes import chat
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
+
+
+def _successful_mock_terminal() -> dict[str, object]:
+    return successful_non_stream_terminal(
+        provider="local",
+        model="mock-model",
+    ).as_dict()
 
 
 @pytest.fixture(autouse=True)
@@ -768,16 +776,19 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
         _fake_build_messages_for_llm,
     )
     def _fake_execute_bounded_tool_turn_completion(*_args, **_kwargs):
+        terminal_evidence = _successful_mock_terminal()
         return {
             "assistant_text": "assistant reply",
             "provider": "local",
             "model": "mock-model",
             "bundle": {},
             "trace": dict(trace_payload),
+            "terminal_evidence": terminal_evidence,
             "payload_summary": {
                 "source_mode": trace_payload["source_mode"],
                 "retrieval_policy": trace_payload["retrieval_policy"],
                 "effective_policy": trace_payload["effective_policy"],
+                "terminal_evidence": dict(terminal_evidence),
             },
         }
 
@@ -868,6 +879,7 @@ def test_run_chat_completion_task_compat_preserves_retrieval_posture(
         }
 
     def _fake_execute_bounded_tool_turn_completion(*_args, **_kwargs):
+        terminal_evidence = _successful_mock_terminal()
         return {
             "assistant_text": "assistant reply",
             "provider": "local",
@@ -882,6 +894,7 @@ def test_run_chat_completion_task_compat_preserves_retrieval_posture(
                     "identity_scope": "workspace",
                 },
             },
+            "terminal_evidence": terminal_evidence,
             "thread_id": 1,
             "payload_summary": {
                 "payload_char_count": 12,
@@ -890,6 +903,7 @@ def test_run_chat_completion_task_compat_preserves_retrieval_posture(
                 "effective_source_mode": "workspace",
                 "obsidian_count": 1,
                 "obsidian_injected": True,
+                "terminal_evidence": dict(terminal_evidence),
             },
         }
 

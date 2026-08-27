@@ -192,7 +192,7 @@ def test_candidate_trace_not_persisted_as_message(
 ):
     mock_db.get_chat_thread.return_value = {"id": 1, "user_id": "test_user"}
 
-    _run_completion(
+    result = _run_completion(
         monkeypatch=monkeypatch,
         assistant_text="canonical assistant answer",
         thread_id=1,
@@ -200,11 +200,23 @@ def test_candidate_trace_not_persisted_as_message(
         persist_assistant_message=True,
     )
 
-    mock_db.create_message.assert_called_once_with(
+    mock_db.create_message.assert_called_once()
+    message_call = mock_db.create_message.call_args
+    assert message_call.args == (
         1,
         "assistant",
         "canonical assistant answer",
     )
+    extra_meta = message_call.kwargs["extra_meta"]
+    assert isinstance(extra_meta, dict)
+
+    request_correlation = result["request_correlation"]
+    assert isinstance(request_correlation, dict)
+    assert request_correlation["request_id"] == "req-3"
+    for key in ("task_id", "attempt_id"):
+        assert isinstance(request_correlation[key], str)
+        assert request_correlation[key]
+    assert extra_meta["request_correlation"] == request_correlation
 
     response = test_client.get("/chat/1/debug/candidate-trace/latest")
     assert response.status_code == 200

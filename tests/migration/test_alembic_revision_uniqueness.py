@@ -12,6 +12,7 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
+CANONICAL_HEAD = "9c66e490a42b"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -101,8 +102,20 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert origin_system.down_revision == "9d4c2a7e1b6f"
     assert isinstance(origin_system.down_revision, str)
 
+    watchdog_successors = (
+        ("2a6b7c8d9e0f", "1c0a2b3c4d5e"),
+        ("3b7c8d9e0f1a", "2a6b7c8d9e0f"),
+        ("4c7d8e9f0a1b", "3b7c8d9e0f1a"),
+        ("5d8e9f0a1b2c", "4c7d8e9f0a1b"),
+        ("6e9f0a1b2c3", "5d8e9f0a1b2c"),
+    )
+    for revision, expected_down_revision in watchdog_successors:
+        migration = script.get_revision(revision)
+        assert migration is not None
+        assert migration.down_revision == expected_down_revision
+
     heads = script.get_heads()
-    assert heads == ["9c66e490a42b"]
+    assert heads == [CANONICAL_HEAD]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
