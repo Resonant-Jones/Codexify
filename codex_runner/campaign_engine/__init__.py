@@ -2,22 +2,31 @@
 
 Public surface:
 
-- :func:`run_provider_free_campaign` — callable runtime service (no CLI parsing);
-- :class:`CampaignRunResult` — structured run envelope;
+- :func:`run_provider_free_campaign` — provider-free lifecycle entrypoint
+  (must remain unchanged at import and runtime);
+- :mod:`codex_runner.campaign_engine.live_executor` — live Executor
+  preparation/execution entrypoints (ADR-068 authorized slice);
+- :class:`CampaignRunResult` / :class:`LiveExecutorRunResult` — structured
+  run envelopes;
 - :class:`CampaignClock` / :class:`SystemClock` / :class:`FixedClock` — the
   deterministic-time seam;
+- :class:`LiveExecutorPreparation` — the immutable live-Executor
+  preparation record produced before Guardian authorization is requested;
 - bounded error hierarchy under :mod:`codex_runner.campaign_engine.errors`.
 
-The package imports only the Python standard library plus (lazily)
-``jsonschema`` for schema validation. It never imports or invokes providers,
-Pi, Coding Loop, Guardian execution, the command bus, subprocess, network,
-Git, or database code.
+Importing this package pulls in only the Python standard library plus
+``jsonschema``. The Guardian/Pi rail is imported *lazily* inside the live
+Executor execution helpers so that ``import
+codex_runner.campaign_engine`` itself remains safe for provider-free
+importers; no provider, Coding Loop, Guardian execution, command bus,
+subprocess, network, Git, or database code is pulled at import time.
 """
 
 from .errors import (
     CampaignArtifactError,
     CampaignClockError,
     CampaignEngineError,
+    CampaignLiveExecutorError,
     CampaignOutputExistsError,
     CampaignRoleBindingError,
     CampaignSourceContextError,
@@ -25,10 +34,13 @@ from .errors import (
     CampaignValidationError,
 )
 from .models import (
+    LIVE_EXECUTOR_CLASSIFICATION,
     AcceptanceCriterionResult,
     CampaignClock,
     CampaignRunResult,
     FixedClock,
+    LiveExecutorPreparation,
+    LiveExecutorRunResult,
     SourceContextRecord,
     SystemClock,
 )
@@ -40,6 +52,7 @@ __all__ = [
     "CampaignClock",
     "CampaignClockError",
     "CampaignEngineError",
+    "CampaignLiveExecutorError",
     "CampaignOutputExistsError",
     "CampaignRoleBindingError",
     "CampaignRunResult",
@@ -47,6 +60,9 @@ __all__ = [
     "CampaignTaskSelectionError",
     "CampaignValidationError",
     "FixedClock",
+    "LIVE_EXECUTOR_CLASSIFICATION",
+    "LiveExecutorPreparation",
+    "LiveExecutorRunResult",
     "SourceContextRecord",
     "SystemClock",
     "run_provider_free_campaign",

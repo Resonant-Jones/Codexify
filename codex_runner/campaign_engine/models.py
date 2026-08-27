@@ -107,7 +107,9 @@ class AcceptanceCriterionResult:
 
 
 PROVIDER_FREE_CLASSIFICATION = "provider_free"
+LIVE_EXECUTOR_CLASSIFICATION = "live_executor"
 PROVIDER_CALLS_ZERO = 0
+PROVIDER_CALLS_LIVE = 1
 SOURCE_MUTATIONS_ZERO = 0
 DECISION_GATES_OPENED_ZERO = 0
 COMMIT_PERFORMED = False
@@ -178,4 +180,169 @@ class CampaignRunResult:
                 for item in self.acceptance_criteria
             ],
             "hashes": dict(self.hashes),
+        }
+
+
+@dataclass(frozen=True)
+class LiveExecutorPreparation:
+    """Immutable preparation record for one live Executor Campaign run.
+
+    Two-phase authority boundary:
+
+    - the preparation is computed entirely by Campaign Engine using the
+      locked Executor RoleBinding and the input Campaign document;
+    - Guardian authorization is then bound to those immutable values by
+      the caller outside the preparation;
+    - the execution phase re-derives every material value and fails
+      closed on any drift.
+    """
+
+    campaign_id: str
+    task_id: str
+    run_id: str
+    attempt_id: str
+    evaluation_id: str
+    receipt_id: str
+    campaign_state_id: str
+    created_at: str
+
+    executor_binding_id: str
+    executor_binding_revision: int
+    expected_provider_id: str
+    expected_model_id: str
+    adapter_id: str
+    configuration_hash: str
+
+    target_path: Path
+    target_repository_identity: str
+    allowed_file_paths: tuple[str, ...]
+    requested_permissions: tuple[str, ...]
+    granted_permissions: tuple[str, ...]
+    operator_consent_reference: str
+
+    source_context_reference: str
+    source_context_hash: str
+
+    prompt: str
+    prompt_sha256: str
+    expected_output_contract: str
+
+    target_baseline_hash: str
+    target_baseline_git_head: str
+    target_baseline_file_hashes: tuple[tuple[str, str], ...]
+    campaign_input_hash: str
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "campaign_id": self.campaign_id,
+            "task_id": self.task_id,
+            "run_id": self.run_id,
+            "attempt_id": self.attempt_id,
+            "evaluation_id": self.evaluation_id,
+            "receipt_id": self.receipt_id,
+            "campaign_state_id": self.campaign_state_id,
+            "created_at": self.created_at,
+            "executor_binding_id": self.executor_binding_id,
+            "executor_binding_revision": self.executor_binding_revision,
+            "expected_provider_id": self.expected_provider_id,
+            "expected_model_id": self.expected_model_id,
+            "adapter_id": self.adapter_id,
+            "configuration_hash": self.configuration_hash,
+            "target_path": str(self.target_path),
+            "target_repository_identity": self.target_repository_identity,
+            "allowed_file_paths": list(self.allowed_file_paths),
+            "requested_permissions": list(self.requested_permissions),
+            "granted_permissions": list(self.granted_permissions),
+            "operator_consent_reference": self.operator_consent_reference,
+            "source_context_reference": self.source_context_reference,
+            "source_context_hash": self.source_context_hash,
+            "prompt_sha256": self.prompt_sha256,
+            "expected_output_contract": self.expected_output_contract,
+            "target_baseline_hash": self.target_baseline_hash,
+            "target_baseline_git_head": self.target_baseline_git_head,
+            "target_baseline_file_hashes": [
+                {"path": rel, "sha256": sha256}
+                for rel, sha256 in self.target_baseline_file_hashes
+            ],
+            "campaign_input_hash": self.campaign_input_hash,
+        }
+
+
+@dataclass(frozen=True)
+class LiveExecutorRunResult:
+    """Structured result envelope for the live Executor Campaign runtime."""
+
+    campaign_id: str
+    run_id: str
+    attempt_id: str
+    attempt_state: str
+    evaluation_id: str
+    evaluation_verdict: str
+    receipt_id: str
+    campaign_state_id: str
+    binding_ids_by_role: dict[str, str]
+    output_dir: Path
+    classification: str
+    provider_calls: int
+    source_mutations: int
+    decision_gates_opened: int
+    commit_performed: bool
+    merge_performed: bool
+    durable_ingestion_performed: bool
+    acceptance_criteria: tuple[AcceptanceCriterionResult, ...]
+    hashes: dict[str, str]
+    source_context: dict[str, Any]
+    created_at: str
+    actual_provider_id: str
+    actual_model_id: str
+    actual_harness_id: str
+    actual_harness_version: str
+    identity_verification_result: str
+    provider_harness_receipt_reference: str
+    pi_receipt_id: str
+    pi_harness_result_id: str
+    boundary_validation_hash: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": "campaign-engine-runtime/v0",
+            "classification": self.classification,
+            "campaign_id": self.campaign_id,
+            "run_id": self.run_id,
+            "attempt_id": self.attempt_id,
+            "attempt_state": self.attempt_state,
+            "evaluation_id": self.evaluation_id,
+            "evaluation_verdict": self.evaluation_verdict,
+            "receipt_id": self.receipt_id,
+            "campaign_state_id": self.campaign_state_id,
+            "binding_ids_by_role": dict(self.binding_ids_by_role),
+            "output_dir": str(self.output_dir),
+            "provider_calls_performed": self.provider_calls,
+            "source_mutations_performed": self.source_mutations,
+            "decision_gates_opened": self.decision_gates_opened,
+            "commit_performed": self.commit_performed,
+            "merge_performed": self.merge_performed,
+            "durable_ingestion_performed": self.durable_ingestion_performed,
+            "acceptance_criteria": [
+                {
+                    "criterion": item.criterion,
+                    "result": item.result,
+                    "basis": item.basis,
+                }
+                for item in self.acceptance_criteria
+            ],
+            "hashes": dict(self.hashes),
+            "source_context": dict(self.source_context),
+            "actual_identity": {
+                "provider_id": self.actual_provider_id,
+                "model_id": self.actual_model_id,
+                "harness_id": self.actual_harness_id,
+                "harness_version": self.actual_harness_version,
+                "identity_verification_result": self.identity_verification_result,
+            },
+            "provider_harness_receipt_reference": self.provider_harness_receipt_reference,
+            "pi_receipt_id": self.pi_receipt_id,
+            "pi_harness_result_id": self.pi_harness_result_id,
+            "boundary_validation_hash": self.boundary_validation_hash,
+            "created_at": self.created_at,
         }
