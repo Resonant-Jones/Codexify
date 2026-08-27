@@ -519,7 +519,7 @@ class TestChatMessagesGet:
 
         assert response.status_code == 200
         mock_db.list_messages.assert_called_once_with(
-            1,
+            thread_id=1,
             limit=10,
             offset=20,
             exclude_kinds=["fact_evidence"],
