@@ -193,6 +193,13 @@ reconciliation. It does not revise the historical evidence above.
 
 - Proven source commit: `e250610d0cdffa04c2d7218eacf3b8e17f241fce`
 - Proven source commit parent: `d1463fe85ba23c82edc719aaed356df71dd026c0`
+- Publication qualification commit:
+  `4771908241bcf156684a1b4be61818293fa4c8b2`, whose direct parent is the
+  proven source commit `e250610d0cdffa04c2d7218eacf3b8e17f241fce`.
+- Publication ancestry check:
+  `git merge-base --is-ancestor e250610d0cdffa04c2d7218eacf3b8e17f241fce 4771908241bcf156684a1b4be61818293fa4c8b2`
+  exited zero. Publication must preserve this lineage; a flattened copy of
+  the qualification tree does not satisfy this receipt.
 - Exact proven tree boundary: the two DLG nodes and this proof receipt only.
 - Revalidation: DLG validator passed with 10/10 source hashes, 13/13
   relation targets, and zero errors; DLG Phase 3 passed 38 tests; the ADR-069
