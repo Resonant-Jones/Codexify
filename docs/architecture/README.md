@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -53,7 +53,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Doc Map
 
-- [`00-current-state.md`](./00-current-state.md): highest-priority live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities; the first and highest-priority entry in this map.
 - [`admin-account-observability-contract.md`](./admin-account-observability-contract.md): Guardian-owned, content-free account presence, guest-lineage, privacy, and retention contract; the heartbeat/cleanup slice is implemented, while operator analytics and geography remain deferred.
 - [`chrome-side-panel-client.md`](./chrome-side-panel-client.md): architecture and trust boundary for the private unpacked Chrome side-panel chat client; local API-key and Tailscale remote-session behavior is governed by [`ADR-051`](./adr/051-chrome-side-panel-dual-auth-client-contract.md), remains internal-only, and stays outside the supported beta release surface.
 - [`browser-authority-and-context-boundary-contract.md`](./browser-authority-and-context-boundary-contract.md): normative, host-neutral authority, capture, provenance, attachment, retention, and browser-action boundary for future browser context intake; it is not implementation proof or part of the current runtime topology, and [`00-current-state.md`](./00-current-state.md) remains release truth.
