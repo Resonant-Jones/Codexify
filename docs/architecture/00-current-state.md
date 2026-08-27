@@ -35,6 +35,7 @@ This file is authoritative for:
 - The accepted Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
 - Authenticated local Settings read surfaces, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; catalog or import presence does not imply generic connector sync, provider inference, or cloud support.
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts are Internal or proof-only surfaces. Static validation and tester evidence do not substitute for supported-path live proof.
+- The local Guardian Evidence bounded-read tooling exists as local/static evidence-preparation tooling only: it reads validated, explicitly allowlisted repository evidence within declared limits, but it does not establish evidence authority, ingest evidence, execute source material, generate Guardian Evidence Packets or runtime proof, mutate WorkOrders or Execution Ledger state, or widen the Beta Supported boundary.
 
 ## Release classes
 
