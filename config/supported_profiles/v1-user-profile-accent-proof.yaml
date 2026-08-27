@@ -42,10 +42,14 @@ route_posture:
     - system_prompt
     - system_docs
     - connections
+    - notion_knowledge
+    - google_drive_knowledge
   internal_only:
     - coding_work_orders
     - command_bus
     - minimax_oauth
+    - notion_setup
+    - google_drive_setup
     - user_profile
   quarantined:
     - neo
