@@ -20,7 +20,7 @@ Pi loads themes from:
 
 - Built-in: `dark`, `light`
 - Global: `~/.pi/agent/themes/*.json`
-- Project: `.pi/themes/*.json`
+- Project: `.pi/themes/*.json` (only after the project is trusted)
 - Packages: `themes/` directories or `pi.themes` entries in `package.json`
 - Settings: `themes` array with files or directories
 - CLI: `--theme <path>` (repeatable)
@@ -52,7 +52,7 @@ vim ~/.pi/agent/themes/my-theme.json
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "primary": "#00aaff",
@@ -109,6 +109,7 @@ vim ~/.pi/agent/themes/my-theme.json
     "thinkingMedium": "#00ffff",
     "thinkingHigh": "#ff00ff",
     "thinkingXhigh": "#ff0000",
+    "thinkingMax": "#ff0088",
     "bashMode": "#ffaa00"
   }
 }
@@ -122,7 +123,7 @@ vim ~/.pi/agent/themes/my-theme.json
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "blue": "#0066cc",
@@ -137,15 +138,15 @@ vim ~/.pi/agent/themes/my-theme.json
 }
 ```
 
-- `name` is required and must be unique.
+- `name` is required, must be unique, and must not contain `/`.
 - `vars` is optional. Define reusable colors here, then reference them in `colors`.
-- `colors` must define all 51 required tokens.
+- `colors` must define all 51 required tokens. `thinkingMax` is optional and falls back to `thinkingXhigh`.
 
 The `$schema` field enables editor auto-completion and validation.
 
 ## Color Tokens
 
-Every theme must define all 51 color tokens. There are no optional colors.
+Every theme must define all 51 required color tokens. `thinkingMax` is optional for compatibility with existing themes; when omitted, it uses `thinkingXhigh`.
 
 ### Core UI (11 colors)
 
@@ -216,7 +217,7 @@ Every theme must define all 51 color tokens. There are no optional colors.
 | `syntaxOperator` | Operators |
 | `syntaxPunctuation` | Punctuation |
 
-### Thinking Level Borders (6 colors)
+### Thinking Level Borders (6 required, 1 optional)
 
 Editor border colors indicating thinking level (visual hierarchy from subtle to prominent):
 
@@ -228,6 +229,7 @@ Editor border colors indicating thinking level (visual hierarchy from subtle to 
 | `thinkingMedium` | Medium thinking |
 | `thinkingHigh` | High thinking |
 | `thinkingXhigh` | Extra high thinking |
+| `thinkingMax` | Maximum thinking; optional, falls back to `thinkingXhigh` |
 
 ### Bash Mode (1 color)
 

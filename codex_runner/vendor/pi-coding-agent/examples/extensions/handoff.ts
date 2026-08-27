@@ -12,10 +12,11 @@
  * The generated prompt appears as a draft in the editor for review/editing.
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { complete, type Message } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, SessionEntry } from "@mariozechner/pi-coding-agent";
-import { BorderedLoader, convertToLlm, serializeConversation } from "@mariozechner/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { uuidv7 } from "@earendil-works/pi-ai";
+import { complete, type Message } from "@earendil-works/pi-ai/compat";
+import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader, convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
 
 const SYSTEM_PROMPT = `You are a context transfer assistant. Given a conversation history and the user's goal for a new thread, generate a focused prompt that:
 
@@ -81,7 +82,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("handoff", {
 		description: "Transfer context to a new focused session",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
+			if (ctx.mode !== "tui") {
 				ctx.ui.notify("handoff requires interactive mode", "error");
 				return;
 			}
@@ -136,7 +137,14 @@ export default function (pi: ExtensionAPI) {
 					const response = await complete(
 						ctx.model!,
 						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
+						{
+							apiKey: auth.apiKey,
+							headers: auth.headers,
+							env: auth.env,
+							signal: loader.signal,
+							cacheRetention: "none",
+							sessionId: uuidv7(),
+						},
 					);
 
 					if (response.stopReason === "aborted") {

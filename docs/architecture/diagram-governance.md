@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-19 (Anthropic account-export conversation import canonized as Beta Bounded / Conditional in current-state release-boundary reconciliation; no runtime diagram change)
+Diagram Review Marker: 2026-08-27 (Pi runtime modernization 0.72.1 → 0.82.1; @mariozechner → @earendil-works; no diagram topology change)
 
 ## Scope
 

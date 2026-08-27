@@ -44,17 +44,39 @@ def test_worker_image_installs_exact_declared_pi_runtime_without_credentials() -
     runtime_lock = json.loads(RUNTIME_LOCK.read_text(encoding="utf-8"))
     vendored_package = json.loads(VENDORED_PACKAGE.read_text(encoding="utf-8"))
 
-    declared_version = runtime_package["dependencies"]["@mariozechner/pi-coding-agent"]
-    assert declared_version == vendored_package["version"] == "0.72.1"
+    declared_version = runtime_package["dependencies"]["@earendil-works/pi-coding-agent"]
+    assert declared_version == vendored_package["version"] == "0.82.1"
     assert (
-        runtime_lock["packages"][""]["dependencies"]["@mariozechner/pi-coding-agent"]
-        == "0.72.1"
+        runtime_lock["packages"][""]["dependencies"]["@earendil-works/pi-coding-agent"]
+        == "0.82.1"
     )
-    assert "FROM node:20.19.5-bookworm-slim AS pi-sdk-runtime" in dockerfile
+    assert (
+        runtime_lock["packages"][""]["dependencies"]["@earendil-works/pi-ai"] == "0.82.1"
+    )
+    assert "FROM node:22.19.0-bookworm-slim AS pi-sdk-runtime" in dockerfile
     assert "npm ci --omit=dev --ignore-scripts --no-audit --no-fund" in dockerfile
     assert "FROM runtime AS worker-coding-runtime" in dockerfile
     assert "ANTHROPIC_API_KEY" not in dockerfile
     assert "auth.json" not in dockerfile
+
+
+def test_active_runtime_loader_targets_maintained_pi_ai() -> None:
+    """The wrapper loader must import the maintained Pi AI package, not the
+    deprecated upstream namespace."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    assert "@earendil-works/pi-ai" in loader
+    assert "@mariozechner/pi-ai" not in loader
+
+
+def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
+    """The wrapper loader must read coding-agent from the maintained package
+    metadata; the deprecated upstream namespace must not appear in active
+    loader paths."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    assert "@earendil-works" in loader
+    assert "@mariozechner" not in loader
 
 
 def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> None:

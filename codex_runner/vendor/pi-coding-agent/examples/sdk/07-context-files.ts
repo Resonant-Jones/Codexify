@@ -4,7 +4,12 @@
  * Context files provide project-specific instructions loaded into the system prompt.
  */
 
-import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@mariozechner/pi-coding-agent";
+import {
+	createAgentSession,
+	DefaultResourceLoader,
+	getAgentDir,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 
 // Disable context files entirely by returning an empty list in agentsFilesOverride.
 const loader = new DefaultResourceLoader({
@@ -34,9 +39,9 @@ for (const file of discovered) {
 	console.log(`  - ${file.path} (${file.content.length} chars)`);
 }
 
-await createAgentSession({
+const { session } = await createAgentSession({
 	resourceLoader: loader,
 	sessionManager: SessionManager.inMemory(),
 });
-
 console.log(`Session created with ${discovered.length + 1} context files`);
+session.dispose();
