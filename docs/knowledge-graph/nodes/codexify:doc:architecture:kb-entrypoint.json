@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-26T10:36:36Z",
-    "verified_commit": "495321e3df7c085f68d94b64bf49139a8a254bf5",
+    "verified_at": "2026-08-26T18:05:42Z",
+    "verified_commit": "d1463fe85ba23c82edc719aaed356df71dd026c0",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Reverified after merging the 2026-08-26 KB entrypoint and preserving the accepted ADR-075 structural entry; source hash synchronized without changing release authority."
+    "reason": "README source bytes match their canonical hash. Freshness was refreshed because the declared invalidating current-state and architecture-directory anchors changed through current main after the prior verification; PR #754's merged release-class presentation did not promote any capability, and later movement through the observed tip is unrelated proof-only documentation. This records the canonical main entrypoint, not a feature branch."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
