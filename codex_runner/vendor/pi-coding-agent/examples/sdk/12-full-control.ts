@@ -4,29 +4,25 @@
  * Replace everything - no discovery, explicit configuration.
  */
 
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import {
-	AuthStorage,
 	createAgentSession,
 	createExtensionRuntime,
-	ModelRegistry,
+	ModelRuntime,
 	type ResourceLoader,
 	SessionManager,
 	SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
-// Custom auth storage location
-const authStorage = AuthStorage.create("/tmp/my-agent/auth.json");
-
-// Runtime API key override (not persisted)
+const modelRuntime = await ModelRuntime.create({
+	authPath: "/tmp/my-agent/auth.json",
+	modelsPath: "/tmp/my-agent/models.json",
+});
 if (process.env.MY_ANTHROPIC_KEY) {
-	authStorage.setRuntimeApiKey("anthropic", process.env.MY_ANTHROPIC_KEY);
+	modelRuntime.setRuntimeApiKey("anthropic", process.env.MY_ANTHROPIC_KEY);
 }
 
-// Model registry with no custom models.json
-const modelRegistry = ModelRegistry.inMemory(authStorage);
-
-const model = getModel("anthropic", "claude-sonnet-4-20250514");
+const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Model not found");
 
 // In-memory settings with overrides
@@ -55,19 +51,22 @@ const { session } = await createAgentSession({
 	agentDir: "/tmp/my-agent",
 	model,
 	thinkingLevel: "off",
-	authStorage,
-	modelRegistry,
+	modelRuntime,
 	resourceLoader,
 	tools: ["read", "bash"],
 	sessionManager: SessionManager.inMemory(cwd),
 	settingsManager,
 });
 
-session.subscribe((event) => {
-	if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-		process.stdout.write(event.assistantMessageEvent.delta);
-	}
-});
+try {
+	session.subscribe((event) => {
+		if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+			process.stdout.write(event.assistantMessageEvent.delta);
+		}
+	});
 
-await session.prompt("List files in the current directory.");
-console.log();
+	await session.prompt("List files in the current directory.");
+	console.log();
+} finally {
+	session.dispose();
+}

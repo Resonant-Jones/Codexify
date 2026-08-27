@@ -147,19 +147,68 @@ async function loadPiSdk() {
 		: path.join(packageRoot, "node_modules");
 	const codingAgent = await import(pathToFileURL(path.join(packageRoot, "dist/index.js")).href);
 	const piAi = await import(
-		pathToFileURL(path.join(nodeModulesRoot, "@mariozechner/pi-ai/dist/index.js")).href
+		pathToFileURL(path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")).href
 	);
+	const openaiCodexModels = await import(
+		pathToFileURL(
+			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/providers/openai-codex.models.js")
+		).href
+	).catch(() => null);
+	const openaiCodexCatalog = (openaiCodexModels && openaiCodexModels.OPENAI_CODEX_MODELS) || {};
 	const packageMetadata = JSON.parse(
 		await readFile(path.join(packageRoot, "package.json"), "utf8")
 	);
+	const KNOWN_PROVIDERS = [
+		"anthropic",
+		"openai",
+		"azure-openai-responses",
+		"openai-codex",
+		"openrouter",
+		"google",
+		"google-vertex",
+		"github-copilot",
+		"vercel-ai-gateway",
+		"xai",
+		"groq",
+		"deepseek",
+		"mistral",
+		"minimax",
+		"cerebras",
+		"zai",
+		"minimax-cn",
+		"moonshotai",
+		"opencode",
+		"kimi-coding",
+		"xiaomi",
+	];
+	const getProviders = () => {
+		const known = new Set(KNOWN_PROVIDERS);
+		for (const id of Object.keys(openaiCodexCatalog)) {
+			const m = openaiCodexCatalog[id];
+			if (m && m.provider) known.add(m.provider);
+		}
+		return [...known];
+	};
+	const getModel = (providerId, modelId) => {
+		if (providerId === "openai-codex" && openaiCodexCatalog[modelId]) {
+			return openaiCodexCatalog[modelId];
+		}
+		for (const m of Object.values(openaiCodexCatalog)) {
+			if (m && m.id === modelId && (!providerId || m.provider === providerId)) {
+				return m;
+			}
+		}
+		return undefined;
+	};
+	const AuthStorage = piAi.AuthStorage;
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
-		AuthStorage: codingAgent.AuthStorage,
+		AuthStorage,
 		ModelRegistry: codingAgent.ModelRegistry,
 		createCodingTools: codingAgent.createCodingTools,
-		getModel: piAi.getModel,
-		getProviders: piAi.getProviders,
+		getModel,
+		getProviders,
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};

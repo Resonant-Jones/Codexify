@@ -24,7 +24,7 @@ def _fixture_environment(
     home = tmp_path / "home"
     wrapper_path = tmp_path / "codex_runner" / "src" / "agent-wrapper.js"
     package_root = (
-        tmp_path / "pi-sdk" / "node_modules" / "@mariozechner" / "pi-coding-agent"
+        tmp_path / "pi-sdk" / "node_modules" / "@earendil-works" / "pi-coding-agent"
     )
     node_modules = tmp_path / "pi-sdk" / "node_modules"
     home.mkdir(parents=True)
@@ -36,7 +36,7 @@ def _fixture_environment(
         (package_root / "dist" / "index.js").write_text(
             "// fixture\n", encoding="utf-8"
         )
-        pi_ai_dist = node_modules / "@mariozechner" / "pi-ai" / "dist"
+        pi_ai_dist = node_modules / "@earendil-works" / "pi-ai" / "dist"
         pi_ai_dist.mkdir(parents=True)
         (pi_ai_dist / "index.js").write_text("// fixture\n", encoding="utf-8")
     if auth:

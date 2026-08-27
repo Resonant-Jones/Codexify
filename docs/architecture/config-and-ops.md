@@ -135,7 +135,7 @@ there is no automatic replay, retry, stale-running recovery, or operator API.
 
 The source `worker-coding` Compose service uses the dedicated
 `worker-coding-runtime` Dockerfile target. That image installs the locked
-`@mariozechner/pi-coding-agent` runtime declared under
+`@earendil-works/pi-coding-agent` runtime declared under
 `codex_runner/pi-runtime/`; the source bind mount does not need a host-built
 `dist` tree. Pi authentication is not part of the image. Compose mounts only
 the named `codexify_pi_auth` volume at `/home/codexify/.pi`, with the canonical

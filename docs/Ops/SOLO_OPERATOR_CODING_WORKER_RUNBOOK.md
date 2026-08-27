@@ -29,7 +29,7 @@ Source anchors:
 
 The supported source-Compose lane uses a dedicated
 `codexify-worker-coding-runtime:latest` image. The image installs the exact
-`@mariozechner/pi-coding-agent` version declared in
+`@earendil-works/pi-coding-agent` version declared in
 `codex_runner/pi-runtime/package-lock.json`; it does not depend on a host-local
 SDK build. Authentication stays outside the image in the named-volume mount
 `codexify_pi_auth:/home/codexify/.pi`.

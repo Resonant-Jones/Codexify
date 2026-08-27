@@ -1,11 +1,11 @@
 # Development
 
-See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
+See [AGENTS.md](https://github.com/earendil-works/pi-mono/blob/main/AGENTS.md) for additional guidelines.
 
 ## Setup
 
 ```bash
-git clone https://github.com/badlogic/pi-mono
+git clone https://github.com/earendil-works/pi-mono
 cd pi-mono
 npm install
 npm run build
@@ -65,7 +65,7 @@ npm test -- test/specific.test.ts # Run specific test
 ```
 packages/
   ai/           # LLM provider abstraction
-  agent/        # Agent loop and message types
+  agent/        # Agent loop and message types  
   tui/          # Terminal UI components
   coding-agent/ # CLI and interactive mode
 ```
