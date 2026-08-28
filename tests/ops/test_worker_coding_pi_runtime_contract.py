@@ -69,6 +69,16 @@ def test_active_runtime_loader_targets_maintained_pi_ai() -> None:
     assert "@mariozechner/pi-ai" not in loader
 
 
+def test_active_runtime_loader_uses_full_builtin_model_catalog() -> None:
+    """Model resolution must cover every provider exposed by the Pi SDK."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    assert "@earendil-works/pi-ai/dist/compat.js" in loader
+    assert "getModel: piAiCompat.getModel" in loader
+    assert "getProviders: piAiCompat.getProviders" in loader
+    assert "OPENAI_CODEX_MODELS" not in loader
+
+
 def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
     """The wrapper loader must read coding-agent from the maintained package
     metadata; the deprecated upstream namespace must not appear in active

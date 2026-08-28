@@ -149,57 +149,14 @@ async function loadPiSdk() {
 	const piAi = await import(
 		pathToFileURL(path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")).href
 	);
-	const openaiCodexModels = await import(
+	const piAiCompat = await import(
 		pathToFileURL(
-			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/providers/openai-codex.models.js")
+			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/compat.js")
 		).href
-	).catch(() => null);
-	const openaiCodexCatalog = (openaiCodexModels && openaiCodexModels.OPENAI_CODEX_MODELS) || {};
+	);
 	const packageMetadata = JSON.parse(
 		await readFile(path.join(packageRoot, "package.json"), "utf8")
 	);
-	const KNOWN_PROVIDERS = [
-		"anthropic",
-		"openai",
-		"azure-openai-responses",
-		"openai-codex",
-		"openrouter",
-		"google",
-		"google-vertex",
-		"github-copilot",
-		"vercel-ai-gateway",
-		"xai",
-		"groq",
-		"deepseek",
-		"mistral",
-		"minimax",
-		"cerebras",
-		"zai",
-		"minimax-cn",
-		"moonshotai",
-		"opencode",
-		"kimi-coding",
-		"xiaomi",
-	];
-	const getProviders = () => {
-		const known = new Set(KNOWN_PROVIDERS);
-		for (const id of Object.keys(openaiCodexCatalog)) {
-			const m = openaiCodexCatalog[id];
-			if (m && m.provider) known.add(m.provider);
-		}
-		return [...known];
-	};
-	const getModel = (providerId, modelId) => {
-		if (providerId === "openai-codex" && openaiCodexCatalog[modelId]) {
-			return openaiCodexCatalog[modelId];
-		}
-		for (const m of Object.values(openaiCodexCatalog)) {
-			if (m && m.id === modelId && (!providerId || m.provider === providerId)) {
-				return m;
-			}
-		}
-		return undefined;
-	};
 	const AuthStorage = piAi.AuthStorage;
 	return {
 		createAgentSession: codingAgent.createAgentSession,
@@ -207,8 +164,8 @@ async function loadPiSdk() {
 		AuthStorage,
 		ModelRegistry: codingAgent.ModelRegistry,
 		createCodingTools: codingAgent.createCodingTools,
-		getModel,
-		getProviders,
+		getModel: piAiCompat.getModel,
+		getProviders: piAiCompat.getProviders,
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
