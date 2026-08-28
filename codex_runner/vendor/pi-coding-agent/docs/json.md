@@ -8,7 +8,7 @@ Outputs all session events as JSON lines to stdout. Useful for integrating pi in
 
 ## Event Types
 
-Events are defined in [`AgentSessionEvent`](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/agent-session.ts#L102):
+Events are defined in [`AgentSessionEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/agent-session.ts#L102):
 
 ```typescript
 type AgentSessionEvent =
@@ -17,12 +17,16 @@ type AgentSessionEvent =
   | { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
   | { type: "compaction_end"; reason: "manual" | "threshold" | "overflow"; result: CompactionResult | undefined; aborted: boolean; willRetry: boolean; errorMessage?: string }
   | { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-  | { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
+  | { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+  | { type: "summarization_retry_scheduled"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+  | { type: "summarization_retry_attempt_start"; source: "branchSummary" }
+  | { type: "summarization_retry_attempt_start"; source: "compaction"; reason: "manual" | "threshold" | "overflow" }
+  | { type: "summarization_retry_finished" };
 ```
 
 `queue_update` emits the full pending steering and follow-up queues whenever they change. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
 
-Base events from [`AgentEvent`](https://github.com/badlogic/pi-mono/blob/main/packages/agent/src/types.ts#L179):
+Base events from [`AgentEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent/src/types.ts#L179):
 
 ```typescript
 type AgentEvent =
@@ -44,12 +48,12 @@ type AgentEvent =
 
 ## Message Types
 
-Base messages from [`packages/ai/src/types.ts`](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/types.ts#L134):
+Base messages from [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/types.ts#L134):
 - `UserMessage` (line 134)
 - `AssistantMessage` (line 140)
 - `ToolResultMessage` (line 152)
 
-Extended messages from [`packages/coding-agent/src/core/messages.ts`](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/messages.ts#L29):
+Extended messages from [`packages/coding-agent/src/core/messages.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/messages.ts#L29):
 - `BashExecutionMessage` (line 29)
 - `CustomMessage` (line 46)
 - `BranchSummaryMessage` (line 55)

@@ -7,9 +7,9 @@
  * 3. Loads the result into the editor for user to fill in answers
  */
 
-import { complete, type UserMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { BorderedLoader } from "@mariozechner/pi-coding-agent";
+import { complete, type UserMessage } from "@earendil-works/pi-ai/compat";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
 const SYSTEM_PROMPT = `You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.
 
@@ -20,10 +20,10 @@ Output format:
 
 Example output:
 Q: What is your preferred database?
-A:
+A: 
 
 Q: Should we use TypeScript or JavaScript?
-A:
+A: 
 
 Keep questions in the order they appeared. Be concise.`;
 
@@ -31,7 +31,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("qna", {
 		description: "Extract questions from last assistant message into editor",
 		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
+			if (ctx.mode !== "tui") {
 				ctx.ui.notify("qna requires interactive mode", "error");
 				return;
 			}
@@ -90,7 +90,7 @@ export default function (pi: ExtensionAPI) {
 					const response = await complete(
 						ctx.model!,
 						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
+						{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: loader.signal },
 					);
 
 					if (response.stopReason === "aborted") {

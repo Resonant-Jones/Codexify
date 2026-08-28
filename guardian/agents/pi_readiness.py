@@ -35,7 +35,7 @@ PI_READINESS_REASONS = frozenset(
 
 DEFAULT_WRAPPER_PATH = "/app/codex_runner/src/agent-wrapper.js"
 DEFAULT_PI_PACKAGE_ROOT = (
-    "/opt/codexify/pi-sdk/node_modules/@mariozechner/pi-coding-agent"
+    "/opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent"
 )
 DEFAULT_PI_NODE_MODULES = "/opt/codexify/pi-sdk/node_modules"
 DEFAULT_PI_PROVIDER = "anthropic"
@@ -180,7 +180,7 @@ def evaluate_pi_readiness(
         environment.get("PI_CODING_AGENT_NODE_MODULES", DEFAULT_PI_NODE_MODULES)
     )
     sdk_available = (package_root / "dist/index.js").is_file() and (
-        node_modules_root / "@mariozechner/pi-ai/dist/index.js"
+        node_modules_root / "@earendil-works/pi-ai/dist/index.js"
     ).is_file()
     record(
         "pi_sdk_runtime",

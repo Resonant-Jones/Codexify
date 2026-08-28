@@ -11,7 +11,7 @@ The interface has four main areas:
 - **Startup header** - shortcuts, loaded context files, prompt templates, skills, and extensions
 - **Messages** - user messages, assistant responses, tool calls, tool results, notifications, errors, and extension UI
 - **Editor** - where you type; border color indicates the current thinking level
-- **Footer** - working directory, session name, token/cache usage, cost, context usage, and current model
+- **Footer** - working directory, session name, token/cache usage, cost, context usage, and current model. Totals include assistant responses, usage reported by tools, and summary generation.
 
 The editor can be replaced temporarily by built-in UI such as `/settings` or by custom extension UI.
 
@@ -22,10 +22,11 @@ The editor can be replaced temporarily by built-in UI such as `/settings` or by 
 | File reference | Type `@` to fuzzy-search project files |
 | Path completion | Press Tab to complete paths |
 | Multi-line input | Shift+Enter, or Ctrl+Enter on Windows Terminal |
+| Copy response | Ctrl+X copies the last assistant message; in `/tree`, it copies the selected message |
 | Images | Paste with Ctrl+V, Alt+V on Windows, or drag into the terminal |
 | Shell command | `!command` runs and sends output to the model |
 | Hidden shell command | `!!command` runs without sending output to the model |
-| External editor | Ctrl+G opens `$VISUAL` or `$EDITOR` |
+| External editor | Ctrl+G opens `externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere |
 
 See [Keybindings](keybindings.md) for all shortcuts and customization.
 
@@ -36,6 +37,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | Command | Description |
 |---------|-------------|
 | `/login`, `/logout` | Manage OAuth or API-key credentials |
+| [`/llama`](llama-cpp.md) | Download, load, and unload llama.cpp router models |
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
@@ -44,13 +46,15 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/name <name>` | Set session display name |
 | `/session` | Show session file, ID, messages, tokens, and cost |
 | `/tree` | Jump to any point in the session and continue from there |
+| `/trust` | Save project trust decision for future sessions |
 | `/fork` | Create a new session from a previous user message |
 | `/clone` | Duplicate the current active branch into a new session |
 | `/compact [prompt]` | Manually compact context, optionally with custom instructions |
 | `/copy` | Copy last assistant message to clipboard |
-| `/export [file]` | Export session to HTML |
+| `/export [file]` | Export session to HTML or JSONL |
+| `/import <file>` | Import and resume a session from a JSONL file |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
-| `/reload` | Reload keybindings, extensions, skills, prompts, and context files |
+| `/reload` | Reload keybindings, extensions, skills, prompts, themes, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit` | Quit pi |
@@ -76,6 +80,7 @@ Sessions are saved automatically to `~/.pi/agent/sessions/`, organized by workin
 pi -c                  # Continue most recent session
 pi -r                  # Browse and select a session
 pi --no-session        # Ephemeral mode; do not save
+pi --name "my task"    # Set session display name at startup
 pi --session <path|id> # Use a specific session file or session ID
 pi --fork <path|id>    # Fork a session into a new session file
 ```
@@ -109,6 +114,21 @@ Replace the default system prompt with:
 
 Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in either location.
 
+### Project Trust
+
+On interactive startup, pi asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
+
+Before the trust decision, pi loads only context files, user/global extensions, and CLI `-e` extensions so they can handle the `project_trust` event. Project-local extensions, project package-managed extensions, and project settings are loaded only after the project is trusted. This split also applies when switching to a session from a different cwd whose trust has not been resolved in the current process.
+
+Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without an applicable saved trust decision, they use `defaultProjectTrust` from global settings: `ask` (default) and `never` ignore those project resources, while `always` trusts them. Pass `--approve`/`-a` or `--no-approve`/`-na` to override project trust for one run.
+
+If no extension or saved decision applies, `defaultProjectTrust` controls the fallback behavior. Set it to `"ask"`, `"always"`, or `"never"` in `~/.pi/agent/settings.json`, or change it with `/settings`.
+
+`pi config` and package commands use the same project trust flow, except `pi update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
+
+Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+
+
 ## Exporting and Sharing Sessions
 
 Use `/export [file]` to write a session to HTML.
@@ -129,13 +149,17 @@ pi [options] [@files...] [messages...]
 pi install <source> [-l]     # Install package, -l for project-local
 pi remove <source> [-l]      # Remove package
 pi uninstall <source> [-l]   # Alias for remove
-pi update [source|self|pi]   # Update pi and packages; skips pinned packages
-pi update --extensions       # Update packages only
+pi update [source|self|pi]   # Update pi only, or one package source
+pi update --all              # Update pi and packages; reconcile pinned git refs
+pi update --extensions       # Update packages only; reconcile pinned git refs
+pi update --models           # Refresh model catalogs only
 pi update --self             # Update pi only
 pi update --extension <src>  # Update one package
 pi list                      # List installed packages
 pi config                    # Enable/disable package resources
 ```
+
+These commands manage pi packages and `pi update` can update the pi CLI installation. To uninstall pi itself, see [Quickstart](quickstart.md#uninstall). `pi config` and project package commands accept `--approve`/`--no-approve` to trust or ignore project-local settings for one command. `pi update` never prompts for project trust.
 
 See [Pi Packages](packages.md) for package sources and security notes.
 
@@ -162,7 +186,7 @@ cat README.md | pi -p "Summarize this text"
 | `--provider <name>` | Provider, such as `anthropic`, `openai`, or `google` |
 | `--model <pattern>` | Model pattern or ID; supports `provider/id` and optional `:<thinking>` |
 | `--api-key <key>` | API key, overriding environment variables |
-| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` |
+| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 | `--list-models [search]` | List available models |
 
@@ -176,12 +200,14 @@ cat README.md | pi -p "Summarize this text"
 | `--fork <path\|id>` | Fork a session file or partial UUID into a new session |
 | `--session-dir <dir>` | Custom session storage directory |
 | `--no-session` | Ephemeral mode; do not save |
+| `--name <name>`, `-n <name>` | Set session display name at startup |
 
 ### Tool Options
 
 | Option | Description |
 |--------|-------------|
 | `--tools <list>`, `-t <list>` | Allowlist specific built-in, extension, and custom tools |
+| `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools |
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools |
 
@@ -214,6 +240,8 @@ pi --no-extensions -e ./my-extension.ts
 | `--system-prompt <text>` | Replace default prompt; context files and skills are still appended |
 | `--append-system-prompt <text>` | Append to system prompt |
 | `--verbose` | Force verbose startup |
+| `-a`, `--approve` | Trust project-local files for this run |
+| `-na`, `--no-approve` | Ignore project-local files for this run |
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show version |
 
@@ -239,6 +267,9 @@ pi -p "Summarize this codebase"
 # Non-interactive with piped stdin
 cat README.md | pi -p "Summarize this text"
 
+# Named one-shot session
+pi --name "release audit" -p "Audit this repository"
+
 # Different model
 pi --provider openai --model gpt-4o "Help me refactor"
 
@@ -253,20 +284,10 @@ pi --models "claude-*,gpt-4o"
 
 # Read-only mode
 pi --tools read,grep,find,ls -p "Review the code"
+
+# Disable one extension or built-in tool while keeping the rest available
+pi --exclude-tools ask_question
 ```
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `PI_CODING_AGENT_DIR` | Override config directory; default is `~/.pi/agent` |
-| `PI_CODING_AGENT_SESSION_DIR` | Override session storage directory; overridden by `--session-dir` |
-| `PI_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
-| `PI_OFFLINE` | Disable startup network operations, including update checks, package update checks, and install/update telemetry |
-| `PI_SKIP_VERSION_CHECK` | Skip the Pi version update check at startup. This prevents the `pi.dev` latest-version request |
-| `PI_TELEMETRY` | Override install/update telemetry: `1`/`true`/`yes` or `0`/`false`/`no`. This does not disable update checks |
-| `PI_CACHE_RETENTION` | Set to `long` for extended prompt cache where supported |
-| `VISUAL`, `EDITOR` | External editor for Ctrl+G |
 
 ## Design Principles
 
