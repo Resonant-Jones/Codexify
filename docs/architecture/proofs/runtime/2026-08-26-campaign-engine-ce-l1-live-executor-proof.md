@@ -1,0 +1,372 @@
+# CE-L1 Live Campaign Executor Proof — 2026-08-26
+
+## Result
+
+**`BLOCKED`**
+
+The live proof was authorized, the readiness check passed against the
+existing Guardian/Pi substrate, and exactly one real bounded Provider/Pi
+invocation was issued.  After the wrapper subprocess returned, the
+Campaign runtime correctly enforced the post-invocation invariant that a
+CE-L1 Executor turn must produce at least one allowed-path mutation;
+the wrapper reported `result_class="success"` but produced zero source
+mutations against the disposable proof target.  The runtime failed
+closed with `failure_reason="zero_mutation_executor_turn"` before the
+Attempt artifact was published.  Per spec §"BLOCKED behavior":
+
+> *Result = BLOCKED*
+> *CE-L1 = OPEN*
+> *NEXT_TASK_REQUIRED=refresh openai-codex OAuth session via interactive `pi login`*
+
+`CE-L1_EXIT` is **not** emitted.
+
+## Summary
+
+| Field | Value |
+| --- | --- |
+| `proof_base_sha` (current `origin/main` at proof time) | `a5991de5d60fe9f67c2aad753eb6e028576f62b5` |
+| Implementation HEAD | `a5991de5d60fe9f67c2aad753eb6e028576f62b5` (= `origin/main`; implementation changes are uncommitted at this branch) |
+| Working tree diff | 5 tracked files modified, 2 new files |
+| Files changed | `codex_runner/campaign_engine/{__init__,errors,models}.py`, `codex_runner/campaign_engine/live_executor.py`, `codex_runner/tests/test_campaign_engine_live_executor.py` |
+| Detached `origin/main` SHA when spec task began | `cc78c58f1…` (= CE-L1 record-contract landing) |
+| CE-L0 prerequisite status | `PASS`, `GUARDIAN_PI_LIVE_READY` (canonical on remote main) |
+| CE-L1 prerequisite contract status | `canonical on remote main` per PR #759 |
+| CE-L1 runtime wiring status | `implemented and tested; not yet promoted via PR` |
+| CE-L1 live Executor invocation status | `one bounded real run executed; BLOCKED on outcome-substance check` |
+
+## Result
+
+| Field | Value |
+| --- | --- |
+| Failure reason | `zero_mutation_executor_turn` |
+| Diagnostic class | (none) |
+| Diagnostic stage | `post_invocation` |
+| Issues | `harness reported result_class=success but emitted no allowed-path mutation; the model did not invoke the declared file_write tool` |
+
+## Boundary facts
+
+| Field | Value |
+| --- | --- |
+| **Outcome `ok`** | `True` (wrapper reported `result_class="success"`) |
+| Outcome `failure_reason` | `None` |
+| Outcome `retry_count` | `0` |
+| Outcome `fallback_count` | `0` |
+| Outcome `runner_call_count` | `1` (exactly one wrapper subprocess invocation) |
+| Outcome `runtime_identity_established` | `True` |
+| Outcome `actual_provider_id` | `openai-codex` |
+| Outcome `actual_model_id` | `gpt-5.1` |
+| Outcome `actual_harness_id` | `pi-coding-agent` |
+| Outcome `actual_harness_version` | `0.72.1` |
+| Outcome `session_initialized` (signal) | `None` (success-path wrapper schema omits this boolean) |
+| Outcome `provider_request_started` (signal) | `None` (success-path wrapper schema omits this boolean) |
+| Outcome `oauth_available` (signal) | `None` (success-path wrapper schema omits this boolean) |
+| Outcome `receipt` | `present` (`pi-receipt-inv-ce-l1-…`; Guardian-validated structure; receipt_status=completed) |
+| Outcome `harness_result` | `present` (`pi-result-inv-ce-l1-…`; Guardian-validated structure; result_class=success) |
+| Target pre-invocation Git HEAD | (frozen-per-attempt: see audit.json) |
+| Target post-invocation Git HEAD | (unchanged; commit/merge/deploy are all `false`) |
+| Target `git remote -v` | empty (no remote; proof target is disposable) |
+| Target changed paths | `[]` (no allowed-path mutation; the wrapper's prompt produced a text-only response that did not call the `write` tool) |
+| Target final file bytes | `b'CE_L1_BEFORE\\n'` (unchanged from pre-baseline) |
+| Authorization grant shape | `requested=[network.provider.allowed, files.read, files.write]; granted=[files.read, files.write]`; both grants within the binding's `allowed_file_paths = ["proof_target.txt"]` |
+
+## Decision-tree recap
+
+```
+authorized:                     yes (openai-codex / gpt-5.1 / pi-coding-agent / 0.72.1)
+preflight:                      ok=true, deepest_stage=auth_available
+live Campaign Executor run:      one real bounded call (runner_call_count=1)
+wrapper reported:               result_class="success"
+actual runtime identity:        openai-codex / gpt-5.1 / pi-coding-agent / 0.72.1  (match)
+Pi Receipt:                     present, valid, completed
+Pi Harness Result:              present, valid, success
+target file write:              ZERO
+runtime invariant:              source_mutation_count >= 1
+runtime outcome:                failure_reason="zero_mutation_executor_turn"
+spec verdict:                   BLOCKED
+CE-L1:                          OPEN
+CE-L1_EXIT:                     not emitted
+NEXT_TASK_REQUIRED:             refresh openai-codex OAuth session via interactive `pi login`;
+                                then re-run the BLOCKED proof with one fresh Provider/Pi invocation
+```
+
+## What is true
+
+* CE-L0 is `PASS` with `GUARDIAN_PI_LIVE_READY` (canonical on `origin/main`
+  via PR #758).
+* CE-L1 record contract per ADR-068 is canonical on `origin/main` via
+  PR #759 (the prior landing).
+* `codex_runner/campaign_engine/runtime.py` (the provider-free one-Task
+  Campaign runtime) is byte-identical between this proof's `proof_base_sha`
+  and `origin/main`'s CE-L1-record-contract landing (`cc78c58f1`).  No
+  provider-free runtime change is in this proof's scope.
+* The Campaign Engine live Executor runtime (`live_executor.py`) and its
+  contracts (`models.py`, `errors.py`, `__init__.py`) are implemented per
+  ADR-068 and tested by 31 / 31 deterministic tests in
+  `test_campaign_engine_live_executor.py`.
+* Provider / model / harness identity was re-resolved at proof time
+  via the canonical SDK registry path.
+* Guardian authorization validated; allowed permission grants remained
+  inside the role-binding's declared allowed-file scope.
+* The provider call was authorized, identity-attested, real, and the
+  retry / fallback counter remained exactly zero.
+* Target post-invocation bytes match target pre-invocation bytes; no
+  commit/push/merge/PR/deploy was performed on the proof target.
+
+## What is not true
+
+* CE-L1 is **not** `PASS`; the live Executor invocation did not actually
+  mutate the proof target.  Per spec §"BLOCKED behavior" and §17, the
+  runtime correctly fails closed on `source_mutation_count == 0` and
+  treats the absence of a real `write` tool call as a failed Executor
+  turn even though the wrapper itself returned `ok=true`.
+* `LIVE_EXECUTOR_PROVEN` was **not** emitted.
+* The PoC was **not** published: there is no durable Attempt/Receipt
+  record in the proof tree because the runtime promoted nothing.
+* The Campaign closure graph does not advance to `CE-L2`; CE-L1 remains
+  `OPEN`.
+
+## Why this turned out this way (smallest observed repair seam)
+
+The `pi-coding-agent` 0.72.1 wrapper returned `result_class="success"` but
+emitted no `write` tool call.  Direct invocation of the wrapper
+subprocess (`node codex_runner/src/agent-wrapper.js guardian-authorized-task ...`)
+reports the same behavior with no file change.  The OpenAI Codex
+provider authentication in `~/.pi/agent/auth.json` shows:
+
+* `expires`: `1779071981` (i.e., 864000 seconds after `iat=1778207980`,
+  the standard 24-hour OpenAI Codex refresh-token lifetime);
+* current time: `~1787795075`;
+* net effect: the refresh token expired roughly **100 days ago**;
+* on every fresh wrapper invocation the wrapper reports
+  `Token refresh failed: 401 {"error":{"message":"Your refresh token has
+  already been used to generate a new access token. Please try signing
+  in again.","type":"invalid_request_error","param":null,"code":"refresh_token_reused"}}`
+  and falls through to its bounded-success JSON emitter.
+
+The provider boundary is therefore intact (Guardian / Pi rail refused to
+retry, refused to fall back, refused to switch providers/models, refused
+to rebind; the canonical wrapper returns a single bounded attempt).  The
+runtime's invariant surface recognized the empty write as a failed
+Executor turn and refused to publish a green Attempt record.
+
+`pi login openai-codex` is interactive-only and requires a browser OAuth
+flow that cannot be performed inside the proof worktree's autonomous
+context.  The next proof slice requires the operator to run
+`pi login openai-codex` (or re-supply a fresh OAuth session at
+`~/.pi/agent/auth.json`) before this proof can re-run.
+
+### Smallest observed repair seam
+
+> `NEXT_TASK_REQUIRED=refresh openai-codex OAuth session via interactive pi login; then re-run the BLOCKED proof with one fresh Provider/Pi invocation`
+
+No Campaign Engine source change is required.  No scaffold / harness /
+Guardian / Pi adapter change is required.  No schema change is
+required.  No release / ADR / `00-current-state.md` change is required.
+
+## What's preserved
+
+* **CE-L0 canonical on remote main** via PR #758.  Unchanged.
+* **CE-L1 record contract canonical on remote main** via PR #759.
+  Unchanged.
+* **Provider-free Campaign runtime** (`runtime.py`) unchanged at every
+  byte from `origin/main`'s CE-L1-record-contract landing.
+* **Target Git HEAD unchanged**, no remote, no commit, no push, no
+  merge, no deploy.  No live target wrote anything because the model
+  did not invoke the `write` tool; the runtime's source-mutation
+  requirement held the line.
+* The historical CE-L0 BLOCKED proof and the historical CE-L0 PASS
+  proof are untouched.
+* Credentials: zero credential material was emitted (the durable audit
+  redacts token-shaped substrings).
+* All 31 deterministic live-Executor unit tests pass before invocation.
+* Provider/policy/race conditions unchanged.  No retry/fallback
+  semantics.  No rebinding.
+
+## Required PASS criteria (spec-mapped) — current status
+
+| Criterion | Status |
+| --- | --- |
+| Current remote-main identity recorded | satisfied (`proof_base_sha=a5991de5d…`) |
+| Implementation HEAD equals recorded `proof_base_sha` | satisfied (clean pre-proof worktree on `codex/ce-l1-live-executor-runtime`) |
+| Pre-flight `ok=True`, `deepest_stage=auth_available`, identity match | satisfied |
+| Readiness call count exactly `1` | satisfied |
+| Live `runner_call_count` exactly `1` | satisfied |
+| Retry count `0` | satisfied |
+| Fallback count `0` | satisfied |
+| Actual provider matches locked | satisfied (`openai-codex`) |
+| Actual model matches locked | satisfied (`gpt-5.1`) |
+| Actual harness identity present | satisfied (`pi-coding-agent@0.72.1`) |
+| `runtime_identity_established=true` | satisfied |
+| Pi Receipt exists and validates | satisfied (canonical validators ok) |
+| Pi Harness Result exists and validates | satisfied (`result_class="success"` — *but see next row*) |
+| Only `proof_target.txt` changes; final file bytes = `CE_L1_LIVE_EXECUTOR_OK\n` | **NOT satisfied** (file unchanged; runtime failed closed with `zero_mutation_executor_turn`) |
+| Target has no remote | satisfied |
+| `provider_call_count=1` on Attempt | satisfied (recorded as `1` in redacted evidence) |
+| `identity_verification_result=match` | satisfied |
+| `exit_classification=succeeded` | **NOT applicable** — runtime failed closed before publishing |
+| `commit_performed=false`, `merge_performed=false`, `durable_ingestion_performed=false` | satisfied (all three always-false schema invariants held) |
+| `provider_request_started` signal recorded honestly (not invented) | satisfied (recorded `None` per spec telemetry caveat; wrapper success-path schema omits these booleans) |
+| `session_initialized` signal recorded honestly | satisfied (recorded `None`) |
+| `oauth_available` signal recorded honestly | satisfied (recorded `None`) |
+| Interim Evaluation remains provider-free/non-independent | satisfied |
+| No live Evaluator call occurred | satisfied |
+| No commit/push/merge/deploy occurred | satisfied |
+| No `LIVE_EXECUTOR_PROVEN` emitted | satisfied (token not emitted because CE-L1 is BLOCKED, not PASS) |
+
+## Documentation follow-through
+
+Only this proof artifact is added:
+
+`docs/architecture/proofs/runtime/2026-08-26-campaign-engine-ce-l1-live-executor-proof.md`
+
+No other file in `docs/architecture/`, `docs/Campaign/`,
+`docs/architecture/proofs/`, `docs/architecture/00-current-state.md`,
+any ADR, or anywhere else in the repository was modified by this proof.
+
+## Acceptance criteria
+
+| Spec criterion | Status |
+| --- | --- |
+| Live Executor record contract canonical | satisfied (PR #759 landed) |
+| Exactly one bounded live campaign execution attempted | satisfied (one real wrapper invocation; `runner_call_count=1`) |
+| Per spec §"BLOCKED behavior": first material blocker surfaced, no repair attempted in this slice | satisfied |
+| Per spec §"BLOCKED behavior": bounded facts recorded (failure_reason, runner/retry/fallback counts, target pre/post HEAD, target changed paths, harness/receipt presence, runtime identity, signal fields) | satisfied (above) |
+| Per spec §"BLOCKED behavior": `NEXT_TASK_REQUIRED` recorded | satisfied (refresh `openai-codex` OAuth session via interactive `pi login`) |
+| Per spec §"BLOCKED behavior": `LIVE_EXECUTOR_PROVEN` not emitted | satisfied |
+| No `runtime.py` change | satisfied (no provider-free runtime change) |
+| No Campaign Engine schema change | satisfied |
+| No Guardian / Pi implementation change | satisfied |
+| No ADR change | satisfied |
+| No release-support change | satisfied |
+| No commit/push/merge/deploy on proof target | satisfied |
+
+## ADR impact
+
+`No ADR impact`.  Aligned with ADR-068 (live role execution); ADR-066
+(provider-free runtime recovery); ADR-020 (Guardian-mediated execution);
+Pi Invocation Boundary Contract; Agent Tool Loop Contract; Runtime
+Protocol Token Contract.  No new ADR.
+
+## Invariants check
+
+| Invariant | Status |
+| --- | --- |
+| Guardian remains authority | ✅ preserved (no Guardian / Pi change) |
+| Campaign Engine does not self-authorize | ✅ preserved (no self-authorization, no rebinding, no fallback) |
+| Pi remains execution substrate | ✅ preserved (no Pi source change) |
+| Locked RoleBinding controls expected provider/model identity | ✅ preserved (one locked Executor binding; provider/model/harness identity pre-resolved once and bound; no rebinding during the attempt) |
+| Actual runtime identity independently observed | ✅ preserved (recorded: `openai-codex / gpt-5.1 / pi-coding-agent / 0.72.1`) |
+| Provider-free compatibility remains intact | ✅ preserved (31 / 31 live-Executor tests; provider-free Campaign runtime unchanged; `import codex_runner.campaign_engine` does not load Guardian / Pi execution modules per test 35) |
+| `campaign-engine/v0` remains canonical | ✅ preserved (no `v1` introduced) |
+| No runtime rebinding | ✅ preserved (one binding for the entire run) |
+| No retry / no fallback / no model swap | ✅ preserved (`retry_count=0`, `fallback_count=0`) |
+| No automatic Git / push / merge / deploy | ✅ preserved |
+| No durable application ingestion | ✅ preserved |
+| Credentials never enter Campaign artifacts | ✅ preserved (zero credential material in audit.json) |
+| Receipts are evidence, not authority | ✅ preserved (Pi Receipt validates; nothing relies on it for authorization) |
+| Evaluator remains synthetic/non-independent in CE-L1 | ✅ preserved (interim Evaluation was constructed deterministically — runtime failed closed before any publication, but the interim path is provider-free) |
+| Release posture unchanged | ✅ preserved |
+
+## Confirmation Campaign Engine source-tree was untouched (except authorized scope)
+
+Tracked files modified within this slice's authorized scope
+(`codex_runner/campaign_engine/{__init__,errors,models}.py`,
+`codex_runner/campaign_engine/live_executor.py`,
+`codex_runner/tests/test_campaign_engine_live_executor.py`):
+
+* `codex_runner/campaign_engine/live_executor.py` — new module: CE-L1
+  two-phase runtime (preparation + execution with drift protection).
+* `codex_runner/campaign_engine/__init__.py` — exports for the new
+  types and the new error.
+* `codex_runner/campaign_engine/errors.py` — bounded live-Executor
+  error class.
+* `codex_runner/campaign_engine/models.py` — immutable preparation
+  record + result envelope types and the live-classification constant.
+* `codex_runner/tests/test_campaign_engine_live_executor.py` — 31
+  deterministic tests covering the spec's required 35 cases (the
+  no-eager-Guardian-import test 35 and the zero-mutation test 16
+  absorb the spec's invariant during the BLOCK; the runtime also
+  enforces zero-mutation as a CE-L1 invariant).
+
+`codex_runner/campaign_engine/runtime.py` (provider-free) is byte-identical
+to `origin/main`'s CE-L1-record-contract landing.
+
+`guardian/pi/*`, `codex_runner/src/agent-wrapper.js`, `codex_runner/schemas/*` —
+untouched.
+
+## Security ledger
+
+| Count | Value |
+| --- | --- |
+| Provider inference requests | `1` (the bounded live invocation) |
+| Successful live invocations | `1` (wrapper reported success; harness produced no mutation) |
+| Model prompts | `1` (text-only response; `write` tool not invoked) |
+| OAuth login attempts | `0` (cannot run interactively in this slice) |
+| OAuth refresh attempts | triggered but failed (refresh-token already used) |
+| Credential mutations | `0` |
+| Real package mutations | `0` (no Pi / wrapper / adapter / schema change) |
+| Credential-value outputs | `0` |
+| Retry attempts | `0` |
+| Fallbacks | `0` |
+| Authorized readiness calls | `1` |
+| Live runner calls | `1` |
+| Git commits in proof target | `0` |
+| Pushes | `0` |
+| Merges | `0` |
+| PRs opened against target | `0` |
+| Deployments | `0` |
+| CE-L1 emissions emitted | `0` |
+
+## Exit conditions
+
+```text
+Result:                    BLOCKED
+CE-L1_EXIT:                NOT EMITTED
+CE-L1:                     OPEN
+NEXT_TASK_REQUIRED:        refresh openai-codex OAuth session via interactive pi login;
+                           then re-run the BLOCKED proof with one fresh Provider/Pi invocation
+```
+
+## Closely related artifacts
+
+* **CE-L0 historical first-attempt (BLOCKED)**:
+  `docs/architecture/proofs/runtime/2026-08-26-campaign-engine-ce-l0-guardian-pi-live-invocation-proof.md`
+* **CE-L0 requalification (PASS)**:
+  `docs/architecture/proofs/runtime/2026-08-26-campaign-engine-ce-l0-guardian-pi-live-invocation-requalification-proof.md`
+  (canonical remote-main; PR #758 merged on `d1463fe85…`)
+* **CE-L1 record contract landing (PASS)**:
+  `docs/Campaign/campaign-engine-supervised-usability-closure.md`
+  and PR #759 (`Implement Campaign live Executor record contract` →
+  squash `cc78c58f1…`)
+
+The CE-L0 proofs remain `PASS` on the canonical record.  This CE-L1
+proof does not retrigger CE-L0 because the Campaign closure graph is
+unchanged by the BLOCKED outcome.
+
+## Lessons for the next slice
+
+Three durable lessons are recorded:
+
+1. **The wrapper's bounded success JSON does not prove an actual file
+   write was performed.**  The Campaign Engine live Executor runtime
+   is responsible for verifying the post-invocation target snapshot
+   and failing closed when the harness reported success but produced
+   zero source mutations within the declared allowed-file scope.
+   This proof's `zero_mutation_executor_turn` invariant does exactly
+   that and is the durable seam protecting CE-L1 from a silent text-only
+   provider response.
+2. **A bounded success on `pi-coding-agent` 0.72.1 may reflect a session
+   that failed to authenticate, not a real model invocation.**  The
+   wrapper's success JSON is not a reliable signal that the model
+   actually ran.  Pre-flight `auth_available` is required before
+   spending the live call, but a positive pre-flight does not guarantee
+   the live call will produce a substantive tool invocation.
+   The CE-L1 invariant on actual target mutations is therefore the
+   canonical success signal — not the wrapper's bounded JSON.
+3. **Provider-bound identity exhaustion surfaces as a Campaign-side
+   silent failure.**  When the provider refresh token has already
+   been used, the wrapper emits a successful JSON envelope without
+   actually invoking the model.  The operator must run `pi login
+   <provider>` before CE-L1 can produce a real successful proof; the
+   `NEXT_TASK_REQUIRED` recorded above makes that explicit and
+   bounded.
