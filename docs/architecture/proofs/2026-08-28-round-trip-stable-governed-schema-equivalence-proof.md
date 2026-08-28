@@ -268,3 +268,37 @@ The final source and DLG metadata commits, post-commit validation, and local
 publication boundary remain part of this reconciliation task.  Google Drive
 adoption remains a separate task and must not begin OAuth until database
 adoption passes.
+
+## Canonical publication qualification
+
+- `SOURCE_COMMIT`: `abbdf5b03eec31b78edb43e62c713c892cc296fc`.
+- `DLG_COMMIT`: `3f72792a1118722a7883154d52cf5b3a9e4628e3`.
+- `SOURCE_COMMIT` is the exact direct parent of `DLG_COMMIT`.
+- Candidate base: `66938525aa2fc54f8bc5f6185dfc9311452a5afa`.
+- `PUBLICATION_MAIN`: `5b5df6fe36c68d1dee28b2546778d9a891800c46`.
+- Main drift classification: unrelated movement only; the observed post-candidate
+  main movement touched no governed-schema-equivalence, DLG, migration, ADR, or
+  Architecture Contracts seam.
+- The exact six-file publication boundary is:
+  `docs/architecture/adr/076-round-trip-stable-governed-schema-equivalence.md`,
+  `docs/architecture/adr/adr-index.md`,
+  `docs/architecture/proofs/2026-08-28-round-trip-stable-governed-schema-equivalence-proof.md`,
+  `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json`,
+  `scripts/governed_schema_equivalence.py`, and
+  `tests/migration/test_governed_schema_equivalence.py`.
+- Stable `governed-schema-equivalence/v1` digest:
+  `3602352f35eea4aaec2da7728ae0a6c9d68ad6ec59572b5863beae56a3f0423f`.
+- Final ADR-index source hash:
+  `9844ad3ad91310ea4b65311f576eae78a616f4b8d48b13420e7daf60501d88e3`.
+- The ADR-index DLG node `freshness.verified_commit` is
+  `abbdf5b03eec31b78edb43e62c713c892cc296fc`.
+- Comparator implementation/tests, ADR-076, the ADR index source, and the
+  ADR-index DLG node bytes were verified unchanged after `DLG_COMMIT`; only
+  this existing proof receipt is eligible for the publication qualification
+  appendix.
+- Publication must preserve `SOURCE_COMMIT` → `DLG_COMMIT` ancestry through a
+  history-preserving merge commit on canonical `main`.
+- Squash and rebase publication are prohibited.
+- No release-support or current-state change is included.
+- Google Drive remains `Qualification Pending`; no live database, OAuth, Google
+  API, Connection, Command Bus, or migration-adoption action is included.
