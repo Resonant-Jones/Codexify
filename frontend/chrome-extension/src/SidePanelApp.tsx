@@ -50,6 +50,14 @@ import {
 } from "./codexifyExtensionApi"
 import { MarkdownMessage } from "./MarkdownMessage"
 import {
+  chromePageCaptureClient,
+  MAX_PAGE_CAPTURE_BYTES,
+  PAGE_CAPTURE_FAILURE_MESSAGES,
+  type PageCaptureClient,
+  type PageCaptureMode,
+  type PageCaptureSuccess,
+} from "./pageCapture"
+import {
   DEFAULT_USER_ACCENT_TOKEN,
   USER_ACCENT_CSS_VARS,
   USER_ACCENT_LABELS,
@@ -73,6 +81,11 @@ type ProfileSyncState = "idle" | "loading" | "ready" | "failed"
 type InterventionDecisionAction = "approve" | "deny"
 
 const THREAD_PAGE_SIZE = 50
+
+const PAGE_CAPTURE_MODE_LABELS: Record<PageCaptureMode, string> = {
+  selected_text: "Selection",
+  visible_page_text: "Visible page",
+}
 
 function originLabel(originSystem: ConversationOriginSystem): string {
   return originSystem.slice(0, 1).toUpperCase() + originSystem.slice(1)
@@ -103,6 +116,7 @@ export interface SidePanelAppProps {
     backendBaseUrl: string,
     credentials: RemoteLoginCredentials,
   ) => Promise<RemoteSessionCredential>
+  pageCaptureClient?: PageCaptureClient
   now?: () => string
 }
 
@@ -343,6 +357,7 @@ export function SidePanelApp({
   permissionClient = chromeOriginPermissionClient,
   apiFactory = createCodexifyExtensionApi,
   remoteLogin = loginRemoteSession,
+  pageCaptureClient = chromePageCaptureClient,
   now = currentIsoTimestamp,
 }: SidePanelAppProps): React.JSX.Element {
   const [bootState, setBootState] = useState<BootState>("loading")
@@ -382,6 +397,9 @@ export function SidePanelApp({
   const [interventionNotice, setInterventionNotice] = useState<string | null>(null)
   const [interventionBusyAction, setInterventionBusyAction] =
     useState<InterventionDecisionAction | null>(null)
+  const [pageCaptureBusy, setPageCaptureBusy] = useState<PageCaptureMode | null>(null)
+  const [pageCapturePreview, setPageCapturePreview] = useState<PageCaptureSuccess | null>(null)
+  const [pageCaptureError, setPageCaptureError] = useState<string | null>(null)
 
   const apiRef = useRef<CodexifyExtensionApi | null>(null)
   const activeTaskStopRef = useRef<(() => void) | null>(null)

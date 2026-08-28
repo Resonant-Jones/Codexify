@@ -3,32 +3,34 @@
 Date: 2026-08-25
 Execution lane: Architecture-Impact
 Task kind: proof
-Evidence posture: live-runtime proven
-Result: QUALIFIED_IMAGE_TAG_REPLACEMENT_PROVEN_DELETION_UNPROVEN
-Confidence: HIGH for tag replacement and current object loss; LOW for the loss mechanism
+Evidence posture: current live-runtime observation; predecessor before-state unverified
+Result: CURRENT_TAG_AND_OBJECT_STATE_OBSERVED_PREDECESSOR_QUALIFICATION_UNVERIFIED
+Confidence: HIGH for current tag/object state; LOW for historical replacement, loss, and mechanism
 
 ## Decision
 
-The previously qualified immutable backend image is now absent from the local
-image store:
+The image ID described by the unavailable predecessor receipts is absent from
+the current local image store:
 
     LOST_IMAGE_ID:
     sha256:ee3f3fbecbdc20ace36b00b1ce239266a000c303fe797da13e19d0cb469c3d6a
     LOST_IMAGE_INSPECT: ABSENT
     LOST_IMAGE_PRESENT_IN_IMAGE_INVENTORY: NO
 
-The qualification receipt recorded that exact object directly addressable and
-that codexify-backend-runtime:latest resolved to the same ID at closeout. R4
-then recorded the lost object absent and latest resolving to 2508fe. A current
-read confirms the full current mutable image ID:
+This artifact originally relied on three predecessor commit IDs for the claim
+that the object had been qualified and later lost. Those commits are not
+reachable in this repository, and no equivalent repository-tracked receipt was
+found. Their summarized observations are therefore not durable proof. A current
+read confirms only the present absence and the full current mutable image ID:
 
     CURRENT_BACKEND_REFERENCE: codexify-backend-runtime:latest
     CURRENT_TAG_IMAGE_ID:
     sha256:2508fe43e87e883caea01fe36b5ab5eff3a1d9616d395d7e7903b03204a584cf
 
-This proves tag replacement and object loss by before/after evidence. It does
-not prove untagging, deletion, garbage collection, a Docker lifecycle event, or
-an actor/mechanism. No fallback or retention mechanism was created.
+This proves the current tag target and current absence of the other image ID. It
+does not durably prove the predecessor qualification, tag replacement, object
+loss, untagging, deletion, garbage collection, a Docker lifecycle event, or an
+actor/mechanism. No fallback or retention mechanism was created.
 
 ## Lineage and authority boundary
 
@@ -38,21 +40,27 @@ an actor/mechanism. No fallback or retention mechanism was created.
 | Task base HEAD / observed origin/main | a3d7882b8dfe826bc2f7ce3407e0677e827fcc17 |
 | git fetch origin main | PASS; attempted exactly once |
 | Commits above observed main at branch creation | none |
-| Qualification predecessor | 39c82e21391018b77f4c146fb8a4c43571f85a7d; evidence only |
-| R4 predecessor | 61fbb2805bafa8060e99a5fe390fd3f81f2de1bb; evidence only |
-| R3 predecessor | e400cbf4cc12b8995f02984f5c9ac79517b84826; evidence only |
+| Qualification predecessor | 39c82e21391018b77f4c146fb8a4c43571f85a7d; UNAVAILABLE, not durable evidence |
+| R4 predecessor | 61fbb2805bafa8060e99a5fe390fd3f81f2de1bb; UNAVAILABLE, not durable evidence |
+| R3 predecessor | e400cbf4cc12b8995f02984f5c9ac79517b84826; UNAVAILABLE, not durable evidence |
 | ADR impact | No ADR impact |
 | Governing contracts | ADR-020, ADR-066, ADR-068, Config and Ops, Agent Protocol Operations, and Pi Invocation Boundary Contract |
 
-This proof changes no runtime semantics, Guardian/Pi/provider/credential
+`git cat-file -e` fails for each predecessor ID in the non-shallow repository,
+and a repository-wide search found no equivalent receipt containing either
+image ID. The predecessor summaries below are retained as provenance for what
+the original investigation reported, not promoted as independently verifiable
+evidence.
+
+This proof correction changes no runtime semantics, Guardian/Pi/provider/credential
 authority, Docker topology, canonical image reference, persistence, or release
 posture.
 
 ## Retention window and Docker evidence
 
-The qualification and R4 artifacts record calendar dates but no absolute
-runtime-preflight or closeout timestamps. Commit timestamps are therefore only
-a bounded proxy:
+The unavailable qualification and R4 artifacts reportedly recorded calendar
+dates but no absolute runtime-preflight or closeout timestamps. Commit
+timestamps are therefore only a bounded proxy:
 
     RETENTION_WINDOW_START: qualification receipt closeout, exact runtime time not recorded
     RETENTION_WINDOW_END: R4 preflight absence, exact runtime time not recorded
@@ -122,24 +130,27 @@ flag.
 
 Capability is not causal evidence.
 
-## Proven timeline and classification
+## Reported timeline and durable classification
 
-    T0: ee3f directly addressable and latest equals ee3f at qualification closeout
+    T0: ee3f directly addressable and latest equals ee3f at qualification closeout (UNVERIFIED SUMMARY)
     T1: backend runtime Buildx attachment 2508 observed; tag assignment not observed
-    T2: latest equals 2508 at R4 and current inspection
+    T2: latest equals 2508 at R4 (UNVERIFIED SUMMARY) and current inspection (OBSERVED)
     T3: ee3f untag event NOT OBSERVED
     T4: ee3f delete/destruction event NOT OBSERVED
-    T5: ee3f absent at R4 and current inspection
+    T5: ee3f absent at R4 (UNVERIFIED SUMMARY) and current inspection (OBSERVED)
 
     PRIMARY_CLASSIFICATION:
-    QUALIFIED_IMAGE_TAG_REPLACEMENT_PROVEN_DELETION_UNPROVEN
+    CURRENT_TAG_AND_OBJECT_STATE_OBSERVED_PREDECESSOR_QUALIFICATION_UNVERIFIED
+    HISTORICAL_TAG_REPLACEMENT: UNPROVEN
+    HISTORICAL_OBJECT_LOSS: UNPROVEN
     DELETION_ACTOR: UNPROVEN
     DELETION_MECHANISM: UNPROVEN
 
-Exact causal statement: The qualified image was present at qualification
-closeout and is absent now. The mutable backend tag points to a different
-immutable image. Retained read-only evidence does not prove the exact deletion
-or destruction mechanism.
+Exact durable statement: The current mutable backend tag points to 2508fe, and
+ee3f is currently absent. The unavailable predecessor summaries report that
+ee3f was previously qualified and addressable, but retained repository evidence
+does not prove that before-state, historical tag replacement, object loss, or
+the exact deletion or destruction mechanism.
 
 ## Invariants and cleanup
 
@@ -184,7 +195,9 @@ or destruction mechanism.
 
 ## Exact next prerequisite
 
-Run one controlled disposable image-retention reproduction that freezes an
+First recover and commit the original predecessor receipts, if they still exist,
+or explicitly accept that the historical classification remains unverified.
+Then run one controlled disposable image-retention reproduction that freezes an
 immutable test image, moves its only mutable tag, performs no explicit prune,
 and observes whether the object remains locally addressable. It must use a
 throwaway task-owned image only, with complete before/after event capture, and
