@@ -143,40 +143,44 @@ async function loadPiSdk() {
 		? path.resolve(process.env.PI_CODING_AGENT_PACKAGE_ROOT)
 		: path.resolve(wrapperDirectory, "../vendor/pi-coding-agent");
 	const codingAgent = await import(pathToFileURL(path.join(packageRoot, "dist/index.js")).href);
-<<<<<<< ours
+
+	// Fail closed if the maintained Pi 0.82.1 runtime API is absent.
+	if (typeof codingAgent.ModelRuntime?.create !== "function") {
+		throw new Error(
+			"Pi coding-agent package is missing the ModelRuntime.create factory; " +
+				"the wrapper requires the maintained Pi 0.82.1 runtime surface."
+		);
+	}
+	if (typeof codingAgent.createAgentSession !== "function") {
+		throw new Error(
+			"Pi coding-agent package is missing the createAgentSession factory; " +
+				"the wrapper requires the maintained Pi 0.82.1 session surface."
+		);
+	}
+
 	const packageMetadata = JSON.parse(
 		await readFile(path.join(packageRoot, "package.json"), "utf8")
 	);
 	if (packageMetadata.name !== "@earendil-works/pi-coding-agent") {
-		throw new Error(`Unexpected Pi coding-agent package: ${packageMetadata.name || "unknown"}`);
+		throw new Error(
+			`Unexpected Pi coding-agent package: ${packageMetadata.name || "unknown"}`
+		);
 	}
-	const modelRuntime = await codingAgent.ModelRuntime.create();
-=======
-	const piAi = await import(
-		pathToFileURL(path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")).href
-	);
-	const piAiCompat = await import(
-		pathToFileURL(
-			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/compat.js")
-		).href
-	);
-	const packageMetadata = JSON.parse(
-		await readFile(path.join(packageRoot, "package.json"), "utf8")
-	);
-	const AuthStorage = piAi.AuthStorage;
->>>>>>> theirs
+
+	// Construct the canonical maintained runtime.
+	// `allowModelNetwork: false` disables remote model-catalog refresh;
+	// readiness must never contact a remote provider.
+	const modelRuntime = await codingAgent.ModelRuntime.create({
+		allowModelNetwork: false,
+	});
+
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
 		modelRuntime,
 		createCodingTools: codingAgent.createCodingTools,
-<<<<<<< ours
 		getModel: modelRuntime.getModel.bind(modelRuntime),
 		getProviders: modelRuntime.getProviders.bind(modelRuntime),
-=======
-		getModel: piAiCompat.getModel,
-		getProviders: piAiCompat.getProviders,
->>>>>>> theirs
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
@@ -235,9 +239,16 @@ async function checkGuardianAuthorizedReadiness() {
 	}
 
 	try {
+		// `checkAuth` returns undefined when no supported authentication is configured
+		// for the provider; otherwise it returns a structural auth descriptor.
+		// This is a non-inference credential-presence check; no remote call.
+		const auth = await modelRuntime.checkAuth(model.provider);
 		const available = await modelRuntime.getAvailable();
-		if (!available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) {
-			emitAuthorizedFailure("model_unresolved", "model_availability", {
+		const modelAvailable = available.some(
+			(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+		);
+		if (!auth || !modelAvailable) {
+			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
 				actual_runtime_identity: actualRuntimeIdentity,
 				runtime_identity_established: true,
 			});
