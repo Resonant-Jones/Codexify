@@ -38,6 +38,18 @@ Thumbs.db
 vendor/pi-coding-agent/dist
 vendor/pi-coding-agent/node_modules
 
+# Canonical Pi source-vendor runtime payload exceptions.
+# Restore the previously-proven maintained 0.82.1 runtime bytes into the
+# source-vendor fallback so the wrapper's source-relative default can load
+# @earendil-works/pi-coding-agent@0.82.1 and the nested maintained
+# @earendil-works/pi-ai@0.82.1 without external SDK overrides.
+!vendor/pi-coding-agent/dist/
+!vendor/pi-coding-agent/dist/**
+!vendor/pi-coding-agent/node_modules/
+!vendor/pi-coding-agent/node_modules/@earendil-works/
+!vendor/pi-coding-agent/node_modules/@earendil-works/pi-ai/
+!vendor/pi-coding-agent/node_modules/@earendil-works/pi-ai/**
+
 # Local config (if stored in project)
 # profiles.toml
 

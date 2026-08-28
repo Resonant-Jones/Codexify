@@ -89,3 +89,53 @@ def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> Non
     assert "check_worker_coding_readiness.py --format human" in runbook
     assert "LOCAL_PROVIDER_DISPLAY_NAME" in runbook
     assert "apostrophe" in runbook.lower()
+
+
+def test_canonical_pi_source_vendor_runtime_bundle_is_complete() -> None:
+    """The source-vendored Pi runtime must ship its executable payload so the
+    wrapper's source-relative fallback can load it without external SDK
+    overrides.
+
+    A metadata-only vendor tree (e.g. only ``package.json``, docs, and
+    examples) lets CI pass without actually providing the runtime the
+    wrapper imports.  This regression contract fails closed when those
+    runtime artifacts are absent.
+    """
+    coding_agent_dist_index = (
+        ROOT / "codex_runner/vendor/pi-coding-agent/dist/index.js"
+    )
+    nested_pi_ai_dist_index = (
+        ROOT
+        / "codex_runner/vendor/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/index.js"
+    )
+    nested_pi_ai_openai_codex_models = (
+        ROOT
+        / "codex_runner/vendor/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-codex.models.js"
+    )
+
+    assert coding_agent_dist_index.is_file(), (
+        "Canonical source-vendored coding-agent dist/index.js is missing; "
+        "the wrapper's source-relative default cannot load the Pi runtime."
+    )
+    assert nested_pi_ai_dist_index.is_file(), (
+        "Canonical source-vendored nested @earendil-works/pi-ai/dist/index.js "
+        "is missing; the wrapper's source-relative default cannot load the "
+        "maintained Pi AI runtime."
+    )
+    assert nested_pi_ai_openai_codex_models.is_file(), (
+        "Canonical source-vendored nested openai-codex.models.js is missing; "
+        "openai-codex provider/model catalog cannot be resolved from the "
+        "source-vendor fallback."
+    )
+
+    vendored_coding_agent = json.loads(VENDORED_PACKAGE.read_text(encoding="utf-8"))
+    assert vendored_coding_agent["name"] == "@earendil-works/pi-coding-agent"
+    assert vendored_coding_agent["version"] == "0.82.1"
+
+    nested_pi_ai_pkg = json.loads(
+        (ROOT / "codex_runner/vendor/pi-coding-agent/node_modules/@earendil-works/pi-ai/package.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert nested_pi_ai_pkg["name"] == "@earendil-works/pi-ai"
+    assert nested_pi_ai_pkg["version"] == "0.82.1"
