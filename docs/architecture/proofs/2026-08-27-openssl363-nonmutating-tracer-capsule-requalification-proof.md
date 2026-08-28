@@ -1,13 +1,19 @@
-# Requalification of the non-mutating tracer capsule with a validated child-map control
+# Requalification attempt for the non-mutating tracer capsule
 
 **Date:** 2026-08-27
 **Execution lane:** Architecture-Impact
 **Task kind:** proof
 **Requested evidence posture:** live-runtime proven
-**Achieved evidence posture:** live runtime observed for the bounded instrumentation controls
-**Result:** PASS
-**Primary classification:** OPENSSL_SOURCE_READ_TRACER_CAPSULE_QUALIFIED
-**Confidence:** High for this exact disposable builder/verifier run, the two bounded controls, verifier preservation, retained-artifact integrity, and cleanup. This does not establish an OpenSSL cause or release readiness.
+**Achieved evidence posture:** live runtime observed, but runtime isolation was not qualified
+**Result:** INCONCLUSIVE
+**Primary classification:** OPENSSL_SOURCE_READ_TRACER_CAPSULE_NOT_QUALIFIED
+**Confidence:** High for verifier preservation, retained-artifact integrity, and cleanup. Low for runtime isolation because the executed child-map control did not inspect all mappings for capsule paths. This does not establish an OpenSSL cause or release readiness.
+
+> **Correction (2026-08-28):** The executed child-map control selected the first
+> loader and libc mappings but did not count or reject all mappings beneath
+> `/opt/codexify-tracer`. Its output therefore cannot prove the recorded zero-capsule-
+> mapping gate. The runtime-isolation qualification, overall PASS, and supported
+> statement are withdrawn pending a fresh run with a fail-closed all-map check.
 
 ## Decision
 
@@ -20,13 +26,15 @@ Before the one traced runtime-isolation control, a temporary Perl child-map prog
 was syntax checked and then run exactly once directly through the verifier's base
 Perl. It proved that the same child derived and read /proc/<actual-pid>/maps and
 emitted loader and libc evidence. The one subsequent traced run of that same file
-again emitted coherent child PID/map evidence and showed only verifier/base-runtime
-loader and libc mappings. The one synthetic File::Copy trace then showed source and
+again emitted coherent child PID/map evidence, but only printed the first loader and
+libc matches. It did not examine all mappings for capsule paths, so runtime isolation
+remains unproven. The one synthetic File::Copy trace then showed source and
 destination descriptors, destination creation with truncation, a nonzero read/write
 transfer, returned byte counts, and closes. The frozen verifier package/runtime
 identity was unchanged afterward.
 
-The capsule was retained only after all those gates passed. No OpenSSL, Node, Pi,
+The capsule was retained after the deficient control had been treated as passing;
+retention does not qualify it for reuse. No OpenSSL, Node, Pi,
 OAuth, OpenAI, provider, credential, Compose, or application path was invoked.
 
 ## Authority, lineage, and release boundary
@@ -45,7 +53,7 @@ OAuth, OpenAI, provider, credential, Compose, or application path was invoked.
 | Relevant ADRs resolved | ADR-020, ADR-066, ADR-068 |
 | ADR impact | No ADR impact |
 
-This is an Internal proof-only instrumentation qualification. It changes no Guardian
+This is an Internal proof-only instrumentation qualification attempt. It changes no Guardian
 authority, runtime contract, persistence, queue/worker behavior, provider routing,
 supported profile, Docker topology, current-state document, or release claim.
 00-current-state remains release truth.
@@ -125,7 +133,7 @@ No tracer or diagnostic package was added to the verifier.
 | Compiler driver | /usr/bin/aarch64-linux-gnu-gcc-14 | fb051a6c58961fb6aec758acf50d7d0375eecff740d0706388092829e3fb7a41 |
 | Linker | /usr/bin/aarch64-linux-gnu-ld.bfd | 5a284e435cdf41bc05d93f0683da12b8a42608b93c79e187e7d03fab6a22ddf4 |
 
-## Corrected child-map control and direct preflight
+## Executed child-map control and direct preflight
 
 The temporary file /work/child-map-control.pl was the only child-map control and
 was not added to the repository:
@@ -160,6 +168,26 @@ die "no libc mapping found\n" unless @libc;
 print "LOADER_MAP=$loader[0]";
 print "LIBC_MAP=$libc[0]";
 ~~~
+
+This was the program actually executed. It validates PID/path coherence and the
+presence of loader and libc mappings, but it does not inspect `@lines` for paths
+beneath `/opt/codexify-tracer`. The direct and traced outputs below consequently
+cannot establish that capsule-library mapping count was zero.
+
+A future requalification must add a fail-closed all-map check before either direct
+preflight or traced execution, for example:
+
+~~~perl
+my @capsule = grep {
+    m{(?:^|\s)/opt/codexify-tracer(?:/|\s|$)}
+} @lines;
+
+print "CAPSULE_MAP_COUNT=" . scalar(@capsule) . "\n";
+die "capsule mapping found:\n@capsule" if @capsule;
+~~~
+
+This example is a required correction for a future run; it was not part of the
+recorded execution and is not runtime evidence.
 
 The literal /proc/$$/maps was absent. A first host-shell materialization attempt
 was rejected by shell parsing before execution; it created no verifier program and
@@ -205,8 +233,8 @@ unset LD_LIBRARY_PATH LD_PRELOAD
 | Traced child PID / maps path | 822 / /proc/822/maps |
 | Traced loader path | /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 |
 | Traced libc path | /usr/lib/aarch64-linux-gnu/libc.so.6 |
-| Capsule-library mappings in traced child | 0 |
-| Traced child uses base runtime | PASS |
+| Capsule-library mappings in traced child | unmeasured |
+| Traced child uses base runtime | INCONCLUSIVE |
 
 ~~~text
 SELF_PID=822
@@ -216,8 +244,9 @@ LIBC_MAP=ffffb3ff0000-ffffb418c000 r-xp 00000000 00:2d7 1388497                 
 execve("/usr/bin/perl", ["/usr/bin/perl", "/work/child-map-control.pl"], ...) = 0
 ~~~
 
-The child loader and libc maps belong to the verifier/base runtime and do not
-resolve beneath /opt/codexify-tracer.
+The printed loader and libc maps belong to the verifier/base runtime and do not
+resolve beneath /opt/codexify-tracer. Other child mappings were not printed or
+rejected, so this observation does not prove runtime isolation.
 
 ## Transfer control and sole synthetic transfer trace
 
@@ -237,9 +266,9 @@ copy($source, $destination)
     or die "copy $source -> $destination failed: $!\n";
 ~~~
 
-The syntax check passed and performed no copy. After runtime isolation passed, the
-one 118-byte sentinel source ran through the capsule tracer with -yy and exactly
-this operation filter:
+The syntax check passed and performed no copy. After the deficient runtime-isolation
+control had been treated as passing, the one 118-byte sentinel source ran through
+the capsule tracer with -yy and exactly this operation filter:
 
 ~~~text
 openat,newfstatat,fstat,statx,read,pread64,readv,lseek,copy_file_range,sendfile,splice,write,pwrite64,writev,ftruncate,truncate,rename,renameat,renameat2,close,fsync,fdatasync
@@ -305,8 +334,8 @@ write occurred after identity freeze.
 
 The builder, verifier, capsule staging tree, control programs, sentinel files,
 traces, manifests, and task scratch root were removed. The qualified backend
-image, backend archive, backend receipt, and retained tracer archive/receipt were
-preserved. The backend archive was rehashed after cleanup and remained
+image, backend archive, backend receipt, and retained but unqualified tracer
+archive/receipt were preserved. The backend archive was rehashed after cleanup and remained
 689a3cb56fc688cca5ecd55ba946aa63bbdbea3dee2d42139606269c27a7df1c.
 
 ## Invariants
@@ -357,31 +386,30 @@ TASK_OWNED_TEMPORARY_VOLUMES_REMAINING: 0
 TASK_OWNED_SCRATCH_REMAINING: 0
 ~~~
 
-## Supported statement and next prerequisite
+## Withdrawn statement and next prerequisite
 
-Supported statement:
+The previously recorded supported statement is withdrawn. The run supports only
+the following narrower statement:
 
 ~~~text
-A read-only external strace runtime capsule can observe the required
-file-operation boundary without installing tracer packages into the qualified
-writer, changing the writer's package/runtime identity, or causing the traced
-child to load tracer-capsule runtime libraries. The corrected child-map
-control proved its own PID/path semantics before the sole traced runtime
-isolation control was consumed.
+A read-only external strace runtime capsule observed the synthetic file-operation
+boundary without installing tracer packages into the verifier or changing its
+measured package/runtime identity. The child-map control proved its own PID/path
+semantics, but did not prove the absence of tracer-capsule mappings in the child.
 ~~~
 
-This qualifies instrumentation only; it makes no OpenSSL root-cause statement.
+This does not qualify the capsule for subsequent instrumentation and makes no
+OpenSSL root-cause statement.
 
 Exact next prerequisite:
 
 ~~~text
-Resume the OpenSSL install-helper source-read-boundary proof using the exact
-qualified immutable backend substrate and the retained checksum-verified
-tracer capsule. Install no tracer package in the writer. Reuse the qualified
-explicit-loader and tracing posture. Execute exactly one OpenSSL configure,
-one build, and one traced container-local make install_sw, and stop at the
-first source-argument, source-read, transfer, destination-write, or
-post-write-replacement divergence.
+Re-run capsule qualification using the exact qualified immutable backend
+substrate and retained checksum-verified tracer capsule. Before consuming the
+sole traced runtime-isolation control, require the child-map program to count
+all mappings beneath /opt/codexify-tracer, emit CAPSULE_MAP_COUNT=0, and fail
+closed if any such mapping exists. Do not resume the OpenSSL install-helper
+source-read-boundary proof unless that fresh qualification passes.
 ~~~
 
 Do not perform that OpenSSL run in this task.
