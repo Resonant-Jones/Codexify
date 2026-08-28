@@ -61,11 +61,9 @@ def test_worker_image_installs_exact_declared_pi_runtime_without_credentials() -
 
 
 def test_active_runtime_loader_targets_maintained_pi_ai() -> None:
-    """The wrapper loader must import the maintained Pi AI package, not the
-    deprecated upstream namespace."""
+    """The wrapper loader must not import the deprecated Pi AI namespace."""
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
 
-    assert "@earendil-works/pi-ai" in loader
     assert "@mariozechner/pi-ai" not in loader
 
 
@@ -75,8 +73,21 @@ def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
     loader paths."""
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
 
-    assert "@earendil-works" in loader
+    assert "@earendil-works/pi-coding-agent" in loader
     assert "@mariozechner" not in loader
+
+
+def test_active_runtime_loader_uses_canonical_model_runtime() -> None:
+    """The 0.82.1 wrapper must use the unified async model/auth facade."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    assert "await codingAgent.ModelRuntime.create()" in loader
+    assert "modelRuntime.getModel.bind(modelRuntime)" in loader
+    assert "modelRuntime.getProviders.bind(modelRuntime)" in loader
+    assert "modelRuntime," in loader
+    assert "AuthStorage" not in loader
+    assert "ModelRegistry" not in loader
+    assert "OPENAI_CODEX_MODELS" not in loader
 
 
 def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> None:

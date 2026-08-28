@@ -142,73 +142,21 @@ async function loadPiSdk() {
 	const packageRoot = process.env.PI_CODING_AGENT_PACKAGE_ROOT
 		? path.resolve(process.env.PI_CODING_AGENT_PACKAGE_ROOT)
 		: path.resolve(wrapperDirectory, "../vendor/pi-coding-agent");
-	const nodeModulesRoot = process.env.PI_CODING_AGENT_NODE_MODULES
-		? path.resolve(process.env.PI_CODING_AGENT_NODE_MODULES)
-		: path.join(packageRoot, "node_modules");
 	const codingAgent = await import(pathToFileURL(path.join(packageRoot, "dist/index.js")).href);
-	const piAi = await import(
-		pathToFileURL(path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")).href
-	);
-	const openaiCodexModels = await import(
-		pathToFileURL(
-			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/providers/openai-codex.models.js")
-		).href
-	).catch(() => null);
-	const openaiCodexCatalog = (openaiCodexModels && openaiCodexModels.OPENAI_CODEX_MODELS) || {};
 	const packageMetadata = JSON.parse(
 		await readFile(path.join(packageRoot, "package.json"), "utf8")
 	);
-	const KNOWN_PROVIDERS = [
-		"anthropic",
-		"openai",
-		"azure-openai-responses",
-		"openai-codex",
-		"openrouter",
-		"google",
-		"google-vertex",
-		"github-copilot",
-		"vercel-ai-gateway",
-		"xai",
-		"groq",
-		"deepseek",
-		"mistral",
-		"minimax",
-		"cerebras",
-		"zai",
-		"minimax-cn",
-		"moonshotai",
-		"opencode",
-		"kimi-coding",
-		"xiaomi",
-	];
-	const getProviders = () => {
-		const known = new Set(KNOWN_PROVIDERS);
-		for (const id of Object.keys(openaiCodexCatalog)) {
-			const m = openaiCodexCatalog[id];
-			if (m && m.provider) known.add(m.provider);
-		}
-		return [...known];
-	};
-	const getModel = (providerId, modelId) => {
-		if (providerId === "openai-codex" && openaiCodexCatalog[modelId]) {
-			return openaiCodexCatalog[modelId];
-		}
-		for (const m of Object.values(openaiCodexCatalog)) {
-			if (m && m.id === modelId && (!providerId || m.provider === providerId)) {
-				return m;
-			}
-		}
-		return undefined;
-	};
-	const AuthStorage = piAi.AuthStorage;
+	if (packageMetadata.name !== "@earendil-works/pi-coding-agent") {
+		throw new Error(`Unexpected Pi coding-agent package: ${packageMetadata.name || "unknown"}`);
+	}
+	const modelRuntime = await codingAgent.ModelRuntime.create();
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
-		AuthStorage,
-		ModelRegistry: codingAgent.ModelRegistry,
+		modelRuntime,
 		createCodingTools: codingAgent.createCodingTools,
-		getModel,
-		getProviders,
+		getModel: modelRuntime.getModel.bind(modelRuntime),
+		getProviders: modelRuntime.getProviders.bind(modelRuntime),
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
@@ -234,7 +182,7 @@ async function checkGuardianAuthorizedReadiness() {
 		return;
 	}
 
-	const { AuthStorage, ModelRegistry, getModel, getProviders, harnessId, harnessVersion } = runtime;
+	const { modelRuntime, getModel, getProviders, harnessId, harnessVersion } = runtime;
 	const providerIds = getProviders().map((provider) =>
 		typeof provider === "string" ? provider : provider?.id,
 	);
@@ -267,16 +215,7 @@ async function checkGuardianAuthorizedReadiness() {
 	}
 
 	try {
-		const authStorage = AuthStorage.create();
-		const modelRegistry = ModelRegistry.create(authStorage);
-		if (!authStorage.hasAuth(model.provider)) {
-			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
-				actual_runtime_identity: actualRuntimeIdentity,
-				runtime_identity_established: true,
-			});
-			return;
-		}
-		const available = await modelRegistry.getAvailable();
+		const available = await modelRuntime.getAvailable();
 		if (!available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) {
 			emitAuthorizedFailure("model_unresolved", "model_availability", {
 				actual_runtime_identity: actualRuntimeIdentity,
@@ -326,7 +265,7 @@ async function checkReadiness() {
 	};
 
 	try {
-		const { AuthStorage, ModelRegistry, getModel } = await loadPiSdk();
+		const { modelRuntime, getModel } = await loadPiSdk();
 		const resolvedModelId = resolveModel(OPTIONS.model, getModel);
 		payload.effective_model = resolvedModelId;
 		const model = getModel(OPTIONS.provider, resolvedModelId);
@@ -341,11 +280,12 @@ async function checkReadiness() {
 		payload.effective_provider = model.provider;
 		payload.effective_model = model.id;
 
-		const authStorage = AuthStorage.create();
-		ModelRegistry.create(authStorage);
-		// hasAuth checks stored/env/fallback presence without refreshing OAuth or
-		// contacting the provider. Readiness is not credential-validity proof.
-		payload.provider_credential_available = authStorage.hasAuth(model.provider);
+		// getAvailable resolves stored and environment credentials without starting
+		// an agent session or provider request. Readiness is not credential-validity proof.
+		const available = await modelRuntime.getAvailable();
+		payload.provider_credential_available = available.some(
+			(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+		);
 		payload.reason = payload.provider_credential_available
 			? null
 			: "provider_credential_missing";
@@ -358,8 +298,7 @@ async function checkReadiness() {
 async function runAgent() {
 	let createAgentSession;
 	let SessionManager;
-	let AuthStorage;
-	let ModelRegistry;
+	let modelRuntime;
 	let createCodingTools;
 	let getModel;
 	let getProviders;
@@ -374,8 +313,7 @@ async function runAgent() {
 		({
 			createAgentSession,
 			SessionManager,
-			AuthStorage,
-			ModelRegistry,
+			modelRuntime,
 			createCodingTools,
 			getModel,
 			getProviders,
@@ -406,20 +344,6 @@ async function runAgent() {
 	const resolvedProviderId = guardianAuthorizedMode
 		? authorizedIdentity.providerId
 		: OPTIONS.provider;
-
-	// Set up auth and model registry
-	let authStorage;
-	let modelRegistry;
-	try {
-		authStorage = AuthStorage.create();
-		modelRegistry = ModelRegistry.create(authStorage);
-	} catch (error) {
-		if (guardianAuthorizedMode) {
-			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness");
-			return;
-		}
-		throw error;
-	}
 
 	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
 
@@ -467,7 +391,7 @@ async function runAgent() {
 
 	// Check API key availability
 	try {
-		const available = await modelRegistry.getAvailable();
+		const available = await modelRuntime.getAvailable();
 		const hasModel = available.some(
 			m => m.provider === model.provider && m.id === model.id,
 		);
@@ -525,8 +449,7 @@ async function runAgent() {
 			cwd: OPTIONS.cwd,
 			model,
 			thinkingLevel: OPTIONS.thinking,
-			authStorage,
-			modelRegistry,
+			modelRuntime,
 			tools,
 			sessionManager: SessionManager.inMemory(),
 		});
