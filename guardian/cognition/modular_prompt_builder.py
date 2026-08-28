@@ -11,6 +11,7 @@ SEGMENT_ORDER: tuple[str, ...] = (
     "imprint",
     "persona",
     "system_docs",
+    "skills",
     "scratchpad",
 )
 
@@ -19,6 +20,7 @@ SEGMENT_HEADERS: dict[str, str] = {
     "imprint": "=== IMPRINT_ZERO ===",
     "persona": "=== PERSONA ===",
     "system_docs": "=== SYSTEM DOCS ===",
+    "skills": "=== SKILLS ===",
     "scratchpad": "=== SCRATCHPAD ===",
 }
 
@@ -27,6 +29,7 @@ SEGMENT_HEADERS: dict[str, str] = {
 class PromptBudgets:
     imprint_max_tokens: int | None = None
     system_docs_max_tokens: int | None = None
+    skills_max_tokens: int | None = None
     total_max_tokens: int | None = None
 
 
@@ -48,13 +51,12 @@ def _coerce_budgets(
     return PromptBudgets(
         imprint_max_tokens=payload.get("imprint_max_tokens"),
         system_docs_max_tokens=payload.get("system_docs_max_tokens"),
+        skills_max_tokens=payload.get("skills_max_tokens"),
         total_max_tokens=payload.get("total_max_tokens"),
     )
 
 
-def _truncate_to_token_budget(
-    text: str, max_tokens: int | None
-) -> tuple[str, bool]:
+def _truncate_to_token_budget(text: str, max_tokens: int | None) -> tuple[str, bool]:
     if max_tokens is None:
         return text, False
     safe_budget = max(0, int(max_tokens))
@@ -76,15 +78,13 @@ def build_system_prompt(
     imprint_block: str | None = None,
     persona_block: str | None = None,
     system_docs_block: str | None = None,
+    skills_block: str | None = None,
     scratchpad_block: str | None = None,
     budgets: PromptBudgets | dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Assemble a single system prompt string with deterministic segment metadata."""
 
-    if (
-        not isinstance(base_system_prompt, str)
-        or not base_system_prompt.strip()
-    ):
+    if not isinstance(base_system_prompt, str) or not base_system_prompt.strip():
         raise ValueError("base_system_prompt is required")
 
     effective_budgets = _coerce_budgets(budgets)
@@ -93,6 +93,7 @@ def build_system_prompt(
         "imprint": (imprint_block or "").strip(),
         "persona": (persona_block or "").strip(),
         "system_docs": (system_docs_block or "").strip(),
+        "skills": (skills_block or "").strip(),
         "scratchpad": (scratchpad_block or "").strip(),
     }
 
@@ -103,6 +104,7 @@ def build_system_prompt(
     for name, max_tokens in (
         ("imprint", effective_budgets.imprint_max_tokens),
         ("system_docs", effective_budgets.system_docs_max_tokens),
+        ("skills", effective_budgets.skills_max_tokens),
     ):
         if not capped_segments[name]:
             continue
@@ -112,9 +114,7 @@ def build_system_prompt(
         capped_segments[name] = updated
         truncated_flags[name] = truncated_flags[name] or truncated
         if truncated:
-            truncation_notes.append(
-                f"{name} segment truncated to {max_tokens} tokens"
-            )
+            truncation_notes.append(f"{name} segment truncated to {max_tokens} tokens")
 
     if effective_budgets.total_max_tokens is not None:
         total_budget = max(0, int(effective_budgets.total_max_tokens))
