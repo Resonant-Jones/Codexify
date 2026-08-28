@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -139,3 +142,77 @@ def test_canonical_pi_source_vendor_runtime_bundle_is_complete() -> None:
     )
     assert nested_pi_ai_pkg["name"] == "@earendil-works/pi-ai"
     assert nested_pi_ai_pkg["version"] == "0.82.1"
+
+
+def test_source_relative_wrapper_loads_pi_runtime_with_full_locked_closure() -> None:
+    """Source-relative empty-HOME wrapper smoke proves the source-vendor
+    fallback contains the full locked runtime dependency closure.
+
+    This non-inference regression invokes the wrapper subprocess with no
+    package-root overrides and an intentionally empty HOME.  The expected
+    bounded result is ``oauth_auth_unavailable`` at ``oauth_readiness``,
+    with exact runtime identity attestation.  The result proves the wrapper
+    loaded the maintained Pi runtime through ``runtime_load``,
+    ``model_resolution``, and ``identity_verification`` using only the
+    source-vendored runtime closure.
+
+    If any transitive package disappears from the source-vendor closure and
+    the wrapper can no longer load, this test fails CI.
+    """
+    wrapper_path = ROOT / "codex_runner/src/agent-wrapper.js"
+    if not wrapper_path.is_file():
+        pytest.skip("wrapper not present in this checkout")
+
+    # Build an empty disposable HOME that contains no Pi credentials.
+    empty_home = Path(tempfile.mkdtemp(prefix="codexify-pi-empty-home-"))
+    try:
+        # Force a clean subprocess environment without operator credential
+        # access.  No PATH inheritance from parent shell.
+        env = {
+            "HOME": str(empty_home),
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "PI_PROVIDER": "openai-codex",
+            "PI_MODEL": "gpt-5.6-sol",
+            "PI_GUARDIAN_AUTHORIZED": "1",
+            "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+            "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+            # PI_DISABLE_TOOLS=1 by default; the wrapper reads it.
+            "PI_DISABLE_TOOLS": "1",
+        }
+        result = subprocess.run(
+            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            cwd=str(empty_home),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(empty_home, ignore_errors=True)
+
+    assert result.returncode == 0, (
+        f"wrapper subprocess failed with exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+
+    payload = json.loads(result.stdout)
+
+    assert payload["failure_class"] == "oauth_auth_unavailable", (
+        f"expected failure_class=oauth_auth_unavailable, got {payload.get('failure_class')!r}; "
+        f"payload={payload}"
+    )
+    assert payload["failure_stage"] == "oauth_readiness", (
+        f"expected failure_stage=oauth_readiness, got {payload.get('failure_stage')!r}"
+    )
+    assert payload["runtime_identity_established"] is True, (
+        f"runtime identity not established; payload={payload}"
+    )
+
+    identity = payload["actual_runtime_identity"]
+    assert identity["actual_provider_id"] == "openai-codex"
+    assert identity["actual_model_id"] == "gpt-5.6-sol"
+    assert identity["actual_harness_id"] == "pi-coding-agent"
+    assert identity["actual_harness_version"] == "0.82.1"
+
+    assert payload["session_initialized"] is False
+    assert payload["provider_request_started"] is False
