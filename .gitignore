@@ -268,6 +268,12 @@ codex_runner/.github/
 # Local tooling artifacts
 codex_runner.zip
 
+# Hermes proof scratch (forensic re-runs only, per campaign-engine proof contract)
+.hermes/
+
+# SwiftPM / Xcode user state
+.swiftpm/
+
 RESEARCH:CODE
 .playwright-mcp/
 .build/
