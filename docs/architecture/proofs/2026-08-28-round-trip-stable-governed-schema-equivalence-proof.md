@@ -8,7 +8,7 @@
 
 ## Final classification
 
-`ROUND-TRIP-STABLE GOVERNED-SCHEMA CONTRACT PASS — ADR-076 and governed-schema-equivalence/v1 define PostgreSQL round-trip canonicalization as the cross-restoration proof boundary; equivalent 9c66e490a42b schemas converge to one stable signature while real CHECK and non-CHECK schema changes remain detectable`
+`ROUND-TRIP-STABLE GOVERNED-SCHEMA CONTRACT PASS — ADR-076 and governed-schema-equivalence/v1 define PostgreSQL round-trip canonicalization as the cross-restoration proof boundary; equivalent 9c66e490a42b schemas converge to one stable signature while real CHECK and non-CHECK schema changes remain detectable; the post-DLG implementation requalification is recorded below`
 
 ## Current-main and prerequisite identity
 
@@ -82,6 +82,10 @@ descriptors contain `schema`, `relation`, `name`, `type`, `deferrable`,
 `schema`, `relation`, `name`, `unique`, `primary`, `definition`, and
 `predicate`.
 
+Collation identity is schema-qualified as `namespace.collation`, so equal
+collation names in different namespaces cannot alias in the normalized
+descriptor.
+
 Catalog OIDs are used only for PostgreSQL catalog joins and are never emitted.
 No timestamps, DSNs, database/container names, secrets, row data, or provider
 credentials are serialized.  No custom CHECK normalizer exists.  PostgreSQL's
@@ -95,7 +99,11 @@ compact separators, one terminal newline, and no digest field.  Comparison
 requires contract version, major, revision, digest, and exact normalized
 descriptor equality.  Digest equality alone is insufficient.
 
-## Disposable PostgreSQL proof
+## Historical disposable PostgreSQL proof
+
+This section is the original live receipt and remains bound to the
+implementation state recorded by its historical validation counts and digest.
+The current implementation bytes are requalified in the appendix below.
 
 The live proof used only the disposable container
 `codexify-gse-proof-20260828`, loopback access, and PostgreSQL image
@@ -227,6 +235,11 @@ envelopes are rejected.  A schema-only source is accepted only with an
 explicitly carried, previously verified expected revision; an observed wrong
 revision always fails.
 
+The current implementation also keeps source metadata and catalog reads inside
+an exported repeatable-read, read-only PostgreSQL snapshot for `pg_dump`,
+rejects user-owned objects in the disposable target before dumping (including
+user-defined collations), and qualifies column collations by namespace.
+
 The source remained non-mutated: the raw source digest was reproduced again
 after canonicalization, the source still had exactly one `9c66e490a42b` row,
 and the fixture sentinel count remained one.  The unit fake-connection tests
@@ -256,18 +269,59 @@ adoption, or release promotion occurred.
   those warnings were not changed in this task.
 - Preflight DLG Phase 3 test: `38 passed`.
 - Final source/DLG commit lineage, post-commit DLG validation, and final
-  tracked-scope checks: pending the two local commits.
-- `git diff --check`: not run after the DLG stop condition.
-- Production/runtime and migration-source immutability checks: not run after
-  the DLG stop condition.
+  tracked-scope checks are recorded in the current implementation
+  requalification below.
+
+## Review requalification after post-DLG implementation changes
+
+The comparator implementation and its focused tests changed after
+`DLG_COMMIT`, so the historical unchanged-bytes statement and historical
+stable digest are not used as current-head proof.  Implementation commit
+`924d6a4dd8c94364e5c33885f8f745e693d90198` contains the review hardening and
+is requalified here.
+
+The fresh current-head runtime probe used only the tmpfs-backed disposable
+container `codexify-gse-requal-20260828`, PostgreSQL image
+`postgres:15@sha256:3b0d656f5fff31c7d8a64f500a703dcf3f35e98ce78f602831a73059a5e6a012`,
+and loopback port `55438`.  The source reported PostgreSQL `15.18`,
+`server_version_num=150018`, exactly one Alembic revision row
+`9c66e490a42b`, and all six governed relations.  The source was migrated only
+inside this disposable container; no shared or qualifying database was used.
+
+The current `canonicalize_database` implementation exported a repeatable-read
+read-only source snapshot and ran the schema-only dump with that snapshot.  A
+first source-to-target run and a second independently disposable target run
+both produced:
+
+`2fe066b5f541fd9d13f941dda5d7a6ae0ffd429a7c47508253fa2bc3249baa1a`
+
+The current snapshot comparison returned `equivalent: true`, an empty reason
+list, and zero descriptor differences.  A separate target containing only a
+user-defined `public.gse_custom_collation` was rejected with
+`DISPOSABLE_TARGET_REQUIRED` before either dump or restore command ran.  The
+disposable container was removed after the probe.
+
+Current repository requalification also passed:
+
+- `tests/migration/test_governed_schema_equivalence.py`: `29 passed`.
+- DLG Phase 3, Alembic uniqueness, D6 compatibility, and governed-schema
+  contract tests: passed together.
+- `scripts/knowledge_graph/validate_and_generate_dlg.py validate` at
+  repository revision `924d6a4dd8c94364e5c33885f8f745e693d90198`: passed with
+  zero errors, 10/10 source-hash matches, and 13/13 target resolutions; the
+  six existing README broken-link warnings remain unchanged.
+- `scripts/validate_docs.py` and `make docs PYTHON=/Volumes/Dev_SSD/Codexify-main/.venv/bin/python`:
+  passed.
+- Source-to-DLG ancestry, the exact six-file publication boundary, migration
+  source immutability, and PR-scoped `git diff --check`: passed.
 
 ## Disposition
 
-The cross-restoration schema-proof defect is repaired at the contract level.
-The final source and DLG metadata commits, post-commit validation, and local
-publication boundary remain part of this reconciliation task.  Google Drive
-adoption remains a separate task and must not begin OAuth until database
-adoption passes.
+The cross-restoration schema-proof defect and the reviewed hardening findings
+are repaired at the contract level.  The GitHub PR still requires its own
+required-check and review gates; this receipt does not waive either gate.
+Google Drive adoption remains a separate task and must not begin OAuth until
+database adoption passes.
 
 ## Canonical publication qualification
 
@@ -286,16 +340,16 @@ adoption passes.
   `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json`,
   `scripts/governed_schema_equivalence.py`, and
   `tests/migration/test_governed_schema_equivalence.py`.
-- Stable `governed-schema-equivalence/v1` digest:
+- Historical stable `governed-schema-equivalence/v1` digest:
   `3602352f35eea4aaec2da7728ae0a6c9d68ad6ec59572b5863beae56a3f0423f`.
 - Final ADR-index source hash:
   `9844ad3ad91310ea4b65311f576eae78a616f4b8d48b13420e7daf60501d88e3`.
 - The ADR-index DLG node `freshness.verified_commit` is
   `abbdf5b03eec31b78edb43e62c713c892cc296fc`.
-- Comparator implementation/tests, ADR-076, the ADR index source, and the
-  ADR-index DLG node bytes were verified unchanged after `DLG_COMMIT`; only
-  this existing proof receipt is eligible for the publication qualification
-  appendix.
+- The comparator implementation and tests were changed after `DLG_COMMIT` by
+  the review hardening commit above.  The ADR-076 source, ADR index source,
+  and ADR-index DLG node remain the governed source-to-DLG chain; the current
+  implementation is qualified by the requalification section above.
 - Publication must preserve `SOURCE_COMMIT` → `DLG_COMMIT` ancestry through a
   history-preserving merge commit on canonical `main`.
 - Squash and rebase publication are prohibited.
