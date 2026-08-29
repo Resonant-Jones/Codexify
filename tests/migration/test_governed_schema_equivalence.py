@@ -214,6 +214,51 @@ def test_v1_identifier_and_full_governed_relation_surface_are_fixed() -> None:
     assert b'"source_revision":"9c66e490a42b"' in envelope
 
 
+@pytest.mark.parametrize(
+    ("major", "revision", "error_type"),
+    [
+        (16, gse.EXPECTED_ALEMBIC_REVISION, gse.PostgresMajorMismatch),
+        (gse.EXPECTED_POSTGRES_MAJOR, "6e9f0a1b2c3", gse.AlembicRevisionMismatch),
+    ],
+)
+def test_v1_snapshot_identity_cannot_be_overridden(
+    major: int,
+    revision: str,
+    error_type: type[gse.ContractError],
+) -> None:
+    with pytest.raises(error_type):
+        _snapshot(major=major, revision=revision)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["inspect", "--dsn=source", "--postgres-major=16"],
+        ["inspect", "--dsn=source", "--revision=6e9f0a1b2c3"],
+        [
+            "canonicalize",
+            "--source-dsn=source",
+            "--target-dsn=target",
+            "--target-disposable-name=codexify_gse_target",
+            "--output=snapshot.json",
+            "--postgres-major=16",
+        ],
+        [
+            "canonicalize",
+            "--source-dsn=source",
+            "--target-dsn=target",
+            "--target-disposable-name=codexify_gse_target",
+            "--output=snapshot.json",
+            "--revision=6e9f0a1b2c3",
+        ],
+    ],
+)
+def test_v1_cli_rejects_contract_identity_overrides(arguments: list[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        gse._parser().parse_args(arguments)
+    assert error.value.code == 2
+
+
 def test_deterministic_serialization_orders_rows_and_json_keys() -> None:
     first = _descriptors()
     shuffled = copy.deepcopy(first)
@@ -267,9 +312,9 @@ def test_comparison_requires_exact_descriptors_even_if_digest_is_same() -> None:
 def test_real_check_mutation_changes_digest_and_bounded_diff() -> None:
     baseline = _descriptors()
     mutation = copy.deepcopy(baseline)
-    mutation["constraints"][0][
-        "definition"
-    ] = "CHECK ((attempt_state)::text <> 'running')"
+    mutation["constraints"][0]["definition"] = (
+        "CHECK ((attempt_state)::text <> 'running')"
+    )
 
     left = _snapshot(baseline)
     right = _snapshot(mutation)

@@ -239,19 +239,16 @@ def read_alembic_revisions(connection: Any) -> tuple[str, ...]:
 
 def verify_source_metadata(
     connection: Any,
-    *,
-    expected_postgres_major: int = EXPECTED_POSTGRES_MAJOR,
-    expected_revision: str = EXPECTED_ALEMBIC_REVISION,
 ) -> SourceMetadata:
     """Capture and validate source identity before invoking ``pg_dump``."""
 
     observed_major = postgres_major(connection)
-    if observed_major != expected_postgres_major:
-        raise PostgresMajorMismatch(expected_postgres_major, observed_major)
+    if observed_major != EXPECTED_POSTGRES_MAJOR:
+        raise PostgresMajorMismatch(EXPECTED_POSTGRES_MAJOR, observed_major)
 
     revisions = read_alembic_revisions(connection)
-    if revisions != (expected_revision,):
-        raise AlembicRevisionMismatch(expected_revision, revisions)
+    if revisions != (EXPECTED_ALEMBIC_REVISION,):
+        raise AlembicRevisionMismatch(EXPECTED_ALEMBIC_REVISION, revisions)
 
     return SourceMetadata(observed_major, revisions)
 
@@ -259,8 +256,6 @@ def verify_source_metadata(
 def verify_schema_source_metadata(
     connection: Any,
     *,
-    expected_postgres_major: int = EXPECTED_POSTGRES_MAJOR,
-    expected_revision: str = EXPECTED_ALEMBIC_REVISION,
     carried_source_revision: str | None = None,
 ) -> SourceMetadata:
     """Validate a source, allowing explicit lineage for a schema-only dump.
@@ -273,31 +268,29 @@ def verify_schema_source_metadata(
     """
 
     observed_major = postgres_major(connection)
-    if observed_major != expected_postgres_major:
-        raise PostgresMajorMismatch(expected_postgres_major, observed_major)
+    if observed_major != EXPECTED_POSTGRES_MAJOR:
+        raise PostgresMajorMismatch(EXPECTED_POSTGRES_MAJOR, observed_major)
 
     revisions = read_alembic_revisions(connection)
     if revisions:
-        if revisions != (expected_revision,):
-            raise AlembicRevisionMismatch(expected_revision, revisions)
+        if revisions != (EXPECTED_ALEMBIC_REVISION,):
+            raise AlembicRevisionMismatch(EXPECTED_ALEMBIC_REVISION, revisions)
         return SourceMetadata(observed_major, revisions)
 
-    if carried_source_revision == expected_revision:
+    if carried_source_revision == EXPECTED_ALEMBIC_REVISION:
         return SourceMetadata(observed_major, (carried_source_revision,))
 
-    raise AlembicRevisionMismatch(expected_revision, revisions)
+    raise AlembicRevisionMismatch(EXPECTED_ALEMBIC_REVISION, revisions)
 
 
 def verify_target_postgres_major(
     connection: Any,
-    *,
-    expected_postgres_major: int = EXPECTED_POSTGRES_MAJOR,
 ) -> int:
     """Require the disposable restore target to use the same major."""
 
     observed_major = postgres_major(connection)
-    if observed_major != expected_postgres_major:
-        raise PostgresMajorMismatch(expected_postgres_major, observed_major)
+    if observed_major != EXPECTED_POSTGRES_MAJOR:
+        raise PostgresMajorMismatch(EXPECTED_POSTGRES_MAJOR, observed_major)
     return observed_major
 
 
@@ -586,6 +579,10 @@ def build_snapshot(
     postgres_major_value: int,
     source_revision: str,
 ) -> GovernedSchemaSnapshot:
+    if postgres_major_value != EXPECTED_POSTGRES_MAJOR:
+        raise PostgresMajorMismatch(EXPECTED_POSTGRES_MAJOR, postgres_major_value)
+    if source_revision != EXPECTED_ALEMBIC_REVISION:
+        raise AlembicRevisionMismatch(EXPECTED_ALEMBIC_REVISION, (source_revision,))
     normalized = normalize_descriptors(descriptors)
     envelope = {
         "contract_version": CONTRACT_VERSION,
@@ -624,12 +621,8 @@ def snapshot_connection(
     connection: Any,
     *,
     source_revision: str,
-    expected_postgres_major: int = EXPECTED_POSTGRES_MAJOR,
 ) -> GovernedSchemaSnapshot:
-    observed_major = verify_target_postgres_major(
-        connection,
-        expected_postgres_major=expected_postgres_major,
-    )
+    observed_major = verify_target_postgres_major(connection)
     return build_snapshot(
         collect_governed_descriptors(connection),
         postgres_major_value=observed_major,
@@ -729,8 +722,6 @@ def canonicalize_database(
     target_dsn: str,
     *,
     target_disposable_name: str,
-    expected_postgres_major: int = EXPECTED_POSTGRES_MAJOR,
-    expected_revision: str = EXPECTED_ALEMBIC_REVISION,
     carried_source_revision: str | None = None,
     pg_dump_bin: str = "pg_dump",
     psql_bin: str = "psql",
@@ -751,16 +742,11 @@ def canonicalize_database(
     with connect(source_dsn) as source_connection:
         source_metadata = verify_schema_source_metadata(
             source_connection,
-            expected_postgres_major=expected_postgres_major,
-            expected_revision=expected_revision,
             carried_source_revision=carried_source_revision,
         )
 
     with connect(target_dsn) as target_connection:
-        verify_target_postgres_major(
-            target_connection,
-            expected_postgres_major=expected_postgres_major,
-        )
+        verify_target_postgres_major(target_connection)
         verify_disposable_target_identity(
             target_connection,
             expected_database_name=target_disposable_name,
@@ -801,7 +787,6 @@ def canonicalize_database(
         return snapshot_connection(
             target_connection,
             source_revision=source_metadata.alembic_revision,
-            expected_postgres_major=expected_postgres_major,
         )
 
 
@@ -825,15 +810,12 @@ def _parser() -> argparse.ArgumentParser:
 
     inspect = commands.add_parser("inspect", help="read source metadata")
     inspect.add_argument("--dsn", required=True)
-    inspect.add_argument("--postgres-major", type=int, default=EXPECTED_POSTGRES_MAJOR)
-    inspect.add_argument("--revision", default=EXPECTED_ALEMBIC_REVISION)
 
     snapshot = commands.add_parser(
         "snapshot", help="collect an already canonicalized target"
     )
     snapshot.add_argument("--dsn", required=True)
     snapshot.add_argument("--source-revision", required=True)
-    snapshot.add_argument("--postgres-major", type=int, default=EXPECTED_POSTGRES_MAJOR)
     snapshot.add_argument("--output", type=Path, required=True)
 
     canonicalize = commands.add_parser(
@@ -842,10 +824,6 @@ def _parser() -> argparse.ArgumentParser:
     canonicalize.add_argument("--source-dsn", required=True)
     canonicalize.add_argument("--target-dsn", required=True)
     canonicalize.add_argument("--target-disposable-name", required=True)
-    canonicalize.add_argument(
-        "--postgres-major", type=int, default=EXPECTED_POSTGRES_MAJOR
-    )
-    canonicalize.add_argument("--revision", default=EXPECTED_ALEMBIC_REVISION)
     canonicalize.add_argument("--carried-source-revision")
     canonicalize.add_argument("--output", type=Path, required=True)
 
@@ -861,11 +839,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "inspect":
             psycopg = _import_psycopg()
             with psycopg.connect(args.dsn) as connection:
-                metadata = verify_source_metadata(
-                    connection,
-                    expected_postgres_major=args.postgres_major,
-                    expected_revision=args.revision,
-                )
+                metadata = verify_source_metadata(connection)
             print(
                 json.dumps(
                     {
@@ -883,7 +857,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 snapshot = snapshot_connection(
                     connection,
                     source_revision=args.source_revision,
-                    expected_postgres_major=args.postgres_major,
                 )
             _write_snapshot(args.output, snapshot)
             print(json.dumps({"digest": snapshot.digest}, sort_keys=True))
@@ -894,8 +867,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.source_dsn,
                 args.target_dsn,
                 target_disposable_name=args.target_disposable_name,
-                expected_postgres_major=args.postgres_major,
-                expected_revision=args.revision,
                 carried_source_revision=args.carried_source_revision,
             )
             _write_snapshot(args.output, snapshot)
