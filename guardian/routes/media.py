@@ -187,6 +187,46 @@ class DocumentDetailResponse(BaseModel):
     created_at: str
 
 
+class DocumentArtifactResponse(BaseModel):
+    """A document artifact projected for the Documents workspace."""
+
+    id: str
+    document_id: str
+    artifact_type: str
+    title: str
+    filename: str | None = None
+    format: str | None = None
+    project_id: int | None = None
+    thread_id: int | None = None
+    thread_ids: list[int] = Field(default_factory=list)
+    thread_title: str | None = None
+    thread_titles: list[str] = Field(default_factory=list)
+    relation: str | None = None
+    relations: list[str] = Field(default_factory=list)
+    src_url: str | None = None
+    filesize: int | None = None
+    mime_type: str | None = None
+    source_tag: str | None = None
+    embedding_status: str | None = None
+    embedding_error: str | None = None
+    embedding_started_at: str | None = None
+    embedding_completed_at: str | None = None
+    created_at: str | None = None
+
+
+class DocumentArtifactListResponse(BaseModel):
+    documents: list[DocumentArtifactResponse]
+    count: int
+
+
+class DocumentArtifactDetailResponse(DocumentArtifactResponse):
+    """A document artifact with previewable content when available."""
+
+    media_asset_id: str | None = None
+    content: str | None = None
+    parsed_text: str | None = None
+
+
 class ImageGenerationRequest(BaseModel):
     prompt: str = Field(..., description="Text prompt for image generation")
     model: str = Field(default="dall-e-3", description="Model to use")
@@ -2495,6 +2535,504 @@ async def list_images(
             ],
             "count": len(images),
         }
+
+
+def _isoformat_optional(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_document_artifact_type(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith("gen"):
+        return "generated"
+    if normalized.startswith("up") or normalized in {"file", "document"}:
+        return "uploaded"
+    return None
+
+
+def _query_document_artifact_rows(
+    session,
+    model,
+    *,
+    project_id: int | None = None,
+    thread_id: int | None = None,
+    document_ids: set[str] | None = None,
+    user_id: str | None = None,
+) -> list[Any]:
+    """Load visible document rows for one source model."""
+    if document_ids is not None and not document_ids:
+        return []
+
+    query = session.query(model).filter(model.deleted_at.is_(None))
+    if project_id is not None:
+        query = query.filter_by(project_id=project_id)
+    if thread_id is not None:
+        query = query.filter_by(thread_id=thread_id)
+    if document_ids is not None:
+        query = query.filter(model.id.in_(sorted(document_ids)))
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    return query.all()
+
+
+def _query_document_artifact_thread_links(
+    session,
+    thread_ids: set[int],
+) -> list[ThreadDocument]:
+    if not thread_ids:
+        return []
+
+    query = session.query(ThreadDocument)
+    if len(thread_ids) == 1:
+        query = query.filter_by(thread_id=next(iter(thread_ids)))
+    else:
+        query = query.filter(ThreadDocument.thread_id.in_(sorted(thread_ids)))
+    return query.order_by(ThreadDocument.created_at.desc()).all()
+
+
+def _query_document_artifact_project_threads(
+    session,
+    project_id: int,
+    user_id: str | None,
+) -> list[Any]:
+    query = session.query(ChatThread).filter_by(project_id=project_id)
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    return query.all()
+
+
+def _document_artifact_payload(
+    row: Any,
+    artifact_type: str,
+    *,
+    fallback_project_id: int | None = None,
+    scope_thread_id: int | None = None,
+    thread_titles: dict[int, str] | None = None,
+    link_metadata: list[dict[str, Any]] | None = None,
+    include_content: bool = False,
+) -> dict[str, Any]:
+    """Project one generated/uploaded row into the Documents API contract."""
+    normalized_type = _normalize_document_artifact_type(artifact_type) or "uploaded"
+    document_id = str(_row_value(row, "id") or "").strip()
+    direct_project_id = _coerce_optional_positive_int(
+        _row_value(row, "project_id")
+    )
+    resolved_project_id = direct_project_id or fallback_project_id
+    direct_thread_id = _coerce_optional_positive_int(_row_value(row, "thread_id"))
+    links = link_metadata or []
+
+    thread_ids: list[int] = []
+
+    def append_thread_id(value: Any) -> None:
+        normalized = _coerce_optional_positive_int(value)
+        if normalized is not None and normalized not in thread_ids:
+            thread_ids.append(normalized)
+
+    if scope_thread_id is not None:
+        append_thread_id(scope_thread_id)
+    else:
+        append_thread_id(direct_thread_id)
+    for link in links:
+        append_thread_id(link.get("thread_id"))
+
+    relations: list[str] = []
+    link_created_at: list[str] = []
+    for link in links:
+        relation = str(link.get("relation") or "").strip()
+        if relation and relation not in relations:
+            relations.append(relation)
+        created_at = _isoformat_optional(link.get("created_at"))
+        if created_at:
+            link_created_at.append(created_at)
+
+    primary_thread_id = (
+        scope_thread_id
+        if scope_thread_id is not None
+        else direct_thread_id or (thread_ids[0] if thread_ids else None)
+    )
+    normalized_thread_titles = thread_titles or {}
+    resolved_thread_titles = [
+        normalized_thread_titles[thread_id]
+        for thread_id in thread_ids
+        if normalized_thread_titles.get(thread_id)
+    ]
+
+    created_at = _isoformat_optional(_row_value(row, "created_at"))
+    if not created_at and link_created_at:
+        created_at = link_created_at[0]
+
+    if normalized_type == "generated":
+        title = str(_row_value(row, "title") or "Generated document").strip()
+        filename = None
+        document_format = str(_row_value(row, "format") or "").strip() or None
+        source_tag = "generated"
+        src_url = None
+        filesize = None
+        mime_type = "text/markdown" if document_format == "md" else "text/plain"
+        media_asset_id = None
+        embedding_status = None
+        embedding_error = None
+        embedding_started_at = None
+        embedding_completed_at = None
+    else:
+        filename = str(_row_value(row, "filename") or document_id).strip()
+        title = filename or "Untitled"
+        document_format = None
+        source_tag = _row_value(row, "source_tag")
+        src_url = _signed_src_url(_row_value(row, "src_url"))
+        filesize = _row_value(row, "filesize")
+        mime_type = _row_value(row, "mime_type")
+        media_asset_id = _row_value(row, "asset_id")
+        embedding_status = _row_value(row, "embedding_status")
+        embedding_error = _row_value(row, "embedding_error")
+        embedding_started_at = _isoformat_optional(
+            _row_value(row, "embedding_started_at")
+        )
+        embedding_completed_at = _isoformat_optional(
+            _row_value(row, "embedding_completed_at")
+        )
+
+    payload: dict[str, Any] = {
+        "id": document_id,
+        "document_id": document_id,
+        "artifact_type": normalized_type,
+        "title": title,
+        "filename": filename,
+        "format": document_format,
+        "project_id": resolved_project_id,
+        "thread_id": primary_thread_id,
+        "thread_ids": thread_ids,
+        "thread_title": (
+            normalized_thread_titles.get(primary_thread_id)
+            if primary_thread_id is not None
+            else None
+        ),
+        "thread_titles": resolved_thread_titles,
+        "relation": relations[0] if relations else None,
+        "relations": relations,
+        "src_url": src_url,
+        "filesize": filesize,
+        "mime_type": mime_type,
+        "source_tag": source_tag,
+        "embedding_status": embedding_status,
+        "embedding_error": embedding_error,
+        "embedding_started_at": embedding_started_at,
+        "embedding_completed_at": embedding_completed_at,
+        "created_at": created_at,
+    }
+
+    if include_content:
+        content = _row_value(row, "content")
+        parsed_text = _row_value(row, "parsed_text")
+        if normalized_type == "generated":
+            payload["content"] = content
+            payload["parsed_text"] = content
+        else:
+            payload["content"] = parsed_text
+            payload["parsed_text"] = parsed_text
+        payload["media_asset_id"] = media_asset_id
+
+    return payload
+
+
+def _list_document_artifact_payloads(
+    session,
+    *,
+    project_id: int | None,
+    thread_id: int | None,
+    request_user_scope: RequestUserScope,
+) -> list[dict[str, Any]]:
+    """Read project/thread document artifacts without requiring a migration."""
+    user_id = (
+        _request_account_id(request_user_scope)
+        if _is_multi_user_scope(request_user_scope)
+        else None
+    )
+    fallback_project_id = project_id
+    thread_titles: dict[int, str] = {}
+    scoped_thread_ids: set[int] = set()
+    link_records: list[tuple[Any, str | None]] = []
+
+    if project_id is not None:
+        project_threads = _query_document_artifact_project_threads(
+            session, project_id, user_id
+        )
+        for thread in project_threads:
+            normalized_thread_id = _coerce_optional_positive_int(
+                _row_value(thread, "id")
+            )
+            if normalized_thread_id is None:
+                continue
+            scoped_thread_ids.add(normalized_thread_id)
+            title = str(_row_value(thread, "title") or "").strip()
+            if title:
+                thread_titles[normalized_thread_id] = title
+
+        project_links = (
+            session.query(ProjectDocumentLink)
+            .filter_by(project_id=project_id, is_enabled=True)
+            .all()
+        )
+        link_records.extend(
+            (
+                link,
+                _normalize_document_artifact_type(
+                    _row_value(link, "document_type")
+                ),
+            )
+            for link in project_links
+        )
+        link_records.extend(
+            (link, None)
+            for link in _query_document_artifact_thread_links(
+                session, scoped_thread_ids
+            )
+        )
+    elif thread_id is not None:
+        target_thread = session.query(ChatThread).filter_by(id=thread_id).first()
+        if target_thread is not None:
+            fallback_project_id = _coerce_optional_positive_int(
+                _row_value(target_thread, "project_id")
+            )
+            title = str(_row_value(target_thread, "title") or "").strip()
+            if title:
+                thread_titles[thread_id] = title
+        scoped_thread_ids.add(thread_id)
+        link_records.extend(
+            (link, None)
+            for link in _query_document_artifact_thread_links(
+                session, scoped_thread_ids
+            )
+        )
+
+    direct_generated = _query_document_artifact_rows(
+        session,
+        GeneratedDocument,
+        project_id=project_id,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
+    direct_uploaded = _query_document_artifact_rows(
+        session,
+        UploadedDocument,
+        project_id=project_id,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
+
+    linked_ids: dict[str, set[str]] = {"generated": set(), "uploaded": set()}
+    for link, explicit_type in link_records:
+        document_id = str(_row_value(link, "document_id") or "").strip()
+        if not document_id:
+            continue
+        if explicit_type:
+            linked_ids[explicit_type].add(document_id)
+        else:
+            # ThreadDocument predates the typed project link, so resolve both
+            # sources and retain the existing generated-first collision policy.
+            linked_ids["generated"].add(document_id)
+            linked_ids["uploaded"].add(document_id)
+
+    linked_generated = _query_document_artifact_rows(
+        session,
+        GeneratedDocument,
+        document_ids=linked_ids["generated"],
+        user_id=user_id,
+    )
+    linked_uploaded = _query_document_artifact_rows(
+        session,
+        UploadedDocument,
+        document_ids=linked_ids["uploaded"],
+        user_id=user_id,
+    )
+
+    rows_by_key: dict[tuple[str, str], Any] = {}
+    for row in [*direct_generated, *linked_generated]:
+        document_id = str(_row_value(row, "id") or "").strip()
+        if document_id:
+            rows_by_key[("generated", document_id)] = row
+    for row in [*direct_uploaded, *linked_uploaded]:
+        document_id = str(_row_value(row, "id") or "").strip()
+        if document_id:
+            rows_by_key[("uploaded", document_id)] = row
+
+    link_metadata_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for link, explicit_type in link_records:
+        document_id = str(_row_value(link, "document_id") or "").strip()
+        if not document_id:
+            continue
+        candidate_types = [explicit_type] if explicit_type else [
+            "generated",
+            "uploaded",
+        ]
+        for candidate_type in candidate_types:
+            key = (candidate_type, document_id)
+            if key not in rows_by_key:
+                continue
+            link_metadata_by_key.setdefault(key, []).append(
+                {
+                    "thread_id": _row_value(link, "thread_id"),
+                    "relation": _row_value(link, "relation"),
+                    "created_at": _row_value(link, "created_at"),
+                }
+            )
+            # Preserve the historical generated-first behavior if a legacy
+            # ThreadDocument ID happens to exist in both source tables.
+            break
+
+    payloads = [
+        _document_artifact_payload(
+            row,
+            artifact_type,
+            fallback_project_id=fallback_project_id,
+            scope_thread_id=thread_id,
+            thread_titles=thread_titles,
+            link_metadata=link_metadata_by_key.get((artifact_type, document_id)),
+        )
+        for (artifact_type, document_id), row in rows_by_key.items()
+    ]
+    payloads.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return payloads
+
+
+@router.get(
+    "/document-artifacts",
+    response_model=DocumentArtifactListResponse,
+    tags=["media"],
+)
+async def list_document_artifacts(
+    project_id: Optional[int] = Query(None),
+    thread_id: Optional[int] = Query(None),
+    limit: int = Query(100, ge=1, le=100),
+    tag: Optional[str] = Query(None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """List uploaded and generated documents for one project or thread scope."""
+    db = _get_db()
+    explicit_project_id = _coerce_optional_positive_int(project_id)
+    explicit_thread_id = _coerce_optional_positive_int(thread_id)
+    if explicit_project_id is not None and explicit_thread_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Specify either project_id or thread_id, not both",
+        )
+    if explicit_project_id is not None:
+        _require_project_account_scope(
+            db, explicit_project_id, request_user_scope
+        )
+    if explicit_thread_id is not None:
+        _require_thread_account_scope(
+            db, explicit_thread_id, request_user_scope
+        )
+
+    with db.get_session() as session:
+        documents = _list_document_artifact_payloads(
+            session,
+            project_id=explicit_project_id,
+            thread_id=explicit_thread_id,
+            request_user_scope=request_user_scope,
+        )
+
+    normalized_tag = str(tag or "").strip().lower()
+    if normalized_tag:
+        documents = [
+            document
+            for document in documents
+            if document.get("artifact_type") == normalized_tag
+            or str(document.get("source_tag") or "").lower() == normalized_tag
+        ]
+
+    documents = documents[:limit]
+    return {"documents": documents, "count": len(documents)}
+
+
+@router.get(
+    "/document-artifacts/{artifact_id}",
+    response_model=DocumentArtifactDetailResponse,
+    tags=["media"],
+)
+async def get_document_artifact(
+    artifact_id: str,
+    artifact_type: Optional[str] = Query(None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Fetch previewable content and provenance for one document artifact."""
+    identity = str(artifact_id or "").strip()
+    if not identity:
+        raise HTTPException(status_code=404, detail="Document artifact not found")
+
+    requested_type = _normalize_document_artifact_type(artifact_type)
+    if artifact_type and requested_type is None:
+        raise HTTPException(status_code=400, detail="Invalid artifact_type")
+
+    db = _get_db()
+    user_id = (
+        _request_account_id(request_user_scope)
+        if _is_multi_user_scope(request_user_scope)
+        else None
+    )
+    row = None
+    resolved_type = requested_type
+    with db.get_session() as session:
+        candidate_types = [requested_type] if requested_type else [
+            "generated",
+            "uploaded",
+        ]
+        for candidate_type in candidate_types:
+            model = (
+                GeneratedDocument
+                if candidate_type == "generated"
+                else UploadedDocument
+            )
+            rows = _query_document_artifact_rows(
+                session,
+                model,
+                document_ids={identity},
+                user_id=user_id,
+            )
+            if rows:
+                row = rows[0]
+                resolved_type = candidate_type
+                break
+
+        if row is None or resolved_type is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Document artifact not found",
+            )
+
+        fallback_project_id = _coerce_optional_positive_int(
+            _row_value(row, "project_id")
+        )
+        thread_titles: dict[int, str] = {}
+        direct_thread_id = _coerce_optional_positive_int(
+            _row_value(row, "thread_id")
+        )
+        if direct_thread_id is not None:
+            thread = (
+                session.query(ChatThread)
+                .filter_by(id=direct_thread_id)
+                .first()
+            )
+            if thread is not None:
+                title = str(_row_value(thread, "title") or "").strip()
+                if title:
+                    thread_titles[direct_thread_id] = title
+
+        payload = _document_artifact_payload(
+            row,
+            resolved_type,
+            fallback_project_id=fallback_project_id,
+            thread_titles=thread_titles,
+            include_content=True,
+        )
+        payload["media_asset_id"] = _row_value(row, "asset_id")
+        return payload
 
 
 @router.get("/documents", tags=["media"])

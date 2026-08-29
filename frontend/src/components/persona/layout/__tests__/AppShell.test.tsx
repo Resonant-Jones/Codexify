@@ -619,7 +619,7 @@ describe("AppShell logo wordmark color contract", () => {
         };
       }
 
-      if (path === "/media/documents") {
+      if (path === "/media/document-artifacts") {
         documentProjectIds.push(options?.params?.project_id);
         expect(options?.params?.project_id).not.toBe(1);
         return { data: { documents: [] } };
@@ -1855,7 +1855,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(1280);
     setRoutePath("/chat/11");
     mockApi.get.mockImplementation((url: string) => {
-      if (url === "/media/documents") return Promise.resolve({ data: { documents: [] } });
+      if (url === "/media/document-artifacts") return Promise.resolve({ data: { documents: [] } });
       if (url === "/api/projects") return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
@@ -1877,7 +1877,7 @@ describe("AppShell documents sidebar posture", () => {
       })
     );
     await waitFor(() => {
-      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/document-artifacts", {
         params: { limit: 100, thread_id: 11 },
       });
     });
@@ -1886,7 +1886,7 @@ describe("AppShell documents sidebar posture", () => {
     expect(screen.getByTestId("documents-project-id")).toHaveTextContent("2");
     expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("no-thread");
     await waitFor(() => {
-      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/document-artifacts", {
         params: { limit: 100, project_id: 2 },
       });
     });
@@ -1896,7 +1896,7 @@ describe("AppShell documents sidebar posture", () => {
     expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("21");
     expect(window.location.pathname).toBe("/documents");
     await waitFor(() => {
-      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/document-artifacts", {
         params: { limit: 100, thread_id: 21 },
       });
     });

@@ -129,7 +129,7 @@ describe("Thread document rehydration", () => {
           },
         } as AxiosResponse);
       }
-      if (url === "/media/documents") {
+      if (url === "/media/document-artifacts") {
         const threadId = Number(config?.params?.thread_id ?? 0);
         if (threadId === 101) {
           return Promise.resolve({
@@ -187,7 +187,7 @@ describe("Thread document rehydration", () => {
       expect(
         getSpy.mock.calls.some(
           ([path, cfg]) =>
-            path === "/media/documents" &&
+            path === "/media/document-artifacts" &&
             Number((cfg as any)?.params?.thread_id) === 101
         )
       ).toBe(true);
@@ -206,7 +206,7 @@ describe("Thread document rehydration", () => {
       expect(
         getSpy.mock.calls.some(
           ([path, cfg]) =>
-            path === "/media/documents" &&
+            path === "/media/document-artifacts" &&
             Number((cfg as any)?.params?.thread_id) === 202
         )
       ).toBe(true);

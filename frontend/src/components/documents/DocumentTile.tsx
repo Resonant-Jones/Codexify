@@ -21,6 +21,8 @@ export type DocumentFile = {
   src?: string;
   url?: string;
   type?: "file" | "codex_entry";
+  artifactType?: "uploaded" | "generated";
+  provenanceLabel?: string;
   embeddingStatus?: string;
   embeddingError?: string;
 };
@@ -126,6 +128,7 @@ export default function DocumentTile({
     [ext, fileName]
   );
   const fileType = file?.type === "codex_entry" ? "codex_entry" : "file";
+  const artifactType = file?.artifactType || "uploaded";
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
@@ -137,9 +140,11 @@ export default function DocumentTile({
       ),
     [file]
   );
-  const canDownload = fileType !== "codex_entry" && !!downloadUrl;
+  const canDownload =
+    fileType !== "codex_entry" && artifactType !== "generated" && !!downloadUrl;
   const canDelete =
     fileType !== "codex_entry" &&
+    artifactType !== "generated" &&
     typeof file?.id === "string" &&
     file.id.trim().length > 0;
 
@@ -259,6 +264,15 @@ export default function DocumentTile({
           data-slot="document-tile-footer"
           style={{ background: bannerColor, color: onColor }}
         >
+          {file?.provenanceLabel ? (
+            <div
+              className="codexifyDocumentTileProvenance max-w-full truncate text-[9px] font-medium leading-[1.1] opacity-85"
+              data-slot="document-tile-provenance"
+              title={file.provenanceLabel}
+            >
+              {file.provenanceLabel}
+            </div>
+          ) : null}
           <div
             className="codexifyDocumentTileName max-w-full text-[11px] font-semibold leading-[1.1]"
             data-slot="document-tile-name"
