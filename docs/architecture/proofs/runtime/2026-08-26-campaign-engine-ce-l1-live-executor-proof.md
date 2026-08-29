@@ -670,3 +670,221 @@ SINGLE_TASK_SUPERVISED_USABLE=NOT_EMITTED
 land the Pi 0.82.1 tool-activation and bounded telemetry repair on remote
 main
 ```
+
+## 2026-08-29 post-repair gpt-5.6-sol canonical requalification — BLOCKED
+
+### Canonical base SHA
+
+```text
+18c6f797675c803799fea9db01b15fc86901f9af
+Repair Pi 0.82.1 tool activation telemetry (#776)
+```
+
+### Root-cause repair status
+
+```text
+TOOL_ACTIVATION_REPAIR = PASS_CANONICAL
+```
+
+### Pre-repair canonical prerequisite truth
+
+```text
+CE-L1_OAUTH_PREREQUISITE = PASS / canonical
+PI_0821_TOOL_OPTIONS_TYPE_MISMATCH_PROVEN
+```
+
+### Single live call accounting
+
+```text
+run_live_executor_campaign call count = 1
+runner_call_count = 0
+retry_count = 0
+fallback_count = 0
+rebinding_count = 0
+provider_switch_count = 0
+model_switch_count = 0
+provider_inference_count = 0
+operator_credential_access_count = 0
+```
+
+### Failure reason
+
+```text
+failure_reason = policy_envelope_mismatch
+diagnostic_stage = pre_invocation
+runner_call_count = 0
+```
+
+The runtime mapped an accumulated multi-cause envelope/decision validation
+result to the canonical `policy_envelope_mismatch` token at
+`invoke_guardian_authorized_pi(...)` entry. The Pi 0.82.1 runtime was **not**
+invoked. `run_live_executor_campaign` returned a `CampaignLiveExecutorError`
+whose `to_payload()` was persisted to `run-result.json` only.
+
+### Underlying bounded causes (extracted from the disposable driver audit)
+
+The `validate_policy_decision_against_envelope(...)` validator accumulated
+the following pre-invocation reasons against the disposable driver's
+Guardian envelope + decision (before any provider call):
+
+```text
+invalid_provider_lane        — envelope.provider_lane.provider_lane_class
+                                was "provider_lane" rather than the
+                                canonical PiProviderLaneClass enum value
+                                (local|remote|hybrid|external|minimax).
+                                For an openai-codex/external provider the
+                                canonical class is "external".
+missing_invocation_id         — PiInvocationPolicyDecision.validation_status
+                                was unset (default None). The
+                                validate_pi_invocation_policy_decision
+                                validator emits MISSING_INVOCATION_ID when
+                                decision.validation_status is falsy.
+```
+
+Both are defensive, pre-invocation Guardian validations. They are independent
+of the post-repair Pi 0.82.1 tool-activation seam and independent of any
+provider behavior.
+
+### Tool telemetry (BLOCKED before Pi invocation)
+
+```text
+effective_tool_names           = N/A (Pi runtime was not invoked)
+write_tool_available          = N/A (Pi runtime was not invoked)
+tool_execution_start_count    = N/A (Pi runtime was not invoked)
+tool_execution_end_count      = N/A (Pi runtime was not invoked)
+executed_tool_names           = N/A (Pi runtime was not invoked)
+assistant_tool_call_count     = N/A (Pi runtime was not invoked)
+tool_telemetry                = null
+```
+
+### Target posture
+
+```text
+target_baseline_HEAD           = f1638885b3773e84720d39626990db4402bf4148
+target_HEAD after invocation   = f1638885b3773e84720d39626990db4402bf4148 (unchanged)
+target remote -v               = (empty)
+target git status --short     = (empty)
+target file bytes              = CE_L1_POST_REPAIR_BEFORE\n
+target file SHA-256            = c4ea51164638a490306fb0a3e3c23f2ede0a0b90e1c7858036529e217bf54263
+expected final SHA-256         = cefeb8215907aaf756d83f823953d04473550bbea8ae61ade175d7f8c60a0fe0
+```
+
+The target remained byte-identical to its committed baseline. No commit was
+made. No remote was added. No merge was attempted.
+
+### Campaign artifact publication posture
+
+```text
+campaign-input.json                                   = absent (preparation only — not persisted)
+authorization/executor-preparation.json              = absent
+authorization/executor-envelope.json                 = absent
+authorization/executor-policy-decision.json          = absent
+execution/executor-pi-receipt.json                   = absent (Pi runtime not invoked)
+execution/executor-pi-harness-result.json             = absent (Pi runtime not invoked)
+execution/executor-boundary-validation.json           = absent
+execution/target-before.json                          = absent
+execution/target-after.json                           = absent
+attempts/<attempt_id>.json                            = absent
+evaluations/<evaluation_id>.json                      = absent
+receipts/<receipt_id>.json                            = absent
+tasks/<task_id>/task-state.json                       = absent
+campaign-state.json                                   = absent
+run-result.json                                       = PRESENT (only published artifact)
+```
+
+The Campaign Engine published no Attempt, Receipt, Harness Result,
+Evaluation, TaskState, or CampaignState because the runtime closed at
+`pre_invocation` validation before reaching the live Executor rail.
+
+### Live Attempt validation
+
+```text
+execution_mode                  = (no Attempt published)
+expected_provider_id            = openai-codex
+expected_model_id               = gpt-5.6-sol
+actual_provider_id              = (none — Pi runtime not invoked)
+actual_model_id                 = (none — Pi runtime not invoked)
+identity_verification_result    = (none)
+provider_call_count             = 0
+exit_classification              = (none)
+source_mutation_count           = 0
+commit_performed                = false
+merge_performed                 = false
+durable_ingestion_performed     = false
+```
+
+### Provider-free Evaluation posture
+
+No Evaluation was published. The CE-L1 provider-free Evaluation invariant
+(`evaluation_mode == "provider_free"`, `independent_model_judgment == false`,
+`read_only_assertion == true`, `mutation_performed == false`) was therefore
+not exercised in this BLOCKED slice.
+
+### Evidence-bounded diagnosis
+
+The smallest observed tool-activation/telemetry-repair-landing blocker is a
+disposable driver envelope-construction defect, not a runtime defect:
+
+> The disposable proof driver's `PiInvocationEnvelope.provider_lane` was
+> constructed with `provider_lane_class="provider_lane"`, which is not a
+> canonical `PiProviderLaneClass` enum value. The
+> `validate_policy_decision_against_envelope(...)` validator rejected the
+> envelope at the `external` lane-class check (`invalid_provider_lane`),
+> and a secondary defect (`PiInvocationPolicyDecision.validation_status`
+> was unset, triggering `missing_invocation_id`) accumulated in the same
+> validation result. The runtime mapped both to the canonical
+> `policy_envelope_mismatch` token at `pre_invocation` and returned
+> before any provider request was constructed.
+
+The Pi 0.82.1 tool-activation repair (`PASS_CANONICAL` via PR #776 at
+`18c6f797…`) is **not** disproven by this BLOCKED — the Pi 0.82.1 runtime
+was not invoked. The repair remains canonical. The post-repair canonical
+proof remains `OPEN_PENDING_PROOF_LANDING`.
+
+### Redaction audit
+
+```text
+files scanned                  = 1 (run-result.json only)
+access_token                   = 0
+refresh_token                  = 0
+auth.json                      = 0
+account_id                     = 0
+auth_headers (Bearer/x-api-key) = 0
+env_dump (HOME/PATH/SECRET)    = 0
+credential path metadata       = 0
+```
+
+The published evidence tree contains no credential material, no auth
+headers, no operator path metadata, and no provider payload.
+
+### Historical proof preservation
+
+The pre-edit SHA-256 of this file on `origin/main` was:
+
+```text
+0abd95400c5d5e282731ea7d4ec4180e221e0f71f1860f18c43664177ed1f206
+```
+
+This section is append-only. The first 29541 bytes of this file remain
+byte-identical to `origin/main` (verified by SHA-256 on the unchanged
+prefix).
+
+### Canonical gate truth after this BLOCKED
+
+```text
+CE-L1_OAUTH_PREREQUISITE = PASS
+TOOL_ACTIVATION_REPAIR  = PASS_CANONICAL
+CE-L1                   = OPEN
+LIVE_EXECUTOR_PROVEN    = NOT_EMITTED
+SINGLE_TASK_SUPERVISED_USABLE = NOT_EMITTED
+```
+
+### NEXT_TASK_REQUIRED
+
+```text
+fix the disposable proof-driver envelope construction to use
+PiProviderLane(provider_lane_class="external", ...) and to set
+PiInvocationPolicyDecision.validation_status; rebuild the single canonical
+post-repair live attempt and re-run one CE-L1 disposable live Executor
+mutation proof under the existing spec.
+```
