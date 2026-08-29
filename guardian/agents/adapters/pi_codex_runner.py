@@ -141,7 +141,11 @@ class PiCodexRunnerAdapter:
                 text=True,
                 timeout=request.timeout_seconds,
             )
-            return self._parse_result(result, require_runtime_identity=True)
+            return self._parse_result(
+                result,
+                require_runtime_identity=True,
+                require_tool_telemetry=True,
+            )
         except subprocess.TimeoutExpired:
             return AgentRunEnvelope(
                 status="error",
@@ -163,7 +167,11 @@ class PiCodexRunnerAdapter:
         request: AgentExecutionRequest,
         identity: AgentExecutionIdentity,
     ) -> AgentRunEnvelope:
-        """Run the authorized Pi setup/readiness path without a model prompt."""
+        """Run the authorized Pi setup/readiness path without a model prompt.
+
+        Readiness does NOT require tool telemetry (it is non-inference and
+        does not create a session).
+        """
         if not all(
             (
                 identity.provider_id,
@@ -223,8 +231,14 @@ class PiCodexRunnerAdapter:
         result: subprocess.CompletedProcess[str],
         *,
         require_runtime_identity: bool = False,
+        require_tool_telemetry: bool = False,
     ) -> AgentRunEnvelope:
-        """Parse subprocess result into AgentRunEnvelope."""
+        """Parse subprocess result into AgentRunEnvelope.
+
+        `require_tool_telemetry=True` is used by live authorized task
+        execution.  A successful live authorized task must carry valid
+        bounded tool telemetry.  Readiness uses `require_tool_telemetry=False`.
+        """
         stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()
 
@@ -261,6 +275,9 @@ class PiCodexRunnerAdapter:
                 data = json.loads(stdout)
                 runtime_identity = data.get("actual_runtime_identity")
                 if data.get("failure_class") in PI_AUTHORIZED_FAILURE_CLASSES:
+                    # On failure paths we still surface whatever telemetry
+                    # the wrapper emitted (defense-in-depth visibility).
+                    telemetry = _parse_tool_telemetry(data.get("tool_telemetry"))
                     return AgentRunEnvelope(
                         status="error",
                         summary="Guardian-authorized Pi operation failed",
@@ -276,6 +293,12 @@ class PiCodexRunnerAdapter:
                             data.get("provider_request_started")
                         ),
                         oauth_available=_bounded_bool(data.get("oauth_available")),
+                        effective_tool_names=telemetry[0],
+                        write_tool_available=telemetry[1],
+                        tool_execution_start_count=telemetry[2],
+                        tool_execution_end_count=telemetry[3],
+                        executed_tool_names=telemetry[4],
+                        assistant_tool_call_count=telemetry[5],
                     )
                 if require_runtime_identity and not isinstance(runtime_identity, dict):
                     return AgentRunEnvelope(
@@ -293,6 +316,49 @@ class PiCodexRunnerAdapter:
                         "actual_harness_version",
                     )
                 )
+                telemetry = _parse_tool_telemetry(data.get("tool_telemetry"))
+                # Live authorized task must carry valid tool telemetry.
+                if require_tool_telemetry and not _is_valid_tool_telemetry(telemetry):
+                    return AgentRunEnvelope(
+                        status="error",
+                        summary="Pi wrapper omitted or returned invalid tool telemetry",
+                        failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                        failure_stage="wrapper_protocol",
+                        runtime_identity_established=runtime_identity_established,
+                        actual_provider_id=(
+                            runtime_identity.get("actual_provider_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_model_id=(
+                            runtime_identity.get("actual_model_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_harness_id=(
+                            runtime_identity.get("actual_harness_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_harness_version=(
+                            runtime_identity.get("actual_harness_version")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        session_initialized=_bounded_bool(
+                            data.get("session_initialized")
+                        ),
+                        provider_request_started=_bounded_bool(
+                            data.get("provider_request_started")
+                        ),
+                        oauth_available=_bounded_bool(data.get("oauth_available")),
+                        effective_tool_names=telemetry[0],
+                        write_tool_available=telemetry[1],
+                        tool_execution_start_count=telemetry[2],
+                        tool_execution_end_count=telemetry[3],
+                        executed_tool_names=telemetry[4],
+                        assistant_tool_call_count=telemetry[5],
+                    )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
                     summary=data.get(
@@ -323,7 +389,17 @@ class PiCodexRunnerAdapter:
                         else None
                     ),
                     runtime_identity_established=runtime_identity_established,
+                    session_initialized=_bounded_bool(data.get("session_initialized")),
+                    provider_request_started=_bounded_bool(
+                        data.get("provider_request_started")
+                    ),
                     oauth_available=_bounded_bool(data.get("oauth_available")),
+                    effective_tool_names=telemetry[0],
+                    write_tool_available=telemetry[1],
+                    tool_execution_start_count=telemetry[2],
+                    tool_execution_end_count=telemetry[3],
+                    executed_tool_names=telemetry[4],
+                    assistant_tool_call_count=telemetry[5],
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:
@@ -361,6 +437,62 @@ class PiCodexRunnerAdapter:
             ),
             failure_stage="wrapper_protocol" if require_runtime_identity else None,
         )
+
+
+def _parse_tool_telemetry(raw: Any) -> tuple:
+    """Parse bounded tool telemetry from the wrapper payload.
+
+    Returns a 6-tuple matching the bounded fields. Missing fields yield None.
+    Empty lists/tuples are valid (read-only sessions).
+    """
+    if not isinstance(raw, dict):
+        return (None, None, None, None, None, None)
+    names = raw.get("effective_tool_names")
+    names_out: tuple[str, ...] | None = None
+    if isinstance(names, list):
+        cleaned = [n for n in names if isinstance(n, str) and len(n) > 0]
+        names_out = tuple(cleaned)  # always tuple; empty tuple when none present
+    executed = raw.get("executed_tool_names")
+    executed_out: tuple[str, ...] | None = None
+    if isinstance(executed, list):
+        cleaned = [n for n in executed if isinstance(n, str) and len(n) > 0]
+        executed_out = tuple(cleaned)  # always tuple; empty tuple when none present
+    write_avail = raw.get("write_tool_available")
+    write_avail_out = write_avail if isinstance(write_avail, bool) else None
+    start_count = raw.get("tool_execution_start_count")
+    start_out = start_count if isinstance(start_count, int) and start_count >= 0 else None
+    end_count = raw.get("tool_execution_end_count")
+    end_out = end_count if isinstance(end_count, int) and end_count >= 0 else None
+    asst_count = raw.get("assistant_tool_call_count")
+    asst_out = asst_count if isinstance(asst_count, int) and asst_count >= 0 else None
+    return (names_out, write_avail_out, start_out, end_out, executed_out, asst_out)
+
+
+def _is_valid_tool_telemetry(
+    telemetry: tuple,
+) -> bool:
+    """Live authorized task requires complete, well-formed telemetry.
+
+    An empty `effective_tool_names` is valid (e.g. read-only sessions with
+    ``PI_DISABLE_TOOLS=1``).  `None` means the wrapper omitted the field.
+    """
+    names_out, write_avail_out, start_out, end_out, executed_out, asst_out = telemetry
+    if names_out is None:
+        return False
+    # An empty tuple/list is valid (read-only, or disabled tools).
+    if not isinstance(names_out, tuple):
+        return False
+    if not isinstance(write_avail_out, bool):
+        return False
+    if not isinstance(start_out, int) or start_out < 0:
+        return False
+    if not isinstance(end_out, int) or end_out < 0:
+        return False
+    if executed_out is None or not isinstance(executed_out, tuple):
+        return False
+    if not isinstance(asst_out, int) or asst_out < 0:
+        return False
+    return True
 
 
 def _bounded_text(value: Any) -> str | None:

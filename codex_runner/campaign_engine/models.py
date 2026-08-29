@@ -302,6 +302,13 @@ class LiveExecutorRunResult:
     pi_receipt_id: str
     pi_harness_result_id: str
     boundary_validation_hash: str
+    # Bounded Pi 0.82.1 tool telemetry (evidence only).
+    effective_tool_names: tuple[str, ...] | None = None
+    write_tool_available: bool | None = None
+    tool_execution_start_count: int | None = None
+    tool_execution_end_count: int | None = None
+    executed_tool_names: tuple[str, ...] | None = None
+    assistant_tool_call_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -345,4 +352,23 @@ class LiveExecutorRunResult:
             "pi_harness_result_id": self.pi_harness_result_id,
             "boundary_validation_hash": self.boundary_validation_hash,
             "created_at": self.created_at,
+            # Bounded Pi 0.82.1 tool telemetry (evidence only).
+            "tool_telemetry": {
+                "effective_tool_names": (
+                    list(self.effective_tool_names)
+                    if self.effective_tool_names is not None
+                    else None
+                ),
+                "write_tool_available": self.write_tool_available,
+                "tool_execution_start_count": self.tool_execution_start_count,
+                "tool_execution_end_count": self.tool_execution_end_count,
+                "executed_tool_names": (
+                    list(self.executed_tool_names)
+                    if self.executed_tool_names is not None
+                    else None
+                ),
+                "assistant_tool_call_count": self.assistant_tool_call_count,
+            }
+            if self.effective_tool_names is not None
+            else None,
         }

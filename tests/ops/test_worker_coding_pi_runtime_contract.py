@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -496,3 +497,162 @@ def test_session_can_be_initialized_without_prompt_via_modelruntime() -> None:
     assert identity["actual_harness_id"] == "pi-coding-agent"
     assert identity["actual_harness_version"] == "0.82.1"
     # No session.prompt() call was issued during this readiness probe.
+
+
+# --- Pi 0.82.1 tool-name compatibility regression ---
+#
+# Proves the maintained source-vendored Pi 0.82.1 SDK treats
+# `createAgentSession({ tools })` as a collection of tool-NAME strings.
+# Uses disposable HOME / auth.json — no prompt, no network, no operator
+# credentials.  This regression must fail if a future upgrade reintroduces
+# object-array `tools` and produces an empty effective tool set.
+
+def test_maintained_pi_0821_treats_tools_as_name_strings() -> None:
+    """Reproduce the Pi 0.82.1 name-only effective-tool-set contract."""
+    from pathlib import Path
+
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-0821-tool-name-regression-"))
+    driver_path = None
+    try:
+        auth_dir = home / ".pi" / "agent"
+        auth_dir.mkdir(parents=True, mode=0o700)
+        (auth_dir / "auth.json").write_text(
+            json.dumps(
+                {
+                    "openai-codex": {
+                        "type": "oauth",
+                        "expires": 9999999999999,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        driver_text = """
+const path = require("path");
+const fs = require("fs");
+const home = process.argv[2];
+const target = process.argv[3];
+
+process.env.HOME = home;
+
+(async () => {
+    const vendorRoot = path.resolve(
+        process.argv[4],
+        "codex_runner/vendor/pi-coding-agent",
+    );
+    const codingAgent = await import(
+        require("url").pathToFileURL(
+            path.join(vendorRoot, "dist/index.js"),
+        ).href
+    );
+
+    const modelRuntime = await codingAgent.ModelRuntime.create({
+        allowModelNetwork: false,
+    });
+    const model = modelRuntime.getModel("openai-codex", "gpt-5.6-sol");
+    if (!model) {
+        console.log(JSON.stringify({ error: "model_not_resolved" }));
+        process.exit(1);
+    }
+
+    const { session: writable } = await codingAgent.createAgentSession({
+        cwd: target,
+        model,
+        modelRuntime,
+        tools: ["read", "bash", "edit", "write"],
+        sessionManager: codingAgent.SessionManager.inMemory(target),
+    });
+    const writableActive = writable.getActiveToolNames();
+
+    const { session: disabled } = await codingAgent.createAgentSession({
+        cwd: target,
+        model,
+        modelRuntime,
+        tools: [],
+        sessionManager: codingAgent.SessionManager.inMemory(target),
+    });
+    const disabledActive = disabled.getActiveToolNames();
+
+    console.log(JSON.stringify({
+        writable_active_tool_names: writableActive,
+        disabled_active_tool_names: disabledActive,
+    }));
+})();
+"""
+        driver_path = Path(tempfile.mkstemp(suffix=".cjs")[1])
+        driver_path.write_text(driver_text, encoding="utf-8")
+
+        target = Path(tempfile.mkdtemp(prefix="codexify-pi-0821-tool-regression-target-"))
+        result = subprocess.run(
+            ["node", str(driver_path), str(home), str(target), str(ROOT)],
+            cwd=str(ROOT),
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        if driver_path is not None:
+            try:
+                driver_path.unlink()
+            except OSError:
+                pass
+
+    assert result.returncode == 0, (
+        f"Pi 0.82.1 tool-name SDK probe failed: exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload.get("writable_active_tool_names") == [
+        "read", "bash", "edit", "write",
+    ], (
+        f"Pi 0.82.1 must report writable tool-name session as "
+        f"['read','bash','edit','write']; got {payload.get('writable_active_tool_names')!r}"
+    )
+    assert payload.get("disabled_active_tool_names") == [], (
+        f"Pi 0.82.1 must report empty effective tool set when tools=[]; "
+        f"got {payload.get('disabled_active_tool_names')!r}"
+    )
+
+
+def test_active_runtime_passes_tool_name_strings_not_agenttool_objects() -> None:
+    """Wrapper source must pass tool-NAME strings into createAgentSession.
+
+    This regression enforces the Pi 0.82.1 contract at the source level.
+    The wrapper must not pass AgentTool objects (the legacy Pi 0.72
+    assumption) into `createAgentSession({ tools })`.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    # Reject any ACTIVE use of `createCodingTools(OPTIONS.cwd)` whose return
+    # value is passed (or could be passed) into createAgentSession.  An
+    # explanatory comment referencing the legacy path is allowed.
+    import re
+    # Match an executable call to `createCodingTools(OPTIONS.cwd)` that is
+    # not inside a comment line.
+    non_comment_lines = [
+        line for line in loader.splitlines()
+        if not line.lstrip().startswith("//")
+    ]
+    non_comment_source = "\n".join(non_comment_lines)
+    assert not re.search(r"createCodingTools\s*\(\s*OPTIONS\.cwd", non_comment_source), (
+        "wrapper must not call createCodingTools(OPTIONS.cwd) and pass its "
+        "return value into createAgentSession({ tools }) — that path returns "
+        "AgentTool objects which Pi 0.82.1 silently rejects"
+    )
+    # The wrapper must pass an explicit canonical writable tool-name set.
+    assert (
+        '["read", "bash", "edit", "write"]' in loader
+    ), "wrapper must pass the exact writable tool-name set ['read','bash','edit','write']"
+    # The wrapper must read effective tool names from the session itself.
+    assert "getActiveToolNames" in loader, (
+        "wrapper must read the effective tool surface from the session, "
+        "not from the configured value"
+    )

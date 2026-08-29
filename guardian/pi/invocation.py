@@ -123,6 +123,13 @@ class PiHarnessRuntimeEvidence:
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
+    # Bounded Pi 0.82.1 tool activation + execution telemetry (evidence only).
+    effective_tool_names: tuple[str, ...] | None = None
+    write_tool_available: bool | None = None
+    tool_execution_start_count: int | None = None
+    tool_execution_end_count: int | None = None
+    executed_tool_names: tuple[str, ...] | None = None
+    assistant_tool_call_count: int | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -149,6 +156,13 @@ class PiLiveInvocationOutcome:
     receipt: PiInvocationReceipt | None = None
     harness_result: PiHarnessResult | None = None
     actual_identity: PiAuthorizedExecutionIdentity | None = None
+    # Bounded Pi 0.82.1 tool telemetry (evidence only).
+    effective_tool_names: tuple[str, ...] | None = None
+    write_tool_available: bool | None = None
+    tool_execution_start_count: int | None = None
+    tool_execution_end_count: int | None = None
+    executed_tool_names: tuple[str, ...] | None = None
+    assistant_tool_call_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +320,17 @@ def invoke_guardian_authorized_pi(
         validation_metadata={
             "guardian_authorized": True,
             "policy_decision_id": decision.policy_decision_id,
+            # Bounded tool telemetry — evidence only, no args/results/content.
+            "tool_telemetry": {
+                "effective_tool_names": list(evidence.effective_tool_names or ()),
+                "write_tool_available": evidence.write_tool_available,
+                "tool_execution_start_count": evidence.tool_execution_start_count,
+                "tool_execution_end_count": evidence.tool_execution_end_count,
+                "executed_tool_names": list(evidence.executed_tool_names or ()),
+                "assistant_tool_call_count": evidence.assistant_tool_call_count,
+            }
+            if evidence.effective_tool_names is not None
+            else None,
         },
     )
     receipt_validation = validate_receipt_against_envelope(envelope, receipt)
@@ -342,7 +367,20 @@ def invoke_guardian_authorized_pi(
             artifact_class="bounded_result",
         ),
         result_class=PiHarnessResultClass.SUCCESS.value,
-        validation_metadata={"actual_runtime_identity_attested": True},
+        validation_metadata={
+            "actual_runtime_identity_attested": True,
+            # Bounded tool telemetry — evidence only, no args/results/content.
+            "tool_telemetry": {
+                "effective_tool_names": list(evidence.effective_tool_names or ()),
+                "write_tool_available": evidence.write_tool_available,
+                "tool_execution_start_count": evidence.tool_execution_start_count,
+                "tool_execution_end_count": evidence.tool_execution_end_count,
+                "executed_tool_names": list(evidence.executed_tool_names or ()),
+                "assistant_tool_call_count": evidence.assistant_tool_call_count,
+            }
+            if evidence.effective_tool_names is not None
+            else None,
+        },
     )
     result_validation = validate_harness_result_against_receipt(receipt, harness_result)
     if not result_validation.ok:
@@ -363,6 +401,13 @@ def invoke_guardian_authorized_pi(
         receipt=receipt,
         harness_result=harness_result,
         actual_identity=actual_identity,
+        # Bounded tool telemetry (evidence only; Pi is the source of truth).
+        effective_tool_names=evidence.effective_tool_names,
+        write_tool_available=evidence.write_tool_available,
+        tool_execution_start_count=evidence.tool_execution_start_count,
+        tool_execution_end_count=evidence.tool_execution_end_count,
+        executed_tool_names=evidence.executed_tool_names,
+        assistant_tool_call_count=evidence.assistant_tool_call_count,
     )
 
 
@@ -403,6 +448,13 @@ def _run_with_pi_adapter(
         session_initialized=result.session_initialized,
         provider_request_started=result.provider_request_started,
         oauth_available=result.oauth_available,
+        # Bounded tool telemetry (evidence only; Pi is the source of truth).
+        effective_tool_names=result.effective_tool_names,
+        write_tool_available=result.write_tool_available,
+        tool_execution_start_count=result.tool_execution_start_count,
+        tool_execution_end_count=result.tool_execution_end_count,
+        executed_tool_names=result.executed_tool_names,
+        assistant_tool_call_count=result.assistant_tool_call_count,
     )
 
 

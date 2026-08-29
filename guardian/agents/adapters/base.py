@@ -37,6 +37,16 @@ class AgentRunEnvelope(BaseModel):
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
 
+    # Bounded Pi 0.82.1 tool activation + execution telemetry.
+    # Evidence only — confers no execution authority.
+    # Optional on readiness path; required on successful live authorized task.
+    effective_tool_names: tuple[str, ...] | None = None
+    write_tool_available: bool | None = None
+    tool_execution_start_count: int | None = Field(default=None, ge=0)
+    tool_execution_end_count: int | None = Field(default=None, ge=0)
+    executed_tool_names: tuple[str, ...] | None = None
+    assistant_tool_call_count: int | None = Field(default=None, ge=0)
+
     model_config = ConfigDict(extra="forbid")
 
 
