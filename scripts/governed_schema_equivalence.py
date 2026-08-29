@@ -308,6 +308,65 @@ def verify_disposable_target_identity(
         )
 
 
+def verify_disposable_target_empty(connection: Any) -> None:
+    """Reject a target that already contains user-owned database objects."""
+
+    object_count = _scalar(
+        connection,
+        """
+        SELECT COUNT(*)
+          FROM (
+                SELECT 'schema' AS object_kind, n.oid::text AS object_id
+                 FROM pg_namespace AS n
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'public')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'relation' AS object_kind, c.oid::text AS object_id
+                  FROM pg_class AS c
+                 JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'routine' AS object_kind, p.oid::text AS object_id
+                  FROM pg_proc AS p
+                 JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'type' AS object_kind, t.oid::text AS object_id
+                  FROM pg_type AS t
+                 JOIN pg_namespace AS n ON n.oid = t.typnamespace
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'extension' AS object_kind, e.oid::text AS object_id
+                  FROM pg_extension AS e
+                 JOIN pg_namespace AS n ON n.oid = e.extnamespace
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
+          ) AS user_objects
+        """,
+    )
+    try:
+        count = int(object_count)
+    except (TypeError, ValueError) as exc:
+        raise ContractError("target object count was not numeric") from exc
+    if count:
+        raise DisposableTargetRequired(
+            f"disposable target is not empty: {count} user object(s) already exist"
+        )
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value)
 
@@ -601,20 +660,38 @@ def build_snapshot(
 
 
 def snapshot_from_dict(value: Mapping[str, Any]) -> GovernedSchemaSnapshot:
+    if not isinstance(value, Mapping):
+        raise InvalidSnapshot("snapshot root must be an object")
     try:
-        digest = str(value["digest"])
+        digest = value["digest"]
+        contract_version = value["contract_version"]
+        postgres_major_value = value["postgres_major"]
+        source_revision = value["source_revision"]
+        descriptors = value["descriptors"]
+        if not isinstance(digest, str):
+            raise InvalidSnapshot("snapshot digest must be a string")
+        if not isinstance(contract_version, str):
+            raise InvalidSnapshot("snapshot contract version must be a string")
+        if type(postgres_major_value) is not int:
+            raise InvalidSnapshot("snapshot PostgreSQL major must be an integer")
+        if not isinstance(source_revision, str):
+            raise InvalidSnapshot("snapshot source revision must be a string")
+        if not isinstance(descriptors, Mapping):
+            raise InvalidSnapshot("snapshot descriptors must be an object")
         snapshot = build_snapshot(
-            value["descriptors"],
-            postgres_major_value=int(value["postgres_major"]),
-            source_revision=str(value["source_revision"]),
+            descriptors,
+            postgres_major_value=postgres_major_value,
+            source_revision=source_revision,
         )
-        if str(value["contract_version"]) != CONTRACT_VERSION:
+        if contract_version != CONTRACT_VERSION:
             raise InvalidSnapshot("unsupported governed-schema contract version")
         if snapshot.digest != digest:
             raise InvalidSnapshot("snapshot digest does not match serialized envelope")
         return snapshot
     except KeyError as exc:
         raise InvalidSnapshot(f"snapshot missing field: {exc.args[0]}") from exc
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise InvalidSnapshot("snapshot contains malformed field types") from exc
 
 
 def snapshot_connection(
@@ -717,6 +794,22 @@ def _validate_disposable_name(name: str) -> None:
         )
 
 
+def _set_source_snapshot_transaction(connection: Any) -> None:
+    """Start the exported source snapshot's repeatable-read read-only scope."""
+
+    with connection.cursor() as cursor:
+        cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+
+
+def _export_source_snapshot(connection: Any) -> str:
+    """Export the transaction snapshot used by the separate ``pg_dump`` client."""
+
+    snapshot_id = _text(_scalar(connection, "SELECT pg_export_snapshot()"))
+    if not snapshot_id:
+        raise ContractError("source PostgreSQL snapshot identifier was empty")
+    return snapshot_id
+
+
 def canonicalize_database(
     source_dsn: str,
     target_dsn: str,
@@ -740,48 +833,53 @@ def canonicalize_database(
     connect = connect_factory or psycopg.connect
 
     with connect(source_dsn) as source_connection:
-        source_metadata = verify_schema_source_metadata(
-            source_connection,
-            carried_source_revision=carried_source_revision,
-        )
+        with source_connection.transaction():
+            _set_source_snapshot_transaction(source_connection)
+            source_snapshot = _export_source_snapshot(source_connection)
+            source_metadata = verify_schema_source_metadata(
+                source_connection,
+                carried_source_revision=carried_source_revision,
+            )
 
-    with connect(target_dsn) as target_connection:
-        verify_target_postgres_major(target_connection)
-        verify_disposable_target_identity(
-            target_connection,
-            expected_database_name=target_disposable_name,
-        )
+            with connect(target_dsn) as target_connection:
+                verify_target_postgres_major(target_connection)
+                verify_disposable_target_identity(
+                    target_connection,
+                    expected_database_name=target_disposable_name,
+                )
+                verify_disposable_target_empty(target_connection)
 
-    dump_command = [
-        pg_dump_bin,
-        "--schema-only",
-        "--no-owner",
-        "--no-privileges",
-        f"--dbname={source_dsn}",
-    ]
-    dumped = run_command(
-        dump_command,
-        check=False,
-        capture_output=True,
-    )
-    if dumped.returncode != 0:
-        raise CommandExecutionFailure("pg_dump", int(dumped.returncode))
+            dump_command = [
+                pg_dump_bin,
+                "--schema-only",
+                "--no-owner",
+                "--no-privileges",
+                f"--snapshot={source_snapshot}",
+                f"--dbname={source_dsn}",
+            ]
+            dumped = run_command(
+                dump_command,
+                check=False,
+                capture_output=True,
+            )
+            if dumped.returncode != 0:
+                raise CommandExecutionFailure("pg_dump", int(dumped.returncode))
 
-    restore_command = [
-        psql_bin,
-        "--no-psqlrc",
-        "--set=ON_ERROR_STOP=1",
-        "--single-transaction",
-        f"--dbname={target_dsn}",
-    ]
-    restored = run_command(
-        restore_command,
-        input=dumped.stdout,
-        check=False,
-        capture_output=True,
-    )
-    if restored.returncode != 0:
-        raise CommandExecutionFailure("psql restore", int(restored.returncode))
+            restore_command = [
+                psql_bin,
+                "--no-psqlrc",
+                "--set=ON_ERROR_STOP=1",
+                "--single-transaction",
+                f"--dbname={target_dsn}",
+            ]
+            restored = run_command(
+                restore_command,
+                input=dumped.stdout,
+                check=False,
+                capture_output=True,
+            )
+            if restored.returncode != 0:
+                raise CommandExecutionFailure("psql restore", int(restored.returncode))
 
     with connect(target_dsn) as target_connection:
         return snapshot_connection(

@@ -105,6 +105,21 @@ class _Cursor:
         return self.result
 
 
+class _Transaction:
+    def __init__(self, connection: "_CatalogConnection") -> None:
+        self.connection = connection
+
+    def __enter__(self) -> "_Transaction":
+        self.connection.transaction_entered = True
+        self.connection.transaction_active = True
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.connection.transaction_active = False
+        self.connection.transaction_exited = True
+        return None
+
+
 class _CatalogConnection:
     def __init__(
         self,
@@ -113,12 +128,19 @@ class _CatalogConnection:
         major: int = 15,
         revisions: tuple[str, ...] = (gse.EXPECTED_ALEMBIC_REVISION,),
         descriptors: dict[str, Any] | None = None,
+        exported_snapshot: str = "00000003-00000001-1",
+        user_object_count: int = 0,
     ) -> None:
         self.database_name = database_name
         self.major = major
         self.revisions = revisions
         self.descriptors = descriptors or _descriptors()
+        self.exported_snapshot = exported_snapshot
+        self.user_object_count = user_object_count
         self.executed: list[str] = []
+        self.transaction_entered = False
+        self.transaction_active = False
+        self.transaction_exited = False
 
     def __enter__(self) -> "_CatalogConnection":
         return self
@@ -129,11 +151,20 @@ class _CatalogConnection:
     def cursor(self) -> _Cursor:
         return _Cursor(self)
 
+    def transaction(self) -> _Transaction:
+        return _Transaction(self)
+
     def result_for(self, statement: str, _parameters: tuple[Any, ...]) -> list[Any]:
+        if statement.startswith("SET TRANSACTION"):
+            return []
+        if "pg_export_snapshot()" in statement:
+            return [[self.exported_snapshot]]
         if "current_setting('server_version_num')" in statement:
             return [[f"{self.major}0018"]]
         if "current_database()" in statement:
             return [[self.database_name]]
+        if "SELECT COUNT(*)" in statement and "AS user_objects" in statement:
+            return [[self.user_object_count]]
         if "to_regclass('public.alembic_version')" in statement:
             return [[True]]
         if "FROM public.alembic_version" in statement:
@@ -382,6 +413,38 @@ def test_missing_governed_relation_fails_closed() -> None:
     assert error.value.missing == ("notion_connection_credentials",)
 
 
+def test_canonicalization_rejects_nonempty_disposable_target_before_dump() -> None:
+    source = _CatalogConnection(database_name="codexify_gse_source")
+    target = _CatalogConnection(
+        database_name="codexify_gse_target",
+        user_object_count=1,
+    )
+    connections = {
+        "source-dsn": source,
+        "target-dsn": target,
+    }
+    commands: list[list[str]] = []
+
+    def connect(dsn: str) -> _CatalogConnection:
+        return connections[dsn]
+
+    def run(command: list[str], **_kwargs: Any) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout=b"")
+
+    with pytest.raises(gse.DisposableTargetRequired, match="not empty"):
+        gse.canonicalize_database(
+            "source-dsn",
+            "target-dsn",
+            target_disposable_name="codexify_gse_target",
+            connect_factory=connect,
+            run_command=run,
+        )
+
+    assert commands == []
+    assert source.transaction_exited is True
+
+
 def test_canonicalization_uses_one_dump_and_one_clean_restore_without_source_writes() -> (
     None
 ):
@@ -398,6 +461,7 @@ def test_canonicalization_uses_one_dump_and_one_clean_restore_without_source_wri
 
     def run(command: list[str], **kwargs: Any) -> SimpleNamespace:
         commands.append((command, kwargs))
+        assert source.transaction_active is True
         if command[0] == "pg_dump":
             return SimpleNamespace(returncode=0, stdout=b"-- schema-only dump")
         return SimpleNamespace(returncode=0, stdout=b"")
@@ -417,10 +481,18 @@ def test_canonicalization_uses_one_dump_and_one_clean_restore_without_source_wri
         "--no-owner",
         "--no-privileges",
     ]
+    assert f"--snapshot={source.exported_snapshot}" in commands[0][0]
     assert "--clean" not in commands[0][0]
     assert "--create" not in commands[0][0]
+    assert source.transaction_entered is True
+    assert source.transaction_exited is True
+    assert source.executed[0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    )
+    assert source.executed[1] == "SELECT pg_export_snapshot()"
     assert all(
-        statement.lstrip().upper().startswith("SELECT") for statement in source.executed
+        statement.lstrip().upper().startswith("SELECT")
+        for statement in source.executed[2:]
     )
 
 
@@ -485,6 +557,48 @@ def test_snapshot_round_trip_validates_digest_and_rejects_tampering(tmp_path) ->
     assert (
         gse.snapshot_from_dict(json.loads(path.read_text())).digest == snapshot.digest
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("postgres_major", [15]),
+        ("postgres_major", "15"),
+        ("descriptors", []),
+        ("descriptors", "malformed"),
+    ],
+)
+def test_snapshot_from_dict_rejects_malformed_types(field: str, value: Any) -> None:
+    document = _snapshot().as_dict()
+    document[field] = value
+
+    with pytest.raises(gse.InvalidSnapshot):
+        gse.snapshot_from_dict(document)
+
+
+def test_compare_cli_reports_structured_invalid_snapshot_for_malformed_types(
+    tmp_path, capsys
+) -> None:
+    left = tmp_path / "left.json"
+    right = tmp_path / "right.json"
+    malformed = _snapshot().as_dict()
+    malformed["postgres_major"] = "not-a-number"
+    left.write_text(json.dumps(malformed), encoding="utf-8")
+    right.write_text(json.dumps(_snapshot().as_dict()), encoding="utf-8")
+
+    assert (
+        gse.main(
+            [
+                "compare",
+                "--left",
+                str(left),
+                "--right",
+                str(right),
+            ]
+        )
+        == 2
+    )
+    assert json.loads(capsys.readouterr().err)["error"] == "INVALID_SNAPSHOT"
 
 
 def test_descriptor_diff_is_bounded_for_large_mutation() -> None:
