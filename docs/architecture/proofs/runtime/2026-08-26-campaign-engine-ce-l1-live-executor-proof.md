@@ -497,9 +497,7 @@ This is the second observed CE-L1 BLOCKED on `zero_mutation_executor_turn`:
    the Executor to invoke the bounded `write` tool.
 
 The runtime is canonical.  The credential readiness is canonical.  The
-canonical prerequisite truth is unchanged.  The Executor turn from
-`gpt-5.6-sol` does not invoke the `write` tool under the maintained
-`ModelRuntime` surface.
+canonical prerequisite truth is unchanged.
 
 ### Redaction
 
@@ -516,13 +514,20 @@ provider inference requests              = 1 (live invocation succeeded text-onl
 
 ### First observed boundary
 
-> Canonical Pi 0.82.1 `ModelRuntime` runtime + canonical operator credential
-> readiness + canonical wrapper explicit `write`-tool instruction + clean
-> Guardian/Pi authorization + canonical locked `gpt-5.6-sol` Executor
-> RoleBinding together do not (yet) cause the live Executor turn to invoke
-> the bounded `write` tool on the declared target file.  The runtime fails
-> closed at `post_invocation` per the existing `zero_mutation_executor_turn`
-> policy.
+The run proves that the canonical Executor completed without an allowed-path
+mutation.  Current evidence does not distinguish whether the `write` tool was
+absent from the effective session tool set, omitted or transformed at the
+provider tool-schema boundary, emitted but not executed, or correctly
+advertised and simply not selected by the model.
+
+```text
+CAUSE_CLASSIFICATION = UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
+
+Credential readiness, exact runtime identity, Guardian authorization,
+one-shot invocation, and the Campaign Engine zero-mutation fail-closed
+behavior are independently proven and are not the current unresolved
+boundaries.
 
 ### Counter-emission
 
@@ -537,15 +542,36 @@ SINGLE_TASK_SUPERVISED_USABLE = NOT EMITTED
 ### Next task
 
 ```text
-NEXT_TASK_REQUIRED = smallest observed CE-L1 live Executor boundary
-                     is the same as the historical 2026-08-26 boundary:
-                     the maintained Pi 0.82.1 wrapper, with canonical
-                     credential readiness and an explicit bounded write
-                     instruction, does not yet cause the live gpt-5.6-sol
-                     Executor turn to invoke the write tool.  This is a
-                     model/tool-prompt seam, not a wrapper/auth/runtime
-                     seam.
+NEXT_TASK_REQUIRED = instrument bounded Pi tool availability and
+                     tool-execution telemetry for Guardian-authorized live
+                     tasks, then re-run one CE-L1 disposable mutation
+                     proof
 ```
+
+The instrumentation task must precede:
+
+- prompt rewriting;
+- model substitution;
+- another CE-L1 live attempt.
+
+This task does NOT prescribe another model.  This task does NOT prescribe
+a prompt change.  The remaining causal boundary is narrower than the
+whole runtime but is not yet attributable specifically to model behavior
+or prompt wording.
+
+### Missing telemetry seam
+
+The current Guardian-authorized evidence does not retain:
+
+- `effective_tool_names`
+- `write_tool_available`
+- `tool_execution_start_count`
+- `tool_execution_end_count`
+- `executed_tool_names`
+- `assistant_tool_call_count`
+
+These are evidence requirements for the next diagnostic slice.  This task
+does not implement them.
 
 ### ADR impact
 
@@ -573,6 +599,16 @@ NEXT_TASK_REQUIRED = smallest observed CE-L1 live Executor boundary
 - Historical BLOCKED proof content remained immutable ✓ (this section is
   appended, no existing line was modified)
 - Release claims remain evidence-bounded ✓
+
+### Canonical gate truth
+
+```text
+CE-L1_OAUTH_PREREQUISITE      = PASS
+CE-L1                         = OPEN
+LIVE_EXECUTOR_PROVEN          = NOT_EMITTED
+SINGLE_TASK_SUPERVISED_USABLE = NOT_EMITTED
+CAUSE_CLASSIFICATION          = UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
 
 ### Documentation follow-through
 
