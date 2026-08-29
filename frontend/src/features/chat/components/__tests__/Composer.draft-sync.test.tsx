@@ -266,7 +266,9 @@ describe("Composer draft sync", () => {
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(composerSource).toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).toContain("justify-end");
-    expect(textarea.parentElement).toBe(contentPlane);
+    const textareaSurface = screen.getByTestId("composer-textarea-surface");
+    expect(textarea.parentElement).toBe(textareaSurface);
+    expect(textareaSurface.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("justify-between");
     expect(composerSource).not.toContain("mt-auto");
     expect(composerSource).not.toContain('pl-[8px]');
