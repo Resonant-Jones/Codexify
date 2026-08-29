@@ -151,6 +151,13 @@ class FakeOutcome:
     receipt: FakeReceipt | None = None
     harness_result: FakeHarnessResult | None = None
     actual_identity: FakeIdentity | None = None
+    # Bounded Pi 0.82.1 tool telemetry (evidence only).
+    effective_tool_names: tuple[str, ...] | None = None
+    write_tool_available: bool | None = None
+    tool_execution_start_count: int | None = None
+    tool_execution_end_count: int | None = None
+    executed_tool_names: tuple[str, ...] | None = None
+    assistant_tool_call_count: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -1823,3 +1830,108 @@ def test_package_import_does_not_eagerly_load_guardian_pi() -> None:
     # Surface is unchanged in terms of public API.
     for required in ("run_provider_free_campaign", "LiveExecutorPreparation", "CampaignLiveExecutorError"):
         assert required in payload["attrs"]
+
+
+# --- Pi 0.82.1 tool telemetry propagation regressions ---
+#
+# These tests verify the Campaign Engine propagates bounded tool telemetry
+# through the success and failure paths without fabricating or mutating it.
+
+
+
+
+def test_zero_mutation_error_carries_all_six_tool_telemetry_fields(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """zero_mutation_executor_turn exposes all six telemetry fields in the
+    CampaignLiveExecutorError.to_payload() output, and the issue text does
+    not claim the model itself caused the failure."""
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+    campaign_path, target_path, _ = live_doc
+    fake_identity = FakeIdentity(
+        provider_id="openai-codex",
+        model_id="gpt-5.1",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_receipt = FakeReceipt(
+        receipt_id="pi-receipt-tool-telemetry-zero",
+        invocation_id="inv-tool-telemetry-zero",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_harness_result = FakeHarnessResult(
+        harness_result_id="pi-result-tool-telemetry-zero",
+        receipt_id="pi-receipt-tool-telemetry-zero",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    outcome = FakeOutcome(
+        ok=True,
+        receipt=fake_receipt,
+        harness_result=fake_harness_result,
+        actual_identity=fake_identity,
+        # Telemetry shows write WAS active but no tool call / execution occurred.
+        effective_tool_names=("read", "bash", "edit", "write"),
+        write_tool_available=True,
+        tool_execution_start_count=0,
+        tool_execution_end_count=0,
+        executed_tool_names=(),
+        assistant_tool_call_count=0,
+    )
+    _, install = invoker_factory
+    install(outcome)
+    output_root = tmp_path / "ce-l1-zero-mut-telemetry-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        assert payload["failure_reason"] == "zero_mutation_executor_turn"
+        # All six telemetry fields are present.
+        telemetry = payload["tool_telemetry"]
+        assert telemetry is not None
+        assert telemetry["effective_tool_names"] == [
+            "read", "bash", "edit", "write",
+        ]
+        assert telemetry["write_tool_available"] is True
+        assert telemetry["tool_execution_start_count"] == 0
+        assert telemetry["tool_execution_end_count"] == 0
+        assert telemetry["executed_tool_names"] == []
+        assert telemetry["assistant_tool_call_count"] == 0
+        # Issue text does NOT blame the model.
+        assert "the model did not invoke" not in str(exc)
+        # Issue text is evidence-bounded.
+        assert "tool availability and execution telemetry" in str(exc)
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError for zero-mutation outcome"
+        )
+
+
+def test_zero_mutation_issue_text_does_not_blame_model() -> None:
+    """The zero_mutation_executor_turn issue text must be evidence-bounded."""
+    err = CampaignLiveExecutorError(
+        "Harness success produced zero allowed-path mutation; "
+        "inspect bounded tool availability and execution telemetry "
+        "to classify the tool-execution boundary",
+        failure_reason="zero_mutation_executor_turn",
+        diagnostic_stage="post_invocation",
+        issues=["allowed-path mutation; telemetry retained for diagnosis"],
+    )
+    msg = str(err)
+    assert "the model did not invoke" not in msg
+    assert "tool availability and execution telemetry" in msg

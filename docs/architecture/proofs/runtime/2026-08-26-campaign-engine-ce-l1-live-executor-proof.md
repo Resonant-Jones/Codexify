@@ -616,3 +616,57 @@ This is the only tracked file changed by this requalification.  No runtime
 source file.  No test file.  No Guardian file.  No Campaign Engine schema.
 No credential file.  Disposable driver, target, campaign JSON, and output
 root remain outside the repository (under `/var/folders/kj/.../T/`).
+
+## 2026-08-29 Pi 0.82.1 tool-activation diagnosis
+
+### DIAGNOSIS_RESULT
+
+```text
+DIAGNOSIS_RESULT=PASS
+```
+
+### PRE_REPAIR_CAUSE_CLASSIFICATION
+
+```text
+PRE_REPAIR_CAUSE_CLASSIFICATION=
+UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
+
+### ROOT_CAUSE
+
+```text
+ROOT_CAUSE=
+PI_0821_TOOL_OPTIONS_TYPE_MISMATCH_PROVEN
+```
+
+### Pre-edit deterministic probe
+
+```text
+object-tool effective_tool_names=[]
+name-tool effective_tool_names=["read","bash","edit","write"]
+provider_request_count=0
+prompt_count=0
+operator_credential_access_count=0
+```
+
+### Statement
+
+The diagnosis resolves the previously unresolved tool-activation
+sub-boundary.  It does not retroactively convert either BLOCKED CE-L1
+attempt into a PASS.
+
+### Canonical gate truth
+
+```text
+CE-L1_OAUTH_PREREQUISITE=PASS
+CE-L1=OPEN
+LIVE_EXECUTOR_PROVEN=NOT_EMITTED
+SINGLE_TASK_SUPERVISED_USABLE=NOT_EMITTED
+```
+
+### NEXT_TASK_REQUIRED
+
+```text
+land the Pi 0.82.1 tool-activation and bounded telemetry repair on remote
+main
+```

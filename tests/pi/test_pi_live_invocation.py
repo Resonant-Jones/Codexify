@@ -553,6 +553,14 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
                         "actual_harness_id": IDENTITY["harness_id"],
                         "actual_harness_version": IDENTITY["harness_version"],
                     },
+                    "tool_telemetry": {
+                        "effective_tool_names": ["read", "bash", "edit", "write"],
+                        "write_tool_available": True,
+                        "tool_execution_start_count": 0,
+                        "tool_execution_end_count": 0,
+                        "executed_tool_names": [],
+                        "assistant_tool_call_count": 0,
+                    },
                 }
             ),
             stderr="",
@@ -613,3 +621,88 @@ def test_legacy_pi_adapter_keeps_task_mode_and_output_shape(monkeypatch: pytest.
 def test_direct_codex_adapter_remains_unsupported() -> None:
     with pytest.raises(RuntimeError, match="unsupported"):
         CodexAdapter()
+
+
+# --- Pi 0.82.1 tool telemetry propagation regressions ---
+#
+# These tests verify that the bounded Pi 0.82.1 tool telemetry flows from the
+# PiHarnessRuntimeEvidence into the PiLiveInvocationOutcome without being
+# mutated by Guardian.  No real provider is used.
+
+def _evidence_with_tool_telemetry(
+    **telemetry_overrides: object,
+) -> PiHarnessRuntimeEvidence:
+    import dataclasses
+    base = _evidence()
+    return dataclasses.replace(
+        base,
+        effective_tool_names=telemetry_overrides.get(
+            "effective_tool_names", ("read", "bash", "edit", "write")
+        ),
+        write_tool_available=telemetry_overrides.get(
+            "write_tool_available", True
+        ),
+        tool_execution_start_count=telemetry_overrides.get(
+            "tool_execution_start_count", 1
+        ),
+        tool_execution_end_count=telemetry_overrides.get(
+            "tool_execution_end_count", 1
+        ),
+        executed_tool_names=telemetry_overrides.get(
+            "executed_tool_names", ("write",)
+        ),
+        assistant_tool_call_count=telemetry_overrides.get(
+            "assistant_tool_call_count", 1
+        ),
+    )
+
+
+def test_tool_telemetry_propagates_into_pi_live_invocation_outcome(tmp_path: Path) -> None:
+    """Tool telemetry from evidence flows into outcome unchanged."""
+    runner = _RecordingRunner(evidence=_evidence_with_tool_telemetry())
+    outcome = _invoke(tmp_path, runner)
+    assert outcome.ok
+    assert outcome.effective_tool_names == (
+        "read", "bash", "edit", "write",
+    )
+    assert outcome.write_tool_available is True
+    assert outcome.tool_execution_start_count == 1
+    assert outcome.tool_execution_end_count == 1
+    assert outcome.executed_tool_names == ("write",)
+    assert outcome.assistant_tool_call_count == 1
+
+
+def test_tool_telemetry_none_propagates_as_none(tmp_path: Path) -> None:
+    """Missing telemetry survives as None — no fabrication.
+
+    This is the readiness path: the wrapper does not run a session, so
+    no telemetry is emitted.  The adapter does not require telemetry on
+    the readiness path; outcome fields are None."""
+    runner = _RecordingRunner(evidence=_evidence())
+    outcome = _invoke(tmp_path, runner)
+    assert outcome.ok
+    assert outcome.effective_tool_names is None
+    assert outcome.write_tool_available is None
+    assert outcome.tool_execution_start_count is None
+    assert outcome.tool_execution_end_count is None
+    assert outcome.executed_tool_names is None
+    assert outcome.assistant_tool_call_count is None
+
+
+def test_tool_telemetry_into_receipt_validation_metadata(tmp_path: Path) -> None:
+    """Pi Receipt and Harness Result carry bounded tool_telemetry metadata."""
+    runner = _RecordingRunner(evidence=_evidence_with_tool_telemetry())
+    outcome = _invoke(tmp_path, runner)
+    assert outcome.ok
+    receipt_payload = outcome.receipt.to_payload() if hasattr(outcome.receipt, "to_payload") else {}
+    # Receipt stores telemetry under validation_metadata["tool_telemetry"]
+    telemetry = receipt_payload.get("validation_metadata", {}).get("tool_telemetry")
+    assert telemetry is not None
+    assert telemetry.get("effective_tool_names") == [
+        "read", "bash", "edit", "write",
+    ]
+    assert telemetry.get("write_tool_available") is True
+    assert telemetry.get("tool_execution_start_count") == 1
+    assert telemetry.get("tool_execution_end_count") == 1
+    assert telemetry.get("executed_tool_names") == ["write"]
+    assert telemetry.get("assistant_tool_call_count") == 1
