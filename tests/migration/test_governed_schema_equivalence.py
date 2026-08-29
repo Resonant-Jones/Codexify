@@ -319,6 +319,20 @@ def test_descriptor_schema_preserves_fk_target_columns_and_actions() -> None:
     assert foreign_key["on_update"] == "NO ACTION"
 
 
+def test_column_collation_identity_includes_namespace() -> None:
+    descriptors = _descriptors()
+    descriptors["columns"][0]["collation"] = "tenant.fr_FR"
+
+    collected = gse.collect_governed_descriptors(
+        _CatalogConnection(descriptors=descriptors)
+    )
+
+    assert collected["columns"][0]["collation"] == "tenant.fr_FR"
+    source = inspect.getsource(gse.collect_governed_descriptors)
+    assert "coll_namespace.nspname || '.' || coll.collname" in source
+    assert "coll.collnamespace" in source
+
+
 def test_v1_does_not_rewrite_internal_check_parse_text() -> None:
     source = inspect.getsource(gse.collect_governed_descriptors)
     assert "conbin" not in source
@@ -443,6 +457,13 @@ def test_canonicalization_rejects_nonempty_disposable_target_before_dump() -> No
 
     assert commands == []
     assert source.transaction_exited is True
+
+
+def test_target_empty_guard_enumerates_user_defined_collations() -> None:
+    source = inspect.getsource(gse.verify_disposable_target_empty)
+
+    assert "FROM pg_collation AS c" in source
+    assert "c.collnamespace" in source
 
 
 def test_canonicalization_uses_one_dump_and_one_clean_restore_without_source_writes() -> (

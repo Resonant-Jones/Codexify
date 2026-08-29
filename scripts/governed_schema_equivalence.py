@@ -201,7 +201,10 @@ def _rows(connection: Any, statement: str, parameters: Sequence[Any] = ()) -> li
     """Run a read-only catalog query and return its rows."""
 
     with connection.cursor() as cursor:
-        cursor.execute(statement, tuple(parameters))
+        if parameters:
+            cursor.execute(statement, tuple(parameters))
+        else:
+            cursor.execute(statement)
         return list(cursor.fetchall())
 
 
@@ -354,6 +357,14 @@ def verify_disposable_target_empty(connection: Any) -> None:
                    AND n.nspname NOT LIKE 'pg_toast%'
                    AND n.nspname NOT LIKE 'pg_temp_%'
                    AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'collation' AS object_kind, c.oid::text AS object_id
+                  FROM pg_collation AS c
+                 JOIN pg_namespace AS n ON n.oid = c.collnamespace
+                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                   AND n.nspname NOT LIKE 'pg_toast%'
+                   AND n.nspname NOT LIKE 'pg_temp_%'
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'
           ) AS user_objects
         """,
     )
@@ -426,13 +437,15 @@ def collect_governed_descriptors(connection: Any) -> dict[str, Any]:
                COALESCE(pg_get_expr(ad.adbin, ad.adrelid), ''),
                a.attidentity,
                a.attgenerated,
-               COALESCE(coll.collname, '')
+               COALESCE(coll_namespace.nspname || '.' || coll.collname, '')
           FROM pg_attribute AS a
           JOIN pg_class AS c ON c.oid = a.attrelid
           JOIN pg_namespace AS n ON n.oid = c.relnamespace
           LEFT JOIN pg_attrdef AS ad
             ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
           LEFT JOIN pg_collation AS coll ON coll.oid = a.attcollation
+          LEFT JOIN pg_namespace AS coll_namespace
+            ON coll_namespace.oid = coll.collnamespace
          WHERE n.nspname = 'public'
            AND c.relname = ANY(%s)
            AND a.attnum > 0
