@@ -46,7 +46,6 @@ from codex_runner.campaign_engine.models import (
     FixedClock,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test scaffolding: deterministic fake outcome + helpers
 # ---------------------------------------------------------------------------
@@ -79,7 +78,9 @@ class FakeReceipt:
     provider_lane: dict[str, Any] = field(default_factory=dict)
     granted_permissions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     validation_metadata: dict[str, Any] = field(default_factory=dict)
-    guardian_boundary: dict[str, Any] = field(default_factory=lambda: {"owner_account_id": "operator"})
+    guardian_boundary: dict[str, Any] = field(
+        default_factory=lambda: {"owner_account_id": "operator"}
+    )
     source_thread_id: str = "thread-1"
     source_message_id: str = "msg-1"
     authored_request_id: str | None = None
@@ -158,6 +159,13 @@ class FakeOutcome:
     tool_execution_end_count: int | None = None
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = None
+    # Bounded Pi 0.82.1 assistant-response telemetry (CE-L1
+    # post-tool-repair observability; see
+    # docs/architecture/proofs/runtime/2026-08-29-pi-assistant-response-telemetry-proof.md).
+    assistant_message_count: int | None = None
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -174,8 +182,12 @@ class FakeOutcome:
             "provider_request_started": self.provider_request_started,
             "oauth_available": self.oauth_available,
             "receipt": self.receipt.to_payload() if self.receipt else None,
-            "harness_result": self.harness_result.to_payload() if self.harness_result else None,
-            "actual_identity": self.actual_identity.to_payload() if self.actual_identity else None,
+            "harness_result": (
+                self.harness_result.to_payload() if self.harness_result else None
+            ),
+            "actual_identity": (
+                self.actual_identity.to_payload() if self.actual_identity else None
+            ),
         }
 
 
@@ -216,20 +228,49 @@ def _make_canonical_live_campaign(
     if granted_permissions is None:
         granted_permissions = ["files.read", "files.write"]
     if requested_permissions is None:
-        requested_permissions = ["files.read", "files.write", "network.provider.allowed"]
+        requested_permissions = [
+            "files.read",
+            "files.write",
+            "network.provider.allowed",
+        ]
 
     target = tmp_path / "ce-l1-test-target"
     target.mkdir(parents=True, exist_ok=True)
     target_handle = target / "proof_target.txt"
     target_handle.write_text("CE-L1-BASELINE\n", encoding="utf-8")
     # Init a git repo so target_baseline_git_head works.
-    subprocess.run(["git", "-C", str(target), "init"], capture_output=True, text=True, check=True)
-    subprocess.run(["git", "-C", str(target), "config", "user.email", "ce-l1-proof@in.valid"], capture_output=True, text=True, check=True)
-    subprocess.run(["git", "-C", str(target), "config", "user.name", "ce-l1-proof"], capture_output=True, text=True, check=True)
-    subprocess.run(["git", "-C", str(target), "add", "proof_target.txt"], capture_output=True, text=True, check=True)
-    subprocess.run(["git", "-C", str(target), "commit", "-m", "ce-l1-baseline"], capture_output=True, text=True, check=True)
+    subprocess.run(
+        ["git", "-C", str(target), "init"], capture_output=True, text=True, check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "config", "user.email", "ce-l1-proof@in.valid"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "config", "user.name", "ce-l1-proof"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "add", "proof_target.txt"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "commit", "-m", "ce-l1-baseline"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     head = subprocess.run(
-        ["git", "-C", str(target), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ["git", "-C", str(target), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
     if target_resolve == "<derived>":
@@ -421,8 +462,12 @@ def _build_envelope_and_decision(
         metadata={"campaign_engine_campaign_id": preparation.campaign_id},
     )
     granted = (
-        PiPermissionGrant(permission="files.read", resource=granted_files_read_resource),
-        PiPermissionGrant(permission="files.write", resource=granted_files_write_resource),
+        PiPermissionGrant(
+            permission="files.read", resource=granted_files_read_resource
+        ),
+        PiPermissionGrant(
+            permission="files.write", resource=granted_files_write_resource
+        ),
     )
     requested = granted + (
         PiPermissionGrant(permission="network.provider.allowed", resource="."),
@@ -509,7 +554,11 @@ def test_preparation_uses_locked_executor_binding(live_doc) -> None:
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     assert preparation.executor_binding_id == handle["binding_id"]
     assert preparation.executor_binding_revision == 1
@@ -521,7 +570,11 @@ def test_expected_provider_model_derived_only_from_binding(live_doc) -> None:
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     assert preparation.expected_provider_id == handle["executor_provider"]
     assert preparation.expected_model_id == handle["executor_model"]
@@ -535,7 +588,11 @@ def test_preparation_binds_prompt_hash(live_doc) -> None:
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     expected = sha256(preparation.prompt.encode("utf-8")).hexdigest()
     assert preparation.prompt_sha256 == expected
@@ -548,7 +605,11 @@ def test_preparation_binds_target_identity_and_allowed_paths(live_doc) -> None:
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     assert preparation.target_path == target.resolve()
     assert preparation.target_repository_identity == str(target.resolve())
@@ -560,11 +621,16 @@ def test_drift_in_campaign_input_blocks_before_invocation(
     live_doc, tmp_path, fixed_clock, invoker_factory
 ) -> None:
     from codex_runner.campaign_engine.models import FixedClock
+
     campaign_path, target, handle = live_doc
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     # Modify the campaign file post-preparation (the Task objective text).
     doc = json.loads(campaign_path.read_text())
@@ -573,7 +639,9 @@ def test_drift_in_campaign_input_blocks_before_invocation(
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=FakeReceipt(
             receipt_id="pi-receipt-ce-l1-test-drift-input",
             invocation_id=envelope.invocation_id,
@@ -602,7 +670,9 @@ def test_drift_in_campaign_input_blocks_before_invocation(
     assert exc_info.value.failure_reason == "drift_after_authorization"
     assert calls == []
     # No durable output created.
-    assert not output_root.exists() or not (output_root / handle["campaign_id"]).exists()
+    assert (
+        not output_root.exists() or not (output_root / handle["campaign_id"]).exists()
+    )
 
 
 # 7. changed target baseline after preparation blocks before invocation.
@@ -613,14 +683,20 @@ def test_drift_in_target_baseline_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     # Mutate the target file before execution.
     (target / handle["target_handle"].name).write_text("MODIFIED\n", encoding="utf-8")
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=FakeReceipt(
             receipt_id="pi-receipt-ce-l1-test-drift-target",
             invocation_id=envelope.invocation_id,
@@ -658,20 +734,25 @@ def test_mismatched_metadata_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     # Build a fresh envelope whose campaign_engine metadata differs.
-    from guardian.pi.contracts import (
-        PiInvocationEnvelope as _E,
-        PiInvocationPolicyDecision as _D,
-        PiPermissionGrant as _P,
-        PiGuardianBoundary as _B,
-        PiProviderLane as _L,
-    )
+    from guardian.pi.contracts import PiGuardianBoundary as _B
+    from guardian.pi.contracts import PiInvocationEnvelope as _E
+    from guardian.pi.contracts import PiInvocationPolicyDecision as _D
+    from guardian.pi.contracts import PiPermissionGrant as _P
+    from guardian.pi.contracts import PiProviderLane as _L
+
     boundary = envelope.guardian_boundary
     bad_metadata = dict(envelope.validation_metadata)
-    bad_metadata["campaign_engine"] = dict(envelope.validation_metadata["campaign_engine"])
+    bad_metadata["campaign_engine"] = dict(
+        envelope.validation_metadata["campaign_engine"]
+    )
     bad_metadata["campaign_engine"]["campaign_id"] = "WRONG"
     bad_envelope = _E(
         guardian_boundary=boundary,
@@ -688,9 +769,21 @@ def test_mismatched_metadata_blocks_before_invocation(
     )
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-mm", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-mm", receipt_id="pi-receipt-mm", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-mm",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-mm",
+            receipt_id="pi-receipt-mm",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
     calls, install = invoker_factory
     install(outcome)
@@ -717,14 +810,22 @@ def test_mismatched_provider_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
-    envelope = replace(envelope, provider_lane=replace(envelope.provider_lane, model_id="WRONG-MODEL"))
+    envelope = replace(
+        envelope, provider_lane=replace(envelope.provider_lane, model_id="WRONG-MODEL")
+    )
     outcome = FakeOutcome(
         ok=False,
         failure_reason="model_mismatch",
-        actual_identity=FakeIdentity("openai-codex", "WRONG-MODEL", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "WRONG-MODEL", "pi-coding-agent", "0.72.1"
+        ),
     )
     calls, install = invoker_factory
     install(outcome)
@@ -750,15 +851,24 @@ def test_mismatched_model_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
-    envelope = replace(envelope, provider_lane=replace(envelope.provider_lane, provider_name="WRONG-PROVIDER"))
+    envelope = replace(
+        envelope,
+        provider_lane=replace(envelope.provider_lane, provider_name="WRONG-PROVIDER"),
+    )
     calls, install = invoker_factory
     outcome = FakeOutcome(
         ok=False,
         failure_reason="provider_mismatch",
-        actual_identity=FakeIdentity("WRONG-PROVIDER", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "WRONG-PROVIDER", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
     )
     install(outcome)
     with pytest.raises(CampaignLiveExecutorError):
@@ -783,13 +893,15 @@ def test_denied_decision_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     decision = replace(decision, decision="denied")
-    outcome = FakeOutcome(
-        ok=False, failure_reason="authorization_denied"
-    )
+    outcome = FakeOutcome(ok=False, failure_reason="authorization_denied")
     calls, install = invoker_factory
     install(outcome)
     with pytest.raises(CampaignLiveExecutorError) as exc_info:
@@ -813,7 +925,11 @@ def test_wider_write_grant_blocks_before_invocation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(
         preparation,
@@ -843,7 +959,11 @@ def test_successful_invocation_occurs_exactly_once(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     receipt = FakeReceipt(
@@ -875,7 +995,9 @@ def test_successful_invocation_occurs_exactly_once(
         (request.cwd / "proof_target.txt").write_text(expected_post, encoding="utf-8")
         head_after = subprocess.run(
             ["git", "-C", str(request.cwd), "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         return types.SimpleNamespace(
             status="success",
@@ -923,7 +1045,10 @@ def test_successful_invocation_occurs_exactly_once(
     assert (final_dir / "execution" / "executor-pi-harness-result.json").is_file()
     # Corner: no commit occurred in target — HEAD unchanged.
     head_now = subprocess.run(
-        ["git", "-C", str(target), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ["git", "-C", str(target), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     assert head_now == handle["head"]
 
@@ -936,14 +1061,30 @@ def test_one_allowed_mutation_produces_count_one(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c14", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c14", receipt_id="pi-receipt-c14", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c14",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c14",
+            receipt_id="pi-receipt-c14",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -976,14 +1117,30 @@ def test_changed_file_evidence_contains_correct_hash(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c15", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c15", receipt_id="pi-receipt-c15", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c15",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c15",
+            receipt_id="pi-receipt-c15",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1005,9 +1162,16 @@ def test_changed_file_evidence_contains_correct_hash(
         campaign_path=campaign_path,
     )
     monkeypatch.undo()
-    attempt_path = output_root / handle["campaign_id"] / "attempts" / f"{preparation.attempt_id}.json"
+    attempt_path = (
+        output_root
+        / handle["campaign_id"]
+        / "attempts"
+        / f"{preparation.attempt_id}.json"
+    )
     attempt_record = json.loads(attempt_path.read_text())
-    expected_hash = "f5673b55d1637ebcd00685c4c5fd4e29ce14b1f7c10b4fa9d72a4a48f8a8ef63"  # noqa
+    expected_hash = (
+        "f5673b55d1637ebcd00685c4c5fd4e29ce14b1f7c10b4fa9d72a4a48f8a8ef63"  # noqa
+    )
     import hashlib
 
     actual_hash = hashlib.sha256(b"CE-L1-LIVE-EXECUTOR-OK\n").hexdigest()
@@ -1029,14 +1193,30 @@ def test_zero_mutation_executor_turn_fails_closed(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c16", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c16", receipt_id="pi-receipt-c16", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c16",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c16",
+            receipt_id="pi-receipt-c16",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(live_executor, "_invoker", lambda **kwargs: outcome)
@@ -1053,23 +1233,36 @@ def test_zero_mutation_executor_turn_fails_closed(
     assert exc_info.value.failure_reason == "zero_mutation_executor_turn"
 
 
-
 # 17. out-of-scope post-invocation change fails closed.
-def test_out_of_scope_change_fails_closed(
-    live_doc, tmp_path, invoker_factory
-) -> None:
+def test_out_of_scope_change_fails_closed(live_doc, tmp_path, invoker_factory) -> None:
     campaign_path, target, handle = live_doc
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c17", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c17", receipt_id="pi-receipt-c17", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c17",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c17",
+            receipt_id="pi-receipt-c17",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1095,21 +1288,35 @@ def test_out_of_scope_change_fails_closed(
 
 
 # 18. Git HEAD change fails closed.
-def test_git_head_change_fails_closed(
-    live_doc, tmp_path, invoker_factory
-) -> None:
+def test_git_head_change_fails_closed(live_doc, tmp_path, invoker_factory) -> None:
     campaign_path, target, handle = live_doc
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c18", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c18", receipt_id="pi-receipt-c18", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c18",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c18",
+            receipt_id="pi-receipt-c18",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1117,11 +1324,31 @@ def test_git_head_change_fails_closed(
     def _combined(**kwargs: Any) -> FakeOutcome:
         cwd = pathlib.Path(kwargs["cwd"])
         # Forbidden mutation: commit a new revision in the target repo.
-        subprocess.run(["git", "-C", str(cwd), "config", "user.email", "evil@in.valid"], capture_output=True, text=True, check=True)
-        subprocess.run(["git", "-C", str(cwd), "config", "user.name", "evil"], capture_output=True, text=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(cwd), "config", "user.email", "evil@in.valid"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(cwd), "config", "user.name", "evil"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         (cwd / "proof_target.txt").write_text("HIJACK\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(cwd), "add", "proof_target.txt"], capture_output=True, text=True, check=True)
-        subprocess.run(["git", "-C", str(cwd), "commit", "-m", "hi"], capture_output=True, text=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(cwd), "add", "proof_target.txt"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(cwd), "commit", "-m", "hi"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return outcome
 
     # Even if Canonical Pi's target-posture guard is bypassed by fake
@@ -1150,15 +1377,31 @@ def test_actual_identity_mismatch_fails_closed(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     # Outcome reports success but with the wrong provider identity.
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("OTHER-PROVIDER", "other-model", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c19", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c19", receipt_id="pi-receipt-c19", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "OTHER-PROVIDER", "other-model", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c19",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c19",
+            receipt_id="pi-receipt-c19",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1184,14 +1427,28 @@ def test_missing_actual_identity_fails_closed(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
         actual_identity=None,
-        receipt=FakeReceipt(receipt_id="pi-receipt-c20", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c20", receipt_id="pi-receipt-c20", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c20",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c20",
+            receipt_id="pi-receipt-c20",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(live_executor, "_invoker", lambda **kwargs: outcome)
@@ -1209,21 +1466,30 @@ def test_missing_actual_identity_fails_closed(
 
 
 # 21. missing Pi Receipt fails closed.
-def test_missing_pi_receipt_fails_closed(
-    live_doc, tmp_path, invoker_factory
-) -> None:
+def test_missing_pi_receipt_fails_closed(live_doc, tmp_path, invoker_factory) -> None:
     campaign_path, target, handle = live_doc
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=None,
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c21", receipt_id="pi-receipt-c21", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c21",
+            receipt_id="pi-receipt-c21",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(live_executor, "_invoker", lambda **kwargs: outcome)
@@ -1248,13 +1514,24 @@ def test_missing_pi_harness_result_fails_closed(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c22", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c22",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
         harness_result=None,
     )
     monkeypatch = pytest.MonkeyPatch()
@@ -1282,7 +1559,11 @@ def test_live_attempt_validates_against_schema(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     receipt = FakeReceipt(
@@ -1299,7 +1580,9 @@ def test_live_attempt_validates_against_schema(
     )
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=receipt,
         harness_result=harness,
     )
@@ -1323,14 +1606,24 @@ def test_live_attempt_validates_against_schema(
         campaign_path=campaign_path,
     )
     monkeypatch.undo()
-    attempt_path = output_root / handle["campaign_id"] / "attempts" / f"{preparation.attempt_id}.json"
+    attempt_path = (
+        output_root
+        / handle["campaign_id"]
+        / "attempts"
+        / f"{preparation.attempt_id}.json"
+    )
     attempt_record = json.loads(attempt_path.read_text())
-    schema_path = pathlib.Path(__file__).resolve().parent.parent / "schemas/campaign_engine/attempt.schema.json"
+    schema_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "schemas/campaign_engine/attempt.schema.json"
+    )
     schema = json.loads(schema_path.read_text())
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
     errors = list(validator.iter_errors(attempt_record))
-    assert errors == [], f"attempt schema validation failed: {[e.message for e in errors]}"
+    assert (
+        errors == []
+    ), f"attempt schema validation failed: {[e.message for e in errors]}"
 
 
 # 24. successful live Attempt passes current cross-object validation.
@@ -1341,7 +1634,11 @@ def test_live_attempt_passes_cross_object_validation(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     receipt = FakeReceipt(
@@ -1358,7 +1655,9 @@ def test_live_attempt_passes_cross_object_validation(
     )
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=receipt,
         harness_result=harness,
     )
@@ -1399,14 +1698,30 @@ def test_provider_call_count_is_one_in_attempt(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c25", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c25", receipt_id="pi-receipt-c25", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c25",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c25",
+            receipt_id="pi-receipt-c25",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1429,7 +1744,12 @@ def test_provider_call_count_is_one_in_attempt(
     )
     monkeypatch.undo()
     attempt_record = json.loads(
-        (output_root / handle["campaign_id"] / "attempts" / f"{preparation.attempt_id}.json").read_text()
+        (
+            output_root
+            / handle["campaign_id"]
+            / "attempts"
+            / f"{preparation.attempt_id}.json"
+        ).read_text()
     )
     # 25, 26, 27, 28, 29, 30 in a single assertion on the Attempt.
     assert attempt_record["provider_call_count"] == 1
@@ -1438,7 +1758,9 @@ def test_provider_call_count_is_one_in_attempt(
     assert attempt_record["durable_ingestion_performed"] is False
     # retry/fallback invariants come from the outcome not the Attempt
     # record; reflect them in the result envelope:
-    result_envelope = json.loads((output_root / handle["campaign_id"] / "run-result.json").read_text())
+    result_envelope = json.loads(
+        (output_root / handle["campaign_id"] / "run-result.json").read_text()
+    )
     assert result_envelope["provider_calls_performed"] == 1
 
 
@@ -1447,16 +1769,32 @@ def test_retry_and_fallback_counts_zero(live_doc, tmp_path, invoker_factory) -> 
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
         retry_count=0,
         fallback_count=0,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c27", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c27", receipt_id="pi-receipt-c27", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c27",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c27",
+            receipt_id="pi-receipt-c27",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
     monkeypatch = pytest.MonkeyPatch()
 
@@ -1480,7 +1818,13 @@ def test_retry_and_fallback_counts_zero(live_doc, tmp_path, invoker_factory) -> 
     # via the Attempt's `provider_call_count == 1` and the persisted
     # outcome retry/fallback counters in the durability artifact.
     receipt_artifact = json.loads(
-        (tmp_path / "out-21" / handle["campaign_id"] / "execution" / "executor-pi-receipt.json").read_text()
+        (
+            tmp_path
+            / "out-21"
+            / handle["campaign_id"]
+            / "execution"
+            / "executor-pi-receipt.json"
+        ).read_text()
     )
     assert receipt_artifact["receipt_id"].startswith("pi-receipt-")
     # No retry/fallback paths available, so the result implicitly encodes
@@ -1496,7 +1840,11 @@ def test_receipt_and_harness_result_artifacts_round_trip(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     receipt = FakeReceipt(
@@ -1516,7 +1864,9 @@ def test_receipt_and_harness_result_artifacts_round_trip(
     )
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=receipt,
         harness_result=harness,
     )
@@ -1562,12 +1912,18 @@ def test_no_credential_shaped_fields_in_durable_evidence(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
         receipt=FakeReceipt(
             receipt_id="pi-receipt-c32",
             invocation_id=envelope.invocation_id,
@@ -1603,10 +1959,20 @@ def test_no_credential_shaped_fields_in_durable_evidence(
     monkeypatch.undo()
     final_dir = output_root / handle["campaign_id"]
     sensitive_set = {
-        "access_token", "refresh_token", "authorization",
-        "api_key", "apikey", "secret", "credentials",
-        "token", "password", "client_secret", "session_token",
-        "cookie", "set-cookie", "x-api-key",
+        "access_token",
+        "refresh_token",
+        "authorization",
+        "api_key",
+        "apikey",
+        "secret",
+        "credentials",
+        "token",
+        "password",
+        "client_secret",
+        "session_token",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
     }
 
     def _walk(obj: Any, path: str = "") -> list[str]:
@@ -1658,14 +2024,30 @@ def test_interim_evaluation_remains_non_independent(
     preparation = prepare_live_executor_campaign(
         campaign_path,
         target,
-        clock=FixedClock(instant=__import__("datetime").datetime(2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc)),
+        clock=FixedClock(
+            instant=__import__("datetime").datetime(
+                2026, 8, 26, 14, 30, 0, tzinfo=__import__("datetime").timezone.utc
+            )
+        ),
     )
     envelope, decision = _build_envelope_and_decision(preparation)
     outcome = FakeOutcome(
         ok=True,
-        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
-        receipt=FakeReceipt(receipt_id="pi-receipt-c33", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
-        harness_result=FakeHarnessResult(harness_result_id="pi-result-c33", receipt_id="pi-receipt-c33", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        actual_identity=FakeIdentity(
+            "openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"
+        ),
+        receipt=FakeReceipt(
+            receipt_id="pi-receipt-c33",
+            invocation_id=envelope.invocation_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id="pi-result-c33",
+            receipt_id="pi-receipt-c33",
+            harness_id="pi-coding-agent",
+            harness_version="0.72.1",
+        ),
     )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -1688,7 +2070,12 @@ def test_interim_evaluation_remains_non_independent(
     )
     monkeypatch.undo()
     evaluation = json.loads(
-        (output_root / handle["campaign_id"] / "evaluations" / f"{preparation.evaluation_id}.json").read_text()
+        (
+            output_root
+            / handle["campaign_id"]
+            / "evaluations"
+            / f"{preparation.evaluation_id}.json"
+        ).read_text()
     )
     assert evaluation["independent_model_judgment"] is False
     assert evaluation["evaluation_mode"] == "provider_free"
@@ -1726,14 +2113,16 @@ def test_provider_free_unchanged_output_contract(
                 "rebind_approval": "operator_required",
             },
         },
-        "tasks": [{
-            "schema_version": "campaign-engine/v0",
-            "task_id": "task-pf-test-001",
-            "campaign_id": "campaign-pf-test-001",
-            "created_at": "2026-08-26T13:00:00Z",
-            "state": "ready",
-            "objective": "Provider-free regression task",
-        }],
+        "tasks": [
+            {
+                "schema_version": "campaign-engine/v0",
+                "task_id": "task-pf-test-001",
+                "campaign_id": "campaign-pf-test-001",
+                "created_at": "2026-08-26T13:00:00Z",
+                "state": "ready",
+                "objective": "Provider-free regression task",
+            }
+        ],
         "role_bindings": [
             {
                 "schema_version": "campaign-engine/v0",
@@ -1822,13 +2211,23 @@ def test_package_import_does_not_eagerly_load_guardian_pi() -> None:
         "out = sorted({a for a in dir(p) if not a.startswith('_')}); "
         "print(json.dumps({'modules': mods, 'attrs': out}))"
     )
-    completed = subprocess.run([py, "-c", script], capture_output=True, text=True, check=True, env={**os.environ})
-    payload = json.loads(completed.stdout)
-    assert payload["modules"] == [], (
-        f"Guardian/Pi modules were eagerly loaded by package import: {payload['modules']}"
+    completed = subprocess.run(
+        [py, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ},
     )
+    payload = json.loads(completed.stdout)
+    assert (
+        payload["modules"] == []
+    ), f"Guardian/Pi modules were eagerly loaded by package import: {payload['modules']}"
     # Surface is unchanged in terms of public API.
-    for required in ("run_provider_free_campaign", "LiveExecutorPreparation", "CampaignLiveExecutorError"):
+    for required in (
+        "run_provider_free_campaign",
+        "LiveExecutorPreparation",
+        "CampaignLiveExecutorError",
+    ):
         assert required in payload["attrs"]
 
 
@@ -1838,8 +2237,6 @@ def test_package_import_does_not_eagerly_load_guardian_pi() -> None:
 # through the success and failure paths without fabricating or mutating it.
 
 
-
-
 def test_zero_mutation_error_carries_all_six_tool_telemetry_fields(
     monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
 ) -> None:
@@ -1847,6 +2244,7 @@ def test_zero_mutation_error_carries_all_six_tool_telemetry_fields(
     CampaignLiveExecutorError.to_payload() output, and the issue text does
     not claim the model itself caused the failure."""
     from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
     campaign_path, target_path, _ = live_doc
     fake_identity = FakeIdentity(
         provider_id="openai-codex",
@@ -1905,7 +2303,10 @@ def test_zero_mutation_error_carries_all_six_tool_telemetry_fields(
         telemetry = payload["tool_telemetry"]
         assert telemetry is not None
         assert telemetry["effective_tool_names"] == [
-            "read", "bash", "edit", "write",
+            "read",
+            "bash",
+            "edit",
+            "write",
         ]
         assert telemetry["write_tool_available"] is True
         assert telemetry["tool_execution_start_count"] == 0
@@ -1935,3 +2336,415 @@ def test_zero_mutation_issue_text_does_not_blame_model() -> None:
     msg = str(err)
     assert "the model did not invoke" not in msg
     assert "tool availability and execution telemetry" in msg
+
+
+# --- Pi 0.82.1 assistant-response telemetry Campaign propagation regressions
+# (CE-L1 post-tool-repair observability).  These tests prove the four new
+# bounded telemetry fields survive both successful live-result construction
+# and zero_mutation_executor_turn error-payload construction.  No provider
+# calls; no prompt execution; no credential access.
+
+
+def _assistant_telemetry_r2_case_a(
+    *, with_toolcall_event: bool = False
+) -> dict[str, object]:
+    """R2-equivalent synthetic Case A telemetry fixture.
+
+    Mirrors the R2 live result for `openai-codex / gpt-5.6-sol /
+    pi-coding-agent / 0.82.1`:
+      - effective tool surface: read / bash / edit / write (post-PR #774)
+      - write is available
+      - assistant produced >=1 message; assistant emitted a final `text`
+        content block; no `toolCall` content block; no `toolcall_*`
+        lifecycle events observed.
+    """
+    payload: dict[str, object] = {
+        "effective_tool_names": ["read", "bash", "edit", "write"],
+        "write_tool_available": True,
+        "tool_execution_start_count": 0,
+        "tool_execution_end_count": 0,
+        "executed_tool_names": [],
+        "assistant_tool_call_count": 0,
+        "assistant_message_count": 1,
+        "assistant_content_block_types": ["text"],
+        "assistant_message_event_types": [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ],
+        "assistant_tool_call_event_count": (1 if with_toolcall_event else 0),
+    }
+    if with_toolcall_event:
+        existing_events: list[str] = list(
+            payload["assistant_message_event_types"]
+        )
+        payload["assistant_message_event_types"] = (
+            existing_events + ["toolcall_start"]
+        )
+    return payload
+
+
+def _build_zero_mutation_outcome(
+    telemetry: dict[str, object],
+) -> tuple[object, object, object, object]:
+    """Construct a FakeIdentity/FakeReceipt/FakeHarnessResult/FakeOutcome
+    carrying the bounded telemetry.
+    """
+    fake_identity = FakeIdentity(
+        provider_id="openai-codex",
+        model_id="gpt-5.1",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_receipt = FakeReceipt(
+        receipt_id="pi-receipt-assistant-telemetry",
+        invocation_id="inv-assistant-telemetry",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_harness_result = FakeHarnessResult(
+        harness_result_id="pi-result-assistant-telemetry",
+        receipt_id="pi-receipt-assistant-telemetry",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    outcome = FakeOutcome(
+        ok=True,
+        receipt=fake_receipt,
+        harness_result=fake_harness_result,
+        actual_identity=fake_identity,
+        effective_tool_names=tuple(telemetry["effective_tool_names"]),
+        write_tool_available=telemetry["write_tool_available"],
+        tool_execution_start_count=telemetry["tool_execution_start_count"],
+        tool_execution_end_count=telemetry["tool_execution_end_count"],
+        executed_tool_names=tuple(telemetry["executed_tool_names"]),
+        assistant_tool_call_count=telemetry["assistant_tool_call_count"],
+        assistant_message_count=telemetry["assistant_message_count"],
+        assistant_content_block_types=tuple(telemetry["assistant_content_block_types"]),
+        assistant_message_event_types=tuple(telemetry["assistant_message_event_types"]),
+        assistant_tool_call_event_count=(telemetry["assistant_tool_call_event_count"]),
+    )
+    return fake_identity, fake_receipt, fake_harness_result, outcome
+
+
+def test_zero_mutation_error_carries_all_four_assistant_telemetry_fields(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """zero_mutation_executor_turn payload includes the four bounded
+    assistant-response telemetry fields.  R2 Case A shape.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-zero-mut-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        assert payload["failure_reason"] == "zero_mutation_executor_turn"
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # Existing 6 fields preserved unchanged.
+        assert captured["effective_tool_names"] == [
+            "read",
+            "bash",
+            "edit",
+            "write",
+        ]
+        assert captured["write_tool_available"] is True
+        assert captured["tool_execution_start_count"] == 0
+        assert captured["tool_execution_end_count"] == 0
+        assert captured["executed_tool_names"] == []
+        assert captured["assistant_tool_call_count"] == 0
+        # New 4 assistant-response fields present.
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        # Tuple → list serialization for type-list fields.
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError for zero-mutation outcome"
+        )
+
+
+def test_zero_mutation_error_records_toolcall_event_count_even_when_no_block(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """When the assistant emits a `toolcall_*` lifecycle event but the
+    final normalized `toolCall` content block is missing, both fields
+    are recorded independently.  Both must still BLOCK the run when
+    no allowed-path mutation is observed.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a(with_toolcall_event=True)
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-toolcall-event-zero-mut-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        assert payload["failure_reason"] == "zero_mutation_executor_turn"
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # toolcall_event count recorded; tool_call block count stays 0.
+        assert captured["assistant_tool_call_event_count"] == 1
+        assert captured["assistant_tool_call_count"] == 0
+        # The event-type tuple must include the toolcall lifecycle event.
+        assert "toolcall_start" in captured["assistant_message_event_types"]
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError even with a "
+            "toolcall lifecycle event but no mutation"
+        )
+
+
+def test_zero_mutation_error_payload_contains_no_assistant_text_or_args() -> None:
+    """The serialized payload must contain no assistant text, reasoning,
+    delta content, tool arguments, tool IDs, tool results, provider
+    payloads, raw schemas, or credentials.
+    """
+    forbidden_substrings = (
+        # Assistant text/reasoning prose must never appear in telemetry
+        # payloads.
+        "I cannot",
+        "I will not",
+        "I'm unable",
+        "as an AI",
+        "as a language model",
+        # Tool-arg name echoes that could leak schema structure.
+        "ignored-arg",
+        "ignored-path",
+        "ignored-content",
+        "ignored-text",
+        "ignored-key",
+        "ignored-args",
+        "ignored-result",
+        # Provider payload fragments must never appear.
+        '"choices":',
+        '"delta":',
+        '"usage":',
+        '"messages":',
+        # Credentials.
+        "api_key",
+        "openai_api_key",
+        "PI_API_KEY",
+        "PI_TOKEN",
+    )
+    err = CampaignLiveExecutorError(
+        "Harness success produced zero allowed-path mutation",
+        failure_reason="zero_mutation_executor_turn",
+        diagnostic_stage="post_invocation",
+        effective_tool_names=("read", "bash", "edit", "write"),
+        write_tool_available=True,
+        tool_execution_start_count=0,
+        tool_execution_end_count=0,
+        executed_tool_names=(),
+        assistant_tool_call_count=0,
+        assistant_message_count=1,
+        assistant_content_block_types=("text",),
+        assistant_message_event_types=("start", "done"),
+        assistant_tool_call_event_count=0,
+        issues=[],
+    )
+    payload = err.to_payload()
+    payload_str = json.dumps(payload, default=str)
+    for forbidden in forbidden_substrings:
+        assert (
+            forbidden not in payload_str
+        ), f"forbidden substring {forbidden!r} present in payload"
+
+
+def test_assistant_telemetry_present_in_live_executor_run_result(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """A successful live Executor run records the four assistant fields
+    in the resulting LiveExecutorRunResult (and its to_dict() output).
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    # Build a Campaign with an allowed target.  We instrument the harness
+    # to emit the assistant fields.  FakeRunner cannot mutate the file,
+    # so the run raises zero_mutation_executor_turn and the success-path
+    # LiveExecutorRunResult is not produced.  In that case the
+    # CampaignLiveExecutorError payload already carries the four fields
+    # (covered separately by
+    # test_zero_mutation_error_carries_all_four_assistant_telemetry_fields).
+    campaign_path, target_path, _handle = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-success-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        result = run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        # Outcome was ok=True but no mutation occurred (FakeRunner
+        # cannot mutate the file).  Verify the same four fields surface
+        # at the error payload boundary.
+        captured = exc.to_payload()["tool_telemetry"]
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+        return
+
+    # On success path: LiveExecutorRunResult carries the four new fields.
+    assert result.tool_telemetry.assistant_message_count == 1
+    assert result.tool_telemetry.assistant_content_block_types == ("text",)
+    assert result.tool_telemetry.assistant_message_event_types == (
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    )
+    assert result.tool_telemetry.assistant_tool_call_event_count == 0
+
+    # to_dict() serialization preserves them under tool_telemetry.
+    serialized = result.to_dict()
+    tt = serialized["tool_telemetry"]
+    assert tt["assistant_message_count"] == 1
+    assert tt["assistant_content_block_types"] == ["text"]
+    assert tt["assistant_message_event_types"] == [
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert tt["assistant_tool_call_event_count"] == 0
+
+
+def test_assistant_telemetry_preserved_on_harness_result_metadata(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """The PiLiveInvocationOutcome's `validation_metadata["tool_telemetry"]`
+    surfaces the four new bounded assistant fields without recomputation
+    when the run reaches post-invocation handling.  This test verifies
+    the four fields survive from `FakeOutcome` -> `_extract_tool_telemetry_from_outcome`
+    -> `CampaignLiveExecutorError.to_payload()["tool_telemetry"]` exactly.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-harness-result-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # Verify all 10 telemetry fields propagate exactly from the
+        # FakeOutcome (which mirrors the PiLiveInvocationOutcome shape).
+        assert captured["effective_tool_names"] == [
+            "read",
+            "bash",
+            "edit",
+            "write",
+        ]
+        assert captured["write_tool_available"] is True
+        assert captured["tool_execution_start_count"] == 0
+        assert captured["tool_execution_end_count"] == 0
+        assert captured["executed_tool_names"] == []
+        assert captured["assistant_tool_call_count"] == 0
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError for zero-mutation outcome"
+        )

@@ -235,6 +235,82 @@ metadata, or environment dumps.  Target readback remains the
 authoritative source for actual mutation.  Telemetry does not broaden
 tool permissions.
 
+### Bounded Pi 0.82.1 assistant-response observability (added 2026-08-29)
+
+Guardian-authorized live Pi execution may retain four additional
+bounded assistant-response telemetry fields under `tool_telemetry`.
+These fields are **observational only** — they confer no execution
+authority, do not affect CE-L1 acceptance, and do not affect release
+posture.  The fields are:
+
+- `assistant_message_count`: non-negative integer.  Count of assistant-role
+  messages observed in the final session state
+  (`session.agent.state.messages`).  Message text and tokens are NOT
+  counted or retained.
+- `assistant_content_block_types`: ordered unique tuple of normalized
+  content-block type strings observed across final assistant messages.
+  Pi 0.82.1-native values include `text`, `thinking`, and `toolCall`.
+  Field records type names only.  Text, reasoning, tool-call tool
+  names, arguments, IDs, and payloads are NOT retained.
+- `assistant_message_event_types`: ordered unique tuple of
+  `event.assistantMessageEvent.type` values observed on Pi
+  `message_update` events.  Pi 0.82.1-native values include `start`,
+  `text_start`, `text_delta`, `text_end`, `thinking_start`,
+  `thinking_delta`, `thinking_end`, `toolcall_start`, `toolcall_delta`,
+  `toolcall_end`, `done`, `error`.  Deltas, text, thinking content,
+  tool-call IDs, tool arguments, partial JSON, and provider payload
+  fragments are NOT retained.
+- `assistant_tool_call_event_count`: non-negative integer.  Count of
+  assistant message-update events whose Pi-native event type
+  unambiguously denotes a tool-call lifecycle event (`toolcall_start`,
+  `toolcall_delta`, `toolcall_end`).  Distinct from
+  `tool_execution_start_count` (a different boundary).
+
+**Type-list invariants:** first-observation order is preserved, type
+names are deduplicated, empty/non-string values are filtered, and
+empty tuples are returned when none are observed.  No sorting is
+applied.
+
+**Causal language discipline:**
+
+- `assistant_tool_call_count=0` means **no final normalized `toolCall`
+  content block was observed**.  This does not prove model refusal,
+  model incapability, provider bug, Pi-AI translation bug, prompt
+  defect, or schema defect.
+- `assistant_tool_call_event_count=0` means **no Pi assistant
+  message-update event classified by the maintained Pi 0.82.1 event
+  vocabulary as a tool-call lifecycle event was observed**.  This does
+  not prove the same causal claims as above.
+
+The combination of the four new fields plus the existing six tool
+fields narrows the next investigation without claiming a specific
+causal class.  The current causal class remains
+`UNRESOLVED_ASSISTANT_TOOL_CALL_EMISSION_BOUNDARY`.
+
+**Observational purpose:** allow the next single CE-L1 live proof to
+distinguish:
+
+1. no assistant response shape observed;
+2. assistant text/reasoning response observed without tool-call
+   lifecycle;
+3. tool-call lifecycle events observed during streaming;
+4. final normalized `toolCall` block observed;
+5. tool execution subsequently began.
+
+**No authority effect:** the four new fields do not change CE-L1
+acceptance.  A run with `assistant_tool_call_event_count > 0` still
+BLOCKS if no allowed target mutation exists.  A run with
+`assistant_tool_call_count > 0` still BLOCKS if no allowed target
+mutation exists.  Only target readback remains source-mutation
+authority.
+
+**No release-claim effect:** these fields do not constitute a release
+claim.  They are observational telemetry for diagnosis only.
+
+**Readiness exemption:** preflight readiness does NOT require the four
+new fields.  Readiness is non-inference and creates no model session
+or prompt; it never produces assistant content.
+
 ## Explicit Non-Goals
 
 This contract does not:

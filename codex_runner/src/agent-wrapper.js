@@ -18,6 +18,11 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+	observeAssistantMessageEvent,
+	observeFinalAssistantMessages,
+} from "./assistant-telemetry.js";
+
 // Parse command line args
 const args = process.argv.slice(2);
 const mode = args[0] || "help";
@@ -738,6 +743,59 @@ if (mode === "readiness") {
 } else if (guardianAuthorizedReadinessMode) {
 	checkGuardianAuthorizedReadiness().catch(() => {
 		emitAuthorizedFailure("unknown_adapter_failure", "preflight");
+	});
+} else if (mode === "assistant-telemetry-test") {
+	// Deterministic regression harness for bounded Pi 0.82.1
+	// assistant-response observability.  Reads a JSON spec of
+	// synthetic message_update events and synthetic final
+	// session.messages from stdin, runs them through the same
+	// helpers the live wrapper uses, and writes the resulting
+	// toolTelemetry JSON to stdout.  No network.  No credentials.
+	// No prompting.
+	let input = "";
+	process.stdin.setEncoding("utf8");
+	process.stdin.on("data", (chunk) => { input += chunk; });
+	process.stdin.on("end", () => {
+		try {
+			const spec = JSON.parse(input);
+			const toolTelemetry = {
+				effective_tool_names: ["read", "bash", "edit", "write"],
+				write_tool_available: true,
+				tool_execution_start_count: 0,
+				tool_execution_end_count: 0,
+				executed_tool_names: [],
+				assistant_tool_call_count: 0,
+				assistant_message_count: 0,
+				assistant_content_block_types: [],
+				assistant_message_event_types: [],
+				assistant_tool_call_event_count: 0,
+			};
+			if (Array.isArray(spec.events)) {
+				for (const event of spec.events) {
+					observeAssistantMessageEvent(toolTelemetry, event);
+				}
+			}
+			if (Array.isArray(spec.toolExecutionEvents)) {
+				for (const event of spec.toolExecutionEvents) {
+					if (event && event.type === "tool_execution_start") {
+						const toolName = typeof event.toolName === "string" ? event.toolName : null;
+						if (toolName !== null) {
+							toolTelemetry.tool_execution_start_count += 1;
+							if (!toolTelemetry.executed_tool_names.includes(toolName)) {
+								toolTelemetry.executed_tool_names.push(toolName);
+							}
+						}
+					} else if (event && event.type === "tool_execution_end") {
+						toolTelemetry.tool_execution_end_count += 1;
+					}
+				}
+			}
+			observeFinalAssistantMessages(toolTelemetry, { agent: { state: { messages: spec.messages || [] } } });
+			process.stdout.write(JSON.stringify(toolTelemetry));
+		} catch (parseError) {
+			console.error("assistant-telemetry-test: failed to parse stdin as JSON:", parseError.message);
+			process.exit(1);
+		}
 	});
 } else if (mode === "help" || !prompt) {
 	console.log(`

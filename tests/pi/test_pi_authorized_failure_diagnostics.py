@@ -578,3 +578,181 @@ def test_run_agent_still_destructures_harness_id_and_version_from_load_pi_sdk() 
         "`harnessId, harnessVersion` from `await loadPiSdk()` so the "
         "harness identity remains SDK-derived rather than hardcoded."
     )
+
+
+# --- Pi 0.82.1 assistant-response telemetry malformed-payload diagnostics
+# (CE-L1 post-tool-repair observability).  These tests prove the adapter
+# fails closed when assistant-response telemetry is malformed on a
+# successful live authorized task; readiness remains non-inference.
+
+
+def _wrapper_subprocess_payload(
+    monkeypatch, *, payload: dict[str, object]
+) -> None:
+    """Patch pi_codex_runner.subprocess.run to return a canned wrapper
+    output with the supplied payload."""
+    def _run(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
+    monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
+    monkeypatch.setenv("PI_MODEL", "ambient-model")
+
+
+def _valid_telemetry_payload() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "summary": "bounded",
+        "actual_runtime_identity": {
+            "actual_provider_id": IDENTITY.provider_id,
+            "actual_model_id": IDENTITY.model_id,
+            "actual_harness_id": IDENTITY.harness_id,
+            "actual_harness_version": IDENTITY.harness_version,
+        },
+        "tool_telemetry": {
+            "effective_tool_names": ["read", "bash", "edit", "write"],
+            "write_tool_available": True,
+            "tool_execution_start_count": 0,
+            "tool_execution_end_count": 0,
+            "executed_tool_names": [],
+            "assistant_tool_call_count": 0,
+            "assistant_message_count": 1,
+            "assistant_content_block_types": ["text"],
+            "assistant_message_event_types": ["start", "text_start", "done"],
+            "assistant_tool_call_event_count": 0,
+        },
+    }
+
+
+def test_missing_assistant_message_count_is_wrapper_protocol_failure(
+    monkeypatch, tmp_path,
+) -> None:
+    """A live wrapper payload without `assistant_message_count` must fail
+    closed as `wrapper_protocol_failed` (readiness remains exempt)."""
+    payload = _valid_telemetry_payload()
+    payload["tool_telemetry"] = {
+        k: v for k, v in payload["tool_telemetry"].items()
+        if k != "assistant_message_count"
+    }
+    _wrapper_subprocess_payload(monkeypatch, payload=payload)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(
+            provider_id=IDENTITY.provider_id,
+            model_id=IDENTITY.model_id,
+            harness_id=IDENTITY.harness_id,
+            harness_version=IDENTITY.harness_version,
+        ),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "wrapper_protocol"
+
+
+def test_negative_assistant_tool_call_event_count_is_wrapper_protocol_failure(
+    monkeypatch, tmp_path,
+) -> None:
+    """A negative `assistant_tool_call_event_count` fails closed."""
+    payload = _valid_telemetry_payload()
+    payload["tool_telemetry"]["assistant_tool_call_event_count"] = -3
+    _wrapper_subprocess_payload(monkeypatch, payload=payload)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(
+            provider_id=IDENTITY.provider_id,
+            model_id=IDENTITY.model_id,
+            harness_id=IDENTITY.harness_id,
+            harness_version=IDENTITY.harness_version,
+        ),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_non_string_assistant_message_event_type_is_wrapper_protocol_failure(
+    monkeypatch, tmp_path,
+) -> None:
+    """A non-string entry in `assistant_message_event_types` fails closed."""
+    payload = _valid_telemetry_payload()
+    payload["tool_telemetry"]["assistant_message_event_types"] = [
+        "start", 42, "done",
+    ]
+    _wrapper_subprocess_payload(monkeypatch, payload=payload)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(
+            provider_id=IDENTITY.provider_id,
+            model_id=IDENTITY.model_id,
+            harness_id=IDENTITY.harness_id,
+            harness_version=IDENTITY.harness_version,
+        ),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_assistant_content_block_types_not_a_list_is_wrapper_protocol_failure(
+    monkeypatch, tmp_path,
+) -> None:
+    """`assistant_content_block_types` not a list fails closed."""
+    payload = _valid_telemetry_payload()
+    payload["tool_telemetry"]["assistant_content_block_types"] = "text"
+    _wrapper_subprocess_payload(monkeypatch, payload=payload)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(
+            provider_id=IDENTITY.provider_id,
+            model_id=IDENTITY.model_id,
+            harness_id=IDENTITY.harness_id,
+            harness_version=IDENTITY.harness_version,
+        ),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_readiness_remains_exempt_from_assistant_telemetry(
+    monkeypatch, tmp_path,
+) -> None:
+    """Preflight readiness does NOT require assistant telemetry (readiness
+    is non-inference and never touches a Pi model session/prompt)."""
+    payload = {
+        "status": "ok",
+        "summary": "readiness",
+        "actual_runtime_identity": {
+            "actual_provider_id": IDENTITY.provider_id,
+            "actual_model_id": IDENTITY.model_id,
+            "actual_harness_id": IDENTITY.harness_id,
+            "actual_harness_version": IDENTITY.harness_version,
+        },
+        # Deliberately omit tool_telemetry entirely: readiness is
+        # non-inference and does not require telemetry.
+    }
+    _wrapper_subprocess_payload(monkeypatch, payload=payload)
+    # Use preflight API path which does not require telemetry.
+    envelope = _envelope()
+    outcome = preflight_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        timeout_seconds=12,
+        cwd=tmp_path,
+    )
+    assert outcome.ok is True
+    # The preflight's deepest stage proves the readiness path is exempt.
+    # No assertions on assistant telemetry here — readiness must remain
+    # non-inference.

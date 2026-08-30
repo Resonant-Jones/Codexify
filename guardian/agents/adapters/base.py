@@ -47,6 +47,25 @@ class AgentRunEnvelope(BaseModel):
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = Field(default=None, ge=0)
 
+    # Bounded Pi 0.82.1 assistant-response telemetry.
+    # Records only type names and counts.  Never text/reasoning/args/IDs.
+    # `assistant_message_count` is the count of assistant-role messages in
+    # the final session state.
+    # `assistant_content_block_types` is an ordered unique tuple of Pi
+    # AssistantMessage.content[*].type values (e.g. "text", "thinking",
+    # "toolCall").
+    # `assistant_message_event_types` is an ordered unique tuple of
+    # event.assistantMessageEvent.type values observed on
+    # message_update events (e.g. "text_start", "text_delta", "text_end",
+    # "thinking_*", "toolcall_*", "done", "error").
+    # `assistant_tool_call_event_count` is the count of message_update
+    # events carrying assistantMessageEvent.type in
+    # {"toolcall_start","toolcall_delta","toolcall_end"}.
+    assistant_message_count: int | None = Field(default=None, ge=0)
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = Field(default=None, ge=0)
+
     model_config = ConfigDict(extra="forbid")
 
 

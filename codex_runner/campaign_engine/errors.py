@@ -81,6 +81,13 @@ class CampaignLiveExecutorError(CampaignEngineError):
         tool_execution_end_count: int | None = None,
         executed_tool_names: tuple[str, ...] | None = None,
         assistant_tool_call_count: int | None = None,
+        # Bounded Pi 0.82.1 assistant-response telemetry (evidence only).
+        # Only type names and counts are retained.  Missing telemetry
+        # surfaces as None.
+        assistant_message_count: int | None = None,
+        assistant_content_block_types: tuple[str, ...] | None = None,
+        assistant_message_event_types: tuple[str, ...] | None = None,
+        assistant_tool_call_event_count: int | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_reason = failure_reason
@@ -96,12 +103,24 @@ class CampaignLiveExecutorError(CampaignEngineError):
         self.tool_execution_end_count = tool_execution_end_count
         self.executed_tool_names = executed_tool_names
         self.assistant_tool_call_count = assistant_tool_call_count
+        self.assistant_message_count = assistant_message_count
+        self.assistant_content_block_types = assistant_content_block_types
+        self.assistant_message_event_types = assistant_message_event_types
+        self.assistant_tool_call_event_count = assistant_tool_call_event_count
 
     def to_payload(self) -> dict[str, Any]:
         # Surface only the bounded telemetry fields. Counts are normalized
-        # to integers; missing telemetry surfaces as None.
+        # to integers; missing telemetry surfaces as None.  No text /
+        # reasoning / arguments / IDs / payloads are ever included.
         def _as_int(value: Any) -> int | None:
             return value if isinstance(value, int) and value >= 0 else None
+        def _as_tuple(value: Any) -> tuple[str, ...] | None:
+            if value is None:
+                return None
+            if not isinstance(value, (list, tuple)):
+                return None
+            cleaned = [v for v in value if isinstance(v, str) and len(v) > 0]
+            return tuple(cleaned)
         return {
             "failure_reason": self.failure_reason,
             "diagnostic_class": self.diagnostic_class,
@@ -129,6 +148,20 @@ class CampaignLiveExecutorError(CampaignEngineError):
                     else None
                 ),
                 "assistant_tool_call_count": _as_int(self.assistant_tool_call_count),
+                "assistant_message_count": _as_int(self.assistant_message_count),
+                "assistant_content_block_types": (
+                    list(self.assistant_content_block_types)
+                    if self.assistant_content_block_types is not None
+                    else None
+                ),
+                "assistant_message_event_types": (
+                    list(self.assistant_message_event_types)
+                    if self.assistant_message_event_types is not None
+                    else None
+                ),
+                "assistant_tool_call_event_count": _as_int(
+                    self.assistant_tool_call_event_count
+                ),
             }
             if self.effective_tool_names is not None
             else None,
