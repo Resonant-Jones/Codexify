@@ -21,6 +21,10 @@ export type SidebarProjectLike = {
   project_name?: string;
   icon?: string;
   color?: string;
+  systemRole?: Project["systemRole"];
+  system_role?: Project["systemRole"];
+  archivedAt?: string | null;
+  archived_at?: string | null;
   metadata?: unknown;
 };
 
@@ -41,6 +45,34 @@ function normalizeText(value: unknown): string {
 
 export function isSidebarGeneralProjectName(value: unknown): boolean {
   return GENERAL_PROJECT_ALIASES.has(normalizeText(value).toLowerCase());
+}
+
+function hasProjectSystemRoleField(project: SidebarProjectLike): boolean {
+  const record = project as Record<string, unknown>;
+  return "systemRole" in record || "system_role" in record;
+}
+
+export function sidebarProjectSystemRole(
+  project: SidebarProjectLike
+): Project["systemRole"] {
+  const record = project as Record<string, unknown>;
+  const role = normalizeText(record.systemRole ?? record.system_role).toLowerCase();
+  return role === "general" || role === "imports" ? role : null;
+}
+
+export function isSidebarGeneralProject(project: SidebarProjectLike): boolean {
+  const role = sidebarProjectSystemRole(project);
+  if (role) return role === "general";
+  return !hasProjectSystemRoleField(project)
+    && isSidebarGeneralProjectName(project.name ?? project.project_name);
+}
+
+export function isSidebarBuiltInProject(project: SidebarProjectLike): boolean {
+  const role = sidebarProjectSystemRole(project);
+  if (role) return true;
+  if (hasProjectSystemRoleField(project)) return false;
+  const name = normalizeText(project.name ?? project.project_name).toLowerCase();
+  return isSidebarGeneralProjectName(name) || name === "imports";
 }
 
 function hasImportedProvenance(project: SidebarProjectLike): boolean {
@@ -91,7 +123,9 @@ export function cleanSidebarProjectTitle(
 ): string {
   const rawName = normalizeText(project.name ?? project.project_name ?? "Untitled");
 
-  if (isSidebarGeneralProjectName(rawName)) return "General";
+  if (isSidebarGeneralProject(project)) {
+    return sidebarProjectSystemRole(project) === "general" ? rawName : "General";
+  }
 
   if (!hasImportedProvenance(project)) return rawName;
 
@@ -100,23 +134,32 @@ export function cleanSidebarProjectTitle(
 }
 
 export function normalizeSidebarProject<T extends SidebarProjectLike>(project: T): SidebarProjectRecord {
+  const record = project as Record<string, unknown>;
   return {
     ...project,
     id: String(project.id ?? project.project_id ?? ""),
     name: cleanSidebarProjectTitle(project),
+    ...(hasProjectSystemRoleField(project)
+      ? { systemRole: sidebarProjectSystemRole(project) }
+      : {}),
+    ...("archivedAt" in record || "archived_at" in record
+      ? { archivedAt: (record.archivedAt ?? record.archived_at ?? null) as string | null }
+      : {}),
   };
 }
 
 export function normalizeSidebarProjects<T extends SidebarProjectLike>(
   projects: readonly T[]
 ): SidebarProjectRecord[] {
-  return projects.map(normalizeSidebarProject);
+  return projects
+    .map(normalizeSidebarProject)
+    .sort((left, right) => Number(Boolean(left.archivedAt)) - Number(Boolean(right.archivedAt)));
 }
 
 export function selectSidebarGeneralProject<T extends SidebarProjectLike>(
   projects: readonly T[]
 ): T | null {
-  const candidates = projects.filter((project) => isSidebarGeneralProjectName(project.name));
+  const candidates = projects.filter(isSidebarGeneralProject);
 
   return candidates[0] ?? null;
 }
@@ -138,7 +181,7 @@ export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectLik
   const result: T[] = [];
 
   for (const project of projects) {
-    if (!isSidebarGeneralProjectName(project.name)) {
+    if (!isSidebarGeneralProject(project)) {
       result.push(project);
       continue;
     }
@@ -147,6 +190,15 @@ export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectLik
       generalIndex = result.length;
       generalProject = project;
       result.push(project);
+      continue;
+    }
+
+    if (
+      sidebarProjectSystemRole(project) === "general"
+      && sidebarProjectSystemRole(generalProject) !== "general"
+    ) {
+      generalProject = project;
+      result[generalIndex] = project;
       continue;
     }
 

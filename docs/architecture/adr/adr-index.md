@@ -208,6 +208,10 @@ Use this note as the local map for all ADRs.
   - Accepted bounded taxonomy extension adding `knowledge` as the fourth Connections category and defining future `content_search` and `content_read` capability semantics without overloading Web `search` or `extract`.
   - Partially supersedes ADR-071 only where ADR-071 limits the catalog to Messaging, Web, and Inference. It preserves ADR-071's one-control-plane, read-only projection, credential, authorization, health, and implementation-state boundaries.
   - Current-truth boundary: this is architecture doctrine only. It implements no tokens, adapters, provider credentials, Command Bus command, or release promotion; [[../00-current-state|00 Current State]] remains release authority.
+- [[076-archive-before-delete-and-built-in-project-roles|ADR-076 Archive Before Delete and Built-In Project Roles]]
+  - Governs durable `general` and `imports` Project roles, reversible Project archival, archive-gated permanent deletion, and transactionally ordered thread ejection after lifecycle validation.
+  - Related anchors: [[../data-and-storage|Data and Storage]], [[../account-export-restore-contract|Account Export Restore Contract]], and [[../00-current-state|00 Current State]].
+  - Current-truth boundary: this changes Project lifecycle code paths and schema without widening release claims; `00-current-state.md` remains authoritative.
 
 ## Relationship to the main architecture docs
 

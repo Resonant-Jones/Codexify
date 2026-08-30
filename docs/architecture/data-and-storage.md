@@ -45,7 +45,7 @@ The vector store is a derived retrieval/index artefact, not canonical applicatio
 
 | Entity | Why it matters | Key invariants |
 |---|---|---|
-| `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep` |
+| `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep`; nullable `system_role` gives General/Imports durable structural identity; `archived_at` gates ordinary Project deletion |
 | `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile; carries one immutable canonical `origin_system` token (`codexify` / `openai` / `anthropic`) recorded at canonical creation |
 | `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete; assistant rows may carry durable completion breadcrumbs in `extra_meta` |
 | `memory_entries` | Stored episodic/semantic memory | `silo` constraint and retrieval policy dependence |
@@ -285,6 +285,7 @@ invariant is established.
 
 ### Soft delete and archival surfaces
 
+- `projects.archived_at` is the reversible lifecycle boundary for ordinary Projects. Permanent deletion is allowed only after archival. Built-in `general` and `imports` roles cannot be archived or deleted, even if renamed. Thread ejection to General occurs only after lifecycle validation and in the same transaction as Project deletion.
 - `chat_threads.archived_at` archives threads without removing them.
 - `media_assets.deleted_at`, `uploaded_documents.deleted_at`, `uploaded_images.deleted_at`, `generated_documents.deleted_at`, and `generated_images.deleted_at` act as soft-delete boundaries.
 - Deduplication logic relies on active rows where `deleted_at IS NULL`.

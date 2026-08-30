@@ -42,6 +42,12 @@ function normalizeProjectsResponse(res: any): Project[] {
       name: p.name ?? p.project_name ?? "Untitled",
       icon: p.icon ?? "📁",
       color: p.color,
+      ...("systemRole" in p || "system_role" in p
+        ? { systemRole: p.systemRole ?? p.system_role ?? null }
+        : {}),
+      ...("archivedAt" in p || "archived_at" in p
+        ? { archivedAt: p.archivedAt ?? p.archived_at ?? null }
+        : {}),
     }))
     .filter((project: any) => String(project.id).trim().length > 0);
   return collapseSidebarGeneralProjectAliases(normalized);

@@ -495,6 +495,10 @@ class Project(Base):
     identity_depth: Mapped[str] = mapped_column(
         String(16), nullable=False, default="light", server_default="light"
     )
+    system_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -511,6 +515,17 @@ class Project(Base):
         CheckConstraint(
             "identity_depth IN ('light','deep')",
             name="projects_identity_depth_check",
+        ),
+        CheckConstraint(
+            "system_role IS NULL OR system_role IN ('general','imports')",
+            name="projects_system_role_check",
+        ),
+        Index(
+            "uq_projects_user_id_system_role",
+            "user_id",
+            "system_role",
+            unique=True,
+            postgresql_where=text("system_role IS NOT NULL"),
         ),
     )
 
