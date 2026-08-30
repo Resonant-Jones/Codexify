@@ -365,6 +365,10 @@ def verify_disposable_target_empty(connection: Any) -> None:
                    AND n.nspname NOT LIKE 'pg_toast%'
                    AND n.nspname NOT LIKE 'pg_temp_%'
                    AND n.nspname NOT LIKE 'pg_toast_temp_%'
+                UNION ALL
+                SELECT 'cast' AS object_kind, c.oid::text AS object_id
+                  FROM pg_cast AS c
+                 WHERE c.oid >= 16384
           ) AS user_objects
         """,
     )

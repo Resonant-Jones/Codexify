@@ -466,6 +466,13 @@ def test_target_empty_guard_enumerates_user_defined_collations() -> None:
     assert "c.collnamespace" in source
 
 
+def test_target_empty_guard_enumerates_user_defined_casts() -> None:
+    source = inspect.getsource(gse.verify_disposable_target_empty)
+
+    assert "FROM pg_cast AS c" in source
+    assert "c.oid >= 16384" in source
+
+
 def test_canonicalization_uses_one_dump_and_one_clean_restore_without_source_writes() -> (
     None
 ):
