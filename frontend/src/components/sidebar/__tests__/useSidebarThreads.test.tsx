@@ -244,13 +244,24 @@ describe("useSidebarThreads canonical origin lens", () => {
     window.localStorage.clear();
   });
 
-  it("keeps canonical origin results cross-project and does not use metadata as filter authority", () => {
+  it("keeps canonical origin results inside the selected Project and does not use metadata as filter authority", () => {
     const initialThreads = [
       createThread("11", {
         projectId: "project-1",
-        title: "Current Project thread",
+        title: "Current Project Claude thread",
         originSystem: "anthropic",
         metadata: { source: "openai" },
+      }),
+      createThread("12", {
+        projectId: "project-1",
+        title: "Current Project ChatGPT thread",
+        originSystem: "openai",
+        metadata: { provider: "anthropic" },
+      }),
+      createThread("13", {
+        projectId: "project-1",
+        title: "Current Project Codexify thread",
+        originSystem: "codexify",
       }),
       createThread("22", {
         projectId: "project-2",
@@ -293,12 +304,8 @@ describe("useSidebarThreads canonical origin lens", () => {
       "ChatGPT",
       "Claude",
     ]);
-    expect(result.current.scopeLabel).toBe("All projects");
-    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
-      "11",
-      "22",
-      "33",
-    ]);
+    expect(result.current.scopeLabel).toBe("Engineering");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11"]);
 
     act(() => {
       result.current.setOriginSystem?.("openai");
@@ -309,11 +316,67 @@ describe("useSidebarThreads canonical origin lens", () => {
     expect(result.current.scopeLabel).toBe("Engineering");
     expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
       "11",
+      "12",
+      "13",
     ]);
 
     act(() => {
       result.current.setOriginSystem?.(null);
     });
     expect(onOriginSystemChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("narrows the existing General membership without exposing foreign named-Project threads", () => {
+    const initialThreads = [
+      createThread("11", {
+        projectId: "general-1",
+        title: "Canonical General Claude thread",
+        originSystem: "anthropic",
+      }),
+      createThread("12", {
+        projectId: "missing-project",
+        title: "Loose imported Claude thread",
+        originSystem: "anthropic",
+      }),
+      createThread("13", {
+        projectId: "general-1",
+        title: "Canonical General ChatGPT thread",
+        originSystem: "openai",
+      }),
+      createThread("22", {
+        projectId: "project-1",
+        title: "Foreign Project Claude thread",
+        originSystem: "anthropic",
+      }),
+    ];
+    const projects = [
+      { id: "general-1", name: "General", icon: "📁" },
+      { id: "project-1", name: "Engineering", icon: "🧭" },
+    ];
+
+    const { result, rerender } = renderHook(
+      ({ originSystem }) =>
+        useSidebarThreads({
+          initialThreads,
+          projectId: null,
+          originSystem,
+          projects,
+        }),
+      { initialProps: { originSystem: "anthropic" as const } }
+    );
+
+    expect(result.current.scopeLabel).toBe("General");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "12",
+    ]);
+
+    rerender({ originSystem: null });
+    expect(result.current.scopeLabel).toBe("General");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "12",
+      "13",
+    ]);
   });
 });

@@ -441,7 +441,7 @@ export function useSidebarThreads({
     const seen = new Set<string>();
     const out: Thread[] = [];
     const visibleThreads = originSystem
-      ? threadList.filter((thread) => !thread.archivedAt)
+      ? scopedThreads.filter((thread) => thread.originSystem === originSystem)
       : scopedThreads;
     for (const t of visibleThreads) {
       const id = String(t.id ?? "");
@@ -455,17 +455,16 @@ export function useSidebarThreads({
       });
     }
     return out;
-  }, [originSystem, scopedThreads, threadList]);
+  }, [originSystem, scopedThreads]);
 
   const scopeLabel = useMemo(() => {
-    if (originSystem) return "All projects";
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projects.find((p) => String(p.id) === String(currentProjectId));
       return proj ? cleanSidebarProjectTitle(proj) : "Project";
     }
     return "All";
-  }, [currentProjectId, originSystem, projects]);
+  }, [currentProjectId, projects]);
 
   const looseCount = useMemo(
     () => threadList.filter((thread) => threadBelongsToGeneral(thread, projects, generalProjectId)).length,

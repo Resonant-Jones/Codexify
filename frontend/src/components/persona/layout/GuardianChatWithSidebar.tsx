@@ -433,10 +433,7 @@ export default function GuardianChatWithSidebar({
   }, []);
   const handleSelectedProjectChange = React.useCallback(
     (id: string | null, name: string | null = null) => {
-      // A project lens and a canonical origin lens are mutually exclusive.
-      // Clear the origin before loading the explicitly selected project.
       invalidateThreadQuery();
-      setSelectedOriginSystem(null);
       setSelectedProjectId(id);
       const project = id == null
         ? null
@@ -1084,10 +1081,7 @@ export default function GuardianChatWithSidebar({
     try {
       // An explicit sidebar selection is authoritative, even if legacy
       // storage still contains that project's id under the General key.
-      const projectFilter =
-        selectedOriginSystem == null && selectedProjectFilter != null
-          ? selectedProjectFilter
-          : null;
+      const projectFilter = selectedProjectFilter;
       const res = await api.get(buildChatThreadsPath(), {
         params: {
           limit: THREAD_PAGE_SIZE,
