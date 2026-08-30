@@ -8,7 +8,7 @@
 
 ## Final classification
 
-`ROUND-TRIP-STABLE GOVERNED-SCHEMA CONTRACT PASS — ADR-076 and governed-schema-equivalence/v1 define PostgreSQL round-trip canonicalization as the cross-restoration proof boundary; equivalent 9c66e490a42b schemas converge to one stable signature while real CHECK and non-CHECK schema changes remain detectable; the post-DLG implementation requalification is recorded below`
+`ROUND-TRIP-STABLE GOVERNED-SCHEMA CONTRACT QUALIFICATION PENDING — ADR-076 and governed-schema-equivalence/v1 define PostgreSQL round-trip canonicalization as the cross-restoration proof boundary, but the current implementation includes a post-requalification pg_cast target guard that has not yet been exercised by the required disposable PostgreSQL proof`
 
 ## Current-main and prerequisite identity
 
@@ -276,11 +276,14 @@ adoption, or release promotion occurred.
 
 The comparator implementation and its focused tests changed after
 `DLG_COMMIT`, so the historical unchanged-bytes statement and historical
-stable digest are not used as current-head proof.  Implementation commit
-`924d6a4dd8c94364e5c33885f8f745e693d90198` contains the review hardening and
-is requalified here.
+stable digest are not used as current-head proof.  The disposable runtime
+evidence below qualifies implementation commit
+`924d6a4dd8c94364e5c33885f8f745e693d90198` only.  Current implementation
+commit `4debd352ffeb52f5bf57dd169c4b22ad8854d34e` adds the `pg_cast` disposable-
+target guard and its thirtieth focused test; those bytes postdate this runtime
+probe and therefore are not qualified by it.
 
-The fresh current-head runtime probe used only the tmpfs-backed disposable
+The historical requalification runtime probe used only the tmpfs-backed disposable
 container `codexify-gse-requal-20260828`, PostgreSQL image
 `postgres:15@sha256:3b0d656f5fff31c7d8a64f500a703dcf3f35e98ce78f602831a73059a5e6a012`,
 and loopback port `55438`.  The source reported PostgreSQL `15.18`,
@@ -301,27 +304,33 @@ user-defined `public.gse_custom_collation` was rejected with
 `DISPOSABLE_TARGET_REQUIRED` before either dump or restore command ran.  The
 disposable container was removed after the probe.
 
-Current repository requalification also passed:
+Repository validation at current implementation commit
+`4debd352ffeb52f5bf57dd169c4b22ad8854d34e` passed:
 
-- `tests/migration/test_governed_schema_equivalence.py`: `29 passed`.
+- `tests/migration/test_governed_schema_equivalence.py`: `30 passed`.
 - DLG Phase 3, Alembic uniqueness, D6 compatibility, and governed-schema
   contract tests: passed together.
 - `scripts/knowledge_graph/validate_and_generate_dlg.py validate` at
-  repository revision `924d6a4dd8c94364e5c33885f8f745e693d90198`: passed with
+  repository revision `4debd352ffeb52f5bf57dd169c4b22ad8854d34e`: passed with
   zero errors, 10/10 source-hash matches, and 13/13 target resolutions; the
-  six existing README broken-link warnings remain unchanged.
-- `scripts/validate_docs.py` and `make docs PYTHON=/Volumes/Dev_SSD/Codexify-main/.venv/bin/python`:
+  seven existing README broken-link warnings remain unchanged.
+- `scripts/validate_docs.py` and `make docs PYTHON=python3`:
   passed.
 - Source-to-DLG ancestry, the exact six-file publication boundary, migration
   source immutability, and PR-scoped `git diff --check`: passed.
 
 ## Disposition
 
-The cross-restoration schema-proof defect and the reviewed hardening findings
-are repaired at the contract level.  The GitHub PR still requires its own
-required-check and review gates; this receipt does not waive either gate.
-Google Drive adoption remains a separate task and must not begin OAuth until
-database adoption passes.
+The current implementation is **Qualification Pending**.  Static validation
+passes, but the final PASS is withdrawn until the full ADR-076 disposable
+PostgreSQL validation is rerun against commit
+`4debd352ffeb52f5bf57dd169c4b22ad8854d34e` or a descendant with unchanged
+implementation and test bytes.  That rerun must include a target containing
+only a user-defined cast and must prove `DISPOSABLE_TARGET_REQUIRED` is raised
+before dump or restore.  The GitHub PR still requires its own required-check
+and review gates; this receipt does not waive either gate.  Google Drive
+adoption remains a separate task and must not begin OAuth until database
+adoption passes.
 
 ## Canonical publication qualification
 
@@ -349,7 +358,10 @@ database adoption passes.
 - The comparator implementation and tests were changed after `DLG_COMMIT` by
   the review hardening commit above.  The ADR-076 source, ADR index source,
   and ADR-index DLG node remain the governed source-to-DLG chain; the current
-  implementation is qualified by the requalification section above.
+  implementation through `924d6a4d` is qualified by the historical runtime
+  requalification section above.  The current `4debd352` implementation remains
+  Qualification Pending until the `pg_cast` guard receives the required live
+  disposable PostgreSQL proof.
 - Publication must preserve `SOURCE_COMMIT` → `DLG_COMMIT` ancestry through a
   history-preserving merge commit on canonical `main`.
 - Squash and rebase publication are prohibited.
