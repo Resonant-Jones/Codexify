@@ -372,6 +372,49 @@ describe("Composer draft sync", () => {
     expect(form.get("thread_id")).toBe("123");
   });
 
+  it("uses explicit project context before stale storage when uploading attachments", async () => {
+    window.localStorage.setItem("cfy.generalProjectId", "1");
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        id: "doc-3",
+        src_url: "/media/documents/notes.txt",
+        filename: "notes.txt",
+      },
+    } as any);
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        threadId={123}
+        projectId={42}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["hello world"], "notes.txt", { type: "text/plain" })],
+      },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledTimes(1);
+    });
+
+    const form = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(form.get("project_id")).toBe("42");
+    expect(form.get("thread_id")).toBe("123");
+  });
+
   it("sanitizes raw backend upload errors before showing a toast", async () => {
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
     const onSend = vi.fn().mockResolvedValue(undefined);

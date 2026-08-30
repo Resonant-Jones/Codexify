@@ -15,6 +15,7 @@ import {
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useProjectsCache } from "@/components/sidebar/useProjectsCache";
+import { cleanSidebarProjectTitle } from "@/components/sidebar/sidebarPresentation";
 import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
@@ -392,6 +393,8 @@ export default function GuardianChatWithSidebar({
   const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
+  const projectListRef = React.useRef(projectCache.projectList);
+  projectListRef.current = projectCache.projectList;
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const lastSidebarSnapshotSignatureRef = React.useRef<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -435,10 +438,26 @@ export default function GuardianChatWithSidebar({
       invalidateThreadQuery();
       setSelectedOriginSystem(null);
       setSelectedProjectId(id);
-      setSelectedProjectName(name);
+      const project = id == null
+        ? null
+        : projectListRef.current.find(
+            (candidate) => String(candidate.id) === String(id)
+          );
+      setSelectedProjectName(
+        name ?? (project ? cleanSidebarProjectTitle(project) : null)
+      );
     },
     [invalidateThreadQuery]
   );
+  React.useEffect(() => {
+    if (!selectedProjectId || selectedProjectName?.trim()) return;
+    const project = projectCache.projectList.find(
+      (candidate) => String(candidate.id) === String(selectedProjectId)
+    );
+    if (project) {
+      setSelectedProjectName(cleanSidebarProjectTitle(project));
+    }
+  }, [projectCache.projectList, selectedProjectId, selectedProjectName]);
   const handleSelectedOriginSystemChange = React.useCallback(
     (originSystem: ConversationOriginSystem | null) => {
       if (originSystem === selectedOriginSystem) return;
@@ -920,10 +939,21 @@ export default function GuardianChatWithSidebar({
     }
     sessionSpine?.tabActivate(tabId);
     // Sync sidebar project selection to the activated tab's thread project.
-    const tabProjectId = nextTab?.projectId ?? null;
-    setSelectedProjectId(tabProjectId);
-    setSelectedProjectName(tabProjectId != null ? (nextTab?.projectName ?? null) : null);
-  }, [sessionRail.tabs, sessionSpine]);
+    // Pending tabs have no durable thread yet, so retain the project folder
+    // selected when the tab was opened instead of resetting to General.
+    if (nextThreadId == null) return;
+    const nextThread = threads.find((thread) => thread.id === nextThreadId);
+    if (!nextThread) return;
+    setSelectedProjectId(nextThread.projectId ?? null);
+    setSelectedProjectName(
+      nextThread.projectName ??
+        (nextThread.projectId != null
+          ? projectListRef.current.find(
+              (project) => String(project.id) === String(nextThread.projectId)
+            )?.name ?? null
+          : null)
+    );
+  }, [sessionRail.tabs, sessionSpine, threads]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
     sessionSpine?.tabClose(tabId);
@@ -1052,11 +1082,10 @@ export default function GuardianChatWithSidebar({
     paginationRef.current.loading = true;
     setThreadsLoadingMore(true);
     try {
-      const generalProjectId = readStoredGeneralProjectId();
+      // An explicit sidebar selection is authoritative, even if legacy
+      // storage still contains that project's id under the General key.
       const projectFilter =
-        selectedOriginSystem == null
-        && selectedProjectFilter != null
-          && !(generalProjectId != null && selectedProjectFilter === generalProjectId)
+        selectedOriginSystem == null && selectedProjectFilter != null
           ? selectedProjectFilter
           : null;
       const res = await api.get(buildChatThreadsPath(), {
@@ -1588,6 +1617,8 @@ export default function GuardianChatWithSidebar({
             { id: "bot", name: guardianName || "Guardian" },
           ],
           messages: [],
+          projectId: selectedProjectId,
+          projectName: selectedProjectName,
         };
         return [synthetic, ...prev];
       });
@@ -1606,7 +1637,14 @@ export default function GuardianChatWithSidebar({
         );
       }
     },
-    [activeSessionTabId, guardianName, sessionSpine, userName]
+    [
+      activeSessionTabId,
+      guardianName,
+      selectedProjectId,
+      selectedProjectName,
+      sessionSpine,
+      userName,
+    ]
   );
 
   // Mark active thread as read when it gains focus
@@ -2408,6 +2446,7 @@ export default function GuardianChatWithSidebar({
                   runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
+                  workspaceProjectName={selectedProjectName}
                   projectOptions={projectCache.projectList}
                   onComposerProjectChange={handleSelectedProjectChange}
                   onSendMessage={handleSendMessage}

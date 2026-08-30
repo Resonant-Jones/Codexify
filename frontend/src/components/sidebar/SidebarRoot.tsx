@@ -33,6 +33,7 @@ type Props = {
   onSelect: (id: string) => void;
   onNewChat: () => void;
   projectId?: string | null;
+  projectName?: string | null;
   onProjectChange?: (id: string | null) => void;
   originSystem?: ConversationOriginSystem | null;
   onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
@@ -133,6 +134,7 @@ export default function SidebarRoot({
   onSelect,
   onNewChat,
   projectId = null,
+  projectName = null,
   onProjectChange,
   originSystem = null,
   onOriginSystemChange,
@@ -203,10 +205,18 @@ export default function SidebarRoot({
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
-      return proj ? cleanSidebarProjectTitle(proj) : hookScopeLabel;
+      return proj
+        ? cleanSidebarProjectTitle(proj)
+        : projectName?.trim() || hookScopeLabel;
     }
     return hookScopeLabel;
-  }, [currentProjectId, hookScopeLabel, projectList, selectedOriginSystem]);
+  }, [
+    currentProjectId,
+    hookScopeLabel,
+    projectList,
+    projectName,
+    selectedOriginSystem,
+  ]);
 
   React.useEffect(() => {
     if (!projectList.length) return;

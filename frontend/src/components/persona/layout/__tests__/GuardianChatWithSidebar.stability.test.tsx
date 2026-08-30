@@ -116,6 +116,10 @@ vi.mock("@/features/chat/GuardianChat", () => ({
         <div data-testid="active-thread-id">{String(props?.activeThread?.id ?? "none")}</div>
         <div data-testid="active-thread-title">{String(props?.activeThread?.title ?? "")}</div>
         <div data-testid="active-thread-messages">{String(props?.activeThread?.messages?.length ?? 0)}</div>
+        <div data-testid="workspace-project-id">{String(props?.workspaceProjectId ?? "")}</div>
+        <div data-testid="workspace-project-name">{String(props?.workspaceProjectName ?? "")}</div>
+        <div data-testid="active-thread-project-id">{String(props?.activeThread?.projectId ?? "")}</div>
+        <div data-testid="active-thread-project-name">{String(props?.activeThread?.projectName ?? "")}</div>
         {props?.runtimeHealth?.diagnostics ? (
           <div data-testid="runtime-health-diagnostics">
             {[
@@ -423,9 +427,13 @@ function setupThreadApi(
   pages: Record<
     string,
     Record<number, { threads: ThreadRow[]; has_more: boolean }>
-  >
+  >,
+  projects: Array<{ id: number | string; name: string }> = []
 ) {
   mockApi.get.mockImplementation((url: string, config?: any) => {
+    if (url === "/api/projects") {
+      return Promise.resolve({ data: { projects } });
+    }
     if (url !== "/api/chat/threads") {
       return Promise.resolve({ data: {} });
     }
@@ -996,6 +1004,10 @@ describe("GuardianChatWithSidebar stability contract", () => {
   });
 
   it("keeps click selection consistent after loading more and dedupes by id", async () => {
+    // A previously selected custom folder may have been written to the old
+    // General-ID storage key. An explicit project selection must still query
+    // that project, never widen back to the unscoped list.
+    window.localStorage.setItem("cfy.generalProjectId", "2");
     setupThreadApi({
       all: {
         0: { threads: [t(1), t(2)], has_more: true },
@@ -1038,6 +1050,41 @@ describe("GuardianChatWithSidebar stability contract", () => {
 
     expect(screen.getAllByTestId("thread-167")).toHaveLength(1);
     expect(screen.getByTestId("active-thread-id").textContent).toBe("167");
+  });
+
+  it("keeps the selected project on a new pending tab and temporary thread", async () => {
+    setupThreadApi(
+      {
+        all: {
+          0: { threads: [t(1, "Thread 1")], has_more: false },
+        },
+        "2": {
+          0: { threads: [], has_more: false },
+        },
+      },
+      [{ id: 2, name: "Bananas" }]
+    );
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-1");
+    await user.click(screen.getByTestId("sidebar-set-project-2"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("workspace-project-name")).toHaveTextContent("Bananas");
+      expect(screen.getByTestId("active-thread-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("active-thread-project-name")).toHaveTextContent("Bananas");
+    });
+
+    await user.click(screen.getByTestId("sidebar-new-chat"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id")).toHaveTextContent("temp");
+      expect(screen.getByTestId("active-thread-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("active-thread-project-name")).toHaveTextContent("Bananas");
+    });
   });
 
   it("new chat clears prior thread and shows New Thread placeholder", async () => {

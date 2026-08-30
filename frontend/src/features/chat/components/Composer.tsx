@@ -144,6 +144,7 @@ function inferProjectIdFromStorage(): number | null {
   if (typeof window === "undefined") return null;
   try {
     const keys = [
+      "cfy.lastProjectId",
       "cfy.projectId",
       "cfy.activeProjectId",
       "cfy.generalProjectId",
@@ -472,7 +473,11 @@ export function Composer({
     resolveSlashCommandIntent(rawValue)?.command.id === "obsidian";
 
   const resolveProjectId = () => {
-    // Prefer explicit storage values to reduce reliance on URL shape.
+    const explicitProjectId = normalizeOptionalPositiveProjectId(projectId);
+    if (explicitProjectId !== null) return explicitProjectId;
+
+    // Fall back to storage only when the current surface has no explicit
+    // project context.
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
     return inferProjectIdFromLocation(null);

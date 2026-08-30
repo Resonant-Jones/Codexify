@@ -389,6 +389,8 @@ function renderChat(
     guardianName?: string;
     userName?: string;
     userProfession?: string;
+    workspaceProjectId?: string | number | null;
+    workspaceProjectName?: string | null;
   } = {}
 ) {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
@@ -398,6 +400,8 @@ function renderChat(
       userName={overrides.userName ?? "tester"}
       userProfession={overrides.userProfession ?? ""}
       activeThread={buildThread(threadId)}
+      workspaceProjectId={overrides.workspaceProjectId}
+      workspaceProjectName={overrides.workspaceProjectName}
       onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
       sessionTabs={buildSessionTabs(threadId)}
@@ -841,6 +845,53 @@ describe("GuardianChat inference rail", () => {
       ).not.toBeInTheDocument();
     }
   );
+
+  it("persists the selected project when creating a new thread", async () => {
+    renderChat("draft-thread", {
+      workspaceProjectId: 42,
+      workspaceProjectName: "Bananas",
+    });
+
+    let createThreadBody: Record<string, unknown> | undefined;
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/chat/threads") {
+        createThreadBody = body;
+        return createApiResponse(
+          { thread_id: 2, thread: { id: 2, title: "hello", project_id: 42 } },
+          201
+        );
+      }
+      if (url === "/chat/2/messages") {
+        return createApiResponse(
+          {
+            ok: true,
+            thread: { id: 2, title: "hello", project_id: 42 },
+            message: { id: 456, thread_id: 2 },
+          },
+          200
+        );
+      }
+      if (url === "/chat/2/complete") {
+        return createApiResponse({ task_id: "task-123" }, 200);
+      }
+      return createApiResponse({}, 200);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+    await advanceTimers(100);
+
+    await waitFor(() => {
+      expect(createThreadBody).toEqual(
+        expect.objectContaining({ project_id: 42 })
+      );
+    });
+    expect(apiMock.post).toHaveBeenCalledWith(
+      "/chat/2/messages",
+      expect.objectContaining({ project_id: 42 })
+    );
+  });
 
   it("omits the local user id when creating a thread in remote auth mode", async () => {
     runtimeConfigState.authMode = "remote";
