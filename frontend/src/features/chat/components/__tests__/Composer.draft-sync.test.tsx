@@ -23,6 +23,12 @@ describe("Composer draft sync", () => {
     window.localStorage.clear();
   });
 
+  it("renders without crashing when no project context is provided", () => {
+    expect(() =>
+      render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />)
+    ).not.toThrow();
+  });
+
   it("keeps typing local and commits draft only after debounce", async () => {
     vi.useFakeTimers();
     const onDraftValueChange = vi.fn();

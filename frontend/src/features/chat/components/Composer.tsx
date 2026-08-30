@@ -217,6 +217,7 @@ export function Composer({
   sourceMode = "project",
   sourceOptions = [],
   onSourceModeChange,
+  projectId,
   projectName,
   projectOptions = [],
   onProjectChange,
