@@ -21,9 +21,12 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import (
+    Base,
     DirectMessage,
     DirectMessageConversation,
-    DirectMessageConversationParticipant,
+    DirectMessageConversationPlacement,
+    DirectMessageRelationship,
+    DirectMessageRelationshipParticipant,
     ThreadSpaceNode,
     User,
     UserProfile,
@@ -36,8 +39,10 @@ TABLE_ORDER = (
     User.__table__,
     ThreadSpaceNode.__table__,
     UserProfile.__table__,
+    DirectMessageRelationship.__table__,
+    DirectMessageRelationshipParticipant.__table__,
     DirectMessageConversation.__table__,
-    DirectMessageConversationParticipant.__table__,
+    DirectMessageConversationPlacement.__table__,
     DirectMessage.__table__,
 )
 
@@ -59,7 +64,28 @@ def _new_engine(
         cursor.close()
 
     if create_tables:
-        for table in TABLE_ORDER:
+        User.__table__.create(engine)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE projects ("
+                    "id INTEGER PRIMARY KEY, "
+                    "user_id VARCHAR(255) NOT NULL, "
+                    "name VARCHAR(255) NOT NULL"
+                    ")"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE TABLE chat_threads ("
+                    "id INTEGER PRIMARY KEY, "
+                    "user_id VARCHAR(255) NOT NULL, "
+                    "title VARCHAR(512) NOT NULL, "
+                    "project_id INTEGER NULL REFERENCES projects(id)"
+                    ")"
+                )
+            )
+        for table in TABLE_ORDER[1:]:
             table.create(engine)
     return engine
 
@@ -97,6 +123,25 @@ def _seed_users(session):
     session.commit()
 
 
+def _seed_project_origins(engine):
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO projects (id, user_id, name) VALUES "
+                "(101, 'user-a@example.com', 'Alpha Project'), "
+                "(102, 'user-a@example.com', 'Alpha Archive'), "
+                "(201, 'user-b@example.com', 'Bravo Project')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO chat_threads (id, user_id, title, project_id) VALUES "
+                "(1001, 'user-a@example.com', 'Alpha Thread', 101), "
+                "(2001, 'user-b@example.com', 'Bravo Thread', 201)"
+            )
+        )
+
+
 def _make_client(engine, user_id: str | None = "user-a@example.com"):
     """Build a minimal app hosting the DM router with auth overridden."""
     app = FastAPI()
@@ -126,6 +171,7 @@ def seeded(monkeypatch, dm_engine):
         _seed_users(session)
     finally:
         session.close()
+    _seed_project_origins(dm_engine)
 
     monkeypatch.setattr(
         "guardian.routes.direct_messages._db", lambda: _FakeDb(dm_engine)
@@ -201,18 +247,20 @@ def test_rename_keeps_profile_id_and_conversations(seeded):
     claimed = _claim_username(client_a, "alpha")
     assert claimed.status_code == 200
     profile_a = claimed.json()["profile"]
-    _claim_username(client_b, "bravo")
+    profile_b = _claim_username(client_b, "bravo").json()["profile"]
 
-    start = client_a.post(
-        "/api/direct-messages/conversations",
+    relationship = client_a.post(
+        "/api/direct-messages/relationships",
         json={
-            "destination_node_id": profile_a["node_id"],
-            "destination_profile_id": client_b.get(
-                "/api/profile/social-identity"
-            ).json()["profile"]["profile_id"],
+            "destination_node_id": profile_b["node_id"],
+            "destination_profile_id": profile_b["profile_id"],
         },
-    )
-    conversation_id = start.json()["conversation"]["conversation_id"]
+    ).json()["relationship"]
+    conversation_id = client_a.post(
+        f"/api/direct-messages/relationships/{relationship['relationship_id']}"
+        "/conversations",
+        json={},
+    ).json()["conversation"]["conversation_id"]
 
     renamed = _claim_username(client_a, "alpha-2")
     assert renamed.status_code == 200
@@ -248,7 +296,7 @@ def test_nonlocal_destination_rejected_without_federation(seeded):
     local = client_a.get("/api/profile/social-identity").json()["profile"]
     fake_node_id = "node-" + "f" * 32
     response = client_a.post(
-        "/api/direct-messages/conversations",
+        "/api/direct-messages/relationships",
         json={
             "destination_node_id": fake_node_id,
             "destination_profile_id": local["profile_id"],
@@ -256,9 +304,10 @@ def test_nonlocal_destination_rejected_without_federation(seeded):
     )
     assert response.status_code == 422
     assert response.json()["detail"]["error"] == "unsupported_nonlocal_destination"
-    # No conversation was created for the nonlocal attempt.
+    # No relationship was created for the nonlocal attempt.
     assert (
-        client_a.get("/api/direct-messages/conversations").json()["conversations"] == []
+        client_a.get("/api/direct-messages/relationships").json()["relationships"]
+        == []
     )
 
 
@@ -321,7 +370,7 @@ def _two_profiles(seeded):
     return client_a, client_b, profile_a, profile_b
 
 
-def test_canonical_conversation_per_unordered_pair(seeded):
+def test_relationship_resolve_is_canonical_without_creating_conversation(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
     payload_ab = {
         "destination_node_id": profile_b["node_id"],
@@ -332,45 +381,274 @@ def test_canonical_conversation_per_unordered_pair(seeded):
         "destination_profile_id": profile_a["profile_id"],
     }
 
-    first = client_a.post("/api/direct-messages/conversations", json=payload_ab)
+    first = client_a.post("/api/direct-messages/relationships", json=payload_ab)
     assert first.status_code == 200
-    conversation_id = first.json()["conversation"]["conversation_id"]
-    assert first.json()["conversation"]["kind"] == "direct"
-    assert len(first.json()["conversation"]["participants"]) == 2
+    relationship_id = first.json()["relationship"]["relationship_id"]
 
-    # Same pair, same order -> same conversation.
-    repeat = client_a.post("/api/direct-messages/conversations", json=payload_ab)
-    assert repeat.status_code == 200
-    assert repeat.json()["conversation"]["conversation_id"] == conversation_id
-
-    # Reversed initiator -> same conversation (unordered pair).
-    reverse = client_b.post("/api/direct-messages/conversations", json=payload_ba)
+    repeated = client_a.post("/api/direct-messages/relationships", json=payload_ab)
+    reverse = client_b.post("/api/direct-messages/relationships", json=payload_ba)
+    assert repeated.status_code == 200
     assert reverse.status_code == 200
-    assert reverse.json()["conversation"]["conversation_id"] == conversation_id
+    assert repeated.json()["relationship"]["relationship_id"] == relationship_id
+    assert reverse.json()["relationship"]["relationship_id"] == relationship_id
 
-    # Both participants list it; an unrelated third user sees nothing.
-    assert (
-        client_a.get("/api/direct-messages/conversations").json()["conversations"][0][
-            "conversation_id"
-        ]
-        == conversation_id
+    for client in (client_a, client_b):
+        listing = client.get("/api/direct-messages/relationships")
+        assert listing.status_code == 200
+        assert [
+            item["relationship_id"] for item in listing.json()["relationships"]
+        ] == [relationship_id]
+
+    client_c = _make_client(seeded, "user-c@example.com")
+    assert client_c.get("/api/direct-messages/relationships").json()[
+        "relationships"
+    ] == []
+
+    with seeded.connect() as connection:
+        assert connection.execute(
+            select(DirectMessageRelationship.id)
+        ).scalars().all() == [relationship_id]
+        assert connection.execute(select(DirectMessageConversation.id)).all() == []
+
+
+def test_relationship_membership_is_only_canonical_participant_authority():
+    assert "direct_message_conversation_participants" not in Base.metadata.tables
+    assert "participant_pair_key" not in DirectMessageConversation.__table__.columns
+    assert DirectMessageConversation.__table__.c.relationship_id.nullable is False
+
+
+def test_relationship_owns_multiple_distinct_conversations(seeded):
+    client_a, _client_b, _profile_a, profile_b = _two_profiles(seeded)
+    relationship = client_a.post(
+        "/api/direct-messages/relationships",
+        json={
+            "destination_node_id": profile_b["node_id"],
+            "destination_profile_id": profile_b["profile_id"],
+        },
+    ).json()["relationship"]
+    relationship_id = relationship["relationship_id"]
+
+    first = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json={},
     )
-    assert (
-        client_b.get("/api/direct-messages/conversations").json()["conversations"][0][
-            "conversation_id"
-        ]
-        == conversation_id
+    second = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json={},
     )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_conversation = first.json()["conversation"]
+    second_conversation = second.json()["conversation"]
+    assert first_conversation["conversation_id"] != second_conversation[
+        "conversation_id"
+    ]
+    assert first_conversation["relationship_id"] == relationship_id
+    assert second_conversation["relationship_id"] == relationship_id
+
+    listing = client_a.get(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations"
+    )
+    assert listing.status_code == 200
+    listed_ids = {
+        conversation["conversation_id"]
+        for conversation in listing.json()["conversations"]
+    }
+    assert listed_ids == {
+        first_conversation["conversation_id"],
+        second_conversation["conversation_id"],
+    }
+
+    with seeded.connect() as connection:
+        rows = connection.execute(
+            select(DirectMessageConversation.relationship_id)
+        ).scalars().all()
+    assert rows == [relationship_id, relationship_id]
+
+
+def test_project_origin_defaults_creator_placement_and_stays_immutable(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = client_a.post(
+        "/api/direct-messages/relationships",
+        json={
+            "destination_node_id": profile_b["node_id"],
+            "destination_profile_id": profile_b["profile_id"],
+        },
+    ).json()["relationship"]["relationship_id"]
+
+    created = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json={"origin_project_id": 101},
+    )
+    assert created.status_code == 200
+    conversation = created.json()["conversation"]
+    conversation_id = conversation["conversation_id"]
+    assert conversation["origin"] == {
+        "created_by_profile_id": profile_a["profile_id"],
+        "origin_project_id": 101,
+        "origin_thread_id": None,
+        "created_at": conversation["created_at"],
+    }
+    assert conversation["placement"]["project_id"] == 101
+
+    with seeded.connect() as connection:
+        placements = connection.execute(
+            select(
+                DirectMessageConversationPlacement.profile_id,
+                DirectMessageConversationPlacement.project_id,
+            ).where(
+                DirectMessageConversationPlacement.conversation_id
+                == conversation_id
+            )
+        ).all()
+    assert dict(placements) == {
+        profile_a["profile_id"]: 101,
+        profile_b["profile_id"]: None,
+    }
+
+    peer_view = client_b.get(
+        f"/api/direct-messages/conversations/{conversation_id}"
+    )
+    assert peer_view.status_code == 200
+    peer_conversation = peer_view.json()["conversation"]
+    assert peer_conversation["origin"]["created_by_profile_id"] == profile_a[
+        "profile_id"
+    ]
+    assert peer_conversation["origin"]["origin_project_id"] is None
+    assert peer_conversation["origin"]["origin_thread_id"] is None
+    assert peer_conversation["placement"]["project_id"] is None
+    assert "peer_placement" not in peer_conversation
+
+    moved = client_a.patch(
+        f"/api/direct-messages/conversations/{conversation_id}/placement",
+        json={"project_id": 102},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["conversation"]["placement"]["project_id"] == 102
+    assert moved.json()["conversation"]["origin"]["origin_project_id"] == 101
+
+    unscoped = client_a.patch(
+        f"/api/direct-messages/conversations/{conversation_id}/placement",
+        json={"project_id": None},
+    )
+    assert unscoped.status_code == 200
+    assert unscoped.json()["conversation"]["placement"]["project_id"] is None
+    assert unscoped.json()["conversation"]["origin"]["origin_project_id"] == 101
+
+
+def test_thread_origin_requires_owner_access_and_matching_project(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = client_a.post(
+        "/api/direct-messages/relationships",
+        json={
+            "destination_node_id": profile_b["node_id"],
+            "destination_profile_id": profile_b["profile_id"],
+        },
+    ).json()["relationship"]["relationship_id"]
+    route = f"/api/direct-messages/relationships/{relationship_id}/conversations"
+
+    created = client_a.post(
+        route,
+        json={"origin_project_id": 101, "origin_thread_id": 1001},
+    )
+    assert created.status_code == 200
+    conversation = created.json()["conversation"]
+    assert conversation["origin"]["origin_project_id"] == 101
+    assert conversation["origin"]["origin_thread_id"] == 1001
+    assert conversation["placement"]["project_id"] == 101
+
+    peer = client_b.get(
+        f"/api/direct-messages/conversations/{conversation['conversation_id']}"
+    ).json()["conversation"]
+    assert peer["origin"]["origin_project_id"] is None
+    assert peer["origin"]["origin_thread_id"] is None
+
+    inaccessible_project = client_a.post(route, json={"origin_project_id": 201})
+    assert inaccessible_project.status_code == 404
+    assert inaccessible_project.json()["detail"]["error"] == (
+        "origin_project_id_not_found"
+    )
+
+    inaccessible_thread = client_a.post(route, json={"origin_thread_id": 2001})
+    assert inaccessible_thread.status_code == 404
+    assert inaccessible_thread.json()["detail"]["error"] == (
+        "origin_thread_id_not_found"
+    )
+
+    mismatch = client_a.post(
+        route,
+        json={"origin_project_id": 102, "origin_thread_id": 1001},
+    )
+    assert mismatch.status_code == 422
+    assert mismatch.json()["detail"]["error"] == (
+        "origin_thread_project_mismatch"
+    )
+
+    with seeded.connect() as connection:
+        count = connection.execute(
+            select(DirectMessageConversation.id)
+        ).scalars().all()
+    assert count == [conversation["conversation_id"]]
+
+
+def test_pair_resolution_is_relationship_scoped_and_endpoint_replaced(seeded):
+    """One canonical Relationship per unordered pair; the old pair-resolve
+    conversation endpoint is gone, and every new Conversation is distinct."""
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    payload_ab = {
+        "destination_node_id": profile_b["node_id"],
+        "destination_profile_id": profile_b["profile_id"],
+    }
+    payload_ba = {
+        "destination_node_id": profile_a["node_id"],
+        "destination_profile_id": profile_a["profile_id"],
+    }
+
+    first = client_a.post("/api/direct-messages/relationships", json=payload_ab)
+    assert first.status_code == 200
+    relationship = first.json()["relationship"]
+    relationship_id = relationship["relationship_id"]
+    assert len(relationship["participants"]) == 2
+
+    repeat = client_a.post("/api/direct-messages/relationships", json=payload_ab)
+    reverse = client_b.post("/api/direct-messages/relationships", json=payload_ba)
+    assert repeat.json()["relationship"]["relationship_id"] == relationship_id
+    assert reverse.json()["relationship"]["relationship_id"] == relationship_id
+
+    # Conversation creation is now explicit and always yields a new ID.
+    first_conversation = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json={},
+    )
+    second_conversation = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json={},
+    )
+    assert first_conversation.status_code == 200
+    assert second_conversation.status_code == 200
+    assert (
+        first_conversation.json()["conversation"]["conversation_id"]
+        != second_conversation.json()["conversation"]["conversation_id"]
+    )
+
+    # The legacy one-pair-one-conversation resolve endpoint is removed.
+    legacy = client_a.post("/api/direct-messages/conversations", json=payload_ab)
+    assert legacy.status_code == 405
+
+    # The old global conversation list still shows participant conversations.
+    listing = client_a.get("/api/direct-messages/conversations")
+    assert len(listing.json()["conversations"]) == 2
     client_c = _make_client(seeded, "user-c@example.com")
     assert (
-        client_c.get("/api/direct-messages/conversations").json()["conversations"] == []
+        client_c.get("/api/direct-messages/conversations").json()["conversations"]
+        == []
     )
 
 
 def test_self_dm_rejected(seeded):
     client_a, _client_b, profile_a, _profile_b = _two_profiles(seeded)
     response = client_a.post(
-        "/api/direct-messages/conversations",
+        "/api/direct-messages/relationships",
         json={
             "destination_node_id": profile_a["node_id"],
             "destination_profile_id": profile_a["profile_id"],
@@ -383,7 +661,7 @@ def test_self_dm_rejected(seeded):
 def test_nonexistent_recipient_handled_safely(seeded):
     client_a, _client_b, profile_a, _profile_b = _two_profiles(seeded)
     response = client_a.post(
-        "/api/direct-messages/conversations",
+        "/api/direct-messages/relationships",
         json={
             "destination_node_id": profile_a["node_id"],
             "destination_profile_id": uuid.uuid4().hex,
@@ -398,14 +676,19 @@ def test_nonexistent_recipient_handled_safely(seeded):
 
 def _started_conversation(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    response = client_a.post(
-        "/api/direct-messages/conversations",
+    relationship = client_a.post(
+        "/api/direct-messages/relationships",
         json={
             "destination_node_id": profile_b["node_id"],
             "destination_profile_id": profile_b["profile_id"],
         },
-    )
-    return client_a, client_b, profile_a, profile_b, response.json()["conversation"]
+    ).json()["relationship"]
+    conversation = client_a.post(
+        f"/api/direct-messages/relationships/{relationship['relationship_id']}"
+        "/conversations",
+        json={},
+    ).json()["conversation"]
+    return client_a, client_b, profile_a, profile_b, conversation
 
 
 def test_durable_send_reply_and_readback(seeded):
@@ -475,18 +758,21 @@ def test_persistence_survives_reopen(tmp_path):
             profile_b = service_module.get_or_create_owned_profile(
                 session, "user-b@example.com"
             )
-            conversation = service_module.resolve_or_create_conversation(
+            relationship = service_module.resolve_or_create_relationship(
                 session,
                 profile_a,
                 profile_b.node_id,
                 profile_b.profile_id,
             )
+            conversation = service_module.create_conversation(
+                session, relationship, profile_a
+            )
             message, _replayed = service_module.create_message(
                 session, conversation, profile_a, "durable text"
             )
-            return conversation.id, message.id
+            return relationship.id, conversation.id, message.id
 
-    conversation_id, message_id = _flow(engine)
+    relationship_id, conversation_id, message_id = _flow(engine)
 
     # Reopen: a fresh engine against the same file, simulating restart.
     engine2 = _new_engine(db_url, create_tables=False)
@@ -496,7 +782,10 @@ def test_persistence_survives_reopen(tmp_path):
         assert stored is not None
         assert stored.body == "durable text"
         assert stored.conversation_id == conversation_id
-        assert session2.get(DirectMessageConversation, conversation_id) is not None
+        conversation = session2.get(DirectMessageConversation, conversation_id)
+        assert conversation is not None
+        assert conversation.relationship_id == relationship_id
+        assert session2.get(DirectMessageRelationship, relationship_id) is not None
         session2.close()
     finally:
         engine2.dispose()
@@ -750,6 +1039,7 @@ def test_direct_messages_enabled_on_hosted_test_profile(friends_family_app):
     assert "direct_messages" in enabled
     paths = set(guardian_api.app.openapi().get("paths", {}))
     assert "/api/direct-messages/conversations" in paths
+    assert "/api/direct-messages/relationships" in paths
     assert "/api/direct-messages/profiles" in paths
     assert "/api/profile/social-identity" in paths
 
@@ -760,4 +1050,5 @@ def test_direct_messages_quarantined_on_default_profile(default_profile_app):
     assert "direct_messages" not in enabled
     paths = set(guardian_api.app.openapi().get("paths", {}))
     assert "/api/direct-messages/conversations" not in paths
+    assert "/api/direct-messages/relationships" not in paths
     assert "/api/profile/social-identity" not in paths

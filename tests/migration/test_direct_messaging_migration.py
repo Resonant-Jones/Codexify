@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 
 PREVIOUS_REVISION = "f41493d13761"
 DIRECT_MESSAGING_REVISION = "a1b7c9d2e4f6"
+RELATIONSHIP_REVISION = "b2c8d0e3f5a7"
 DM_TABLES = {
     "direct_message_conversations",
     "direct_message_conversation_participants",
@@ -270,5 +271,268 @@ def test_direct_messaging_migration_round_trip(temporary_postgres):
             sa.text("SELECT user_id FROM user_profiles WHERE user_id = 'user-a'")
         ).scalar_one()
         assert kept == "user-a"
+
+    engine.dispose()
+
+
+def _seed_relationship_pre_state(engine):
+    """Seed two profiles, one pair conversation, and two messages at
+    ``a1b7c9d2e4f6`` (the pre-Relationship DM schema)."""
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO users (id, username, password_hash, role) VALUES "
+                "('user-a', 'user-a', 'not-a-real-hash', 'guest'), "
+                "('user-b', 'user-b', 'not-a-real-hash', 'guest')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO threadspace_nodes (node_id, name, status) "
+                "VALUES ('node-local', 'Local Node', 'active')"
+            )
+        )
+        profile_a = uuid.uuid4().hex
+        profile_b = uuid.uuid4().hex
+        connection.execute(
+            sa.text(
+                "INSERT INTO user_profiles "
+                "(user_id, profile_id, node_id, username, username_state, "
+                "accent_color) VALUES "
+                "('user-a', :profile_a, 'node-local', 'alice', 'active', "
+                "'default'), "
+                "('user-b', :profile_b, 'node-local', 'bob', 'active', "
+                "'default')"
+            ),
+            {"profile_a": profile_a, "profile_b": profile_b},
+        )
+
+        addresses = sorted([f"node-local:{profile_a}", f"node-local:{profile_b}"])
+        pair_key = "|".join(addresses)
+        conversation_id = uuid.uuid4().hex
+        connection.execute(
+            sa.text(
+                "INSERT INTO direct_message_conversations "
+                "(id, kind, participant_pair_key) VALUES "
+                "(:id, 'direct', :pair_key)"
+            ),
+            {"id": conversation_id, "pair_key": pair_key},
+        )
+        for profile_id in (profile_a, profile_b):
+            connection.execute(
+                sa.text(
+                    "INSERT INTO direct_message_conversation_participants "
+                    "(id, conversation_id, node_id, profile_id) VALUES "
+                    "(:id, :conversation_id, 'node-local', :profile_id)"
+                ),
+                {
+                    "id": uuid.uuid4().hex,
+                    "conversation_id": conversation_id,
+                    "profile_id": profile_id,
+                },
+            )
+        message_ids = []
+        for index, body in enumerate(("message one", "message two"), start=1):
+            message_id = uuid.uuid4().hex
+            message_ids.append(message_id)
+            connection.execute(
+                sa.text(
+                    "INSERT INTO direct_messages "
+                    "(id, conversation_id, sender_node_id, sender_profile_id, "
+                    "content_type, body, client_message_key) VALUES "
+                    "(:id, :conversation_id, 'node-local', :profile_id, "
+                    "'text/plain', :body, :key)"
+                ),
+                {
+                    "id": message_id,
+                    "conversation_id": conversation_id,
+                    "profile_id": profile_a,
+                    "body": body,
+                    "key": f"client-key-{index}",
+                },
+            )
+    return conversation_id, profile_a, profile_b, pair_key, message_ids
+
+
+def test_relationship_migration_preserves_existing_dm_data(temporary_postgres):
+    config, database_url = temporary_postgres
+    engine = sa.create_engine(database_url, future=True)
+
+    _upgrade_to(config, DIRECT_MESSAGING_REVISION)
+    conversation_id, profile_a, profile_b, pair_key, message_ids = (
+        _seed_relationship_pre_state(engine)
+    )
+    _upgrade_to(config, RELATIONSHIP_REVISION)
+
+    inspector = sa.inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert "direct_message_relationships" in tables
+    assert "direct_message_relationship_participants" in tables
+    assert "direct_message_conversation_placements" in tables
+    assert "direct_message_conversation_participants" not in tables
+    conversation_columns = {
+        column["name"]
+        for column in inspector.get_columns("direct_message_conversations")
+    }
+    assert "participant_pair_key" not in conversation_columns
+    assert {
+        "relationship_id",
+        "created_by_profile_id",
+        "origin_project_id",
+        "origin_thread_id",
+    } <= conversation_columns
+
+    with engine.connect() as connection:
+        relationship = connection.execute(
+            sa.text("SELECT id, participant_pair_key FROM direct_message_relationships")
+        ).one()
+        relationship_id, stored_pair_key = relationship
+        assert stored_pair_key == pair_key
+
+        conversation = connection.execute(
+            sa.text(
+                "SELECT relationship_id, created_by_profile_id, "
+                "origin_project_id, origin_thread_id, created_at "
+                "FROM direct_message_conversations WHERE id = :id"
+            ),
+            {"id": conversation_id},
+        ).one()
+        assert conversation.relationship_id == relationship_id
+        # Historical origin remains unknown rather than fabricated.
+        assert conversation.created_by_profile_id is None
+        assert conversation.origin_project_id is None
+        assert conversation.origin_thread_id is None
+
+        members = connection.execute(
+            sa.text(
+                "SELECT node_id, profile_id FROM "
+                "direct_message_relationship_participants "
+                "WHERE relationship_id = :relationship_id"
+            ),
+            {"relationship_id": relationship_id},
+        ).fetchall()
+        assert {member.profile_id for member in members} == {
+            profile_a,
+            profile_b,
+        }
+
+        placements = connection.execute(
+            sa.text(
+                "SELECT profile_id, project_id FROM "
+                "direct_message_conversation_placements "
+                "WHERE conversation_id = :conversation_id"
+            ),
+            {"conversation_id": conversation_id},
+        ).fetchall()
+        assert len(placements) == 2
+        assert all(placement.project_id is None for placement in placements)
+
+        messages = connection.execute(
+            sa.text(
+                "SELECT id, body, sender_profile_id, client_message_key "
+                "FROM direct_messages WHERE conversation_id = :conversation_id"
+            ),
+            {"conversation_id": conversation_id},
+        ).fetchall()
+        assert {message.id for message in messages} == set(message_ids)
+        assert {message.body for message in messages} == {
+            "message one",
+            "message two",
+        }
+        assert all(message.sender_profile_id == profile_a for message in messages)
+
+        # One Relationship per pair is enforced database-side.
+        with pytest.raises(IntegrityError):
+            with connection.begin_nested():
+                connection.execute(
+                    sa.text(
+                        "INSERT INTO direct_message_relationships "
+                        "(id, participant_pair_key) VALUES (:id, :pair_key)"
+                    ),
+                    {"id": uuid.uuid4().hex, "pair_key": pair_key},
+                )
+
+        # A second Conversation coexists under the same Relationship.
+        second_conversation_id = uuid.uuid4().hex
+        connection.execute(
+            sa.text(
+                "INSERT INTO direct_message_conversations "
+                "(id, kind, relationship_id) VALUES "
+                "(:id, 'direct', :relationship_id)"
+            ),
+            {"id": second_conversation_id, "relationship_id": relationship_id},
+        )
+        for profile_id in (profile_a, profile_b):
+            connection.execute(
+                sa.text(
+                    "INSERT INTO direct_message_conversation_placements "
+                    "(id, conversation_id, profile_id, project_id) VALUES "
+                    "(:id, :conversation_id, :profile_id, NULL)"
+                ),
+                {
+                    "id": uuid.uuid4().hex,
+                    "conversation_id": second_conversation_id,
+                    "profile_id": profile_id,
+                },
+            )
+        conversation_rows = connection.execute(
+            sa.text(
+                "SELECT id, relationship_id FROM "
+                "direct_message_conversations WHERE relationship_id = :rid"
+            ),
+            {"rid": relationship_id},
+        ).fetchall()
+        assert {row.id for row in conversation_rows} == {
+            conversation_id,
+            second_conversation_id,
+        }
+        assert all(row.relationship_id == relationship_id for row in conversation_rows)
+
+    # ── Downgrade restores the ADR-077 one-pair-one-conversation shape ─────
+    _downgrade_to(config, DIRECT_MESSAGING_REVISION)
+
+    inspector = sa.inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert "direct_message_relationships" not in tables
+    assert "direct_message_relationship_participants" not in tables
+    assert "direct_message_conversation_placements" not in tables
+    assert "direct_message_conversation_participants" in tables
+    conversation_columns = {
+        column["name"]
+        for column in inspector.get_columns("direct_message_conversations")
+    }
+    assert "relationship_id" not in conversation_columns
+    assert "participant_pair_key" in conversation_columns
+
+    with engine.connect() as connection:
+        restored = connection.execute(
+            sa.text(
+                "SELECT participant_pair_key FROM "
+                "direct_message_conversations WHERE id = :id"
+            ),
+            {"id": conversation_id},
+        ).one()
+        assert restored.participant_pair_key == pair_key
+        participant_rows = connection.execute(
+            sa.text(
+                "SELECT profile_id FROM "
+                "direct_message_conversation_participants "
+                "WHERE conversation_id = :conversation_id"
+            ),
+            {"conversation_id": conversation_id},
+        ).fetchall()
+        assert len(participant_rows) == 2
+        message_bodies = (
+            connection.execute(
+                sa.text(
+                    "SELECT body FROM direct_messages "
+                    "WHERE conversation_id = :conversation_id"
+                ),
+                {"conversation_id": conversation_id},
+            )
+            .scalars()
+            .all()
+        )
+        assert set(message_bodies) == {"message one", "message two"}
 
     engine.dispose()

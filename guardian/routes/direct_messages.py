@@ -64,9 +64,23 @@ class SocialIdentityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class StartConversationRequest(BaseModel):
+class ResolveRelationshipRequest(BaseModel):
     destination_node_id: str = Field(min_length=1, max_length=64)
     destination_profile_id: str = Field(min_length=1, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateConversationRequest(BaseModel):
+    origin_project_id: int | None = None
+    origin_thread_id: int | None = None
+    project_id: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConversationPlacementRequest(BaseModel):
+    project_id: int | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -141,25 +155,20 @@ def search_profiles(
         return {"ok": True, "profiles": profiles}
 
 
-# ── Conversations ─────────────────────────────────────────────────────────
+# ── Relationships ──────────────────────────────────────────────────────────
 
 
-@router.post("/api/direct-messages/conversations")
-def start_conversation(
-    body: StartConversationRequest = Body(...),
+@router.post("/api/direct-messages/relationships")
+def resolve_relationship(
+    body: ResolveRelationshipRequest = Body(...),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    """Resolve/create the canonical one-to-one conversation.
-
-    Clients that discovered a profile by username MUST address the
-    conversation using the returned Node_ID + Profile_ID — username is a
-    discovery alias, never addressing authority.
-    """
+    """Resolve/create the canonical relationship for an addressed peer pair."""
     db = _db()
     with db.get_session() as session:
         owner_id = _require_owner_id(request_user_scope, session)
         profile = service.get_or_create_owned_profile(session, owner_id)
-        conversation = service.resolve_or_create_conversation(
+        relationship = service.resolve_or_create_relationship(
             session,
             profile,
             body.destination_node_id,
@@ -168,10 +177,125 @@ def start_conversation(
         caller_node_id, caller_profile_id = _profile_address(profile)
         return {
             "ok": True,
+            "relationship": service.relationship_payload(
+                session, relationship, caller_node_id, caller_profile_id
+            ),
+        }
+
+
+@router.get("/api/direct-messages/relationships")
+def list_relationships(
+    limit: int = Query(default=100, ge=1, le=200),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Return only direct relationships containing the caller's profile."""
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        relationships = service.list_relationships_for_profile(
+            session, profile, limit=limit
+        )
+        return {"ok": True, "relationships": relationships}
+
+
+@router.post("/api/direct-messages/relationships/{relationship_id}/conversations")
+def create_relationship_conversation(
+    relationship_id: str,
+    body: CreateConversationRequest = Body(...),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Create one new Conversation inside a caller-participating Relationship."""
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        relationship = session.get(service.DirectMessageRelationship, relationship_id)
+        if relationship is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "relationship_not_found",
+                    "message": "relationship not found",
+                },
+            )
+        conversation = service.create_conversation(
+            session,
+            relationship,
+            profile,
+            origin_project_id=body.origin_project_id,
+            origin_thread_id=body.origin_thread_id,
+            project_id=body.project_id,
+            placement_override_provided="project_id" in body.model_fields_set,
+        )
+        caller_node_id, caller_profile_id = _profile_address(profile)
+        return {
+            "ok": True,
             "conversation": service.conversation_payload(
                 session, conversation, caller_node_id, caller_profile_id
             ),
         }
+
+
+@router.get("/api/direct-messages/relationships/{relationship_id}/conversations")
+def list_relationship_conversations(
+    relationship_id: str,
+    limit: int = Query(default=100, ge=1, le=200),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """List every caller-visible Conversation in one Relationship."""
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        relationship = session.get(service.DirectMessageRelationship, relationship_id)
+        if relationship is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "relationship_not_found",
+                    "message": "relationship not found",
+                },
+            )
+        conversations = service.list_conversations_for_relationship(
+            session, relationship, profile, limit=limit
+        )
+        return {"ok": True, "conversations": conversations}
+
+
+@router.patch("/api/direct-messages/conversations/{conversation_id}/placement")
+def move_conversation_placement(
+    conversation_id: str,
+    body: ConversationPlacementRequest = Body(...),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Move only the caller's participant-local Project placement."""
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        conversation = session.get(service.DirectMessageConversation, conversation_id)
+        if conversation is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "conversation_not_found",
+                    "message": "conversation not found",
+                },
+            )
+        service.set_conversation_placement(
+            session, conversation, profile, body.project_id
+        )
+        caller_node_id, caller_profile_id = _profile_address(profile)
+        return {
+            "ok": True,
+            "conversation": service.conversation_payload(
+                session, conversation, caller_node_id, caller_profile_id
+            ),
+        }
+
+
+# ── Conversations ─────────────────────────────────────────────────────────
 
 
 @router.get("/api/direct-messages/conversations")

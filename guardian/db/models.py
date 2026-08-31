@@ -1502,34 +1502,26 @@ DM_CONTENT_TYPE_CHECK = (
 )
 
 
-class DirectMessageConversation(Base):
-    """Canonical private one-to-one conversation between two social profiles.
+class DirectMessageRelationship(Base):
+    """Canonical direct relationship for one unordered social-address pair."""
 
-    One conversation exists per unordered ``Node_ID + Profile_ID`` pair;
-    ``participant_pair_key`` enforces that database-side.  Conversation
-    identity never depends on username, display name, or email.
-    """
-
-    __tablename__ = "direct_message_conversations"
+    __tablename__ = "direct_message_relationships"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    kind: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="direct", server_default="direct"
-    )
     participant_pair_key: Mapped[str] = mapped_column(
         String(256), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    latest_activity_at: Mapped[datetime] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
-    participants: Mapped[list[DirectMessageConversationParticipant]] = (
+    participants: Mapped[list[DirectMessageRelationshipParticipant]] = (
         relationship(
-            "DirectMessageConversationParticipant",
-            back_populates="conversation",
+            "DirectMessageRelationshipParticipant",
+            back_populates="relationship",
             cascade="all, delete-orphan",
         )
     )
@@ -1537,32 +1529,22 @@ class DirectMessageConversation(Base):
     __table_args__ = (
         UniqueConstraint(
             "participant_pair_key",
-            name="uq_direct_message_conversations_participant_pair_key",
-        ),
-        CheckConstraint(
-            DM_CONVERSATION_KIND_CHECK,
-            name="ck_direct_message_conversations_kind",
+            name="uq_direct_message_relationships_participant_pair_key",
         ),
     )
 
     __mapper_args__ = {"eager_defaults": True}
 
 
-class DirectMessageConversationParticipant(Base):
-    """One participant's canonical social address inside a conversation.
+class DirectMessageRelationshipParticipant(Base):
+    """One canonical social-address participant in a direct relationship."""
 
-    ``node_id`` + ``profile_id`` together are the participant's protocol
-    address.  The columns are stored explicitly so the domain contract
-    retains Node_ID semantics even though V1 participants always share one
-    node.
-    """
-
-    __tablename__ = "direct_message_conversation_participants"
+    __tablename__ = "direct_message_relationship_participants"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    conversation_id: Mapped[str] = mapped_column(
+    relationship_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        ForeignKey("direct_message_relationships.id", ondelete="CASCADE"),
         nullable=False,
     )
     node_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1571,26 +1553,145 @@ class DirectMessageConversationParticipant(Base):
         ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
         nullable=False,
     )
-    joined_at: Mapped[datetime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    relationship: Mapped[DirectMessageRelationship] = relationship(
+        "DirectMessageRelationship", back_populates="participants"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "relationship_id",
+            "profile_id",
+            name="uq_direct_message_relationship_participants_member",
+        ),
+        Index(
+            "ix_direct_message_relationship_participants_profile",
+            "profile_id",
+        ),
+        Index(
+            "ix_direct_message_relationship_participants_relationship",
+            "relationship_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessageConversation(Base):
+    """One discussion inside a canonical direct relationship.
+
+    Pair uniqueness lives on the Relationship; a Relationship may own many
+    Conversations.  Conversation identity never depends on username,
+    display name, Project placement, or origin provenance.
+    """
+
+    __tablename__ = "direct_message_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_relationships.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_by_profile_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="SET NULL"),
+    )
+    origin_project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+    )
+    origin_thread_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="SET NULL"),
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="direct", server_default="direct"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    latest_activity_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    placements: Mapped[list[DirectMessageConversationPlacement]] = relationship(
+        "DirectMessageConversationPlacement",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            DM_CONVERSATION_KIND_CHECK,
+            name="ck_direct_message_conversations_kind",
+        ),
+        Index(
+            "ix_direct_message_conversations_relationship_activity",
+            "relationship_id",
+            "latest_activity_at",
+            "id",
+        ),
+        Index(
+            "ix_direct_message_conversations_origin_project",
+            "origin_project_id",
+        ),
+        Index(
+            "ix_direct_message_conversations_origin_thread",
+            "origin_thread_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessageConversationPlacement(Base):
+    """Participant-local Project organization for one direct Conversation."""
+
+    __tablename__ = "direct_message_conversation_placements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
     conversation: Mapped[DirectMessageConversation] = relationship(
-        "DirectMessageConversation", back_populates="participants"
+        "DirectMessageConversation", back_populates="placements"
     )
 
     __table_args__ = (
         UniqueConstraint(
             "conversation_id",
             "profile_id",
-            name="uq_direct_message_conversation_participants_member",
+            name="uq_direct_message_conversation_placements_member",
         ),
         Index(
-            "ix_direct_message_conversation_participants_profile", "profile_id"
+            "ix_direct_message_conversation_placements_profile",
+            "profile_id",
         ),
         Index(
-            "ix_direct_message_conversation_participants_conversation",
-            "conversation_id",
+            "ix_direct_message_conversation_placements_project",
+            "project_id",
         ),
     )
 

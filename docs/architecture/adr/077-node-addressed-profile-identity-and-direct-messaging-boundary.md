@@ -144,6 +144,19 @@ Dedicated durable entities exist for it:
 
 V1 is exactly two human social profiles per conversation, same-node only.
 
+> **Refined by ADR-078.** The one-pair-one-conversation cardinality
+> described above was superseded by
+> [[078-direct-messaging-relationship-conversation-cardinality-and-origin-provenance|ADR-078]]:
+> one unordered addressed Profile pair now yields one canonical
+> Relationship which may own zero or more Conversations.  Pair uniqueness
+> moved from Conversation to Relationship; Relationship membership is the
+> canonical participant authority; and ADR-078 added durable
+> Conversation-origin provenance plus participant-local Project placement.
+> Everything else in this ADR remains in force: Node_ID, Profile_ID,
+> username non-authority, email privacy, transport neutrality, Postgres
+> authority, same-node-first implementation, no Guardian execution, no
+> implicit retrieval/memory, and federation deferral.
+
 ### Persistence
 
 Postgres owns durable conversation/message truth.  Transport, WebSocket

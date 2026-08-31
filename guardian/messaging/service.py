@@ -23,7 +23,11 @@ from sqlalchemy.exc import IntegrityError
 from guardian.db.models import (
     DirectMessage,
     DirectMessageConversation,
-    DirectMessageConversationParticipant,
+    DirectMessageConversationPlacement,
+    DirectMessageRelationship,
+    DirectMessageRelationshipParticipant,
+    Project,
+    ChatThread,
     ThreadSpaceNode,
     UserProfile,
 )
@@ -262,7 +266,7 @@ def search_profiles(
     return [social_profile_payload(profile) for profile in rows]
 
 
-# ── Conversations ─────────────────────────────────────────────────────────
+# ── Relationships and conversations ───────────────────────────────────────
 
 
 def participant_pair_key(
@@ -271,7 +275,7 @@ def participant_pair_key(
     second_node_id: str,
     second_profile_id: str,
 ) -> str:
-    """Canonical unordered pair key for one-to-one conversation identity."""
+    """Canonical unordered pair key for one direct relationship."""
     addresses = sorted(
         [
             f"{first_node_id}:{first_profile_id}",
@@ -281,18 +285,12 @@ def participant_pair_key(
     return "|".join(addresses)
 
 
-def resolve_or_create_conversation(
+def _resolve_local_peer(
     session,
     sender_profile: UserProfile,
     destination_node_id: Any,
     destination_profile_id: Any,
-) -> DirectMessageConversation:
-    """Atomically resolve the canonical one-to-one conversation.
-
-    Nonlocal destinations are rejected as unsupported without any federation
-    attempt.  The same unordered participant-address pair always resolves to
-    the same conversation, enforced by the pair-key unique constraint.
-    """
+) -> tuple[UserProfile, UserProfile]:
     dest_node = str(destination_node_id or "").strip()
     dest_profile = str(destination_profile_id or "").strip()
     if not dest_node or not dest_profile:
@@ -304,8 +302,8 @@ def resolve_or_create_conversation(
 
     sender_profile = ensure_profile_identity(session, sender_profile)
     local_node = get_or_create_local_node(session)
-    assert sender_profile.node_id is not None  # ensured above
-    assert sender_profile.profile_id is not None  # ensured above
+    assert sender_profile.node_id is not None
+    assert sender_profile.profile_id is not None
     if dest_node != local_node.node_id:
         raise _err(
             422,
@@ -317,7 +315,7 @@ def resolve_or_create_conversation(
         raise _err(
             400,
             "self_direct_message_not_allowed",
-            "a direct conversation requires two distinct profiles",
+            "a direct relationship requires two distinct profiles",
         )
 
     recipient = session.scalar(
@@ -330,6 +328,26 @@ def resolve_or_create_conversation(
             "recipient profile does not exist on this node",
         )
     recipient = ensure_profile_identity(session, recipient)
+    return sender_profile, recipient
+
+
+def resolve_or_create_relationship(
+    session,
+    sender_profile: UserProfile,
+    destination_node_id: Any,
+    destination_profile_id: Any,
+) -> DirectMessageRelationship:
+    """Atomically resolve one canonical relationship for an address pair."""
+    sender_profile, recipient = _resolve_local_peer(
+        session,
+        sender_profile,
+        destination_node_id,
+        destination_profile_id,
+    )
+    assert sender_profile.node_id is not None
+    assert sender_profile.profile_id is not None
+    assert recipient.node_id is not None
+    assert recipient.profile_id is not None
 
     pair_key = participant_pair_key(
         sender_profile.node_id,
@@ -338,22 +356,20 @@ def resolve_or_create_conversation(
         recipient.profile_id,
     )
     existing = session.scalar(
-        select(DirectMessageConversation).where(
-            DirectMessageConversation.participant_pair_key == pair_key
+        select(DirectMessageRelationship).where(
+            DirectMessageRelationship.participant_pair_key == pair_key
         )
     )
     if existing is not None:
         return existing
 
-    conversation = DirectMessageConversation(
+    relationship = DirectMessageRelationship(
         id=uuid.uuid4().hex,
-        kind="direct",
         participant_pair_key=pair_key,
     )
-    session.add(conversation)
+    session.add(relationship)
     session.flush()
 
-    # Canonical sorted participant order keeps the row set deterministic.
     addresses = sorted(
         [
             (sender_profile.node_id, sender_profile.profile_id),
@@ -363,9 +379,9 @@ def resolve_or_create_conversation(
     )
     for node_id, profile_id in addresses:
         session.add(
-            DirectMessageConversationParticipant(
+            DirectMessageRelationshipParticipant(
                 id=uuid.uuid4().hex,
-                conversation_id=conversation.id,
+                relationship_id=relationship.id,
                 node_id=node_id,
                 profile_id=profile_id,
             )
@@ -376,31 +392,312 @@ def resolve_or_create_conversation(
     except IntegrityError:
         session.rollback()
         existing = session.scalar(
-            select(DirectMessageConversation).where(
-                DirectMessageConversation.participant_pair_key == pair_key
+            select(DirectMessageRelationship).where(
+                DirectMessageRelationship.participant_pair_key == pair_key
             )
         )
         if existing is None:  # pragma: no cover - defensive
-            raise _err(500, "conversation_unavailable", "Conversation unavailable")
+            raise _err(500, "relationship_unavailable", "Relationship unavailable")
         return existing
 
+    session.refresh(relationship)
+    return relationship
+
+
+def relationship_participant_addresses(
+    session, relationship: DirectMessageRelationship
+) -> list[tuple[str, str]]:
+    rows = session.scalars(
+        select(DirectMessageRelationshipParticipant)
+        .where(DirectMessageRelationshipParticipant.relationship_id == relationship.id)
+        .order_by(
+            DirectMessageRelationshipParticipant.node_id.asc(),
+            DirectMessageRelationshipParticipant.profile_id.asc(),
+        )
+    ).all()
+    return [(row.node_id, row.profile_id) for row in rows]
+
+
+def require_relationship_participant(
+    session,
+    relationship: DirectMessageRelationship,
+    caller_node_id: str,
+    caller_profile_id: str,
+) -> None:
+    participant = session.scalar(
+        select(DirectMessageRelationshipParticipant).where(
+            DirectMessageRelationshipParticipant.relationship_id == relationship.id,
+            DirectMessageRelationshipParticipant.profile_id == caller_profile_id,
+            DirectMessageRelationshipParticipant.node_id == caller_node_id,
+        )
+    )
+    if participant is None:
+        raise _err(404, "relationship_not_found", "relationship not found")
+
+
+def relationship_payload(
+    session,
+    relationship: DirectMessageRelationship,
+    caller_node_id: str,
+    caller_profile_id: str,
+) -> dict[str, Any]:
+    require_relationship_participant(
+        session, relationship, caller_node_id, caller_profile_id
+    )
+    addresses = relationship_participant_addresses(session, relationship)
+    profiles = session.scalars(
+        select(UserProfile).where(
+            UserProfile.profile_id.in_([profile_id for _, profile_id in addresses])
+        )
+    ).all()
+    by_profile_id = {profile.profile_id: profile for profile in profiles}
+    participants = [
+        social_profile_payload(by_profile_id[profile_id])
+        for _node_id, profile_id in addresses
+        if profile_id in by_profile_id
+    ]
+    peer = next(
+        (
+            participant
+            for participant in participants
+            if participant["profile_id"] != caller_profile_id
+        ),
+        None,
+    )
+    return {
+        "relationship_id": relationship.id,
+        "participants": participants,
+        "peer": peer,
+        "created_at": relationship.created_at.isoformat(),
+        "updated_at": relationship.updated_at.isoformat(),
+    }
+
+
+def list_relationships_for_profile(
+    session, profile: UserProfile, limit: int = _DEFAULT_PAGE_LIMIT
+) -> list[dict[str, Any]]:
+    profile = ensure_profile_identity(session, profile)
+    assert profile.node_id is not None
+    assert profile.profile_id is not None
+    page_limit = min(max(int(limit), 1), _MAX_PAGE_LIMIT)
+    relationship_ids = session.scalars(
+        select(DirectMessageRelationshipParticipant.relationship_id).where(
+            DirectMessageRelationshipParticipant.profile_id == profile.profile_id,
+            DirectMessageRelationshipParticipant.node_id == profile.node_id,
+        )
+    ).all()
+    if not relationship_ids:
+        return []
+    relationships = session.scalars(
+        select(DirectMessageRelationship)
+        .where(DirectMessageRelationship.id.in_(relationship_ids))
+        .order_by(
+            DirectMessageRelationship.updated_at.desc(),
+            DirectMessageRelationship.id.asc(),
+        )
+        .limit(page_limit)
+    ).all()
+    return [
+        relationship_payload(session, relationship, profile.node_id, profile.profile_id)
+        for relationship in relationships
+    ]
+
+
+def _get_relationship_or_404(
+    session, relationship_id: Any
+) -> DirectMessageRelationship:
+    relationship = session.get(DirectMessageRelationship, str(relationship_id))
+    if relationship is None:
+        raise _err(404, "relationship_not_found", "relationship not found")
+    return relationship
+
+
+def _coerce_source_id(raw_value: Any, field: str) -> int | None:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, bool):
+        raise _err(422, f"{field}_invalid", f"{field} must be an integer")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise _err(422, f"{field}_invalid", f"{field} must be an integer") from exc
+    if value <= 0:
+        raise _err(422, f"{field}_invalid", f"{field} must be positive")
+    return value
+
+
+def _owned_project_id(
+    session,
+    profile: UserProfile,
+    raw_project_id: Any,
+    *,
+    field: str,
+) -> int | None:
+    project_id = _coerce_source_id(raw_project_id, field)
+    if project_id is None:
+        return None
+    accessible = session.scalar(
+        select(Project.id).where(
+            Project.id == project_id,
+            Project.user_id == profile.user_id,
+        )
+    )
+    if accessible is None:
+        raise _err(404, f"{field}_not_found", f"{field} not found")
+    return project_id
+
+
+def _validated_origin(
+    session,
+    creator_profile: UserProfile,
+    origin_project_id: Any,
+    origin_thread_id: Any,
+) -> tuple[int | None, int | None]:
+    project_id = _owned_project_id(
+        session,
+        creator_profile,
+        origin_project_id,
+        field="origin_project_id",
+    )
+    thread_id = _coerce_source_id(origin_thread_id, "origin_thread_id")
+    if thread_id is None:
+        return project_id, None
+
+    thread = session.execute(
+        select(ChatThread.id, ChatThread.project_id).where(
+            ChatThread.id == thread_id,
+            ChatThread.user_id == creator_profile.user_id,
+        )
+    ).one_or_none()
+    if thread is None:
+        raise _err(404, "origin_thread_id_not_found", "origin_thread_id not found")
+
+    thread_project_id = thread.project_id
+    if project_id is None and thread_project_id is not None:
+        project_id = _owned_project_id(
+            session,
+            creator_profile,
+            thread_project_id,
+            field="origin_project_id",
+        )
+    elif project_id != thread_project_id:
+        raise _err(
+            422,
+            "origin_thread_project_mismatch",
+            "origin_thread_id does not belong to origin_project_id",
+        )
+    return project_id, thread_id
+
+
+def create_conversation(
+    session,
+    relationship: DirectMessageRelationship,
+    creator_profile: UserProfile,
+    *,
+    origin_project_id: Any = None,
+    origin_thread_id: Any = None,
+    project_id: Any = None,
+    placement_override_provided: bool = False,
+) -> DirectMessageConversation:
+    """Create a new distinct conversation with bounded immutable provenance."""
+    creator_profile = ensure_profile_identity(session, creator_profile)
+    assert creator_profile.node_id is not None
+    assert creator_profile.profile_id is not None
+    require_relationship_participant(
+        session,
+        relationship,
+        creator_profile.node_id,
+        creator_profile.profile_id,
+    )
+    resolved_origin_project_id, resolved_origin_thread_id = _validated_origin(
+        session,
+        creator_profile,
+        origin_project_id,
+        origin_thread_id,
+    )
+    if placement_override_provided:
+        creator_project_id = _owned_project_id(
+            session,
+            creator_profile,
+            project_id,
+            field="project_id",
+        )
+    else:
+        creator_project_id = resolved_origin_project_id
+
+    now = datetime.now(timezone.utc)
+    conversation = DirectMessageConversation(
+        id=uuid.uuid4().hex,
+        relationship_id=relationship.id,
+        created_by_profile_id=creator_profile.profile_id,
+        origin_project_id=resolved_origin_project_id,
+        origin_thread_id=resolved_origin_thread_id,
+        kind="direct",
+        created_at=now,
+        latest_activity_at=now,
+    )
+    relationship.updated_at = now
+    session.add(conversation)
+    session.flush()
+
+    for _node_id, participant_profile_id in relationship_participant_addresses(
+        session, relationship
+    ):
+        session.add(
+            DirectMessageConversationPlacement(
+                id=uuid.uuid4().hex,
+                conversation_id=conversation.id,
+                profile_id=participant_profile_id,
+                project_id=(
+                    creator_project_id
+                    if participant_profile_id == creator_profile.profile_id
+                    else None
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    session.commit()
     session.refresh(conversation)
     return conversation
+
+
+def list_conversations_for_relationship(
+    session,
+    relationship: DirectMessageRelationship,
+    profile: UserProfile,
+    limit: int = _DEFAULT_PAGE_LIMIT,
+) -> list[dict[str, Any]]:
+    profile = ensure_profile_identity(session, profile)
+    assert profile.node_id is not None
+    assert profile.profile_id is not None
+    require_relationship_participant(
+        session, relationship, profile.node_id, profile.profile_id
+    )
+    page_limit = min(max(int(limit), 1), _MAX_PAGE_LIMIT)
+    conversations = session.scalars(
+        select(DirectMessageConversation)
+        .where(DirectMessageConversation.relationship_id == relationship.id)
+        .order_by(
+            DirectMessageConversation.latest_activity_at.desc(),
+            DirectMessageConversation.created_at.desc(),
+            DirectMessageConversation.id.asc(),
+        )
+        .limit(page_limit)
+    ).all()
+    return [
+        conversation_payload(session, conversation, profile.node_id, profile.profile_id)
+        for conversation in conversations
+    ]
 
 
 def participant_addresses(
     session, conversation: DirectMessageConversation
 ) -> list[tuple[str, str]]:
-    """Return each participant's (node_id, profile_id) address."""
-    rows = session.scalars(
-        select(DirectMessageConversationParticipant)
-        .where(DirectMessageConversationParticipant.conversation_id == conversation.id)
-        .order_by(
-            DirectMessageConversationParticipant.node_id.asc(),
-            DirectMessageConversationParticipant.profile_id.asc(),
-        )
-    ).all()
-    return [(row.node_id, row.profile_id) for row in rows]
+    """Return canonical Relationship participant protocol addresses."""
+    relationship = _get_relationship_or_404(session, conversation.relationship_id)
+    return relationship_participant_addresses(session, relationship)
 
 
 def require_participant(
@@ -409,24 +706,22 @@ def require_participant(
     caller_node_id: str,
     caller_profile_id: str,
 ) -> None:
-    """Fail closed when the caller's profile is not a participant.
-
-    Nonparticipants receive ``conversation_not_found`` so foreign
-    conversations do not leak existence.
-    """
-    participant = session.scalar(
-        select(DirectMessageConversationParticipant).where(
-            DirectMessageConversationParticipant.conversation_id == conversation.id,
-            DirectMessageConversationParticipant.profile_id == caller_profile_id,
-            DirectMessageConversationParticipant.node_id == caller_node_id,
+    """Authorize a conversation through canonical Relationship membership."""
+    relationship = session.get(DirectMessageRelationship, conversation.relationship_id)
+    if relationship is None:
+        raise _err(404, "conversation_not_found", "conversation not found")
+    try:
+        require_relationship_participant(
+            session, relationship, caller_node_id, caller_profile_id
         )
-    )
-    if participant is None:
-        raise _err(
-            404,
-            "conversation_not_found",
-            "conversation not found",
-        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            raise _err(
+                404,
+                "conversation_not_found",
+                "conversation not found",
+            ) from None
+        raise
 
 
 def _get_conversation_or_404(
@@ -451,18 +746,18 @@ def list_conversations_for_profile(
     assert profile.profile_id is not None  # ensured above
     page_limit = min(max(int(limit), 1), _MAX_PAGE_LIMIT)
 
-    conversation_ids = session.scalars(
-        select(DirectMessageConversationParticipant.conversation_id).where(
-            DirectMessageConversationParticipant.profile_id == profile.profile_id,
-            DirectMessageConversationParticipant.node_id == profile.node_id,
+    relationship_ids = session.scalars(
+        select(DirectMessageRelationshipParticipant.relationship_id).where(
+            DirectMessageRelationshipParticipant.profile_id == profile.profile_id,
+            DirectMessageRelationshipParticipant.node_id == profile.node_id,
         )
     ).all()
-    if not conversation_ids:
+    if not relationship_ids:
         return []
 
     conversations = session.scalars(
         select(DirectMessageConversation)
-        .where(DirectMessageConversation.id.in_(conversation_ids))
+        .where(DirectMessageConversation.relationship_id.in_(relationship_ids))
         .order_by(
             DirectMessageConversation.latest_activity_at.desc(),
             DirectMessageConversation.id.desc(),
@@ -490,6 +785,85 @@ def _participant_social_payloads(
     return payloads
 
 
+def _profile_can_access_project(
+    session, profile: UserProfile, project_id: int | None
+) -> bool:
+    if project_id is None:
+        return False
+    return (
+        session.scalar(
+            select(Project.id).where(
+                Project.id == project_id,
+                Project.user_id == profile.user_id,
+            )
+        )
+        is not None
+    )
+
+
+def _profile_can_access_thread(
+    session, profile: UserProfile, thread_id: int | None
+) -> bool:
+    if thread_id is None:
+        return False
+    return (
+        session.scalar(
+            select(ChatThread.id).where(
+                ChatThread.id == thread_id,
+                ChatThread.user_id == profile.user_id,
+            )
+        )
+        is not None
+    )
+
+
+def _placement_for_profile(
+    session,
+    conversation: DirectMessageConversation,
+    profile_id: str,
+) -> DirectMessageConversationPlacement | None:
+    return session.scalar(
+        select(DirectMessageConversationPlacement).where(
+            DirectMessageConversationPlacement.conversation_id == conversation.id,
+            DirectMessageConversationPlacement.profile_id == profile_id,
+        )
+    )
+
+
+def set_conversation_placement(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+    project_id: Any,
+) -> DirectMessageConversationPlacement:
+    """Update only the caller's local Project placement."""
+    profile = ensure_profile_identity(session, profile)
+    assert profile.node_id is not None
+    assert profile.profile_id is not None
+    require_participant(session, conversation, profile.node_id, profile.profile_id)
+    resolved_project_id = _owned_project_id(
+        session,
+        profile,
+        project_id,
+        field="project_id",
+    )
+    now = datetime.now(timezone.utc)
+    placement = _placement_for_profile(session, conversation, profile.profile_id)
+    if placement is None:
+        placement = DirectMessageConversationPlacement(
+            id=uuid.uuid4().hex,
+            conversation_id=conversation.id,
+            profile_id=profile.profile_id,
+            created_at=now,
+        )
+        session.add(placement)
+    placement.project_id = resolved_project_id
+    placement.updated_at = now
+    session.commit()
+    session.refresh(placement)
+    return placement
+
+
 def conversation_payload(
     session,
     conversation: DirectMessageConversation,
@@ -498,12 +872,47 @@ def conversation_payload(
 ) -> dict[str, Any]:
     """Safe participant-visible conversation payload."""
     require_participant(session, conversation, caller_node_id, caller_profile_id)
+    caller_profile = session.scalar(
+        select(UserProfile).where(
+            UserProfile.profile_id == caller_profile_id,
+            UserProfile.node_id == caller_node_id,
+        )
+    )
+    if caller_profile is None:  # pragma: no cover - defensive
+        raise _err(404, "conversation_not_found", "conversation not found")
+    placement = _placement_for_profile(session, conversation, caller_profile_id)
+    visible_origin_project_id = (
+        conversation.origin_project_id
+        if _profile_can_access_project(
+            session, caller_profile, conversation.origin_project_id
+        )
+        else None
+    )
+    visible_origin_thread_id = (
+        conversation.origin_thread_id
+        if _profile_can_access_thread(
+            session, caller_profile, conversation.origin_thread_id
+        )
+        else None
+    )
     return {
         "conversation_id": conversation.id,
+        "relationship_id": conversation.relationship_id,
         "kind": conversation.kind,
         "created_at": conversation.created_at,
         "latest_activity_at": conversation.latest_activity_at,
         "participants": _participant_social_payloads(session, conversation),
+        "origin": {
+            "created_by_profile_id": conversation.created_by_profile_id,
+            "origin_project_id": visible_origin_project_id,
+            "origin_thread_id": visible_origin_thread_id,
+            "created_at": conversation.created_at,
+        },
+        "placement": {
+            "project_id": placement.project_id if placement is not None else None,
+            "created_at": placement.created_at if placement is not None else None,
+            "updated_at": placement.updated_at if placement is not None else None,
+        },
     }
 
 
@@ -683,22 +1092,29 @@ def create_message(
 __all__ = [
     "DirectMessage",
     "DirectMessageConversation",
+    "DirectMessageConversationPlacement",
+    "DirectMessageRelationship",
     "ThreadSpaceNode",
     "UserProfile",
     "claim_username",
     "conversation_payload",
+    "create_conversation",
     "create_message",
     "ensure_profile_identity",
     "get_or_create_local_node",
     "get_or_create_owned_profile",
     "list_conversations_for_profile",
+    "list_conversations_for_relationship",
     "list_messages",
+    "list_relationships_for_profile",
     "local_node_id",
     "message_payload",
     "participant_addresses",
     "participant_pair_key",
+    "relationship_payload",
     "require_participant",
-    "resolve_or_create_conversation",
+    "resolve_or_create_relationship",
     "search_profiles",
+    "set_conversation_placement",
     "social_profile_payload",
 ]
