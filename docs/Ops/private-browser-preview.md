@@ -219,6 +219,11 @@ Never use `down -v`. Before preview use with durable data, establish a separate
 tested Postgres/media backup and restoration procedure; this task does not
 implement or prove one.
 
+The [2026-08-31 private-preview backup/restore attempt](../architecture/proofs/runtime/2026-08-31-private-preview-backup-restore-proof.md)
+failed closed before backup because the preserved source database migration
+revision trailed current local `main`. It created no retained checkpoint and
+does not clear this prerequisite.
+
 ## Truth boundaries
 
 - Catalog presence proves neither authorization nor execution.
