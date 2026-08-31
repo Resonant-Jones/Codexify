@@ -130,6 +130,12 @@ class PiHarnessRuntimeEvidence:
     tool_execution_end_count: int | None = None
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = None
+    # Bounded Pi 0.82.1 assistant-response telemetry (evidence only):
+    # only type names and counts.  Never text/reasoning/args/IDs.
+    assistant_message_count: int | None = None
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -163,6 +169,12 @@ class PiLiveInvocationOutcome:
     tool_execution_end_count: int | None = None
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = None
+    # Bounded Pi 0.82.1 assistant-response telemetry (evidence only):
+    # only type names and counts.  Never text/reasoning/args/IDs.
+    assistant_message_count: int | None = None
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,7 +332,8 @@ def invoke_guardian_authorized_pi(
         validation_metadata={
             "guardian_authorized": True,
             "policy_decision_id": decision.policy_decision_id,
-            # Bounded tool telemetry — evidence only, no args/results/content.
+            # Bounded tool + assistant-response telemetry — evidence only,
+            # no args/results/content/deltas/IDs.
             "tool_telemetry": {
                 "effective_tool_names": list(evidence.effective_tool_names or ()),
                 "write_tool_available": evidence.write_tool_available,
@@ -328,6 +341,14 @@ def invoke_guardian_authorized_pi(
                 "tool_execution_end_count": evidence.tool_execution_end_count,
                 "executed_tool_names": list(evidence.executed_tool_names or ()),
                 "assistant_tool_call_count": evidence.assistant_tool_call_count,
+                "assistant_message_count": evidence.assistant_message_count,
+                "assistant_content_block_types": list(
+                    evidence.assistant_content_block_types or ()
+                ),
+                "assistant_message_event_types": list(
+                    evidence.assistant_message_event_types or ()
+                ),
+                "assistant_tool_call_event_count": evidence.assistant_tool_call_event_count,
             }
             if evidence.effective_tool_names is not None
             else None,
@@ -369,7 +390,8 @@ def invoke_guardian_authorized_pi(
         result_class=PiHarnessResultClass.SUCCESS.value,
         validation_metadata={
             "actual_runtime_identity_attested": True,
-            # Bounded tool telemetry — evidence only, no args/results/content.
+            # Bounded tool + assistant-response telemetry — evidence only,
+            # no args/results/content/deltas/IDs.
             "tool_telemetry": {
                 "effective_tool_names": list(evidence.effective_tool_names or ()),
                 "write_tool_available": evidence.write_tool_available,
@@ -377,6 +399,14 @@ def invoke_guardian_authorized_pi(
                 "tool_execution_end_count": evidence.tool_execution_end_count,
                 "executed_tool_names": list(evidence.executed_tool_names or ()),
                 "assistant_tool_call_count": evidence.assistant_tool_call_count,
+                "assistant_message_count": evidence.assistant_message_count,
+                "assistant_content_block_types": list(
+                    evidence.assistant_content_block_types or ()
+                ),
+                "assistant_message_event_types": list(
+                    evidence.assistant_message_event_types or ()
+                ),
+                "assistant_tool_call_event_count": evidence.assistant_tool_call_event_count,
             }
             if evidence.effective_tool_names is not None
             else None,
@@ -408,6 +438,13 @@ def invoke_guardian_authorized_pi(
         tool_execution_end_count=evidence.tool_execution_end_count,
         executed_tool_names=evidence.executed_tool_names,
         assistant_tool_call_count=evidence.assistant_tool_call_count,
+        # Bounded assistant-response telemetry (evidence only; Pi is the
+        # source of truth).  Recorder copies the raw bounded fields without
+        # recomputation or interpretation.
+        assistant_message_count=evidence.assistant_message_count,
+        assistant_content_block_types=evidence.assistant_content_block_types,
+        assistant_message_event_types=evidence.assistant_message_event_types,
+        assistant_tool_call_event_count=evidence.assistant_tool_call_event_count,
     )
 
 
@@ -455,6 +492,13 @@ def _run_with_pi_adapter(
         tool_execution_end_count=result.tool_execution_end_count,
         executed_tool_names=result.executed_tool_names,
         assistant_tool_call_count=result.assistant_tool_call_count,
+        # Bounded assistant-response telemetry (evidence only; Pi is the
+        # source of truth).  Recorder copies the raw bounded fields
+        # without recomputation.
+        assistant_message_count=result.assistant_message_count,
+        assistant_content_block_types=result.assistant_content_block_types,
+        assistant_message_event_types=result.assistant_message_event_types,
+        assistant_tool_call_event_count=result.assistant_tool_call_event_count,
     )
 
 

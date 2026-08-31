@@ -299,6 +299,10 @@ class PiCodexRunnerAdapter:
                         tool_execution_end_count=telemetry[3],
                         executed_tool_names=telemetry[4],
                         assistant_tool_call_count=telemetry[5],
+                        assistant_message_count=telemetry[6],
+                        assistant_content_block_types=telemetry[7],
+                        assistant_message_event_types=telemetry[8],
+                        assistant_tool_call_event_count=telemetry[9],
                     )
                 if require_runtime_identity and not isinstance(runtime_identity, dict):
                     return AgentRunEnvelope(
@@ -358,6 +362,10 @@ class PiCodexRunnerAdapter:
                         tool_execution_end_count=telemetry[3],
                         executed_tool_names=telemetry[4],
                         assistant_tool_call_count=telemetry[5],
+                        assistant_message_count=telemetry[6],
+                        assistant_content_block_types=telemetry[7],
+                        assistant_message_event_types=telemetry[8],
+                        assistant_tool_call_event_count=telemetry[9],
                     )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
@@ -400,6 +408,10 @@ class PiCodexRunnerAdapter:
                     tool_execution_end_count=telemetry[3],
                     executed_tool_names=telemetry[4],
                     assistant_tool_call_count=telemetry[5],
+                    assistant_message_count=telemetry[6],
+                    assistant_content_block_types=telemetry[7],
+                    assistant_message_event_types=telemetry[8],
+                    assistant_tool_call_event_count=telemetry[9],
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:
@@ -440,13 +452,27 @@ class PiCodexRunnerAdapter:
 
 
 def _parse_tool_telemetry(raw: Any) -> tuple:
-    """Parse bounded tool telemetry from the wrapper payload.
+    """Parse bounded tool + assistant-response telemetry from the wrapper.
 
-    Returns a 6-tuple matching the bounded fields. Missing fields yield None.
-    Empty lists/tuples are valid (read-only sessions).
+    Returns a 10-tuple. Missing fields yield ``None``. Empty lists/tuples are
+    valid (read-only sessions, sessions where the assistant emitted no
+    tool-call lifecycle events, etc.).
+
+    Position contract (do not reorder without updating all call sites):
+
+        0. effective_tool_names: tuple[str, ...] | None
+        1. write_tool_available: bool | None
+        2. tool_execution_start_count: int | None
+        3. tool_execution_end_count: int | None
+        4. executed_tool_names: tuple[str, ...] | None
+        5. assistant_tool_call_count: int | None
+        6. assistant_message_count: int | None
+        7. assistant_content_block_types: tuple[str, ...] | None
+        8. assistant_message_event_types: tuple[str, ...] | None
+        9. assistant_tool_call_event_count: int | None
     """
     if not isinstance(raw, dict):
-        return (None, None, None, None, None, None)
+        return (None,) * 10
     names = raw.get("effective_tool_names")
     names_out: tuple[str, ...] | None = None
     if isinstance(names, list):
@@ -465,7 +491,60 @@ def _parse_tool_telemetry(raw: Any) -> tuple:
     end_out = end_count if isinstance(end_count, int) and end_count >= 0 else None
     asst_count = raw.get("assistant_tool_call_count")
     asst_out = asst_count if isinstance(asst_count, int) and asst_count >= 0 else None
-    return (names_out, write_avail_out, start_out, end_out, executed_out, asst_out)
+
+    # Bounded assistant-response telemetry.  Each field is validated for
+    # shape and non-content only — no text/reasoning/args/IDs are read.
+    # Non-string list members in `assistant_content_block_types` or
+    # `assistant_message_event_types` cause the field to surface as None
+    # (i.e. fail closed) per spec §9.
+    msg_count = raw.get("assistant_message_count")
+    msg_count_out = msg_count if isinstance(msg_count, int) and msg_count >= 0 else None
+    block_types = raw.get("assistant_content_block_types")
+    block_types_out: tuple[str, ...] | None = None
+    if isinstance(block_types, list):
+        if not all(isinstance(b, str) and len(b) > 0 for b in block_types):
+            block_types_out = None
+        else:
+            # Preserve first-occurrence order; deduplicate.
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for b in block_types:
+                if b not in seen:
+                    seen.add(b)
+                    deduped.append(b)
+            block_types_out = tuple(deduped)
+    event_types = raw.get("assistant_message_event_types")
+    event_types_out: tuple[str, ...] | None = None
+    if isinstance(event_types, list):
+        if not all(isinstance(e, str) and len(e) > 0 for e in event_types):
+            event_types_out = None
+        else:
+            seen = set()
+            deduped = []
+            for e in event_types:
+                if e not in seen:
+                    seen.add(e)
+                    deduped.append(e)
+            event_types_out = tuple(deduped)
+    tool_call_event_count = raw.get("assistant_tool_call_event_count")
+    tool_call_event_out = (
+        tool_call_event_count
+        if isinstance(tool_call_event_count, int) and tool_call_event_count >= 0
+        else None
+    )
+
+    return (
+        names_out,
+        write_avail_out,
+        start_out,
+        end_out,
+        executed_out,
+        asst_out,
+        msg_count_out,
+        block_types_out,
+        event_types_out,
+        tool_call_event_out,
+    )
 
 
 def _is_valid_tool_telemetry(
@@ -473,15 +552,29 @@ def _is_valid_tool_telemetry(
 ) -> bool:
     """Live authorized task requires complete, well-formed telemetry.
 
-    An empty `effective_tool_names` is valid (e.g. read-only sessions with
-    ``PI_DISABLE_TOOLS=1``).  `None` means the wrapper omitted the field.
+    An empty ``effective_tool_names`` is valid (e.g. read-only sessions with
+    ``PI_DISABLE_TOOLS=1``).  ``None`` means the wrapper omitted the field.
+
+    Both existing 6 fields AND the new 4 assistant-response fields must be
+    well-formed on a successful live authorized task.
     """
-    names_out, write_avail_out, start_out, end_out, executed_out, asst_out = telemetry
-    if names_out is None:
+    if len(telemetry) != 10:
+        return False
+    (
+        names_out,
+        write_avail_out,
+        start_out,
+        end_out,
+        executed_out,
+        asst_out,
+        msg_count_out,
+        block_types_out,
+        event_types_out,
+        tool_call_event_out,
+    ) = telemetry
+    if names_out is None or not isinstance(names_out, tuple):
         return False
     # An empty tuple/list is valid (read-only, or disabled tools).
-    if not isinstance(names_out, tuple):
-        return False
     if not isinstance(write_avail_out, bool):
         return False
     if not isinstance(start_out, int) or start_out < 0:
@@ -491,6 +584,15 @@ def _is_valid_tool_telemetry(
     if executed_out is None or not isinstance(executed_out, tuple):
         return False
     if not isinstance(asst_out, int) or asst_out < 0:
+        return False
+    # Assistant-response field validation.
+    if not isinstance(msg_count_out, int) or msg_count_out < 0:
+        return False
+    if not isinstance(block_types_out, tuple):
+        return False
+    if not isinstance(event_types_out, tuple):
+        return False
+    if not isinstance(tool_call_event_out, int) or tool_call_event_out < 0:
         return False
     return True
 
