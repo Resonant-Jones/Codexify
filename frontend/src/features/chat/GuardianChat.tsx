@@ -4467,7 +4467,6 @@ export function GuardianChat({
                 onDocumentTileRemove={handleDocumentTileRemove}
                 threadId={effectiveThreadId ?? undefined}
                 projectId={composerProjectId}
-                projectName={activeThread.projectName ?? null}
                 projectOptions={projectOptions.map((project) => ({
                   value: String(project.id),
                   label: project.name,

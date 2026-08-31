@@ -207,7 +207,6 @@ export function Composer({
   sourceMode = "project",
   sourceOptions = [],
   onSourceModeChange,
-  projectName,
   projectOptions = [],
   onProjectChange,
   compactMobile = false,
@@ -258,7 +257,6 @@ export function Composer({
   sourceOptions?: ComposerSelectOption[];
   onSourceModeChange?: (mode: string) => void;
   projectId?: number | string | null;
-  projectName?: string | null;
   projectOptions?: ComposerSelectOption[];
   onProjectChange?: (projectId: string) => void;
   documentTiles?: unknown[];
@@ -798,10 +796,6 @@ export function Composer({
     : [];
   const commandPaletteMode =
     inlineCommandResult.command == null ? "command" : "value";
-  const lineageLabel = projectName?.trim()
-    ? `Send a message to ${projectName.trim()}`
-    : "Send a message";
-
   useEffect(() => {
     setActiveCommandOptionIndex(0);
   }, [value, commandSuggestions.length]);
@@ -1110,18 +1104,6 @@ export function Composer({
             </div>
           ) : null}
           {!compactMobile ? renderComposerTextarea() : null}
-
-          {!compactMobile &&
-          !value.trim() &&
-          !draftAttachments.length ? (
-            <div
-              data-testid="composer-lineage-copy"
-              className="px-[var(--composer-text-pad-x,14px)] text-[11px] leading-snug"
-              style={{ color: "var(--muted)" }}
-            >
-              {lineageLabel}
-            </div>
-          ) : null}
 
           {draftAttachments.length > 0 && (
             <div className="flex flex-wrap gap-2">

@@ -50,7 +50,6 @@ function renderComposer(
     sourceOptions,
     onSourceModeChange: vi.fn(),
     projectId: "1",
-    projectName: "General",
     projectOptions,
     onProjectChange: vi.fn(),
     onVoiceTurn: vi.fn(),
