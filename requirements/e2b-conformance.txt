@@ -1,0 +1,2 @@
+# Pinned for the 2026-08-31 hosted E2B ADR-077 conformance proof.
+e2b==2.46.0
