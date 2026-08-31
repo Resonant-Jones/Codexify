@@ -553,6 +553,7 @@ from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
 from guardian.routes import hosted_room_guest, hosted_rooms
+from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes import github_watchdog
 from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
@@ -1509,6 +1510,16 @@ _include_router(
     label="hosted_room_guest",
     flag_name="CODEXIFY_ENABLE_HOSTED_ROOM_GUEST_ROUTES",
     include_fn=lambda: app.include_router(hosted_room_guest.router),
+    default_enabled=True,
+)
+_include_router(
+    label="direct_messages",
+    flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",
+    # Private-preview functionality.  Only the hosted/private test profile
+    # (v1-friends-family-web) lists this label; every other supported
+    # profile leaves it unlisted, which route governance treats as
+    # quarantined.  Federation and Guardian execution stay disconnected.
+    include_fn=lambda: app.include_router(direct_messages_router),
     default_enabled=True,
 )
 

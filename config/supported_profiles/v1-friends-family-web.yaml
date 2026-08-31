@@ -51,6 +51,7 @@ route_posture:
     - auth
     - hosted_rooms
     - hosted_room_guest
+    - direct_messages
   internal_only:
     - coding_work_orders
     - command_bus

@@ -103,6 +103,7 @@ Use this note as the local map for all ADRs.
 74. [[074-tester-provider-model-configuration-authority|ADR-074 Tester Provider / Model Configuration Authority]] — Reconciled accepted Tester configuration-authority doctrine from divergent local lineage. The supported profile owns allowed/default provider posture, the operator environment owns concrete local chat-model selection, Compose transports without shadowing, and Guardian/live Whoosh'd inventory fail closed on mismatch. It partially supersedes ADR-052 only for model-pin and configuration-authority doctrine; it does not claim current runtime availability or widen release support.
 75. [[075-connections-knowledge-category-and-content-capabilities|ADR-075 Connections Knowledge Category and Content Capabilities]] — Accepted bounded taxonomy extension adding Knowledge as the fourth Connections category and defining future content_search and content_read semantics without overloading Web search or extract. It partially supersedes ADR-071 only for the former three-category limit and does not implement tokens, adapters, credentials, Command Bus commands, or release promotion.
 76. [[076-round-trip-stable-governed-schema-equivalence|ADR-076 Round-Trip-Stable Governed-Schema Equivalence]] — Accepted evidence contract that canonicalizes governed PostgreSQL schemas through one same-major dump/restore, binds source revision and PostgreSQL major, preserves the full six-relation descriptor surface, and detects real CHECK and non-CHECK mutations without hand-normalizing CHECK expressions.
+77. [[077-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-077 Node-Addressed Profile Identity and Direct Messaging Boundary]] — Accepted boundary establishing the Node_ID → Profile_ID → Conversation_ID → Message_ID social addressing hierarchy, deliberate Node-scoped usernames, and the durable same-node private-messaging domain; cross-node transport, Guardian messaging, attachments, and frontend Inbox remain deferred.
 
 ---
 
@@ -212,6 +213,11 @@ Use this note as the local map for all ADRs.
   - Governs durable `general` and `imports` Project roles, reversible Project archival, archive-gated permanent deletion, and transactionally ordered thread ejection after lifecycle validation.
   - Related anchors: [[../data-and-storage|Data and Storage]], [[../account-export-restore-contract|Account Export Restore Contract]], and [[../00-current-state|00 Current State]].
   - Current-truth boundary: this changes Project lifecycle code paths and schema without widening release claims; `00-current-state.md` remains authoritative.
+- [[077-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-077 Node-Addressed Profile Identity and Direct Messaging Boundary]]
+  - Governs the Node_ID → Profile_ID → Conversation_ID → Message_ID social addressing hierarchy, deliberate Node-scoped usernames, the private account boundary, and the durable same-node direct-messaging domain.
+  - Companion contract: [[../direct-messaging-contract|Direct Messaging Contract]].
+  - Governing and related ADRs: [[053-node-hosted-room-access-boundary|ADR-053 Node-Hosted Room Access Boundary]], [[055-threadspace-whispermesh-managed-service-boundary|ADR-055 ThreadSpace ↔ WhisperMesh Managed-Service Boundary]], and [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]].
+  - Current-truth boundary: cross-node delivery, node resolution/trust, Guardian messaging, attachments, and frontend Inbox remain unproven and deferred; `00-current-state.md` remains release authority.
 
 ## Relationship to the main architecture docs
 
