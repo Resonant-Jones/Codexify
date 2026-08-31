@@ -18,6 +18,11 @@ from sqlalchemy.pool import NullPool
 
 from guardian.core.chat_db import validate_message_provenance
 from guardian.core.default_project import resolve_project_id_or_default
+from guardian.core.project_lifecycle import (
+    PROJECT_SYSTEM_ROLE_GENERAL,
+    require_mutable_project_container,
+    require_project_deletable,
+)
 
 # Import ORM models
 from guardian.db.models import (
@@ -124,7 +129,12 @@ class _PostgresGuardianDB:
     # Projects
     # =================================================================
 
-    def ensure_project(self, name: str, description: str = "") -> int:
+    def ensure_project(
+        self,
+        name: str,
+        description: str = "",
+        system_role: str | None = None,
+    ) -> int:
         """Create project if it doesn't exist, return ID."""
         with self.get_session() as session:
             project = session.query(Project).filter_by(name=name).first()
@@ -135,6 +145,7 @@ class _PostgresGuardianDB:
                 user_id=_default_user_id(),
                 name=name,
                 description=description,
+                system_role=system_role,
             )
             session.add(new_project)
             session.commit()
@@ -187,6 +198,9 @@ class _PostgresGuardianDB:
                     "name": p.name,
                     "description": p.description,
                     "icon": p.icon,
+                    "identity_depth": p.identity_depth,
+                    "system_role": p.system_role,
+                    "archived_at": p.archived_at,
                     "created_at": p.created_at,
                     "updated_at": p.updated_at,
                 }
@@ -212,12 +226,57 @@ class _PostgresGuardianDB:
 
             session.commit()
 
+    def set_project_system_role(
+        self, project_id: int, system_role: str
+    ) -> None:
+        """Assign durable built-in identity during conservative bootstrap."""
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+            project.system_role = system_role
+            session.commit()
+
+    def archive_project(self, project_id: int, archived: bool) -> None:
+        """Archive or restore an ordinary Project."""
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+            require_mutable_project_container(project)
+            project.archived_at = datetime.now(timezone.utc) if archived else None
+            session.commit()
+
     def delete_project(self, project_id: int) -> bool:
-        """Delete a project."""
+        """Delete an archived ordinary Project after atomically ejecting threads."""
         with self.get_session() as session:
             project = session.query(Project).filter_by(id=project_id).first()
             if not project:
                 return False
+            require_project_deletable(project)
+            default_project = (
+                session.query(Project)
+                .filter_by(
+                    user_id=project.user_id,
+                    system_role=PROJECT_SYSTEM_ROLE_GENERAL,
+                )
+                .first()
+            )
+            if default_project is None:
+                default_project = (
+                    session.query(Project)
+                    .filter(
+                        Project.user_id == project.user_id,
+                        func.lower(Project.name).in_(["general", "loose threads"]),
+                    )
+                    .order_by(Project.id.asc())
+                    .first()
+                )
+            if default_project is None:
+                raise RuntimeError("Canonical General Project is unavailable")
+            session.query(ChatThread).filter_by(project_id=project_id).update(
+                {"project_id": default_project.id}
+            )
             session.delete(project)
             session.commit()
             return True

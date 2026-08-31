@@ -339,6 +339,29 @@ function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
   return view === "documents" || view === "guardian";
 }
 
+function normalizePositiveIdList(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0)
+    )
+  );
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function normalizeDoc(raw: any, idx = 0): DocItem {
   const filename =
     typeof raw?.filename === "string" && raw.filename.trim()
@@ -397,6 +420,23 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
     undefined;
   const projectId = Number(projectIdRaw);
   const threadId = Number(threadIdRaw);
+  const artifactTypeRaw =
+    raw?.artifactType ?? raw?.artifact_type ?? raw?.document_type;
+  const artifactType =
+    String(artifactTypeRaw || "").trim().toLowerCase() === "generated"
+      ? "generated"
+      : raw?.type === "codex_entry"
+        ? undefined
+        : "uploaded";
+  const threadIds = normalizePositiveIdList(
+    raw?.threadIds ?? raw?.thread_ids
+  );
+  if (Number.isFinite(threadId) && threadId > 0 && !threadIds.includes(threadId)) {
+    threadIds.unshift(threadId);
+  }
+  const threadTitles = normalizeStringList(
+    raw?.threadTitles ?? raw?.thread_titles
+  );
   return {
     id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
     name: raw?.name || filename || title,
@@ -409,6 +449,10 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
       "md"
     ) as keyof ExtColors,
     type: raw?.type === "codex_entry" ? "codex_entry" : "file",
+    artifactType,
+    relation:
+      typeof raw?.relation === "string" ? raw.relation : undefined,
+    relations: normalizeStringList(raw?.relations),
     content:
       typeof raw?.content === "string"
         ? raw.content
@@ -454,6 +498,20 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
     src_url: srcUrl,
     projectId: Number.isFinite(projectId) ? projectId : undefined,
     threadId: Number.isFinite(threadId) ? threadId : undefined,
+    threadIds,
+    threadTitles,
+    threadTitle:
+      typeof raw?.threadTitle === "string"
+        ? raw.threadTitle
+        : typeof raw?.thread_title === "string"
+          ? raw.thread_title
+          : undefined,
+    sourceTag:
+      typeof raw?.sourceTag === "string"
+        ? raw.sourceTag
+        : typeof raw?.source_tag === "string"
+          ? raw.source_tag
+          : undefined,
     embeddingStatus,
     embeddingError,
     embeddingStartedAt,
@@ -463,13 +521,15 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
 
 function normalizeDocIdentity(doc: DocumentLike): string {
   const type = doc?.type === "codex_entry" ? "codex_entry" : "file";
+  const artifactType =
+    type === "codex_entry" ? "codex" : doc?.artifactType || "uploaded";
   const id = typeof doc?.id === "string" ? doc.id.trim() : "";
-  if (id) return `${type}:${id}`;
+  if (id) return `${artifactType}:${type}:${id}`;
   const title = String(doc?.title || doc?.name || "untitled")
     .trim()
     .toLowerCase();
   const ext = String(doc?.ext || "").trim().toLowerCase();
-  return `${type}:${title}:${ext}`;
+  return `${artifactType}:${type}:${title}:${ext}`;
 }
 
 function dedupeDocItems(items: DocItem[]): DocItem[] {
@@ -1371,6 +1431,8 @@ export default function AppShell({
     if (cached) return cached;
     return typeof window === "undefined" ? defaultDocs : defaultDocs;
   });
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsLoadError, setDocumentsLoadError] = useState<string | null>(null);
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
@@ -1398,14 +1460,20 @@ export default function AppShell({
     selectDocumentsProject(null)
   );
   const documentsEntrySeededRef = useRef(false);
+  const [documentsScopeReady, setDocumentsScopeReady] = useState(false);
   const guardianProjectFallbackId = useMemo<number | null>(
     () => (generalProjectIdSource === "storage" ? null : generalProjectId),
     [generalProjectId, generalProjectIdSource]
   );
   const seedDocumentsScopeFromGuardian = useCallback(() => {
+    if (guardianSidebarSnapshot == null && guardianProjectFallbackId == null) {
+      return false;
+    }
     setDocumentsScope(
       seedDocumentsScope(guardianSidebarSnapshot, guardianProjectFallbackId)
     );
+    setDocumentsScopeReady(true);
+    return true;
   }, [guardianProjectFallbackId, guardianSidebarSnapshot]);
   const handleGuardianSidebarSnapshot = useCallback(
     (snapshot: GuardianSidebarSnapshot) => {
@@ -1447,11 +1515,13 @@ export default function AppShell({
   useEffect(() => {
     if (view !== "documents") {
       documentsEntrySeededRef.current = false;
+      setDocumentsScopeReady(false);
       return;
     }
     if (documentsEntrySeededRef.current) return;
-    seedDocumentsScopeFromGuardian();
-    documentsEntrySeededRef.current = true;
+    if (seedDocumentsScopeFromGuardian()) {
+      documentsEntrySeededRef.current = true;
+    }
   }, [seedDocumentsScopeFromGuardian, view]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1466,8 +1536,9 @@ export default function AppShell({
         view !== "documents" &&
         !documentsEntrySeededRef.current
       ) {
-        seedDocumentsScopeFromGuardian();
-        documentsEntrySeededRef.current = true;
+        if (seedDocumentsScopeFromGuardian()) {
+          documentsEntrySeededRef.current = true;
+        }
       }
       setActiveRoomId(null);
       setView(nextView);
@@ -1513,6 +1584,8 @@ export default function AppShell({
   const handleDocumentsSidebarProjectChange = useCallback(
     (projectId: string | null) => {
       setDocumentsScope(selectDocumentsProject(projectId));
+      setDocumentsScopeReady(true);
+      documentsEntrySeededRef.current = true;
     },
     []
   );
@@ -1525,6 +1598,8 @@ export default function AppShell({
           currentScope.projectId
         )
       );
+      setDocumentsScopeReady(true);
+      documentsEntrySeededRef.current = true;
     },
     [documentsSidebarThreads]
   );
@@ -1626,20 +1701,29 @@ export default function AppShell({
   }, [auth, generalProjectId, startupLocked]);
   useEffect(() => {
     let cancelled = false;
+    if (view !== "documents" || !documentsScopeReady) {
+      setDocumentsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     if (startupLocked) {
       return () => {
         cancelled = true;
       };
     }
     if (!checkAuthGate(auth, "documents list load")) {
+      setDocumentsLoading(false);
       return () => {
         cancelled = true;
       };
     }
     (async () => {
+      setDocumentsLoading(true);
+      setDocumentsLoadError(null);
       try {
         const params = getDocumentScopeQuery(documentsScope);
-        const res = await api.get("/media/documents", { params });
+        const res = await api.get("/media/document-artifacts", { params });
         const docs = unwrapDocumentArray(res?.data);
         if (cancelled) return;
         const normalized = dedupeDocItems(
@@ -1647,15 +1731,21 @@ export default function AppShell({
         );
         setDocuments(normalized);
         setDocumentsSource("backend");
+        setDocumentsLoadError(null);
       } catch (err) {
         if (cancelled) return;
+        setDocumentsLoadError(
+          err?.message || "Failed to load project documents."
+        );
         console.warn("[documents] failed to load backend documents", err);
+      } finally {
+        if (!cancelled) setDocumentsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [auth, documentsScope, startupLocked]);
+  }, [auth, documentsScope, documentsScopeReady, startupLocked, view]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -2254,6 +2344,7 @@ export default function AppShell({
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
         setDocumentsScope(selectDocumentsProject(projectId));
+        setDocumentsScopeReady(true);
         documentsEntrySeededRef.current = true;
       }
       navigateToView("documents");
@@ -3511,6 +3602,8 @@ export default function AppShell({
                         onDeleteDocument={deleteDocument}
                         projectId={documentsUploadScope.projectId}
                         threadId={documentsUploadScope.threadId}
+                        loading={documentsLoading}
+                        error={documentsLoadError}
                       />
                     </FrameCard>
                   </div>

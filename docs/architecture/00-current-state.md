@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-08-26
+2026-08-30
 
 ## Interpretation rule
 
@@ -18,86 +18,62 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first Beta hardening. Mainline contains control-plane hardening and bounded tester-stack proofs, but no fresh supported-Compose closure at the current tip. The latest NX-1 observation reached dependencies, migrations / init, model preparation, and backend Guardian import, then stopped during lifespan on local-gateway configuration coherence before healthy HTTP; the later template alignment has not been followed by a proven live rerun.
+`main` remains in local-first Beta hardening. Mainline now contains bounded Pi 0.82.1 runtime repairs and clean CE-L1 OAuth credential-readiness evidence, but no current-tip supported-Compose release closure or live CE-L1 executor proof.
+
+The audited local `main` tip is two commits ahead of `origin/main`; the latest two Guardian Chat fixes are therefore current-checkout evidence, not remote-main release evidence.
 
 ## What changed recently
 
-- Merged tester runtime recovery, authentication, worker-readiness coverage, and one authenticated local/Gemma completion on the tester proof stack; it did not prove supported-main release readiness.
-- Classified a fresh Chroma startup failure after guarded recovery; Postgres remains canonical and Chroma remains derived, with no retry, restore, or repair authorized.
-- Merged Guardian-owned GitHub Watchdog control-plane preparation and canonical worker settings; qualification stopped before review receipt creation or model invocation because the required policy/model was unavailable.
-- Recorded loss of the previously qualified immutable backend image and replacement of the mutable `latest` tag; deletion mechanism and actor remain unproven.
-- [Attempted the disposable Docker archive-retention qualification](proofs/2026-08-25-disposable-docker-image-archive-retention-qualification-proof.md), but the selected `desktop-linux` authority was unavailable; the run stopped at preflight without producing a retention result or mutating Docker state.
-- Repaired the Pi diagnostic test seam and refreshed DLG metadata hashes; neither change established provider, OAuth, or runtime support.
+- Merged Pi 0.82.1 wrapper/API repairs, canonical `ModelRuntime` use, and the complete source-vendored locked runtime closure; source-relative smoke now reaches the OAuth-absent boundary.
+- Cleanly requalified `openai-codex / gpt-5.6-sol / pi-coding-agent / 0.82.1` credential readiness without provider inference or prompt execution; CE-L1 remains open.
+- Restored account-scoped project/thread document-artifact listing and generated-artifact preview paths with focused backend/frontend coverage; no migration or retrieval-policy change was made.
+- Preserved selected project context through new Guardian threads, tabs, and draft/rendering paths; the two latest fixes remain local to `main` pending remote-main integration.
+- Added bounded tester/Whoosh'd runtime evidence, but the latest Tester Qwen completion attempt stopped at `TESTER_QWEN_BACKEND_UNHEALTHY`; these artifacts do not qualify supported-main release behavior.
+- Requalified the OpenSSL tracer capsule and merged the expandable Composer and canonical SVG mark assets; neither widens the release promise.
 
 ## Current supported reality
 
-- The supported install path is local Docker Compose using `v1-local-core-web-mcp` with local-only defaults: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
-- The accepted Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
-- Authenticated local Settings read surfaces, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; catalog or import presence does not imply generic connector sync, provider inference, or cloud support.
-- Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts are Internal or proof-only surfaces. Static validation and tester evidence do not substitute for supported-path live proof.
-- The local Guardian Evidence bounded-read tooling exists as local/static evidence-preparation tooling only: it reads validated, explicitly allowlisted repository evidence within declared limits, but it does not establish evidence authority, ingest evidence, execute source material, generate Guardian Evidence Packets or runtime proof, mutate WorkOrders or Execution Ledger state, or widen the Beta Supported boundary.
-
-## Release classes
-
-These human-facing interpretations preserve ADR-069's distinction between support posture and evidence maturity. They do not add schema tokens or claim current-tip proof.
-
-### Beta Supported
-
-The intended supported local-first Beta boundary is the local Docker Compose path with local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics. This is support doctrine, not current-tip qualification.
-
-### Beta Bounded / Conditional
-
-Bounded Beta surfaces include Persona Studio core, bounded import/continuity entry surfaces, repository intelligence, bounded Guardian-authorized tool execution, and bounded extension/client surfaces accepted by ADR-069. Authenticated local Settings read surfaces and the read-only Connections catalog retain their existing bounded contracts; catalog visibility does not imply provider authorization, adapter health, generic sync, cloud inference, or release promotion. Google Drive remains unqualified.
-
-### Internal
-
-Watchdog control-plane/runtime qualification machinery, Pi diagnostics, proof tooling, tester-stack receipts, and direct/internal Command Bus/control-plane mechanisms remain Internal or proof-only rather than user-facing Beta promises.
-
-### Qualification Pending
-
-- Coding Loop — remaining gate: supported-profile adapter/provider execution with terminal durable result and source-thread readback.
-- Hosted Rooms — remaining gate: clean supported/tester startup plus owner/guest live semantic proof after migration repair.
-- DeepSeek / private-preview provider lane — remaining gate: required credentials, authenticated provider-specific persisted runtime proof, and explicit supported-profile promotion.
-- Browser side-panel / Browser Host release surface — remaining gate: current host, auth, and release qualification proof for the applicable surface.
-- Desktop packaging outside the bounded local-client claim — remaining gate: packaged distribution proof without establishing separate runtime or persistence authority.
-
-### Out of Beta
-
-- TTS / voice — Out of Beta.
-- federation — Out of Beta.
-- Unrestricted autonomous / recursive execution, arbitrary write-capability tools, ordinary-Beta generic shell/filesystem authority, public Command Bus exposure, generic unattended automation, unqualified generic connector mutation/sync, unqualified graph-write behavior, and unsupported remote/multi-user repository execution remain Out of Beta.
+- The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
+- The intended Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
+- Current `main` contains focused, account-scoped artifact projection/preview and Guardian Chat project-context repairs; focused tests do not substitute for supported-path or authenticated browser proof.
+- Authenticated local Settings reads, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; presence does not imply generic connector sync, provider inference, or cloud support.
+- Pi 0.82.1 runtime identity, wrapper compatibility, and source-vendor loading are test-backed to the non-inference OAuth-readiness boundary. Pi execution remains internal and qualification-pending.
+- Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces. Static and bounded tester evidence does not substitute for supported-path live proof.
 
 ## Not yet true / do not assume
 
-- Do not assume current-tip Compose startup, health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, or turn-lock closure.
-- Do not treat the authenticated tester Gemma completion as supported-main evidence; it was produced on the tester proof stack.
-- Do not assume Watchdog has model execution, review publication, GitHub mutation, fallback, or automatic retry; no ambient chat model may satisfy its missing policy.
-- Do not assume the lost qualified image's deletion cause, retention behavior, or actor is known; the immutable replay prerequisite is unavailable.
-- Do not assume Pi diagnostic coverage proves OAuth or provider availability, or that feature branches, local work, or proof from another checkout is shipped reality.
+- Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
+- Do not treat the clean CE-L1 OAuth prerequisite as live executor, coding-loop, persisted-result, or supported-Beta proof; `LIVE_EXECUTOR_PROVEN` was not emitted.
+- Do not treat Tester Qwen, Whoosh'd, or prior local/Gemma completions as supported-main evidence; they are bounded tester or internal proof surfaces.
+- Do not treat focused artifact or Guardian Chat tests, local-only `main` commits, or UI code-path repairs as authenticated browser or supported-Compose release proof.
+- Do not assume Chroma fresh-state startup/retrieval qualification, Google Drive OAuth, Watchdog model execution, or immutable Docker image-retention behavior is closed.
+- Do not infer shipped reality from feature branches, local work, proof from another checkout, planning language, mutable `latest`, or docs alone.
 
 ## Active blockers
 
-- Fresh supported-Compose closure has not been rerun after the merged local-gateway template alignment; the latest observed attempt stopped before healthy HTTP.
-- Current-tip proof is still missing for health, chat, durable assistant readback, retrieval, queue/worker execution, turn locks, terminal events, and recovery behavior on one supported profile.
-- Fresh-state Chroma startup / retrieval qualification remains blocked after the classified compatibility failure; no historical restore or implementation repair is proven.
-- Watchdog qualification lacks an explicit available provider/model policy and therefore stops before review receipt and model execution.
-- Disposable archive-retention qualification is blocked on restoring the intended `desktop-linux` Docker authority and rerunning from a fresh observed `origin/main`; the failed preflight produced no retention result. Canonical-versus-legacy configuration paths also leave startup and operator-state drift risk.
+- Fresh supported-Compose closure has not been rerun at the current `main` tip after the merged local-gateway/profile alignment.
+- One supported-profile proof bundle is still missing for health, chat, persistence/readback, retrieval, queue/worker, locks, terminal events, and recovery.
+- Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
+- CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback despite the OAuth-readiness prerequisite passing.
+- Watchdog qualification still requires an explicit available provider/model policy; disposable image-retention replay still requires the intended `desktop-linux` Docker authority.
+- The audited `main` tip is two commits ahead of `origin/main`; remote-main release interpretation does not yet include the latest Guardian Chat fixes.
 
 ## This week’s priorities
 
-1. Rerun current-main supported-Compose closure with the aligned supported profile.
-2. Prove health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
-3. Requalify Chroma only under an explicitly authorized, newly classified proof path; keep derived state non-canonical.
-4. Bind one explicit Watchdog provider/model policy and requalify without ambient-model substitution.
-5. Restore the intended `desktop-linux` Docker authority, rerun the disposable image-retention reproduction from a fresh observed `origin/main`, and reconcile canonical-versus-legacy configuration drift.
+1. Integrate and re-audit the two Guardian Chat fixes on shared `origin/main` before treating them as remote release state.
+2. Rerun current-main supported-Compose closure with the canonical local profile.
+3. Prove health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
+4. Requalify Chroma through an authorized fresh-state path, then requalify CE-L1 executor/readback with one explicit provider/model policy.
+5. Restore the intended Docker authority and rerun immutable image-retention reproduction from observed `origin/main`.
 
 ## Release definition right now
 
 - [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
-- [x] Internal, bounded/conditional, and Out-of-Beta surfaces remain explicitly separated from Beta Supported.
-- [ ] Current-tip Compose proves healthy startup, health, model inventory, terminal chat, persistence/readback, and retrieval.
+- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces are kept separate from Beta Supported claims.
+- [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
 - [ ] Queue, worker, lock, migration, configuration, and recovery behavior is green on the supported install path.
-- [ ] Qualification-pending lanes have named current-main proof receipts; until then, they remain quarantined.
+- [ ] Qualification-pending lanes have current-main proof receipts for their named gates.
+- [ ] Recent document-artifact and Guardian Chat flows have current supported-path/browser evidence where release claims depend on them.
 
 ## How to read the rest of the KB
 

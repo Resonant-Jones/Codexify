@@ -7,7 +7,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { BookOpen, Send, X, FileText } from "lucide-react";
+import { BookOpen, Send, X, FileText, Maximize2, Minimize2 } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -59,6 +59,8 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
+const COMPOSER_EXPANDED_MAX_HEIGHT = "clamp(16rem, 52dvh, 34rem)";
+const COMPOSER_EXPAND_CONTROL_TEXT_INSET = `calc(${COMPOSER_TEXTAREA_PAD_X} + var(--composer-control-size, 2rem) + ${COMPOSER_TEXTAREA_PAD_X})`;
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -101,6 +103,13 @@ const autosizeComposerTextarea = (
   el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
+const expandComposerTextarea = (el: HTMLTextAreaElement) => {
+  el.style.minHeight = "var(--composer-expanded-max-h)";
+  el.style.maxHeight = "var(--composer-expanded-max-h)";
+  el.style.height = "var(--composer-expanded-max-h)";
+  el.style.overflowY = "auto";
+};
+
 export type ComposerSendOptions = {
   threadIdOverride?: number;
   slashIntent?: SlashCommandIntentPayload;
@@ -135,6 +144,7 @@ function inferProjectIdFromStorage(): number | null {
   if (typeof window === "undefined") return null;
   try {
     const keys = [
+      "cfy.lastProjectId",
       "cfy.projectId",
       "cfy.activeProjectId",
       "cfy.generalProjectId",
@@ -207,6 +217,7 @@ export function Composer({
   sourceMode = "project",
   sourceOptions = [],
   onSourceModeChange,
+  projectId,
   projectOptions = [],
   onProjectChange,
   compactMobile = false,
@@ -267,6 +278,7 @@ export function Composer({
   compactMobile?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [isComposerExpanded, setIsComposerExpanded] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<
     string | null
@@ -301,6 +313,7 @@ export function Composer({
   const [executionMode, setExecutionMode] =
     useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
+  const isDesktopComposerExpanded = isComposerExpanded && !compactMobile;
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
@@ -333,13 +346,23 @@ export function Composer({
   };
 
   useLayoutEffect(() => {
+    if (compactMobile && isComposerExpanded) {
+      setIsComposerExpanded(false);
+    }
+  }, [compactMobile, isComposerExpanded]);
+
+  useLayoutEffect(() => {
     if (!ref.current) return;
+    if (isDesktopComposerExpanded) {
+      expandComposerTextarea(ref.current);
+      return;
+    }
     autosizeComposerTextarea(
       ref.current,
       compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS,
       compactMobile ? MAX_COMPOSER_ROWS_MOBILE : MAX_COMPOSER_ROWS
     );
-  }, [compactMobile, value]);
+  }, [compactMobile, isDesktopComposerExpanded, value]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -449,7 +472,11 @@ export function Composer({
     resolveSlashCommandIntent(rawValue)?.command.id === "obsidian";
 
   const resolveProjectId = () => {
-    // Prefer explicit storage values to reduce reliance on URL shape.
+    const explicitProjectId = normalizeOptionalPositiveProjectId(projectId);
+    if (explicitProjectId !== null) return explicitProjectId;
+
+    // Fall back to storage only when the current surface has no explicit
+    // project context.
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
     return inferProjectIdFromLocation(null);
@@ -883,46 +910,89 @@ export function Composer({
     }
   };
 
+  const toggleComposerExpansion = () => {
+    if (compactMobile) return;
+    setIsComposerExpanded((expanded) => !expanded);
+    ref.current?.focus({ preventScroll: true });
+  };
+
   const renderComposerTextarea = () => (
-    <Textarea
-      data-testid="composer-textarea"
-      ref={ref}
-      rows={compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS}
-      value={value}
-      onChange={(event) => {
-        updateDraftValue(event.target.value);
-      }}
-      onFocus={() => setIsComposerFocused(true)}
-      onBlur={() => {
-        setIsComposerFocused(false);
-        commitDraftNow(valueRef.current);
-      }}
-      placeholder={
-        executionMode === "coding"
-          ? "Describe the coding task…"
-          : "Write a message…"
-      }
-      onPaste={onPaste}
-      onKeyDown={handleComposerKeyDown}
-      aria-controls={
-        commandPaletteOpen ? "composer-inline-command-listbox" : undefined
-      }
-      aria-expanded={commandPaletteOpen}
-      aria-activedescendant={
-        commandPaletteOpen && commandSuggestions.length > 0
-          ? `composer-inline-option-${activeCommandOptionIndex}`
-          : undefined
-      }
-      className="min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
-      style={{
-        color: "var(--text)",
-        overflow: "hidden",
-        padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
-        ...(compactMobile
-          ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
-          : {}),
-      }}
-    />
+    <div
+      data-testid="composer-textarea-surface"
+      data-expanded={isDesktopComposerExpanded ? "true" : "false"}
+      className="relative min-w-0 flex-1"
+    >
+      <Textarea
+        data-testid="composer-textarea"
+        ref={ref}
+        rows={compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS}
+        value={value}
+        onChange={(event) => {
+          updateDraftValue(event.target.value);
+        }}
+        onFocus={() => setIsComposerFocused(true)}
+        onBlur={() => {
+          setIsComposerFocused(false);
+          commitDraftNow(valueRef.current);
+        }}
+        placeholder={
+          executionMode === "coding"
+            ? "Describe the coding task…"
+            : "Write a message…"
+        }
+        onPaste={onPaste}
+        onKeyDown={handleComposerKeyDown}
+        aria-controls={
+          commandPaletteOpen ? "composer-inline-command-listbox" : undefined
+        }
+        aria-expanded={commandPaletteOpen}
+        aria-activedescendant={
+          commandPaletteOpen && commandSuggestions.length > 0
+            ? `composer-inline-option-${activeCommandOptionIndex}`
+            : undefined
+        }
+        className="min-w-0 h-full w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+        style={{
+          "--composer-expanded-max-h": COMPOSER_EXPANDED_MAX_HEIGHT,
+          boxSizing: "border-box",
+          color: "var(--text)",
+          overflow: "hidden",
+          padding: `${COMPOSER_TEXTAREA_PAD_Y} ${compactMobile ? COMPOSER_TEXTAREA_PAD_X : COMPOSER_EXPAND_CONTROL_TEXT_INSET} ${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
+          ...(compactMobile
+            ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
+            : {}),
+        } as React.CSSProperties}
+      />
+      {!compactMobile ? (
+        <Button
+          type="button"
+          data-testid="composer-expand-toggle"
+          aria-label={
+            isDesktopComposerExpanded ? "Collapse composer" : "Expand composer"
+          }
+          aria-expanded={isDesktopComposerExpanded}
+          title={
+            isDesktopComposerExpanded ? "Collapse composer" : "Expand composer"
+          }
+          variant="ghost"
+          size="icon"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleComposerExpansion}
+          className="absolute z-10 h-7 w-7 rounded-[var(--radius-micro)] p-0 opacity-70 hover:opacity-100"
+          style={{
+            right: COMPOSER_TEXTAREA_PAD_X,
+            bottom: COMPOSER_TEXTAREA_PAD_Y,
+            color: "var(--muted)",
+          }}
+        >
+          {isDesktopComposerExpanded ? (
+            <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+        </Button>
+      ) : null}
+    </div>
   );
 
   const renderComposerActionMenu = () => (
@@ -1003,6 +1073,7 @@ export function Composer({
       <div
         data-composer-root
         data-mobile-compact={compactMobile ? "true" : "false"}
+        data-composer-expanded={isDesktopComposerExpanded ? "true" : "false"}
         className={cn(
           "flex w-full flex-col",
           compactMobile

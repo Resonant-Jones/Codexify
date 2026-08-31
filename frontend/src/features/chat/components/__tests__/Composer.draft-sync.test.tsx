@@ -23,6 +23,12 @@ describe("Composer draft sync", () => {
     window.localStorage.clear();
   });
 
+  it("renders without crashing when no project context is provided", () => {
+    expect(() =>
+      render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />)
+    ).not.toThrow();
+  });
+
   it("keeps typing local and commits draft only after debounce", async () => {
     vi.useFakeTimers();
     const onDraftValueChange = vi.fn();
@@ -266,7 +272,9 @@ describe("Composer draft sync", () => {
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(composerSource).toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).toContain("justify-end");
-    expect(textarea.parentElement).toBe(contentPlane);
+    const textareaSurface = screen.getByTestId("composer-textarea-surface");
+    expect(textarea.parentElement).toBe(textareaSurface);
+    expect(textareaSurface.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("justify-between");
     expect(composerSource).not.toContain("mt-auto");
     expect(composerSource).not.toContain('pl-[8px]');
@@ -367,6 +375,49 @@ describe("Composer draft sync", () => {
 
     const form = vi.mocked(api.post).mock.calls[0][1] as FormData;
     expect(form.get("project_id")).toBeNull();
+    expect(form.get("thread_id")).toBe("123");
+  });
+
+  it("uses explicit project context before stale storage when uploading attachments", async () => {
+    window.localStorage.setItem("cfy.generalProjectId", "1");
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        id: "doc-3",
+        src_url: "/media/documents/notes.txt",
+        filename: "notes.txt",
+      },
+    } as any);
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        threadId={123}
+        projectId={42}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["hello world"], "notes.txt", { type: "text/plain" })],
+      },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledTimes(1);
+    });
+
+    const form = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(form.get("project_id")).toBe("42");
     expect(form.get("thread_id")).toBe("123");
   });
 

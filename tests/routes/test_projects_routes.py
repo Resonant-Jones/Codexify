@@ -174,61 +174,74 @@ class TestProjectsDelete:
 
     def test_delete_project_success(self, test_client, mock_db):
         """Test successful project deletion returns 200."""
+        mock_db.list_projects.return_value = [
+            {
+                "id": 1,
+                "name": "Archived project",
+                "system_role": None,
+                "archived_at": "2026-08-30T12:00:00+00:00",
+            }
+        ]
         response = test_client.delete("/api/projects/1")
 
         assert response.status_code == 200
         data = response.json()
         assert data["ok"] is True
-        # Should eject threads first, then delete project
-        mock_db.eject_threads_from_project.assert_called_once_with(1)
+        mock_db.eject_threads_from_project.assert_not_called()
         mock_db.delete_project.assert_called_once_with(1)
 
     def test_delete_project_not_found(self, test_client, mock_db):
         """Test deleting non-existent project returns 404."""
-        mock_db.delete_project.return_value = False
-
         response = test_client.delete("/api/projects/999")
 
         assert response.status_code == 404
         data = response.json()
         assert "detail" in data
 
-    def test_delete_project_ejects_threads_first(self, test_client, mock_db):
-        """Test project deletion ejects threads before deleting."""
+    def test_delete_active_project_is_rejected_before_ejection(self, test_client, mock_db):
+        """Test active project deletion is rejected without route-side ejection."""
+        mock_db.list_projects.return_value = [
+            {
+                "id": 1,
+                "name": "Active project",
+                "system_role": None,
+                "archived_at": None,
+            }
+        ]
+        response = test_client.delete("/api/projects/1")
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "project_must_be_archived_before_delete"
+        mock_db.eject_threads_from_project.assert_not_called()
+        mock_db.delete_project.assert_not_called()
+
+    def test_delete_project_does_not_use_route_side_ejection(self, test_client, mock_db):
+        """Test core owns transactional ejection after lifecycle validation."""
+        mock_db.list_projects.return_value = [
+            {
+                "id": 1,
+                "name": "Archived project",
+                "system_role": None,
+                "archived_at": "2026-08-30T12:00:00+00:00",
+            }
+        ]
+
         response = test_client.delete("/api/projects/1")
 
         assert response.status_code == 200
-        # Verify eject was called before delete
-        assert mock_db.eject_threads_from_project.called
-        assert mock_db.delete_project.called
-        # Get call order
-        calls = [(call[0], call[1]) for call in mock_db.method_calls]
-        eject_call_index = next(
-            i
-            for i, (name, args) in enumerate(calls)
-            if name == "eject_threads_from_project"
-        )
-        delete_call_index = next(
-            i
-            for i, (name, args) in enumerate(calls)
-            if name == "delete_project"
-        )
-        assert eject_call_index < delete_call_index
-
-    def test_delete_project_eject_error_continues(self, test_client, mock_db):
-        """Test project deletion continues even if eject fails."""
-        mock_db.eject_threads_from_project.side_effect = Exception(
-            "Eject failed"
-        )
-
-        response = test_client.delete("/api/projects/1")
-
-        # Should still attempt to delete project
-        assert response.status_code == 200
+        mock_db.eject_threads_from_project.assert_not_called()
         mock_db.delete_project.assert_called_once_with(1)
 
     def test_delete_project_db_error(self, test_client, mock_db):
         """Test project deletion handles database errors."""
+        mock_db.list_projects.return_value = [
+            {
+                "id": 1,
+                "name": "Archived project",
+                "system_role": None,
+                "archived_at": "2026-08-30T12:00:00+00:00",
+            }
+        ]
         mock_db.delete_project.side_effect = Exception("Foreign key constraint")
 
         response = test_client.delete("/api/projects/1")
@@ -246,35 +259,52 @@ class TestProjectsDelete:
         assert response.status_code == 422
 
     def test_delete_default_project(self, test_client, mock_db):
-        """Test deleting default project (Loose Threads, id=1)."""
-        # This should work technically, but might have special handling
+        """Test deleting the Imports built-in is rejected."""
+        mock_db.list_projects.return_value = [
+            {
+                "id": 1,
+                "name": "Imported history",
+                "system_role": "imports",
+                "archived_at": None,
+            }
+        ]
         response = test_client.delete("/api/projects/1")
 
-        # If it succeeds, verify behavior
-        if response.status_code == 200:
-            mock_db.delete_project.assert_called_once_with(1)
-        # If it fails, should be handled gracefully
-        else:
-            assert response.status_code in [400, 404, 403]
+        assert response.status_code == 409
+        assert response.json()["error"] == "project_system_container_immutable"
+        mock_db.delete_project.assert_not_called()
 
 
 class TestProjectsIntegration:
     """Integration tests for projects endpoints."""
 
-    def test_patch_then_delete_project(self, test_client, mock_db):
-        """Test updating then deleting a project in sequence."""
+    def test_patch_archive_then_delete_project(self, test_client, mock_db):
+        """Test renaming, archiving, then deleting a project in sequence."""
         # First, patch the project
         patch_response = test_client.patch(
             "/api/projects/2", json={"name": "To Be Deleted"}
         )
         assert patch_response.status_code == 200
 
-        # Then delete it
+        archive_response = test_client.patch(
+            "/api/projects/2", json={"archived": True}
+        )
+        assert archive_response.status_code == 200
+        mock_db.list_projects.return_value = [
+            {
+                "id": 2,
+                "name": "To Be Deleted",
+                "system_role": None,
+                "archived_at": "2026-08-30T12:00:00+00:00",
+            }
+        ]
+
         delete_response = test_client.delete("/api/projects/2")
         assert delete_response.status_code == 200
 
-        # Verify both operations were called
+        # Verify all lifecycle operations were called.
         mock_db.update_project.assert_called()
+        mock_db.archive_project.assert_called_once_with(2, True)
         mock_db.delete_project.assert_called()
 
     def test_multiple_project_operations(self, test_client, mock_db):

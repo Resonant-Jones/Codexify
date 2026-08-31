@@ -205,6 +205,36 @@ Future proof expectations include:
 
 Diagnostics must align with Codexify's existing observability posture. Noisy harness internals do not belong in the primary chat lane.
 
+### Bounded Pi 0.82.1 tool observability (added 2026-08-29)
+
+Guardian-authorized live Pi execution may retain a bounded `tool_telemetry`
+field.  This telemetry is **evidence only** — it confers no execution
+authority.  The retained fields are:
+
+- `effective_tool_names`: actual active tool names reported by the
+  created session before prompting.  No configured/intended value may
+  substitute.
+- `write_tool_available`: true only if `"write"` is in
+  `effective_tool_names`.
+- `tool_execution_start_count`: count of observed
+  `tool_execution_start` events.
+- `tool_execution_end_count`: count of observed `tool_execution_end`
+  events.
+- `executed_tool_names`: unique tool names observed from
+  `tool_execution_start` in first-observed order.  No args, tool-call
+  IDs, results, or partial results are retained.
+- `assistant_tool_call_count`: post-completion count of assistant
+  content blocks whose type is exactly `toolCall`.  Distinct from
+  execution-start count.
+
+The telemetry contains **only** `string[]` tool names, booleans, and
+integer counts.  It does NOT contain prompt text, assistant text,
+thinking content, tool arguments, tool-call IDs, tool results, file
+contents, provider payloads, headers, tokens, account IDs, credential
+metadata, or environment dumps.  Target readback remains the
+authoritative source for actual mutation.  Telemetry does not broaden
+tool permissions.
+
 ## Explicit Non-Goals
 
 This contract does not:

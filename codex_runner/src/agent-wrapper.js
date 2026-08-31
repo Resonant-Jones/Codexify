@@ -133,8 +133,50 @@ function emitAuthorizedFailure(failureClass, failureStage, details = {}) {
 		runtime_identity_established: details.runtime_identity_established === true,
 		session_initialized: details.session_initialized === true,
 		provider_request_started: details.provider_request_started === true,
+		tool_telemetry: details.tool_telemetry || null,
 	};
 	console.log(JSON.stringify(payload));
+}
+
+// The maintained Pi 0.82.1 SDK treats `createAgentSession({ tools })` as a
+// collection of tool-NAME strings (not AgentTool objects). The previous
+// `createCodingTools(OPTIONS.cwd)` call returned AgentTool objects, which
+// produced an empty effective tool set. We now pass the exact intended
+// canonical coding tool-NAME set and rely on the maintained `ModelRuntime`
+// for tool definitions.
+const CONFIGURED_WRITABLE_TOOL_NAMES = ["read", "bash", "edit", "write"];
+
+function getEffectiveToolNames(session) {
+	// Preferred source: maintained API method.
+	let names = null;
+	try {
+		if (typeof session?.getActiveToolNames === "function") {
+			names = session.getActiveToolNames();
+		}
+	} catch (_error) {
+		names = null;
+	}
+	// Fallback: read from session.agent.state.tools when API method is missing.
+	if (!Array.isArray(names)) {
+		try {
+			const tools = session?.agent?.state?.tools;
+			if (Array.isArray(tools)) {
+				names = tools.map((t) => t?.name).filter((n) => typeof n === "string");
+			}
+		} catch (_error) {
+			names = [];
+		}
+	}
+	// Normalize: strings only, first-occurrence order, unique, no empty.
+	const seen = new Set();
+	const out = [];
+	for (const name of names || []) {
+		if (typeof name !== "string" || name.length === 0) continue;
+		if (seen.has(name)) continue;
+		seen.add(name);
+		out.push(name);
+	}
+	return out;
 }
 
 async function loadPiSdk() {
@@ -142,73 +184,44 @@ async function loadPiSdk() {
 	const packageRoot = process.env.PI_CODING_AGENT_PACKAGE_ROOT
 		? path.resolve(process.env.PI_CODING_AGENT_PACKAGE_ROOT)
 		: path.resolve(wrapperDirectory, "../vendor/pi-coding-agent");
-	const nodeModulesRoot = process.env.PI_CODING_AGENT_NODE_MODULES
-		? path.resolve(process.env.PI_CODING_AGENT_NODE_MODULES)
-		: path.join(packageRoot, "node_modules");
 	const codingAgent = await import(pathToFileURL(path.join(packageRoot, "dist/index.js")).href);
-	const piAi = await import(
-		pathToFileURL(path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")).href
-	);
-	const openaiCodexModels = await import(
-		pathToFileURL(
-			path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/providers/openai-codex.models.js")
-		).href
-	).catch(() => null);
-	const openaiCodexCatalog = (openaiCodexModels && openaiCodexModels.OPENAI_CODEX_MODELS) || {};
+
+	// Fail closed if the maintained Pi 0.82.1 runtime API is absent.
+	if (typeof codingAgent.ModelRuntime?.create !== "function") {
+		throw new Error(
+			"Pi coding-agent package is missing the ModelRuntime.create factory; " +
+				"the wrapper requires the maintained Pi 0.82.1 runtime surface."
+		);
+	}
+	if (typeof codingAgent.createAgentSession !== "function") {
+		throw new Error(
+			"Pi coding-agent package is missing the createAgentSession factory; " +
+				"the wrapper requires the maintained Pi 0.82.1 session surface."
+		);
+	}
+
 	const packageMetadata = JSON.parse(
 		await readFile(path.join(packageRoot, "package.json"), "utf8")
 	);
-	const KNOWN_PROVIDERS = [
-		"anthropic",
-		"openai",
-		"azure-openai-responses",
-		"openai-codex",
-		"openrouter",
-		"google",
-		"google-vertex",
-		"github-copilot",
-		"vercel-ai-gateway",
-		"xai",
-		"groq",
-		"deepseek",
-		"mistral",
-		"minimax",
-		"cerebras",
-		"zai",
-		"minimax-cn",
-		"moonshotai",
-		"opencode",
-		"kimi-coding",
-		"xiaomi",
-	];
-	const getProviders = () => {
-		const known = new Set(KNOWN_PROVIDERS);
-		for (const id of Object.keys(openaiCodexCatalog)) {
-			const m = openaiCodexCatalog[id];
-			if (m && m.provider) known.add(m.provider);
-		}
-		return [...known];
-	};
-	const getModel = (providerId, modelId) => {
-		if (providerId === "openai-codex" && openaiCodexCatalog[modelId]) {
-			return openaiCodexCatalog[modelId];
-		}
-		for (const m of Object.values(openaiCodexCatalog)) {
-			if (m && m.id === modelId && (!providerId || m.provider === providerId)) {
-				return m;
-			}
-		}
-		return undefined;
-	};
-	const AuthStorage = piAi.AuthStorage;
+	if (packageMetadata.name !== "@earendil-works/pi-coding-agent") {
+		throw new Error(
+			`Unexpected Pi coding-agent package: ${packageMetadata.name || "unknown"}`
+		);
+	}
+
+	// Construct the canonical maintained runtime.
+	// `allowModelNetwork: false` disables remote model-catalog refresh;
+	// readiness must never contact a remote provider.
+	const modelRuntime = await codingAgent.ModelRuntime.create({
+		allowModelNetwork: false,
+	});
+
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
-		AuthStorage,
-		ModelRegistry: codingAgent.ModelRegistry,
-		createCodingTools: codingAgent.createCodingTools,
-		getModel,
-		getProviders,
+		modelRuntime,
+		getModel: modelRuntime.getModel.bind(modelRuntime),
+		getProviders: modelRuntime.getProviders.bind(modelRuntime),
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
@@ -234,7 +247,7 @@ async function checkGuardianAuthorizedReadiness() {
 		return;
 	}
 
-	const { AuthStorage, ModelRegistry, getModel, getProviders, harnessId, harnessVersion } = runtime;
+	const { modelRuntime, getModel, getProviders, harnessId, harnessVersion } = runtime;
 	const providerIds = getProviders().map((provider) =>
 		typeof provider === "string" ? provider : provider?.id,
 	);
@@ -267,18 +280,16 @@ async function checkGuardianAuthorizedReadiness() {
 	}
 
 	try {
-		const authStorage = AuthStorage.create();
-		const modelRegistry = ModelRegistry.create(authStorage);
-		if (!authStorage.hasAuth(model.provider)) {
+		// `checkAuth` returns undefined when no supported authentication is configured
+		// for the provider; otherwise it returns a structural auth descriptor.
+		// This is a non-inference credential-presence check; no remote call.
+		const auth = await modelRuntime.checkAuth(model.provider);
+		const available = await modelRuntime.getAvailable();
+		const modelAvailable = available.some(
+			(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+		);
+		if (!auth || !modelAvailable) {
 			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
-				actual_runtime_identity: actualRuntimeIdentity,
-				runtime_identity_established: true,
-			});
-			return;
-		}
-		const available = await modelRegistry.getAvailable();
-		if (!available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) {
-			emitAuthorizedFailure("model_unresolved", "model_availability", {
 				actual_runtime_identity: actualRuntimeIdentity,
 				runtime_identity_established: true,
 			});
@@ -326,7 +337,7 @@ async function checkReadiness() {
 	};
 
 	try {
-		const { AuthStorage, ModelRegistry, getModel } = await loadPiSdk();
+		const { modelRuntime, getModel } = await loadPiSdk();
 		const resolvedModelId = resolveModel(OPTIONS.model, getModel);
 		payload.effective_model = resolvedModelId;
 		const model = getModel(OPTIONS.provider, resolvedModelId);
@@ -341,11 +352,12 @@ async function checkReadiness() {
 		payload.effective_provider = model.provider;
 		payload.effective_model = model.id;
 
-		const authStorage = AuthStorage.create();
-		ModelRegistry.create(authStorage);
-		// hasAuth checks stored/env/fallback presence without refreshing OAuth or
-		// contacting the provider. Readiness is not credential-validity proof.
-		payload.provider_credential_available = authStorage.hasAuth(model.provider);
+		// getAvailable resolves stored and environment credentials without starting
+		// an agent session or provider request. Readiness is not credential-validity proof.
+		const available = await modelRuntime.getAvailable();
+		payload.provider_credential_available = available.some(
+			(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+		);
 		payload.reason = payload.provider_credential_available
 			? null
 			: "provider_credential_missing";
@@ -358,9 +370,7 @@ async function checkReadiness() {
 async function runAgent() {
 	let createAgentSession;
 	let SessionManager;
-	let AuthStorage;
-	let ModelRegistry;
-	let createCodingTools;
+	let modelRuntime;
 	let getModel;
 	let getProviders;
 	let harnessId;
@@ -374,9 +384,7 @@ async function runAgent() {
 		({
 			createAgentSession,
 			SessionManager,
-			AuthStorage,
-			ModelRegistry,
-			createCodingTools,
+			modelRuntime,
 			getModel,
 			getProviders,
 			harnessId,
@@ -407,21 +415,9 @@ async function runAgent() {
 		? authorizedIdentity.providerId
 		: OPTIONS.provider;
 
-	// Set up auth and model registry
-	let authStorage;
-	let modelRegistry;
-	try {
-		authStorage = AuthStorage.create();
-		modelRegistry = ModelRegistry.create(authStorage);
-	} catch (error) {
-		if (guardianAuthorizedMode) {
-			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness");
-			return;
-		}
-		throw error;
-	}
-
-	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
+	// Maintained Pi 0.82.1 contract: `tools` is a string[] of tool NAMES,
+	// not AgentTool objects. Disabled/read-only sessions get `[]`.
+	const configuredToolNames = OPTIONS.disableTools ? [] : [...CONFIGURED_WRITABLE_TOOL_NAMES];
 
 	// Get model
 	const model = getModel(resolvedProviderId, resolvedModelId);
@@ -467,7 +463,7 @@ async function runAgent() {
 
 	// Check API key availability
 	try {
-		const available = await modelRegistry.getAvailable();
+		const available = await modelRuntime.getAvailable();
 		const hasModel = available.some(
 			m => m.provider === model.provider && m.id === model.id,
 		);
@@ -525,9 +521,8 @@ async function runAgent() {
 			cwd: OPTIONS.cwd,
 			model,
 			thinkingLevel: OPTIONS.thinking,
-			authStorage,
-			modelRegistry,
-			tools,
+			modelRuntime,
+			tools: configuredToolNames,
 			sessionManager: SessionManager.inMemory(),
 		});
 	} catch (error) {
@@ -543,10 +538,58 @@ async function runAgent() {
 
 	session = result.session;
 
-	// Subscribe to events
+	// Capture the effective tool surface from the actual session, NOT from the
+	// configured/intended value. This is the single source of truth for
+	// whether `write` is actually active in the live session.
+	const effectiveToolNames = getEffectiveToolNames(session);
+	const writeToolAvailable = effectiveToolNames.includes("write");
+
+	// Tool telemetry accumulators (content-free, evidence-only).
+	const toolTelemetry = {
+		effective_tool_names: effectiveToolNames,
+		write_tool_available: writeToolAvailable,
+		tool_execution_start_count: 0,
+		tool_execution_end_count: 0,
+		executed_tool_names: [],
+		assistant_tool_call_count: 0,
+	};
+
+	// Defense-in-depth: if Guardian-authorized-task has writable intent
+	// (`write` should be active) but the session did not register `write`,
+	// fail closed BEFORE prompting. This protects against any future SDK
+	// compatibility regression that would silently produce an empty
+	// effective tool set.
+	if (
+		guardianAuthorizedMode
+		&& OPTIONS.disableTools === false
+		&& writeToolAvailable !== true
+	) {
+		emitAuthorizedFailure("wrapper_protocol_failed", "tool_activation", {
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+			session_initialized: true,
+			provider_request_started: false,
+			tool_telemetry: toolTelemetry,
+		});
+		return;
+	}
+
+	// Subscribe to events (capture bounded tool-execution telemetry).
 	session.subscribe((event) => {
+		// Count tool execution lifecycle events (NO args/results/content).
+		if (event.type === "tool_execution_start") {
+			const toolName = typeof event.toolName === "string" ? event.toolName : null;
+			if (toolName !== null) {
+				toolTelemetry.tool_execution_start_count += 1;
+				if (!toolTelemetry.executed_tool_names.includes(toolName)) {
+					toolTelemetry.executed_tool_names.push(toolName);
+				}
+			}
+		} else if (event.type === "tool_execution_end") {
+			toolTelemetry.tool_execution_end_count += 1;
+		}
 		if (OPTIONS.verbose) {
-			if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+			if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
 				process.stdout.write(event.assistantMessageEvent.delta);
 			}
 			if (event.type === "tool_execution_start") {
@@ -569,18 +612,34 @@ async function runAgent() {
 				runtime_identity_established: true,
 				session_initialized: true,
 				provider_request_started: true,
+				tool_telemetry: toolTelemetry,
 			});
 			return;
 		}
 		throw error;
 	}
 
-	// Get messages and extract JSON
-	const messages = session.agent.state.messages;
+	// Count assistant tool-call blocks (distinct from tool execution).
+	// Inspect assistant messages and count content blocks whose type is exactly
+	// "toolCall". Do NOT record tool-call arguments.
+	try {
+		const finalMessages = session.agent.state.messages;
+		for (const message of finalMessages) {
+			if (message.role !== "assistant") continue;
+			if (!Array.isArray(message.content)) continue;
+			for (const block of message.content) {
+				if (block && block.type === "toolCall") {
+					toolTelemetry.assistant_tool_call_count += 1;
+				}
+			}
+		}
+	} catch (_error) {
+		// leave count at 0; bounded evidence only
+	}
 
 	// Print final output
 	if (guardianAuthorizedMode) {
-		const response = extractJsonResponse(messages);
+		const response = extractJsonResponse(session.agent.state.messages);
 		console.log(JSON.stringify({
 			status: "ok",
 			summary: "Guardian-authorized Pi task completed",
@@ -592,11 +651,14 @@ async function runAgent() {
 					: "structured",
 				content_omitted: true,
 			},
+			session_initialized: true,
+			provider_request_started: true,
+			tool_telemetry: toolTelemetry,
 		}));
 		return;
 	}
 	if (mode === "audit" || mode === "compile" || mode === "task") {
-		const response = extractJsonResponse(messages);
+		const response = extractJsonResponse(session.agent.state.messages);
 		if (response) {
 			console.log(JSON.stringify(response, null, 2));
 		}

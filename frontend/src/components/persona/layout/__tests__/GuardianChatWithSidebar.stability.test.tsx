@@ -116,6 +116,10 @@ vi.mock("@/features/chat/GuardianChat", () => ({
         <div data-testid="active-thread-id">{String(props?.activeThread?.id ?? "none")}</div>
         <div data-testid="active-thread-title">{String(props?.activeThread?.title ?? "")}</div>
         <div data-testid="active-thread-messages">{String(props?.activeThread?.messages?.length ?? 0)}</div>
+        <div data-testid="workspace-project-id">{String(props?.workspaceProjectId ?? "")}</div>
+        <div data-testid="workspace-project-name">{String(props?.workspaceProjectName ?? "")}</div>
+        <div data-testid="active-thread-project-id">{String(props?.activeThread?.projectId ?? "")}</div>
+        <div data-testid="active-thread-project-name">{String(props?.activeThread?.projectName ?? "")}</div>
         {props?.runtimeHealth?.diagnostics ? (
           <div data-testid="runtime-health-diagnostics">
             {[
@@ -149,6 +153,9 @@ vi.mock("@/components/sidebar/SidebarRoot", () => ({
         </button>
         <button data-testid="sidebar-load-more" onClick={() => props.onLoadMoreThreads?.()}>
           Load More
+        </button>
+        <button data-testid="sidebar-set-project-1" onClick={() => props.onProjectChange?.("1")}>
+          Set Project 1
         </button>
         <button data-testid="sidebar-set-project-2" onClick={() => props.onProjectChange?.("2")}>
           Set Project 2
@@ -423,18 +430,24 @@ function setupThreadApi(
   pages: Record<
     string,
     Record<number, { threads: ThreadRow[]; has_more: boolean }>
-  >
+  >,
+  projects: Array<{ id: number | string; name: string }> = []
 ) {
   mockApi.get.mockImplementation((url: string, config?: any) => {
+    if (url === "/api/projects") {
+      return Promise.resolve({ data: { projects } });
+    }
     if (url !== "/api/chat/threads") {
       return Promise.resolve({ data: {} });
     }
     const params = config?.params ?? {};
-    const projectKey = params.origin_system != null
-      ? `origin:${String(params.origin_system)}`
-      : params.project_id != null
-        ? String(params.project_id)
-        : "all";
+    const projectKey = params.project_id != null && params.origin_system != null
+      ? `${String(params.project_id)}:origin:${String(params.origin_system)}`
+      : params.origin_system != null
+        ? `origin:${String(params.origin_system)}`
+        : params.project_id != null
+          ? String(params.project_id)
+          : "all";
     const offset = Number(params.offset ?? 0);
     const page = pages[projectKey]?.[offset] ?? { threads: [], has_more: false };
     return Promise.resolve({
@@ -650,7 +663,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
     });
   });
 
-  it("queries canonical origins across projects and restores the selected Project on All", async () => {
+  it("queries canonical origins within the selected Project across pagination, refresh, and All", async () => {
     setupThreadApi({
       all: {
         0: { threads: [t(1, "General thread")], has_more: false },
@@ -658,42 +671,33 @@ describe("GuardianChatWithSidebar stability contract", () => {
       "2": {
         0: { threads: [t(20, "Project two thread", 2)], has_more: false },
       },
-      "origin:anthropic": {
+      "2:origin:anthropic": {
         0: {
           threads: [
-            {
-              ...t(201, "Claude thread in Project one", 1),
-              project_name: "Project one",
-              origin_system: "anthropic",
-            },
             {
               ...t(203, "Claude thread in Project two", 2),
               project_name: "Project two",
               origin_system: "anthropic",
             },
-            {
-              ...t(204, "Claude thread without a Project", null),
-              origin_system: "anthropic",
-            },
           ],
           has_more: true,
         },
-        3: {
+        1: {
           threads: [
             {
-              ...t(202, "Second Claude thread", 11),
-              project_name: "Research",
+              ...t(205, "Second Claude thread in Project two", 2),
+              project_name: "Project two",
               origin_system: "anthropic",
             },
           ],
           has_more: false,
         },
       },
-      "origin:openai": {
+      "2:origin:openai": {
         0: {
           threads: [
             {
-              ...t(301, "ChatGPT thread", 12),
+              ...t(301, "ChatGPT thread in Project two", 2),
               origin_system: "openai",
             },
           ],
@@ -710,9 +714,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
     await screen.findByTestId("thread-20");
 
     await user.click(screen.getByTestId("sidebar-set-origin-anthropic"));
-    await screen.findByTestId("thread-201");
     await screen.findByTestId("thread-203");
-    await screen.findByTestId("thread-204");
     expect(screen.queryByTestId("thread-20")).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -723,44 +725,36 @@ describe("GuardianChatWithSidebar stability contract", () => {
           && (config as any)?.params?.offset === 0
       )?.[1] as any;
       expect(request?.params).toEqual(
-        expect.objectContaining({ origin_system: "anthropic", offset: 0 })
+        expect.objectContaining({ project_id: 2, origin_system: "anthropic", offset: 0 })
       );
-      expect(request?.params).not.toHaveProperty("project_id");
       expect(request?.params).not.toHaveProperty("user_id");
     });
 
     expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.threads).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: "201",
-          projectId: "1",
-          projectName: "Project one",
-          originSystem: "anthropic",
-        }),
         expect.objectContaining({ id: "203", projectId: "2", originSystem: "anthropic" }),
-        expect.objectContaining({ id: "204", projectId: null, originSystem: "anthropic" }),
       ])
     );
 
     await user.click(screen.getByTestId("sidebar-load-more"));
-    await screen.findByTestId("thread-202");
+    await screen.findByTestId("thread-205");
     await waitFor(() => {
       const request = mockApi.get.mock.calls.find(
         ([url, config]) =>
           url === "/api/chat/threads"
           && (config as any)?.params?.origin_system === "anthropic"
-          && (config as any)?.params?.offset === 3
+          && (config as any)?.params?.offset === 1
       )?.[1] as any;
       expect(request?.params).toEqual(
-        expect.objectContaining({ origin_system: "anthropic", offset: 3 })
+        expect.objectContaining({ project_id: 2, origin_system: "anthropic", offset: 1 })
       );
-      expect(request?.params).not.toHaveProperty("project_id");
       expect(request?.params).not.toHaveProperty("user_id");
     });
 
     const anthroRequestCountBeforeRefresh = mockApi.get.mock.calls.filter(
       ([url, config]) =>
         url === "/api/chat/threads"
+        && (config as any)?.params?.project_id === 2
         && (config as any)?.params?.origin_system === "anthropic"
         && (config as any)?.params?.offset === 0
     ).length;
@@ -774,6 +768,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
         mockApi.get.mock.calls.filter(
           ([url, config]) =>
             url === "/api/chat/threads"
+            && (config as any)?.params?.project_id === 2
             && (config as any)?.params?.origin_system === "anthropic"
             && (config as any)?.params?.offset === 0
         )
@@ -782,15 +777,15 @@ describe("GuardianChatWithSidebar stability contract", () => {
 
     await user.click(screen.getByTestId("sidebar-set-origin-openai"));
     await screen.findByTestId("thread-301");
-    expect(screen.queryByTestId("thread-201")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("thread-203")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(
         mockApi.get.mock.calls.some(
           ([url, config]) =>
             url === "/api/chat/threads"
+            && (config as any)?.params?.project_id === 2
             && (config as any)?.params?.origin_system === "openai"
             && (config as any)?.params?.offset === 0
-            && !("project_id" in ((config as any)?.params ?? {}))
         )
       ).toBe(true);
     });
@@ -808,18 +803,26 @@ describe("GuardianChatWithSidebar stability contract", () => {
     });
   });
 
-  it("clears the origin lens when the user explicitly selects a Project", async () => {
+  it("preserves the origin lens when the user explicitly selects another Project", async () => {
     setupThreadApi({
       all: {
         0: { threads: [t(1, "General thread")], has_more: false },
       },
-      "2": {
-        0: { threads: [t(20, "Project two thread", 2)], has_more: false },
+      "1": {
+        0: { threads: [t(10, "Project one thread", 1)], has_more: false },
       },
-      "origin:anthropic": {
+      "1:origin:anthropic": {
         0: {
           threads: [
-            { ...t(201, "Claude thread", 1), origin_system: "anthropic" },
+            { ...t(201, "Project one Claude thread", 1), origin_system: "anthropic" },
+          ],
+          has_more: false,
+        },
+      },
+      "2:origin:anthropic": {
+        0: {
+          threads: [
+            { ...t(202, "Project two Claude thread", 2), origin_system: "anthropic" },
           ],
           has_more: false,
         },
@@ -830,22 +833,27 @@ describe("GuardianChatWithSidebar stability contract", () => {
     render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
 
     await screen.findByTestId("thread-1");
+    await user.click(screen.getByTestId("sidebar-set-project-1"));
+    await screen.findByTestId("thread-10");
     await user.click(screen.getByTestId("sidebar-set-origin-anthropic"));
     await screen.findByTestId("thread-201");
 
     await user.click(screen.getByTestId("sidebar-set-project-2"));
-    await screen.findByTestId("thread-20");
+    await screen.findByTestId("thread-202");
     expect(screen.queryByTestId("thread-201")).not.toBeInTheDocument();
-    expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.originSystem).toBeNull();
+    expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.originSystem).toBe("anthropic");
 
     await waitFor(() => {
       const request = mockApi.get.mock.calls.find(
         ([url, config]) =>
           url === "/api/chat/threads"
           && (config as any)?.params?.project_id === 2
+          && (config as any)?.params?.origin_system === "anthropic"
           && (config as any)?.params?.offset === 0
       )?.[1] as any;
-      expect(request?.params).not.toHaveProperty("origin_system");
+      expect(request?.params).toEqual(
+        expect.objectContaining({ project_id: 2, origin_system: "anthropic", offset: 0 })
+      );
     });
   });
 
@@ -996,6 +1004,10 @@ describe("GuardianChatWithSidebar stability contract", () => {
   });
 
   it("keeps click selection consistent after loading more and dedupes by id", async () => {
+    // A previously selected custom folder may have been written to the old
+    // General-ID storage key. An explicit project selection must still query
+    // that project, never widen back to the unscoped list.
+    window.localStorage.setItem("cfy.generalProjectId", "2");
     setupThreadApi({
       all: {
         0: { threads: [t(1), t(2)], has_more: true },
@@ -1038,6 +1050,41 @@ describe("GuardianChatWithSidebar stability contract", () => {
 
     expect(screen.getAllByTestId("thread-167")).toHaveLength(1);
     expect(screen.getByTestId("active-thread-id").textContent).toBe("167");
+  });
+
+  it("keeps the selected project on a new pending tab and temporary thread", async () => {
+    setupThreadApi(
+      {
+        all: {
+          0: { threads: [t(1, "Thread 1")], has_more: false },
+        },
+        "2": {
+          0: { threads: [], has_more: false },
+        },
+      },
+      [{ id: 2, name: "Bananas" }]
+    );
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-1");
+    await user.click(screen.getByTestId("sidebar-set-project-2"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("workspace-project-name")).toHaveTextContent("Bananas");
+      expect(screen.getByTestId("active-thread-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("active-thread-project-name")).toHaveTextContent("Bananas");
+    });
+
+    await user.click(screen.getByTestId("sidebar-new-chat"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id")).toHaveTextContent("temp");
+      expect(screen.getByTestId("active-thread-project-id")).toHaveTextContent("2");
+      expect(screen.getByTestId("active-thread-project-name")).toHaveTextContent("Bananas");
+    });
   });
 
   it("new chat clears prior thread and shows New Thread placeholder", async () => {

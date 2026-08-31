@@ -232,7 +232,10 @@ export function serializeDocumentContextMessage(
   return parts.join("\n\n").trim();
 }
 
-export async function loadDocumentContentById(documentId: string): Promise<{
+export async function loadDocumentContentById(
+  documentId: string,
+  artifactType?: DocumentLike["artifactType"]
+): Promise<{
   id: string;
   title: string;
   ext?: string;
@@ -243,7 +246,13 @@ export async function loadDocumentContentById(documentId: string): Promise<{
     throw new Error("Document id is required");
   }
 
-  const response = await api.get(`/media/documents/${encodeURIComponent(normalizedId)}`);
+  const response =
+    artifactType === "generated"
+      ? await api.get(
+          `/media/document-artifacts/${encodeURIComponent(normalizedId)}`,
+          { params: { artifact_type: "generated" } }
+        )
+      : await api.get(`/media/documents/${encodeURIComponent(normalizedId)}`);
   const payload = response?.data ?? {};
   const content =
     normalizeString(payload.content) ||
@@ -256,7 +265,7 @@ export async function loadDocumentContentById(documentId: string): Promise<{
   return {
     id: normalizeString(payload.id) || normalizedId,
     title: normalizeString(payload.title) || normalizeString(payload.filename) || "Untitled",
-    ext: normalizeString(payload.ext) || undefined,
+    ext: normalizeString(payload.ext) || normalizeString(payload.format) || undefined,
     content,
   };
 }

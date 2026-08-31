@@ -246,6 +246,44 @@ describe("WorkspacePane preview surface", () => {
     expect(within(previewSurface).queryByText("Short excerpt")).not.toBeInTheDocument();
   });
 
+  it("loads generated artifact content through the artifact detail endpoint", async () => {
+    const apiGetSpy = vi.spyOn(api, "get").mockResolvedValueOnce({
+      data: {
+        id: "generated-1",
+        artifact_type: "generated",
+        title: "Generated Brief",
+        format: "md",
+        content: "# Generated Brief\n\nGenerated body.",
+      },
+    } as any);
+
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "generated-1",
+          title: "Generated Brief",
+          ext: "md",
+          type: "file",
+          artifactType: "generated",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+
+    await waitFor(() => {
+      expect(
+        within(previewSurface).getByRole("heading", { name: "Generated Brief" })
+      ).toBeInTheDocument();
+    });
+
+    expect(apiGetSpy).toHaveBeenCalledWith(
+      "/media/document-artifacts/generated-1",
+      { params: { artifact_type: "generated" } }
+    );
+    expect(within(previewSurface).getByText("Generated body.")).toBeInTheDocument();
+  });
+
   it("detects signed image preview URLs using the parsed pathname", () => {
     render(
       <WorkspacePane

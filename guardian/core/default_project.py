@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping, MutableMapping, Sequence
 
+from guardian.core.project_lifecycle import PROJECT_SYSTEM_ROLE_GENERAL
+
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = (
     "Default project for content without a specified project"
@@ -61,12 +63,24 @@ def _coerce_project_id(project: Mapping[str, Any]) -> int | None:
 def _pick_canonical_default_id(
     projects: Sequence[Mapping[str, Any]]
 ) -> int | None:
+    role_ids = [
+        pid
+        for project in projects
+        if str(project.get("system_role") or "").strip().lower()
+        == PROJECT_SYSTEM_ROLE_GENERAL
+        if (pid := _coerce_project_id(project)) is not None
+    ]
+    if role_ids:
+        return min(role_ids)
+
     canonical_name = normalize_project_name(DEFAULT_PROJECT_NAME)
     canonical_id: int | None = None
     fallback_id: int | None = None
     for project in projects:
         pid = _coerce_project_id(project)
         if pid is None:
+            continue
+        if project.get("system_role") is not None:
             continue
         if not is_default_project_name(str(project.get("name") or "")):
             continue
@@ -100,6 +114,14 @@ def canonicalize_default_project(
         projects = []
 
     canonical_id = _pick_canonical_default_id(projects)
+    canonical_project = next(
+        (
+            project
+            for project in projects
+            if _coerce_project_id(project) == canonical_id
+        ),
+        None,
+    )
 
     if canonical_id is None:
         try:
@@ -111,28 +133,18 @@ def canonicalize_default_project(
             log.warning("[projects] failed to ensure default project: %s", exc)
             return None
 
-    # Best effort: rename canonical alias rows to "General" for a stable display label.
-    for project in projects:
-        pid = _coerce_project_id(project)
-        if pid is None or pid != canonical_id:
-            continue
-        existing_name = str(project.get("name") or "")
-        if normalize_project_name(existing_name) == normalize_project_name(
-            DEFAULT_PROJECT_NAME
-        ):
-            break
+    if not canonical_project or str(
+        canonical_project.get("system_role") or ""
+    ).strip().lower() != PROJECT_SYSTEM_ROLE_GENERAL:
         try:
-            chatlog_db.update_project(
-                canonical_id,
-                name=DEFAULT_PROJECT_NAME,
-                description=(
-                    project.get("description") or DEFAULT_PROJECT_DESCRIPTION
-                ),
+            chatlog_db.set_project_system_role(
+                canonical_id, PROJECT_SYSTEM_ROLE_GENERAL
             )
-        except Exception:
-            # Ignore races or uniqueness collisions; canonical_id is still usable.
-            pass
-        break
+        except Exception as exc:
+            # Compatibility adapters may not expose lifecycle assignment yet.
+            log.warning(
+                "[projects] failed to assign General system role: %s", exc
+            )
 
     return canonical_id
 
@@ -152,11 +164,14 @@ def normalize_projects_for_listing(
         if pid is not None and pid in seen_ids:
             continue
         name = str(project.get("name") or "")
-        is_default = is_default_project_name(name)
+        role = str(project.get("system_role") or "").strip().lower()
+        is_role_default = role == PROJECT_SYSTEM_ROLE_GENERAL
+        is_legacy_default = role == "" and is_default_project_name(name)
+        is_default = is_role_default or is_legacy_default
         if is_default and canonical_id is not None and pid != canonical_id:
             continue
         normalized: MutableMapping[str, Any] = dict(project)
-        if is_default:
+        if is_legacy_default:
             normalized["name"] = DEFAULT_PROJECT_NAME
             if not normalized.get("description"):
                 normalized["description"] = DEFAULT_PROJECT_DESCRIPTION

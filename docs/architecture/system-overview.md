@@ -1,5 +1,5 @@
 Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
-Last updated: 2026-04-27
+Last updated: 2026-08-29
 Source anchors:
 - docker-compose.yml
 - src-tauri/
@@ -38,7 +38,7 @@ Source anchors:
 
 ### Guardian-to-Documents sidebar scope
 
-Guardian owns authoritative chat project and thread navigation. Entering Documents receives a one-way snapshot of Guardian's loaded sidebar context, then Documents owns its project/thread browsing selection locally. Documents queries linked uploaded documents with either exact `thread_id` lineage or `project_id` membership, and uses that same scope for uploads. This reuses existing document persistence and account checks; it does not change document relationships, retrieval policy, or the supported beta claim. Legacy or generated records without a matching `thread_id` remain outside thread scope rather than being assigned synthetic lineage.
+Guardian owns authoritative chat project and thread navigation. Entering Documents receives a one-way snapshot of Guardian's loaded sidebar context, then Documents owns its project/thread browsing selection locally. Documents queries a unified uploaded/generated artifact projection: project scope aggregates project-level documents and artifacts attached to any thread in that project, while thread scope is an exact `thread_id` filter over direct rows and `ThreadDocument` lineage. The projection preserves `project_id`, `thread_id`/`thread_ids`, relation metadata, and artifact type so provenance remains visible in the UI. Images remain Gallery-owned and are not included in this projection. The read path reuses existing document persistence and account checks; it requires no migration and does not change document relationships or retrieval policy. Generated artifacts use the artifact detail endpoint for workspace preview content; uploaded documents continue to use the existing media detail path.
 
 ## Deployment and Runtime Topology
 

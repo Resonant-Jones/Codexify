@@ -396,53 +396,25 @@ def test_authorized_timeout_and_missing_wrapper_are_classified_without_raw_error
     assert "/secret/path" not in missing_result.model_dump_json()
 
 
-# Regression guard: the readiness rail must use the backend-supplying
-# AuthStorage public construction path (AuthStorage.create() or equivalent)
-# and must never construct a bare `new AuthStorage()` with no backend. The
-# latter was the historical TypeError discriminant isolated in the
-# reconciliation proof commit 4acb7c5c7c23dc4913a90bba9b86b46bec0bc241.
-_READINESS_AUTHSTORAGE_FORBIDDEN_PATTERN = re.compile(
-    r"new\s+AuthStorage\s*\(\s*\)"
-)
-_READINESS_AUTHSTORAGE_REQUIRED_PATTERN = re.compile(
-    r"AuthStorage\.create\s*\("
-)
-
-
-def test_readiness_wrapper_never_constructs_bare_auth_storage() -> None:
-    """Static regression: readiness path must not call `new AuthStorage()`.
-
-    A bare `new AuthStorage()` (no backend) deterministically raises a
-    `TypeError` from `auth-storage.js:203` because `this.storage` is
-    `undefined`. The reconciliation proof isolated that discriminant;
-    canonicalizing this rail must not re-introduce the misuse.
-    """
+def test_readiness_wrapper_does_not_use_removed_auth_registry_facades() -> None:
+    """Static regression: 0.82.1 readiness must use ModelRuntime only."""
 
     wrapper_path = Path(__file__).resolve().parent.parent.parent / "codex_runner" / "src" / "agent-wrapper.js"
     source = wrapper_path.read_text(encoding="utf-8")
 
     readiness_block = _readiness_block(source)
-    forbidden = _READINESS_AUTHSTORAGE_FORBIDDEN_PATTERN.search(readiness_block)
-    assert forbidden is None, (
-        "agent-wrapper.js readiness path must not construct bare `new AuthStorage()`."
-    )
+    assert "AuthStorage" not in readiness_block
+    assert "ModelRegistry" not in readiness_block
 
 
-def test_readiness_wrapper_uses_backend_supplying_auth_storage() -> None:
-    """Static regression: readiness path must use `AuthStorage.create()`.
-
-    Pi's normal public construction path supplies its own backend, which
-    is the only known-good pattern. The reconciliation proof showed that
-    `AuthStorage.create()` succeeds against the current operator auth.json.
-    """
+def test_readiness_wrapper_uses_model_runtime_availability() -> None:
+    """Static regression: readiness uses ModelRuntime's auth-aware catalog."""
 
     wrapper_path = Path(__file__).resolve().parent.parent.parent / "codex_runner" / "src" / "agent-wrapper.js"
     source = wrapper_path.read_text(encoding="utf-8")
 
     readiness_block = _readiness_block(source)
-    assert _READINESS_AUTHSTORAGE_REQUIRED_PATTERN.search(readiness_block) is not None, (
-        "agent-wrapper.js readiness path must call `AuthStorage.create()`."
-    )
+    assert "await modelRuntime.getAvailable()" in readiness_block
 
 
 def test_readiness_wrapper_emits_session_initialized_false_and_no_provider_request() -> None:

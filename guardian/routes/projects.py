@@ -20,6 +20,11 @@ from guardian.core.default_project import (
     is_default_project_name,
     normalize_projects_for_listing,
 )
+from guardian.core.project_lifecycle import (
+    ProjectLifecycleError,
+    require_mutable_project_container,
+    require_project_deletable,
+)
 from guardian.core.repository_authority import (
     ActiveBindingAlreadyExists,
     AccountProjectMismatch,
@@ -253,6 +258,15 @@ def _require_project_account_scope(
             )
 
     return project
+
+
+def _project_lifecycle_error_response(
+    exc: ProjectLifecycleError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"ok": False, "error": exc.code, "message": exc.message},
+    )
 
 
 router = APIRouter(
@@ -590,7 +604,7 @@ def patch_project(
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
-    Update an existing project's name or description.
+    Update an existing project's name, description, or archive state.
 
     Args:
         project_id: Project ID to update
@@ -601,9 +615,23 @@ def patch_project(
     """
     name = body.get("name")
     description = body.get("description")
+    archived = body.get("archived")
     project = _require_project_account_scope(project_id, request_user_scope)
-    if isinstance(name, str) and is_default_project_name(name):
+    if (
+        isinstance(name, str)
+        and is_default_project_name(name)
+        and not project.get("system_role")
+    ):
         name = DEFAULT_PROJECT_NAME
+    if archived is not None and not isinstance(archived, bool):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "ok": False,
+                "error": "invalid_project_archive_state",
+                "message": "archived must be a boolean",
+            },
+        )
     if getattr(request_user_scope, "multi_user_enabled", False):
         account_id = _request_account_id(request_user_scope)
         current_owner = str(
@@ -621,12 +649,18 @@ def patch_project(
             decoded_description, account_id
         )
     try:
+        if archived is not None:
+            require_mutable_project_container(project)
         chatlog_db.update_project(
             project_id,
             name=name if name is not None else None,
             description=description if description is not None else None,
         )
+        if archived is not None:
+            chatlog_db.archive_project(project_id, archived)
         return {"ok": True}
+    except ProjectLifecycleError as exc:
+        return _project_lifecycle_error_response(exc)
     except HTTPException:
         raise
     except Exception as e:
@@ -642,7 +676,7 @@ def delete_project_and_eject(
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
-    Delete a project and eject all threads back to the default project.
+    Delete an archived ordinary Project and eject its threads to General.
 
     Args:
         project_id: Project ID to delete
@@ -650,14 +684,9 @@ def delete_project_and_eject(
     Returns:
         Success status
     """
-    _require_project_account_scope(project_id, request_user_scope)
-    # Eject threads from this project first
     try:
-        chatlog_db.eject_threads_from_project(project_id)
-    except Exception as e:
-        logger.warning("eject threads failed: %s", e)
-    # Delete project row
-    try:
+        project = _require_project_account_scope(project_id, request_user_scope)
+        require_project_deletable(project)
         deleted = chatlog_db.delete_project(project_id)
         if not deleted:
             return JSONResponse(
@@ -665,6 +694,10 @@ def delete_project_and_eject(
                 content={"ok": False, "error": "Project not found"},
             )
         return {"ok": True}
+    except ProjectLifecycleError as exc:
+        return _project_lifecycle_error_response(exc)
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse(
             status_code=400, content={"ok": False, "error": str(e)}

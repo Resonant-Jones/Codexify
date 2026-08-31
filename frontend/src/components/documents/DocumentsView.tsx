@@ -18,11 +18,33 @@ interface DocumentsViewProps {
   onDeleteDocument?: (doc: DocumentLike) => void;
   projectId?: number | string | null;
   threadId?: number | string | null;
+  loading?: boolean;
+  error?: string | null;
 }
 
 function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
   const normalizedExt = String(ext ?? "").trim().toLowerCase();
   return extColors[normalizedExt] ?? extColors.md ?? "#6B7280";
+}
+
+function getDocumentProvenanceLabel(doc: DocumentLike): string {
+  const threadTitles = (doc.threadTitles ?? []).filter(Boolean);
+  if (threadTitles.length > 0) {
+    return `Thread: ${threadTitles.join(", ")}`;
+  }
+
+  const threadIds = (doc.threadIds ?? []).filter(
+    (threadId) => Number.isInteger(threadId) && threadId > 0
+  );
+  if (threadIds.length > 0) {
+    return `Thread: ${threadIds.map((threadId) => `#${threadId}`).join(", ")}`;
+  }
+
+  if (doc.threadId != null && Number(doc.threadId) > 0) {
+    return `Thread: #${doc.threadId}`;
+  }
+
+  return "Project Knowledge Base";
 }
 
 type MobileDocumentRowProps = {
@@ -55,6 +77,8 @@ function MobileDocumentRow({
   const rowTestId = String(doc.id ?? doc.title).trim().replace(/\s+/g, "-");
   const subtitleParts = [
     doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
+    getDocumentProvenanceLabel(doc),
+    doc.relation ? `Relation: ${doc.relation}` : null,
   ].filter(Boolean);
 
   return (
@@ -140,6 +164,8 @@ export default function DocumentsView({
   onDeleteDocument,
   projectId,
   threadId,
+  loading = false,
+  error = null,
 }: DocumentsViewProps) {
   const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
@@ -302,7 +328,26 @@ export default function DocumentsView({
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
         >
-          {docItems.length === 0 ? (
+          {error ? (
+            <div
+              className="mb-[var(--card-pad)] rounded-[var(--radius-micro)] border px-3 py-2 text-sm"
+              role="alert"
+              style={{
+                borderColor: "color-mix(in oklab, #ef4444 45%, var(--panel-border))",
+                color: "var(--text)",
+              }}
+              data-testid="documents-load-error"
+            >
+              {error}
+            </div>
+          ) : null}
+          {loading && docItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
+                Loading documents…
+              </div>
+            </div>
+          ) : docItems.length === 0 ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
                 No documents yet. Drag files here or use the button below to get started.
@@ -311,7 +356,8 @@ export default function DocumentsView({
           ) : (
             <div style={documentsGridStyle}>
               {docItems.map((d) => {
-                const key = d.id || `${d.title}.${d.ext}`;
+                const key = `${d.artifactType || "uploaded"}:${d.id || `${d.title}.${d.ext}`}`;
+                const provenanceLabel = getDocumentProvenanceLabel(d);
 
                 return (
                   <div key={key} className="relative">
@@ -324,8 +370,16 @@ export default function DocumentsView({
                     ) : (
                       <DocumentTile
                         file={{
-                          name: d.title,
+                          id: d.id,
+                          name: d.name || d.title,
                           ext: d.ext,
+                          src_url: d.src_url,
+                          srcUrl: d.srcUrl,
+                          src: d.src,
+                          url: d.url,
+                          type: d.type,
+                          artifactType: d.artifactType,
+                          provenanceLabel,
                           embeddingStatus: d.embeddingStatus,
                           embeddingError: d.embeddingError,
                         }}

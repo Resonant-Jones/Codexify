@@ -181,7 +181,7 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
     setDocumentLoading(true);
     setDocumentError(null);
 
-    loadDocumentContentById(activeDoc.id)
+    loadDocumentContentById(activeDoc.id, activeDoc.artifactType)
       .then((record) => {
         if (cancelled) return;
         setFetchedDocumentText(record.content);
@@ -199,7 +199,13 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
     return () => {
       cancelled = true;
     };
-  }, [activeDoc?.id, activeDoc?.type, inlineDocumentText, previewUrl]);
+  }, [
+    activeDoc?.artifactType,
+    activeDoc?.id,
+    activeDoc?.type,
+    inlineDocumentText,
+    previewUrl,
+  ]);
 
   const headerTitle = useMemo(() => {
     if (!activeDoc) return "Workspace";

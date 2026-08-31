@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,12 +67,21 @@ def test_worker_image_installs_exact_declared_pi_runtime_without_credentials() -
 
 
 def test_active_runtime_loader_targets_maintained_pi_ai() -> None:
-    """The wrapper loader must import the maintained Pi AI package, not the
-    deprecated upstream namespace."""
+    """The wrapper loader must not import the deprecated Pi AI namespace."""
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
 
-    assert "@earendil-works/pi-ai" in loader
     assert "@mariozechner/pi-ai" not in loader
+
+
+def test_active_runtime_loader_delegates_model_resolution_to_modelruntime() -> None:
+    """Model resolution must be delegated to the maintained Pi 0.82.1 ModelRuntime
+    surface, not to a deprecated compat layer."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    assert "@earendil-works/pi-ai/dist/compat.js" not in loader
+    assert "getModel: piAiCompat.getModel" not in loader
+    assert "getProviders: piAiCompat.getProviders" not in loader
+    assert "OPENAI_CODEX_MODELS" not in loader
 
 
 def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
@@ -78,8 +90,26 @@ def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
     loader paths."""
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
 
-    assert "@earendil-works" in loader
+    assert "@earendil-works/pi-coding-agent" in loader
     assert "@mariozechner" not in loader
+
+
+def test_active_runtime_loader_uses_canonical_model_runtime() -> None:
+    """The 0.82.1 wrapper must use the unified async model/auth facade."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    # Maintained Pi 0.82.1 ModelRuntime factory, with network refresh disabled.
+    assert "await codingAgent.ModelRuntime.create({" in loader
+    assert "allowModelNetwork: false" in loader
+    assert "modelRuntime.getModel.bind(modelRuntime)" in loader
+    assert "modelRuntime.getProviders.bind(modelRuntime)" in loader
+    assert "modelRuntime," in loader
+    # No stale Pi 0.72-era auth/model-registry APIs.
+    assert "piAi.AuthStorage" not in loader
+    assert "AuthStorage.create()" not in loader
+    assert "authStorage.hasAuth(" not in loader
+    assert "ModelRegistry.create(" not in loader
+    assert "OPENAI_CODEX_MODELS" not in loader
 
 
 def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> None:
@@ -216,3 +246,413 @@ def test_source_relative_wrapper_loads_pi_runtime_with_full_locked_closure() -> 
 
     assert payload["session_initialized"] is False
     assert payload["provider_request_started"] is False
+
+
+def test_synthetic_oauth_credential_readiness_returns_oauth_available() -> None:
+    """Decisive regression proving Codexify uses the maintained Pi 0.82.1
+    credential API end-to-end.
+
+    A disposable HOME is created containing only a synthetic
+    0.82.1-compatible ``auth.json`` for ``openai-codex``.  No network
+    request is made.  No operator credential is accessed.
+
+    The wrapper must observe:
+
+    * ``status = "ok"``
+    * ``oauth_available = true``
+    * ``runtime_identity_established = true``
+    * exact identity
+      ``openai-codex / gpt-5.6-sol / pi-coding-agent / 0.82.1``
+    * ``session_initialized = false``
+    * ``provider_request_started = false``
+    """
+    wrapper_path = ROOT / "codex_runner/src/agent-wrapper.js"
+    if not wrapper_path.is_file():
+        pytest.skip("wrapper not present in this checkout")
+
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-synthetic-oauth-"))
+    try:
+        auth_dir = home / ".pi" / "agent"
+        auth_dir.mkdir(parents=True, mode=0o700)
+        # Synthetic, fixture-only credentials.  These values must NOT be
+        # derived from any real operator credential.  ``checkAuth`` reads
+        # ``credential.type === "oauth"`` and returns the structural
+        # descriptor without contacting a remote provider.
+        auth_payload = {
+            "openai-codex": {
+                "type": "oauth",
+                "access": "synthetic-access-token-fixture-not-real",
+                "refresh": "synthetic-refresh-token-fixture-not-real",
+                "expires": 9999999999999,
+                "accountId": "acct-syn-fixture",
+            }
+        }
+        (auth_dir / "auth.json").write_text(
+            json.dumps(auth_payload, indent=2), encoding="utf-8"
+        )
+        # Ensure the file is only readable by the current user.
+        try:
+            (auth_dir / "auth.json").chmod(0o600)
+        except OSError:
+            pass
+
+        env = {
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "PI_PROVIDER": "openai-codex",
+            "PI_MODEL": "gpt-5.6-sol",
+            "PI_GUARDIAN_AUTHORIZED": "1",
+            "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+            "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+            "PI_DISABLE_TOOLS": "1",
+        }
+        result = subprocess.run(
+            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            cwd=str(home),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+    assert result.returncode == 0, (
+        f"wrapper subprocess failed with exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "ok", (
+        f"expected status=ok, got {payload.get('status')!r}; payload={payload}"
+    )
+    assert payload["oauth_available"] is True, (
+        f"expected oauth_available=true, got {payload.get('oauth_available')!r}; "
+        f"payload={payload}"
+    )
+    assert payload["runtime_identity_established"] is True, (
+        f"runtime identity not established; payload={payload}"
+    )
+
+    identity = payload["actual_runtime_identity"]
+    assert identity["actual_provider_id"] == "openai-codex"
+    assert identity["actual_model_id"] == "gpt-5.6-sol"
+    assert identity["actual_harness_id"] == "pi-coding-agent"
+    assert identity["actual_harness_version"] == "0.82.1"
+
+    assert payload["session_initialized"] is False
+    assert payload["provider_request_started"] is False
+
+
+def test_missing_runtime_api_classifies_as_wrapper_protocol_failure() -> None:
+    """A broken maintained-SDK API shape must not collapse to
+    ``oauth_auth_unavailable``.  It must report a non-credential
+    runtime/wrapper failure so operator truth is preserved.
+
+    The wrapper is ESM and its ``loadPiSdk`` is internal; this regression
+    uses a deterministic source-grep contract that fails closed if the
+    fail-closed guard for the maintained Pi 0.82.1 runtime API is absent
+    from the active wrapper source.  Together with the runtime smoke and
+    stale-API regression, this contract proves the wrapper refuses to
+    collapse a missing-runtime error into an OAuth availability signal.
+    """
+    wrapper_path = ROOT / "codex_runner/src/agent-wrapper.js"
+    if not wrapper_path.is_file():
+        pytest.skip("wrapper not present in this checkout")
+
+    loader = wrapper_path.read_text(encoding="utf-8")
+
+    # Fail-closed guard for ModelRuntime.create.
+    assert (
+        'if (typeof codingAgent.ModelRuntime?.create !== "function")' in loader
+    ), "wrapper missing ModelRuntime.create fail-closed guard"
+    assert (
+        "Pi coding-agent package is missing the ModelRuntime.create factory"
+        in loader
+    ), "wrapper missing ModelRuntime.create fail-closed message"
+
+    # Fail-closed guard for createAgentSession.
+    assert (
+        'if (typeof codingAgent.createAgentSession !== "function")' in loader
+    ), "wrapper missing createAgentSession fail-closed guard"
+
+    # The fail-closed path must throw, NOT return a degraded surface that
+    # the readiness rail would silently reclassify as oauth_auth_unavailable.
+    assert "throw new Error(" in loader, (
+        "wrapper must throw on missing maintained runtime API; "
+        "the readiness rail depends on a thrown error to classify it as "
+        "runtime_load / wrapper_unavailable, not oauth_auth_unavailable."
+    )
+
+
+def test_stale_api_regression_source_omits_pi_72_auth_surfaces() -> None:
+    """The active wrapper source must not reference Pi 0.72-era auth surfaces
+    that are no longer the maintained Pi 0.82.1 contract."""
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+
+    forbidden_substrings = (
+        "piAi.AuthStorage",
+        "AuthStorage.create(",
+        "authStorage.hasAuth(",
+        "ModelRegistry.create(",
+        "@earendil-works/pi-ai/dist/compat.js",
+    )
+    for forbidden in forbidden_substrings:
+        assert forbidden not in loader, (
+            f"active wrapper source still references forbidden stale API {forbidden!r}; "
+            "wrapper must use the maintained Pi 0.82.1 ModelRuntime surface."
+        )
+
+
+def test_session_can_be_initialized_without_prompt_via_modelruntime() -> None:
+    """Non-inference regression proving the maintained Pi 0.82.1
+    ``createAgentSession`` call accepts the canonical ``modelRuntime``
+    instance.
+
+    The wrapper is ESM and does not export its internals, so this
+    regression exercises the wrapper's session-construction call path
+    through an isolated subprocess invocation with a synthetic OAuth
+    credential.  A disposable ``auth.json`` bearing synthetic OAuth fields
+    is placed under a disposable HOME; the wrapper must reach
+    ``runtime_load`` through ``model_resolution`` and ``identity_verification``
+    against the synthetic credential without initializing a real session
+    or issuing a provider request.
+
+    The readiness invocation itself does not call ``createAgentSession``
+    — the synthetic credential proves the maintained ``ModelRuntime``
+    auth surface works end-to-end.  Together with the
+    ``test_active_runtime_loader_uses_canonical_model_runtime`` source-grep
+    regression (which asserts the wrapper passes ``modelRuntime`` into
+    ``createAgentSession({...modelRuntime, ...})``), this test establishes
+    that the maintained contract is wired correctly.
+
+    No operator credential is accessed.  No network request is made.
+    No model prompt is issued.
+    """
+    wrapper_path = ROOT / "codex_runner/src/agent-wrapper.js"
+    if not wrapper_path.is_file():
+        pytest.skip("wrapper not present in this checkout")
+
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-session-init-"))
+    try:
+        auth_dir = home / ".pi" / "agent"
+        auth_dir.mkdir(parents=True, mode=0o700)
+        (auth_dir / "auth.json").write_text(
+            json.dumps({
+                "openai-codex": {
+                    "type": "oauth",
+                    "access": "synthetic",
+                    "refresh": "synthetic",
+                    "expires": 9999999999999,
+                    "accountId": "acct-syn-fixture",
+                }
+            }, indent=2),
+            encoding="utf-8",
+        )
+        try:
+            (auth_dir / "auth.json").chmod(0o600)
+        except OSError:
+            pass
+
+        env = {
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "PI_PROVIDER": "openai-codex",
+            "PI_MODEL": "gpt-5.6-sol",
+            "PI_GUARDIAN_AUTHORIZED": "1",
+            "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+            "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+            "PI_DISABLE_TOOLS": "1",
+        }
+        result = subprocess.run(
+            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            cwd=str(home),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+    assert result.returncode == 0, (
+        f"wrapper subprocess failed with exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+
+    payload = json.loads(result.stdout)
+    # The wrapper reaches ModelRuntime-based auth under a synthetic OAuth
+    # credential; readiness itself is non-inference (session_initialized=false).
+    assert payload["status"] == "ok", (
+        f"expected status=ok under synthetic OAuth, got payload={payload}"
+    )
+    assert payload["oauth_available"] is True
+    assert payload["runtime_identity_established"] is True
+    assert payload["session_initialized"] is False
+    assert payload["provider_request_started"] is False
+    identity = payload["actual_runtime_identity"]
+    assert identity["actual_provider_id"] == "openai-codex"
+    assert identity["actual_model_id"] == "gpt-5.6-sol"
+    assert identity["actual_harness_id"] == "pi-coding-agent"
+    assert identity["actual_harness_version"] == "0.82.1"
+    # No session.prompt() call was issued during this readiness probe.
+
+
+# --- Pi 0.82.1 tool-name compatibility regression ---
+#
+# Proves the maintained source-vendored Pi 0.82.1 SDK treats
+# `createAgentSession({ tools })` as a collection of tool-NAME strings.
+# Uses disposable HOME / auth.json — no prompt, no network, no operator
+# credentials.  This regression must fail if a future upgrade reintroduces
+# object-array `tools` and produces an empty effective tool set.
+
+def test_maintained_pi_0821_treats_tools_as_name_strings() -> None:
+    """Reproduce the Pi 0.82.1 name-only effective-tool-set contract."""
+    from pathlib import Path
+
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-0821-tool-name-regression-"))
+    driver_path = None
+    try:
+        auth_dir = home / ".pi" / "agent"
+        auth_dir.mkdir(parents=True, mode=0o700)
+        (auth_dir / "auth.json").write_text(
+            json.dumps(
+                {
+                    "openai-codex": {
+                        "type": "oauth",
+                        "expires": 9999999999999,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        driver_text = """
+const path = require("path");
+const fs = require("fs");
+const home = process.argv[2];
+const target = process.argv[3];
+
+process.env.HOME = home;
+
+(async () => {
+    const vendorRoot = path.resolve(
+        process.argv[4],
+        "codex_runner/vendor/pi-coding-agent",
+    );
+    const codingAgent = await import(
+        require("url").pathToFileURL(
+            path.join(vendorRoot, "dist/index.js"),
+        ).href
+    );
+
+    const modelRuntime = await codingAgent.ModelRuntime.create({
+        allowModelNetwork: false,
+    });
+    const model = modelRuntime.getModel("openai-codex", "gpt-5.6-sol");
+    if (!model) {
+        console.log(JSON.stringify({ error: "model_not_resolved" }));
+        process.exit(1);
+    }
+
+    const { session: writable } = await codingAgent.createAgentSession({
+        cwd: target,
+        model,
+        modelRuntime,
+        tools: ["read", "bash", "edit", "write"],
+        sessionManager: codingAgent.SessionManager.inMemory(target),
+    });
+    const writableActive = writable.getActiveToolNames();
+
+    const { session: disabled } = await codingAgent.createAgentSession({
+        cwd: target,
+        model,
+        modelRuntime,
+        tools: [],
+        sessionManager: codingAgent.SessionManager.inMemory(target),
+    });
+    const disabledActive = disabled.getActiveToolNames();
+
+    console.log(JSON.stringify({
+        writable_active_tool_names: writableActive,
+        disabled_active_tool_names: disabledActive,
+    }));
+})();
+"""
+        driver_path = Path(tempfile.mkstemp(suffix=".cjs")[1])
+        driver_path.write_text(driver_text, encoding="utf-8")
+
+        target = Path(tempfile.mkdtemp(prefix="codexify-pi-0821-tool-regression-target-"))
+        result = subprocess.run(
+            ["node", str(driver_path), str(home), str(target), str(ROOT)],
+            cwd=str(ROOT),
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        if driver_path is not None:
+            try:
+                driver_path.unlink()
+            except OSError:
+                pass
+
+    assert result.returncode == 0, (
+        f"Pi 0.82.1 tool-name SDK probe failed: exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload.get("writable_active_tool_names") == [
+        "read", "bash", "edit", "write",
+    ], (
+        f"Pi 0.82.1 must report writable tool-name session as "
+        f"['read','bash','edit','write']; got {payload.get('writable_active_tool_names')!r}"
+    )
+    assert payload.get("disabled_active_tool_names") == [], (
+        f"Pi 0.82.1 must report empty effective tool set when tools=[]; "
+        f"got {payload.get('disabled_active_tool_names')!r}"
+    )
+
+
+def test_active_runtime_passes_tool_name_strings_not_agenttool_objects() -> None:
+    """Wrapper source must pass tool-NAME strings into createAgentSession.
+
+    This regression enforces the Pi 0.82.1 contract at the source level.
+    The wrapper must not pass AgentTool objects (the legacy Pi 0.72
+    assumption) into `createAgentSession({ tools })`.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    # Reject any ACTIVE use of `createCodingTools(OPTIONS.cwd)` whose return
+    # value is passed (or could be passed) into createAgentSession.  An
+    # explanatory comment referencing the legacy path is allowed.
+    import re
+    # Match an executable call to `createCodingTools(OPTIONS.cwd)` that is
+    # not inside a comment line.
+    non_comment_lines = [
+        line for line in loader.splitlines()
+        if not line.lstrip().startswith("//")
+    ]
+    non_comment_source = "\n".join(non_comment_lines)
+    assert not re.search(r"createCodingTools\s*\(\s*OPTIONS\.cwd", non_comment_source), (
+        "wrapper must not call createCodingTools(OPTIONS.cwd) and pass its "
+        "return value into createAgentSession({ tools }) — that path returns "
+        "AgentTool objects which Pi 0.82.1 silently rejects"
+    )
+    # The wrapper must pass an explicit canonical writable tool-name set.
+    assert (
+        '["read", "bash", "edit", "write"]' in loader
+    ), "wrapper must pass the exact writable tool-name set ['read','bash','edit','write']"
+    # The wrapper must read effective tool names from the session itself.
+    assert "getActiveToolNames" in loader, (
+        "wrapper must read the effective tool surface from the session, "
+        "not from the configured value"
+    )

@@ -679,6 +679,44 @@ def _to_payload(obj: Any) -> dict[str, Any]:
         return out
 
 
+def _extract_tool_telemetry_from_outcome(outcome: Any) -> tuple:
+    """Best-effort extraction of bounded tool telemetry from a Pi outcome.
+
+    Returns a 6-tuple matching the bounded fields. Missing fields yield None.
+    Malformed fields yield None.
+    """
+    def _read(obj: Any, name: str) -> Any:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(name)
+        return getattr(obj, name, None)
+
+    def _as_int(value: Any) -> int | None:
+        return value if isinstance(value, int) and value >= 0 else None
+
+    names_raw = _read(outcome, "effective_tool_names")
+    names_out: tuple[str, ...] | None = None
+    if isinstance(names_raw, (list, tuple)):
+        cleaned = [n for n in names_raw if isinstance(n, str) and len(n) > 0]
+        names_out = tuple(cleaned)  # always tuple; empty tuple when none present
+    executed_raw = _read(outcome, "executed_tool_names")
+    executed_out: tuple[str, ...] | None = None
+    if isinstance(executed_raw, (list, tuple)):
+        cleaned = [n for n in executed_raw if isinstance(n, str) and len(n) > 0]
+        executed_out = tuple(cleaned)  # always tuple; empty tuple when none present
+    write_avail = _read(outcome, "write_tool_available")
+    write_avail_out = write_avail if isinstance(write_avail, bool) else None
+    return (
+        names_out,
+        write_avail_out,
+        _as_int(_read(outcome, "tool_execution_start_count")),
+        _as_int(_read(outcome, "tool_execution_end_count")),
+        executed_out,
+        _as_int(_read(outcome, "assistant_tool_call_count")),
+    )
+
+
 def _read_identity(identity_obj: Any) -> dict[str, Any]:
     if identity_obj is None:
         return {"provider_id": None, "model_id": None, "harness_id": None, "harness_version": None}
@@ -1329,17 +1367,26 @@ def run_live_executor_campaign(
         # CE-L1 Executor turn without an actual file write is not a
         # completed Executor turn.
         if source_mutation_count == 0:
+            # Capture any telemetry retained from the underlying Pi outcome
+            # so the operator can distinguish absence-of-write-tool from
+            # absence-of-tool-execution from absence-of-assistant-tool-call.
+            telemetry = _extract_tool_telemetry_from_outcome(outcome)
             raise CampaignLiveExecutorError(
-                "live Executor turn completed without producing an allowed-path "
-                "mutation; per CE-L1 policy an Executor turn must produce "
-                "source_mutation_count >= 1 within the declared allowed_file_paths",
+                "Harness success produced zero allowed-path mutation; "
+                "inspect bounded tool availability and execution telemetry "
+                "to classify the tool-execution boundary",
                 failure_reason="zero_mutation_executor_turn",
                 diagnostic_stage="post_invocation",
                 issues=[
                     "harness reported result_class=success but emitted no "
-                    "allowed-path mutation; the model did not invoke the "
-                    "declared file_write tool"
+                    "allowed-path mutation; telemetry retained for diagnosis"
                 ],
+                effective_tool_names=telemetry[0],
+                write_tool_available=telemetry[1],
+                tool_execution_start_count=telemetry[2],
+                tool_execution_end_count=telemetry[3],
+                executed_tool_names=telemetry[4],
+                assistant_tool_call_count=telemetry[5],
             )
     else:
         failed = [
@@ -1553,6 +1600,9 @@ def run_live_executor_campaign(
         attempt_state="succeeded",
         evaluation_verdict="passed",
     )
+    # Pull bounded tool telemetry directly from the Pi LiveInvocationOutcome
+    # so the durable run result preserves what Pi actually executed.
+    _telemetry = _extract_tool_telemetry_from_outcome(outcome)
     return LiveExecutorRunResult(
         campaign_id=preparation.campaign_id,
         run_id=preparation.run_id,
@@ -1596,6 +1646,13 @@ def run_live_executor_campaign(
         pi_receipt_id=receipt_id,
         pi_harness_result_id=harness_result_id,
         boundary_validation_hash=boundary_validation_hash,
+        # Bounded Pi 0.82.1 tool telemetry (evidence only).
+        effective_tool_names=_telemetry[0],
+        write_tool_available=_telemetry[1],
+        tool_execution_start_count=_telemetry[2],
+        tool_execution_end_count=_telemetry[3],
+        executed_tool_names=_telemetry[4],
+        assistant_tool_call_count=_telemetry[5],
     )
 
 

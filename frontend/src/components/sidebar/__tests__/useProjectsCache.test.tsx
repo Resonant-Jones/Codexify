@@ -100,4 +100,31 @@ describe("useProjectsCache", () => {
     await waitFor(() => expect(window.localStorage.getItem("cfy.generalProjectId")).toBe("2"));
     expect(window.localStorage.getItem("cfy.defaultProjectId")).toBe("2");
   });
+
+  it("normalizes lifecycle fields and keeps renamed built-ins structurally identifiable", async () => {
+    (api.get as any).mockResolvedValueOnce({
+      data: [
+        {
+          id: 1,
+          name: "Home",
+          system_role: "general",
+          archived_at: null,
+        },
+        {
+          id: 2,
+          name: "Old work",
+          system_role: null,
+          archived_at: "2026-08-30T12:00:00Z",
+        },
+      ],
+    });
+
+    render(<ProjectsHarness />);
+
+    await waitFor(() => expect(screen.getByTestId("project-count")).toHaveTextContent("2"));
+    expect(screen.getByTestId("project-meta")).toHaveTextContent('"systemRole":"general"');
+    expect(screen.getByTestId("project-meta")).toHaveTextContent('"archivedAt":null');
+    expect(screen.getByTestId("project-names")).toHaveTextContent("Home|Old work");
+    await waitFor(() => expect(window.localStorage.getItem("cfy.generalProjectId")).toBe("1"));
+  });
 });

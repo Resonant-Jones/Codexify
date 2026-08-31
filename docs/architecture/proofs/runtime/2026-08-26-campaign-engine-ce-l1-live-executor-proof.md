@@ -370,3 +370,303 @@ Three durable lessons are recorded:
    <provider>` before CE-L1 can produce a real successful proof; the
    `NEXT_TASK_REQUIRED` recorded above makes that explicit and
    bounded.
+
+
+## 2026-08-28 gpt-5.6-sol canonical requalification — BLOCKED
+
+### Scope
+
+This append-only section records one bounded canonical requalification
+attempt against current remote main
+`5b5df6fe36c68d1dee28b2546778d9a891800c46` (PR #773, "Cleanly requalify
+CE-L1 gpt-5.6-sol credential readiness"), after the credential-readiness
+prerequisite `CE-L1_OAUTH_PREREQUISITE=PASS` became canonical.
+
+The historical 2026-08-26 BLOCKED attempt above remains valid historical
+evidence and is not rewritten.  This requalification supersedes only the
+current CE-L1 gate status; it does not erase prior history.
+
+### Result
+
+**`BLOCKED`** — `failure_reason = zero_mutation_executor_turn`,
+`diagnostic_stage = post_invocation`.
+
+The single canonical `run_live_executor_campaign` call completed its
+underlying live invocation.  The Executor turn produced a successful text
+response from `openai-codex / gpt-5.6-sol / pi-coding-agent@0.82.1` but
+issued **no** allowed-path mutation (`files.write resource=proof_target.txt`)
+within the declared scope.  The runtime correctly failed closed at
+`post_invocation` per the existing `zero_mutation_executor_turn` policy.
+
+The runtime did NOT publish an Attempt, Receipt, Harness Result, Evaluation,
+or CampaignState.  The output directory is empty by design.
+
+### Counters
+
+```text
+live_executor_run_call_count       = 1
+runner_call_count                 = 1
+retry_count                       = 0
+fallback_count                    = 0
+rebinding_count                   = 0
+provider_switch_count             = 0
+model_switch_count                = 0
+provider_inference_request_count  = 1 (live invocation succeeded text-only)
+model_prompt_count                = 1 (live invocation completed)
+live_executor_invocation_count    = 1
+live_evaluator_invocation_count   = 0 (interim CE-L1 evaluation is provider-free)
+OAuth login/logout count          = 0
+credential existence checks        = 0
+```
+
+### Direct runtime-identity capture
+
+The wrapper subprocess during the live invocation established the canonical
+runtime identity via the maintained Pi 0.82.1 `ModelRuntime`.  The
+preparation's expected identity was:
+
+    expected_provider_id = "openai-codex"
+    expected_model_id    = "gpt-5.6-sol"
+    expected_harness_id  = "pi-coding-agent"
+    expected_harness_version = "0.82.1"
+
+The runtime reached `post_invocation` (after successful live invocation),
+which only happens if the wrapper's actual identity matched the frozen
+envelope identity and `_validate_actual_identity` returned None.
+Therefore the actual identity was exactly:
+
+    openai-codex / gpt-5.6-sol / pi-coding-agent / 0.82.1
+
+### Target integrity after the call
+
+```text
+baseline_git_head        = 8437dad3276a1a58f8976c3afbd9b6d00b5e0343
+final_git_head           = 8437dad3276a1a58f8976c3afbd9b6d00b5e0343 (match)
+
+baseline_file_sha256     = 9aaf3c2e83b825e102bc9bbc0a69778415ef93c32132ef33b11f5a57edf9d8a4
+final_file_sha256        = 9aaf3c2e83b825e102bc9bbc0a69778415ef93c32132ef33b11f5a57edf9d8a4 (match)
+
+baseline_file_bytes      = 22
+final_file_bytes         = 22 (match)
+final_file_content       = 'CE_L1_GPT56SOL_BEFORE\n' (unchanged)
+
+baseline_target_status   = ''
+final_target_status      = ''
+
+baseline_remote_count    = 0
+final_remote_count       = 0
+```
+
+The target remained **byte-identical** before and after the single
+`run_live_executor_campaign` call.  No file change.  No commit.  No
+remote.  No push.  No merge.  No deploy.  No provider substitution.  No
+model substitution.  No retry.  No fallback.  No rebinding.
+
+### Failure classification
+
+```text
+failure_reason             = zero_mutation_executor_turn
+diagnostic_class           = null
+diagnostic_stage           = post_invocation
+diagnostic_message         = live Executor turn completed without producing
+                             an allowed-path mutation; per CE-L1 policy an
+                             Executor turn must produce source_mutation_count
+                             >= 1 within the declared allowed_file_paths
+pi_receipt_present         = false (no receipt published)
+pi_harness_result_present  = false (no harness result published)
+attempt_present            = false (no attempt published)
+evaluation_present         = false (no evaluation published)
+campaign_state_present    = false (no campaign state published)
+target_pre_sha256          = 9aaf3c2e83b825e102bc9bbc0a69778415ef93c32132ef33b11f5a57edf9d8a4
+target_post_sha256         = 9aaf3c2e83b825e102bc9bbc0a69778415ef93c32132ef33b11f5a57edf9d8a4
+target_changed_paths       = []
+```
+
+### Historical BLOCKED precedent
+
+This is the second observed CE-L1 BLOCKED on `zero_mutation_executor_turn`:
+
+1. The historical 2026-08-26 attempt (PR #765 era) failed with the same
+   `zero_mutation_executor_turn` reason at `post_invocation`.  At that
+   time the runtime was the deprecated `@mariozechner/pi-coding-agent@0.72.1`
+   wrapper.
+2. This 2026-08-28 attempt also fails with `zero_mutation_executor_turn`
+   at `post_invocation`.  The runtime is now the maintained
+   `@earendil-works/pi-coding-agent@0.82.1` `ModelRuntime` wrapper, with
+   credential readiness canonical and the wrapper explicitly instructing
+   the Executor to invoke the bounded `write` tool.
+
+The runtime is canonical.  The credential readiness is canonical.  The
+canonical prerequisite truth is unchanged.
+
+### Redaction
+
+```text
+direct credential-store access count     = 0
+credential paths constructed by task     = 0
+credential paths inspected by task       = 0
+token values captured                    = 0
+account IDs captured                     = 0
+credential metadata captured             = 0
+OAuth login/logout actions               = 0
+provider inference requests              = 1 (live invocation succeeded text-only)
+```
+
+### First observed boundary
+
+The run proves that the canonical Executor completed without an allowed-path
+mutation.  Current evidence does not distinguish whether the `write` tool was
+absent from the effective session tool set, omitted or transformed at the
+provider tool-schema boundary, emitted but not executed, or correctly
+advertised and simply not selected by the model.
+
+```text
+CAUSE_CLASSIFICATION = UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
+
+Credential readiness, exact runtime identity, Guardian authorization,
+one-shot invocation, and the Campaign Engine zero-mutation fail-closed
+behavior are independently proven and are not the current unresolved
+boundaries.
+
+### Counter-emission
+
+```text
+LIVE_EXECUTOR_PROVEN         = NOT EMITTED
+LOCAL_CE-L1                  = OPEN
+CE-L1_OAUTH_PREREQUISITE     = PASS (canonical, from PR #773)
+CANONICAL_CE-L1              = OPEN (unchanged)
+SINGLE_TASK_SUPERVISED_USABLE = NOT EMITTED
+```
+
+### Next task
+
+```text
+NEXT_TASK_REQUIRED = instrument bounded Pi tool availability and
+                     tool-execution telemetry for Guardian-authorized live
+                     tasks, then re-run one CE-L1 disposable mutation
+                     proof
+```
+
+The instrumentation task must precede:
+
+- prompt rewriting;
+- model substitution;
+- another CE-L1 live attempt.
+
+This task does NOT prescribe another model.  This task does NOT prescribe
+a prompt change.  The remaining causal boundary is narrower than the
+whole runtime but is not yet attributable specifically to model behavior
+or prompt wording.
+
+### Missing telemetry seam
+
+The current Guardian-authorized evidence does not retain:
+
+- `effective_tool_names`
+- `write_tool_available`
+- `tool_execution_start_count`
+- `tool_execution_end_count`
+- `executed_tool_names`
+- `assistant_tool_call_count`
+
+These are evidence requirements for the next diagnostic slice.  This task
+does not implement them.
+
+### ADR impact
+
+`Aligned with existing ADR(s); no new ADR required.`  The runtime contract
+(ADR-068) failed closed exactly as designed.
+
+### Invariants check
+
+- Guardian remained execution authority ✓
+- Campaign Engine did not self-authorize ✓
+- Pi remained provider execution substrate ✓
+- Locked `openai-codex / gpt-5.6-sol` RoleBinding controlled expected
+  identity ✓
+- Actual runtime identity independently captured ✓ (matched expected)
+- No provider/model substitution ✓
+- Exactly one live Executor attempt ✓
+- No retry ✓
+- No fallback ✓
+- No rebinding ✓
+- Target scope was exactly one file ✓
+- Target repository is disposable and has no remote ✓
+- No commit/push/merge/deploy ✓
+- Receipts are evidence, not authority ✓ (no receipts were issued)
+- Interim CE-L1 evaluation remained provider-free ✓ (not yet engaged)
+- Historical BLOCKED proof content remained immutable ✓ (this section is
+  appended, no existing line was modified)
+- Release claims remain evidence-bounded ✓
+
+### Canonical gate truth
+
+```text
+CE-L1_OAUTH_PREREQUISITE      = PASS
+CE-L1                         = OPEN
+LIVE_EXECUTOR_PROVEN          = NOT_EMITTED
+SINGLE_TASK_SUPERVISED_USABLE = NOT_EMITTED
+CAUSE_CLASSIFICATION          = UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
+
+### Documentation follow-through
+
+This is the only tracked file changed by this requalification.  No runtime
+source file.  No test file.  No Guardian file.  No Campaign Engine schema.
+No credential file.  Disposable driver, target, campaign JSON, and output
+root remain outside the repository (under `/var/folders/kj/.../T/`).
+
+## 2026-08-29 Pi 0.82.1 tool-activation diagnosis
+
+### DIAGNOSIS_RESULT
+
+```text
+DIAGNOSIS_RESULT=PASS
+```
+
+### PRE_REPAIR_CAUSE_CLASSIFICATION
+
+```text
+PRE_REPAIR_CAUSE_CLASSIFICATION=
+UNRESOLVED_TOOL_EXECUTION_BOUNDARY
+```
+
+### ROOT_CAUSE
+
+```text
+ROOT_CAUSE=
+PI_0821_TOOL_OPTIONS_TYPE_MISMATCH_PROVEN
+```
+
+### Pre-edit deterministic probe
+
+```text
+object-tool effective_tool_names=[]
+name-tool effective_tool_names=["read","bash","edit","write"]
+provider_request_count=0
+prompt_count=0
+operator_credential_access_count=0
+```
+
+### Statement
+
+The diagnosis resolves the previously unresolved tool-activation
+sub-boundary.  It does not retroactively convert either BLOCKED CE-L1
+attempt into a PASS.
+
+### Canonical gate truth
+
+```text
+CE-L1_OAUTH_PREREQUISITE=PASS
+CE-L1=OPEN
+LIVE_EXECUTOR_PROVEN=NOT_EMITTED
+SINGLE_TASK_SUPERVISED_USABLE=NOT_EMITTED
+```
+
+### NEXT_TASK_REQUIRED
+
+```text
+land the Pi 0.82.1 tool-activation and bounded telemetry repair on remote
+main
+```

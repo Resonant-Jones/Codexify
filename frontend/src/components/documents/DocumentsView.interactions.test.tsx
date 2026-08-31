@@ -192,6 +192,30 @@ describe("DocumentsView interactions", () => {
     );
   });
 
+  it("shows thread provenance for generated artifacts", () => {
+    render(
+      <DocumentsView
+        documents={[
+          {
+            ...DOCUMENT,
+            id: "generated-1",
+            title: "Generated Brief",
+            name: "Generated Brief",
+            ext: "md",
+            artifactType: "generated",
+            threadIds: [42],
+            threadTitles: ["Research Thread"],
+            relation: "attached",
+          },
+        ]}
+        extColors={EXT_COLORS}
+      />
+    );
+
+    expect(screen.getByText("Thread: Research Thread")).toBeInTheDocument();
+    expect(screen.getByText(".md")).toBeInTheDocument();
+  });
+
   it("offers Open in Thread from the document context menu", async () => {
     const onOpenInThread = vi.fn();
 

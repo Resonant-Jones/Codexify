@@ -33,6 +33,7 @@ type Props = {
   onSelect: (id: string) => void;
   onNewChat: () => void;
   projectId?: string | null;
+  projectName?: string | null;
   onProjectChange?: (id: string | null) => void;
   originSystem?: ConversationOriginSystem | null;
   onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
@@ -107,6 +108,26 @@ async function deleteProjectApi(projectId: string | number) {
   throw lastErr || new Error("Project delete route unavailable");
 }
 
+async function patchProjectApi(
+  projectId: string | number,
+  payload: Record<string, unknown>
+) {
+  const paths = [`/api/projects/${projectId}`, `/projects/${projectId}`];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.patch(path, payload);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project update route unavailable");
+}
+
 async function createProjectApi(payload: ProjectCreatePayload) {
   const paths = ["/api/projects", "/projects"];
   let lastErr: any = null;
@@ -133,6 +154,7 @@ export default function SidebarRoot({
   onSelect,
   onNewChat,
   projectId = null,
+  projectName = null,
   onProjectChange,
   originSystem = null,
   onOriginSystemChange,
@@ -203,10 +225,18 @@ export default function SidebarRoot({
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
-      return proj ? cleanSidebarProjectTitle(proj) : hookScopeLabel;
+      return proj
+        ? cleanSidebarProjectTitle(proj)
+        : projectName?.trim() || hookScopeLabel;
     }
     return hookScopeLabel;
-  }, [currentProjectId, hookScopeLabel, projectList, selectedOriginSystem]);
+  }, [
+    currentProjectId,
+    hookScopeLabel,
+    projectList,
+    projectName,
+    selectedOriginSystem,
+  ]);
 
   React.useEffect(() => {
     if (!projectList.length) return;
@@ -217,10 +247,14 @@ export default function SidebarRoot({
       }
       return;
     }
-    const currentProjectExists = projectList.some(
+    const currentProject = projectList.find(
       (project) => String(project.id) === String(currentProjectId)
     );
-    if (currentProjectExists) return;
+    if (currentProject?.archivedAt) {
+      setScope(defaultProjectId);
+      return;
+    }
+    if (currentProject) return;
     // A controlled Documents sidebar can be scoped to the active thread's
     // project before the project cache has hydrated that project. Preserve
     // that scope until the cache catches up instead of falling back to
@@ -437,6 +471,58 @@ export default function SidebarRoot({
     [currentProjectId, projectList, refreshProjectsFromServer, setProjectList, setScope]
   );
 
+  const handleRenameProject = React.useCallback(
+    async (projectId: string, name: string) => {
+      try {
+        await patchProjectApi(projectId, { name });
+        setProjectList((previous) =>
+          previous.map((project) =>
+            String(project.id) === projectId ? { ...project, name } : project
+          )
+        );
+        await refreshProjectsFromServer();
+      } catch (err: any) {
+        const message = err?.response?.data?.message
+          || err?.response?.data?.detail
+          || err?.message
+          || "Project rename failed. Please try again.";
+        window.dispatchEvent(new CustomEvent("cfy:toast", {
+          detail: { kind: "error", message },
+        }));
+      }
+    },
+    [refreshProjectsFromServer, setProjectList]
+  );
+
+  const setProjectArchived = React.useCallback(
+    async (projectId: string, archived: boolean) => {
+      const archivedAt = archived ? new Date().toISOString() : null;
+      try {
+        await patchProjectApi(projectId, { archived });
+        setProjectList((previous) =>
+          previous.map((project) =>
+            String(project.id) === projectId
+              ? { ...project, archivedAt }
+              : project
+          )
+        );
+        if (archived && String(currentProjectId) === projectId) {
+          setScope(resolveSidebarGeneralProjectId(projectList));
+        }
+        await refreshProjectsFromServer();
+      } catch (err: any) {
+        const message = err?.response?.data?.message
+          || err?.response?.data?.detail
+          || err?.message
+          || `Project ${archived ? "archive" : "restore"} failed. Please try again.`;
+        window.dispatchEvent(new CustomEvent("cfy:toast", {
+          detail: { kind: "error", message },
+        }));
+      }
+    },
+    [currentProjectId, projectList, refreshProjectsFromServer, setProjectList, setScope]
+  );
+
   return (
     <div
       className={clsx(
@@ -582,6 +668,9 @@ export default function SidebarRoot({
               search={q}
               currentId={currentProjectId}
               onPick={(id) => { setScope(id); setTab("threads"); }}
+              onRenameProject={handleRenameProject}
+              onArchiveProject={(id) => setProjectArchived(id, true)}
+              onRestoreProject={(id) => setProjectArchived(id, false)}
               onDeleteProject={handleDeleteProject}
               onOpenNewProject={() => {
                 setProjectModalError(null);

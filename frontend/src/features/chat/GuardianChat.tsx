@@ -928,10 +928,11 @@ export function GuardianChat({
   workspaceOpen: _workspaceOpen = false,
   activeThread,
   workspaceProjectId = null,
+  workspaceProjectName = null,
   projectOptions = [],
   onComposerProjectChange,
   onSendMessage,
-  onThreadPersisted: _onThreadPersisted,
+  onThreadPersisted,
   onNewChat,
   onBranchThread: _onBranchThread,
   onArchiveThread,
@@ -967,6 +968,7 @@ export function GuardianChat({
   workspaceOpen?: boolean;
   activeThread: Thread;
   workspaceProjectId?: string | number | null;
+  workspaceProjectName?: string | null;
   projectOptions?: readonly Project[];
   onComposerProjectChange?: (
     projectId: string | null,
@@ -3180,9 +3182,17 @@ export function GuardianChat({
       const createThreadEndpoint = buildChatThreadsPath();
 
       try {
+        const requestedProjectId = Number(
+          workspaceProjectId ?? activeThread.projectId ?? null
+        );
+        const projectId =
+          Number.isInteger(requestedProjectId) && requestedProjectId > 0
+            ? requestedProjectId
+            : null;
         const createThreadPayload = {
           title: provisionalTitle,
           metadata,
+          ...(projectId != null ? { project_id: projectId } : {}),
           ...(runtimeConfig.authMode === "remote"
             ? {}
             : { user_id: COMMAND_BUS_ACTOR_ID }),
@@ -3226,6 +3236,9 @@ export function GuardianChat({
         handleThreadCreated(resolution.threadId, derivedTitle, {
           tabId: originTabId,
         });
+        onThreadPersisted?.(resolution.threadId, derivedTitle, {
+          tabId: originTabId,
+        });
         return resolution.threadId;
     } catch (error) {
       console.error("[guardian] thread creation failed", error);
@@ -3233,7 +3246,16 @@ export function GuardianChat({
       return null;
     }
     },
-    [auth.ready, authCanSend, effectiveThreadId, handleThreadCreated, showToast]
+    [
+      activeThread.projectId,
+      auth.ready,
+      authCanSend,
+      effectiveThreadId,
+      handleThreadCreated,
+      onThreadPersisted,
+      showToast,
+      workspaceProjectId,
+    ]
   );
 
   const ensureThreadIdForAttachments = useCallback(
@@ -3821,7 +3843,6 @@ export function GuardianChat({
           : null;
     return Number.isFinite(candidate) ? candidate : null;
   })();
-
   const headerActions = (
     <>
       <div

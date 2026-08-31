@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import SidebarRoot from "../SidebarRoot";
 import type { Thread } from "@/types/ui";
@@ -18,8 +18,27 @@ function createThread(id: string): Thread {
 const useSidebarThreadsOptionsSpy = vi.fn();
 const mockSidebarState = vi.hoisted(() => ({
   currentProjectId: null as string | null,
-  projectList: [] as Array<{ id: string; name: string; icon?: string; description?: string }>,
+  projectList: [] as Array<{
+    id: string;
+    name: string;
+    icon?: string;
+    description?: string;
+    systemRole?: "general" | "imports" | null;
+    archivedAt?: string | null;
+  }>,
 }));
+const sidebarSpies = vi.hoisted(() => ({
+  setScope: vi.fn(),
+  setProjectList: vi.fn(),
+  refreshProjectsFromServer: vi.fn(),
+}));
+const apiSpies = vi.hoisted(() => ({
+  patch: vi.fn(),
+  delete: vi.fn(),
+  post: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({ default: apiSpies }));
 
 vi.mock("../useSidebarThreads", () => ({
   default: (options: any) => {
@@ -29,7 +48,7 @@ vi.mock("../useSidebarThreads", () => ({
     displayThreads: [createThread("thread-1")],
     scopeLabel: "General",
     currentProjectId: mockSidebarState.currentProjectId,
-    setScope: vi.fn(),
+    setScope: sidebarSpies.setScope,
     originSystem: options.originSystem ?? null,
     setOriginSystem: options.onOriginSystemChange,
     originOptions: [
@@ -48,14 +67,25 @@ vi.mock("../useSidebarThreads", () => ({
 vi.mock("../useProjectsCache", () => ({
   default: () => ({
     projectList: mockSidebarState.projectList,
-    setProjectList: vi.fn(),
-    refreshProjectsFromServer: vi.fn(),
+    setProjectList: sidebarSpies.setProjectList,
+    refreshProjectsFromServer: sidebarSpies.refreshProjectsFromServer,
     looseCount: 0,
   }),
 }));
 
 vi.mock("../ProjectList", () => ({
-  default: () => <div data-testid="project-list" />,
+  default: (props: any) => (
+    <div data-testid="project-list">
+      {props.projects.map((project: any) => (
+        <div key={project.id}>
+          <button onClick={() => props.onRenameProject(project.id, "Renamed")}>rename-{project.id}</button>
+          <button onClick={() => props.onArchiveProject(project.id)}>archive-{project.id}</button>
+          <button onClick={() => props.onRestoreProject(project.id)}>restore-{project.id}</button>
+          <button onClick={() => props.onDeleteProject(project.id)}>delete-{project.id}</button>
+        </div>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("../CreateProjectModal", () => ({
@@ -69,6 +99,10 @@ describe("SidebarRoot canonical origin filter wiring", () => {
     window.localStorage.setItem("cfy.sidebarTab", "threads");
     mockSidebarState.currentProjectId = null;
     mockSidebarState.projectList = [];
+    apiSpies.patch.mockResolvedValue({ data: { ok: true } });
+    apiSpies.delete.mockResolvedValue({ data: { ok: true } });
+    apiSpies.post.mockResolvedValue({ data: { ok: true } });
+    sidebarSpies.refreshProjectsFromServer.mockResolvedValue(undefined);
   });
 
   it("forwards the controlled canonical origin between the toolbar and parent loader seam", () => {
@@ -194,5 +228,55 @@ describe("SidebarRoot canonical origin filter wiring", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
 
     expect(screen.queryByTestId("project-knowledge-base-entry")).not.toBeInTheDocument();
+  });
+
+  it("archives through PATCH and falls back to the durable General role when selected", async () => {
+    mockSidebarState.currentProjectId = "project-42";
+    mockSidebarState.projectList = [
+      { id: "general", name: "Home", systemRole: "general", archivedAt: null },
+      { id: "project-42", name: "Launch Project", systemRole: null, archivedAt: null },
+    ];
+
+    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "archive-project-42" }));
+
+    await waitFor(() => {
+      expect(apiSpies.patch).toHaveBeenCalledWith(
+        "/api/projects/project-42",
+        { archived: true }
+      );
+    });
+    expect(sidebarSpies.setScope).toHaveBeenCalledWith("general");
+    expect(sidebarSpies.refreshProjectsFromServer).toHaveBeenCalled();
+  });
+
+  it("preserves lifecycle payloads for rename, restore, and archived deletion", async () => {
+    mockSidebarState.projectList = [
+      {
+        id: "project-9",
+        name: "Old Project",
+        systemRole: null,
+        archivedAt: "2026-08-30T12:00:00Z",
+      },
+    ];
+
+    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "rename-project-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "restore-project-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "delete-project-9" }));
+
+    await waitFor(() => {
+      expect(apiSpies.patch).toHaveBeenCalledWith(
+        "/api/projects/project-9",
+        { name: "Renamed" }
+      );
+      expect(apiSpies.patch).toHaveBeenCalledWith(
+        "/api/projects/project-9",
+        { archived: false }
+      );
+      expect(apiSpies.delete).toHaveBeenCalledWith("/api/projects/project-9");
+    });
   });
 });
