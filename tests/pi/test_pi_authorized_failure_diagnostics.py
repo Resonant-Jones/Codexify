@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -1099,44 +1100,90 @@ def test_authorized_stdout_frame_helper_isolated_reproduction() -> None:
 # This is the canonical end-to-end framing-repair proof: the REAL
 # ``codex_runner/src/agent-wrapper.js`` writes its terminal authorized
 # result via ``console.log(JSON.stringify(payload))``. A fake Pi 0.82.1
-# package under ``tmp_path/fake_pi_package`` deliberately writes one
-# diagnostic line to stdout before the wrapper's terminal JSON. The
-# bounded adapter must parse the final line and produce a bounded
-# ``AgentRunEnvelope`` — not ``wrapper_protocol_failed`` from a JSON
-# decode error on the multi-line stdout.
+# package materialized under ``tmp_path/fake_pi_package`` deliberately
+# writes one diagnostic line to stdout before the wrapper's terminal
+# JSON. The bounded adapter must parse the final line and produce a
+# bounded ``AgentRunEnvelope`` — not ``wrapper_protocol_failed`` from a
+# JSON decode error on the multi-line stdout.
 #
 # The fake package performs no network, no DNS, no socket, no real
-# provider SDK. The subprocess runs with `` ``HOME``=<disposable
-# tmp_path>`` and ``PI_CODING_AGENT_PACKAGE_ROOT=<fake package>``.
+# provider SDK. The subprocess runs with ``HOME=<disposable tmp_path>``
+# and ``PI_CODING_AGENT_PACKAGE_ROOT=<materialized tmp package>``.
 #
 # Per spec §23-§25, this exercises:
-#   fake Pi SDK -> real agent-wrapper.js -> real subprocess stdout ->
-#   real PiCodexRunnerAdapter parser without a provider.
+#   fake Pi SDK (from tracked source fixture) -> real agent-wrapper.js
+#   -> real subprocess stdout -> real PiCodexRunnerAdapter parser
+#   without a provider.
+#
+# The tracked source fixture is the in-tree
+# ``tests/pi/fixtures/fake_pi_package/source/index.js`` plus the
+# ``package.json`` metadata. The test materializes these into a
+# fresh ``tmp_path/fake_pi_package`` so the integration proof is
+# reproducible from tracked state alone (no hidden ignored
+# ``dist/`` dependency).
 
 
-_FAKE_PI_PACKAGE_DIR = Path(__file__).parent / "fixtures" / "fake_pi_package"
-_WRAPPER_PATH = Path(__file__).parent.parent.parent / "codex_runner" / "src" / "agent-wrapper.js"
+# Tracked fixture source locations (these are the only files needed
+# from the repository for the real-wrapper integration tests).  The
+# generated ``dist/index.js`` is materialized under pytest's
+# ``tmp_path`` and is NOT a tracked artifact.
+_FIXTURE_SOURCE_DIR = (
+    Path(__file__).parent / "fixtures" / "fake_pi_package"
+)
+_FIXTURE_SOURCE_INDEX = _FIXTURE_SOURCE_DIR / "source" / "index.js"
+_FIXTURE_PACKAGE_JSON = _FIXTURE_SOURCE_DIR / "package.json"
+_WRAPPER_PATH = (
+    Path(__file__).parent.parent.parent
+    / "codex_runner"
+    / "src"
+    / "agent-wrapper.js"
+)
+
+
+def _materialize_fake_pi_package(tmp_path: Path) -> Path:
+    """Materialize a fresh fake Pi 0.82.1 package under ``tmp_path``.
+
+    The materialized package contains:
+
+        package.json           (copied from the tracked fixture)
+        dist/index.js          (copied from the tracked source fixture)
+
+    The materialized root is what the test must point
+    ``PI_CODING_AGENT_PACKAGE_ROOT`` at.  No real-wrapper integration
+    test may point directly at the in-repository fixture directory;
+    that would silently depend on a stale ignored ``dist/`` artifact
+    and would not be reproducible from a clean checkout.
+    """
+    package_root = tmp_path / "fake_pi_package"
+    (package_root / "dist").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(_FIXTURE_PACKAGE_JSON, package_root / "package.json")
+    shutil.copyfile(_FIXTURE_SOURCE_INDEX, package_root / "dist" / "index.js")
+    return package_root
 
 
 def _subprocess_authorized_wrapper(
-    tmp_path: Path,
+    materialized_fake_pi: Path,
     *,
     prompt: str = "fixture prompt",
     disable_tools: bool = False,
+    fake_home: Path,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the REAL ``agent-wrapper.js`` against the in-tree fake Pi
-    package, in a disposable HOME, with the canonical authorized env
-    contract."""
-    fake_home = tmp_path / "home"
-    fake_home.mkdir(parents=True, exist_ok=True)
-    env = {
+    """Run the REAL ``agent-wrapper.js`` against a materialized fake
+    Pi package, in a disposable HOME, with the canonical authorized
+    env contract.  ``PI_CODING_AGENT_PACKAGE_ROOT`` MUST point at the
+    materialized package — never at the in-repository fixture
+    directory.
+    """
+    env: dict[str, str] = {
         # Preserve PATH so the wrapper subprocess can find ``node``.
         # Strip any inherited provider secrets so the fixture cannot
         # accidentally talk to a real provider.
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(fake_home),
-        "TMPDIR": str(tmp_path),
-        "PI_CODING_AGENT_PACKAGE_ROOT": str(_FAKE_PI_PACKAGE_DIR),
+        "TMPDIR": str(cwd),
+        "PI_CODING_AGENT_PACKAGE_ROOT": str(materialized_fake_pi),
         "PI_PROVIDER": "openai-codex",
         "PI_MODEL": "gpt-5.6-sol",
         "PI_GUARDIAN_AUTHORIZED": "1",
@@ -1144,9 +1191,11 @@ def _subprocess_authorized_wrapper(
         "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
         "PI_DISABLE_TOOLS": "1" if disable_tools else "0",
     }
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["node", str(_WRAPPER_PATH), "guardian-authorized-task", prompt],
-        cwd=str(tmp_path),
+        cwd=str(cwd),
         env=env,
         capture_output=True,
         text=True,
@@ -1166,15 +1215,19 @@ def _envelope_from_wrapper_result(
 
 
 @pytest.mark.skipif(
-    not _FAKE_PI_PACKAGE_DIR.exists(),
-    reason="in-tree fake Pi fixture package is missing",
+    not _FIXTURE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
 )
 def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
     """Real wrapper + fake Pi success path: stdout contains one
     diagnostic line BEFORE the canonical terminal JSON.
 
+    The fixture is materialized under ``tmp_path`` from the tracked
+    source ``tests/pi/fixtures/fake_pi_package/source/index.js``.  No
+    hidden ignored file is required for this test to pass.
+
     The framing repair must NOT collapse this multi-line stdout into
-    ``wrapper_protocol_failed`` at the JSON decode step. The actual
+    ``wrapper_protocol_failed`` at the JSON decode step.  The actual
     bounded failure here (if any) comes from the wrapper's success
     payload carrying only the older 6 telemetry fields, not the four
     assistant-response fields the adapter requires for live authorized
@@ -1187,7 +1240,14 @@ def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
     it must be due to telemetry strictness (or runtime identity), which
     is downstream of framing.
     """
-    result = _subprocess_authorized_wrapper(tmp_path)
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _subprocess_authorized_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+    )
     assert result.returncode == 0, (
         f"wrapper subprocess failed unexpectedly: "
         f"stdout={result.stdout!r} stderr={result.stderr!r}"
@@ -1215,8 +1275,8 @@ def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    not _FAKE_PI_PACKAGE_DIR.exists(),
-    reason="in-tree fake Pi fixture package is missing",
+    not _FIXTURE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
 )
 def test_real_wrapper_noisy_stdout_failure_protocol(tmp_path: Path) -> None:
     """Real wrapper + fake Pi failure path: the fake session raises a
@@ -1225,34 +1285,23 @@ def test_real_wrapper_noisy_stdout_failure_protocol(tmp_path: Path) -> None:
     line above it.
 
     The framing repair must NOT confuse the multi-line stdout for an
-    invalid JSON envelope. The bounded ``failure_class`` /
+    invalid JSON envelope.  The bounded ``failure_class`` /
     ``failure_stage`` from the final frame must survive intact.
+
+    The fixture is materialized under ``tmp_path`` from the tracked
+    source.  No hidden ignored file is required.
     """
-    fake_pi = _FAKE_PI_PACKAGE_DIR
-    # The success/failure behavior is selected by a hidden env knob the
-    # fake reads. Inject it via the subprocess environment.
+    materialized = _materialize_fake_pi_package(tmp_path)
     fake_home = tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
-    env = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": str(fake_home),
-        "TMPDIR": str(tmp_path),
-        "PI_CODING_AGENT_PACKAGE_ROOT": str(fake_pi),
-        "PI_FAKE_I_BEHAVIOR": "failure",
-        "PI_PROVIDER": "openai-codex",
-        "PI_MODEL": "gpt-5.6-sol",
-        "PI_GUARDIAN_AUTHORIZED": "1",
-        "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
-        "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
-        "PI_DISABLE_TOOLS": "1",
-    }
-    result = subprocess.run(
-        ["node", str(_WRAPPER_PATH), "guardian-authorized-task", "fixture"],
-        cwd=str(tmp_path),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
+    # The success/failure behavior is selected by an env knob the fake
+    # reads from the subprocess environment.
+    extra_env = {"PI_FAKE_I_BEHAVIOR": "failure"}
+    result = _subprocess_authorized_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        extra_env=extra_env,
     )
     assert result.returncode == 0
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout

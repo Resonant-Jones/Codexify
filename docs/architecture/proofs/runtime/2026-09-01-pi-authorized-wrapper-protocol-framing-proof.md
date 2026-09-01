@@ -489,3 +489,344 @@ DOES NOT PROVE:
   currently emits only the older 6 telemetry fields; the adapter's
   telemetry strictness remains intact).
 - Whether a follow-up live rail attempt will succeed (out of scope).
+
+
+# 2026-09-01 Pi Authorized Wrapper Subprocess Fixture Reproducibility Repair — PASS_TRACKED_ONLY
+
+## Result
+
+```
+RESULT                                              = PASS
+PI_WRAPPER_PROTOCOL_FIXTURE_REPRODUCIBILITY          = PASS_TRACKED_ONLY
+AUTHORIZED_WRAPPER_STDOUT_FRAMING_DEFECT             = PROVEN_AND_REPAIRED_PROVIDER_FREE
+LIVE_WRAPPER_PROTOCOL_CAUSE                          = UNRESOLVED
+CAUSAL_CLASSIFICATION                                 = UNRESOLVED_ASSISTANT_TOOL_CALL_EMISSION_BOUNDARY (unchanged)
+CE-L1                                                 = OPEN
+LIVE_EXECUTOR_PROVEN                                  = NOT_EMITTED
+REAL_PROVIDER_CALL_COUNT                              = 0
+CAMPAIGN_LIVE_RAIL_CALL_COUNT                         = 0
+OAUTH_READINESS_COUNT                                 = 0
+OPERATOR_CREDENTIAL_STORE_ACCESS_COUNT                = 0
+```
+
+## Scope
+
+This slice is a proof-reproducibility repair. The runtime framing repair
+itself remains exactly as committed in
+`e9125a28693a2681627162bdd090ba51a0a03206` and is byte-identical in
+this slice. The only changes are:
+
+1. Migrating the fake Pi 0.82.1 implementation from a hidden ignored
+   `dist/index.js` to a tracked
+   `tests/pi/fixtures/fake_pi_package/source/index.js`.
+2. Adding `_materialize_fake_pi_package(tmp_path)` in
+   `tests/pi/test_pi_authorized_failure_diagnostics.py` to materialize
+   the tracked source fixture into a fresh disposable package under
+   `pytest.tmp_path` at test time.
+3. Refactoring both real-wrapper integration tests to point
+   `PI_CODING_AGENT_PACKAGE_ROOT` at the materialized tmp package,
+   not at the in-repository fixture directory.
+4. Updating this proof with the tracked-state evidence.
+
+No production runtime code changes. No `.gitignore` change. No
+force-add. The repository-wide `dist/` rule remains intact.
+
+## Proof evolution (explicit)
+
+```
+INITIAL_LOCAL_REAL_WRAPPER_FIXTURE         = IGNORED_DIST_PRESENT
+INITIAL_CLEAN_CHECKOUT_REPRODUCIBILITY     = NOT_PROVEN
+TRACKED_FIXTURE_SOURCE                     = tests/pi/fixtures/fake_pi_package/source/index.js
+GENERATED_RUNTIME_LOCATION                = <pytest tmp_path>/fake_pi_package/dist/index.js
+LOCAL_IGNORED_FIXTURE_DEPENDENCY          = NONE
+REAL_WRAPPER_TRACKED_ONLY_REPRODUCIBILITY  = PASS
+```
+
+## Ignored-fixture premise (pre-repair verification)
+
+The local ignored fake Pi file:
+
+```
+LOCAL_FAKE_PI_PATH    = tests/pi/fixtures/fake_pi_package/dist/index.js
+LOCAL_FAKE_PI_SHA256  = c121257692938d46dbec6f33fb1945545f5ee997bb36049550aec8e32e62e730
+LOCAL_FAKE_PI_SIZE    = 2964 bytes
+LOCAL_FAKE_PI_TRACKED = false  (git ls-files --error-unmatch FAILED)
+LOCAL_FAKE_PI_IGNORED = true   (git check-ignore resolves to .gitignore:76:dist/)
+```
+
+The repository-wide `dist/` rule (line 76 of `.gitignore`) is the
+effective ignore rule.
+
+## Tracked fixture source migration
+
+The ignored file's bytes were copied byte-for-byte to:
+
+```
+TRACKED_FAKE_PI_SOURCE_PATH    = tests/pi/fixtures/fake_pi_package/source/index.js
+TRACKED_FAKE_PI_SOURCE_SHA256  = c121257692938d46dbec6f33fb1945545f5ee997bb36049550aec8e32e62e730
+TRACKED_FAKE_PI_SOURCE_SIZE    = 2964 bytes
+SOURCE_IGNORED_BYTE_EQUIVALENT = true  (sha256 equal to LOCAL_FAKE_PI_SHA256)
+```
+
+`git check-ignore tests/pi/fixtures/fake_pi_package/source/index.js`
+returns no result, so the tracked source is not ignored.
+
+`git ls-files --error-unmatch tests/pi/fixtures/fake_pi_package/package.json`
+PASSES (package metadata already tracked in the prior slice).
+
+The fake package identity is preserved:
+
+```
+package.name    = @earendil-works/pi-coding-agent
+package.version = 0.82.1
+```
+
+## Pre-fix clean-checkout reproduction
+
+A detached worktree was created at exactly
+`e9125a28693a2681627162bdd090ba51a0a03206`:
+
+```
+CLEAN_BEFORE_PATH                            = /tmp/codexify-pi-framing-before.w1FkVf
+CLEAN_BEFORE_DIST_INDEX_JS_EXISTS            = false  (test ! -e ... PASSED)
+PRE_FIX_REAL_WRAPPER_TRACKED_ONLY_RESULT     = FAIL
+PRE_FIX_FAILURE_ATTRIBUTION                  = runtime_module_unavailable / runtime_load
+                                                (wrapper cannot load the missing
+                                                tests/pi/fixtures/fake_pi_package/dist/index.js)
+PRE_FIX_PROVIDER_CREDENTIAL_NETWORK_INVOLVED = false
+```
+
+The pre-fix failure is attributable solely to the missing fake Pi
+runtime fixture under `tests/pi/fixtures/fake_pi_package/dist/`. It
+is NOT attributable to provider access, credentials, network,
+unrelated import failure, or unrelated repository setup.
+
+## Materialization helper
+
+```python
+def _materialize_fake_pi_package(tmp_path: Path) -> Path:
+    package_root = tmp_path / "fake_pi_package"
+    (package_root / "dist").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(_FIXTURE_PACKAGE_JSON, package_root / "package.json")
+    shutil.copyfile(_FIXTURE_SOURCE_INDEX, package_root / "dist" / "index.js")
+    return package_root
+```
+
+The materialized package contains both required surfaces:
+
+```
+MATERIALIZED_PACKAGE_ROOT  = <tmp_path>/fake_pi_package
+MATERIALIZED_DIST_INDEX_JS  = <tmp_path>/fake_pi_package/dist/index.js
+```
+
+`PI_CODING_AGENT_PACKAGE_ROOT` is set to the materialized tmp package
+in every real-wrapper integration test.  No test points
+`PI_CODING_AGENT_PACKAGE_ROOT` at the in-repository fixture directory.
+
+## Local ignored-file independence
+
+The local ignored `tests/pi/fixtures/fake_pi_package/dist/index.js`
+was temporarily moved aside:
+
+```
+mv tests/pi/fixtures/fake_pi_package/dist/index.js /tmp/...
+```
+
+The two real-wrapper integration tests were then re-run with no
+local ignored file present. Both PASSED:
+
+```
+test_real_wrapper_noisy_stdout_success_protocol  = PASS
+test_real_wrapper_noisy_stdout_failure_protocol  = PASS
+LOCAL_IGNORED_FIXTURE_DEPENDENCY                 = NONE
+```
+
+The ignored file was then restored.
+
+## Staged tracked-only proof
+
+The task-owned files were staged:
+
+```
+git add tests/pi/test_pi_authorized_failure_diagnostics.py
+git add tests/pi/fixtures/fake_pi_package/source/index.js
+```
+
+The staged tracked tree was written into a temporary commit:
+
+```
+TREE_SHA        = 4c1cccb964a770b4b4e6179075b3c9a7b54d3e0a
+TEMP_COMMIT     = e43d6253611187d3fd33a0c911160457d4049ef7
+TEMP_COMMIT_REF = "temporary tracked-only Pi framing fixture validation"
+```
+
+A detached disposable worktree was created at the temp commit:
+
+```
+STAGED_CLEAN_PATH                       = /tmp/codexify-pi-framing-staged.CRt7kf
+STAGED_CLEAN_DIST_INDEX_JS_ABSENT       = true  (test ! -e ... PASSED)
+STAGED_CLEAN_TRACKED_SOURCE_PRESENT     = true
+```
+
+The two real-wrapper integration tests were then re-run inside the
+staged clean worktree (no ignored `dist/index.js` available; no
+network; no credentials). Both PASSED:
+
+```
+test_real_wrapper_noisy_stdout_success_protocol  = PASS
+test_real_wrapper_noisy_stdout_failure_protocol  = PASS
+REAL_WRAPPER_TRACKED_ONLY_REPRODUCIBILITY_AFTER   = PASS
+```
+
+The disposable worktree was then removed.
+
+## Network / credential / tool posture
+
+```
+fake HTTP_CALL_COUNT     = 0  (in-memory provider/model resolution)
+fake DNS_CALL_COUNT      = 0
+fake SOCKET_CALL_COUNT   = 0
+fake PI_PROVIDER         = "openai-codex"
+fake PI_MODEL            = "gpt-5.6-sol"
+fake PI_HARNESS_ID       = "pi-coding-agent"
+fake PI_HARNESS_VERSION  = "0.82.1"
+fake getActiveToolNames  = ["read", "bash", "edit", "write"]
+PROVIDER_BACKED_INVOCATION_COUNT       = 0
+CAMPAIGN_LIVE_RAIL_COUNT               = 0
+OAUTH_READINESS_COUNT                  = 0
+OPERATOR_CREDENTIAL_STORE_ACCESS_COUNT = 0
+disposable HOME                        = <tmp_path>/home  (per-test)
+```
+
+## Runtime / wrapper source posture
+
+```
+guardian/agents/adapters/pi_codex_runner.py        unchanged  (no edits this slice)
+codex_runner/src/agent-wrapper.js                  unchanged  (read-only governing anchor)
+codex_runner/src/assistant-telemetry.js            unchanged  (read-only governing anchor)
+.gitignore                                          unchanged
+```
+
+The existing helper `_parse_authorized_stdout_frame(...)` and its
+final-non-empty-line semantics remain exactly as committed in
+`e9125a28693a2681627162bdd090ba51a0a03206`. This task is proof
+reproducibility, not a second parser repair.
+
+## Focused pytest result
+
+```
+$ python -m pytest -v tests/pi/test_pi_authorized_failure_diagnostics.py
+collected 53 items
+tests/pi/test_pi_authorized_failure_diagnostics.py ..................... [ 39%]
+................................                                         [100%]
+======================== 53 passed, 1 warning in 0.68s =========================
+```
+
+All 8 framing matrix cases (A-H), strictness preservation, secret-shaped
+redaction, helper isolation, and both real-wrapper integration tests
+PASS.
+
+## Deterministic CE-L1 suite
+
+```
+$ python -m pytest tests/ops/test_worker_coding_pi_runtime_contract.py \
+                    tests/ops/test_pi_assistant_response_telemetry.py \
+                    tests/pi/test_pi_live_invocation.py \
+                    tests/pi/test_pi_authorized_failure_diagnostics.py \
+                    codex_runner/tests/test_campaign_engine_live_executor.py
+........................................................................ [ 96%]
+......                                                                   [100%]
+150 passed, 1 warning
+```
+
+## Node syntax validation
+
+```
+node --check codex_runner/src/agent-wrapper.js        = exit 0
+node --check codex_runner/src/assistant-telemetry.js  = exit 0
+```
+
+## Docs
+
+```
+$ PYTHON=.venv/bin/python make docs
+Docs validation passed: required architecture docs, README links, and source headings verified.
+Diagram freshness check passed: no runtime source drift detected and matrix decisions are valid.
+```
+
+## Tracked file scope
+
+Before commit:
+
+```
+git status --short
+M  tests/pi/test_pi_authorized_failure_diagnostics.py
+A  tests/pi/fixtures/fake_pi_package/source/index.js
+```
+
+Only the implementation worktree's tracked changes; the ignored
+`tests/pi/fixtures/fake_pi_package/dist/index.js` is NOT staged or
+force-added.
+
+```
+git check-ignore -v tests/pi/fixtures/fake_pi_package/dist/index.js
+.gitignore:76:dist/    tests/pi/fixtures/fake_pi_package/dist/index.js
+```
+
+(Generated `dist/` remains untracked.)
+
+## Confirmed invariants
+
+- Tests reproducible from tracked source ✓
+- Generated build/runtime fixture output remains disposable ✓
+- Global `dist/` ignore remains intact ✓
+- No hidden local file required for canonical proof ✓
+- Fake provider/package remains provider-free ✓
+- No credential access ✓
+- Production runtime repair remains byte-identical ✓
+- Provider/model/tool semantics remain unchanged ✓
+- Historical CE-L1 evidence remains immutable ✓
+- No live rail attempt ✓
+- Release claims remain unchanged ✓
+
+## What this slice proves and does not prove
+
+PROVES:
+
+- The fake Pi 0.82.1 implementation is preserved by SHA into a tracked
+  source fixture.
+- The hidden ignored `dist/index.js` dependency is removed: the
+  tests materialize the package from the tracked source under
+  `tmp_path` at test time.
+- The real-wrapper integration tests pass from a clean detached
+  worktree at the prior commit, with no ignored file present.
+- The staged tracked-only tree (no ignored file) passes both
+  real-wrapper integration tests.
+- The full CE-L1 deterministic suite (150 tests) still passes.
+- `dist/` rule remains intact; no force-add; no `.gitignore` change.
+- The runtime framing repair remains byte-identical.
+
+DOES NOT PROVE:
+
+- The framing repair is the exact cause of the prior live failure
+  (LIVE_WRAPPER_PROTOCOL_CAUSE=UNRESOLVED, as before).
+- A post-repair CE-L1 live observation (out of scope; the proof
+  remains provider-free).
+- The wrapper itself is updated (no wrapper change; the wrapper
+  still emits only the older 6 telemetry fields in
+  `guardian-authorized-task` mode).
+
+## What this slice changes about the prior proof
+
+The prior proof section at the top of this file is preserved
+unchanged. The proof evolution block above is the only addition.
+Future readers can see the exact evolution:
+
+- First local run: relied on ignored `dist/index.js` (NOT
+  reproducible from a clean checkout).
+- After this slice: reproducible from tracked
+  `source/index.js` + `package.json` only.
+
+The fact that the first local run had an ignored fixture available
+is recorded explicitly (`INITIAL_LOCAL_REAL_WRAPPER_FIXTURE=
+IGNORED_DIST_PRESENT`). The proof does not erase this fact.
