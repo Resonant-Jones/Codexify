@@ -52,6 +52,8 @@ import RegisterPage from "./pages/login/RegisterPage";
 import { PrivatePreviewBanner } from "./components/PrivatePreviewBanner";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
 import { SharePage } from "./pages/SharePage";
+import DirectMessageInbox from "./components/direct-messages/DirectMessageInbox";
+import DirectMessagesUnavailable from "./components/direct-messages/DirectMessagesUnavailable";
 import {
   isTauriRuntime,
   readDesktopStartupRoutingDecision,
@@ -129,6 +131,11 @@ function isRegisterRoute() {
 function isProfileRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/profile");
+}
+
+function isInboxRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/inbox");
 }
 
 function getShareToken() {
@@ -607,10 +614,14 @@ export default function App() {
   const loginRoute = isLoginRoute();
   const registerRoute = isRegisterRoute();
   const profileRoute = isProfileRoute();
+  const inboxRoute = isInboxRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const desktopRuntime = isTauriRuntime();
   const { state: authRouteCapability } = useRuntimeRouteCapability(
     SUPPORTED_PROFILE_ROUTE_LABELS.AUTH
+  );
+  const { state: directMessagesCapability } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.DIRECT_MESSAGES
   );
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
@@ -657,6 +668,7 @@ export default function App() {
     !loginRoute &&
     !registerRoute &&
     !profileRoute &&
+    !inboxRoute &&
     !(shareRoute && !!shareToken) &&
     (desktopStartupCanBootstrap || desktopRecoveryRequested);
   const [bootstrapState, setBootstrapState] =
@@ -1339,6 +1351,18 @@ export default function App() {
         </main>
       </div>
     );
+  } else if (inboxRoute) {
+    mainContent =
+      directMessagesCapability === "available" ? (
+        <div className="flex h-screen min-h-0 flex-col overflow-hidden">
+          <TopBar />
+          <main className="min-h-0 flex-1 overflow-hidden">
+            <DirectMessageInbox />
+          </main>
+        </div>
+      ) : (
+        <DirectMessagesUnavailable />
+      );
   } else if (
     (personaStudioRoute || flowBuilderRoute) &&
     shouldBlockNestedWorkspaceShell()

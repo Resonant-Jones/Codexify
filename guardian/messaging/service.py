@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from guardian.db.models import (
@@ -686,8 +686,17 @@ def list_conversations_for_relationship(
         )
         .limit(page_limit)
     ).all()
+    latest_by_conversation = latest_message_for_conversations(
+        session, [conversation.id for conversation in conversations]
+    )
     return [
-        conversation_payload(session, conversation, profile.node_id, profile.profile_id)
+        conversation_payload(
+            session,
+            conversation,
+            profile.node_id,
+            profile.profile_id,
+            latest_message=latest_by_conversation.get(conversation.id),
+        )
         for conversation in conversations
     ]
 
@@ -764,10 +773,85 @@ def list_conversations_for_profile(
         )
         .limit(page_limit)
     ).all()
+    latest_by_conversation = latest_message_for_conversations(
+        session, [conversation.id for conversation in conversations]
+    )
     return [
-        conversation_payload(session, conversation, profile.node_id, profile.profile_id)
+        conversation_payload(
+            session,
+            conversation,
+            profile.node_id,
+            profile.profile_id,
+            latest_message=latest_by_conversation.get(conversation.id),
+        )
         for conversation in conversations
     ]
+
+
+# ── Inbox latest-message projection ──────────────────────────────────────
+
+_MAX_LATEST_PREVIEW_CHARS = 160
+
+
+def _latest_preview(body: str) -> str:
+    """Bounded single-line preview for Inbox rows.
+
+    The full body remains available only through the message readback
+    route; the projection never emits the complete body.
+    """
+    compact = " ".join(str(body or "").split())
+    if len(compact) <= _MAX_LATEST_PREVIEW_CHARS:
+        return compact
+    return compact[:_MAX_LATEST_PREVIEW_CHARS] + "…"
+
+
+def latest_message_for_conversations(
+    session, conversation_ids: list[str]
+) -> dict[str, DirectMessage]:
+    """One bounded query: each conversation's latest message.
+
+    The winner per conversation is determined with the same ordering as
+    the message readback list — ``(created_at DESC, id DESC)`` — so the
+    projected message is always the newest participant-visible message
+    for the Inbox row.  This is a single round trip for the whole page;
+    it never fetches message history per row.
+    """
+    if not conversation_ids:
+        return {}
+    ranked = (
+        select(
+            DirectMessage.id.label("message_id"),
+            func.row_number()
+            .over(
+                partition_by=DirectMessage.conversation_id,
+                order_by=(
+                    DirectMessage.created_at.desc(),
+                    DirectMessage.id.desc(),
+                ),
+            )
+            .label("rank"),
+        )
+        .where(DirectMessage.conversation_id.in_(conversation_ids))
+        .subquery()
+    )
+    messages = session.scalars(
+        select(DirectMessage).where(
+            DirectMessage.id.in_(
+                select(ranked.c.message_id).where(ranked.c.rank == 1)
+            )
+        )
+    ).all()
+    return {message.conversation_id: message for message in messages}
+
+
+def latest_message_projection(message: DirectMessage) -> dict[str, Any]:
+    """Bounded participant-visible latest-message projection."""
+    return {
+        "message_id": message.id,
+        "sender_profile_id": message.sender_profile_id,
+        "preview": _latest_preview(message.body),
+        "created_at": message.created_at,
+    }
 
 
 def _participant_social_payloads(
@@ -869,6 +953,8 @@ def conversation_payload(
     conversation: DirectMessageConversation,
     caller_node_id: str,
     caller_profile_id: str,
+    *,
+    latest_message: DirectMessage | None = None,
 ) -> dict[str, Any]:
     """Safe participant-visible conversation payload."""
     require_participant(session, conversation, caller_node_id, caller_profile_id)
@@ -895,6 +981,10 @@ def conversation_payload(
         )
         else None
     )
+    if latest_message is None:
+        latest_message = latest_message_for_conversations(
+            session, [conversation.id]
+        ).get(conversation.id)
     return {
         "conversation_id": conversation.id,
         "relationship_id": conversation.relationship_id,
@@ -913,6 +1003,11 @@ def conversation_payload(
             "created_at": placement.created_at if placement is not None else None,
             "updated_at": placement.updated_at if placement is not None else None,
         },
+        "latest_message": (
+            latest_message_projection(latest_message)
+            if latest_message is not None
+            else None
+        ),
     }
 
 
@@ -1103,6 +1198,8 @@ __all__ = [
     "ensure_profile_identity",
     "get_or_create_local_node",
     "get_or_create_owned_profile",
+    "latest_message_for_conversations",
+    "latest_message_projection",
     "list_conversations_for_profile",
     "list_conversations_for_relationship",
     "list_messages",

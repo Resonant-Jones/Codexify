@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-27 (Pi runtime modernization 0.72.1 → 0.82.1; @mariozechner → @earendil-works; no diagram topology change)
+Diagram Review Marker: 2026-09-01 (direct-message Inbox frontend projection + relationship/person filter; no diagram topology change)
 
 ## Scope
 

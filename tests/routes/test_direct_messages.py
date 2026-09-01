@@ -1052,3 +1052,311 @@ def test_direct_messages_quarantined_on_default_profile(default_profile_app):
     assert "/api/direct-messages/conversations" not in paths
     assert "/api/direct-messages/relationships" not in paths
     assert "/api/profile/social-identity" not in paths
+
+
+# ── Inbox projection (latest-message preview + listing privacy) ──────────
+
+
+def _inbox_relationship(client_a, client_b, profile_a, profile_b):
+    return client_a.post(
+        "/api/direct-messages/relationships",
+        json={
+            "destination_node_id": profile_b["node_id"],
+            "destination_profile_id": profile_b["profile_id"],
+        },
+    ).json()["relationship"]
+
+
+def _inbox_conversation(client_a, relationship_id, body=None):
+    response = client_a.post(
+        f"/api/direct-messages/relationships/{relationship_id}/conversations",
+        json=body or {},
+    )
+    assert response.status_code == 200
+    return response.json()["conversation"]
+
+
+def _inbox_send(client, conversation_id, body, key=None):
+    payload = {"body": body}
+    if key is not None:
+        payload["client_message_key"] = key
+    response = client.post(
+        f"/api/direct-messages/conversations/{conversation_id}/messages",
+        json=payload,
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_inbox_listing_is_participant_scoped_and_third_party_gets_404(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    client_c = _make_client(seeded, "user-c@example.com")
+    _claim_username(client_c, "carol")
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    first = _inbox_conversation(client_a, relationship_id)
+    second = _inbox_conversation(client_a, relationship_id)
+
+    a_listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    b_listing = client_b.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    assert {c["conversation_id"] for c in a_listing} == {
+        first["conversation_id"],
+        second["conversation_id"],
+    }
+    assert {c["conversation_id"] for c in b_listing} == {
+        first["conversation_id"],
+        second["conversation_id"],
+    }
+
+    assert client_c.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ] == []
+    denied = client_c.get(
+        f"/api/direct-messages/conversations/{first['conversation_id']}"
+    )
+    assert denied.status_code == 404
+    assert denied.json()["detail"]["error"] == "conversation_not_found"
+
+
+def test_inbox_three_conversations_stay_distinct_with_stable_relationship(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+
+    first = _inbox_conversation(client_a, relationship_id)
+    second = _inbox_conversation(client_a, relationship_id)
+    third = _inbox_conversation(client_a, relationship_id)
+
+    ids = [
+        first["conversation_id"],
+        second["conversation_id"],
+        third["conversation_id"],
+    ]
+    assert len(set(ids)) == 3
+    for conversation in (first, second, third):
+        assert conversation["relationship_id"] == relationship_id
+
+    listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    assert [c["conversation_id"] for c in listing] == list(reversed(ids))
+    for conversation in listing:
+        assert conversation["relationship_id"] == relationship_id
+
+
+def test_inbox_latest_message_projection_matches_its_conversation(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    first = _inbox_conversation(client_a, relationship_id)
+    second = _inbox_conversation(client_a, relationship_id)
+
+    sent_first = _inbox_send(client_a, first["conversation_id"], "hello one")
+    sent_second_a = _inbox_send(client_b, second["conversation_id"], "hello two-a")
+    sent_second_b = _inbox_send(
+        client_a, second["conversation_id"], "hello two-b final"
+    )
+
+    listing = {
+        c["conversation_id"]: c
+        for c in client_a.get("/api/direct-messages/conversations").json()[
+            "conversations"
+        ]
+    }
+    assert listing[first["conversation_id"]]["latest_message"]["message_id"] == (
+        sent_first["message"]["message_id"]
+    )
+    assert listing[second["conversation_id"]]["latest_message"]["message_id"] == (
+        sent_second_b["message"]["message_id"]
+    )
+    assert listing[first["conversation_id"]]["latest_message"]["preview"] == "hello one"
+    assert (
+        listing[second["conversation_id"]]["latest_message"]["preview"]
+        == "hello two-b final"
+    )
+    assert (
+        listing[second["conversation_id"]]["latest_message"]["sender_profile_id"]
+        == profile_a["profile_id"]
+    )
+    # A conversation without messages projects a null latest_message.
+    empty = _inbox_conversation(client_a, relationship_id)
+    refreshed = {
+        c["conversation_id"]: c
+        for c in client_a.get("/api/direct-messages/conversations").json()[
+            "conversations"
+        ]
+    }
+    assert refreshed[empty["conversation_id"]]["latest_message"] is None
+
+
+def test_inbox_latest_message_preview_is_bounded(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    conversation = _inbox_conversation(client_a, relationship_id)
+    long_body = ("word " * 40).strip()  # > 160 chars once joined with spaces
+    assert len(long_body) > 160
+    _inbox_send(client_a, conversation["conversation_id"], long_body)
+
+    listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    preview = next(
+        c["latest_message"]["preview"]
+        for c in listing
+        if c["conversation_id"] == conversation["conversation_id"]
+    )
+    assert len(preview) == 161
+    assert preview.endswith("…")
+    assert preview.startswith(long_body[:150])
+
+
+def test_inbox_activity_ordering_is_deterministic(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    first = _inbox_conversation(client_a, relationship_id)
+    second = _inbox_conversation(client_a, relationship_id)
+
+    # No activity: newest conversation first (server order, id desc).
+    listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    assert [c["conversation_id"] for c in listing] == [
+        second["conversation_id"],
+        first["conversation_id"],
+    ]
+
+    # Activity on the older conversation moves it to the top.
+    _inbox_send(client_b, first["conversation_id"], "bump")
+    listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    assert [c["conversation_id"] for c in listing] == [
+        first["conversation_id"],
+        second["conversation_id"],
+    ]
+    assert listing[0]["latest_message"]["preview"] == "bump"
+
+
+def test_inbox_payload_never_exposes_email_or_user_id(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    conversation = _inbox_conversation(client_a, relationship_id)
+    _inbox_send(client_a, conversation["conversation_id"], "private hello")
+
+    surfaces = [
+        client_a.get("/api/direct-messages/conversations").json(),
+        client_b.get("/api/direct-messages/conversations").json(),
+        client_a.get(
+            f"/api/direct-messages/conversations/{conversation['conversation_id']}"
+        ).json(),
+        client_a.get("/api/direct-messages/relationships").json(),
+    ]
+
+    def _forbidden(node, path="root"):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key not in {"email", "user_id", "owning_user_id"}, (
+                    f"forbidden key {key!r} at {path}"
+                )
+                _forbidden(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for index, item in enumerate(node):
+                _forbidden(item, f"{path}[{index}]")
+        elif isinstance(node, str):
+            assert "@" not in node and node != "user-a@example.com", (
+                f"suspicious string at {path}"
+            )
+
+    for surface in surfaces:
+        _forbidden(surface)
+
+
+def test_inbox_hides_unauthorized_origin_from_peer_listing(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    conversation = _inbox_conversation(
+        client_a, relationship_id, body={"origin_project_id": 101}
+    )
+
+    a_listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    b_listing = client_b.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    a_row = next(
+        c for c in a_listing if c["conversation_id"] == conversation["conversation_id"]
+    )
+    b_row = next(
+        c for c in b_listing if c["conversation_id"] == conversation["conversation_id"]
+    )
+    assert a_row["origin"]["origin_project_id"] == 101
+    assert b_row["origin"]["origin_project_id"] is None
+    assert b_row["origin"]["origin_thread_id"] is None
+
+
+def test_inbox_never_exposes_peer_placement(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    conversation = _inbox_conversation(client_a, relationship_id)
+
+    moved = client_a.patch(
+        f"/api/direct-messages/conversations/{conversation['conversation_id']}/placement",
+        json={"project_id": 101},
+    )
+    assert moved.status_code == 200
+
+    a_listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    b_listing = client_b.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    a_row = next(
+        c for c in a_listing if c["conversation_id"] == conversation["conversation_id"]
+    )
+    b_row = next(
+        c for c in b_listing if c["conversation_id"] == conversation["conversation_id"]
+    )
+    assert a_row["placement"]["project_id"] == 101
+    assert b_row["placement"]["project_id"] is None
+    assert "peer_placement" not in a_row
+    assert "peer_placement" not in b_row
+
+
+def test_inbox_participant_local_placement_stays_isolated(seeded):
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    relationship_id = _inbox_relationship(
+        client_a, client_b, profile_a, profile_b
+    )["relationship_id"]
+    conversation = _inbox_conversation(client_a, relationship_id)
+
+    client_b.patch(
+        f"/api/direct-messages/conversations/{conversation['conversation_id']}/placement",
+        json={"project_id": 201},
+    )
+
+    a_listing = client_a.get("/api/direct-messages/conversations").json()[
+        "conversations"
+    ]
+    a_row = next(
+        c for c in a_listing if c["conversation_id"] == conversation["conversation_id"]
+    )
+    assert a_row["placement"]["project_id"] is None

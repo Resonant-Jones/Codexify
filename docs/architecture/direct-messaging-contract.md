@@ -240,8 +240,7 @@ quarantined.
 
 ## 10. Deferred (explicitly not implemented)
 
-Frontend Inbox; Share Sheet UI; person-filter UI; Conversation summary
-modals; Project invitation acceptance / Project Scope Offers; shared
+Share Sheet UI; Conversation summary modals; Project invitation acceptance / Project Scope Offers; shared
 Project context grants; Guardian Conversation retrieval; Guardian
 origin-Thread/Project retrieval; retrieval-scope vs disclosure-scope
 policy; ambient DM context; realtime delivery (WebSocket/SSE);
@@ -271,7 +270,7 @@ Recorded in ADR-077; they must not block the same-node implementation:
 
 ## 12. Future dependency order
 
-1. Inbox/global Conversation projection and person filter
+1. Inbox/global Conversation projection and person filter — **implemented** (private-profile frontend projection; see §13)
 2. Share Sheet / Project-origin interaction UX
 3. explicit Project Scope Offer / invitation contract
 4. provisional Conversation "summary so far" modal + export
@@ -285,3 +284,71 @@ Recorded in ADR-077; they must not block the same-node implementation:
 12. cross-node transport
 13. delivery receipts
 14. Cognitive QoS / autonomous Guardian communication
+
+## 13. Inbox projection (frontend)
+
+The Inbox is a read/write frontend projection over the accepted
+Relationship → Conversations model.  It is exposed at the `/inbox`
+application route and gated by the accepted `direct_messages` runtime
+route capability: it renders only when the supported profile mounts
+that label and fails closed otherwise.  It never hardcodes a supported
+profile and never invents capability truth.
+
+### Conversation-first listing
+
+The primary list unit is the `Conversation_ID`: every row represents
+exactly one Conversation.  Multiple Conversations under one
+Relationship appear as distinct rows and are never collapsed into a
+single canonical thread.  Selecting a row loads exactly that
+Conversation via the participant-scoped read routes.
+
+### Person filtering
+
+The person filter selects a peer Relationship.  Its durable key is
+`relationship_id`; the human-facing label is the peer's permitted
+presentation (username or display name).  Username renames never
+change which Conversations belong to a selected peer.  Filter options
+derive only from Relationships represented in the Inbox and follow the
+most recent visible Conversation activity for that Relationship; the
+server's Conversation activity ordering is preserved under filtering.
+The filter provides an `All` option and one option per represented
+peer Relationship.
+
+### Row projection
+
+Bounded latest-message previews come from an additive read projection
+(`latest_message`: `message_id`, `sender_profile_id`, a bounded
+160-character preview, and `created_at`).  The projection is one
+bounded query per listing page — never a per-row history fetch — and
+no new table, column, or cached summary exists.  Conversations without
+messages project `latest_message: null`.
+
+### General creation
+
+The Inbox "New message" flow uses social identity search →
+Relationship resolution → explicit Conversation creation with no
+`origin_project_id`, no `origin_thread_id`, and no placement override.
+Every creation returns a new `Conversation_ID`; the existing
+Relationship is reused.  General-origin Conversations have null origin
+and null placement per the accepted backend contract.
+
+### Privacy
+
+The Inbox renders only server-returned social fields.  It never
+renders or independently fetches email, internal `user_id`, peer
+placement, or hidden origin, and it never reconstructs provenance from
+placement, local Project membership, or opaque identifiers.
+
+### Message read/write
+
+Chronological bounded history uses the existing `before_id` contract.
+Sends carry a stable per-attempt `client_message_key`; a `replayed:
+true` response renders the single original message without
+duplication.
+
+### Inbox non-goals
+
+Unread/read state, read cursors, receipts, realtime/SSE/polling,
+presence, typing indicators, Share Sheet UX, Project Scope Offer /
+invitation, placement editing, origin editing, Guardian/model/
+retrieval/memory coupling, and any Beta-support widening.

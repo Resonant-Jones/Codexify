@@ -9,6 +9,7 @@ export const SUPPORTED_PROFILE_ROUTE_LABELS = {
   UI_SESSION: "ui_session",
   VOICE: "voice",
   AGENT_ORCHESTRATION_CHAT: "agent_orchestration_chat",
+  DIRECT_MESSAGES: "direct_messages",
 } as const;
 
 export type SupportedProfileRouteLabel =
