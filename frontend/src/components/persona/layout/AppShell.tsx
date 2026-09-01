@@ -2980,6 +2980,8 @@ export default function AppShell({
       targetId={activeRouteThreadId}
       className="pill-tab shrink-0 whitespace-nowrap"
       dataState="inactive"
+      peopleState={peopleMessagingState}
+      sourceThreadId={activeRouteThreadId}
       isPhoneShell={isPhoneShell}
       style={{
         borderRadius: 999,

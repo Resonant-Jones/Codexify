@@ -52,6 +52,7 @@ route_posture:
     - hosted_rooms
     - hosted_room_guest
     - direct_messages
+    - share
   internal_only:
     - coding_work_orders
     - command_bus
@@ -65,7 +66,6 @@ route_posture:
     - memory
     - agent
     - research
-    - share
     - federation
     - collaboration
     - connectors

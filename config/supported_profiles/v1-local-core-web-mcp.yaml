@@ -44,6 +44,7 @@ route_posture:
     - connections
     - notion_knowledge
     - google_drive_knowledge
+    - share
   internal_only:
     - coding_work_orders
     - command_bus
@@ -57,7 +58,6 @@ route_posture:
     - memory
     - agent
     - research
-    - share
     - federation
     - collaboration
     - connectors

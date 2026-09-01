@@ -10,7 +10,6 @@ from guardian.core.provider_registry import (
 )
 from guardian.core.supported_profile import load_supported_profile
 
-
 _TESTER_TRACKED_DEFAULT_MODEL = "qwen3.8-27b-4bit"
 
 
@@ -235,9 +234,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
     assert provider_authorized("local", settings) is True
     assert provider_authorized("deepseek", settings) is True
     assert provider_availability("deepseek", settings) == (True, None)
-    assert (
-        default_model_for_provider("deepseek", settings) == "deepseek-v4-flash"
-    )
+    assert default_model_for_provider("deepseek", settings) == "deepseek-v4-flash"
     for provider in {
         "openai",
         "groq",
@@ -270,13 +267,16 @@ def test_tester_profile_high_blast_routes_quarantined() -> None:
         "agent_orchestration_chat",
         "agent",
         "voice",
-        "share",
         "graph",
     }
     for label in quarantined_labels:
         assert (
             manifest.route_status(label) == "quarantined"
         ), f"{label!r} must be quarantined in tester profile"
+    # Task-discovered authorization (2026-09-01 Share Sheet): the tokenized
+    # share-link route is enabled on the private-preview profile so the
+    # Share Sheet's Copy Link / Send to Person can orchestrate it.
+    assert manifest.route_status("share") == "enabled"
 
 
 def test_tester_profile_no_overlapping_route_labels() -> None:
