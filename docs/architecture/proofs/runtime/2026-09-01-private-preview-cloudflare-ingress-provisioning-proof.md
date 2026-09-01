@@ -5,16 +5,17 @@
 `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_BLOCKED`
 
 The canonical local private-preview origin remains healthy and loopback-only,
-the current official `cloudflared` client is installed, and the resumed
-least-privilege Cloudflare credential handoff is valid. Authenticated inventory
-then proved that Cloudflare Access is not enabled for the supplied account.
+the current official `cloudflared` client is installed, the resumed
+least-privilege Cloudflare credential handoff is valid, and Cloudflare Access
+is now enabled. Authenticated inventory then proved that the Access account has
+no configured identity provider or login method.
 
-This is a pre-mutation Access account-state block. Enabling Access establishes
-account-level Zero Trust organization state, while this task explicitly
-forbids changing Cloudflare account settings. No Tunnel, DNS record, Access
-application, Access policy, connector configuration, guest account, or
-application behavior was created, changed, or deleted. The friends-and-family
-canary remains closed.
+This is a pre-mutation Access identity-provider block. Creating an identity
+provider changes account-wide Zero Trust authentication state, while this task
+authorizes only the preview application and its policies. No Tunnel, DNS
+record, Access application, Access policy, connector configuration, guest
+account, or application behavior was created, changed, or deleted. The
+friends-and-family canary remains closed.
 
 ## Scope and authority
 
@@ -28,6 +29,8 @@ canary remains closed.
   `e19defc9fc4e18e0ec75b2cd8f32ed4b61752f4f`
 - Credential-boundary resumption source commit:
   `5b9dfe8d7fc8de2d17464fef89c2cd1dfd47fade`
+- Access-enablement resumption source commit:
+  `69311f2cce53892286ca6cd25d0d949d27501d12`
 - Blocked-canary lineage commit:
   `e19defc9fc4e18e0ec75b2cd8f32ed4b61752f4f`
 - Runtime project: `codexify_private_preview`
@@ -101,7 +104,8 @@ A Global API Key is not an acceptable substitute.
 | Supplied zone identity | PASS; exact zone is `codexify.space` in the supplied account. |
 | Tunnel inventory authorization | PASS. |
 | DNS inventory authorization | PASS. |
-| Access inventory | BLOCKED; `access.api.error.not_enabled`. |
+| Access application inventory | PASS; Access is enabled and no applications exist. |
+| Access identity-provider inventory | BLOCKED; zero login methods are configured. |
 
 The token was read only from the mode-`0600` file through an in-memory
 authorization header. It was not placed in shell history or process arguments,
@@ -116,12 +120,13 @@ The existing-state inventory was completed before any mutation:
 - exact `codexify-private-preview` Tunnels: `0`;
 - exact `preview.codexify.space` DNS records: `0`;
 - total DNS record count observed for preservation comparison: `8`;
-- Access applications: inventory unavailable because Access is not enabled.
+- Access applications: `0`;
+- Access identity providers/login methods: `0`.
 
-The Access API returned the bounded error
-`access.api.error.not_enabled: Access is not enabled`. This is account state,
-not a token rejection. No duplicate, partial, stale, or ambiguously owned
-preview resource was discovered before the stop.
+Access application and identity-provider inventories both succeeded. The stop
+is caused by an empty authentication-method configuration, not by token denial
+or an API failure. No duplicate, partial, stale, or ambiguously owned preview
+resource was discovered before the stop.
 
 ## Public DNS baseline
 
@@ -140,8 +145,8 @@ comparison remains required when provisioning resumes.
 
 ## Gates not run
 
-The following gates require Access to be enabled and were not weakened or
-substituted:
+The following gates require a usable Access identity provider/login method and
+were not weakened or substituted:
 
 - creation or reconciliation of `codexify-private-preview`;
 - secure local Tunnel credentials and exact ingress configuration;
@@ -159,17 +164,21 @@ change was attempted.
 
 ## Exact blocker and required handoff
 
-An authorized Cloudflare operator must enable Cloudflare Access for account
-`9c05ebbb19fac01d8c521f4ce19dfa71` through the Cloudflare dashboard. That
-operation must be limited to establishing the account's Access/Zero Trust
-organization state; it must not create an application, policy, Tunnel, DNS
-record, or unrelated account change.
+An authorized Cloudflare operator must add one intended Access login method for
+account `9c05ebbb19fac01d8c521f4ce19dfa71` through Zero Trust > Integrations >
+Identity providers. For this exact-email friends-and-family boundary, the
+minimal option is Cloudflare One-time PIN (`onetimepin`); an already trusted
+organizational identity provider is also acceptable if it is the operator's
+intended authority.
 
-After the operator confirms Access is enabled, rerun this same atomic task with
-the existing secure token file if the token remains active. The task must
-repeat inventory before mutation, reconcile rather than duplicate resources,
-and retain the fail-closed conclusion unless every canonical DNS, HTTPS,
-Access, Guardian-layering, isolation, fallback, and preservation gate passes.
+The operator action must not create the preview application, policy, Tunnel,
+DNS record, guest account, wildcard rule, or unrelated identity configuration.
+After the operator confirms the login method is present, rerun this same atomic
+task with the existing secure token file if the token remains active. The task
+must repeat inventory before mutation, reconcile rather than duplicate
+resources, and retain the fail-closed conclusion unless every canonical DNS,
+HTTPS, Access, Guardian-layering, isolation, fallback, and preservation gate
+passes.
 
 ## Validation results
 
@@ -186,7 +195,9 @@ Access, Guardian-layering, isolation, fallback, and preservation gate passes.
 - Exact account/zone identity verification — PASS.
 - Tunnel and DNS pre-mutation inventory — PASS; no Tunnel and no preview DNS
   record existed.
-- Access inventory — BLOCKED; Access is not enabled for the account.
+- Access application inventory — PASS; Access is enabled and no applications
+  exist.
+- Access identity-provider inventory — BLOCKED; no login method exists.
 - Public DNS presence checks — preview absent; apex and `www` present.
 - `python3 scripts/validate_docs.py` — PASS after this resumption update.
 - `git diff --check` — PASS after this resumption update.
@@ -210,9 +221,9 @@ after `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_PROVEN`.
 Record that the 2026-09-01 Cloudflare ingress provisioning task re-proved the
 local loopback origin and private-preview port boundary, installed the official
 `cloudflared 2026.8.3` client, accepted and safely verified the resumed
-least-privilege API-token handoff, and inventoried zero Tunnels and zero
-`preview.codexify.space` DNS records. It then stopped before mutation because
-Cloudflare Access is not enabled and enabling account-level Zero Trust state is
-outside this task. Apex and `www` remained present; no guest, Cloudflare
-resource, application code, credential, unrelated DNS, or unrelated worktree
-state was changed.
+least-privilege API-token handoff, and inventoried zero Tunnels, zero
+`preview.codexify.space` DNS records, zero Access applications, and zero Access
+identity providers. It then stopped before mutation because no Access login
+method exists and identity-provider configuration is outside this task. Apex
+and `www` remained present; no guest, Cloudflare resource, application code,
+credential, unrelated DNS, or unrelated worktree state was changed.
