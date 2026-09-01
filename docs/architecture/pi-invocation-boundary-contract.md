@@ -169,6 +169,24 @@ This contract aligns with message-versus-attempt doctrine and must not collapse 
 
 This contract is forward-compatible with existing reinjection and one-turn reentry doctrine and does not claim that Pi execution exists today.
 
+### Authorized wrapper subprocess framing
+
+The authorized Pi wrapper subprocess (`codex_runner/src/agent-wrapper.js`) emits one terminal machine-readable JSON object on stdout describing the bounded result of the authorized task.  Any earlier stdout lines are untrusted dependency diagnostics, are never persisted by the bounded adapter, and carry no authority.
+
+Authorized protocol framing rules:
+
+- The **final non-empty stdout line** is the sole authorized JSON result object.
+- Earlier stdout lines are discarded and never persisted.
+- Trailing noise after the JSON frame causes protocol failure (the final non-empty line is then not a JSON object).
+- The frame must be a JSON object; lists, strings, numbers, booleans, and `null` are rejected.
+- Empty stdout fails closed as `wrapper_protocol_failed`.
+- Nonzero subprocess exit retains precedence over any stdout salvage attempt.
+- Runtime identity remains required on a successful authorized execution.
+- Live authorized success remains required to carry the complete 10-field bounded tool and assistant-response telemetry.
+- Framing grants no authority; it only defines how one already-authorized bounded result is recovered from subprocess stdout.
+
+This framing decision is documented here so it does not become invisible implementation folklore.  No provider, model, tool, prompt, or persistence semantics change.
+
 ## Identity and Sovereignty Boundaries
 
 - Identity remains user-owned.
