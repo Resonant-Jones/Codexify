@@ -5,13 +5,14 @@
 `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_BLOCKED`
 
 The canonical local private-preview origin remains healthy and loopback-only,
-and the current official `cloudflared` client is now installed. Cloudflare
-control-plane provisioning did not begin because this execution context was
-not supplied a least-privilege Cloudflare API token or a secure token-file
-pointer.
+the current official `cloudflared` client is installed, and the resumed
+least-privilege Cloudflare credential handoff is valid. Authenticated inventory
+then proved that Cloudflare Access is not enabled for the supplied account.
 
-This is a pre-mutation credential-authority block. No Tunnel, DNS record,
-Access application, Access policy, connector configuration, guest account, or
+This is a pre-mutation Access account-state block. Enabling Access establishes
+account-level Zero Trust organization state, while this task explicitly
+forbids changing Cloudflare account settings. No Tunnel, DNS record, Access
+application, Access policy, connector configuration, guest account, or
 application behavior was created, changed, or deleted. The friends-and-family
 canary remains closed.
 
@@ -23,8 +24,10 @@ canary remains closed.
 - Evidence posture: live-runtime preflight with blocked control-plane
   disposition
 - Execution date: 2026-09-01 local time
-- Source branch and commit: local `main` at
+- Initial source branch and commit: local `main` at
   `e19defc9fc4e18e0ec75b2cd8f32ed4b61752f4f`
+- Credential-boundary resumption source commit:
+  `5b9dfe8d7fc8de2d17464fef89c2cd1dfd47fade`
 - Blocked-canary lineage commit:
   `e19defc9fc4e18e0ec75b2cd8f32ed4b61752f4f`
 - Runtime project: `codexify_private_preview`
@@ -92,36 +95,54 @@ A Global API Key is not an acceptable substitute.
 
 | Check | Result |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN_FILE` pointer | ABSENT |
-| `CLOUDFLARE_API_TOKEN` environment variable | ABSENT |
-| `CF_API_TOKEN` environment variable | ABSENT |
-| Standard user-local Cloudflare authentication state | ABSENT |
-| Cloudflare management authentication | NOT RUN |
-| Account/zone authorization inventory | NOT RUN |
+| Secure token-file pointer | PASS; operator supplied an absolute path outside Git. |
+| Token-file structure | PASS; regular, non-symlink, non-empty, operator-owned, mode `0600`. |
+| API-token verification | PASS; token status `active`. |
+| Supplied zone identity | PASS; exact zone is `codexify.space` in the supplied account. |
+| Tunnel inventory authorization | PASS. |
+| DNS inventory authorization | PASS. |
+| Access inventory | BLOCKED; `access.api.error.not_enabled`. |
 
-No credential value was requested from shell history, printed, copied into the
-repository, or inferred from a broad browser/dashboard session. The task's
-secure handoff prerequisite was therefore not satisfied.
+The token was read only from the mode-`0600` file through an in-memory
+authorization header. It was not placed in shell history or process arguments,
+printed, copied into temporary proof output, copied into the repository, or
+inferred from a broad browser/dashboard session.
+
+## Authenticated Cloudflare inventory
+
+The existing-state inventory was completed before any mutation:
+
+- active non-deleted Tunnels in the account: `0`;
+- exact `codexify-private-preview` Tunnels: `0`;
+- exact `preview.codexify.space` DNS records: `0`;
+- total DNS record count observed for preservation comparison: `8`;
+- Access applications: inventory unavailable because Access is not enabled.
+
+The Access API returned the bounded error
+`access.api.error.not_enabled: Access is not enabled`. This is account state,
+not a token rejection. No duplicate, partial, stale, or ambiguously owned
+preview resource was discovered before the stop.
 
 ## Public DNS baseline
 
-Bounded host DNS checks before any Cloudflare mutation reported:
+Bounded host DNS checks and authenticated zone inventory before any Cloudflare
+mutation reported:
 
 - `preview.codexify.space`: no answer;
 - `codexify.space`: resolves;
 - `www.codexify.space`: resolves.
 
-No record values for the apex, `www`, or unrelated names are reproduced here.
-No `/etc/hosts` override was used. Because no authenticated control-plane
-inventory or mutation occurred, preservation is proven only as a no-operation
-fact for this execution, not as a before/after Cloudflare API diff.
+The authenticated zone inventory contained eight records in total. No record
+values for the apex, `www`, or unrelated names are reproduced here. No
+`/etc/hosts` override was used. Because no mutation occurred, preservation is
+proven as a no-operation fact for this execution; a before/after configuration
+comparison remains required when provisioning resumes.
 
 ## Gates not run
 
-The following gates require the missing least-privilege management credential
-and were not weakened or substituted:
+The following gates require Access to be enabled and were not weakened or
+substituted:
 
-- account/zone/Tunnel/DNS/Access inventory;
 - creation or reconciliation of `codexify-private-preview`;
 - secure local Tunnel credentials and exact ingress configuration;
 - canonical DNS attachment;
@@ -138,18 +159,17 @@ change was attempted.
 
 ## Exact blocker and required handoff
 
-The operator must provide a least-privilege Cloudflare API token through a
-mode-`0600` file outside the repository and make its path available as
-`CLOUDFLARE_API_TOKEN_FILE`. The token must be limited to the intended
-Cloudflare account and `codexify.space` zone with the Tunnel, DNS, and Access
-application/policy permissions listed above. Supplying the account ID and zone
-ID alongside the handoff avoids requiring broader account/zone discovery
-permissions.
+An authorized Cloudflare operator must enable Cloudflare Access for account
+`9c05ebbb19fac01d8c521f4ce19dfa71` through the Cloudflare dashboard. That
+operation must be limited to establishing the account's Access/Zero Trust
+organization state; it must not create an application, policy, Tunnel, DNS
+record, or unrelated account change.
 
-After that handoff, rerun this same atomic task. It must inventory existing
-state before mutation, reconcile rather than duplicate resources, and retain
-the fail-closed conclusion unless every canonical DNS, HTTPS, Access,
-Guardian-layering, isolation, fallback, and preservation gate passes.
+After the operator confirms Access is enabled, rerun this same atomic task with
+the existing secure token file if the token remains active. The task must
+repeat inventory before mutation, reconcile rather than duplicate resources,
+and retain the fail-closed conclusion unless every canonical DNS, HTTPS,
+Access, Guardian-layering, isolation, fallback, and preservation gate passes.
 
 ## Validation results
 
@@ -161,9 +181,15 @@ Guardian-layering, isolation, fallback, and preservation gate passes.
   private-preview publication contract.
 - `cloudflared --version` — PASS after authorized installation,
   `2026.8.3`.
+- Secure token-file mode/ownership/structure checks — PASS.
+- Cloudflare API-token verification — PASS, active.
+- Exact account/zone identity verification — PASS.
+- Tunnel and DNS pre-mutation inventory — PASS; no Tunnel and no preview DNS
+  record existed.
+- Access inventory — BLOCKED; Access is not enabled for the account.
 - Public DNS presence checks — preview absent; apex and `www` present.
-- `python3 scripts/validate_docs.py` — PASS.
-- `git diff --check` — PASS.
+- `python3 scripts/validate_docs.py` — PASS after this resumption update.
+- `git diff --check` — PASS after this resumption update.
 
 ## ADR impact
 
@@ -181,10 +207,12 @@ after `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_PROVEN`.
 
 ## Axis KB addition
 
-Record that the 2026-09-01 Cloudflare ingress provisioning attempt re-proved
-the local loopback origin and private-preview port boundary, installed the
-official `cloudflared 2026.8.3` client, and then stopped before Cloudflare
-inventory or mutation because no least-privilege API-token handoff was
-available. `preview.codexify.space` remained unresolved; apex and `www`
-continued to resolve; no guest, Cloudflare resource, application code,
-credential, unrelated DNS, or unrelated worktree state was changed.
+Record that the 2026-09-01 Cloudflare ingress provisioning task re-proved the
+local loopback origin and private-preview port boundary, installed the official
+`cloudflared 2026.8.3` client, accepted and safely verified the resumed
+least-privilege API-token handoff, and inventoried zero Tunnels and zero
+`preview.codexify.space` DNS records. It then stopped before mutation because
+Cloudflare Access is not enabled and enabling account-level Zero Trust state is
+outside this task. Apex and `www` remained present; no guest, Cloudflare
+resource, application code, credential, unrelated DNS, or unrelated worktree
+state was changed.
