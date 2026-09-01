@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-01 (direct-message Inbox frontend projection + relationship/person filter; no diagram topology change)
+Diagram Review Marker: 2026-09-01 (People messaging runtime qualification proof; 00-current-state.md updated; no diagram topology change)
 
 ## Scope
 

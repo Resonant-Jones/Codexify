@@ -39,6 +39,8 @@ import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
 import ContactsLauncher from "@/features/contacts/ContactsLauncher";
+import FloatingConversation from "@/features/contacts/FloatingConversation";
+import { usePeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -1078,6 +1080,11 @@ export default function AppShell({
   const [dockEngaged, setDockEngaged] = useState(false);
   const [dockHovered, setDockHovered] = useState(false);
   const [dockFocused, setDockFocused] = useState(false);
+
+  // People messaging state lives at the shell level (above all
+  // view-dependent chrome) so the portable floating Conversation and its
+  // drafts survive dock/menu unmounts during SPA navigation.
+  const peopleMessagingState = usePeopleMessagingState();
 
   const clearDockCollapseTimer = useCallback(() => {
     if (dockCollapseTimerRef.current == null) return;
@@ -2964,6 +2971,7 @@ export default function AppShell({
     <ContactsLauncher
       className="pill-tab h-9 w-9 shrink-0 p-0"
       sourceThreadId={activeRouteThreadId}
+      state={peopleMessagingState}
     />
   );
   const shareUtilityAction = activeRouteThreadId != null ? (
@@ -3259,6 +3267,10 @@ export default function AppShell({
         data-dock-engaged={dockEngaged ? "true" : "false"}
       >
       <div id="cfy-portal-root" />
+      {/* Global People messaging projection: the state owner lives here
+          (above all view-dependent chrome) so the portable floating
+          Conversation survives dock/menu unmounts during navigation. */}
+      <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
           wallpaperUrl={activeWallpaper}

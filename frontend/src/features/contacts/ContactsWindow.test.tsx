@@ -1,12 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ContactsLauncher from "./ContactsLauncher";
 import ContactsWindow from "./ContactsWindow";
+import FloatingConversation from "./FloatingConversation";
 import type { ContactListItem } from "./types";
-import type { PeopleMessagingState } from "./usePeopleMessagingState";
+import {
+  usePeopleMessagingState,
+  type PeopleMessagingState,
+} from "./usePeopleMessagingState";
 
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   useRuntimeRouteCapability: (label: string) => ({
@@ -122,6 +126,107 @@ function renderWithPortal(ui: ReactNode, onShellClick = vi.fn()) {
   const result = render(ui);
   return { ...result, shell, portal, onShellClick };
 }
+
+describe("ContactsLauncher (global People affordance)", () => {
+  it("opens the People window without leaking the click to an enclosing menu", async () => {
+    const user = userEvent.setup();
+    // Simulates the Guardian tools-menu mount: the launcher is rendered
+    // inside a React container that closes itself when any child click
+    // reaches it (as the tools DropdownMenuContent's synthetic onClick
+    // does).  If the launcher's click bubbles, the container unmounts the
+    // state owner before the window can open — the exact live defect on
+    // the frame-first Guardian shell.
+    const onContainerClick = vi.fn();
+    const portal = document.createElement("div");
+    portal.id = "cfy-portal-root";
+    document.body.appendChild(portal);
+    render(
+      <div onClick={onContainerClick}>
+        <ContactsLauncher />
+      </div>
+    );
+
+    await user.click(screen.getByRole("button", { name: "People" }));
+
+    expect(await screen.findByTestId("contacts-window")).toBeInTheDocument();
+    expect(onContainerClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps the floating conversation alive across launcher remounts with parent-owned state", async () => {
+    // The AppShell renders the launcher inside chrome that changes between
+    // views (dock vs frame-first tools menu).  The People state owner must
+    // therefore live ABOVE the launcher: when the launcher unmounts and
+    // remounts, the floating Conversation_ID, draft, and mode must survive.
+    let capturedState: PeopleMessagingState | null = null;
+    const Harness = () => {
+      const state = usePeopleMessagingState();
+      capturedState = state;
+      const [chromeVariant, setChromeVariant] = useState("dock");
+      return (
+        <div>
+          <button type="button" onClick={() => setChromeVariant("menu")}>
+            switch-chrome
+          </button>
+          {chromeVariant === "dock" ? (
+            <div data-testid="chrome-dock">
+              <ContactsLauncher state={state} />
+            </div>
+          ) : null}
+          <FloatingConversation state={state} />
+        </div>
+      );
+    };
+    const portal = document.createElement("div");
+    portal.id = "cfy-portal-root";
+    document.body.appendChild(portal);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    // Pop a conversation out (as DirectConversation does) and park a draft.
+    await act(async () => {
+      capturedState?.popOutConversation("conv-1", {
+        conversation_id: "conv-1",
+        relationship_id: "rel-1",
+        kind: "direct",
+        created_at: "2026-09-01T00:00:00Z",
+        latest_activity_at: "2026-09-01T00:00:00Z",
+        participants: [],
+        peer: {
+          node_id: "node-local",
+          profile_id: "profile-bob",
+          username: "bob",
+          username_state: "active",
+          display_name: "Bob Tester",
+          avatar_url: null,
+        },
+        origin: {
+          created_by_profile_id: null,
+          origin_project_id: null,
+          origin_thread_id: null,
+          created_at: "2026-09-01T00:00:00Z",
+        },
+        placement: { project_id: null, created_at: null, updated_at: null },
+        latest_message: null,
+      });
+      capturedState?.setDraft("conv-1", "parked draft");
+    });
+    expect(await screen.findByTestId("floating-conversation")).toBeInTheDocument();
+
+    // Simulate the frame-first chrome switch: the launcher unmounts.
+    await user.click(screen.getByRole("button", { name: "switch-chrome" }));
+    expect(screen.queryByTestId("contacts-launcher")).not.toBeInTheDocument();
+
+    // The floating projection and its draft must survive the remount.
+    expect(screen.getByTestId("floating-conversation")).toBeInTheDocument();
+    expect(
+      (
+        screen
+          .getByTestId("floating-conversation")
+          .querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement
+      ).value
+    ).toBe("parked draft");
+  });
+});
 
 afterEach(() => {
   document.body.innerHTML = "";
