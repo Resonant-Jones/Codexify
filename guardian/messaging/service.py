@@ -836,9 +836,7 @@ def latest_message_for_conversations(
     )
     messages = session.scalars(
         select(DirectMessage).where(
-            DirectMessage.id.in_(
-                select(ranked.c.message_id).where(ranked.c.rank == 1)
-            )
+            DirectMessage.id.in_(select(ranked.c.message_id).where(ranked.c.rank == 1))
         )
     ).all()
     return {message.conversation_id: message for message in messages}
@@ -985,13 +983,23 @@ def conversation_payload(
         latest_message = latest_message_for_conversations(
             session, [conversation.id]
         ).get(conversation.id)
+    participants = _participant_social_payloads(session, conversation)
+    peer = next(
+        (
+            participant
+            for participant in participants
+            if participant["profile_id"] != caller_profile_id
+        ),
+        None,
+    )
     return {
         "conversation_id": conversation.id,
         "relationship_id": conversation.relationship_id,
         "kind": conversation.kind,
         "created_at": conversation.created_at,
         "latest_activity_at": conversation.latest_activity_at,
-        "participants": _participant_social_payloads(session, conversation),
+        "participants": participants,
+        "peer": peer,
         "origin": {
             "created_by_profile_id": conversation.created_by_profile_id,
             "origin_project_id": visible_origin_project_id,

@@ -53,7 +53,8 @@ import { PrivatePreviewBanner } from "./components/PrivatePreviewBanner";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
 import { SharePage } from "./pages/SharePage";
 import DirectMessageInbox from "./components/direct-messages/DirectMessageInbox";
-import DirectMessagesUnavailable from "./components/direct-messages/DirectMessagesUnavailable";
+import FloatingConversation from "./features/contacts/FloatingConversation";
+import { usePeopleMessagingState } from "./features/contacts/usePeopleMessagingState";
 import {
   isTauriRuntime,
   readDesktopStartupRoutingDecision,
@@ -623,6 +624,7 @@ export default function App() {
   const { state: directMessagesCapability } = useRuntimeRouteCapability(
     SUPPORTED_PROFILE_ROUTE_LABELS.DIRECT_MESSAGES
   );
+  const inboxMessagingState = usePeopleMessagingState();
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
@@ -1352,17 +1354,19 @@ export default function App() {
       </div>
     );
   } else if (inboxRoute) {
-    mainContent =
-      directMessagesCapability === "available" ? (
-        <div className="flex h-screen min-h-0 flex-col overflow-hidden">
-          <TopBar />
-          <main className="min-h-0 flex-1 overflow-hidden">
-            <DirectMessageInbox />
-          </main>
-        </div>
-      ) : (
-        <DirectMessagesUnavailable />
-      );
+    mainContent = (
+      <div className="flex h-screen min-h-0 flex-col overflow-hidden">
+        <TopBar />
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <DirectMessageInbox
+            capabilityState={directMessagesCapability}
+            sourceThreadId={null}
+            state={inboxMessagingState}
+          />
+        </main>
+        <FloatingConversation state={inboxMessagingState} />
+      </div>
+    );
   } else if (
     (personaStudioRoute || flowBuilderRoute) &&
     shouldBlockNestedWorkspaceShell()

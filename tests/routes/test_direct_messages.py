@@ -958,6 +958,31 @@ def test_peer_payloads_never_expose_email_or_user_id(seeded):
     assert "user_id" not in own.get("profile", {})
 
 
+def test_conversation_payload_carries_caller_relative_peer(seeded):
+    """The conversation payload exposes the OTHER participant as `peer`,
+    mirroring the relationship payload shape, so the portable floating
+    window can title itself without guessing from participant order."""
+    client_a, client_b, profile_a, profile_b, conversation = _started_conversation(
+        seeded
+    )
+    conversation_id = conversation["conversation_id"]
+
+    alice_view = client_a.get(
+        f"/api/direct-messages/conversations/{conversation_id}"
+    ).json()["conversation"]
+    bob_view = client_b.get(
+        f"/api/direct-messages/conversations/{conversation_id}"
+    ).json()["conversation"]
+
+    assert alice_view["peer"]["profile_id"] == profile_b["profile_id"]
+    assert bob_view["peer"]["profile_id"] == profile_a["profile_id"]
+    # `participants` still carries both profiles (no regression).
+    assert {p["profile_id"] for p in alice_view["participants"]} == {
+        profile_a["profile_id"],
+        profile_b["profile_id"],
+    }
+
+
 def test_dm_source_never_touches_guardian_chat_or_federation(seeded):
     """Structural isolation: the DM domain imports none of the Guardian
     chat, memory, embedding, Hosted Room, or federation machinery."""

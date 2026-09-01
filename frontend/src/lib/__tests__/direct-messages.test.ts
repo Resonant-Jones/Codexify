@@ -3,20 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import api from "@/lib/api";
 import {
   buildPeerFilterOptions,
+  createDirectMessageConversation,
   createGeneralDirectMessageConversation,
+  fetchDirectMessageConversation,
   fetchDirectMessageConversations,
   fetchDirectMessageMessages,
+  fetchDirectMessageRelationships,
+  fetchRelationshipConversations,
   filterConversationsByRelationship,
-  mergeConfirmedMessage,
-  peerForCaller,
+  normalizeDirectMessageError,
   peerPresentationLabel,
-  prependOlderMessages,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
   sendDirectMessage,
-  type ConversationProjection,
-  type MessageEnvelope,
-  type SocialProfilePayload,
+  type DirectMessageConversation,
+  type DirectMessageEnvelope,
+  type DirectMessageSocialProfile,
 } from "@/lib/direct-messages";
 
 vi.mock("@/lib/api", () => ({
@@ -29,44 +31,40 @@ vi.mock("@/lib/api", () => ({
 const mockedGet = vi.mocked(api.get);
 const mockedPost = vi.mocked(api.post);
 
-function profile(id: string, username: string | null = null): SocialProfilePayload {
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+function profile(
+  id: string,
+  username: string | null = null,
+  displayName: string | null = null
+): DirectMessageSocialProfile {
   return {
     node_id: `node-${id}`,
     profile_id: id,
     username,
-    display_name: username ? `Display ${username}` : null,
-  };
-}
-
-function message(
-  id: string,
-  body: string,
-  createdAt: string
-): MessageEnvelope {
-  return {
-    message_id: id,
-    conversation_id: "conv-1",
-    source: { node_id: "node-a", profile_id: "alice" },
-    destination: { node_id: "node-b", profile_id: "bob" },
-    content: { type: "text", body },
-    created_at: createdAt,
+    username_state: "active",
+    display_name: displayName ?? (username ? `Display ${username}` : null),
+    avatar_url: null,
   };
 }
 
 function conversation(
   id: string,
   relationshipId: string,
-  participants: SocialProfilePayload[]
-): ConversationProjection {
+  peer: DirectMessageSocialProfile
+): DirectMessageConversation {
   return {
     conversation_id: id,
     relationship_id: relationshipId,
-    kind: "general",
+    kind: "direct",
     created_at: "2026-09-01T00:00:00Z",
     latest_activity_at: "2026-09-01T00:00:00Z",
-    participants,
+    participants: [profile("alice", "alice"), peer],
+    peer,
     origin: {
-      created_by_profile_id: participants[0]?.profile_id ?? null,
+      created_by_profile_id: peer.profile_id,
       origin_project_id: null,
       origin_thread_id: null,
       created_at: "2026-09-01T00:00:00Z",
@@ -76,53 +74,53 @@ function conversation(
   };
 }
 
+function message(
+  id: string,
+  body: string,
+  createdAt: string
+): DirectMessageEnvelope {
+  return {
+    protocol_version: "v1",
+    message_id: id,
+    conversation_id: "conv-1",
+    source: { node_id: "node-a", profile_id: "alice" },
+    destination: { node_id: "node-b", profile_id: "bob" },
+    content: { type: "text/plain", body },
+    created_at: createdAt,
+  };
+}
+
 describe("peerPresentationLabel", () => {
   it("falls back to a generic label for a missing profile", () => {
     expect(peerPresentationLabel(null)).toBe("Profile");
     expect(peerPresentationLabel(undefined)).toBe("Profile");
   });
 
-  it("prefers username over display name", () => {
-    expect(peerPresentationLabel(profile("bob", "bob_social"))).toBe("bob_social");
+  it("prefers display name over username", () => {
+    expect(peerPresentationLabel(profile("bob", "bob_social", "Bob"))).toBe(
+      "Bob"
+    );
   });
 
-  it("falls back to display name when username is absent", () => {
-    const withDisplay = { ...profile("bob", null), display_name: "Bob" };
-    expect(peerPresentationLabel(withDisplay)).toBe("Bob");
-  });
-
-  it("falls back to a generic label when both are blank", () => {
-    const blank = { ...profile("bob", null), display_name: "  " };
-    expect(peerPresentationLabel(blank)).toBe("Profile");
-  });
-});
-
-describe("peerForCaller", () => {
-  it("returns the participant that is not the caller", () => {
-    const participants = [profile("alice", "alice"), profile("bob", "bob")];
-    expect(peerForCaller(participants, "alice")?.profile_id).toBe("bob");
-  });
-
-  it("returns null without a self profile id", () => {
-    expect(peerForCaller([profile("bob", "bob")], null)).toBeNull();
-  });
-
-  it("returns null when no non-self participant exists", () => {
-    expect(peerForCaller([profile("alice", "alice")], "alice")).toBeNull();
+  it("falls back to username when display name is absent", () => {
+    const withoutDisplay: DirectMessageSocialProfile = {
+      ...profile("bob", "bob_social"),
+      display_name: null,
+    };
+    expect(peerPresentationLabel(withoutDisplay)).toBe("bob_social");
   });
 });
 
 describe("buildPeerFilterOptions", () => {
-  it("dedupes by relationship and follows first-appearance order", () => {
-    const alice = profile("alice", "alice");
+  it("keys options by relationship_id and dedupes by first appearance", () => {
     const bob = profile("bob", "bob");
     const carol = profile("carol", "carol");
     const conversations = [
-      conversation("c1", "rel-ab", [alice, bob]),
-      conversation("c2", "rel-ac", [alice, carol]),
-      conversation("c3", "rel-ab", [alice, bob]),
+      conversation("c1", "rel-ab", bob),
+      conversation("c2", "rel-ac", carol),
+      conversation("c3", "rel-ab", bob),
     ];
-    const options = buildPeerFilterOptions(conversations, "alice");
+    const options = buildPeerFilterOptions(conversations);
     expect(options.map((option) => option.relationship_id)).toEqual([
       "rel-ab",
       "rel-ac",
@@ -131,27 +129,26 @@ describe("buildPeerFilterOptions", () => {
       "bob",
       "carol",
     ]);
-    expect(options[0].label).toBe("bob");
+    expect(options[0].label).toBe("Display bob");
   });
 
-  it("skips conversations where the peer cannot be resolved", () => {
-    const alice = profile("alice", "alice");
+  it("skips conversations without a server-projected peer", () => {
     const conversations = [
-      conversation("c1", "rel-solo", [alice]),
-      conversation("c2", "rel-ab", [alice, profile("bob", "bob")]),
+      { ...conversation("c1", "rel-ab", profile("bob", "bob")), peer: null },
+      conversation("c2", "rel-ac", profile("carol", "carol")),
     ];
-    const options = buildPeerFilterOptions(conversations, "alice");
-    expect(options.map((option) => option.relationship_id)).toEqual(["rel-ab"]);
+    const options = buildPeerFilterOptions(conversations);
+    expect(options.map((option) => option.relationship_id)).toEqual(["rel-ac"]);
   });
 });
 
 describe("filterConversationsByRelationship", () => {
-  const alice = profile("alice", "alice");
   const bob = profile("bob", "bob");
+  const carol = profile("carol", "carol");
   const conversations = [
-    conversation("c1", "rel-ab", [alice, bob]),
-    conversation("c2", "rel-ac", [alice, profile("carol", "carol")]),
-    conversation("c3", "rel-ab", [alice, bob]),
+    conversation("c1", "rel-ab", bob),
+    conversation("c2", "rel-ac", carol),
+    conversation("c3", "rel-ab", bob),
   ];
 
   it("returns everything for the All view", () => {
@@ -166,24 +163,33 @@ describe("filterConversationsByRelationship", () => {
   });
 });
 
-describe("createGeneralDirectMessageConversation", () => {
+describe("createDirectMessageConversation", () => {
+  const bob = profile("bob", "bob");
+
   beforeEach(() => {
     mockedPost.mockResolvedValue({
-      data: { ok: true, conversation: conversation("c-new", "rel-ab", []) },
+      data: { ok: true, conversation: conversation("c-new", "rel-ab", bob) },
     } as never);
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("posts an empty body to the relationship conversations endpoint", async () => {
-    const created = await createGeneralDirectMessageConversation("rel-ab");
+  it("posts an empty body for a General-origin conversation", async () => {
+    const created = await createDirectMessageConversation("rel-ab");
     expect(mockedPost).toHaveBeenCalledWith(
       "/api/direct-messages/relationships/rel-ab/conversations",
       {}
     );
     expect(created.conversation_id).toBe("c-new");
+  });
+
+  it("carries Project/Thread origin when supplied", async () => {
+    await createDirectMessageConversation("rel-ab", {
+      origin_project_id: 7,
+      origin_thread_id: 12,
+    });
+    expect(mockedPost).toHaveBeenCalledWith(
+      "/api/direct-messages/relationships/rel-ab/conversations",
+      { origin_project_id: 7, origin_thread_id: 12 }
+    );
   });
 
   it("URL-encodes the relationship id", async () => {
@@ -196,7 +202,7 @@ describe("createGeneralDirectMessageConversation", () => {
 });
 
 describe("sendDirectMessage", () => {
-  it("sends the body with a stable client message key", async () => {
+  it("sends the body with a stable client message key and unwraps the result", async () => {
     const envelope = message("m1", "hello", "2026-09-01T01:00:00Z");
     mockedPost.mockResolvedValue({
       data: { ok: true, replayed: false, message: envelope },
@@ -207,6 +213,7 @@ describe("sendDirectMessage", () => {
       "/api/direct-messages/conversations/conv-1/messages",
       { body: "hello", client_message_key: "attempt-1" }
     );
+    expect(result.ok).toBe(true);
     expect(result.replayed).toBe(false);
     expect(result.message.message_id).toBe("m1");
   });
@@ -219,7 +226,7 @@ describe("fetchDirectMessageMessages", () => {
     await fetchDirectMessageMessages("conv-1");
     expect(mockedGet).toHaveBeenLastCalledWith(
       "/api/direct-messages/conversations/conv-1/messages",
-      { params: { limit: 100 } }
+      { params: { limit: 200 } }
     );
 
     await fetchDirectMessageMessages("conv-1", { beforeId: "m9", limit: 10 });
@@ -232,14 +239,56 @@ describe("fetchDirectMessageMessages", () => {
 
 describe("fetchDirectMessageConversations", () => {
   it("reads the conversations envelope", async () => {
+    const bob = profile("bob", "bob");
     mockedGet.mockResolvedValue({
-      data: { ok: true, conversations: [conversation("c1", "rel-ab", [])] },
+      data: { ok: true, conversations: [conversation("c1", "rel-ab", bob)] },
     } as never);
 
     const rows = await fetchDirectMessageConversations();
     expect(rows).toHaveLength(1);
     expect(rows[0].conversation_id).toBe("c1");
     expect(mockedGet).toHaveBeenCalledWith("/api/direct-messages/conversations");
+  });
+});
+
+describe("fetchDirectMessageRelationships", () => {
+  it("reads the relationships envelope", async () => {
+    mockedGet.mockResolvedValue({
+      data: { ok: true, relationships: [] },
+    } as never);
+
+    const rows = await fetchDirectMessageRelationships();
+    expect(rows).toEqual([]);
+    expect(mockedGet).toHaveBeenCalledWith("/api/direct-messages/relationships");
+  });
+});
+
+describe("fetchRelationshipConversations", () => {
+  it("reads the relationship conversations envelope", async () => {
+    mockedGet.mockResolvedValue({
+      data: { ok: true, conversations: [] },
+    } as never);
+
+    const rows = await fetchRelationshipConversations("rel-ab");
+    expect(rows).toEqual([]);
+    expect(mockedGet).toHaveBeenCalledWith(
+      "/api/direct-messages/relationships/rel-ab/conversations"
+    );
+  });
+});
+
+describe("fetchDirectMessageConversation", () => {
+  it("reads the conversation envelope", async () => {
+    const bob = profile("bob", "bob");
+    mockedGet.mockResolvedValue({
+      data: { ok: true, conversation: conversation("c1", "rel-ab", bob) },
+    } as never);
+
+    const row = await fetchDirectMessageConversation("c1");
+    expect(row.conversation_id).toBe("c1");
+    expect(mockedGet).toHaveBeenCalledWith(
+      "/api/direct-messages/conversations/c1"
+    );
   });
 });
 
@@ -281,35 +330,19 @@ describe("searchDirectMessageProfiles", () => {
   });
 });
 
-describe("mergeConfirmedMessage", () => {
-  it("replaces an idempotent replay without duplicating", () => {
-    const existing = message("m1", "old", "2026-09-01T01:00:00Z");
-    const confirmed = message("m1", "same", "2026-09-01T01:00:00Z");
-    const merged = mergeConfirmedMessage([existing], confirmed);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].content.body).toBe("same");
+describe("normalizeDirectMessageError", () => {
+  it("surfaces the response status and error code", () => {
+    const normalized = normalizeDirectMessageError({
+      response: { status: 404, data: { detail: { error: "conversation_not_found" } } },
+    });
+    expect(normalized.status).toBe(404);
+    expect(normalized.code).toBe("conversation_not_found");
   });
 
-  it("orders by created_at then message_id", () => {
-    const merged = mergeConfirmedMessage(
-      [message("m2", "b", "2026-09-01T02:00:00Z")],
-      message("m1", "a", "2026-09-01T01:00:00Z")
-    );
-    expect(merged.map((row) => row.message_id)).toEqual(["m1", "m2"]);
-  });
-});
-
-describe("prependOlderMessages", () => {
-  it("dedupes known messages and preserves chronological order", () => {
-    const known = [
-      message("m2", "two", "2026-09-01T02:00:00Z"),
-      message("m3", "three", "2026-09-01T03:00:00Z"),
-    ];
-    const older = [
-      message("m1", "one", "2026-09-01T01:00:00Z"),
-      message("m2", "two", "2026-09-01T02:00:00Z"),
-    ];
-    const merged = prependOlderMessages(known, older);
-    expect(merged.map((row) => row.message_id)).toEqual(["m1", "m2", "m3"]);
+  it("falls back to a generic failure for unknown shapes", () => {
+    const normalized = normalizeDirectMessageError(new Error("boom"));
+    expect(normalized.status).toBe(0);
+    expect(normalized.code).toBeNull();
+    expect(normalized.message).toBe("boom");
   });
 });

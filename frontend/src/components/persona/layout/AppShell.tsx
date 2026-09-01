@@ -2961,7 +2961,10 @@ export default function AppShell({
     <TtsConsoleLauncher className="pill-tab h-9 w-9 shrink-0 p-0" />
   );
   const contactsUtilityAction = (
-    <ContactsLauncher className="pill-tab h-9 w-9 shrink-0 p-0" />
+    <ContactsLauncher
+      className="pill-tab h-9 w-9 shrink-0 p-0"
+      sourceThreadId={activeRouteThreadId}
+    />
   );
   const shareUtilityAction = activeRouteThreadId != null ? (
     <ShareButton

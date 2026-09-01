@@ -1,5 +1,8 @@
 /**
  * Presentational frontend shape only; this is not the canonical persistence schema.
+ *
+ * Direct-messaging shapes live in the canonical client module
+ * (`@/lib/direct-messages`); nothing here re-derives backend authority.
  */
 export type ContactListItem = {
   id: string;
@@ -15,3 +18,5 @@ export type ContactListItem = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+export type PeopleTab = "inbox" | "contacts";

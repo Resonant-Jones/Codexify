@@ -1,841 +1,481 @@
 /**
- * General direct-message Inbox (relationship-scoped).
+ * Canonical direct-message Inbox: the conversation-first projection over
+ * the accepted ADR-077/078 Relationship → Conversations model.
  *
- * Conversation-first projection over the accepted ADR-077/078 model:
- * every row is one Conversation_ID; the person filter selects a peer
- * Relationship and shows every visible Conversation under it — it never
- * collapses multiple Conversations into one canonical thread.
+ * - Every row is exactly one Conversation_ID.  Multiple Conversations
+ *   with the same peer remain distinct rows; they are never collapsed.
+ * - The person filter is Relationship-backed: options are keyed by
+ *   `relationship_id` (the invariant person container) and selecting a
+ *   peer shows every caller-visible Conversation under that
+ *   Relationship — a username change can never change what a filter
+ *   shows.
+ * - New-conversation creation captures a Project/Thread origin only when
+ *   a source thread is supplied; otherwise the creation is General
+ *   (null origin, null placement), per the backend contract.
+ * - Opening a row opens that exact Conversation_ID in the shared People
+ *   conversation view; the portable floating window and drafts live in
+ *   the People state owner.
  *
- * Privacy posture: renders only server-returned social fields.  No
- * email, no internal user_id, no origin reconstruction, no peer
- * placement, no unread fiction, no realtime.
+ * The surface fails closed when the accepted `direct_messages` runtime
+ * route capability is not `available`.
  */
+import { MessageSquarePlus, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import React from "react";
-
+import type { RuntimeRouteCapabilityState } from "@/contracts/supportedProfileRoutes";
+import DirectConversation from "@/features/contacts/DirectConversation";
+import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import {
   buildPeerFilterOptions,
-  createGeneralDirectMessageConversation,
-  directMessageErrorStatus,
+  createDirectMessageConversation,
   fetchDirectMessageConversations,
-  fetchDirectMessageMessages,
-  fetchOwnSocialIdentity,
+  fetchProjectLabelMap,
+  fetchThreadProjectScope,
   filterConversationsByRelationship,
-  mergeConfirmedMessage,
-  peerForCaller,
+  normalizeDirectMessageError,
   peerPresentationLabel,
-  prependOlderMessages,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
-  sendDirectMessage,
-  type ConversationProjection,
-  type MessageEnvelope,
-  type PeerFilterOption,
-  type SocialProfilePayload,
+  type ConversationOriginInput,
+  type DirectMessageConversation,
+  type DirectMessageSocialProfile,
 } from "@/lib/direct-messages";
 
-const MESSAGE_PAGE_SIZE = 100;
-
-type InboxLoadState =
-  | { status: "loading" }
-  | { status: "ready" }
-  | { status: "error"; message: string };
-
-type ThreadState = {
-  conversationId: string;
-  messages: MessageEnvelope[];
-  loading: boolean;
-  loadingOlder: boolean;
-  exhaustedOlder: boolean;
-  historyError: string | null;
+type DirectMessageInboxProps = {
+  capabilityState: RuntimeRouteCapabilityState;
+  /** Canonical route-derived thread scope; only used to capture
+   *  Conversation origin at creation time (never to rebind existing
+   *  Conversations). */
+  sourceThreadId: number | null;
+  state: PeopleMessagingState;
 };
 
-type NewMessageState = {
-  open: boolean;
-  query: string;
-  results: SocialProfilePayload[];
-  searching: boolean;
-  searchError: string | null;
-  creating: boolean;
-  createError: string | null;
-};
-
-type ComposerState = {
-  text: string;
-  sending: boolean;
-  sendError: string | null;
-};
-
-function styles(): Record<string, React.CSSProperties> {
-  return {
-    root: {
-      display: "flex",
-      height: "100%",
-      minHeight: 0,
-      color: "var(--text)",
-      background: "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-    },
-    side: {
-      width: 340,
-      minWidth: 260,
-      maxWidth: "42%",
-      borderRight: "1px solid var(--panel-border)",
-      display: "flex",
-      flexDirection: "column",
-      minHeight: 0,
-    },
-    sideHeader: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "14px 16px",
-      borderBottom: "1px solid var(--panel-border)",
-      gap: 10,
-    },
-    title: { fontWeight: 700, letterSpacing: "-0.02em", fontSize: 17 },
-    newButton: {
-      border: "1px solid var(--panel-border)",
-      background: "rgba(255,255,255,0.06)",
-      color: "var(--text)",
-      borderRadius: 999,
-      padding: "6px 12px",
-      fontSize: 13,
-      cursor: "pointer",
-    },
-    chips: {
-      display: "flex",
-      gap: 8,
-      padding: "10px 16px",
-      overflowX: "auto",
-      borderBottom: "1px solid var(--panel-border)",
-      flexWrap: "nowrap",
-    },
-    chip: {
-      border: "1px solid var(--panel-border)",
-      background: "transparent",
-      color: "var(--muted)",
-      borderRadius: 999,
-      padding: "4px 12px",
-      fontSize: 12.5,
-      whiteSpace: "nowrap",
-      cursor: "pointer",
-    },
-    chipActive: {
-      border: "1px solid var(--accent, #7aa2f7)",
-      color: "var(--text)",
-      background: "rgba(255,255,255,0.08)",
-    },
-    list: { flex: 1, overflowY: "auto", minHeight: 0 },
-    row: {
-      width: "100%",
-      textAlign: "left",
-      padding: "12px 16px",
-      border: "none",
-      borderBottom: "1px solid var(--panel-border)",
-      background: "transparent",
-      color: "var(--text)",
-      cursor: "pointer",
-    },
-    rowActive: { background: "rgba(255,255,255,0.06)" },
-    rowTop: {
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 10,
-      alignItems: "baseline",
-    },
-    rowPeer: { fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-    rowTime: { fontSize: 11.5, color: "var(--muted)", flexShrink: 0 },
-    rowPreview: {
-      fontSize: 12.5,
-      color: "var(--muted)",
-      marginTop: 3,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-    },
-    thread: { flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 },
-    threadHeader: {
-      padding: "14px 18px",
-      borderBottom: "1px solid var(--panel-border)",
-      fontWeight: 700,
-      letterSpacing: "-0.02em",
-    },
-    messages: { flex: 1, overflowY: "auto", minHeight: 0, padding: "14px 18px" },
-    bubbleRow: { display: "flex", marginBottom: 10 },
-    bubble: {
-      maxWidth: "72%",
-      borderRadius: 14,
-      padding: "8px 12px",
-      fontSize: 13.5,
-      lineHeight: 1.45,
-      border: "1px solid var(--panel-border)",
-    },
-    bubbleMine: { background: "rgba(122,162,247,0.16)", marginLeft: "auto" },
-    bubblePeer: { background: "rgba(255,255,255,0.05)" },
-    bubbleMeta: { fontSize: 10.5, color: "var(--muted)", marginTop: 4, display: "flex", gap: 8 },
-    composer: {
-      display: "flex",
-      gap: 8,
-      padding: "12px 18px",
-      borderTop: "1px solid var(--panel-border)",
-      alignItems: "flex-end",
-    },
-    composerInput: {
-      flex: 1,
-      background: "rgba(255,255,255,0.05)",
-      border: "1px solid var(--panel-border)",
-      borderRadius: 12,
-      color: "var(--text)",
-      padding: "10px 12px",
-      fontSize: 13.5,
-      resize: "none",
-      minHeight: 42,
-      maxHeight: 140,
-    },
-    sendButton: {
-      border: "1px solid var(--accent, #7aa2f7)",
-      background: "rgba(122,162,247,0.18)",
-      color: "var(--text)",
-      borderRadius: 12,
-      padding: "10px 16px",
-      fontSize: 13,
-      cursor: "pointer",
-    },
-    subtle: { color: "var(--muted)", fontSize: 13 },
-    centered: {
-      flex: 1,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexDirection: "column",
-      gap: 10,
-      padding: 24,
-      textAlign: "center",
-    },
-    errorText: { color: "#f1a8a8", fontSize: 12.5 },
-    backdrop: {
-      position: "fixed",
-      inset: 0,
-      background: "rgba(0,0,0,0.45)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 200,
-    },
-    modal: {
-      width: 420,
-      maxWidth: "92vw",
-      borderRadius: 16,
-      border: "1px solid var(--panel-border)",
-      background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-      color: "var(--text)",
-      padding: 18,
-      boxShadow: "0 24px 80px rgba(0,0,0,0.4)",
-    },
-    modalTitle: { fontWeight: 700, marginBottom: 12, letterSpacing: "-0.02em" },
-    modalActions: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 },
-    ghostButton: {
-      border: "1px solid var(--panel-border)",
-      background: "transparent",
-      color: "var(--muted)",
-      borderRadius: 10,
-      padding: "7px 14px",
-      fontSize: 13,
-      cursor: "pointer",
-    },
-    resultRow: {
-      width: "100%",
-      textAlign: "left",
-      border: "1px solid var(--panel-border)",
-      background: "rgba(255,255,255,0.04)",
-      color: "var(--text)",
-      borderRadius: 10,
-      padding: "9px 12px",
-      marginTop: 6,
-      cursor: "pointer",
-    },
-  };
+function profileSubtitle(profile: DirectMessageSocialProfile | null): string {
+  if (!profile) return "";
+  return profile.username ? `@${profile.username}` : "";
 }
 
-function formatTimestamp(value: string | undefined | null): string {
+function avatarInitials(label: string): string {
+  return (
+    label
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || "?"
+  );
+}
+
+function formatActivity(value?: string | null): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
+  return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
 }
 
-export default function DirectMessageInbox() {
-  const s = styles();
-  const [loadState, setLoadState] = React.useState<InboxLoadState>({
-    status: "loading",
-  });
-  const [conversations, setConversations] = React.useState<ConversationProjection[]>([]);
-  const [selfProfile, setSelfProfile] = React.useState<SocialProfilePayload | null>(null);
-  const [selectedRelationshipId, setSelectedRelationshipId] = React.useState<string | null>(null);
-  const [activeConversationId, setActiveConversationId] = React.useState<string | null>(null);
-  const [thread, setThread] = React.useState<ThreadState | null>(null);
-  const [composer, setComposer] = React.useState<ComposerState>({
-    text: "",
-    sending: false,
-    sendError: null,
-  });
-  const pendingSendKeyRef = React.useRef<string | null>(null);
-  const [newMessage, setNewMessage] = React.useState<NewMessageState>({
-    open: false,
-    query: "",
-    results: [],
-    searching: false,
-    searchError: null,
-    creating: false,
-    createError: null,
-  });
-  const listRequestRef = React.useRef(0);
-  const threadRequestRef = React.useRef(0);
+function projectLabel(
+  projectId: number | null,
+  labels: Map<number, string>
+): string {
+  if (projectId == null) return "Unscoped";
+  return labels.get(projectId) ?? "Project";
+}
 
-  const loadList = React.useCallback(async () => {
-    const requestId = ++listRequestRef.current;
-    setLoadState({ status: "loading" });
+function originLabel(
+  conversation: DirectMessageConversation,
+  labels: Map<number, string>
+): string {
+  const originProject = conversation.origin.origin_project_id;
+  const originThread = conversation.origin.origin_thread_id;
+  if (originProject == null && originThread == null) return "General";
+  const project = projectLabel(originProject, labels);
+  if (originThread == null) return project;
+  return `${project} · Thread ${originThread}`;
+}
+
+export default function DirectMessageInbox({
+  capabilityState,
+  sourceThreadId,
+  state,
+}: DirectMessageInboxProps) {
+  const [conversations, setConversations] = useState<DirectMessageConversation[]>(
+    []
+  );
+  const [projectLabels, setProjectLabels] = useState<Map<number, string>>(
+    () => new Map()
+  );
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [filterRelationshipId, setFilterRelationshipId] = useState<
+    string | null
+  >(null);
+
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<DirectMessageSocialProfile[]>(
+    []
+  );
+  const [searching, setSearching] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const messagingEnabled = capabilityState === "available";
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      const [nextConversations, ownProfile] = await Promise.all([
+      const [conversationRows, labels] = await Promise.all([
         fetchDirectMessageConversations(),
-        fetchOwnSocialIdentity(),
+        fetchProjectLabelMap(),
       ]);
-      if (requestId !== listRequestRef.current) return;
-      setConversations(nextConversations);
-      setSelfProfile(ownProfile);
-      setLoadState({ status: "ready" });
+      setConversations(conversationRows);
+      setProjectLabels(labels);
+      conversationRows.forEach((conversation) =>
+        state.cacheConversationMeta(conversation)
+      );
     } catch (error) {
-      if (requestId !== listRequestRef.current) return;
-      setLoadState({
-        status: "error",
-        message:
-          directMessageErrorStatus(error) === 401
-            ? "Direct messages require an authenticated session."
-            : "Could not load your direct messages.",
-      });
+      const normalized = normalizeDirectMessageError(error);
+      setLoadError(
+        normalized.status === 404
+          ? "Direct messaging is unavailable in this profile."
+          : normalized.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (!messagingEnabled) return;
+    void reload();
+  }, [messagingEnabled, reload]);
+
+  const filterOptions = useMemo(
+    () => buildPeerFilterOptions(conversations),
+    [conversations]
+  );
+
+  const visibleConversations = useMemo(
+    () => filterConversationsByRelationship(conversations, filterRelationshipId),
+    [conversations, filterRelationshipId]
+  );
+
+  const filteredPeer = useMemo(() => {
+    if (filterRelationshipId === null) return null;
+    return visibleConversations[0]?.peer ?? null;
+  }, [filterRelationshipId, visibleConversations]);
+
+  const runSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    setCreateError(null);
+    try {
+      setSearchResults(await searchDirectMessageProfiles(trimmed));
+    } catch (error) {
+      setCreateError(normalizeDirectMessageError(error).message);
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
   }, []);
 
-  React.useEffect(() => {
-    void loadList();
-  }, [loadList]);
+  const computeOrigin = useCallback(async (): Promise<ConversationOriginInput> => {
+    if (sourceThreadId == null) return {};
+    const projectId = await fetchThreadProjectScope(sourceThreadId);
+    if (projectId == null) return {};
+    return {
+      origin_project_id: projectId,
+      origin_thread_id: sourceThreadId,
+    };
+  }, [sourceThreadId]);
 
-  const openConversation = React.useCallback(
-    async (conversation: ConversationProjection) => {
-      const requestId = ++threadRequestRef.current;
-      setActiveConversationId(conversation.conversation_id);
-      setComposer((current) => ({ ...current, sendError: null }));
-      setThread({
-        conversationId: conversation.conversation_id,
-        messages: [],
-        loading: true,
-        loadingOlder: false,
-        exhaustedOlder: false,
-        historyError: null,
-      });
-      try {
-        const messages = await fetchDirectMessageMessages(conversation.conversation_id, {
-          limit: MESSAGE_PAGE_SIZE,
-        });
-        if (requestId !== threadRequestRef.current) return;
-        setThread((current) =>
-          current && current.conversationId === conversation.conversation_id
-            ? {
-                ...current,
-                messages,
-                loading: false,
-                exhaustedOlder: messages.length < MESSAGE_PAGE_SIZE,
-              }
-            : current
-        );
-      } catch {
-        if (requestId !== threadRequestRef.current) return;
-        setThread((current) =>
-          current && current.conversationId === conversation.conversation_id
-            ? {
-                ...current,
-                loading: false,
-                historyError: "Could not load this conversation's messages.",
-              }
-            : current
-        );
-      }
-    },
-    []
-  );
-
-  const loadOlderMessages = React.useCallback(async () => {
-    if (!thread || thread.loadingOlder || thread.exhaustedOlder) return;
-    const oldest = thread.messages[0];
-    if (!oldest) return;
-    setThread((current) => (current ? { ...current, loadingOlder: true } : current));
-    try {
-      const older = await fetchDirectMessageMessages(thread.conversationId, {
-        limit: MESSAGE_PAGE_SIZE,
-        beforeId: oldest.message_id,
-      });
-      setThread((current) =>
-        current && current.conversationId === thread.conversationId
-          ? {
-              ...current,
-              messages: prependOlderMessages(current.messages, older),
-              loadingOlder: false,
-              exhaustedOlder: older.length < MESSAGE_PAGE_SIZE,
-            }
-          : current
-      );
-    } catch {
-      setThread((current) =>
-        current && current.conversationId === thread.conversationId
-          ? {
-              ...current,
-              loadingOlder: false,
-              historyError: "Could not load earlier messages.",
-            }
-          : current
-      );
-    }
-  }, [thread]);
-
-  const handleSend = React.useCallback(async () => {
-    const body = composer.text.trim();
-    if (!body || !thread || composer.sending) return;
-    const conversationId = thread.conversationId;
-    // Stable per-attempt key: retrying the same attempt replays, never duplicates.
-    const clientMessageKey =
-      pendingSendKeyRef.current ?? crypto.randomUUID();
-    pendingSendKeyRef.current = clientMessageKey;
-    setComposer((current) => ({ ...current, sending: true, sendError: null }));
-    try {
-      const result = await sendDirectMessage(conversationId, body, clientMessageKey);
-      pendingSendKeyRef.current = null;
-      setThread((current) =>
-        current && current.conversationId === conversationId
-          ? {
-              ...current,
-              messages: mergeConfirmedMessage(current.messages, result.message),
-            }
-          : current
-      );
-      setComposer({ text: "", sending: false, sendError: null });
-      void loadList();
-    } catch (error) {
-      // Keep the key so a retry replays instead of duplicating.
-      setComposer((current) => ({
-        ...current,
-        sending: false,
-        sendError:
-          directMessageErrorStatus(error) === 404
-            ? "This conversation is no longer available."
-            : "Message could not be sent. Try again.",
-      }));
-    }
-  }, [composer.text, composer.sending, thread, loadList]);
-
-  const handleSearch = React.useCallback(async () => {
-    const query = newMessage.query.trim();
-    if (!query) {
-      setNewMessage((current) => ({ ...current, results: [], searchError: null }));
-      return;
-    }
-    setNewMessage((current) => ({ ...current, searching: true, searchError: null }));
-    try {
-      const results = await searchDirectMessageProfiles(query);
-      setNewMessage((current) => ({ ...current, searching: false, results }));
-    } catch {
-      setNewMessage((current) => ({
-        ...current,
-        searching: false,
-        searchError: "Profile search failed. Try again.",
-      }));
-    }
-  }, [newMessage.query]);
-
-  const handleCreateWithPeer = React.useCallback(
-    async (peer: SocialProfilePayload) => {
-      setNewMessage((current) => ({ ...current, creating: true, createError: null }));
+  const startConversationWith = useCallback(
+    async (profile: DirectMessageSocialProfile): Promise<void> => {
+      setCreating(true);
+      setCreateError(null);
       try {
         const relationship = await resolveDirectMessageRelationship(
-          peer.node_id,
-          peer.profile_id
+          profile.node_id,
+          profile.profile_id
         );
-        const conversation = await createGeneralDirectMessageConversation(
-          relationship.relationship_id
+        const origin = await computeOrigin();
+        const conversation = await createDirectMessageConversation(
+          relationship.relationship_id,
+          origin
         );
-        setNewMessage({
-          open: false,
-          query: "",
-          results: [],
-          searching: false,
-          searchError: null,
-          creating: false,
-          createError: null,
-        });
-        await loadList();
-        await openConversation(conversation);
+        state.cacheConversationMeta(conversation);
+        setNewConversationOpen(false);
+        setSearchQuery("");
+        setSearchResults([]);
+        await reload();
+        state.openConversation(conversation.conversation_id, conversation);
       } catch (error) {
-        const status = directMessageErrorStatus(error);
-        setNewMessage((current) => ({
-          ...current,
-          creating: false,
-          createError:
-            status === 404
-              ? "That profile is not available on this node."
-              : status === 400
-                ? "You cannot message your own profile."
-                : "Could not start the conversation. Try again.",
-        }));
+        setCreateError(normalizeDirectMessageError(error).message);
+      } finally {
+        setCreating(false);
       }
     },
-    [loadList, openConversation]
+    [computeOrigin, reload, state]
   );
 
-  const filterOptions: PeerFilterOption[] = React.useMemo(
-    () => buildPeerFilterOptions(conversations, selfProfile?.profile_id),
-    [conversations, selfProfile]
-  );
+  if (!messagingEnabled) {
+    return (
+      <main
+        className="flex min-h-full items-center justify-center p-6"
+        data-testid="direct-messages-unavailable"
+      >
+        <section
+          aria-labelledby="direct-messages-unavailable-heading"
+          className="w-full max-w-md rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--panel-bg)]/95 p-8 text-[var(--text)] shadow-2xl backdrop-blur-xl"
+        >
+          <p className="text-xs uppercase tracking-[0.3em] text-[var(--text-subtle)]">
+            Codexify
+          </p>
+          <h1
+            className="mt-3 text-2xl font-semibold tracking-[-0.03em]"
+            id="direct-messages-unavailable-heading"
+          >
+            Direct messages unavailable
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-subtle)]">
+            This runtime profile does not provide the direct-messaging Inbox.
+            Direct messages remain private-profile functionality and have not
+            been widened to other postures.
+          </p>
+        </section>
+      </main>
+    );
+  }
 
-  const visibleConversations = React.useMemo(
-    () => filterConversationsByRelationship(conversations, selectedRelationshipId),
-    [conversations, selectedRelationshipId]
-  );
-
-  const activeConversation = React.useMemo(
-    () =>
-      conversations.find(
-        (conversation) => conversation.conversation_id === activeConversationId
-      ) ?? null,
-    [conversations, activeConversationId]
-  );
-
-  const activePeer = React.useMemo(
-    () =>
-      activeConversation
-        ? peerForCaller(activeConversation.participants, selfProfile?.profile_id)
-        : null,
-    [activeConversation, selfProfile]
-  );
-
-  const selectedPeerLabel =
-    selectedRelationshipId === null
-      ? null
-      : (filterOptions.find(
-          (option) => option.relationship_id === selectedRelationshipId
-        )?.label ?? null);
+  if (state.selectedConversationId) {
+    return (
+      <DirectConversation
+        conversationId={state.selectedConversationId}
+        state={state}
+        projectLabels={projectLabels}
+        onBack={state.closeConversation}
+      />
+    );
+  }
 
   return (
-    <div style={s.root} data-testid="direct-message-inbox">
-      <aside style={s.side}>
-        <div style={s.sideHeader}>
-          <div style={s.title}>Inbox</div>
-          <button
-            type="button"
-            style={s.newButton}
-            data-testid="inbox-new-message"
-            onClick={() =>
-              setNewMessage((current) => ({
-                ...current,
-                open: true,
-                results: [],
-                query: "",
-                searchError: null,
-                createError: null,
-              }))
-            }
-          >
-            New message
-          </button>
+    <section className="flex h-full min-h-0 flex-col" aria-label="Inbox">
+      <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-3">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-[var(--text-subtle)]">
+            Direct conversations
+          </p>
+          <h3 className="text-base font-semibold tracking-[-0.02em] text-[var(--text)]">
+            Your conversations
+          </h3>
         </div>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
+          aria-expanded={newConversationOpen}
+          onClick={() => setNewConversationOpen((current) => !current)}
+        >
+          <MessageSquarePlus size={14} aria-hidden="true" />
+          New Conversation
+        </button>
+      </div>
 
-        {loadState.status === "loading" ? (
-          <div style={s.centered} data-testid="inbox-loading">
-            <span style={s.subtle}>Loading your messages…</span>
-          </div>
-        ) : loadState.status === "error" ? (
-          <div style={s.centered} data-testid="inbox-error">
-            <span style={s.errorText}>{loadState.message}</span>
-            <button type="button" style={s.ghostButton} onClick={() => void loadList()}>
-              Retry
-            </button>
-          </div>
-        ) : conversations.length === 0 ? (
-          <div style={s.centered} data-testid="inbox-empty">
-            <span style={{ fontWeight: 600 }}>No messages yet</span>
-            <span style={s.subtle}>
-              Start a private conversation with someone on your node.
-            </span>
+      {newConversationOpen ? (
+        <div className="mx-4 mb-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-3" aria-label="New Conversation">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--background,transparent)] px-2.5 py-1.5">
+            <Search size={13} aria-hidden="true" className="text-[var(--text-subtle)]" />
+            <input
+              type="search"
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-subtle)]"
+              value={searchQuery}
+              placeholder="Search by Codexify username"
+              aria-label="Search profiles by username"
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                void runSearch(event.target.value);
+              }}
+            />
             <button
               type="button"
-              style={s.newButton}
-              onClick={() =>
-                setNewMessage((current) => ({ ...current, open: true }))
-              }
+              aria-label="Close new conversation search"
+              className="text-[var(--text-subtle)] hover:text-[var(--text)]"
+              onClick={() => {
+                setNewConversationOpen(false);
+                setSearchQuery("");
+                setSearchResults([]);
+                setCreateError(null);
+              }}
             >
-              New message
+              <X size={13} aria-hidden="true" />
             </button>
           </div>
-        ) : (
-          <>
-            <div style={s.chips} data-testid="inbox-filters">
-              <button
-                type="button"
-                data-testid="inbox-filter-all"
-                style={{
-                  ...s.chip,
-                  ...(selectedRelationshipId === null ? s.chipActive : {}),
-                }}
-                onClick={() => setSelectedRelationshipId(null)}
-              >
-                All
-              </button>
-              {filterOptions.map((option) => (
+          {createError ? (
+            <p className="mt-2 text-xs text-[var(--text-subtle)]">{createError}</p>
+          ) : null}
+          {searching ? (
+            <p className="mt-2 text-xs text-[var(--text-subtle)]">Searching…</p>
+          ) : searchQuery.trim() && searchResults.length === 0 ? (
+            <p className="mt-2 text-xs text-[var(--text-subtle)]">
+              No profiles match that username.
+            </p>
+          ) : (
+            <div className="mt-2 space-y-1" role="list">
+              {searchResults.map((profile) => (
                 <button
-                  key={option.relationship_id}
+                  key={`${profile.node_id}:${profile.profile_id}`}
                   type="button"
-                  data-testid={`inbox-filter-${option.relationship_id}`}
-                  style={{
-                    ...s.chip,
-                    ...(selectedRelationshipId === option.relationship_id
-                      ? s.chipActive
-                      : {}),
-                  }}
-                  onClick={() => setSelectedRelationshipId(option.relationship_id)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
+                  data-testid="profile-search-result"
+                  disabled={creating}
+                  onClick={() => void startConversationWith(profile)}
                 >
-                  {option.label}
+                  <span>{peerPresentationLabel(profile)}</span>
+                  {profile.username ? (
+                    <span className="text-xs text-[var(--text-subtle)]">
+                      @{profile.username}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
-            <div style={s.list} data-testid="inbox-conversation-list">
-              {visibleConversations.length === 0 ? (
-                <div style={s.centered}>
-                  <span style={s.subtle}>No conversations with this person.</span>
-                </div>
-              ) : (
-                visibleConversations.map((conversation) => {
-                  const peer = peerForCaller(
-                    conversation.participants,
-                    selfProfile?.profile_id
-                  );
-                  const active = conversation.conversation_id === activeConversationId;
-                  return (
-                    <button
-                      key={conversation.conversation_id}
-                      type="button"
-                      data-testid={`inbox-conversation-${conversation.conversation_id}`}
-                      style={{ ...s.row, ...(active ? s.rowActive : {}) }}
-                      onClick={() => void openConversation(conversation)}
-                    >
-                      <div style={s.rowTop}>
-                        <span style={s.rowPeer}>{peerPresentationLabel(peer)}</span>
-                        <span style={s.rowTime}>
-                          {formatTimestamp(
-                            conversation.latest_message?.created_at ??
-                              conversation.latest_activity_at
-                          )}
-                        </span>
-                      </div>
-                      <div style={s.rowPreview}>
-                        {conversation.latest_message
-                          ? conversation.latest_message.preview
-                          : "No messages yet"}
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </>
-        )}
-      </aside>
+          )}
+        </div>
+      ) : null}
 
-      <section style={s.thread}>
-        {thread === null ? (
-          <div style={s.centered} data-testid="inbox-thread-empty">
-            <span style={{ fontWeight: 600 }}>Select a conversation</span>
-            <span style={s.subtle}>
-              Each conversation stays a distinct thread — even with the same
-              person.
-            </span>
-          </div>
-        ) : (
-          <>
-            <div style={s.threadHeader}>
-              {peerPresentationLabel(activePeer)}
-              {selectedPeerLabel ? ` · ${selectedPeerLabel}` : ""}
-            </div>
-            <div style={s.messages} data-testid="inbox-message-list">
-              {thread.historyError && (
-                <div style={{ ...s.errorText, marginBottom: 10 }}>
-                  {thread.historyError}
-                </div>
-              )}
-              {!thread.exhaustedOlder && (
-                <button
-                  type="button"
-                  data-testid="inbox-load-older"
-                  style={s.ghostButton}
-                  disabled={thread.loadingOlder}
-                  onClick={() => void loadOlderMessages()}
-                >
-                  {thread.loadingOlder ? "Loading…" : "Load earlier"}
-                </button>
-              )}
-              {thread.loading ? (
-                <div style={{ ...s.subtle, padding: "10px 0" }}>Loading…</div>
-              ) : thread.messages.length === 0 ? (
-                <div style={s.centered} data-testid="inbox-thread-no-messages">
-                  <span style={s.subtle}>No messages yet. Say hello.</span>
-                </div>
-              ) : (
-                thread.messages.map((message) => {
-                  const mine = message.source.profile_id === selfProfile?.profile_id;
-                  return (
-                    <div
-                      key={message.message_id}
-                      style={{
-                        ...s.bubbleRow,
-                        justifyContent: mine ? "flex-end" : "flex-start",
-                      }}
-                      data-testid={`inbox-message-${message.message_id}`}
-                    >
-                      <div
-                        style={{
-                          ...s.bubble,
-                          ...(mine ? s.bubbleMine : s.bubblePeer),
-                        }}
-                      >
-                        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                          {message.content.body}
-                        </div>
-                        <div style={s.bubbleMeta}>
-                          <span>{mine ? "You" : peerPresentationLabel(activePeer)}</span>
-                          <span>{formatTimestamp(message.created_at)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            <div style={s.composer}>
-              <textarea
-                style={s.composerInput}
-                data-testid="inbox-composer"
-                placeholder="Write a message…"
-                value={composer.text}
-                onChange={(event) =>
-                  setComposer((current) => ({ ...current, text: event.target.value }))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void handleSend();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                style={s.sendButton}
-                data-testid="inbox-send"
-                disabled={composer.sending || !composer.text.trim()}
-                onClick={() => void handleSend()}
-              >
-                {composer.sending ? "Sending…" : "Send"}
-              </button>
-            </div>
-            {composer.sendError && (
-              <div style={{ padding: "0 18px 10px" }}>
-                <span style={s.errorText}>{composer.sendError}</span>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+      <div
+        className="mx-4 mb-2 flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label="Person filter"
+      >
+        <button
+          type="button"
+          className={
+            filterRelationshipId === null
+              ? "rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent-foreground,var(--background))]"
+              : "rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--text-subtle)] transition-colors hover:text-[var(--text)]"
+          }
+          onClick={() => setFilterRelationshipId(null)}
+        >
+          All
+        </button>
+        {filterOptions.map((option) => (
+          <button
+            key={option.relationship_id}
+            type="button"
+            data-testid={`person-filter-${option.relationship_id}`}
+            className={
+              filterRelationshipId === option.relationship_id
+                ? "rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent-foreground,var(--background))]"
+                : "rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--text-subtle)] transition-colors hover:text-[var(--text)]"
+            }
+            onClick={() => setFilterRelationshipId(option.relationship_id)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
-      {newMessage.open && (
-        <div style={s.backdrop} data-testid="inbox-new-message-modal">
-          <div style={s.modal}>
-            <div style={s.modalTitle}>New message</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                style={{ ...s.composerInput, flex: 1 }}
-                data-testid="inbox-profile-search"
-                placeholder="Search local profiles…"
-                value={newMessage.query}
-                onChange={(event) =>
-                  setNewMessage((current) => ({
-                    ...current,
-                    query: event.target.value,
-                  }))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void handleSearch();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                style={s.sendButton}
-                disabled={newMessage.searching}
-                onClick={() => void handleSearch()}
+      {loading && conversations.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-[var(--text-subtle)]">
+          Loading your conversations…
+        </p>
+      ) : loadError && conversations.length === 0 ? (
+        <div className="px-4 py-6 text-center">
+          <p className="text-sm text-[var(--text-subtle)]">{loadError}</p>
+          <button
+            type="button"
+            className="mt-2 rounded-lg border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--text)]"
+            onClick={() => void reload()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : conversations.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-[var(--text-subtle)]">
+          No conversations yet. Start one by searching a Codexify username.
+        </p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" role="list">
+          {filteredPeer && filterRelationshipId !== null ? (
+            <div className="mb-2 mt-1 flex items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-2">
+              <span
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)]/15 text-xs font-semibold text-[var(--accent)]"
+                aria-hidden="true"
               >
-                {newMessage.searching ? "Searching…" : "Search"}
-              </button>
-            </div>
-            {newMessage.searchError && (
-              <div style={{ marginTop: 8 }}>
-                <span style={s.errorText}>{newMessage.searchError}</span>
+                {avatarInitials(peerPresentationLabel(filteredPeer))}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[var(--text)]">
+                  {peerPresentationLabel(filteredPeer)}
+                </p>
+                <p className="text-xs text-[var(--text-subtle)]">
+                  All conversations with this person
+                </p>
               </div>
-            )}
-            <div style={{ marginTop: 6 }}>
-              {newMessage.results.length === 0 && !newMessage.searching ? (
-                <div style={{ ...s.subtle, marginTop: 8 }} data-testid="inbox-search-empty">
-                  No local profiles match.
-                </div>
-              ) : (
-                newMessage.results.map((profile) => (
-                  <button
-                    key={profile.profile_id}
-                    type="button"
-                    style={s.resultRow}
-                    data-testid={`inbox-profile-result-${profile.profile_id}`}
-                    disabled={newMessage.creating}
-                    onClick={() => void handleCreateWithPeer(profile)}
-                  >
-                    {peerPresentationLabel(profile)}
-                    {profile.display_name && profile.username
-                      ? ` · ${profile.display_name}`
-                      : ""}
-                  </button>
-                ))
-              )}
             </div>
-            {newMessage.createError && (
-              <div style={{ marginTop: 8 }}>
-                <span style={s.errorText}>{newMessage.createError}</span>
-              </div>
-            )}
-            <div style={s.modalActions}>
+          ) : null}
+          {visibleConversations.map((conversation) => {
+            const peer = conversation.peer;
+            const peerLabel = peerPresentationLabel(peer);
+            return (
               <button
+                key={conversation.conversation_id}
                 type="button"
-                style={s.ghostButton}
+                data-testid="conversation-row"
+                className="mb-1 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
                 onClick={() =>
-                  setNewMessage((current) => ({ ...current, open: false }))
+                  state.openConversation(
+                    conversation.conversation_id,
+                    conversation
+                  )
                 }
               >
-                Cancel
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-xs font-semibold text-[var(--accent)]"
+                  aria-hidden="true"
+                >
+                  {avatarInitials(peerLabel)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-[var(--text)]">
+                      {peerLabel}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-[var(--text-subtle)]">
+                      {formatActivity(conversation.latest_activity_at)}
+                    </span>
+                  </span>
+                  {profileSubtitle(peer) ? (
+                    <span className="block truncate text-xs text-[var(--text-subtle)]">
+                      {profileSubtitle(peer)}
+                    </span>
+                  ) : null}
+                  <span className="mt-0.5 block truncate text-xs text-[var(--text-subtle)]">
+                    {conversation.latest_message
+                      ? conversation.latest_message.preview
+                      : "No messages yet"}
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--text-subtle)]/80">
+                    ↳ {originLabel(conversation, projectLabels)} · placed in{" "}
+                    {projectLabel(conversation.placement.project_id, projectLabels)}
+                  </span>
+                </span>
               </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
-    </div>
+    </section>
   );
 }
