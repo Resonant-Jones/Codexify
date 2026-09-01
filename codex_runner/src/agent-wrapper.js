@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	observeAssistantMessageEvent,
 	observeFinalAssistantMessages,
+	createToolTelemetry,
 } from "./assistant-telemetry.js";
 
 // Parse command line args
@@ -549,15 +550,13 @@ async function runAgent() {
 	const effectiveToolNames = getEffectiveToolNames(session);
 	const writeToolAvailable = effectiveToolNames.includes("write");
 
-	// Tool telemetry accumulators (content-free, evidence-only).
-	const toolTelemetry = {
-		effective_tool_names: effectiveToolNames,
-		write_tool_available: writeToolAvailable,
-		tool_execution_start_count: 0,
-		tool_execution_end_count: 0,
-		executed_tool_names: [],
-		assistant_tool_call_count: 0,
-	};
+	// Tool telemetry accumulator (content-free, evidence-only). The
+	// canonical 10-field helper is the sole authority for the bounded
+	// live-authorized telemetry shape; the wrapper only sets the
+	// effective-tool surface which is determined post-session-creation.
+	const toolTelemetry = createToolTelemetry();
+	toolTelemetry.effective_tool_names = effectiveToolNames;
+	toolTelemetry.write_tool_available = writeToolAvailable;
 
 	// Defense-in-depth: if Guardian-authorized-task has writable intent
 	// (`write` should be active) but the session did not register `write`,
@@ -579,7 +578,11 @@ async function runAgent() {
 		return;
 	}
 
-	// Subscribe to events (capture bounded tool-execution telemetry).
+	// Subscribe to events (capture bounded tool-execution telemetry and
+	// bounded assistant-response telemetry).  Both observers are content-
+	// free; the assistant event observer is wired independently of
+	// OPTIONS.verbose so evidence collection does not depend on logging
+	// mode.
 	session.subscribe((event) => {
 		// Count tool execution lifecycle events (NO args/results/content).
 		if (event.type === "tool_execution_start") {
@@ -593,6 +596,9 @@ async function runAgent() {
 		} else if (event.type === "tool_execution_end") {
 			toolTelemetry.tool_execution_end_count += 1;
 		}
+		// Bounded assistant-response event observation (text/reasoning/
+		// arguments/IDs/payloads are NEVER read by the helper).
+		observeAssistantMessageEvent(toolTelemetry, event);
 		if (OPTIONS.verbose) {
 			if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
 				process.stdout.write(event.assistantMessageEvent.delta);
@@ -624,23 +630,11 @@ async function runAgent() {
 		throw error;
 	}
 
-	// Count assistant tool-call blocks (distinct from tool execution).
-	// Inspect assistant messages and count content blocks whose type is exactly
-	// "toolCall". Do NOT record tool-call arguments.
-	try {
-		const finalMessages = session.agent.state.messages;
-		for (const message of finalMessages) {
-			if (message.role !== "assistant") continue;
-			if (!Array.isArray(message.content)) continue;
-			for (const block of message.content) {
-				if (block && block.type === "toolCall") {
-					toolTelemetry.assistant_tool_call_count += 1;
-				}
-			}
-		}
-	} catch (_error) {
-		// leave count at 0; bounded evidence only
-	}
+	// Bounded observation of the final Pi 0.82.1 assistant messages.
+	// The canonical helper owns the assistant_message_count,
+	// assistant_content_block_types, and assistant_tool_call_count
+	// fields; it NEVER reads text/reasoning/arguments/IDs.
+	observeFinalAssistantMessages(toolTelemetry, session);
 
 	// Print final output
 	if (guardianAuthorizedMode) {

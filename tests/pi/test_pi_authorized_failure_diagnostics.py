@@ -1227,18 +1227,14 @@ def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
     hidden ignored file is required for this test to pass.
 
     The framing repair must NOT collapse this multi-line stdout into
-    ``wrapper_protocol_failed`` at the JSON decode step.  The actual
-    bounded failure here (if any) comes from the wrapper's success
-    payload carrying only the older 6 telemetry fields, not the four
-    assistant-response fields the adapter requires for live authorized
-    success — which is a separate, known wrapper-output shape question
-    and OUT OF SCOPE for this repair slice.
+    ``wrapper_protocol_failed`` at the JSON decode step.  After the
+    Guardian-authorized ten-field telemetry repair, the wrapper emits
+    a complete 10-field ``tool_telemetry`` object and the real
+    ``execute_authorized`` path accepts the success frame (not a
+    bounded ``wrapper_protocol_failed``).
 
-    The assertion that matters: the adapter does NOT emit
-    ``failure_classification=wrapper_protocol_failed`` because the
-    stdout could not be decoded; if it emits ``wrapper_protocol_failed``
-    it must be due to telemetry strictness (or runtime identity), which
-    is downstream of framing.
+    The secret-shaped leading diagnostic (``access_token=secret-not-returned``)
+    must not appear in the returned envelope's serialized payload.
     """
     materialized = _materialize_fake_pi_package(tmp_path)
     fake_home = tmp_path / "home"
@@ -1259,6 +1255,28 @@ def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
     parsed = json.loads(final_line)
     assert isinstance(parsed, dict)
     assert "actual_runtime_identity" in parsed
+    # After the 10-field telemetry repair, the wrapper emits a complete
+    # 10-field tool_telemetry object on success.
+    assert parsed["status"] == "ok", (
+        f"pre-repair 6-field payload expected; got status={parsed['status']!r}: {parsed!r}"
+    )
+    tt = parsed["tool_telemetry"]
+    expected_keys = {
+        "effective_tool_names",
+        "write_tool_available",
+        "tool_execution_start_count",
+        "tool_execution_end_count",
+        "executed_tool_names",
+        "assistant_tool_call_count",
+        "assistant_message_count",
+        "assistant_content_block_types",
+        "assistant_message_event_types",
+        "assistant_tool_call_event_count",
+    }
+    assert set(tt.keys()) == expected_keys, (
+        f"tool_telemetry keys mismatch: missing={expected_keys - set(tt.keys())} "
+        f"extra={set(tt.keys()) - expected_keys}"
+    )
     # The adapter's framing helper recovers the same payload.
     recovered = pi_codex_runner._parse_authorized_stdout_frame(result.stdout)
     assert recovered == parsed
@@ -1272,6 +1290,197 @@ def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
     assert envelope.actual_harness_id == "pi-coding-agent"
     assert envelope.actual_harness_version == "0.82.1"
     assert envelope.runtime_identity_established is True
+    # Secret-shaped leading diagnostic MUST NOT appear in the envelope.
+    payload_dump = json.dumps(envelope.model_dump(), sort_keys=True)
+    assert "secret-not-returned" not in payload_dump
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in payload_dump
+
+
+# --- Guardian-authorized ten-field telemetry contract tests.
+#
+# These tests exercise the real wrapper against the materialized fake Pi
+# package.  The fake exposes two behavior modes:
+#   default            (no PI_FAKE_I_BEHAVIOR)  -> zero-event success
+#   assistant-tool-call (PI_FAKE_I_BEHAVIOR=assistant-tool-call)
+#                                           -> bounded event sequence
+# The default path produces a clean zero-event success with all ten
+# telemetry fields populated to bounded zero/empty values.  The
+# assistant-tool-call path produces a sentinel lifecycle with the
+# exact field values spec'd in the bounded-live-substrate-proof
+# recipe (Requirement 19).
+
+ZERO_EVENT_EXPECTED = {
+    "effective_tool_names": ("read", "bash", "edit", "write"),
+    "write_tool_available": True,
+    "tool_execution_start_count": 0,
+    "tool_execution_end_count": 0,
+    "executed_tool_names": (),
+    "assistant_tool_call_count": 0,
+    "assistant_message_count": 0,
+    "assistant_content_block_types": (),
+    "assistant_message_event_types": (),
+    "assistant_tool_call_event_count": 0,
+}
+
+SENTINEL_EXPECTED = {
+    "effective_tool_names": ("read", "bash", "edit", "write"),
+    "write_tool_available": True,
+    "tool_execution_start_count": 1,
+    "tool_execution_end_count": 1,
+    "executed_tool_names": ("write",),
+    "assistant_tool_call_count": 1,
+    "assistant_message_count": 1,
+    "assistant_content_block_types": ("toolCall",),
+    "assistant_message_event_types": ("toolcall_start", "toolcall_end"),
+    "assistant_tool_call_event_count": 2,
+}
+
+
+def _last_json(stdout: str) -> dict:
+    final_line = stdout.strip().splitlines()[-1]
+    return json.loads(final_line)
+
+
+def _envelope_tt_dict(envelope) -> dict[str, object]:
+    """Map the bounded envelope's individual telemetry attributes to a
+    dict for spec-mapped comparison."""
+    return {
+        "effective_tool_names": envelope.effective_tool_names,
+        "write_tool_available": envelope.write_tool_available,
+        "tool_execution_start_count": envelope.tool_execution_start_count,
+        "tool_execution_end_count": envelope.tool_execution_end_count,
+        "executed_tool_names": envelope.executed_tool_names,
+        "assistant_tool_call_count": envelope.assistant_tool_call_count,
+        "assistant_message_count": envelope.assistant_message_count,
+        "assistant_content_block_types": envelope.assistant_content_block_types,
+        "assistant_message_event_types": envelope.assistant_message_event_types,
+        "assistant_tool_call_event_count": envelope.assistant_tool_call_event_count,
+    }
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_ten_field_zero_event_success(tmp_path: Path) -> None:
+    """Canonical 10-field zero-event success: the wrapper emits a
+    complete tool_telemetry object with all four newly-wired assistant
+    fields present (default behavior; no events emitted)."""
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _subprocess_authorized_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, (
+        f"wrapper subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    parsed = _last_json(result.stdout)
+    assert parsed["status"] == "ok"
+    envelope = _envelope_from_wrapper_result(result)
+    assert envelope.status == "ok"
+    assert envelope.runtime_identity_established is True
+    actual = _envelope_tt_dict(envelope)
+    for key, expected in ZERO_EVENT_EXPECTED.items():
+        assert actual[key] == expected, (
+            f"telemetry field {key!r}: expected {expected!r}, got {actual[key]!r}"
+        )
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_ten_field_assistant_tool_call_sentinel(tmp_path: Path) -> None:
+    """Sentinel lifecycle: fake Pi emits one toolcall_start, one
+    tool_execution_start (write), one tool_execution_end (write), and
+    one toolcall_end.  Final session state contains one assistant
+    message with one toolCall block carrying a secret-shaped
+    argument.  The wrapper must surface the exact 10-field values
+    from SENTINEL_EXPECTED and MUST NOT retain the secret-shaped
+    argument anywhere in the bounded envelope."""
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    extra_env = {"PI_FAKE_I_BEHAVIOR": "assistant-tool-call"}
+    result = _subprocess_authorized_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        extra_env=extra_env,
+    )
+    assert result.returncode == 0, (
+        f"wrapper subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    parsed = _last_json(result.stdout)
+    assert parsed["status"] == "ok"
+    envelope = _envelope_from_wrapper_result(result)
+    assert envelope.status == "ok"
+    assert envelope.runtime_identity_established is True
+    actual = _envelope_tt_dict(envelope)
+    for key, expected in SENTINEL_EXPECTED.items():
+        assert actual[key] == expected, (
+            f"telemetry field {key!r}: expected {expected!r}, got {actual[key]!r}"
+        )
+    # Content-redaction proof: secret-shaped argument MUST NOT appear
+    # in any serialized envelope field.
+    payload_dump = json.dumps(envelope.model_dump(), sort_keys=True)
+    assert "secret-not-returned" not in payload_dump, (
+        "secret-shaped argument leaked into the bounded envelope"
+    )
+
+
+def test_remove_assistant_message_count_fails_closed() -> None:
+    """Missing one assistant field (assistant_message_count) in an
+    otherwise valid authorized success frame must still return
+    wrapper_protocol_failed at wrapper_protocol.  The framing
+    repair must not weaken the 10-field strictness contract."""
+    payload = {
+        "status": "ok",
+        "summary": "bounded",
+        "actual_runtime_identity": {
+            "actual_provider_id": "openai-codex",
+            "actual_model_id": "gpt-5.6-sol",
+            "actual_harness_id": "pi-coding-agent",
+            "actual_harness_version": "0.82.1",
+        },
+        "execution_result": {
+            "status": "completed",
+            "result_kind": "structured",
+            "content_omitted": True,
+        },
+        "session_initialized": True,
+        "provider_request_started": True,
+        "tool_telemetry": {
+            "effective_tool_names": ["read", "bash", "edit", "write"],
+            "write_tool_available": True,
+            "tool_execution_start_count": 0,
+            "tool_execution_end_count": 0,
+            "executed_tool_names": [],
+            "assistant_tool_call_count": 0,
+            # assistant_message_count omitted
+            "assistant_content_block_types": [],
+            "assistant_message_event_types": [],
+            "assistant_tool_call_event_count": 0,
+        },
+    }
+    result = subprocess.CompletedProcess(
+        ["node", "agent-wrapper.js", "guardian-authorized-task", "fixture"],
+        0,
+        json.dumps(payload),
+        "",
+    )
+    envelope = PiCodexRunnerAdapter()._parse_result(
+        result,
+        require_runtime_identity=True,
+        require_tool_telemetry=True,
+    )
+    assert envelope.failure_classification == (
+        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+    )
+    assert envelope.failure_stage == "wrapper_protocol"
 
 
 @pytest.mark.skipif(
