@@ -234,14 +234,19 @@ database current-head verification
 → bounded guest canary
 ```
 
-The database-migration proof is proven for the preserved checkpoint, but this
-does not claim that the recovery proof or guest canary has passed. Keep the
-friends-and-family gate closed until those separate gates pass.
+The [2026-09-01 private-preview backup/restore requalification proof after
+Docker recovery](../architecture/proofs/runtime/2026-09-01-private-preview-backup-restore-after-docker-recovery-proof.md)
+is proven for local `main` commit `14929d2e6047797fdc1e803a9b4234af745a48bb`.
+Recovery prerequisite cleared for a bounded friends-and-family private-preview
+canary. This proof does not execute or admit that canary; keep guest traffic
+closed until the separate canary gate passes.
 
 The [2026-08-31 private-preview backup/restore attempt](../architecture/proofs/runtime/2026-08-31-private-preview-backup-restore-proof.md)
 failed closed before backup because the preserved source database migration
-revision trailed current local `main`. It created no retained checkpoint and
-does not clear this prerequisite.
+revision trailed current local `main`; the subsequent helper defect and
+Docker-unavailable receipts remain historical lineage. Those failures were not
+reused as proof and are superseded for this recovery gate by the fresh
+2026-09-01 checkpoint above.
 
 ## Truth boundaries
 
