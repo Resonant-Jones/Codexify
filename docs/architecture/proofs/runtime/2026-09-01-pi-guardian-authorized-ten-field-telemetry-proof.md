@@ -335,3 +335,254 @@ DOES NOT PROVE:
 - CE-L1 closure (CE-L1=OPEN; LIVE_EXECUTOR_PROVEN=NOT_EMITTED).
 - The readiness-helper `await` question (parked; not admitted).
 - A schema-version change.  The 10-field shape is unchanged.
+
+
+# 2026-09-01 canonical landing preflight — PASS
+
+## Result
+
+```
+RESULT                                = PASS
+GUARDIAN_AUTHORIZED_TEN_FIELD_TELEMETRY = PASS_QUALIFIED_LOCAL
+AUTHORIZED_WRAPPER_STDOUT_FRAMING_DEFECT = PROVEN_AND_REPAIRED_CANONICAL
+PI_WRAPPER_PROTOCOL_FIXTURE_REPRODUCIBILITY = PASS_TRACKED_ONLY_CANONICAL
+LIVE_WRAPPER_PROTOCOL_CAUSE              = UNRESOLVED
+CAUSAL_CLASSIFICATION                     = UNRESOLVED_ASSISTANT_TOOL_CALL_EMISSION_BOUNDARY
+CE-L1                                     = OPEN
+LIVE_EXECUTOR_PROVEN                      = NOT_EMITTED
+CANONICAL_LANDING_CANDIDATE               = PASS
+```
+
+## Scope
+
+This is a landing-preflight receipt only.  No new implementation edit
+is authorized.  The locally-qualified Guardian-authorized ten-field
+telemetry repair is committed as:
+
+```
+c32f84f12395a157d59b6e68b635677bd5a8bec3  Complete Pi authorized ten-field telemetry
+```
+
+with parent:
+
+```
+96a9cc3de79cbefbe14b78c64fabedb1f3b4d9ef
+```
+
+## Pre-push identity
+
+```
+LANDING_BASE_CHECK                       = PASS  (origin/main == 96a9cc3de79cbefbe14b78c64fabedb1f3b4d9ef)
+MAIN_MOVEMENT_BEFORE_PUSH                = NONE
+RUNTIME_SEAM_DRIFT_RESULT                = ORTHOGONAL
+AUTHORITATIVE_IMPLEMENTATION_SHA         = c32f84f12395a157d59b6e68b635677bd5a8bec3
+IMPLEMENTATION_BASE                      = PASS  (merge-base == 96a9cc3de79cbefbe14b78c64fabedb1f3b4d9ef)
+IMPLEMENTATION_SUBJECT                    = "Complete Pi authorized ten-field telemetry"
+TRACKED_WORKTREE_STATUS                  = clean  (LFS package.json ghost "M" only)
+```
+
+## Candidate changed-file list (canonical landing surface)
+
+```
+git diff 96a9cc3de79cbefbe14b78c64fabedb1f3b4d9ef..c32f84f12395a157d59b6e68b635677bd5a8bec3
+--name-status
+
+M  codex_runner/src/agent-wrapper.js
+A  docs/architecture/proofs/runtime/2026-09-01-pi-guardian-authorized-ten-field-telemetry-proof.md
+M  tests/ops/test_pi_assistant_response_telemetry.py
+M  tests/pi/fixtures/fake_pi_package/source/index.js
+M  tests/pi/test_pi_authorized_failure_diagnostics.py
+```
+
+Exactly the intended five-file surface.  No unrelated dirty content.
+No ignored `dist/index.js` appears in the PR diff.
+
+## Telemetry field count
+
+```
+TELEMETRY_FIELD_COUNT = 10
+```
+
+## Exact telemetry names
+
+```
+effective_tool_names
+write_tool_available
+tool_execution_start_count
+tool_execution_end_count
+executed_tool_names
+assistant_tool_call_count
+assistant_message_count
+assistant_content_block_types
+assistant_message_event_types
+assistant_tool_call_event_count
+```
+
+## Telemetry source code readback (canonical-candidate)
+
+- `_parse_authorized_stdout_frame` import and `createToolTelemetry()`
+  call present in `codex_runner/src/agent-wrapper.js`.
+- `createToolTelemetry()` live wiring result = PASS.
+- Assistant event observer wired in `session.subscribe`:
+  `observeAssistantMessageEvent(toolTelemetry, event)`.
+- Final assistant observer wired after successful prompt:
+  `observeFinalAssistantMessages(toolTelemetry, session)`.
+- Manual independent final assistant scan removed: the previous
+  for-of-finalMessages loop that bumped assistant_tool_call_count
+  outside the helper is no longer present.
+- Existing tool-execution observations preserved (start, end, executed
+  names).
+
+## Failure-path ten-field result
+
+Both bounded failure paths emit a complete ten-field object:
+
+- Tool-activation failure: `wrapper_protocol_failed / tool_activation`
+  carries a complete ten-field accumulator.
+- Provider/request failure: `provider_request_failed / provider_request`
+  carries a complete ten-field accumulator (partial/zero values are
+  permitted; missing fields are not).
+
+## Outer result schema
+
+The authorized outer schema is unchanged.  Only the contents of
+`tool_telemetry` are now complete:
+
+```
+status
+summary
+actual_runtime_identity
+execution_result
+session_initialized
+provider_request_started
+tool_telemetry
+```
+
+## Stdout framing regression
+
+`AUTHORIZED_STDOUT_FRAMING_REGRESSION = PASS`
+
+The canonical final-non-empty-line framing from PR #778 is preserved.
+`_parse_authorized_stdout_frame` is unchanged; the adapter 10-field
+parsing is unchanged.
+
+## Runtime identity strictness
+
+`MISSING_RUNTIME_IDENTITY_FAIL_CLOSED = PASS`
+
+A valid final JSON object without `actual_runtime_identity` under
+`require_runtime_identity=True` still returns `actual_identity_missing`.
+
+## Missing-field fail-closed
+
+`REMOVE_ASSISTANT_FIELD_FAIL_CLOSED = PASS`
+
+Removing `assistant_message_count` from an otherwise valid
+authorized success frame returns
+`failure_classification="wrapper_protocol_failed"`,
+`failure_stage="wrapper_protocol"`.
+
+## Provider / model / tool posture
+
+```
+provider            = openai-codex
+model               = gpt-5.6-sol
+harness_id          = pi-coding-agent
+harness_version     = 0.82.1
+configured_tools    = ["read","bash","edit","write"]
+fake_pi_provider    = "openai-codex"
+fake_pi_model       = "gpt-5.6-sol"
+fake_pi_harness_id  = "pi-coding-agent"
+fake_pi_harness_v   = "0.82.1"
+```
+
+No fallback or substitution.
+
+## Tracked fake fixture
+
+- Tracked fake Pi source path:
+  `tests/pi/fixtures/fake_pi_package/source/index.js`
+- Materialized fake package root:
+  `<pytest tmp_path>/fake_pi_package`
+- `PI_CODING_AGENT_PACKAGE_ROOT` always points at the materialized
+  package, never at the in-repository fixture directory.
+- Repository ignored `dist/index.js` remains untracked and is never
+  required.
+
+## Clean tracked-only integration
+
+A fresh detached worktree was created at exactly
+`c32f84f12395a157d59b6e68b635677bd5a8bec3`:
+
+```
+clean_worktree_repository_dist_absent = true
+clean_worktree_noisy_success          = PASS
+clean_worktree_noisy_failure          = PASS
+clean_worktree_zero_event_success     = PASS
+clean_worktree_sentinel_lifecycle      = PASS
+clean_worktree_missing_field_closed   = PASS
+TRACKED_ONLY_TEN_FIELD_AUTHORIZED_PROTOCOL = PASS
+```
+
+## Provider-free posture
+
+```
+PROVIDER_BACKED_INVOCATION_COUNT      = 0
+CAMPAIGN_LIVE_RAIL_COUNT              = 0
+OAUTH_READINESS_COUNT                 = 0
+OPERATOR_CREDENTIAL_STORE_ACCESS_COUNT = 0
+```
+
+## Validation (pre-push)
+
+```
+node --check codex_runner/src/agent-wrapper.js        = exit 0
+node --check codex_runner/src/assistant-telemetry.js  = exit 0
+pytest -v tests/ops/test_pi_assistant_response_telemetry.py
+    collected 7 items
+    7 passed, 1 warning
+pytest -v tests/pi/test_pi_authorized_failure_diagnostics.py
+    collected 56 items
+    56 passed, 1 warning
+pytest -v tests/pi/test_pi_live_invocation.py
+    collected 3 items
+    3 passed, 1 warning
+pytest -v <complete CE-L1 deterministic suite>
+    160 passed, 1 warning
+PYTHON=.venv/bin/python make docs
+    Docs validation passed
+    Diagram freshness check passed
+git diff --check
+    exit 0
+```
+
+## What this slice proves and does not prove
+
+PROVES:
+
+- The exact two-commit implementation lineage (this receipt is a
+  child of the implementation commit) is locally complete,
+  reproducible from tracked state, and free of hidden fixture
+  dependencies.
+- The runtime framing helper implements the canonical
+  final-non-empty-line protocol-frame rule with all seven required
+  semantics (unchanged from PR #778).
+- The live wrapper now produces the complete ten-field telemetry
+  surface.
+- The real `execute_authorized` provider-free end-to-end path
+  accepts the wrapper's success frame (no longer rejected at
+  `wrapper_protocol_failed` due to missing telemetry).
+- The 4 missing assistant-response fields are populated by the
+  existing canonical helpers.
+- Secret-shaped tool arguments are not retained anywhere in the
+  bounded envelope.
+- The 10-field strictness contract is preserved (missing field
+  still fails closed).
+
+DOES NOT PROVE:
+
+- That the wiring makes a real provider call succeed (no live rail
+  in this slice; LIVE_WRAPPER_PROTOCOL_CAUSE=UNRESOLVED).
+- CE-L1 closure (CE-L1=OPEN; LIVE_EXECUTOR_PROVEN=NOT_EMITTED).
+- A schema-version change.  The 10-field shape is unchanged.
+- The readiness-helper `await` question (parked; not admitted).
