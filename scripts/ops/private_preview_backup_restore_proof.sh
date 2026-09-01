@@ -13,6 +13,8 @@ MEDIA_ROOT="${REPO_ROOT}/data/media"
 IMPORT_ROOT="${REPO_ROOT}/data/imports"
 SOURCE_VOLUME="${PROJECT_NAME}_pg_data"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+RESTORE_POSTGRES_USER="codexify_restore"
+RESTORE_POSTGRES_DB="codexify_restore"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   PYTHON_BIN="$(command -v python3)"
@@ -446,6 +448,8 @@ MEDIA_ARCHIVE_SIZE="$(file_size_bytes "${MEDIA_ARCHIVE}")"
 RESTORE_SUFFIX="$(printf '%s' "${CHECKPOINT_TIMESTAMP}-${SOURCE_GIT_COMMIT}-$$" | shasum -a 256 | cut -c1-12)"
 RESTORE_CONTAINER="codexify-private-preview-restore-${RESTORE_SUFFIX}"
 RESTORE_VOLUME="codexify_private_preview_restore_${RESTORE_SUFFIX}"
+[[ -n "${RESTORE_POSTGRES_USER}" ]] || fail "Restore Postgres user is empty"
+[[ -n "${RESTORE_POSTGRES_DB}" ]] || fail "Restore Postgres database is empty"
 docker volume create \
   --label codexify.proof=private-preview-backup-restore \
   --label "codexify.checkpoint=${CHECKPOINT_ID}" \
@@ -456,8 +460,9 @@ docker run -d \
   --label "codexify.checkpoint=${CHECKPOINT_ID}" \
   --network none \
   --mount "type=volume,source=${RESTORE_VOLUME},target=/var/lib/postgresql/data" \
+  -e "POSTGRES_USER=${RESTORE_POSTGRES_USER}" \
+  -e "POSTGRES_DB=${RESTORE_POSTGRES_DB}" \
   -e POSTGRES_HOST_AUTH_METHOD=trust \
-  -e POSTGRES_DB=codexify_restore \
   postgres:15 >/dev/null
 wait_for_postgres "${RESTORE_CONTAINER}"
 
