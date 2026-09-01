@@ -219,6 +219,25 @@ Never use `down -v`. Before preview use with durable data, establish a separate
 tested Postgres/media backup and restoration procedure; this task does not
 implement or prove one.
 
+### Database migration prerequisite
+
+Before the recovery helper runs, verify that the preserved private-preview
+database is at the repository Alembic head. If it is behind, do not stamp or
+manually repair `alembic_version`; run the bounded database-migration proof
+and retain its external pre-migration backup checkpoint first.
+
+The canonical pre-preview sequence is now:
+
+```text
+database current-head verification
+→ private-preview recovery proof
+→ bounded guest canary
+```
+
+The database-migration proof is proven for the preserved checkpoint, but this
+does not claim that the recovery proof or guest canary has passed. Keep the
+friends-and-family gate closed until those separate gates pass.
+
 The [2026-08-31 private-preview backup/restore attempt](../architecture/proofs/runtime/2026-08-31-private-preview-backup-restore-proof.md)
 failed closed before backup because the preserved source database migration
 revision trailed current local `main`. It created no retained checkpoint and
