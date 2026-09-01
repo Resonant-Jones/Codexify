@@ -15,15 +15,35 @@ remains local-first and local-only.
   provider policy token and entire egress allowlist are exactly `deepseek`.
   Never use wildcard egress.
 - The sole host-published application origin is
-  `http://127.0.0.1:8081`. It serves the frontend at `/`, Guardian at `/api`,
-  task and domain events through the same origin, and health at `/health` and
-  `/health/*`.
+  `http://127.0.0.1:8081`. It serves the frontend and Guardian through the
+  bounded path-ownership contract below; task and domain events remain on that
+  same origin.
 - The future approved hostname is `preview.codexify.space`. Cloudflare Tunnel
   terminates only at `127.0.0.1:8081`; it never connects directly to Whoosh'd
   or DeepSeek.
 - Guardian remote/session authentication remains authoritative behind
   Cloudflare Access. The browser receives neither a Guardian API key nor a
   DeepSeek credential.
+
+### Private-preview path ownership
+
+This lane intentionally runs the Vite development server behind the single
+private-preview Nginx origin. The origin classifies requests as follows:
+
+| Browser-visible path | Owner |
+| --- | --- |
+| `/` and ordinary frontend module/assets | Vite at `frontend:5173` |
+| `/api/...` ending in `.ts`, `.tsx`, `.js`, or `.jsx` | Vite source-module traffic at `frontend:5173` |
+| Every other `/api/...` request | Guardian at the dynamic `backend:8888` upstream |
+| `/health` and `/health/*` | Guardian |
+
+The bounded `/api/` source-module exception mirrors Vite's existing
+development proxy behavior. It preserves the complete request URI and query
+string so cache-busted module requests remain frontend traffic. It does not
+transfer semantic API authority to Vite, does not make a Guardian `404` fall
+through to the frontend, and does not describe a general production-web
+architecture. Cloudflare still terminates only at `127.0.0.1:8081`; Vite and
+Guardian remain unpublished.
 
 The UI persists provider and model choice in the thread configuration through
 `PATCH /api/chat/threads/{thread_id}/config` using `providerId` and `modelId`.

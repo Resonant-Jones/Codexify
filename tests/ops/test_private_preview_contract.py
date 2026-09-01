@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -199,6 +200,44 @@ def test_private_preview_single_origin_proxy_contract() -> None:
         ROOT / "config/cloudflared/private-preview.yml.example"
     ).read_text(encoding="utf-8")
 
+    module_location = re.search(
+        r"location\s+~\s+\^/api/\.\*\\\.\(\?:ts\|tsx\|js\|jsx\)\$\s*\{"
+        r"(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert module_location is not None, (
+        "private-preview origin must classify Vite source modules under /api/"
+    )
+    module_body = module_location.group("body")
+    assert "proxy_pass http://frontend:5173;" in module_body
+    assert "proxy_set_header Host localhost:5173;" in module_body
+    assert "rewrite" not in module_body
+    assert "proxy_pass http://frontend:5173/;" not in module_body
+
+    guardian_location = re.search(
+        r"location\s+(?P<modifier>\^~\s+)?/api/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert guardian_location is not None
+    assert guardian_location.group("modifier") is None, (
+        "Guardian /api/ must not suppress the bounded Vite module classifier"
+    )
+    guardian_body = guardian_location.group("body")
+    assert "proxy_pass http://guardian_backend;" in guardian_body
+    assert "frontend:5173" not in guardian_body
+    assert "error_page" not in guardian_body
+
+    health_location = re.search(
+        r"location\s+=\s+/health\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert health_location is not None
+    assert "proxy_pass http://guardian_backend/health;" in health_location.group(
+        "body"
+    )
     assert "location /health/" in nginx
     assert "proxy_pass http://backend:8888;" in nginx
     assert "service: http://127.0.0.1:8081" in cloudflared
