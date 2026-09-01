@@ -81,6 +81,16 @@ class FakeSession {
         this._subscribers.push(fn);
     }
 
+    _emitSubscribers(event) {
+        for (const sub of this._subscribers) {
+            try {
+                sub(event);
+            } catch (_error) {
+                // bounded evidence only; never crash on subscriber error
+            }
+        }
+    }
+
     async prompt(prompt) {
         // Write one diagnostic line to stdout BEFORE the canonical
         // wrapper writes its terminal JSON. This exercises the framing
@@ -91,6 +101,46 @@ class FakeSession {
             // Raise a synthetic provider-request error so the real
             // wrapper emits its bounded failure JSON.
             throw new Error("synthetic provider request failure");
+        }
+
+        if (this.behavior === "assistant-tool-call") {
+            // Emit the bounded Pi 0.82.1 event sequence the live
+            // wrapper's `observeAssistantMessageEvent` and tool
+            // execution counters consume.  No payload content is
+            // carried; only event-type names.
+            this._emitSubscribers({
+                type: "message_update",
+                assistantMessageEvent: { type: "toolcall_start" },
+            });
+            this._emitSubscribers({
+                type: "tool_execution_start",
+                toolName: "write",
+            });
+            this._emitSubscribers({
+                type: "tool_execution_end",
+                toolName: "write",
+            });
+            this._emitSubscribers({
+                type: "message_update",
+                assistantMessageEvent: { type: "toolcall_end" },
+            });
+            // Set the final session state to one assistant message
+            // with one `toolCall` content block whose argument is
+            // secret-shaped.  The bounded observer MUST NOT return
+            // this value; the test proves it.
+            this.agent.state.messages = [
+                {
+                    role: "assistant",
+                    content: [
+                        {
+                            type: "toolCall",
+                            name: "write",
+                            arguments: "secret-not-returned",
+                        },
+                    ],
+                },
+            ];
+            return;
         }
 
         // No-op for success; the canonical wrapper emits success JSON
