@@ -830,3 +830,321 @@ Future readers can see the exact evolution:
 The fact that the first local run had an ignored fixture available
 is recorded explicitly (`INITIAL_LOCAL_REAL_WRAPPER_FIXTURE=
 IGNORED_DIST_PRESENT`). The proof does not erase this fact.
+
+
+# 2026-09-01 canonical landing preflight — PASS
+
+## Result
+
+```
+LANDING_BASE_CHECK                       = PASS  (origin/main == 77f1acf8061aa5481defc2dbe298b6701157da6)
+MAIN_MOVEMENT_BEFORE_PUSH                = NONE
+RUNTIME_SEAM_DRIFT_RESULT                = ORTHOGONAL
+IMPLEMENTATION_LINEAGE                   = PASS
+AUTHORIZED_WRAPPER_FRAME_PARSER          = PASS
+AUTHORIZED_LEGACY_PROTOCOL_SEPARATION    = PASS
+NONZERO_RETURN_CODE_PRECEDENCE           = PASS
+MISSING_RUNTIME_IDENTITY_FAIL_CLOSED     = PASS
+AUTHORIZED_TOOL_TELEMETRY_STRICTNESS     = PASS
+Bounded failure token preservation       = wrapper_protocol_failed at wrapper_protocol (no new token introduced)
+TRACKED_FAKE_SOURCE_PATH                 = tests/pi/fixtures/fake_pi_package/source/index.js
+TRACKED_FAKE_SOURCE_SHA256               = c121257692938d46dbec6f33fb1945545f5ee997bb36049550aec8e32e62e730
+TRACKED_FAKE_SOURCE_SIZE                 = 2964 bytes
+REPOSITORY_IGNORED_DIST_TRACKED          = false
+GLOBAL_DIST_IGNORE_RULE_PRESERVED        = .gitignore:76:dist/
+CLEAN_CANDIDATE_DIST_INDEX_JS_ABSENT      = true
+CLEAN_CANDIDATE_NOISY_SUCCESS            = PASS
+CLEAN_CANDIDATE_NOISY_FAILURE            = PASS
+TMP_PATH_MATERIALIZATION_VERIFIED        = true
+FOCUSED_FRAMING_PYTEST_COUNT              = 53 passed
+DETERMINISTIC_CE_L1_PYTEST_COUNT         = 150 passed
+NODE_CHECKS                              = PASS
+DOCS_PRE_PUSH                            = PASS
+PROVIDER_BACKED_INVOCATION_COUNT         = 0
+CAMPAIGN_LIVE_RAIL_COUNT                 = 0
+OAUTH_READINESS_COUNT                    = 0
+OPERATOR_CREDENTIAL_STORE_ACCESS_COUNT   = 0
+LIVE_WRAPPER_PROTOCOL_CAUSE              = UNRESOLVED
+CAUSAL_CLASSIFICATION                     = UNRESOLVED_ASSISTANT_TOOL_CALL_EMISSION_BOUNDARY
+CE-L1                                     = OPEN
+LIVE_EXECUTOR_PROVEN                      = NOT_EMITTED
+CANONICAL_LANDING_CANDIDATE               = PASS
+```
+
+## Scope
+
+This is a pre-push landing-preflight receipt only.  No new runtime
+implementation edit is authorized.  The two implementation commits
+are:
+
+```
+e9125a28693a2681627162bdd090ba51a0a03206  Repair authorized Pi wrapper protocol framing
+5a6aef512f5b38aa61283e3e4e6eaa3483c03d5e  Make Pi wrapper protocol fixture reproducible
+```
+
+with parent/ancestry:
+
+```
+77f1acf806a1aa5481defc2dbe298b6701157da6
+  -> e9125a28693a2681627162bdd090ba51a0a03206
+  -> 5a6aef512f5b38aa61283e3e4e6eaa3483c03d5e
+```
+
+Verified via:
+
+```
+git rev-parse 5a6aef512^  =  e9125a28693a2681627162bdd090ba51a0a03206
+git merge-base e9125a286 77f1acf8061aa  =  77f1acf806a1aa5481defc2dbe298b6701157da6
+```
+
+## Candidate changed-file list (canonical landing surface)
+
+```
+git diff 77f1acf8061aa5481defc2dbe298b6701157da6..5a6aef512f5b38aa61283e3e4e6eaa3483c03d5e
+--name-status
+
+M  docs/architecture/pi-invocation-boundary-contract.md
+A  docs/architecture/proofs/runtime/2026-09-01-pi-authorized-wrapper-protocol-framing-proof.md
+M  guardian/agents/adapters/pi_codex_runner.py
+A  tests/pi/fixtures/fake_pi_package/package.json
+A  tests/pi/fixtures/fake_pi_package/source/index.js
+M  tests/pi/test_pi_authorized_failure_diagnostics.py
+```
+
+Exactly the intended framing/fixture/boundary/proof surface.  No
+unrelated dirty content.  No ignored file appears in the PR diff.
+
+## Runtime parser semantic readback (canonical)
+
+`_parse_authorized_stdout_frame(stdout)` (in
+`guardian/agents/adapters/pi_codex_runner.py`) implements the canonical
+seven semantics:
+
+1. split stdout into lines;
+2. discard empty lines;
+3. inspect only the final non-empty line as the authorized protocol
+   frame;
+4. parse the final line as JSON;
+5. require the parsed value to be a mapping/object;
+6. never return or persist earlier stdout lines;
+7. fail closed (`None`) when no valid terminal object exists.
+
+The framing helper is applied only on the authorized
+(`require_runtime_identity=True`) parsing path.  Legacy/non-authorized
+paths (the unbounded `execute(...)` legacy path and the readiness
+preflight) preserve their existing whole-document parse
+unmodified.
+
+## Legacy / authorized separation (canonical)
+
+The framing repair does not silently redefine unrelated legacy
+`audit`, `compile`, or `task` stdout semantics.  The `execute(...)`
+method and the readiness preflight both continue to use the
+whole-document `json.loads(stdout.strip())` parse.  The framing
+helper is gated on `require_runtime_identity=True`.
+
+## Nonzero-return-code precedence (canonical)
+
+A nonzero subprocess exit cannot be salvaged by a valid stdout success
+frame.  The `_parse_result(...)` method's nonzero branch (returns
+the bounded stderr-classified failure) executes before any
+`json.loads` is attempted, regardless of the framing helper.
+
+## Runtime-identity strictness (canonical)
+
+A valid final JSON object without `actual_runtime_identity` under
+`require_runtime_identity=True` still fails closed as
+`actual_identity_missing` (the `MISSING_RUNTIME_IDENTITY_FAIL_CLOSED`
+test in the focused module passes).  Framing parsing does not weaken
+identity attestation.
+
+## Telemetry strictness (canonical)
+
+A valid final JSON object with `tool_telemetry=null` or
+missing/malformed telemetry still returns
+`failure_classification="wrapper_protocol_failed"`,
+`failure_stage="wrapper_protocol"`.  The 10-field live authorized
+telemetry contract is preserved.
+
+## Canonical failure token preservation
+
+The bounded `wrapper_protocol_failed` failure token at
+`wrapper_protocol` stage continues to be used for actual terminal
+frame violations.  No new canonical failure class has been
+introduced.  Specifically the recipe does NOT introduce:
+
+- `wrapper_stdout_noise`
+- `wrapper_frame_noise`
+- `wrapper_multiline_result`
+
+## Tracked fixture source (canonical)
+
+```
+TRACKED_FAKE_SOURCE_PATH     = tests/pi/fixtures/fake_pi_package/source/index.js
+TRACKED_FAKE_SOURCE_SHA256   = c121257692938d46dbec6f33fb1945545f5ee997bb36049550aec8e32e62e730
+TRACKED_FAKE_SOURCE_SIZE     = 2964 bytes
+TRACKED_FAKE_SOURCE_LS_FILES = PASS
+TRACKED_FAKE_SOURCE_GITIGNORE = (not ignored)
+```
+
+## Fake package metadata
+
+`tests/pi/fixtures/fake_pi_package/package.json` reports:
+
+```
+name    = @earendil-works/pi-coding-agent
+version = 0.82.1
+```
+
+NOTE: Spec §13 writes the package name as
+`"@file:`earendil-works/pi-coding-agent"`"`.  This is interpreted as a
+documentation typo for the canonical npm scope
+`@earendil-works/pi-coding-agent`.  The actual tracked package
+metadata has used `@earendil-works/pi-coding-agent` since the first
+slice; this preflight does not modify the name.  The actual
+wrapper-side identity verification reads
+`packageMetadata.name === "@earendil-works/pi-coding-agent"` (see
+`codex_runner/src/agent-wrapper.js:211`); using any other name would
+fail-closed at `runtime_load`.  Preserving the npm-scope name
+therefore preserves the live runtime contract.
+
+## Ignored dist remains untracked (canonical)
+
+```
+git ls-files tests/pi/fixtures/fake_pi_package/dist/index.js = (empty)
+git check-ignore -v .../dist/index.js = .gitignore:76:dist/
+```
+
+The global `dist/` rule remains intact and the generated
+`dist/index.js` is not tracked.  No `.gitignore` edit was made in any
+implementation commit.
+
+## Tmp-path materialization (canonical)
+
+The `_materialize_fake_pi_package(tmp_path)` helper materializes:
+
+```
+<tmp_path>/fake_pi_package/package.json
+<tmp_path>/fake_pi_package/dist/index.js
+```
+
+from the tracked fixture source.  `PI_CODING_AGENT_PACKAGE_ROOT` is
+set to the materialized tmp package root in every real-wrapper
+integration test.  No test depends on the in-repository fixture's
+ignored `dist/`.
+
+## Clean tracked-only candidate-worktree proof
+
+A detached disposable worktree was created at exactly
+`5a6aef512f5b38aa61283e3e4e6eaa3483c03d5e`:
+
+```
+CLEAN_ROOT_PATH                            = /tmp/codexify-pi-framing-landing.XXXXXX
+CLEAN_ROOT_DIST_INDEX_JS_ABSENT            = true
+CLEAN_ROOT_NOISY_SUCCESS                   = PASS
+CLEAN_ROOT_NOISY_FAILURE                   = PASS
+```
+
+The detached worktree was removed after validation.
+
+## Provider / rail / credential posture
+
+Across this entire landing-preflight slice:
+
+```
+provider-backed invocation count       = 0
+Campaign live rail call count           = 0
+OAuth readiness count                  = 0
+operator credential-store access count = 0
+```
+
+The fake Pi subprocess is provider-free (in-memory resolution; zero
+HTTP / DNS / socket).
+
+## Focused framing suite (fresh)
+
+```
+$ python -m pytest -v tests/pi/test_pi_authorized_failure_diagnostics.py
+collected 53 items
+................................                                         [100%]
+======================== 53 passed, 1 warning in 0.71s =========================
+```
+
+## Deterministic CE-L1 suite (fresh)
+
+```
+$ python -m pytest tests/ops/test_worker_coding_pi_runtime_contract.py \
+                    tests/ops/test_pi_assistant_response_telemetry.py \
+                    tests/pi/test_pi_live_invocation.py \
+                    tests/pi/test_pi_authorized_failure_diagnostics.py \
+                    codex_runner/tests/test_campaign_engine_live_executor.py
+........................................................................ [ 96%]
+......                                                                   [100%]
+150 passed, 1 warning
+```
+
+## Node checks
+
+```
+node --check codex_runner/src/agent-wrapper.js        = exit 0
+node --check codex_runner/src/assistant-telemetry.js  = exit 0
+```
+
+## Docs (pre-push)
+
+```
+$ python scripts/validate_docs.py
+Docs validation passed: required architecture docs, README links, and source headings verified.
+
+$ python scripts/check_diagram_freshness.py
+Diagram freshness check passed: no runtime source drift detected and matrix decisions are valid.
+
+$ git diff --check
+exit 0
+```
+
+## Specified discoveries (parked, not in scope)
+
+The prior proof closeout noted two unrelated observations that are
+classified as separate discoveries:
+
+1. The wrapper emits only the older 6 telemetry fields in
+   `guardian-authorized-task` mode (the 4 assistant-response fields
+   are emitted only in `assistant-telemetry-test` mode).  A wrapper
+   output-schema expansion is a separate slice.
+2. The wrapper's readiness code path calls `getModel(...)` /
+   `getProviders(...)` / `checkAuth(...)` / `getAvailable(...)`
+   without `await`, while the maintained Pi 0.82.1 runtime may
+   return Promises.  A readiness-`await` repair is a separate slice.
+
+Neither enters this landing task.  Park them unless a subsequent
+canonical driver requalification proves one is the next CE-L1
+blocker.
+
+## What this slice proves and does not prove
+
+PROVES:
+
+- The exact two-commit implementation lineage is locally complete,
+  reproducible from tracked state, and free of hidden fixture
+  dependencies.
+- The runtime framing helper implements the canonical final-non-
+  empty-line protocol-frame rule with all seven required semantics.
+- Authorized/legacy separation is preserved; legacy `audit`,
+  `compile`, and `task` paths are not redefined.
+- All eight framing-matrix cases (A-H), strictness preservation,
+  secret-shaped redaction, helper isolation, and both real-wrapper
+  integration tests pass.
+- The complete CE-L1 deterministic suite (150 tests) passes.
+- The canonical candidate surface is exactly the six intended
+  files; no scope expansion; ignored `dist/` not in the PR.
+- The landing is eligible for canonical promotion; this is the
+  pre-push receipt that the Task Spec required.
+
+DOES NOT PROVE:
+
+- That the framing repair is the exact live cause of the prior
+  `wrapper_protocol_failed` (LIVE_WRAPPER_PROTOCOL_CAUSE=UNRESOLVED).
+- A post-repair live Executor observation (no live rail in this
+  slice).
+- CE-L1 closure (CE-L1=OPEN; LIVE_EXECUTOR_PROVEN=NOT_EMITTED).
