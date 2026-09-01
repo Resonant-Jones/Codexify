@@ -4,18 +4,18 @@
 
 `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_BLOCKED`
 
-The canonical local private-preview origin remains healthy and loopback-only,
-the current official `cloudflared` client is installed, the resumed
-least-privilege Cloudflare credential handoff is valid, and Cloudflare Access
-is now enabled. Authenticated inventory then proved that the Access account has
-no configured identity provider or login method.
+The operator attests that One-time PIN is now enabled, but the next resumption
+stopped before Cloudflare inventory or mutation because the local
+private-preview runtime became unreachable. Static configuration still passes;
+live loopback reachability does not.
 
-This is a pre-mutation Access identity-provider block. Creating an identity
-provider changes account-wide Zero Trust authentication state, while this task
-authorizes only the preview application and its policies. No Tunnel, DNS
-record, Access application, Access policy, connector configuration, guest
-account, or application behavior was created, changed, or deleted. The
-friends-and-family canary remains closed.
+This is a pre-mutation local-runtime block. Docker Desktop reported
+`stopping`, the private-preview container inventory was unavailable, and both
+the public root and `/health` on `127.0.0.1:8081` timed out. Restarting Docker
+Desktop would affect unrelated workloads and is outside this task's mutation
+authority. No Tunnel, DNS record, Access application, Access policy, connector
+configuration, guest account, or application behavior was created, changed,
+or deleted. The friends-and-family canary remains closed.
 
 ## Scope and authority
 
@@ -31,6 +31,8 @@ friends-and-family canary remains closed.
   `5b9dfe8d7fc8de2d17464fef89c2cd1dfd47fade`
 - Access-enablement resumption source commit:
   `69311f2cce53892286ca6cd25d0d949d27501d12`
+- OTP-enablement resumption source commit:
+  `0de037df6eb974950be7eb47cc100665d552f421`
 - Blocked-canary lineage commit:
   `e19defc9fc4e18e0ec75b2cd8f32ed4b61752f4f`
 - Runtime project: `codexify_private_preview`
@@ -48,14 +50,16 @@ unstaged.
 | Gate | Result | Bounded evidence |
 | --- | --- | --- |
 | Static private-preview validation | PASS | `scripts/private_preview_validate.sh static` passed 39 focused checks and reported only `private-preview-origin 127.0.0.1:8081 -> 8080`. |
-| Loopback reachability | PASS | `scripts/private_preview_validate.sh reachability` passed through `http://127.0.0.1:8081`. |
-| Private-preview host-port isolation | PASS | Live Docker inspection showed only `private-preview-origin` published, at `127.0.0.1:8081`; Guardian, frontend, Whoosh'd, Postgres, Redis, Neo4j, and workers had no private-preview host bindings. |
+| Loopback reachability | BLOCKED | The validator ended with `curl: (56) Recv failure: Connection reset by peer`; bounded follow-up requests to `/` and `/health` both timed out with HTTP `000`. |
+| Docker authority | BLOCKED | `docker desktop status` reported `stopping`; `docker compose ... ps` and `docker ps` returned no running inventory during the bounded diagnosis. |
+| Private-preview host-port isolation | NOT CURRENTLY PROVABLE | Static configuration still resolves only `private-preview-origin 127.0.0.1:8081 -> 8080`, but live container publication could not be re-observed while Docker Desktop was stopping. |
 | Recovery prerequisite | PASS (prior proof) | The 2026-09-01 recovery requalification receipt remains proven and its retained checkpoint was not touched. |
 | Guardian secret rotation prerequisite | PASS (prior proof) | The 2026-09-01 Guardian authentication-secret rotation receipt remains proven; no session or secret state was changed. |
 
-Unrelated Docker workloads and their existing publications were observed but
-not modified. This receipt makes no claim about their architecture or support
-posture.
+No Docker restart, Compose start/stop, or container mutation was attempted
+because Docker Desktop authority is shared with unrelated workloads. This
+receipt makes no claim about those workloads' current state, architecture, or
+support posture.
 
 ## Cloudflare tooling and local state
 
@@ -105,7 +109,7 @@ A Global API Key is not an acceptable substitute.
 | Tunnel inventory authorization | PASS. |
 | DNS inventory authorization | PASS. |
 | Access application inventory | PASS; Access is enabled and no applications exist. |
-| Access identity-provider inventory | BLOCKED; zero login methods are configured. |
+| Access identity-provider inventory | PRIOR BLOCK RESOLVED BY OPERATOR ATTESTATION; OTP live verification deferred because the local prerequisite failed first. |
 
 The token was read only from the mode-`0600` file through an in-memory
 authorization header. It was not placed in shell history or process arguments,
@@ -145,8 +149,8 @@ comparison remains required when provisioning resumes.
 
 ## Gates not run
 
-The following gates require a usable Access identity provider/login method and
-were not weakened or substituted:
+The following gates require restored local runtime health and were not weakened
+or substituted:
 
 - creation or reconciliation of `codexify-private-preview`;
 - secure local Tunnel credentials and exact ingress configuration;
@@ -164,30 +168,30 @@ change was attempted.
 
 ## Exact blocker and required handoff
 
-An authorized Cloudflare operator must add one intended Access login method for
-account `9c05ebbb19fac01d8c521f4ce19dfa71` through Zero Trust > Integrations >
-Identity providers. For this exact-email friends-and-family boundary, the
-minimal option is Cloudflare One-time PIN (`onetimepin`); an already trusted
-organizational identity provider is also acceptable if it is the operator's
-intended authority.
+The operator must restore Docker Desktop to `running` without asking this task
+to restart the shared engine or mutate unrelated workloads. Once Docker is
+running, the private-preview project must again pass the canonical static and
+reachability validators and re-establish the live loopback-only publication
+before any Cloudflare API call or mutation resumes.
 
-The operator action must not create the preview application, policy, Tunnel,
-DNS record, guest account, wildcard rule, or unrelated identity configuration.
-After the operator confirms the login method is present, rerun this same atomic
-task with the existing secure token file if the token remains active. The task
-must repeat inventory before mutation, reconcile rather than duplicate
-resources, and retain the fail-closed conclusion unless every canonical DNS,
-HTTPS, Access, Guardian-layering, isolation, fallback, and preservation gate
-passes.
+After local health is restored, rerun this same atomic task with the existing
+secure token file if the token remains active. The task must first verify the
+operator-attested OTP provider, repeat the full inventory before mutation,
+reconcile rather than duplicate resources, and retain the fail-closed
+conclusion unless every canonical DNS, HTTPS, Access, Guardian-layering,
+isolation, fallback, and preservation gate passes.
 
 ## Validation results
 
 - `git status --short --branch` — PASS; source branch/HEAD recorded and only
   the unrelated Dev Log deletion was initially dirty.
 - `PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 bash scripts/private_preview_validate.sh static` — PASS, 39 focused checks.
-- `PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 bash scripts/private_preview_validate.sh reachability` — PASS.
-- `docker ps --format '{{.Names}}\t{{.Ports}}'` — PASS for the bounded
-  private-preview publication contract.
+- `PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 bash scripts/private_preview_validate.sh reachability` — BLOCKED by connection reset.
+- Bounded `curl` requests to `/` and `/health` — BLOCKED by timeout, HTTP
+  `000`.
+- `docker desktop status` — BLOCKED, `stopping`.
+- Live Docker/Compose publication inventory — unavailable while the shared
+  engine was stopping.
 - `cloudflared --version` — PASS after authorized installation,
   `2026.8.3`.
 - Secure token-file mode/ownership/structure checks — PASS.
@@ -197,7 +201,9 @@ passes.
   record existed.
 - Access application inventory — PASS; Access is enabled and no applications
   exist.
-- Access identity-provider inventory — BLOCKED; no login method exists.
+- Access identity-provider inventory — prior result was zero; the operator now
+  attests OTP is enabled, but live re-verification was not reached because the
+  local prerequisite failed first.
 - Public DNS presence checks — preview absent; apex and `www` present.
 - `python3 scripts/validate_docs.py` — PASS after this resumption update.
 - `git diff --check` — PASS after this resumption update.
@@ -218,12 +224,11 @@ after `PRIVATE_PREVIEW_CLOUDFLARE_INGRESS_PROVEN`.
 
 ## Axis KB addition
 
-Record that the 2026-09-01 Cloudflare ingress provisioning task re-proved the
-local loopback origin and private-preview port boundary, installed the official
-`cloudflared 2026.8.3` client, accepted and safely verified the resumed
-least-privilege API-token handoff, and inventoried zero Tunnels, zero
-`preview.codexify.space` DNS records, zero Access applications, and zero Access
-identity providers. It then stopped before mutation because no Access login
-method exists and identity-provider configuration is outside this task. Apex
-and `www` remained present; no guest, Cloudflare resource, application code,
-credential, unrelated DNS, or unrelated worktree state was changed.
+Record that the 2026-09-01 Cloudflare ingress provisioning task remains
+fail-closed across resumptions. After the operator attested OTP enablement, the
+next local preflight passed 39 static checks but failed loopback reachability;
+Docker Desktop was `stopping`, root and health timed out, and live container
+publication could not be observed. Cloudflare was not queried or mutated in
+that resumption because local health precedes external exposure. No shared
+Docker restart, guest, Cloudflare resource, application code, credential,
+unrelated DNS, or unrelated worktree state was changed.
