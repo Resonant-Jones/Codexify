@@ -141,7 +141,7 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
 
     const optIn = screen.getByRole("switch", {
-      name: "Let Guardian offer to file reports",
+      name: "Opt in to Guardian report offers",
     });
     expect(optIn).toHaveAttribute("aria-checked", "false");
 

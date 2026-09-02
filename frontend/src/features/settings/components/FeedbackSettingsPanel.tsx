@@ -91,17 +91,18 @@ export default function FeedbackSettingsPanel({
             style={{ background: feedbackOptIn ? "var(--accent)" : "var(--muted)" }}
             aria-hidden="true"
           />
-          {feedbackOptIn ? "Guardian may offer" : "Off by default"}
+          {feedbackOptIn ? "Preference saved" : "Off by default"}
         </div>
       </div>
 
       <div className="grid gap-[var(--radius-micro)] md:grid-cols-3">
         <FeatureNote icon={ShieldCheck} title="You stay in control">
-          Guardian asks before a report is prepared for submission. This setting
-          never grants permission to send anything by itself.
+          The planned report flow asks before a report is prepared for
+          submission. This setting never grants permission to send anything by
+          itself.
         </FeatureNote>
         <FeatureNote icon={Bug} title="Useful context">
-          A future report can include the relevant conversation and runtime
+          The planned report flow can include relevant conversation and runtime
           details without asking you to copy logs or decode technical jargon.
         </FeatureNote>
         <FeatureNote icon={MessageSquareText} title="Quiet by design">
@@ -112,18 +113,19 @@ export default function FeedbackSettingsPanel({
 
       <div className="flex flex-col gap-4 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)] md:flex-row md:items-center md:justify-between">
         <div className="min-w-0 space-y-1">
-          <div className="text-sm font-semibold">Let Guardian offer to file reports</div>
+          <div className="text-sm font-semibold">Opt in to Guardian report offers</div>
           <p className="max-w-2xl text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-            When enabled, Guardian can recognize a frustrated moment and offer
-            to turn it into a bug report. You will still be asked before any
-            report leaves this workspace.
+            Save your choice for the report flow. This preview can start a
+            Guardian feedback conversation, but automatic report submission is
+            not connected yet. You will always be asked before anything leaves
+            this workspace.
           </p>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={feedbackOptIn}
-          aria-label="Let Guardian offer to file reports"
+          aria-label="Opt in to Guardian report offers"
           className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={{
             borderColor: feedbackOptIn ? "var(--accent)" : "var(--panel-border)",
