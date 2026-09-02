@@ -830,6 +830,32 @@ def test_idempotent_replay_does_not_duplicate(seeded):
     assert third.json()["message"]["message_id"] != first_id
 
 
+def test_idempotency_key_reuse_rejects_changed_message(seeded):
+    client_a, _client_b, _p_a, _p_b, conversation = _started_conversation(seeded)
+    conversation_id = conversation["conversation_id"]
+
+    first = client_a.post(
+        f"/api/direct-messages/conversations/{conversation_id}/messages",
+        json={"body": "original", "client_message_key": "client-key-conflict"},
+    )
+    assert first.status_code == 200
+
+    conflict = client_a.post(
+        f"/api/direct-messages/conversations/{conversation_id}/messages",
+        json={"body": "changed", "client_message_key": "client-key-conflict"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["error"] == "client_message_key_conflict"
+
+    with seeded.begin() as connection:
+        message_bodies = connection.execute(
+            select(DirectMessage.body).where(
+                DirectMessage.conversation_id == conversation_id
+            )
+        ).scalars().all()
+    assert message_bodies == ["original"]
+
+
 def test_blank_and_oversized_messages_rejected(seeded):
     client_a, _client_b, _p_a, _p_b, conversation = _started_conversation(seeded)
     conversation_id = conversation["conversation_id"]
