@@ -1,33 +1,40 @@
 import { X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+
+import DirectMessageInbox from "@/components/direct-messages/DirectMessageInbox";
+import type { RuntimeRouteCapabilityState } from "@/contracts/supportedProfileRoutes";
+
 
 import ContactCard from "./ContactCard";
 import ContactsList from "./ContactsList";
 import type { ContactListItem } from "./types";
+import type { PeopleMessagingState } from "./usePeopleMessagingState";
 import "./ContactsWindow.css";
 
 type ContactsWindowProps = {
-  open: boolean;
-  onClose: () => void;
+  state: PeopleMessagingState;
   contacts: ContactListItem[];
   onRequestCreate?: () => void;
+  capabilityState: RuntimeRouteCapabilityState;
+  sourceThreadId: number | null;
 };
 
 export default function ContactsWindow({
-  open,
-  onClose,
+  state,
   contacts,
   onRequestCreate,
+  capabilityState,
+  sourceThreadId,
 }: ContactsWindowProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const selectedContact = useMemo(
-    () => contacts.find((contact) => contact.id === selectedId) ?? null,
-    [contacts, selectedId]
+    () => contacts.find((contact) => contact.id === selectedContactId) ?? null,
+    [contacts, selectedContactId]
   );
-  const handleSelect = useCallback((contact: ContactListItem) => {
-    setSelectedId(contact.id);
-  }, []);
+
+  const open = state.peopleOpen;
+  const onClose = state.closePeople;
 
   useEffect(() => {
     if (!open || typeof window === "undefined") return;
@@ -50,52 +57,86 @@ export default function ContactsWindow({
     document.body ??
     document.documentElement;
 
+  const inboxContent = (
+    <DirectMessageInbox
+      capabilityState={capabilityState}
+      sourceThreadId={sourceThreadId}
+      state={state}
+    />
+  );
+
   return createPortal(
     <div className="contacts-window-overlay" role="presentation">
       <div
         className="contacts-window-window"
         role="dialog"
         aria-modal="true"
-        aria-label="Contacts"
+        aria-label="People"
         data-testid="contacts-window"
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <header className="contacts-window-header">
           <div>
-            <h2 className="contacts-window-title">Contacts</h2>
-            <p className="contacts-window-subcopy">Private contact list</p>
+            <h2 className="contacts-window-title">People</h2>
+            <p className="contacts-window-subcopy">Private communication space</p>
           </div>
           <div className="contacts-window-header-actions">
-            <span className="contacts-window-count">
-              {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
-            </span>
-            <button type="button" className="contacts-window-close" aria-label="Close Contacts" onClick={onClose}>
+            <button type="button" className="contacts-window-close" aria-label="Close People" onClick={onClose}>
               <X size={17} aria-hidden="true" />
             </button>
           </div>
         </header>
 
-        {contacts.length === 0 ? (
-          <section className="contacts-window-empty" aria-label="Empty contact list">
-            <div className="contacts-window-empty-mark" aria-hidden="true">◎</div>
-            <p className="contacts-window-eyebrow">Private home container</p>
-            <h3>No contacts yet</h3>
-            <p>
-              This is the private home container for people you may collaborate with later.
-              Contacts do not grant access or expose presence.
-            </p>
-            {onRequestCreate ? (
-              <button type="button" className="contacts-window-primary-action" onClick={onRequestCreate}>
-                New Contact
-              </button>
-            ) : null}
-          </section>
+        <div className="people-tabs" role="tablist" aria-label="People sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={state.activeTab === "inbox"}
+            className={`people-tab ${state.activeTab === "inbox" ? "is-active" : ""}`}
+            onClick={() => state.setTab("inbox")}
+          >
+            Inbox
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={state.activeTab === "contacts"}
+            className={`people-tab ${state.activeTab === "contacts" ? "is-active" : ""}`}
+            onClick={() => state.setTab("contacts")}
+          >
+            Contacts
+          </button>
+        </div>
+
+        {state.activeTab === "contacts" ? (
+          contacts.length === 0 ? (
+            <section className="contacts-window-empty" aria-label="Empty contact list">
+              <div className="contacts-window-empty-mark" aria-hidden="true">◎</div>
+              <p className="contacts-window-eyebrow">Private home container</p>
+              <h3>No contacts yet</h3>
+              <p>
+                This is the private home container for people you may collaborate with later.
+                Contacts do not grant access or expose presence.
+              </p>
+              {onRequestCreate ? (
+                <button type="button" className="contacts-window-primary-action" onClick={onRequestCreate}>
+                  New Contact
+                </button>
+              ) : null}
+            </section>
+          ) : (
+            <div className="contacts-window-body">
+              <ContactsList
+                contacts={contacts}
+                selectedId={selectedContactId}
+                onSelect={(contact) => setSelectedContactId(contact.id)}
+              />
+              <ContactCard contact={selectedContact} />
+            </div>
+          )
         ) : (
-          <div className="contacts-window-body">
-            <ContactsList contacts={contacts} selectedId={selectedId} onSelect={handleSelect} />
-            <ContactCard contact={selectedContact} />
-          </div>
+          <div className="people-inbox-body">{inboxContent}</div>
         )}
       </div>
     </div>,

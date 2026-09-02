@@ -51,6 +51,9 @@ import LoginPage from "./pages/login/LoginPage";
 import RegisterPage from "./pages/login/RegisterPage";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
 import { SharePage } from "./pages/SharePage";
+import DirectMessageInbox from "./components/direct-messages/DirectMessageInbox";
+import FloatingConversation from "./features/contacts/FloatingConversation";
+import { usePeopleMessagingState } from "./features/contacts/usePeopleMessagingState";
 import {
   isTauriRuntime,
   readDesktopStartupRoutingDecision,
@@ -128,6 +131,11 @@ function isRegisterRoute() {
 function isProfileRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/profile");
+}
+
+function isInboxRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/inbox");
 }
 
 function getShareToken() {
@@ -606,11 +614,16 @@ export default function App() {
   const loginRoute = isLoginRoute();
   const registerRoute = isRegisterRoute();
   const profileRoute = isProfileRoute();
+  const inboxRoute = isInboxRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const desktopRuntime = isTauriRuntime();
   const { state: authRouteCapability } = useRuntimeRouteCapability(
     SUPPORTED_PROFILE_ROUTE_LABELS.AUTH
   );
+  const { state: directMessagesCapability } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.DIRECT_MESSAGES
+  );
+  const inboxMessagingState = usePeopleMessagingState();
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
@@ -656,6 +669,7 @@ export default function App() {
     !loginRoute &&
     !registerRoute &&
     !profileRoute &&
+    !inboxRoute &&
     !(shareRoute && !!shareToken) &&
     (desktopStartupCanBootstrap || desktopRecoveryRequested);
   const [bootstrapState, setBootstrapState] =
@@ -1336,6 +1350,20 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-hidden">
           <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} heartbeatEnabled={HEARTBEAT_STATUS_ENABLED} />
         </main>
+      </div>
+    );
+  } else if (inboxRoute) {
+    mainContent = (
+      <div className="flex h-screen min-h-0 flex-col overflow-hidden">
+        <TopBar />
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <DirectMessageInbox
+            capabilityState={directMessagesCapability}
+            sourceThreadId={null}
+            state={inboxMessagingState}
+          />
+        </main>
+        <FloatingConversation state={inboxMessagingState} />
       </div>
     );
   } else if (

@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-27 (Pi runtime modernization 0.72.1 → 0.82.1; @mariozechner → @earendil-works; no diagram topology change)
+Diagram Review Marker: 2026-09-02 (DLG numbering reconciliation only; no runtime topology change; no release-claim widening)
 
 ## Scope
 

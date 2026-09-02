@@ -12,16 +12,23 @@ Tests cover:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, call, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import share
 
 _API_KEY = "test-api-key"
+_OWNER_SCOPE = RequestUserScope(
+    user_id="owner-user",
+    subject_id="owner-user",
+    account_id="owner-user",
+    multi_user_enabled=True,
+)
 
 
 class TestCreateThreadShare:
@@ -74,13 +81,16 @@ class TestCreateThreadShare:
 
         import asyncio
 
-        result = asyncio.run(create_share_link(request))
+        result = asyncio.run(create_share_link(request, _OWNER_SCOPE))
 
         # Verify
         assert result["ok"] is True
         assert result["token"] == "test_secure_token_12345"
         assert result["url"] == "/share/test_secure_token_12345"
         assert result["expires_at"] is None
+        mock_chat_thread_query.filter_by.assert_called_once_with(
+            id=1, user_id="owner-user"
+        )
 
         # Verify SharedLink was created
         mock_session.add.assert_called_once()
@@ -141,7 +151,7 @@ class TestCreateThreadShare:
 
         import asyncio
 
-        result = asyncio.run(create_share_link(request))
+        result = asyncio.run(create_share_link(request, _OWNER_SCOPE))
 
         # Verify
         assert result["ok"] is True
@@ -160,7 +170,7 @@ class TestCreateThreadShare:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(create_share_link(request))
+            asyncio.run(create_share_link(request, _OWNER_SCOPE))
 
         assert exc_info.value.status_code == 400
         assert "target_type must be" in exc_info.value.detail
@@ -193,7 +203,7 @@ class TestCreateThreadShare:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(create_share_link(request))
+            asyncio.run(create_share_link(request, _OWNER_SCOPE))
 
         assert exc_info.value.status_code == 404
         assert "Thread" in exc_info.value.detail
@@ -245,7 +255,11 @@ class TestCreateThreadShare:
 
         import asyncio
 
-        result = asyncio.run(create_share_link(request))
+        result = asyncio.run(create_share_link(request, _OWNER_SCOPE))
+
+        mock_generated_query.filter_by.assert_called_once_with(
+            id="1", user_id="owner-user"
+        )
 
         # Verify
         assert result["ok"] is True
@@ -289,7 +303,7 @@ class TestCreateThreadShare:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(create_share_link(request))
+            asyncio.run(create_share_link(request, _OWNER_SCOPE))
 
         assert exc_info.value.status_code == 404
         assert "Document" in exc_info.value.detail

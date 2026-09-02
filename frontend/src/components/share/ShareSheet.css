@@ -1,0 +1,294 @@
+/* Share Sheet — person-aware routing surface. */
+
+.share-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.share-sheet {
+  width: min(420px, calc(100vw - 32px));
+  max-height: 72vh;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-tile, 16px);
+  background: var(--panel-sheet, var(--panel-bg));
+  color: var(--text);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  padding: 16px;
+}
+
+.share-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.share-sheet-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.share-sheet-subcopy {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-subtle);
+}
+
+.share-sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 6px;
+  cursor: pointer;
+}
+
+.share-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-sheet-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel-bg);
+  color: var(--text);
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.share-sheet-action:hover {
+  border-color: var(--accent);
+}
+
+.share-sheet-action svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.share-sheet-action span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.share-sheet-action strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.share-sheet-action small {
+  font-size: 12px;
+  color: var(--text-subtle);
+  line-height: 1.35;
+}
+
+.share-sheet-action-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.share-sheet-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--text-subtle);
+}
+
+.share-sheet-status-ok {
+  color: var(--accent);
+}
+
+.share-sheet-status-error {
+  color: var(--text-error, #e05b5b);
+}
+
+.share-sheet-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.spin {
+  animation: share-sheet-spin 1s linear infinite;
+}
+
+@keyframes share-sheet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.share-sheet-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--background, transparent);
+  padding: 8px 10px;
+}
+
+.share-sheet-search svg {
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}
+
+.share-sheet-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.share-sheet-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.share-sheet-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--text);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13.5px;
+}
+
+.share-sheet-result:hover {
+  border-color: var(--accent);
+}
+
+.share-sheet-username {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.share-sheet-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.share-sheet-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--text);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.share-sheet-choice[aria-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.share-sheet-choice strong {
+  font-size: 13px;
+}
+
+.share-sheet-choice small {
+  font-size: 11.5px;
+  color: var(--text-subtle);
+}
+
+.share-sheet-privacy {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--text-subtle);
+  line-height: 1.4;
+}
+
+.share-sheet-primary {
+  margin-top: 12px;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--text-on-accent, var(--background));
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.share-sheet-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.share-sheet-back {
+  margin-top: 8px;
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.share-sheet-created-link {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.share-sheet-copy {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
