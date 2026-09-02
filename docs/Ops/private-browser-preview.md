@@ -8,7 +8,7 @@ remains local-first and local-only.
 
 ## Provider and network posture
 
-- Whoosh'd serves `gemma-4-12b-it-qat-4bit` from a loopback-bound host process.
+- Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.
   Docker reaches it at `http://host.docker.internal:8000/v1`; Compose, Nginx,
   and Cloudflare do not publish port 8000.
 - Guardian reaches DeepSeek outbound at `https://api.deepseek.com`. The

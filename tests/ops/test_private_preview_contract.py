@@ -26,7 +26,7 @@ EXPECTED_ENV = {
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
-    "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
+    "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
@@ -50,7 +50,7 @@ def _render_compose(
         "CODEXIFY_PREVIEW_APPROVED_EMAILS": "guest@example.com",
         "CODEXIFY_PREVIEW_ADMIN_EMAILS": "admin@example.com",
         "DEEPSEEK_API_KEY": "inert-deepseek-key",
-        "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
+        "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
         "NEO4J_PASS": "inert-neo4j-password",
     }
     if runtime_env_file is not None:

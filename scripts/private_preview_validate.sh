@@ -59,7 +59,7 @@ expected = {
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
-    "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
+    "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
 for service_name in ("backend", "worker-chat"):
