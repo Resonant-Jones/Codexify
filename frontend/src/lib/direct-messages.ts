@@ -329,7 +329,7 @@ export async function fetchThreadProjectScope(
   try {
     const response = await api.get<{
       thread?: { project_id?: unknown } | null;
-    }>(`/api/threads/${encodeURIComponent(String(threadId))}`);
+    }>(`/threads/${encodeURIComponent(String(threadId))}`);
     const raw = response.data?.thread?.project_id;
     const parsed = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
