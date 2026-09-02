@@ -3,7 +3,7 @@
 > Classification: architecture contract / implemented same-node boundary
 > Status: implemented for same-node V1; federation transport deferred
 > Normative language: "must", "must not", "may", "should", "non-goal", and "invariant" are intentional contract terms.
-> Governing ADRs: [ADR-077](./adr/077-node-addressed-profile-identity-and-direct-messaging-boundary.md) (identity/addressing), [ADR-078](./adr/078-direct-messaging-relationship-conversation-cardinality-and-origin-provenance.md) (Relationship cardinality, origin, placement)
+> Governing ADRs: [ADR-079](./adr/079-node-addressed-profile-identity-and-direct-messaging-boundary.md) (identity/addressing), [ADR-080](./adr/080-direct-messaging-relationship-conversation-cardinality-and-origin-provenance.md) (Relationship cardinality, origin, placement)
 
 ## Purpose
 
@@ -31,7 +31,7 @@ participants share one local Node_ID.
 
 One unordered addressed Profile pair has exactly one canonical
 Relationship; that Relationship may own zero or more Conversations
-(ADR-078 refines ADR-077's one-pair-one-conversation rule).
+(ADR-080 refines ADR-079's one-pair-one-conversation rule).
 
 ### Node identity
 
@@ -255,7 +255,7 @@ Beta/release-claim expansion.
 
 ## 11. Unresolved federation contract questions
 
-Recorded in ADR-077; they must not block the same-node implementation:
+Recorded in ADR-079; they must not block the same-node implementation:
 
 1. How does another node resolve a Node_ID to current network endpoint(s)?
 2. Who/what establishes Node_ID provenance?

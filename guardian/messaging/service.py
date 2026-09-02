@@ -1186,6 +1186,12 @@ def create_message(
         )
         if existing is None:  # pragma: no cover - defensive
             raise _err(500, "message_unavailable", "Message unavailable")
+        if existing.body != text or existing.content_type != "text/plain":
+            raise _err(
+                409,
+                "client_message_key_conflict",
+                "client_message_key is already associated with a different message",
+            )
         return existing, True
 
     session.refresh(message)

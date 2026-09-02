@@ -673,7 +673,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--local-model",
         default=os.getenv(
-            "PRIVATE_PREVIEW_LOCAL_MODEL", "gemma-4-12b-it-qat-4bit"
+            "PRIVATE_PREVIEW_LOCAL_MODEL", "qwen3.8-27b-4bit"
         ),
     )
     parser.add_argument(

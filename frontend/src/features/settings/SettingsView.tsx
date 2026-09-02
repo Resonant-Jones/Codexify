@@ -29,6 +29,7 @@ import {
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
 import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
+import FeedbackSettingsPanel from "@/features/settings/components/FeedbackSettingsPanel";
 import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
 import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
 import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
@@ -90,6 +91,7 @@ type StoredChatGPTImportTask = {
 
 type SettingsTab =
   | "appearance"
+  | "feedback"
   | "system"
   | "connectors"
   | "data"
@@ -104,6 +106,7 @@ type SettingsTabDefinition = {
 
 const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "appearance", label: "Appearance" },
+  { value: "feedback", label: "Feedback" },
   { value: "system", label: "Imprint" },
   { value: "connectors", label: "Connectors" },
   { value: "data", label: "Data" },
@@ -134,6 +137,7 @@ function normalizeSettingsTab(value: unknown): SettingsTab | null {
   const compact = value.trim().toLowerCase().replace(/[^a-z]/g, "");
   if (!compact) return null;
   if (compact === "appearance") return "appearance";
+  if (compact === "feedback") return "feedback";
   if (compact === "system" || compact === "imprint") return "system";
   if (compact === "connectors") return "connectors";
   if (compact === "data") return "data";
@@ -372,6 +376,7 @@ export function SettingsView({
   setSurfaceDepth,
   surfaceWarmth,
   setSurfaceWarmth,
+  onStartFeedbackConversation,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -402,6 +407,7 @@ export function SettingsView({
   setSurfaceDepth: (n: number) => void;
   surfaceWarmth: number;
   setSurfaceWarmth: (n: number) => void;
+  onStartFeedbackConversation?: () => void;
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<SettingsTab>(() => {
@@ -413,6 +419,7 @@ export function SettingsView({
   });
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
+    feedback: null,
     system: null,
     connectors: null,
     data: null,
@@ -1652,6 +1659,21 @@ export function SettingsView({
                 </div>
               )
             )}
+          </SettingsSectionCard>
+        )}
+
+        {tab === "feedback" && (
+          <SettingsSectionCard
+            data-testid="settings-feedback-surface"
+            data-layout-span="full"
+            role="tabpanel"
+            id={getSettingsTabPanelId("feedback")}
+            aria-labelledby={getSettingsTabButtonId("feedback")}
+            className="space-y-[var(--shell-gap)]"
+          >
+            <FeedbackSettingsPanel
+              onStartConversation={onStartFeedbackConversation}
+            />
           </SettingsSectionCard>
         )}
 

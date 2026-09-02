@@ -8,22 +8,42 @@ remains local-first and local-only.
 
 ## Provider and network posture
 
-- Whoosh'd serves `gemma-4-12b-it-qat-4bit` from a loopback-bound host process.
+- Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.
   Docker reaches it at `http://host.docker.internal:8000/v1`; Compose, Nginx,
   and Cloudflare do not publish port 8000.
 - Guardian reaches DeepSeek outbound at `https://api.deepseek.com`. The
   provider policy token and entire egress allowlist are exactly `deepseek`.
   Never use wildcard egress.
 - The sole host-published application origin is
-  `http://127.0.0.1:8081`. It serves the frontend at `/`, Guardian at `/api`,
-  task and domain events through the same origin, and health at `/health` and
-  `/health/*`.
+  `http://127.0.0.1:8081`. It serves the frontend and Guardian through the
+  bounded path-ownership contract below; task and domain events remain on that
+  same origin.
 - The future approved hostname is `preview.codexify.space`. Cloudflare Tunnel
   terminates only at `127.0.0.1:8081`; it never connects directly to Whoosh'd
   or DeepSeek.
 - Guardian remote/session authentication remains authoritative behind
   Cloudflare Access. The browser receives neither a Guardian API key nor a
   DeepSeek credential.
+
+### Private-preview path ownership
+
+This lane intentionally runs the Vite development server behind the single
+private-preview Nginx origin. The origin classifies requests as follows:
+
+| Browser-visible path | Owner |
+| --- | --- |
+| `/` and ordinary frontend module/assets | Vite at `frontend:5173` |
+| `/api/...` ending in `.ts`, `.tsx`, `.js`, or `.jsx` | Vite source-module traffic at `frontend:5173` |
+| Every other `/api/...` request | Guardian at the dynamic `backend:8888` upstream |
+| `/health` and `/health/*` | Guardian |
+
+The bounded `/api/` source-module exception mirrors Vite's existing
+development proxy behavior. It preserves the complete request URI and query
+string so cache-busted module requests remain frontend traffic. It does not
+transfer semantic API authority to Vite, does not make a Guardian `404` fall
+through to the frontend, and does not describe a general production-web
+architecture. Cloudflare still terminates only at `127.0.0.1:8081`; Vite and
+Guardian remain unpublished.
 
 The UI persists provider and model choice in the thread configuration through
 `PATCH /api/chat/threads/{thread_id}/config` using `providerId` and `modelId`.
@@ -93,6 +113,42 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E 'codexify|private-preview'
 The only application publication may be
 `127.0.0.1:8081->8080/tcp`. Guardian 8888, Vite 5173, Whoosh'd 8000, Redis,
 Postgres, Neo4j, migrators, and workers must not have host bindings.
+
+### Automatic recovery and intentional shutdown
+
+The long-running private-preview services use Docker's `unless-stopped`
+restart policy. They recover after a container or Docker Desktop interruption,
+while the one-shot migration, graph-init, model-prep, and e2e jobs remain
+non-restarting. A per-user macOS LaunchAgent also reconciles the Compose
+project at login and every five minutes while the desired-up marker exists.
+The existing named `cloudflared` tunnel has a separate marker-gated
+`KeepAlive` LaunchAgent, so connector process failure is retried independently
+of application-container recovery.
+
+Install the two LaunchAgents once, then enable the preview:
+
+```bash
+make private-preview-autostart-install
+make private-preview-up
+make private-preview-status
+```
+
+The installer validates the existing external tunnel config and executable but
+does not copy the tunnel credential into the repository. The desired-up marker
+is stored under
+`~/Library/Application Support/Codexify/private-preview/enabled`.
+
+To intentionally disable the preview, clear desired-up state, stop the
+containers without deleting volumes, and stop the connector, run:
+
+```bash
+make private-preview-down
+```
+
+Use `make private-preview-up` to re-enable it. While the marker exists, raw
+`docker compose stop` or `down` may be reconciled by the LaunchAgent; the
+`make private-preview-down` command is the authoritative manual-off boundary.
+Do not use `down -v`.
 
 ### Backend replacement recovery
 
@@ -218,6 +274,35 @@ docker compose --env-file .env.private-preview \
 Never use `down -v`. Before preview use with durable data, establish a separate
 tested Postgres/media backup and restoration procedure; this task does not
 implement or prove one.
+
+### Database migration prerequisite
+
+Before the recovery helper runs, verify that the preserved private-preview
+database is at the repository Alembic head. If it is behind, do not stamp or
+manually repair `alembic_version`; run the bounded database-migration proof
+and retain its external pre-migration backup checkpoint first.
+
+The canonical pre-preview sequence is now:
+
+```text
+database current-head verification
+→ private-preview recovery proof
+→ bounded guest canary
+```
+
+The [2026-09-01 private-preview backup/restore requalification proof after
+Docker recovery](../architecture/proofs/runtime/2026-09-01-private-preview-backup-restore-after-docker-recovery-proof.md)
+is proven for local `main` commit `14929d2e6047797fdc1e803a9b4234af745a48bb`.
+Recovery prerequisite cleared for a bounded friends-and-family private-preview
+canary. This proof does not execute or admit that canary; keep guest traffic
+closed until the separate canary gate passes.
+
+The [2026-08-31 private-preview backup/restore attempt](../architecture/proofs/runtime/2026-08-31-private-preview-backup-restore-proof.md)
+failed closed before backup because the preserved source database migration
+revision trailed current local `main`; the subsequent helper defect and
+Docker-unavailable receipts remain historical lineage. Those failures were not
+reused as proof and are superseded for this recovery gate by the fresh
+2026-09-01 checkpoint above.
 
 ## Truth boundaries
 

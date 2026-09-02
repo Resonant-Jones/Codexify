@@ -110,6 +110,12 @@ const INITIAL_FLOW: SendFlow = {
   sentMessageBody: null,
 };
 
+const ACTIVE_SEND_PHASES: ReadonlySet<SendPhase> = new Set([
+  "creating_conversation",
+  "creating_link",
+  "sending",
+]);
+
 function portalRoot(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   return (
@@ -143,6 +149,7 @@ export default function ShareSheet({
   );
   const [flow, setFlow] = useState<SendFlow>(INITIAL_FLOW);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submissionInFlight = useRef(false);
 
   const messagingEnabled = capabilityState === "available" && peopleState != null;
 
@@ -285,7 +292,14 @@ export default function ShareSheet({
    */
   const submitChoice = useCallback(
     async (choice: string | null, choiceIsNew: boolean) => {
-      if (!peopleState || !flow.relationship) return;
+      if (
+        !peopleState ||
+        !flow.relationship ||
+        submissionInFlight.current
+      ) {
+        return;
+      }
+      submissionInFlight.current = true;
       const relationshipId = flow.relationship.relationship_id;
 
       let conversationId = choice;
@@ -302,94 +316,98 @@ export default function ShareSheet({
       }));
 
       try {
-        if (choiceIsNew) {
-          if (createdConversationId != null) {
-            // Retry path: never re-create the already-created Conversation.
-            conversationId = createdConversationId;
-          } else {
-            const origin = await computeOrigin();
-            const conversation = await createDirectMessageConversation(
-              relationshipId,
-              origin
-            );
-            conversationId = conversation.conversation_id;
-            createdConversationId = conversation.conversation_id;
-            peopleState.cacheConversationMeta(conversation);
-            setFlow((current) => ({
-              ...current,
-              createdConversationId,
-            }));
-          }
-        }
-      } catch (error) {
-        setFlow((current) => ({
-          ...current,
-          phase: "conversation_failed",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Could not create the Conversation.",
-        }));
-        return;
-      }
-
-      // Share-link creation: exactly once per submission attempt.
-      let link = flow.link;
-      if (!link) {
-        setFlow((current) => ({
-          ...current,
-          phase: "creating_link",
-          error: null,
-        }));
         try {
-          link = await createShareLink(targetType, targetId);
-          setFlow((current) => ({
-            ...current,
-            link,
-            linkUrl: resolveSharePublicUrl(String(link?.url || "")),
-          }));
+          if (choiceIsNew) {
+            if (createdConversationId != null) {
+              // Retry path: never re-create the already-created Conversation.
+              conversationId = createdConversationId;
+            } else {
+              const origin = await computeOrigin();
+              const conversation = await createDirectMessageConversation(
+                relationshipId,
+                origin
+              );
+              conversationId = conversation.conversation_id;
+              createdConversationId = conversation.conversation_id;
+              peopleState.cacheConversationMeta(conversation);
+              setFlow((current) => ({
+                ...current,
+                createdConversationId,
+              }));
+            }
+          }
         } catch (error) {
           setFlow((current) => ({
             ...current,
-            phase: "link_failed",
+            phase: "conversation_failed",
             error:
               error instanceof Error
                 ? error.message
-                : "Failed to create share link",
+                : "Could not create the Conversation.",
           }));
           return;
         }
-      }
-      if (!link || conversationId == null) return;
-      const fullUrl = resolveSharePublicUrl(String(link.url || ""));
 
-      const key = flow.clientMessageKey ?? crypto.randomUUID();
-      setFlow((current) => ({
-        ...current,
-        phase: "sending",
-        error: null,
-        clientMessageKey: key,
-      }));
-      try {
-        await sendDirectMessage(conversationId, fullUrl, key);
+        // Share-link creation: exactly once per submission attempt.
+        let link = flow.link;
+        if (!link) {
+          setFlow((current) => ({
+            ...current,
+            phase: "creating_link",
+            error: null,
+          }));
+          try {
+            link = await createShareLink(targetType, targetId);
+            setFlow((current) => ({
+              ...current,
+              link,
+              linkUrl: resolveSharePublicUrl(String(link?.url || "")),
+            }));
+          } catch (error) {
+            setFlow((current) => ({
+              ...current,
+              phase: "link_failed",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to create share link",
+            }));
+            return;
+          }
+        }
+        if (!link || conversationId == null) return;
+        const fullUrl = resolveSharePublicUrl(String(link.url || ""));
+
+        const key = flow.clientMessageKey ?? crypto.randomUUID();
         setFlow((current) => ({
           ...current,
-          phase: "complete",
-          sentMessageBody: fullUrl,
+          phase: "sending",
+          error: null,
+          clientMessageKey: key,
         }));
-        setStage("result");
-        peopleState.openConversation(conversationId, undefined);
-        peopleState.openPeople();
-      } catch (error) {
-        setFlow((current) => ({
-          ...current,
-          phase: "send_failed",
-          error:
-            error instanceof Error
-              ? error.message
-              : "The message was not sent.",
-        }));
-        setStage("result");
+        try {
+          await sendDirectMessage(conversationId, fullUrl, key);
+          setFlow((current) => ({
+            ...current,
+            phase: "complete",
+            sentMessageBody: fullUrl,
+          }));
+          setStage("result");
+          peopleState.openConversation(conversationId, undefined);
+          peopleState.openPeople();
+        } catch (error) {
+          setFlow((current) => ({
+            ...current,
+            phase: "send_failed",
+            error:
+              error instanceof Error
+                ? error.message
+                : "The message was not sent.",
+          }));
+          setStage("result");
+        }
+      } finally {
+        submissionInFlight.current = false;
       }
     },
     [
@@ -414,6 +432,7 @@ export default function ShareSheet({
     flow.phase === "link_failed" &&
     (flow.choice != null || flow.createdConversationId != null);
   const showRetryConversation = flow.phase === "conversation_failed";
+  const submissionActive = ACTIVE_SEND_PHASES.has(flow.phase);
 
   return createPortal(
     <div className="share-sheet-overlay" role="presentation">
@@ -632,7 +651,8 @@ export default function ShareSheet({
                   className="share-sheet-primary"
                   data-testid="share-submit"
                   disabled={
-                    flow.choiceIsNew ? false : flow.choice == null
+                    submissionActive ||
+                    (flow.choiceIsNew ? false : flow.choice == null)
                   }
                   onClick={() =>
                     void submitChoice(flow.choice, flow.choiceIsNew)

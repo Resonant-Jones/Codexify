@@ -330,7 +330,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Restore the one-pair-one-conversation shape from ADR-077."""
+    """Restore the one-pair-one-conversation shape from ADR-079."""
     connection = op.get_bind()
 
     # Recreate the old conversation-participant membership table.

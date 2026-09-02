@@ -656,3 +656,124 @@ def test_active_runtime_passes_tool_name_strings_not_agenttool_objects() -> None
         "wrapper must read the effective tool surface from the session, "
         "not from the configured value"
     )
+
+
+# --- Pi 0.82.1 assistant-response telemetry source-level regressions
+# (CE-L1 post-tool-repair observability).  These tests prove the wrapper
+# source observes the maintained Pi `message_update` event vocabulary and
+# the final `session.agent.state.messages` surface WITHOUT retaining
+# text, reasoning, deltas, arguments, IDs, or provider payloads.
+
+
+def test_active_runtime_observes_assistant_message_update_events() -> None:
+    """The wrapper must subscribe to assistant `message_update` events to
+    capture the maintained Pi 0.82.1 event vocabulary (`text_start`,
+    `text_delta`, `toolcall_start`, etc.) without retaining deltas.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    # The wrapper must subscribe to session events.
+    assert "session.subscribe" in loader, (
+        "wrapper must use session.subscribe() to capture the maintained "
+        "Pi 0.82.1 event vocabulary"
+    )
+    # The wrapper must listen to message_update events.
+    assert "message_update" in loader, (
+        "wrapper must observe message_update events to capture the "
+        "maintained Pi 0.82.1 assistant message event vocabulary"
+    )
+    # The wrapper must record only event-type names; deltas must never
+    # be appended to a telemetry accumulator.
+    forbidden = [
+        "assistantMessageEvent.textDelta",
+        "assistantMessageEvent.thinkingDelta",
+        "assistantMessageEvent.content",
+        "assistantMessageEvent.toolCall.arguments",
+        "assistantMessageEvent.toolCall.id",
+    ]
+    for marker in forbidden:
+        assert marker not in loader, (
+            f"wrapper must not retain delta/content/args/IDs; found {marker!r}"
+        )
+
+
+def test_active_runtime_reads_final_assistant_messages_block_kinds() -> None:
+    """The wrapper must walk `session.agent.state.messages` to capture
+    the maintained Pi 0.82.1 final assistant content-block kinds
+    (`text`, `thinking`, `toolCall`) without retaining the blocks.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    helper = (ROOT / "codex_runner/src/assistant-telemetry.js").read_text(encoding="utf-8")
+    # The wrapper must read final messages from the session state.
+    assert "session.agent.state.messages" in loader or "agent.state.messages" in loader, (
+        "wrapper must read final assistant messages from "
+        "session.agent.state.messages to capture content-block kinds"
+    )
+    # The wrapper must record only content-block type names.
+    assert "toolCall" in helper, (
+        "helper must recognize the maintained Pi 0.82.1 'toolCall' "
+        "content-block type"
+    )
+    # The wrapper/helper must NOT serialize full content blocks (no
+    # arguments, IDs, or provider payloads).  Text accumulation for the
+    # bounded `summary` is allowed (used by the wrapper for the
+    # run summary field, not persisted to telemetry).
+    forbidden_substrings = (
+        "block.arguments",
+        "block.id",
+    )
+    for source_name, source_text in (("agent-wrapper", loader), ("helper", helper)):
+        for marker in forbidden_substrings:
+            assert marker not in source_text, (
+                f"{source_name} must not retain block args/IDs; "
+                f"found {marker!r}"
+            )
+
+
+def test_active_runtime_tool_call_event_count_uses_maintained_vocabulary() -> None:
+    """The wrapper must count only assistant message-update events whose
+    Pi-native event type unambiguously denotes a tool-call lifecycle
+    event, using the maintained Pi 0.82.1 vocabulary.
+    """
+    helper = (ROOT / "codex_runner/src/assistant-telemetry.js").read_text(encoding="utf-8")
+    # The maintained Pi 0.82.1 tool-call event names appear in the
+    # vendored types (AssistantMessageEvent union): "toolcall_start",
+    # "toolcall_delta", "toolcall_end".  The helper must recognize
+    # all three to count tool-call lifecycle events.
+    for event_name in ("toolcall_start", "toolcall_delta", "toolcall_end"):
+        assert event_name in helper, (
+            f"helper must recognize maintained Pi 0.82.1 assistant "
+            f"event {event_name!r}"
+        )
+
+
+def test_active_runtime_serializes_no_assistant_text_or_arguments() -> None:
+    """The wrapper output must contain no assistant text, reasoning,
+    deltas, tool arguments, tool IDs, or provider payloads.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    forbidden_substrings = (
+        # Assistant text/reasoning prose must never appear in the wrapper
+        # output JSON.
+        "I cannot", "I will not", "as an AI",
+        "as a language model", "thinking text",
+        # Tool-arg/ID echoes that would leak schema structure.
+        "tool_args", "toolCallArgs", "toolCallId",
+        # Provider payload fragments.
+        '"choices":', '"delta":', '"usage":',
+        # Credentials.
+        "api_key", "openai_api_key", "PI_API_KEY",
+    )
+    for marker in forbidden_substrings:
+        assert marker not in loader, (
+            f"wrapper must not serialize {marker!r}"
+        )
+
+
+def test_active_runtime_preserves_canonical_writable_tool_set() -> None:
+    """The wrapper must preserve the canonical writable tool-name set
+    exactly: `["read", "bash", "edit", "write"]`.
+    """
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    assert '["read", "bash", "edit", "write"]' in loader, (
+        "wrapper must preserve CONFIGURED_WRITABLE_TOOL_NAMES exactly"
+    )

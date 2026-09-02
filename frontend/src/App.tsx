@@ -49,7 +49,6 @@ import {
 import EventsConsole from "./pages/EventsConsole";
 import LoginPage from "./pages/login/LoginPage";
 import RegisterPage from "./pages/login/RegisterPage";
-import { PrivatePreviewBanner } from "./components/PrivatePreviewBanner";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
 import { SharePage } from "./pages/SharePage";
 import DirectMessageInbox from "./components/direct-messages/DirectMessageInbox";
@@ -1403,7 +1402,6 @@ export default function App() {
 
   return (
     <WebRuntimeStartupGate enabled={webRuntimeGateEnabled}>
-      <PrivatePreviewBanner />
       {mainContent}
     </WebRuntimeStartupGate>
   );

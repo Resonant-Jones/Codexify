@@ -10,6 +10,7 @@ import {
   fetchDirectMessageMessages,
   fetchDirectMessageRelationships,
   fetchRelationshipConversations,
+  fetchThreadProjectScope,
   filterConversationsByRelationship,
   normalizeDirectMessageError,
   peerPresentationLabel,
@@ -289,6 +290,17 @@ describe("fetchDirectMessageConversation", () => {
     expect(mockedGet).toHaveBeenCalledWith(
       "/api/direct-messages/conversations/c1"
     );
+  });
+});
+
+describe("fetchThreadProjectScope", () => {
+  it("reads project scope from the mounted thread-detail route", async () => {
+    mockedGet.mockResolvedValue({
+      data: { thread: { project_id: 7 } },
+    } as never);
+
+    await expect(fetchThreadProjectScope(12)).resolves.toBe(7);
+    expect(mockedGet).toHaveBeenCalledWith("/threads/12");
   });
 });
 

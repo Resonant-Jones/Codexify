@@ -680,10 +680,23 @@ def _to_payload(obj: Any) -> dict[str, Any]:
 
 
 def _extract_tool_telemetry_from_outcome(outcome: Any) -> tuple:
-    """Best-effort extraction of bounded tool telemetry from a Pi outcome.
+    """Best-effort extraction of bounded tool + assistant-response telemetry.
 
-    Returns a 6-tuple matching the bounded fields. Missing fields yield None.
-    Malformed fields yield None.
+    Returns a 10-tuple matching the bounded fields. Missing fields yield
+    None. Malformed fields yield None.
+
+    Position contract (do not reorder without updating all consumers):
+
+        0. effective_tool_names: tuple[str, ...] | None
+        1. write_tool_available: bool | None
+        2. tool_execution_start_count: int | None
+        3. tool_execution_end_count: int | None
+        4. executed_tool_names: tuple[str, ...] | None
+        5. assistant_tool_call_count: int | None
+        6. assistant_message_count: int | None
+        7. assistant_content_block_types: tuple[str, ...] | None
+        8. assistant_message_event_types: tuple[str, ...] | None
+        9. assistant_tool_call_event_count: int | None
     """
     def _read(obj: Any, name: str) -> Any:
         if obj is None:
@@ -694,6 +707,12 @@ def _extract_tool_telemetry_from_outcome(outcome: Any) -> tuple:
 
     def _as_int(value: Any) -> int | None:
         return value if isinstance(value, int) and value >= 0 else None
+
+    def _as_tuple(value: Any) -> tuple[str, ...] | None:
+        if not isinstance(value, (list, tuple)):
+            return None
+        cleaned = [v for v in value if isinstance(v, str) and len(v) > 0]
+        return tuple(cleaned)  # always tuple; empty tuple when none present
 
     names_raw = _read(outcome, "effective_tool_names")
     names_out: tuple[str, ...] | None = None
@@ -714,6 +733,10 @@ def _extract_tool_telemetry_from_outcome(outcome: Any) -> tuple:
         _as_int(_read(outcome, "tool_execution_end_count")),
         executed_out,
         _as_int(_read(outcome, "assistant_tool_call_count")),
+        _as_int(_read(outcome, "assistant_message_count")),
+        _as_tuple(_read(outcome, "assistant_content_block_types")),
+        _as_tuple(_read(outcome, "assistant_message_event_types")),
+        _as_int(_read(outcome, "assistant_tool_call_event_count")),
     )
 
 
@@ -1387,6 +1410,10 @@ def run_live_executor_campaign(
                 tool_execution_end_count=telemetry[3],
                 executed_tool_names=telemetry[4],
                 assistant_tool_call_count=telemetry[5],
+                assistant_message_count=telemetry[6],
+                assistant_content_block_types=telemetry[7],
+                assistant_message_event_types=telemetry[8],
+                assistant_tool_call_event_count=telemetry[9],
             )
     else:
         failed = [
@@ -1653,6 +1680,10 @@ def run_live_executor_campaign(
         tool_execution_end_count=_telemetry[3],
         executed_tool_names=_telemetry[4],
         assistant_tool_call_count=_telemetry[5],
+        assistant_message_count=_telemetry[6],
+        assistant_content_block_types=_telemetry[7],
+        assistant_message_event_types=_telemetry[8],
+        assistant_tool_call_event_count=_telemetry[9],
     )
 
 

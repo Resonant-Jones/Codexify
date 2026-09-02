@@ -12,7 +12,7 @@
  * - closing the floating UI mutates UI state only — it never deletes,
  *   moves, or rebinds a Conversation.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import type {
   DirectMessageConversation,
@@ -52,6 +52,8 @@ export type PeopleMessagingState = {
   closeFloating: () => void;
   returnFloatingToPeople: () => void;
   setDraft: (conversationId: string, draft: string) => void;
+  getClientMessageKey: (conversationId: string, body: string) => string;
+  acknowledgeClientMessage: (conversationId: string, key: string) => void;
   cacheConversationMeta: (conversation: DirectMessageConversation) => void;
   replaceMessages: (
     conversationId: string,
@@ -65,6 +67,9 @@ export type PeopleMessagingState = {
 };
 
 export function usePeopleMessagingState(): PeopleMessagingState {
+  const pendingSendByConversationId = useRef<
+    Record<string, { body: string; key: string }>
+  >({});
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PeopleTab>("inbox");
   const [selectedRelationshipId, setSelectedRelationshipId] = useState<
@@ -167,6 +172,26 @@ export function usePeopleMessagingState(): PeopleMessagingState {
     }));
   }, []);
 
+  const getClientMessageKey = useCallback(
+    (conversationId: string, body: string): string => {
+      const pending = pendingSendByConversationId.current[conversationId];
+      if (pending?.body === body) return pending.key;
+      const key = crypto.randomUUID();
+      pendingSendByConversationId.current[conversationId] = { body, key };
+      return key;
+    },
+    []
+  );
+
+  const acknowledgeClientMessage = useCallback(
+    (conversationId: string, key: string) => {
+      if (pendingSendByConversationId.current[conversationId]?.key === key) {
+        delete pendingSendByConversationId.current[conversationId];
+      }
+    },
+    []
+  );
+
   const replaceMessages = useCallback(
     (conversationId: string, messages: DirectMessageEnvelope[]) => {
       setMessagesByConversationId((current) => ({
@@ -223,6 +248,8 @@ export function usePeopleMessagingState(): PeopleMessagingState {
       closeFloating,
       returnFloatingToPeople,
       setDraft,
+      getClientMessageKey,
+      acknowledgeClientMessage,
       cacheConversationMeta,
       replaceMessages,
       appendServerMessage,
@@ -251,6 +278,8 @@ export function usePeopleMessagingState(): PeopleMessagingState {
       closeFloating,
       returnFloatingToPeople,
       setDraft,
+      getClientMessageKey,
+      acknowledgeClientMessage,
       cacheConversationMeta,
       replaceMessages,
       appendServerMessage,

@@ -1,6 +1,6 @@
 /**
  * Canonical authenticated client for the direct-messaging backend surface
- * (ADR-077/078), plus pure projections for the conversation-first Inbox.
+ * (ADR-079/080), plus pure projections for the conversation-first Inbox.
  *
  * Field names mirror the runtime contract in
  * `guardian/routes/direct_messages.py`; nothing here adds backend
@@ -329,7 +329,7 @@ export async function fetchThreadProjectScope(
   try {
     const response = await api.get<{
       thread?: { project_id?: unknown } | null;
-    }>(`/api/threads/${encodeURIComponent(String(threadId))}`);
+    }>(`/threads/${encodeURIComponent(String(threadId))}`);
     const raw = response.data?.thread?.project_id;
     const parsed = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;

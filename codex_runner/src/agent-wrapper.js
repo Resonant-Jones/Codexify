@@ -18,6 +18,12 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+	observeAssistantMessageEvent,
+	observeFinalAssistantMessages,
+	createToolTelemetry,
+} from "./assistant-telemetry.js";
+
 // Parse command line args
 const args = process.argv.slice(2);
 const mode = args[0] || "help";
@@ -544,15 +550,13 @@ async function runAgent() {
 	const effectiveToolNames = getEffectiveToolNames(session);
 	const writeToolAvailable = effectiveToolNames.includes("write");
 
-	// Tool telemetry accumulators (content-free, evidence-only).
-	const toolTelemetry = {
-		effective_tool_names: effectiveToolNames,
-		write_tool_available: writeToolAvailable,
-		tool_execution_start_count: 0,
-		tool_execution_end_count: 0,
-		executed_tool_names: [],
-		assistant_tool_call_count: 0,
-	};
+	// Tool telemetry accumulator (content-free, evidence-only). The
+	// canonical 10-field helper is the sole authority for the bounded
+	// live-authorized telemetry shape; the wrapper only sets the
+	// effective-tool surface which is determined post-session-creation.
+	const toolTelemetry = createToolTelemetry();
+	toolTelemetry.effective_tool_names = effectiveToolNames;
+	toolTelemetry.write_tool_available = writeToolAvailable;
 
 	// Defense-in-depth: if Guardian-authorized-task has writable intent
 	// (`write` should be active) but the session did not register `write`,
@@ -574,7 +578,11 @@ async function runAgent() {
 		return;
 	}
 
-	// Subscribe to events (capture bounded tool-execution telemetry).
+	// Subscribe to events (capture bounded tool-execution telemetry and
+	// bounded assistant-response telemetry).  Both observers are content-
+	// free; the assistant event observer is wired independently of
+	// OPTIONS.verbose so evidence collection does not depend on logging
+	// mode.
 	session.subscribe((event) => {
 		// Count tool execution lifecycle events (NO args/results/content).
 		if (event.type === "tool_execution_start") {
@@ -588,6 +596,9 @@ async function runAgent() {
 		} else if (event.type === "tool_execution_end") {
 			toolTelemetry.tool_execution_end_count += 1;
 		}
+		// Bounded assistant-response event observation (text/reasoning/
+		// arguments/IDs/payloads are NEVER read by the helper).
+		observeAssistantMessageEvent(toolTelemetry, event);
 		if (OPTIONS.verbose) {
 			if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
 				process.stdout.write(event.assistantMessageEvent.delta);
@@ -619,23 +630,11 @@ async function runAgent() {
 		throw error;
 	}
 
-	// Count assistant tool-call blocks (distinct from tool execution).
-	// Inspect assistant messages and count content blocks whose type is exactly
-	// "toolCall". Do NOT record tool-call arguments.
-	try {
-		const finalMessages = session.agent.state.messages;
-		for (const message of finalMessages) {
-			if (message.role !== "assistant") continue;
-			if (!Array.isArray(message.content)) continue;
-			for (const block of message.content) {
-				if (block && block.type === "toolCall") {
-					toolTelemetry.assistant_tool_call_count += 1;
-				}
-			}
-		}
-	} catch (_error) {
-		// leave count at 0; bounded evidence only
-	}
+	// Bounded observation of the final Pi 0.82.1 assistant messages.
+	// The canonical helper owns the assistant_message_count,
+	// assistant_content_block_types, and assistant_tool_call_count
+	// fields; it NEVER reads text/reasoning/arguments/IDs.
+	observeFinalAssistantMessages(toolTelemetry, session);
 
 	// Print final output
 	if (guardianAuthorizedMode) {
@@ -738,6 +737,59 @@ if (mode === "readiness") {
 } else if (guardianAuthorizedReadinessMode) {
 	checkGuardianAuthorizedReadiness().catch(() => {
 		emitAuthorizedFailure("unknown_adapter_failure", "preflight");
+	});
+} else if (mode === "assistant-telemetry-test") {
+	// Deterministic regression harness for bounded Pi 0.82.1
+	// assistant-response observability.  Reads a JSON spec of
+	// synthetic message_update events and synthetic final
+	// session.messages from stdin, runs them through the same
+	// helpers the live wrapper uses, and writes the resulting
+	// toolTelemetry JSON to stdout.  No network.  No credentials.
+	// No prompting.
+	let input = "";
+	process.stdin.setEncoding("utf8");
+	process.stdin.on("data", (chunk) => { input += chunk; });
+	process.stdin.on("end", () => {
+		try {
+			const spec = JSON.parse(input);
+			const toolTelemetry = {
+				effective_tool_names: ["read", "bash", "edit", "write"],
+				write_tool_available: true,
+				tool_execution_start_count: 0,
+				tool_execution_end_count: 0,
+				executed_tool_names: [],
+				assistant_tool_call_count: 0,
+				assistant_message_count: 0,
+				assistant_content_block_types: [],
+				assistant_message_event_types: [],
+				assistant_tool_call_event_count: 0,
+			};
+			if (Array.isArray(spec.events)) {
+				for (const event of spec.events) {
+					observeAssistantMessageEvent(toolTelemetry, event);
+				}
+			}
+			if (Array.isArray(spec.toolExecutionEvents)) {
+				for (const event of spec.toolExecutionEvents) {
+					if (event && event.type === "tool_execution_start") {
+						const toolName = typeof event.toolName === "string" ? event.toolName : null;
+						if (toolName !== null) {
+							toolTelemetry.tool_execution_start_count += 1;
+							if (!toolTelemetry.executed_tool_names.includes(toolName)) {
+								toolTelemetry.executed_tool_names.push(toolName);
+							}
+						}
+					} else if (event && event.type === "tool_execution_end") {
+						toolTelemetry.tool_execution_end_count += 1;
+					}
+				}
+			}
+			observeFinalAssistantMessages(toolTelemetry, { agent: { state: { messages: spec.messages || [] } } });
+			process.stdout.write(JSON.stringify(toolTelemetry));
+		} catch (parseError) {
+			console.error("assistant-telemetry-test: failed to parse stdin as JSON:", parseError.message);
+			process.exit(1);
+		}
 	});
 } else if (mode === "help" || !prompt) {
 	console.log(`

@@ -312,6 +312,36 @@ describe("ShareSheet", () => {
     expect(state.openConversation).toHaveBeenCalledWith("c3", undefined);
   });
 
+  it("keeps share submission single-flight while the request is active", async () => {
+    const user = userEvent.setup();
+    const deferred = {
+      resolve: (_value: ReturnType<typeof conversation>) => {},
+    };
+    dm.createDirectMessageConversation.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        })
+    );
+    renderSheet();
+    await openSendToPerson(user);
+    await screen.findByTestId("share-choice-new");
+    await user.click(screen.getByTestId("share-choice-new"));
+
+    const submit = screen.getByTestId("share-submit");
+    await user.click(submit);
+    expect(submit).toBeDisabled();
+    await user.click(submit);
+    expect(dm.createDirectMessageConversation).toHaveBeenCalledTimes(1);
+    expect(share.createShareLink).not.toHaveBeenCalled();
+
+    deferred.resolve(conversation("c3"));
+    await waitFor(() => {
+      expect(dm.sendDirectMessage).toHaveBeenCalledTimes(1);
+    });
+    expect(share.createShareLink).toHaveBeenCalledTimes(1);
+  });
+
   it("creates a General-origin Conversation when no canonical scope exists", async () => {
     const user = userEvent.setup();
     renderSheet({ sourceThreadId: null, sourceProjectId: null });

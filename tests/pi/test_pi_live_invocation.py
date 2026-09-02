@@ -560,6 +560,12 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
                         "tool_execution_end_count": 0,
                         "executed_tool_names": [],
                         "assistant_tool_call_count": 0,
+                        "assistant_message_count": 1,
+                        "assistant_content_block_types": ["text"],
+                        "assistant_message_event_types": [
+                            "start", "text_start", "text_delta", "text_end", "done",
+                        ],
+                        "assistant_tool_call_event_count": 0,
                     },
                 }
             ),
@@ -706,3 +712,203 @@ def test_tool_telemetry_into_receipt_validation_metadata(tmp_path: Path) -> None
     assert telemetry.get("tool_execution_end_count") == 1
     assert telemetry.get("executed_tool_names") == ["write"]
     assert telemetry.get("assistant_tool_call_count") == 1
+
+
+# --- Pi 0.82.1 assistant-response telemetry propagation regressions (CE-L1
+# post-tool-repair observability).  All use the adapter subprocess-mock
+# path so the wrapper->adapter telemetry chain is exercised.  No provider
+# calls; no prompt execution; no credential access.
+
+
+def _mock_wrapper_subprocess_assistant(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    tool_telemetry=None,
+    omit_assistant_fields=(),
+):
+    """Patch pi_codex_runner.subprocess.run to return a canned wrapper output.
+
+    `tool_telemetry=None` means the wrapper payload has no tool_telemetry
+    field at all.  `omit_assistant_fields` is a tuple of names to strip
+    from the telemetry dict (e.g. ("assistant_message_count",)).
+    """
+    payload_telemetry = (
+        None if tool_telemetry is None
+        else {k: v for k, v in tool_telemetry.items() if k not in omit_assistant_fields}
+    )
+
+    def _run(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "status": "ok",
+                    "summary": "bounded",
+                    "actual_runtime_identity": {
+                        "actual_provider_id": IDENTITY["provider_id"],
+                        "actual_model_id": IDENTITY["model_id"],
+                        "actual_harness_id": IDENTITY["harness_id"],
+                        "actual_harness_version": IDENTITY["harness_version"],
+                    },
+                    **({"tool_telemetry": payload_telemetry}
+                       if payload_telemetry is not None else {}),
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
+    monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
+    monkeypatch.setenv("PI_MODEL", "ambient-model")
+
+
+def _default_assistant_telemetry():
+    return {
+        "effective_tool_names": ["read", "bash", "edit", "write"],
+        "write_tool_available": True,
+        "tool_execution_start_count": 0,
+        "tool_execution_end_count": 0,
+        "executed_tool_names": [],
+        "assistant_tool_call_count": 0,
+        "assistant_message_count": 1,
+        "assistant_content_block_types": ["text"],
+        "assistant_message_event_types": [
+            "start", "text_start", "text_delta", "text_end", "done",
+        ],
+        "assistant_tool_call_event_count": 0,
+    }
+
+
+def test_assistant_telemetry_present_propagates_into_adapter(
+    monkeypatch, tmp_path,
+):
+    """All four assistant-response fields propagate through the adapter envelope."""
+    _mock_wrapper_subprocess_assistant(
+        monkeypatch, tool_telemetry=_default_assistant_telemetry(),
+    )
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "ok"
+    assert result.assistant_message_count == 1
+    assert result.assistant_content_block_types == ("text",)
+    assert result.assistant_message_event_types == (
+        "start", "text_start", "text_delta", "text_end", "done",
+    )
+    assert result.assistant_tool_call_event_count == 0
+
+
+def test_assistant_telemetry_missing_assistant_message_count_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """Missing assistant_message_count -> wrapper_protocol_failed."""
+    _mock_wrapper_subprocess_assistant(
+        monkeypatch,
+        tool_telemetry=_default_assistant_telemetry(),
+        omit_assistant_fields=("assistant_message_count",),
+    )
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "wrapper_protocol"
+
+
+def test_assistant_telemetry_negative_assistant_message_count_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """Negative assistant_message_count -> wrapper_protocol_failed."""
+    tm = _default_assistant_telemetry()
+    tm["assistant_message_count"] = -1
+    _mock_wrapper_subprocess_assistant(monkeypatch, tool_telemetry=tm)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_assistant_telemetry_non_string_block_type_member_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """Non-string list member in assistant_content_block_types -> wrapper_protocol_failed."""
+    tm = _default_assistant_telemetry()
+    tm["assistant_content_block_types"] = ["text", 42]
+    _mock_wrapper_subprocess_assistant(monkeypatch, tool_telemetry=tm)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_assistant_telemetry_non_list_block_types_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """assistant_content_block_types not a list -> wrapper_protocol_failed."""
+    tm = _default_assistant_telemetry()
+    tm["assistant_content_block_types"] = "not-a-list"
+    _mock_wrapper_subprocess_assistant(monkeypatch, tool_telemetry=tm)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_assistant_telemetry_negative_assistant_tool_call_event_count_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """Negative assistant_tool_call_event_count -> wrapper_protocol_failed."""
+    tm = _default_assistant_telemetry()
+    tm["assistant_tool_call_event_count"] = -1
+    _mock_wrapper_subprocess_assistant(monkeypatch, tool_telemetry=tm)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+
+
+def test_assistant_telemetry_string_event_types_with_invalid_member_fails_closed(
+    monkeypatch, tmp_path,
+):
+    """assistant_message_event_types with non-string entry -> wrapper_protocol_failed."""
+    tm = _default_assistant_telemetry()
+    tm["assistant_message_event_types"] = ["text_start", None, "text_end"]
+    _mock_wrapper_subprocess_assistant(monkeypatch, tool_telemetry=tm)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(
+            prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
+        ),
+        AgentExecutionIdentity(**IDENTITY),
+        read_only=True,
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"

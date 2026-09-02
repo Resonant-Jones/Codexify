@@ -6,15 +6,17 @@ import logging
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_request_user_scope,
+    require_api_key,
+)
 from guardian.core.media_signing import sign_media_url
 from guardian.db import models
 
@@ -69,6 +71,7 @@ def _get_db() -> GuardianDB:
 @router.post("/api/share", response_model=CreateShareResponse)
 async def create_share_link(
     request: CreateShareRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
     _api_key: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     """
@@ -96,13 +99,20 @@ async def create_share_link(
 
     try:
         db = _get_db()
+        owner_id = str(request_user_scope.user_id or "").strip()
+        if not owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing authenticated user",
+            )
 
         with db.get_session() as session:
-            # Verify target exists
+            # Resolve the target only inside the authenticated owner's scope.
+            # A 404 deliberately does not reveal whether another user owns the ID.
             if request.target_type == "thread":
                 target = (
                     session.query(models.ChatThread)
-                    .filter_by(id=request.target_id)
+                    .filter_by(id=request.target_id, user_id=owner_id)
                     .first()
                 )
                 if not target:
@@ -117,13 +127,13 @@ async def create_share_link(
                 # Check both GeneratedDocument and UploadedDocument
                 target = (
                     session.query(models.GeneratedDocument)
-                    .filter_by(id=str(request.target_id))
+                    .filter_by(id=str(request.target_id), user_id=owner_id)
                     .first()
                 )
                 if not target:
                     target = (
                         session.query(models.UploadedDocument)
-                        .filter_by(id=str(request.target_id))
+                        .filter_by(id=str(request.target_id), user_id=owner_id)
                         .first()
                     )
 

@@ -309,6 +309,12 @@ class LiveExecutorRunResult:
     tool_execution_end_count: int | None = None
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = None
+    # Bounded Pi 0.82.1 assistant-response telemetry (evidence only).
+    # Only type names and counts; never text / reasoning / args / IDs.
+    assistant_message_count: int | None = None
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -368,6 +374,18 @@ class LiveExecutorRunResult:
                     else None
                 ),
                 "assistant_tool_call_count": self.assistant_tool_call_count,
+                "assistant_message_count": self.assistant_message_count,
+                "assistant_content_block_types": (
+                    list(self.assistant_content_block_types)
+                    if self.assistant_content_block_types is not None
+                    else None
+                ),
+                "assistant_message_event_types": (
+                    list(self.assistant_message_event_types)
+                    if self.assistant_message_event_types is not None
+                    else None
+                ),
+                "assistant_tool_call_event_count": self.assistant_tool_call_event_count,
             }
             if self.effective_tool_names is not None
             else None,
