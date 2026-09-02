@@ -56,6 +56,11 @@ from guardian.extensions.tokens import (
     EXTENSION_TARGET_SURFACES,
     INSTALL_GATE_DECISION_TOKENS,
 )
+from guardian.messaging.tokens import (
+    DM_CONTENT_TYPES,
+    DM_CONVERSATION_KINDS,
+    USERNAME_STATES,
+)
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
     ACCOUNT_IMPORT_STATUSES,
@@ -78,6 +83,7 @@ from guardian.tts.contracts import (
     TTS_OUTPUT_FORMATS,
     TTS_VOICE_MODES,
 )
+from guardian.threadspace.membership_tokens import NODE_STATUSES
 from guardian.user_profile_tokens import (
     DEFAULT_USER_ACCENT_COLOR,
     USER_ACCENT_COLORS,
@@ -151,9 +157,36 @@ class User(Base):
 USER_ACCENT_COLOR_VALUES_SQL = "','".join(sorted(USER_ACCENT_COLORS))
 USER_ACCENT_COLOR_CHECK = f"accent_color IN ('{USER_ACCENT_COLOR_VALUES_SQL}')"
 
+# Social identity state for the canonical person-facing profile.
+# ``username`` is a deliberate Node-scoped discovery alias (lowercase-only
+# canonical form); ``username_state`` records whether one has been claimed.
+THREADSPACE_NODE_STATUS_VALUES_SQL = "','".join(sorted(NODE_STATUSES))
+THREADSPACE_NODE_STATUS_CHECK = (
+    "status IN ('" + THREADSPACE_NODE_STATUS_VALUES_SQL + "')"
+)
+USERNAME_STATE_VALUES_SQL = "','".join(sorted(USERNAME_STATES))
+USERNAME_STATE_CHECK = (
+    "username_state IS NULL OR username_state IN "
+    f"('{USERNAME_STATE_VALUES_SQL}')"
+)
+# The username grammar CHECK is Postgres-native (regex ``~``) and lives only
+# in the migration (a1b7c9d2e4f6); application validation in
+# ``guardian.messaging.tokens.normalize_username`` enforces the same grammar
+# on every write path.
+USERNAME_STATE_USERNAME_CONSISTENCY_CHECK = (
+    "(username_state = 'active') = (username IS NOT NULL)"
+)
+
 
 class UserProfile(Base):
-    """Account-owned presentation metadata for a canonical user."""
+    """Account-owned presentation and social identity for a canonical user.
+
+    ``id`` remains the internal row key.  ``profile_id`` is the durable
+    social actor token that participates in the ``Node_ID + Profile_ID``
+    protocol address; ``node_id`` anchors the profile to its host node.
+    ``user_id`` stays private account ownership authority and is never a
+    social address field.
+    """
 
     __tablename__ = "user_profiles"
 
@@ -165,6 +198,13 @@ class UserProfile(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    profile_id: Mapped[str | None] = mapped_column(String(36))
+    node_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("threadspace_nodes.node_id", ondelete="RESTRICT"),
+    )
+    username: Mapped[str | None] = mapped_column(String(32))
+    username_state: Mapped[str | None] = mapped_column(String(16))
     display_name: Mapped[str | None] = mapped_column(String(255))
     avatar_url: Mapped[str | None] = mapped_column(String(2048))
     timezone: Mapped[str | None] = mapped_column(String(128))
@@ -188,9 +228,60 @@ class UserProfile(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_user_profiles_user_id"),
+        UniqueConstraint("profile_id", name="uq_user_profiles_profile_id"),
+        UniqueConstraint(
+            "node_id", "username", name="uq_user_profiles_node_username"
+        ),
         CheckConstraint(
             USER_ACCENT_COLOR_CHECK,
             name="ck_user_profiles_accent_color",
+        ),
+        CheckConstraint(
+            USERNAME_STATE_CHECK,
+            name="ck_user_profiles_username_state",
+        ),
+        CheckConstraint(
+            USERNAME_STATE_USERNAME_CONSISTENCY_CHECK,
+            name="ck_user_profiles_username_state_consistency",
+        ),
+        Index("ix_user_profiles_node_id", "node_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ThreadSpaceNode(Base):
+    """Durable ThreadSpace Node record — the canonical local Node_ID.
+
+    ``node_id`` identifies the Codexify node authority.  It is never an
+    endpoint, hostname, IP, URL, container identity, account, or profile.
+    """
+
+    __tablename__ = "threadspace_nodes"
+
+    node_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="active", server_default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            THREADSPACE_NODE_STATUS_CHECK,
+            name="threadspace_nodes_status_check",
+        ),
+        CheckConstraint(
+            "length(trim(name)) > 0",
+            name="threadspace_nodes_name_check",
         ),
     )
 
@@ -1391,6 +1482,286 @@ class ThreadMove(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     timestamp: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Direct Messaging
+# =========================
+
+
+DM_CONVERSATION_KIND_VALUES_SQL = "','".join(sorted(DM_CONVERSATION_KINDS))
+DM_CONVERSATION_KIND_CHECK = (
+    f"kind IN ('{DM_CONVERSATION_KIND_VALUES_SQL}')"
+)
+DM_CONTENT_TYPE_VALUES_SQL = "','".join(sorted(DM_CONTENT_TYPES))
+DM_CONTENT_TYPE_CHECK = (
+    f"content_type IN ('{DM_CONTENT_TYPE_VALUES_SQL}')"
+)
+
+
+class DirectMessageRelationship(Base):
+    """Canonical direct relationship for one unordered social-address pair."""
+
+    __tablename__ = "direct_message_relationships"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    participant_pair_key: Mapped[str] = mapped_column(
+        String(256), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    participants: Mapped[list[DirectMessageRelationshipParticipant]] = (
+        relationship(
+            "DirectMessageRelationshipParticipant",
+            back_populates="relationship",
+            cascade="all, delete-orphan",
+        )
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "participant_pair_key",
+            name="uq_direct_message_relationships_participant_pair_key",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessageRelationshipParticipant(Base):
+    """One canonical social-address participant in a direct relationship."""
+
+    __tablename__ = "direct_message_relationship_participants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_relationships.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    relationship: Mapped[DirectMessageRelationship] = relationship(
+        "DirectMessageRelationship", back_populates="participants"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "relationship_id",
+            "profile_id",
+            name="uq_direct_message_relationship_participants_member",
+        ),
+        Index(
+            "ix_direct_message_relationship_participants_profile",
+            "profile_id",
+        ),
+        Index(
+            "ix_direct_message_relationship_participants_relationship",
+            "relationship_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessageConversation(Base):
+    """One discussion inside a canonical direct relationship.
+
+    Pair uniqueness lives on the Relationship; a Relationship may own many
+    Conversations.  Conversation identity never depends on username,
+    display name, Project placement, or origin provenance.
+    """
+
+    __tablename__ = "direct_message_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_relationships.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_by_profile_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="SET NULL"),
+    )
+    origin_project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+    )
+    origin_thread_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="SET NULL"),
+    )
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="direct", server_default="direct"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    latest_activity_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    placements: Mapped[list[DirectMessageConversationPlacement]] = relationship(
+        "DirectMessageConversationPlacement",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            DM_CONVERSATION_KIND_CHECK,
+            name="ck_direct_message_conversations_kind",
+        ),
+        Index(
+            "ix_direct_message_conversations_relationship_activity",
+            "relationship_id",
+            "latest_activity_at",
+            "id",
+        ),
+        Index(
+            "ix_direct_message_conversations_origin_project",
+            "origin_project_id",
+        ),
+        Index(
+            "ix_direct_message_conversations_origin_thread",
+            "origin_thread_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessageConversationPlacement(Base):
+    """Participant-local Project organization for one direct Conversation."""
+
+    __tablename__ = "direct_message_conversation_placements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    conversation: Mapped[DirectMessageConversation] = relationship(
+        "DirectMessageConversation", back_populates="placements"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "profile_id",
+            name="uq_direct_message_conversation_placements_member",
+        ),
+        Index(
+            "ix_direct_message_conversation_placements_profile",
+            "profile_id",
+        ),
+        Index(
+            "ix_direct_message_conversation_placements_project",
+            "project_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DirectMessage(Base):
+    """One durable plain-text private message.
+
+    Sender authority is derived server-side from the authenticated user's
+    owned profile; it is never accepted from caller-supplied identity.
+    ``client_message_key`` makes retries idempotent per sender conversation.
+    """
+
+    __tablename__ = "direct_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sender_node_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sender_profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="text/plain",
+        server_default="text/plain",
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    client_message_key: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    conversation: Mapped[DirectMessageConversation] = relationship(
+        "DirectMessageConversation"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "sender_profile_id",
+            "client_message_key",
+            name="uq_direct_messages_idempotency",
+        ),
+        CheckConstraint(
+            DM_CONTENT_TYPE_CHECK,
+            name="ck_direct_messages_content_type",
+        ),
+        CheckConstraint(
+            "length(trim(body)) > 0",
+            name="ck_direct_messages_body_nonblank",
+        ),
+        CheckConstraint(
+            "client_message_key IS NULL OR length(trim(client_message_key)) > 0",
+            name="ck_direct_messages_client_key_nonblank",
+        ),
+        Index(
+            "ix_direct_messages_conversation_chronological",
+            "conversation_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_direct_messages_sender_profile_id", "sender_profile_id"),
     )
 
     __mapper_args__ = {"eager_defaults": True}

@@ -27,6 +27,8 @@ This file is authoritative for:
 - Corrected and live-proved the private-preview Cloudflare single-origin router and Access boundary; ingress now reaches the Guardian login/workspace path without widening the release claim.
 - Stopped the first friends-and-family canary before admission because external ingress was unavailable at that attempt and no provisioned non-admin tester set existed; the canary remains a separate gate.
 - Added private-preview desired-state, restart-policy, tunnel, and LaunchAgent lifecycle tooling with focused contract coverage; this is operator tooling, not runtime health proof.
+- Runtime-qualified same-node People messaging on `v1-friends-family-web` under ADR-079 and ADR-080 (see `proofs/2026-09-01-people-messaging-runtime-qualification-proof.md`): the Node_ID + Profile_ID social identity, deliberate Node-scoped usernames, email-private discovery, durable plain-text messages with idempotent retries, Relationship → multiple Conversation semantics, Project/Thread origin provenance, participant-local placement, conversation-first Inbox rows, relationship-backed person filtering, and portable Floating Conversation behavior are proven on the private-preview profile. Realtime delivery, Project invitations, Guardian retrieval, and federation remain unimplemented; the Beta support boundary is unchanged.
+- Runtime-qualified the person-aware Share Sheet (see `proofs/2026-09-01-share-sheet-person-routing-qualification-proof.md`): explicit `Copy Link` and `Send to Person` actions resolve a Profile and Relationship, offer existing/new Conversation choices, reuse the same tokenized read-only link across partial-failure retry and idempotent send, preserve Thread-origin provenance, and fail closed on the unsupported profile. The operator-approved Dev posture enables the `share` route label on `v1-friends-family-web` and `v1-local-core-web-mcp`; share remains token-based and recipient-exclusive access is not claimed.
 
 ## Current supported reality
 
@@ -38,6 +40,7 @@ This file is authoritative for:
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces.
 - Private-preview recovery, Guardian secret rotation, and Cloudflare ingress each have bounded receipts; the guest canary, DeepSeek execution, and external tester isolation remain conditional or qualification-pending.
 - Private-preview lifecycle commands are available as an operator path, with volumes preserved by the intentional-down contract; status output is not a substitute for live release qualification.
+- The private-profile People/Inbox projection is runtime-qualified on `v1-friends-family-web`: same-node Node_ID + Profile_ID messaging, one Relationship with multiple Conversations, Project/Thread origin provenance, participant-local placement, conversation-first rows, person filtering, and portable Floating Conversation behavior. The `direct_messages` route label remains quarantined on the default `v1-local-core-web-mcp` profile and enabled only on `v1-friends-family-web`; this is private-profile capability, not Beta-supported behavior.
 
 ## Not yet true / do not assume
 
@@ -48,6 +51,7 @@ This file is authoritative for:
 - Do not treat Agent Skills files, loader tests, focused UI tests, proof receipts, feature branches, or planning language as live supported behavior.
 - Do not treat private-preview recovery or Cloudflare ingress receipts as a completed guest canary; do not invite guests until the separate admission, isolation, provider, and persistence gates pass.
 - Do not infer shipped reality from mutable `latest`, another checkout, or docs alone.
+- Do not assume cross-node private messaging, node resolution/trust, or Guardian messaging; federation is not implemented. Project invitations and Guardian Conversation/origin retrieval are not implemented, and realtime delivery remains unimplemented. These messaging capabilities remain explicitly deferred under ADR-079 and ADR-080; the People/Inbox and Share surfaces do not widen Beta support, and share links remain token-based rather than recipient-exclusive.
 
 ## Active blockers
 

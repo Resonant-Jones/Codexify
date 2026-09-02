@@ -1,8 +1,49 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ShareButton } from "@/components/ShareButton";
 import { initRuntimeConfig } from "@/lib/runtimeConfig";
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: () => ({
+    mounted: ["direct_messages"],
+    declared: {},
+    ready: true,
+    state: "available",
+  }),
+  useRuntimeRouteCapabilities: () => ({ states: {} }),
+  ensureRuntimeRouteCapabilitiesLoaded: () => Promise.resolve(),
+  getRuntimeRouteCapabilityState: () => "available",
+  markRuntimeRouteUnavailable: () => {},
+  markRuntimeRouteUnavailableIfNotFound: () => false,
+  __resetRuntimeRouteCapabilitiesForTests: () => {},
+}));
+
+vi.mock("@/lib/direct-messages", () => ({
+  searchDirectMessageProfiles: vi.fn(),
+  resolveDirectMessageRelationship: vi.fn(),
+  fetchRelationshipConversations: vi.fn(),
+  createDirectMessageConversation: vi.fn(),
+  sendDirectMessage: vi.fn(),
+  fetchThreadProjectScope: vi.fn(),
+  peerPresentationLabel: vi.fn(),
+}));
+
+vi.mock("@/lib/share-links", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/share-links")>();
+  return {
+    ...actual,
+    createShareLink: vi.fn(async () => ({
+      ok: true,
+      token: "abc123",
+      url: "/share/abc123",
+      expires_at: null,
+    })),
+    copyTextWithFallback: vi.fn(async () => "clipboard"),
+  };
+});
 
 const invokeMock = vi.fn();
 
@@ -30,14 +71,10 @@ describe("ShareButton desktop public URL", () => {
       configurable: true,
     });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: true, url: "/share/abc123" }),
-      }))
-    );
+    document.body.innerHTML = "";
+    const portal = document.createElement("div");
+    portal.id = "cfy-portal-root";
+    document.body.appendChild(portal);
 
     await initRuntimeConfig({ force: true });
   });
@@ -48,15 +85,16 @@ describe("ShareButton desktop public URL", () => {
     delete (window as any).__CFY_TAURI_CORE__;
   });
 
-  it("copies share URL using configured public base URL", async () => {
-    const { getByRole } = render(
-      <ShareButton targetType="thread" targetId={12} />
-    );
+  it("copies the share URL using the configured public base URL via the sheet", async () => {
+    const user = userEvent.setup();
+    const { copyTextWithFallback } = await import("@/lib/share-links");
+    render(<ShareButton targetType="thread" targetId={12} />);
 
-    fireEvent.click(getByRole("button", { name: /share/i }));
+    await user.click(screen.getByRole("button", { name: /share/i }));
+    await user.click(await screen.findByTestId("share-action-copy"));
 
     await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect(copyTextWithFallback).toHaveBeenCalledWith(
         "https://public.codexify.test/share/abc123"
       );
     });

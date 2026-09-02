@@ -25,7 +25,7 @@ Source anchors:
 
 | System | What it stores today | Key anchors |
 |---|---|---|
-| Postgres | Projects, threads, messages, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Postgres | Projects, threads, messages, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state, social identity, direct-message conversations/messages | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
 | Postgres account observability | Guardian-owned invite lineage, pseudonymous guest identities, account metadata, and content-free foreground presence sessions; presence rows and unconverted guest lineage are retention-governed | `guardian/db/models.py`, `guardian/account_observability/`, `guardian/db/migrations/versions/b2c3d4e5f6a7_add_account_observability_foundation.py` |
 | Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
@@ -58,7 +58,7 @@ The vector store is a derived retrieval/index artefact, not canonical applicatio
 | Entity | Why it matters | Key invariants |
 |---|---|---|
 | `users` | Canonical account and authentication boundary | `id` remains the durable ownership identifier; `username` is unique; nullable `email` is a normalized, unique login alias only; password material remains one-way hashed. Resolving an email alias must return the existing `users.id` and must not rewrite account ownership, username, role, or password state. |
-| `user_profiles` | Account-owned presentation metadata | 1:1 with `users.id`; profile fields do not replace canonical account identity. |
+| `user_profiles` | Account-owned presentation metadata and social identity | 1:1 with `users.id`; profile fields do not replace canonical account identity. `profile_id` is a durable random social token; `node_id` anchors the profile to its host `threadspace_nodes` row; `username` is a deliberate lowercase-only Node-scoped discovery alias (unique per `(node_id, username)`); `username_state` is `unset` or `active` and is consistent with username nullability. Email and `users.id` never appear on the social surface. |
 
 ### Hosted Room persistence entities
 
@@ -122,6 +122,57 @@ No Contact, presence, IP address, device fingerprint, or telemetry fields exist 
 The enabled resident-agent field is a bounded, inspectable list of existing agent identifiers; it is not a second agent registry or a persisted capability-grant set. Contact persistence is not introduced here, so invitation intent retains only an intended display-name snapshot and does not claim Contact identity.
 
 No ambient-presence, device, location, behavioral, or cross-node synchronization state is stored. Bounded owner creation, invitation exchange, room-scoped sessions, authorization, human message operations, and explicit Guardian invocation are implemented. Contacts workflows, RoomShell, management UI, non-Guardian agent invocation, cross-node rooms, and release qualification remain unimplemented.
+
+### Social identity and direct messaging persistence entities
+
+The social addressing and direct-messaging persistence domain is governed
+by [[adr/079-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-079]],
+[[adr/080-direct-messaging-relationship-conversation-cardinality-and-origin-provenance|ADR-080]],
+and the [[direct-messaging-contract|Direct Messaging Contract]]
+(migrations `a1b7c9d2e4f6`, `b2c8d0e3f5a7`).  It is dedicated persistence:
+it does not reuse `chat_threads`, `chat_messages`, Hosted Room tables, or
+project threads.
+
+| Entity | Why it matters | Key invariants |
+|---|---|---|
+| `threadspace_nodes` | Canonical local Node_ID authority | `node_id` primary key; status token constrained; one stable local row resolved/created on first use; never derived from endpoint, hostname, IP, or container identity |
+| `user_profiles` social columns | Social addressing substrate on the canonical profile | `profile_id` unique and backfilled for pre-existing rows; `node_id` FK to `threadspace_nodes`; `username` Node-scoped unique (lowercase canonical form; grammar CHECK Postgres-side, application-validated on every write); `username_state` consistent with username nullability; existing users remain `unset` with no email-derived username |
+| `direct_message_relationships` | One canonical Relationship per unordered participant-address pair (ADR-080) | unique `participant_pair_key` enforced database-side; `created_at`/`updated_at`; existence implies no trust, Contact, Circle, Project, context, or inference authority |
+| `direct_message_relationship_participants` | Canonical membership authority (ADR-080) | exactly two `Node_ID + Profile_ID` rows for V1; unique `(relationship_id, profile_id)`; the sole participant-authority surface for every Conversation and Message; no roles, groups, mute, read, Guardian-permission, or delivery state |
+| `direct_message_conversations` | One discussion inside a Relationship; multiple per Relationship | required `relationship_id` FK (cascade); kind is `direct`; `latest_activity_at` tracks durable activity; identity never depends on username, display name, email, placement, or origin |
+| `direct_message_conversations` origin columns | Immutable creation provenance | `created_by_profile_id`, `origin_project_id`, `origin_thread_id` all nullable with `SET NULL` on source deletion — a deleted Project/Thread never cascades into the Conversation or its Messages; existing ADR-079 rows migrated with NULL (unknown, never fabricated) |
+| `direct_message_conversation_placements` | Participant-local Project organization | unique `(conversation_id, profile_id)`; `project_id` nullable with `SET NULL`; placement Profile must be a Relationship participant; placement confers no membership, retrieval, or context authority |
+| `direct_messages` | Durable plain-text message truth | stable `id`; conversation FK cascade; `sender_node_id` + `sender_profile_id`; `content_type` is `text/plain`; non-blank bounded body; unique `(conversation_id, sender_profile_id, client_message_key)` idempotency constraint |
+
+Ownership and privacy invariants:
+
+- `users.id` remains canonical private account ownership identity; it is
+  never a social address field.
+- Email never appears in username search, participant, message,
+  conversation, relationship, or envelope payloads, and is never a social
+  handle or address component.
+- Relationship membership is the canonical participant authority;
+  conversation/message authorization flows
+  `Conversation → Relationship → RelationshipParticipant`.  The obsolete
+  `direct_message_conversation_participants` table is removed by
+  migration `b2c8d0e3f5a7`; no competing membership truth exists.
+- Conversation/message queries are participant-scoped at the service
+  boundary; nonparticipant reads receive `relationship_not_found` /
+  `conversation_not_found`.
+- Origin and placement are metadata only: origin != placement != Project
+  membership != retrieval permission != ambient context authority !=
+  disclosure authority.  No retrieval-scope or disclosure-scope columns
+  exist.
+- Sender authority is derived from the authenticated user's owned
+  profile only.
+- Postgres owns message truth; HTTP success for send means durable
+  persistence; idempotent replays never duplicate.  Existing Conversation
+  IDs, Message IDs, payloads, timestamps, and idempotency keys survive
+  the Relationship migration unchanged.
+- No DM operation creates Guardian chat, Hosted Room, retrieval,
+  embedding, memory, Project KB, or federation side effects, and no DM
+  state enters retrieval/vector indexes or memory.  Origin references
+  point at canonical sources; no source transcript is copied.
 
 ### Existing-instance migration reconciliation
 
