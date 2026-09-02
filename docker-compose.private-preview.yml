@@ -73,7 +73,6 @@ services:
       VITE_GUARDIAN_API_KEY: ""
       VITE_GUARDIAN_DEV_API_KEY: ""
       VITE_PRIVATE_PREVIEW: "true"
-      VITE_PREVIEW_FEEDBACK_EMAIL: "${CODEXIFY_PREVIEW_FEEDBACK_EMAIL:-}"
 
   private-preview-origin:
     image: nginx:1.27-alpine

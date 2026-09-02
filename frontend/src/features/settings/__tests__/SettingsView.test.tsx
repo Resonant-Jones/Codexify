@@ -108,6 +108,7 @@ function createSettingsViewProps() {
 
 describe("SettingsView", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     window.sessionStorage.clear();
     useConnectorsMock.mockReturnValue({
       connectors: [],
@@ -118,6 +119,42 @@ describe("SettingsView", () => {
       testConnector: vi.fn(),
       syncConnector: vi.fn(),
     });
+  });
+
+  test("provides a quiet Feedback workspace with an explicit Guardian handoff", async () => {
+    const user = userEvent.setup();
+    const onStartFeedbackConversation = vi.fn();
+    const props = {
+      ...createSettingsViewProps(),
+      onStartFeedbackConversation,
+    };
+
+    render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("tab", { name: "Feedback" }));
+
+    expect(screen.getByTestId("settings-feedback-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("feedback-settings-panel")).toBeInTheDocument();
+    expect(
+      screen.getByText("Make the rough edges useful")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+
+    const optIn = screen.getByRole("switch", {
+      name: "Let Guardian offer to file reports",
+    });
+    expect(optIn).toHaveAttribute("aria-checked", "false");
+
+    await user.click(optIn);
+
+    expect(optIn).toHaveAttribute("aria-checked", "true");
+    expect(window.localStorage.getItem("cfy.guardian.feedback.optIn")).toBe(
+      "true"
+    );
+
+    await user.click(screen.getByRole("button", { name: /tell guardian/i }));
+
+    expect(onStartFeedbackConversation).toHaveBeenCalledOnce();
   });
 
   test("renders the Personal Facts tab and panel without breaking the Imprint workspace", async () => {

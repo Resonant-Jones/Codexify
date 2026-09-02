@@ -2655,6 +2655,13 @@ export default function AppShell({
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }
 
+  const openFeedbackConversation = useCallback(() => {
+    setPrefill(
+      "I want to share product feedback. Ask me what happened, what I expected, and whether I want you to prepare a bug report. Do not submit or send anything unless I explicitly approve it."
+    );
+    navigateToView("guardian");
+  }, [navigateToView]);
+
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
     // Keep the settings card compact, but give it enough width to breathe.
@@ -3894,6 +3901,7 @@ export default function AppShell({
                     setSurfaceDepth={setSurfaceDepth}
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
+                    onStartFeedbackConversation={openFeedbackConversation}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
                   />
