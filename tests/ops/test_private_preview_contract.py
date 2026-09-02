@@ -215,6 +215,23 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert "rewrite" not in module_body
     assert "proxy_pass http://frontend:5173/;" not in module_body
 
+    import_location = re.search(
+        r"location\s+/api/imports/openai-account/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert import_location is not None
+    import_body = import_location.group("body")
+    assert "client_max_body_size 0;" in import_body
+    assert "proxy_pass http://guardian_backend;" in import_body
+    assert "proxy_set_header Host $host;" in import_body
+    assert "proxy_set_header X-Real-IP $remote_addr;" in import_body
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in import_body
+    assert "proxy_set_header X-Forwarded-Proto $scheme;" in import_body
+    assert "frontend:5173" not in import_body
+
+    assert nginx.count("client_max_body_size 25m;") == 1
+
     guardian_location = re.search(
         r"location\s+(?P<modifier>\^~\s+)?/api/\s*\{(?P<body>.*?)\n\s*\}",
         nginx,
