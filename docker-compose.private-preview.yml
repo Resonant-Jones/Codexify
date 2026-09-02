@@ -6,15 +6,20 @@
 services:
   db:
     ports: !reset []
+    # Recover the persistent database after an engine or container restart.
+    # `unless-stopped` still honors the operator's explicit `compose stop`.
+    restart: unless-stopped
 
   neo4j:
     ports: !reset []
+    restart: unless-stopped
 
   tts:
     ports: !reset []
 
   backend:
     ports: !reset []
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/health', timeout=2).read()"]
       interval: 5s
@@ -29,7 +34,7 @@ services:
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
+      LOCAL_CHAT_MODEL: "qwen3.8-27b-4bit"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
@@ -53,7 +58,7 @@ services:
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
+      LOCAL_CHAT_MODEL: "qwen3.8-27b-4bit"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
@@ -61,6 +66,7 @@ services:
   frontend:
     ports: !reset []
     env_file: !reset []
+    restart: unless-stopped
     environment:
       VITE_GUARDIAN_API_BASE: ""
       VITE_GUARDIAN_AUTH_MODE: "remote"

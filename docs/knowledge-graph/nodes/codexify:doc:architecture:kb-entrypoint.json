@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-26T18:05:42Z",
-    "verified_commit": "d1463fe85ba23c82edc719aaed356df71dd026c0",
+    "verified_at": "2026-08-31T13:37:17Z",
+    "verified_commit": "9d5b7a8570ac605e0773892e2b5ba0300a960d80",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "README source bytes match their canonical hash. Freshness was refreshed because the declared invalidating current-state and architecture-directory anchors changed through current main after the prior verification; PR #754's merged release-class presentation did not promote any capability, and later movement through the observed tip is unrelated proof-only documentation. This records the canonical main entrypoint, not a feature branch."
+    "reason": "Re-reviewed the Architecture KB after adding the ADR-077 routing entry. Source bytes are synchronized during the same focused documentation change; the entry routes sandbox execution work without promoting runtime or release support."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "6c6dbcc078d92711aef6026f9b63a23f9fff6cf9c3f460bac71d7b4b3371581e",
+  "content_hash": "9384fcf5d713a5e2653f24cd2b9490d88cc084a71908c8b27e6bd16514e6a79d",
   "relations": [
     {
       "relation_type": "depends_on",

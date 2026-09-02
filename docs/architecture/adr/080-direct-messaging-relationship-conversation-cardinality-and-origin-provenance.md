@@ -1,4 +1,4 @@
-# ADR-078: Direct Messaging Relationship, Conversation Cardinality, and Origin Provenance
+# ADR-080: Direct Messaging Relationship, Conversation Cardinality, and Origin Provenance
 
 **Status:** Accepted
 
@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-077 established the Node-addressed profile identity and direct
+ADR-079 established the Node-addressed profile identity and direct
 messaging boundary with one canonical `direct_message_conversations` row
 per unordered profile-address pair.  That one-pair-one-conversation
 cardinality is too restrictive for the intended Codexify
@@ -15,7 +15,7 @@ may hold several distinct discussions, and the UI groundwork (Inbox and
 person filtering) requires a person-centric projection before it can be
 built.
 
-This ADR refines ADR-077's conversation cardinality rule and adds two
+This ADR refines ADR-079's conversation cardinality rule and adds two
 bounded new concepts: immutable Conversation-origin provenance and
 participant-local Project placement.  It deliberately does NOT implement
 Project membership changes, Project invitations, Guardian retrieval,
@@ -97,7 +97,7 @@ Origin validation at creation time:
   a mismatched pair is rejected.
 - An origin reference grants the peer NO access to the source Project or
   Thread.
-- Existing conversations migrated from ADR-077 receive NULL origin —
+- Existing conversations migrated from ADR-079 receive NULL origin —
   historical creation provenance is unknown and is never fabricated.
 
 ### Participant-local placement
@@ -223,7 +223,7 @@ One forward migration (`b2c8d0e3f5a7`, chained to `a1b7c9d2e4f6`):
    Project) for every existing member;
 7. removes the obsolete conversation-participant authority table only
    after all backfills;
-8. downgrade restores the ADR-077 one-pair-one-conversation shape with
+8. downgrade restores the ADR-079 one-pair-one-conversation shape with
    pair-key, participant-row, and conversation/message data intact.
 
 ## Consequences
@@ -243,7 +243,7 @@ One forward migration (`b2c8d0e3f5a7`, chained to `a1b7c9d2e4f6`):
 
 ## Governing and related ADRs / contracts
 
-- Refines [[077-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-077]]:
+- Refines [[079-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-079]]:
   Node_ID, Profile_ID, username non-authority, email privacy, transport
   neutrality, Postgres authority, same-node-first, no Guardian execution,
   no implicit retrieval/memory, and federation deferral remain in force.

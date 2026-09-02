@@ -1,10 +1,10 @@
 ## Purpose
 
-This file is the canonical short-form source of truth for Codexify's current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
+This file is the canonical short-form source of truth for Codexify’s current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
 
-2026-09-01
+2026-09-02
 
 ## Interpretation rule
 
@@ -18,69 +18,68 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening. Mainline now contains bounded Pi 0.82.1 runtime repairs and clean CE-L1 OAuth credential-readiness evidence, but no current-tip supported-Compose release closure or live CE-L1 executor proof.
-
-The audited local `main` tip is two commits ahead of `origin/main`; the latest two Guardian Chat fixes are therefore current-checkout evidence, not remote-main release evidence.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Mainline now has bounded proof for private-preview backup/restore recovery, Guardian secret rotation, and Cloudflare ingress, but current-tip supported-Compose closure, live CE-L1 execution/readback, and an admitted friends-and-family canary remain unproven.
 
 ## What changed recently
 
-- Merged Pi 0.82.1 wrapper/API repairs, canonical `ModelRuntime` use, and the complete source-vendored locked runtime closure; source-relative smoke now reaches the OAuth-absent boundary.
-- Cleanly requalified `openai-codex / gpt-5.6-sol / pi-coding-agent / 0.82.1` credential readiness without provider inference or prompt execution; CE-L1 remains open.
-- Restored account-scoped project/thread document-artifact listing and generated-artifact preview paths with focused backend/frontend coverage; no migration or retrieval-policy change was made.
-- Added the Node-addressed social identity and direct-messaging substrate (ADR-077): deliberate Node-scoped usernames, email-private discovery, canonical one-to-one conversations, durable plain-text messaging with idempotent retries, and participant-scoped authorization. Same-node path is focused-test-proven and live-two-user-proven on a scratch hosted runtime; the `direct_messages` route label is enabled only on `v1-friends-family-web` and quarantined on every other supported profile.
-- Promoted direct-message pairs into canonical Relationships with multiple Conversations and durable Project/Thread origin provenance (ADR-078): one Relationship per unordered addressed Profile pair, Relationship membership as the sole participant authority, immutable Conversation origin (`created_by_profile_id` / `origin_project_id` / `origin_thread_id`), and participant-local Project placement. Existing Conversation/Message IDs and payloads survive the migration with origin honestly unknown (NULL). Focused route tests and a real-Postgres migration round-trip prove backfill, coexistence, and downgrade; no Project membership, invitation, retrieval, ambient-context, or Beta-claim widening occurs.
-- Added the private-profile direct-message Inbox frontend projection over the ADR-077/078 model: a `/inbox` surface gated by the accepted `direct_messages` runtime route capability, Conversation-first listing with relationship-backed person filtering, General same-node conversation creation, bounded latest-message previews from an additive read projection (no schema change), and message read/send with stable idempotency keys. Focused backend and frontend tests pass; the surface stays confined to `v1-friends-family-web` and does not widen Beta support.
-- Runtime-qualified same-node People messaging on `v1-friends-family-web` (see `proofs/2026-09-01-people-messaging-runtime-qualification-proof.md`): two real authenticated Profiles communicated through the UI; the global People overlay opened/closed from Guardian, Documents, and Settings without changing the underlying route; the Inbox rendered one row per Conversation (never collapsed into Relationships) and the person filter exposed all four Conversations under one Relationship; General and Project/Thread-origin Conversations were created from the integrated UI (origin captured from the active thread route, immutable across navigation); modal and floating sends persisted once each to their original `Conversation_ID`; the floating Conversation survived close-People, cross-AppShell navigation, minimize/restore with draft preservation, and backend restart; closing deleted nothing; the quarantined default profile failed closed with zero messaging network calls. Two narrow proof-blocking frontend repairs landed: the Guardian tools-menu launcher click no longer leaks into the menu container, and the People state owner now lives in AppShell so the floating window survives chrome switches. No backend or schema change.
-- Preserved selected project context through new Guardian threads, tabs, and draft/rendering paths; the two latest fixes remain local to `main` pending remote-main integration.
-- Added bounded tester/Whoosh'd runtime evidence, but the latest Tester Qwen completion attempt stopped at `TESTER_QWEN_BACKEND_UNHEALTHY`; these artifacts do not qualify supported-main release behavior.
-- Turned Share into a person-aware routing sheet (see `proofs/2026-09-01-share-sheet-person-routing-qualification-proof.md`): the one-click ShareButton now opens a Share Sheet with explicit `Copy Link` and `Send to Person` actions; the sheet resolves a Profile, resolves the invariant Relationship, offers existing/new Conversation choices, creates the tokenized read-only share link, sends it as a plain-text DM through the existing direct-message path (stable client message key, retry reuses the same link), and opens the resulting Conversation via the existing People state owner. No new authority, no second state owner, no second window manager. Runtime-qualified live: both actions, existing-Conversation send, New-Conversation send under Thread origin, peer readback, honest partial-failure + retry-reuse, unsupported-profile fail-closed with zero DM calls, and clean isolation. Task-discovered posture authorization (operator-approved, Dev only): the `share` route label was quarantined on every supported profile, so `share` moved `quarantined → enabled` on `v1-friends-family-web` and `v1-local-core-web-mcp`; share-link backend semantics unchanged.
-- Requalified the OpenSSL tracer capsule and merged the expandable Composer and canonical SVG mark assets; neither widens the release promise.
+- Requalified private-preview backup/restore after Docker recovery with a fresh external checkpoint, exact media/database reconciliation, source preservation, and loopback restart reachability; guest traffic stayed closed.
+- Rotated private-preview Guardian session/JWT/API secrets and proved old-session invalidation plus new-session roundtrip; DeepSeek credential rotation remains open.
+- Corrected and live-proved the private-preview Cloudflare single-origin router and Access boundary; ingress now reaches the Guardian login/workspace path without widening the release claim.
+- Stopped the first friends-and-family canary before admission because external ingress was unavailable at that attempt and no provisioned non-admin tester set existed; the canary remains a separate gate.
+- Added private-preview desired-state, restart-policy, tunnel, and LaunchAgent lifecycle tooling with focused contract coverage; this is operator tooling, not runtime health proof.
+- Runtime-qualified same-node People messaging on `v1-friends-family-web` under ADR-079 and ADR-080 (see `proofs/2026-09-01-people-messaging-runtime-qualification-proof.md`): the Node_ID + Profile_ID social identity, deliberate Node-scoped usernames, email-private discovery, durable plain-text messages with idempotent retries, Relationship → multiple Conversation semantics, Project/Thread origin provenance, participant-local placement, conversation-first Inbox rows, relationship-backed person filtering, and portable Floating Conversation behavior are proven on the private-preview profile. Realtime delivery, Project invitations, Guardian retrieval, and federation remain unimplemented; the Beta support boundary is unchanged.
+- Runtime-qualified the person-aware Share Sheet (see `proofs/2026-09-01-share-sheet-person-routing-qualification-proof.md`): explicit `Copy Link` and `Send to Person` actions resolve a Profile and Relationship, offer existing/new Conversation choices, reuse the same tokenized read-only link across partial-failure retry and idempotent send, preserve Thread-origin provenance, and fail closed on the unsupported profile. The operator-approved Dev posture enables the `share` route label on `v1-friends-family-web` and `v1-local-core-web-mcp`; share remains token-based and recipient-exclusive access is not claimed.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The intended Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
-- Current `main` contains focused, account-scoped artifact projection/preview and Guardian Chat project-context repairs; focused tests do not substitute for supported-path or authenticated browser proof.
+- Mainline contains focused project lifecycle, project-scoped conversation-origin, document-artifact preview, and Guardian Chat repairs with focused tests; supported-path and authenticated browser proof remain separate gates.
 - Authenticated local Settings reads, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; presence does not imply generic connector sync, provider inference, or cloud support.
-- Pi 0.82.1 runtime identity, wrapper compatibility, and source-vendor loading are test-backed to the non-inference OAuth-readiness boundary. Pi execution remains internal and qualification-pending.
-- Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces. Static and bounded tester evidence does not substitute for supported-path live proof.
-- Stable local social addressing exists at Node_ID + Profile_ID, with deliberate Node-scoped usernames; peer-facing DM discovery never exposes account email; same-node direct messaging persists with Postgres authority and idempotent retries. Canonical Relationships support multiple Conversations, participant-local Project placement, and durable Project/Thread origin provenance (origin grants no Project/Thread access; placement grants no retrieval authority). A private-profile frontend Inbox projection exists at `/inbox` (relationship-backed person filtering, Conversation-first rows, General conversation creation, bounded previews) and is gated by the same route capability. This surface is quarantined on the default supported profile (`v1-local-core-web-mcp`) and enabled only on the hosted/private test profile `v1-friends-family-web`; it does not widen the Beta support boundary. On the private profile, same-node People messaging is runtime-qualified end-to-end (two-profile UI communication, portable floating Conversation across AppShell navigation with draft preservation, origin stability, restart persistence, and fail-closed unsupported-profile behavior); realtime delivery, read receipts, attachments, Guardian retrieval/authorship, Project invitations, and federation remain unimplemented.
+- Pi 0.82.1 wrapper/API, source-vendor, identity, and telemetry changes are test-backed only to the non-inference or OAuth-readiness boundary; Pi execution remains internal and qualification-pending.
+- Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces.
+- Private-preview recovery, Guardian secret rotation, and Cloudflare ingress each have bounded receipts; the guest canary, DeepSeek execution, and external tester isolation remain conditional or qualification-pending.
+- Private-preview lifecycle commands are available as an operator path, with volumes preserved by the intentional-down contract; status output is not a substitute for live release qualification.
+- The private-profile People/Inbox projection is runtime-qualified on `v1-friends-family-web`: same-node Node_ID + Profile_ID messaging, one Relationship with multiple Conversations, Project/Thread origin provenance, participant-local placement, conversation-first rows, person filtering, and portable Floating Conversation behavior. The `direct_messages` route label remains quarantined on the default `v1-local-core-web-mcp` profile and enabled only on `v1-friends-family-web`; this is private-profile capability, not Beta-supported behavior.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
-- Do not treat the clean CE-L1 OAuth prerequisite as live executor, coding-loop, persisted-result, or supported-Beta proof; `LIVE_EXECUTOR_PROVEN` was not emitted.
-- Do not treat Tester Qwen, Whoosh'd, or prior local/Gemma completions as supported-main evidence; they are bounded tester or internal proof surfaces.
-- Do not treat focused artifact or Guardian Chat tests, local-only `main` commits, or UI code-path repairs as authenticated browser or supported-Compose release proof.
-- Do not assume Chroma fresh-state startup/retrieval qualification, Google Drive OAuth, Watchdog model execution, or immutable Docker image-retention behavior is closed.
-- Do not infer shipped reality from feature branches, local work, proof from another checkout, planning language, mutable `latest`, or docs alone.
-- Do not assume cross-node private messaging, node resolution/trust, Guardian messaging, or DM attachments: all remain unproven and explicitly deferred by ADR-077. The Inbox frontend projection is implemented but is private-profile-gated internal capability, not Beta-supported surface, and has no authenticated browser or live-UI proof yet. Do not assume Project invitation acceptance, Guardian Conversation retrieval, retrieval/disclosure scope policy, ambient DM context, realtime delivery, read/unread state, or agent-authored peer messages: all remain unproven and explicitly deferred by ADR-078. Share links remain token-based and recipient-exclusive access is explicitly NOT claimed. The direct-messaging surface must not be treated as Beta-supported on the default profile.
+- Do not treat clean CE-L1 OAuth readiness or telemetry instrumentation as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
+- Do not treat Modal selection or partial read/exec conformance as an implemented adapter, bounded storage posture, supported runtime path, or release support.
+- Do not treat E2B’s ordinary writable sandbox as a provider-enforced read-only workspace; its read-only input qualification failed closed.
+- Do not treat Agent Skills files, loader tests, focused UI tests, proof receipts, feature branches, or planning language as live supported behavior.
+- Do not treat private-preview recovery or Cloudflare ingress receipts as a completed guest canary; do not invite guests until the separate admission, isolation, provider, and persistence gates pass.
+- Do not infer shipped reality from mutable `latest`, another checkout, or docs alone.
+- Do not assume cross-node private messaging, node resolution/trust, or Guardian messaging; federation is not implemented. Project invitations and Guardian Conversation/origin retrieval are not implemented, and realtime delivery remains unimplemented. These messaging capabilities remain explicitly deferred under ADR-079 and ADR-080; the People/Inbox and Share surfaces do not widen Beta support, and share links remain token-based rather than recipient-exclusive.
 
 ## Active blockers
 
-- Fresh supported-Compose closure has not been rerun at the current `main` tip after the merged local-gateway/profile alignment.
-- One supported-profile proof bundle is still missing for health, chat, persistence/readback, retrieval, queue/worker, locks, terminal events, and recovery.
+- Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
-- CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback despite the OAuth-readiness prerequisite passing.
-- Watchdog qualification still requires an explicit available provider/model policy; disposable image-retention replay still requires the intended `desktop-linux` Docker authority.
-- The audited `main` tip is two commits ahead of `origin/main`; remote-main release interpretation does not yet include the latest Guardian Chat fixes.
+- CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
+- The friends-and-family private-preview canary remains blocked on an authorized provisioned tester set and a rerun of external Access, account-isolation, provider, persistence, and bounded-observability gates; the recovery prerequisite and ingress boundary are now proven separately.
+- Private-preview DeepSeek credential rotation and provider requalification remain open before any external tester execution.
+- Modal lacks a proven provider-enforced storage ceiling, while E2B lacks the required provider-enforced read-only input mechanism; no hosted sandbox adapter is qualified.
+- Watchdog model/policy qualification and immutable Docker image-retention replay remain unclosed.
+- Recent project, artifact, and Guardian Chat changes still need supported-path/authenticated browser evidence where release claims depend on them.
 
 ## This week’s priorities
 
-1. Integrate and re-audit the two Guardian Chat fixes on shared `origin/main` before treating them as remote release state.
-2. Rerun current-main supported-Compose closure with the canonical local profile.
-3. Prove health, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
-4. Requalify Chroma through an authorized fresh-state path, then requalify CE-L1 executor/readback with one explicit provider/model policy.
-5. Restore the intended Docker authority and rerun immutable image-retention reproduction from observed `origin/main`.
+1. Rerun current-main supported-Compose closure with the canonical local profile.
+2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
+3. Requalify Chroma, then spend the next CE-L1 live attempt on provider/model execution and durable readback.
+4. Rotate and requalify the private-preview DeepSeek credential, provision two or three approved non-admin testers, and rerun the gated canary.
+5. Capture supported-path/browser evidence for recent UI flows, then close the Watchdog, image-retention, and hosted-sandbox qualification gates.
 
 ## Release definition right now
 
 - [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
-- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces are kept separate from Beta Supported claims.
+- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
+- [x] Private-preview recovery, Guardian secret rotation, and Cloudflare ingress have bounded proof without guest admission or release widening.
 - [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker, lock, migration, configuration, and recovery behavior is green on the supported install path.
-- [ ] Qualification-pending lanes have current-main proof receipts for their named gates.
-- [ ] Recent document-artifact and Guardian Chat flows have current supported-path/browser evidence where release claims depend on them.
+- [ ] Queue, worker, lock, migration, configuration, recovery, and browser evidence gates are green on the claimed path.
+- [ ] CE-L1 and any preview/provider lane being claimed have current-main proof receipts for live execution, durable readback, and their named isolation gates.
 
 ## How to read the rest of the KB
 

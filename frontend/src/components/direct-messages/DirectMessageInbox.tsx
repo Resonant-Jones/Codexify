@@ -1,6 +1,6 @@
 /**
  * Canonical direct-message Inbox: the conversation-first projection over
- * the accepted ADR-077/078 Relationship → Conversations model.
+ * the accepted ADR-079/080 Relationship → Conversations model.
  *
  * - Every row is exactly one Conversation_ID.  Multiple Conversations
  *   with the same peer remain distinct rows; they are never collapsed.

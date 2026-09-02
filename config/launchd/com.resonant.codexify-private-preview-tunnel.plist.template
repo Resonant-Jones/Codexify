@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.resonant.codexify-private-preview-tunnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>__CODEXIFY_PRIVATE_PREVIEW_TUNNEL_RUNNER__</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+      <key>PathState</key>
+      <dict>
+        <key>__CODEXIFY_PRIVATE_PREVIEW_ENABLED_MARKER__</key>
+        <true/>
+      </dict>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>__CODEXIFY_PRIVATE_PREVIEW_TUNNEL_LOG__</string>
+
+    <key>StandardErrorPath</key>
+    <string>__CODEXIFY_PRIVATE_PREVIEW_TUNNEL_LOG__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin</string>
+      <key>CODEXIFY_PRIVATE_PREVIEW_HOME</key>
+      <string>__CODEXIFY_PRIVATE_PREVIEW_HOME__</string>
+      <key>CODEXIFY_PRIVATE_PREVIEW_ENABLED_MARKER</key>
+      <string>__CODEXIFY_PRIVATE_PREVIEW_ENABLED_MARKER__</string>
+      <key>CODEXIFY_PRIVATE_PREVIEW_TUNNEL_CONFIG</key>
+      <string>__CODEXIFY_PRIVATE_PREVIEW_TUNNEL_CONFIG__</string>
+      <key>CODEXIFY_PRIVATE_PREVIEW_CLOUDFLARED</key>
+      <string>__CODEXIFY_PRIVATE_PREVIEW_CLOUDFLARED__</string>
+    </dict>
+
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+  </dict>
+</plist>

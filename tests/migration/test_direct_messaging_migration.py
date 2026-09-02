@@ -488,7 +488,7 @@ def test_relationship_migration_preserves_existing_dm_data(temporary_postgres):
         }
         assert all(row.relationship_id == relationship_id for row in conversation_rows)
 
-    # ── Downgrade restores the ADR-077 one-pair-one-conversation shape ─────
+    # ── Downgrade restores the ADR-079 one-pair-one-conversation shape ─────
     _downgrade_to(config, DIRECT_MESSAGING_REVISION)
 
     inspector = sa.inspect(engine)

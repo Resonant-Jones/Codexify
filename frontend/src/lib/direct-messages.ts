@@ -1,6 +1,6 @@
 /**
  * Canonical authenticated client for the direct-messaging backend surface
- * (ADR-077/078), plus pure projections for the conversation-first Inbox.
+ * (ADR-079/080), plus pure projections for the conversation-first Inbox.
  *
  * Field names mirror the runtime contract in
  * `guardian/routes/direct_messages.py`; nothing here adds backend

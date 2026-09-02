@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate guardian-evidence-packet-dry-run canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate canonical-audit-live-proof-receipt audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync tester-up tester-down tester-status tester-autostart-install tester-autostart-uninstall
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate guardian-evidence-packet-dry-run canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate canonical-audit-live-proof-receipt audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync tester-up tester-down tester-status tester-autostart-install tester-autostart-uninstall private-preview-up private-preview-down private-preview-status private-preview-autostart-install private-preview-autostart-uninstall
 
 # Python executable
 PYTHON      ?= python
@@ -154,6 +154,23 @@ tester-autostart-install:
 
 tester-autostart-uninstall:
 	bash scripts/ops/install_codexify_tester_launchagent.sh uninstall
+
+# Friends-and-family private-preview lifecycle. The desired-up marker and
+# LaunchAgents keep the stack/tunnel recoverable until private-preview-down.
+private-preview-up:
+	bash scripts/ops/codexify_private_preview.sh up
+
+private-preview-down:
+	bash scripts/ops/codexify_private_preview.sh down
+
+private-preview-status:
+	bash scripts/ops/codexify_private_preview.sh status
+
+private-preview-autostart-install:
+	bash scripts/ops/install_codexify_private_preview_launchagents.sh install
+
+private-preview-autostart-uninstall:
+	bash scripts/ops/install_codexify_private_preview_launchagents.sh uninstall
 
 # Start Tauri desktop shell against frontend/src + external backend
 desktop-dev:

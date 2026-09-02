@@ -158,6 +158,13 @@ class FakeOutcome:
     tool_execution_end_count: int | None = None
     executed_tool_names: tuple[str, ...] | None = None
     assistant_tool_call_count: int | None = None
+    # Bounded Pi 0.82.1 assistant-response telemetry (CE-L1
+    # post-tool-repair observability; see
+    # docs/architecture/proofs/runtime/2026-08-29-pi-assistant-response-telemetry-proof.md).
+    assistant_message_count: int | None = None
+    assistant_content_block_types: tuple[str, ...] | None = None
+    assistant_message_event_types: tuple[str, ...] | None = None
+    assistant_tool_call_event_count: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -1935,3 +1942,415 @@ def test_zero_mutation_issue_text_does_not_blame_model() -> None:
     msg = str(err)
     assert "the model did not invoke" not in msg
     assert "tool availability and execution telemetry" in msg
+
+
+# --- Pi 0.82.1 assistant-response telemetry Campaign propagation regressions
+# (CE-L1 post-tool-repair observability).  These tests prove the four new
+# bounded telemetry fields survive both successful live-result construction
+# and zero_mutation_executor_turn error-payload construction.  No provider
+# calls; no prompt execution; no credential access.
+
+
+def _assistant_telemetry_r2_case_a(
+    *, with_toolcall_event: bool = False
+) -> dict[str, object]:
+    """R2-equivalent synthetic Case A telemetry fixture.
+
+    Mirrors the R2 live result for `openai-codex / gpt-5.6-sol /
+    pi-coding-agent / 0.82.1`:
+      - effective tool surface: read / bash / edit / write (post-PR #774)
+      - write is available
+      - assistant produced >=1 message; assistant emitted a final `text`
+        content block; no `toolCall` content block; no `toolcall_*`
+        lifecycle events observed.
+    """
+    payload: dict[str, object] = {
+        "effective_tool_names": ["read", "bash", "edit", "write"],
+        "write_tool_available": True,
+        "tool_execution_start_count": 0,
+        "tool_execution_end_count": 0,
+        "executed_tool_names": [],
+        "assistant_tool_call_count": 0,
+        "assistant_message_count": 1,
+        "assistant_content_block_types": ["text"],
+        "assistant_message_event_types": [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ],
+        "assistant_tool_call_event_count": (1 if with_toolcall_event else 0),
+    }
+    if with_toolcall_event:
+        existing_events: list[str] = list(
+            payload["assistant_message_event_types"]
+        )
+        payload["assistant_message_event_types"] = (
+            existing_events + ["toolcall_start"]
+        )
+    return payload
+
+
+def _build_zero_mutation_outcome(
+    telemetry: dict[str, object],
+) -> tuple[object, object, object, object]:
+    """Construct a FakeIdentity/FakeReceipt/FakeHarnessResult/FakeOutcome
+    carrying the bounded telemetry.
+    """
+    fake_identity = FakeIdentity(
+        provider_id="openai-codex",
+        model_id="gpt-5.1",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_receipt = FakeReceipt(
+        receipt_id="pi-receipt-assistant-telemetry",
+        invocation_id="inv-assistant-telemetry",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    fake_harness_result = FakeHarnessResult(
+        harness_result_id="pi-result-assistant-telemetry",
+        receipt_id="pi-receipt-assistant-telemetry",
+        harness_id="pi-coding-agent",
+        harness_version="0.82.1",
+    )
+    outcome = FakeOutcome(
+        ok=True,
+        receipt=fake_receipt,
+        harness_result=fake_harness_result,
+        actual_identity=fake_identity,
+        effective_tool_names=tuple(telemetry["effective_tool_names"]),
+        write_tool_available=telemetry["write_tool_available"],
+        tool_execution_start_count=telemetry["tool_execution_start_count"],
+        tool_execution_end_count=telemetry["tool_execution_end_count"],
+        executed_tool_names=tuple(telemetry["executed_tool_names"]),
+        assistant_tool_call_count=telemetry["assistant_tool_call_count"],
+        assistant_message_count=telemetry["assistant_message_count"],
+        assistant_content_block_types=tuple(telemetry["assistant_content_block_types"]),
+        assistant_message_event_types=tuple(telemetry["assistant_message_event_types"]),
+        assistant_tool_call_event_count=(telemetry["assistant_tool_call_event_count"]),
+    )
+    return fake_identity, fake_receipt, fake_harness_result, outcome
+
+
+def test_zero_mutation_error_carries_all_four_assistant_telemetry_fields(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """zero_mutation_executor_turn payload includes the four bounded
+    assistant-response telemetry fields.  R2 Case A shape.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-zero-mut-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        assert payload["failure_reason"] == "zero_mutation_executor_turn"
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # Existing 6 fields preserved unchanged.
+        assert captured["effective_tool_names"] == [
+            "read",
+            "bash",
+            "edit",
+            "write",
+        ]
+        assert captured["write_tool_available"] is True
+        assert captured["tool_execution_start_count"] == 0
+        assert captured["tool_execution_end_count"] == 0
+        assert captured["executed_tool_names"] == []
+        assert captured["assistant_tool_call_count"] == 0
+        # New 4 assistant-response fields present.
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        # Tuple → list serialization for type-list fields.
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError for zero-mutation outcome"
+        )
+
+
+def test_zero_mutation_error_records_toolcall_event_count_even_when_no_block(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """When the assistant emits a `toolcall_*` lifecycle event but the
+    final normalized `toolCall` content block is missing, both fields
+    are recorded independently.  Both must still BLOCK the run when
+    no allowed-path mutation is observed.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a(with_toolcall_event=True)
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-toolcall-event-zero-mut-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        assert payload["failure_reason"] == "zero_mutation_executor_turn"
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # toolcall_event count recorded; tool_call block count stays 0.
+        assert captured["assistant_tool_call_event_count"] == 1
+        assert captured["assistant_tool_call_count"] == 0
+        # The event-type tuple must include the toolcall lifecycle event.
+        assert "toolcall_start" in captured["assistant_message_event_types"]
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError even with a "
+            "toolcall lifecycle event but no mutation"
+        )
+
+
+def test_zero_mutation_error_payload_contains_no_assistant_text_or_args() -> None:
+    """The serialized payload must contain no assistant text, reasoning,
+    delta content, tool arguments, tool IDs, tool results, provider
+    payloads, raw schemas, or credentials.
+    """
+    forbidden_substrings = (
+        # Assistant text/reasoning prose must never appear in telemetry
+        # payloads.
+        "I cannot",
+        "I will not",
+        "I'm unable",
+        "as an AI",
+        "as a language model",
+        # Tool-arg name echoes that could leak schema structure.
+        "ignored-arg",
+        "ignored-path",
+        "ignored-content",
+        "ignored-text",
+        "ignored-key",
+        "ignored-args",
+        "ignored-result",
+        # Provider payload fragments must never appear.
+        '"choices":',
+        '"delta":',
+        '"usage":',
+        '"messages":',
+        # Credentials.
+        "api_key",
+        "openai_api_key",
+        "PI_API_KEY",
+        "PI_TOKEN",
+    )
+    err = CampaignLiveExecutorError(
+        "Harness success produced zero allowed-path mutation",
+        failure_reason="zero_mutation_executor_turn",
+        diagnostic_stage="post_invocation",
+        effective_tool_names=("read", "bash", "edit", "write"),
+        write_tool_available=True,
+        tool_execution_start_count=0,
+        tool_execution_end_count=0,
+        executed_tool_names=(),
+        assistant_tool_call_count=0,
+        assistant_message_count=1,
+        assistant_content_block_types=("text",),
+        assistant_message_event_types=("start", "done"),
+        assistant_tool_call_event_count=0,
+        issues=[],
+    )
+    payload = err.to_payload()
+    payload_str = json.dumps(payload, default=str)
+    for forbidden in forbidden_substrings:
+        assert (
+            forbidden not in payload_str
+        ), f"forbidden substring {forbidden!r} present in payload"
+
+
+def test_assistant_telemetry_present_in_live_executor_run_result(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """A successful live Executor run records the four assistant fields
+    in the resulting LiveExecutorRunResult (and its to_dict() output).
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    # Build a Campaign with an allowed target.  We instrument the harness
+    # to emit the assistant fields.  FakeRunner cannot mutate the file,
+    # so the run raises zero_mutation_executor_turn and the success-path
+    # LiveExecutorRunResult is not produced.  In that case the
+    # CampaignLiveExecutorError payload already carries the four fields
+    # (covered separately by
+    # test_zero_mutation_error_carries_all_four_assistant_telemetry_fields).
+    campaign_path, target_path, _handle = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-success-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        result = run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        # Outcome was ok=True but no mutation occurred (FakeRunner
+        # cannot mutate the file).  Verify the same four fields surface
+        # at the error payload boundary.
+        captured = exc.to_payload()["tool_telemetry"]
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+        return
+
+    # On success path: LiveExecutorRunResult carries the four new fields.
+    assert result.tool_telemetry.assistant_message_count == 1
+    assert result.tool_telemetry.assistant_content_block_types == ("text",)
+    assert result.tool_telemetry.assistant_message_event_types == (
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    )
+    assert result.tool_telemetry.assistant_tool_call_event_count == 0
+
+    # to_dict() serialization preserves them under tool_telemetry.
+    serialized = result.to_dict()
+    tt = serialized["tool_telemetry"]
+    assert tt["assistant_message_count"] == 1
+    assert tt["assistant_content_block_types"] == ["text"]
+    assert tt["assistant_message_event_types"] == [
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+    ]
+    assert tt["assistant_tool_call_event_count"] == 0
+
+
+def test_assistant_telemetry_preserved_on_harness_result_metadata(
+    monkeypatch, live_doc, tmp_path, fixed_clock, invoker_factory
+) -> None:
+    """The PiLiveInvocationOutcome's `validation_metadata["tool_telemetry"]`
+    surfaces the four new bounded assistant fields without recomputation
+    when the run reaches post-invocation handling.  This test verifies
+    the four fields survive from `FakeOutcome` -> `_extract_tool_telemetry_from_outcome`
+    -> `CampaignLiveExecutorError.to_payload()["tool_telemetry"]` exactly.
+    """
+    from codex_runner.campaign_engine.live_executor import run_live_executor_campaign
+
+    campaign_path, target_path, _ = live_doc
+    telemetry = _assistant_telemetry_r2_case_a()
+    _, _, _, outcome = _build_zero_mutation_outcome(telemetry)
+    _, install = invoker_factory
+    install(outcome)
+
+    output_root = tmp_path / "ce-l1-assistant-harness-result-output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    preparation = prepare_live_executor_campaign(
+        campaign_path,
+        target_path,
+        clock=fixed_clock,
+    )
+    envelope, decision = _build_envelope_and_decision(preparation)
+    try:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=15,
+            campaign_path=campaign_path,
+        )
+    except CampaignLiveExecutorError as exc:
+        payload = exc.to_payload()
+        captured = payload["tool_telemetry"]
+        assert captured is not None
+        # Verify all 10 telemetry fields propagate exactly from the
+        # FakeOutcome (which mirrors the PiLiveInvocationOutcome shape).
+        assert captured["effective_tool_names"] == [
+            "read",
+            "bash",
+            "edit",
+            "write",
+        ]
+        assert captured["write_tool_available"] is True
+        assert captured["tool_execution_start_count"] == 0
+        assert captured["tool_execution_end_count"] == 0
+        assert captured["executed_tool_names"] == []
+        assert captured["assistant_tool_call_count"] == 0
+        assert captured["assistant_message_count"] == 1
+        assert captured["assistant_content_block_types"] == ["text"]
+        assert captured["assistant_message_event_types"] == [
+            "start",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "done",
+        ]
+        assert captured["assistant_tool_call_event_count"] == 0
+    else:
+        raise AssertionError(
+            "expected CampaignLiveExecutorError for zero-mutation outcome"
+        )

@@ -1,0 +1,9 @@
+{
+  "name": "@earendil-works/pi-coding-agent",
+  "version": "0.82.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  }
+}

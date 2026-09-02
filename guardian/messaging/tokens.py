@@ -2,7 +2,7 @@
 
 These tokens are protocol contract-bearing values for the node-addressed
 profile identity and direct private-messaging boundary governed by
-``docs/architecture/adr/077-node-addressed-profile-identity-and-direct-messaging-boundary.md``
+``docs/architecture/adr/079-node-addressed-profile-identity-and-direct-messaging-boundary.md``
 and ``docs/architecture/direct-messaging-contract.md``.
 
 Scope

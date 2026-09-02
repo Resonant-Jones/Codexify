@@ -126,8 +126,8 @@ No ambient-presence, device, location, behavioral, or cross-node synchronization
 ### Social identity and direct messaging persistence entities
 
 The social addressing and direct-messaging persistence domain is governed
-by [[adr/077-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-077]],
-[[adr/078-direct-messaging-relationship-conversation-cardinality-and-origin-provenance|ADR-078]],
+by [[adr/079-node-addressed-profile-identity-and-direct-messaging-boundary|ADR-079]],
+[[adr/080-direct-messaging-relationship-conversation-cardinality-and-origin-provenance|ADR-080]],
 and the [[direct-messaging-contract|Direct Messaging Contract]]
 (migrations `a1b7c9d2e4f6`, `b2c8d0e3f5a7`).  It is dedicated persistence:
 it does not reuse `chat_threads`, `chat_messages`, Hosted Room tables, or
@@ -137,10 +137,10 @@ project threads.
 |---|---|---|
 | `threadspace_nodes` | Canonical local Node_ID authority | `node_id` primary key; status token constrained; one stable local row resolved/created on first use; never derived from endpoint, hostname, IP, or container identity |
 | `user_profiles` social columns | Social addressing substrate on the canonical profile | `profile_id` unique and backfilled for pre-existing rows; `node_id` FK to `threadspace_nodes`; `username` Node-scoped unique (lowercase canonical form; grammar CHECK Postgres-side, application-validated on every write); `username_state` consistent with username nullability; existing users remain `unset` with no email-derived username |
-| `direct_message_relationships` | One canonical Relationship per unordered participant-address pair (ADR-078) | unique `participant_pair_key` enforced database-side; `created_at`/`updated_at`; existence implies no trust, Contact, Circle, Project, context, or inference authority |
-| `direct_message_relationship_participants` | Canonical membership authority (ADR-078) | exactly two `Node_ID + Profile_ID` rows for V1; unique `(relationship_id, profile_id)`; the sole participant-authority surface for every Conversation and Message; no roles, groups, mute, read, Guardian-permission, or delivery state |
+| `direct_message_relationships` | One canonical Relationship per unordered participant-address pair (ADR-080) | unique `participant_pair_key` enforced database-side; `created_at`/`updated_at`; existence implies no trust, Contact, Circle, Project, context, or inference authority |
+| `direct_message_relationship_participants` | Canonical membership authority (ADR-080) | exactly two `Node_ID + Profile_ID` rows for V1; unique `(relationship_id, profile_id)`; the sole participant-authority surface for every Conversation and Message; no roles, groups, mute, read, Guardian-permission, or delivery state |
 | `direct_message_conversations` | One discussion inside a Relationship; multiple per Relationship | required `relationship_id` FK (cascade); kind is `direct`; `latest_activity_at` tracks durable activity; identity never depends on username, display name, email, placement, or origin |
-| `direct_message_conversations` origin columns | Immutable creation provenance | `created_by_profile_id`, `origin_project_id`, `origin_thread_id` all nullable with `SET NULL` on source deletion — a deleted Project/Thread never cascades into the Conversation or its Messages; existing ADR-077 rows migrated with NULL (unknown, never fabricated) |
+| `direct_message_conversations` origin columns | Immutable creation provenance | `created_by_profile_id`, `origin_project_id`, `origin_thread_id` all nullable with `SET NULL` on source deletion — a deleted Project/Thread never cascades into the Conversation or its Messages; existing ADR-079 rows migrated with NULL (unknown, never fabricated) |
 | `direct_message_conversation_placements` | Participant-local Project organization | unique `(conversation_id, profile_id)`; `project_id` nullable with `SET NULL`; placement Profile must be a Relationship participant; placement confers no membership, retrieval, or context authority |
 | `direct_messages` | Durable plain-text message truth | stable `id`; conversation FK cascade; `sender_node_id` + `sender_profile_id`; `content_type` is `text/plain`; non-blank bounded body; unique `(conversation_id, sender_profile_id, client_message_key)` idempotency constraint |
 

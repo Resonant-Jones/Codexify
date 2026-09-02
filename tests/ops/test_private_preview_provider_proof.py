@@ -12,7 +12,7 @@ from scripts.ops.private_preview_provider_proof import (
 )
 
 
-LOCAL_MODEL = "gemma-4-12b-it-qat-4bit"
+LOCAL_MODEL = "qwen3.8-27b-4bit"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 
@@ -312,4 +312,3 @@ def test_provider_model_matching_is_exact_not_substring_based() -> None:
     with pytest.raises(ProofError, match="absent") as error:
         _proof(transport).run()
     assert error.value.classification == "provider_unavailable"
-
