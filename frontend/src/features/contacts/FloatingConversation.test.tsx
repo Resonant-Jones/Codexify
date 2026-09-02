@@ -339,4 +339,37 @@ describe("FloatingConversation", () => {
     expect(await screen.findByText("people-proof-floating")).toBeInTheDocument();
     expect(screen.getAllByText("people-proof-floating")).toHaveLength(1);
   });
+
+  it("reuses the client message key after an ambiguous send failure", async () => {
+    mocked.sendDirectMessage
+      .mockRejectedValueOnce(new Error("response timed out"))
+      .mockResolvedValueOnce({
+        ok: true,
+        replayed: true,
+        message: message("m3", "retry safely"),
+      });
+    let capturedState: ReturnType<typeof usePeopleMessagingState> | null = null;
+    render(
+      <Harness>
+        {(state) => {
+          capturedState = state;
+          return <FloatingConversation state={state} />;
+        }}
+      </Harness>
+    );
+    await act(async () => {
+      capturedState?.popOutConversation("c1", conversationWithOrigin(null));
+    });
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Message"), "retry safely");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByText("response timed out")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(mocked.sendDirectMessage).toHaveBeenCalledTimes(2));
+    expect(mocked.sendDirectMessage.mock.calls[1][2]).toBe(
+      mocked.sendDirectMessage.mock.calls[0][2]
+    );
+    expect(await screen.findByText("retry safely")).toBeInTheDocument();
+  });
 });

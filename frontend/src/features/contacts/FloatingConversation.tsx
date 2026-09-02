@@ -152,12 +152,10 @@ export default function FloatingConversation({
     if (!body || sending) return;
     setSending(true);
     setSendError(null);
+    const key = state.getClientMessageKey(conversationId, body);
     try {
-      const result = await sendDirectMessage(
-        conversationId,
-        body,
-        crypto.randomUUID()
-      );
+      const result = await sendDirectMessage(conversationId, body, key);
+      state.acknowledgeClientMessage(conversationId, key);
       state.appendServerMessage(conversationId, result.message);
       state.setDraft(conversationId, "");
     } catch (error) {
