@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-01
+2026-09-02
 
 ## Interpretation rule
 
@@ -18,15 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening. Mainline has advanced private-preview database migration and recovery tooling, but current-tip supported-Compose closure, live CE-L1 execution, and private-preview recovery qualification remain unproven.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Mainline now has bounded proof for private-preview backup/restore recovery, Guardian secret rotation, and Cloudflare ingress, but current-tip supported-Compose closure, live CE-L1 execution/readback, and an admitted friends-and-family canary remain unproven.
 
 ## What changed recently
 
-- Merged bounded Pi assistant-response telemetry instrumentation and regression coverage; it is observational and does not prove CE-L1 execution.
-- Added the provider-neutral sandbox authority boundary, live E2B/Modal conformance evidence, and selected Modal as the initial hosted implementation target; neither provider is release-supported.
-- Proved the preserved private-preview database migration to Alembic head with retained external backup evidence.
-- Requalified private-preview recovery through the repaired restore-helper boundary, then stopped before live execution because Docker Desktop was unavailable; guest traffic remains closed.
-- Merged the Agent Skills loader and prompt-exposure seam with focused tests; no runtime caller is wired yet.
+- Requalified private-preview backup/restore after Docker recovery with a fresh external checkpoint, exact media/database reconciliation, source preservation, and loopback restart reachability; guest traffic stayed closed.
+- Rotated private-preview Guardian session/JWT/API secrets and proved old-session invalidation plus new-session roundtrip; DeepSeek credential rotation remains open.
+- Corrected and live-proved the private-preview Cloudflare single-origin router and Access boundary; ingress now reaches the Guardian login/workspace path without widening the release claim.
+- Stopped the first friends-and-family canary before admission because external ingress was unavailable at that attempt and no provisioned non-admin tester set existed; the canary remains a separate gate.
+- Added private-preview desired-state, restart-policy, tunnel, and LaunchAgent lifecycle tooling with focused contract coverage; this is operator tooling, not runtime health proof.
 
 ## Current supported reality
 
@@ -36,7 +36,8 @@ This file is authoritative for:
 - Authenticated local Settings reads, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; presence does not imply generic connector sync, provider inference, or cloud support.
 - Pi 0.82.1 wrapper/API, source-vendor, identity, and telemetry changes are test-backed only to the non-inference or OAuth-readiness boundary; Pi execution remains internal and qualification-pending.
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces.
-- Private-preview database migration is proven as a prerequisite. The recovery, guest-canary, cloud-preview, and provider-execution lanes remain conditional or qualification-pending.
+- Private-preview recovery, Guardian secret rotation, and Cloudflare ingress each have bounded receipts; the guest canary, DeepSeek execution, and external tester isolation remain conditional or qualification-pending.
+- Private-preview lifecycle commands are available as an operator path, with volumes preserved by the intentional-down contract; status output is not a substitute for live release qualification.
 
 ## Not yet true / do not assume
 
@@ -45,33 +46,36 @@ This file is authoritative for:
 - Do not treat Modal selection or partial read/exec conformance as an implemented adapter, bounded storage posture, supported runtime path, or release support.
 - Do not treat E2B’s ordinary writable sandbox as a provider-enforced read-only workspace; its read-only input qualification failed closed.
 - Do not treat Agent Skills files, loader tests, focused UI tests, proof receipts, feature branches, or planning language as live supported behavior.
-- Do not invite private-preview guests or infer shipped reality from mutable `latest`, another checkout, or docs alone.
+- Do not treat private-preview recovery or Cloudflare ingress receipts as a completed guest canary; do not invite guests until the separate admission, isolation, provider, and persistence gates pass.
+- Do not infer shipped reality from mutable `latest`, another checkout, or docs alone.
 
 ## Active blockers
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
-- Private-preview recovery must be rerun after Docker Desktop `desktop-linux` is restored; the latest attempt created no checkpoint and did not touch source persistence.
+- The friends-and-family private-preview canary remains blocked on an authorized provisioned tester set and a rerun of external Access, account-isolation, provider, persistence, and bounded-observability gates; the recovery prerequisite and ingress boundary are now proven separately.
+- Private-preview DeepSeek credential rotation and provider requalification remain open before any external tester execution.
 - Modal lacks a proven provider-enforced storage ceiling, while E2B lacks the required provider-enforced read-only input mechanism; no hosted sandbox adapter is qualified.
-- Watchdog model/policy qualification and immutable Docker image-retention replay remain unclosed; the latter requires the intended `desktop-linux` Docker authority.
+- Watchdog model/policy qualification and immutable Docker image-retention replay remain unclosed.
 - Recent project, artifact, and Guardian Chat changes still need supported-path/authenticated browser evidence where release claims depend on them.
 
 ## This week’s priorities
 
-1. Restore the authorized Docker Desktop engine and rerun private-preview recovery with a new external checkpoint.
-2. Rerun current-main supported-Compose closure with the canonical local profile.
-3. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
-4. Requalify Chroma, then spend the next CE-L1 live attempt on provider/model execution and durable readback.
-5. Capture supported-path/browser evidence for recent UI flows, then close any claimed Watchdog, image-retention, or hosted-sandbox qualification gates.
+1. Rerun current-main supported-Compose closure with the canonical local profile.
+2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
+3. Requalify Chroma, then spend the next CE-L1 live attempt on provider/model execution and durable readback.
+4. Rotate and requalify the private-preview DeepSeek credential, provision two or three approved non-admin testers, and rerun the gated canary.
+5. Capture supported-path/browser evidence for recent UI flows, then close the Watchdog, image-retention, and hosted-sandbox qualification gates.
 
 ## Release definition right now
 
 - [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
 - [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
+- [x] Private-preview recovery, Guardian secret rotation, and Cloudflare ingress have bounded proof without guest admission or release widening.
 - [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
 - [ ] Queue, worker, lock, migration, configuration, recovery, and browser evidence gates are green on the claimed path.
-- [ ] CE-L1 and any preview/provider lane being claimed have current-main proof receipts for their named gates.
+- [ ] CE-L1 and any preview/provider lane being claimed have current-main proof receipts for live execution, durable readback, and their named isolation gates.
 
 ## How to read the rest of the KB
 
