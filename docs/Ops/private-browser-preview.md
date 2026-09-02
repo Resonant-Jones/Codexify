@@ -114,6 +114,42 @@ The only application publication may be
 `127.0.0.1:8081->8080/tcp`. Guardian 8888, Vite 5173, Whoosh'd 8000, Redis,
 Postgres, Neo4j, migrators, and workers must not have host bindings.
 
+### Automatic recovery and intentional shutdown
+
+The long-running private-preview services use Docker's `unless-stopped`
+restart policy. They recover after a container or Docker Desktop interruption,
+while the one-shot migration, graph-init, model-prep, and e2e jobs remain
+non-restarting. A per-user macOS LaunchAgent also reconciles the Compose
+project at login and every five minutes while the desired-up marker exists.
+The existing named `cloudflared` tunnel has a separate marker-gated
+`KeepAlive` LaunchAgent, so connector process failure is retried independently
+of application-container recovery.
+
+Install the two LaunchAgents once, then enable the preview:
+
+```bash
+make private-preview-autostart-install
+make private-preview-up
+make private-preview-status
+```
+
+The installer validates the existing external tunnel config and executable but
+does not copy the tunnel credential into the repository. The desired-up marker
+is stored under
+`~/Library/Application Support/Codexify/private-preview/enabled`.
+
+To intentionally disable the preview, clear desired-up state, stop the
+containers without deleting volumes, and stop the connector, run:
+
+```bash
+make private-preview-down
+```
+
+Use `make private-preview-up` to re-enable it. While the marker exists, raw
+`docker compose stop` or `down` may be reconciled by the LaunchAgent; the
+`make private-preview-down` command is the authoritative manual-off boundary.
+Do not use `down -v`.
+
 ### Backend replacement recovery
 
 The private-preview origin resolves the Compose `backend` service through

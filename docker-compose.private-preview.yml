@@ -6,15 +6,20 @@
 services:
   db:
     ports: !reset []
+    # Recover the persistent database after an engine or container restart.
+    # `unless-stopped` still honors the operator's explicit `compose stop`.
+    restart: unless-stopped
 
   neo4j:
     ports: !reset []
+    restart: unless-stopped
 
   tts:
     ports: !reset []
 
   backend:
     ports: !reset []
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/health', timeout=2).read()"]
       interval: 5s
@@ -61,6 +66,7 @@ services:
   frontend:
     ports: !reset []
     env_file: !reset []
+    restart: unless-stopped
     environment:
       VITE_GUARDIAN_API_BASE: ""
       VITE_GUARDIAN_AUTH_MODE: "remote"
