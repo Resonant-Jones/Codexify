@@ -272,7 +272,25 @@ class PiCodexRunnerAdapter:
 
         if stdout:
             try:
-                data = json.loads(stdout)
+                # Authorized protocol framing: the final non-empty stdout
+                # line is the canonical JSON object. Earlier stdout lines
+                # are untrusted dependency diagnostics and carry no
+                # authority. Legacy/non-authorized paths keep their
+                # whole-document parse as a fallback.
+                if require_runtime_identity:
+                    framed = _parse_authorized_stdout_frame(stdout)
+                    if framed is None:
+                        return AgentRunEnvelope(
+                            status="error",
+                            summary="Pi wrapper returned a non-attested result",
+                            failure_classification=(
+                                PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+                            ),
+                            failure_stage="wrapper_protocol",
+                        )
+                    data = framed
+                else:
+                    data = json.loads(stdout)
                 runtime_identity = data.get("actual_runtime_identity")
                 if data.get("failure_class") in PI_AUTHORIZED_FAILURE_CLASSES:
                     # On failure paths we still surface whatever telemetry
@@ -623,6 +641,39 @@ def _classify_authorized_failure(stderr: str) -> str:
     if any(token in text for token in ("401", "403", "429", "provider request", "response")):
         return PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value
     return PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value
+
+
+def _parse_authorized_stdout_frame(stdout: str) -> dict[str, Any] | None:
+    """Recover the canonical authorized wrapper result JSON object.
+
+    Authorized protocol framing:
+
+    * The **final non-empty line** of subprocess stdout is the sole
+      machine-readable authorized result JSON object.
+    * Earlier stdout lines are untrusted dependency diagnostics, are
+      never persisted, and carry no authority.
+    * Trailing noise after the JSON frame causes protocol failure (the
+      final non-empty line is then not a JSON object).
+    * The frame must be a JSON object; lists, strings, numbers, booleans,
+      and ``null`` are rejected.
+    * Empty stdout is rejected.
+
+    This helper performs framing only.  Runtime-identity, tool-telemetry,
+    and bounded-failure parsing remain in :meth:`_parse_result`.
+    """
+    if not stdout:
+        return None
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    final_line = lines[-1]
+    try:
+        parsed = json.loads(final_line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 def _failure_stage_for_class(failure_class: str | None) -> str:

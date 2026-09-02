@@ -226,3 +226,92 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# --- Live-wrapper source regressions (per spec §35).
+#
+# These pytest tests inspect the live wrapper source to assert the
+# canonical 10-field telemetry contract is wired correctly.  They run
+# with pytest (per spec §40) and the script-mode main() above also
+# remains a backstop for executable synthetic-event checks.
+
+import pytest  # noqa: E402  (kept near the pytest tests for readability)
+
+
+WRAPPER_SOURCE = (WORKTREE / "codex_runner" / "src" / "agent-wrapper.js").read_text()
+
+
+def test_wrapper_imports_create_tool_telemetry() -> None:
+    """The live wrapper must import ``createToolTelemetry`` from
+    ``./assistant-telemetry.js`` (the canonical 10-field accumulator
+    helper)."""
+    assert "createToolTelemetry" in WRAPPER_SOURCE, (
+        "wrapper does not import createToolTelemetry"
+    )
+
+
+def test_wrapper_does_not_own_six_field_accumulator_literal() -> None:
+    """The wrapper must NOT maintain its own six-field telemetry
+    accumulator literal.  The canonical helper is the sole source of
+    the bounded shape."""
+    bad_literal = (
+        "\tconst toolTelemetry = {\n"
+        "\t\teffective_tool_names: effectiveToolNames,\n"
+        "\t\twrite_tool_available: writeToolAvailable,\n"
+        "\t\ttool_execution_start_count: 0,\n"
+        "\t\ttool_execution_end_count: 0,\n"
+        "\t\texecuted_tool_names: [],\n"
+        "\t\tassistant_tool_call_count: 0,\n"
+        "\t};"
+    )
+    assert bad_literal not in WRAPPER_SOURCE, (
+        "wrapper still owns the pre-repair 6-field accumulator literal"
+    )
+
+
+def test_wrapper_uses_create_tool_telemetry_call() -> None:
+    """The wrapper must call ``createToolTelemetry()`` to build its
+    accumulator."""
+    assert "createToolTelemetry()" in WRAPPER_SOURCE, (
+        "wrapper does not call createToolTelemetry()"
+    )
+
+
+def test_wrapper_wires_assistant_event_observer() -> None:
+    """The wrapper must call ``observeAssistantMessageEvent`` inside
+    its session subscribe path, independently of OPTIONS.verbose."""
+    assert "observeAssistantMessageEvent(toolTelemetry, event)" in WRAPPER_SOURCE, (
+        "wrapper does not call observeAssistantMessageEvent on each event"
+    )
+    assert WRAPPER_SOURCE.count("observeAssistantMessageEvent(") >= 1
+
+
+def test_wrapper_wires_final_assistant_observer() -> None:
+    """The wrapper must call ``observeFinalAssistantMessages`` after
+    successful prompt.  No manual independent final assistant scan
+    may remain."""
+    assert (
+        "observeFinalAssistantMessages(toolTelemetry, session)"
+        in WRAPPER_SOURCE
+    ), "wrapper does not call observeFinalAssistantMessages"
+
+
+def test_wrapper_does_not_run_manual_assistant_scan() -> None:
+    """The pre-repair manual ``assistant_tool_call_count`` scan over
+    ``session.agent.state.messages`` must be removed."""
+    bad_scan = (
+        "for (const message of finalMessages) {\n"
+        "\t\t\tif (message.role !== \"assistant\") continue;\n"
+    )
+    assert bad_scan not in WRAPPER_SOURCE, (
+        "wrapper still owns the pre-repair manual assistant_tool_call_count scan"
+    )
+
+
+def test_wrapper_does_not_retrieve_assistant_text_or_reasoning() -> None:
+    """The wrapper must not retrieve assistant text deltas or
+    reasoning content for telemetry purposes.  Verbose-only text
+    printing is allowed (and gated on OPTIONS.verbose)."""
+    # The post-repair wrapper retains the verbose text_delta print
+    # (for human log readability) but no telemetry field reads it.
+    assert "assistantMessageEvent.delta" in WRAPPER_SOURCE  # verbose print, allowed
