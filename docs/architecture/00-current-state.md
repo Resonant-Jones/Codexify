@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-02
+2026-09-03
 
 ## Interpretation rule
 
@@ -18,67 +18,69 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. Mainline now has bounded proof for private-preview backup/restore recovery, Guardian secret rotation, and Cloudflare ingress, but current-tip supported-Compose closure, live CE-L1 execution/readback, and an admitted friends-and-family canary remain unproven.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Mainline now contains bounded private-profile People/Share qualification and Pi wrapper/telemetry qualification, but no fresh current-tip supported-Compose closure, CE-L1 live execution/readback, or admitted friends-and-family canary.
 
 ## What changed recently
 
-- Requalified private-preview backup/restore after Docker recovery with a fresh external checkpoint, exact media/database reconciliation, source preservation, and loopback restart reachability; guest traffic stayed closed.
-- Rotated private-preview Guardian session/JWT/API secrets and proved old-session invalidation plus new-session roundtrip; DeepSeek credential rotation remains open.
-- Corrected and live-proved the private-preview Cloudflare single-origin router and Access boundary; ingress now reaches the Guardian login/workspace path without widening the release claim.
-- Stopped the first friends-and-family canary before admission because external ingress was unavailable at that attempt and no provisioned non-admin tester set existed; the canary remains a separate gate.
-- Added private-preview desired-state, restart-policy, tunnel, and LaunchAgent lifecycle tooling with focused contract coverage; this is operator tooling, not runtime health proof.
-- Runtime-qualified same-node People messaging on `v1-friends-family-web` under ADR-079 and ADR-080 (see `proofs/2026-09-01-people-messaging-runtime-qualification-proof.md`): the Node_ID + Profile_ID social identity, deliberate Node-scoped usernames, email-private discovery, durable plain-text messages with idempotent retries, Relationship → multiple Conversation semantics, Project/Thread origin provenance, participant-local placement, conversation-first Inbox rows, relationship-backed person filtering, and portable Floating Conversation behavior are proven on the private-preview profile. Realtime delivery, Project invitations, Guardian retrieval, and federation remain unimplemented; the Beta support boundary is unchanged.
-- Runtime-qualified the person-aware Share Sheet (see `proofs/2026-09-01-share-sheet-person-routing-qualification-proof.md`): explicit `Copy Link` and `Send to Person` actions resolve a Profile and Relationship, offer existing/new Conversation choices, reuse the same tokenized read-only link across partial-failure retry and idempotent send, preserve Thread-origin provenance, and fail closed on the unsupported profile. The operator-approved Dev posture enables the `share` route label on `v1-friends-family-web` and `v1-local-core-web-mcp`; share remains token-based and recipient-exclusive access is not claimed.
+- Requalified private-preview backup/restore, Guardian secret rotation, and Cloudflare single-origin/Access ingress with bounded receipts; guest traffic stayed closed.
+- Added private-preview desired-state, restart-policy, tunnel, and LaunchAgent lifecycle tooling; contract coverage is operator evidence, not runtime health proof.
+- Runtime-qualified same-node People messaging, the Conversation-first Inbox, and portable floating conversations on `v1-friends-family-web`; no Beta support widening.
+- Added person-aware Share routing with explicit copy/send actions; token access remains non-recipient-exclusive and the feature remains private-profile/internal.
+- Landed Pi 0.82.1 wrapper framing, tracked fake-fixture reproducibility, and Guardian ten-field telemetry; these remain non-inference qualification only.
+- Restored private-preview local provider configuration to `qwen3.8-27b-4bit`; contract coverage changed, but no live provider or canary qualification followed.
+- Hardened private-preview import routing and large-upload handling plus share/message idempotency and ownership checks; focused tests passed.
+- Proved the account-import Safari `422` is a browser/frontend multipart-envelope failure: valid server replay stages the exact batch, and no repair was made.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The intended Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
-- Mainline contains focused project lifecycle, project-scoped conversation-origin, document-artifact preview, and Guardian Chat repairs with focused tests; supported-path and authenticated browser proof remain separate gates.
-- Authenticated local Settings reads, the read-only Connections catalog, and bounded account-export imports retain their existing contracts; presence does not imply generic connector sync, provider inference, or cloud support.
-- Pi 0.82.1 wrapper/API, source-vendor, identity, and telemetry changes are test-backed only to the non-inference or OAuth-readiness boundary; Pi execution remains internal and qualification-pending.
+- Mainline contains focused project lifecycle, conversation-origin, document-artifact preview, Guardian Chat, and account-import repairs with targeted tests; supported-path and authenticated browser proof remain separate gates.
+- Authenticated local Settings reads and the read-only Connections catalog retain their existing contracts; catalog visibility does not imply connector sync, provider inference, or cloud support.
+- Valid account-import multipart batches are accepted and durably staged on the server path; the Safari envelope failure remains unrepaired.
+- Pi 0.82.1 wrapper/API, source-vendor, identity, framing, and telemetry changes are test-backed to the non-inference or OAuth-readiness boundary; Pi execution remains internal and qualification-pending.
 - Watchdog, Pi diagnostics, proof tooling, and tester-stack receipts remain internal or proof-only surfaces.
-- Private-preview recovery, Guardian secret rotation, and Cloudflare ingress each have bounded receipts; the guest canary, DeepSeek execution, and external tester isolation remain conditional or qualification-pending.
-- Private-preview lifecycle commands are available as an operator path, with volumes preserved by the intentional-down contract; status output is not a substitute for live release qualification.
-- The private-profile People/Inbox projection is runtime-qualified on `v1-friends-family-web`: same-node Node_ID + Profile_ID messaging, one Relationship with multiple Conversations, Project/Thread origin provenance, participant-local placement, conversation-first rows, person filtering, and portable Floating Conversation behavior. The `direct_messages` route label remains quarantined on the default `v1-local-core-web-mcp` profile and enabled only on `v1-friends-family-web`; this is private-profile capability, not Beta-supported behavior.
+- Private-preview recovery, Guardian secret rotation, and Cloudflare ingress have bounded receipts; lifecycle/configuration checks are not live health or guest-canary proof.
+- Private-profile People/Inbox/Share behavior is runtime-qualified on `v1-friends-family-web`; `direct_messages` stays quarantined on the default profile, and these surfaces do not widen Beta support.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
-- Do not treat clean CE-L1 OAuth readiness or telemetry instrumentation as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
+- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
 - Do not treat Modal selection or partial read/exec conformance as an implemented adapter, bounded storage posture, supported runtime path, or release support.
 - Do not treat E2B’s ordinary writable sandbox as a provider-enforced read-only workspace; its read-only input qualification failed closed.
 - Do not treat Agent Skills files, loader tests, focused UI tests, proof receipts, feature branches, or planning language as live supported behavior.
-- Do not treat private-preview recovery or Cloudflare ingress receipts as a completed guest canary; do not invite guests until the separate admission, isolation, provider, and persistence gates pass.
-- Do not infer shipped reality from mutable `latest`, another checkout, or docs alone.
-- Do not assume cross-node private messaging, node resolution/trust, or Guardian messaging; federation is not implemented. Project invitations and Guardian Conversation/origin retrieval are not implemented, and realtime delivery remains unimplemented. These messaging capabilities remain explicitly deferred under ADR-079 and ADR-080; the People/Inbox and Share surfaces do not widen Beta support, and share links remain token-based rather than recipient-exclusive.
+- Do not treat private-preview configuration or bounded recovery/ingress receipts as an admitted canary; DeepSeek execution, tester isolation, and persistence gates remain open.
+- Do not infer shipped reality from mutable `latest`, another checkout, local-only artifacts, planning language, or docs alone.
+- Do not treat the account-import proof’s classification as a repair; Safari/WebKit request-envelope construction remains unresolved.
+- Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
+- Do not assume realtime delivery, read receipts, attachments, Guardian messaging/retrieval, Project invitations, node resolution, federation, or cross-node People messaging; these remain deferred under ADR-079/ADR-080.
 
 ## Active blockers
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
-- The friends-and-family private-preview canary remains blocked on an authorized provisioned tester set and a rerun of external Access, account-isolation, provider, persistence, and bounded-observability gates; the recovery prerequisite and ingress boundary are now proven separately.
+- The friends-and-family canary is blocked on an authorized provisioned non-admin tester set plus reruns of Access, isolation, provider, persistence, and bounded-observability gates.
 - Private-preview DeepSeek credential rotation and provider requalification remain open before any external tester execution.
-- Modal lacks a proven provider-enforced storage ceiling, while E2B lacks the required provider-enforced read-only input mechanism; no hosted sandbox adapter is qualified.
-- Watchdog model/policy qualification and immutable Docker image-retention replay remain unclosed.
-- Recent project, artifact, and Guardian Chat changes still need supported-path/authenticated browser evidence where release claims depend on them.
+- Modal storage-ceiling, E2B provider-enforced read-only input, Watchdog model/policy, immutable image-retention, and recent supported-path browser gates remain unclosed.
+- Safari/WebKit account-import multipart-envelope repair and regression proof remain open; the valid server path is proven separately.
 
 ## This week’s priorities
 
 1. Rerun current-main supported-Compose closure with the canonical local profile.
 2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile.
 3. Requalify Chroma, then spend the next CE-L1 live attempt on provider/model execution and durable readback.
-4. Rotate and requalify the private-preview DeepSeek credential, provision two or three approved non-admin testers, and rerun the gated canary.
-5. Capture supported-path/browser evidence for recent UI flows, then close the Watchdog, image-retention, and hosted-sandbox qualification gates.
+4. Rotate and requalify the private-preview DeepSeek credential, provision approved non-admin testers, and rerun the gated canary.
+5. Repair and browser-regression-test the Safari upload envelope, then close the browser, Watchdog, image-retention, and hosted-sandbox gates.
 
 ## Release definition right now
 
 - [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
 - [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
-- [x] Private-preview recovery, Guardian secret rotation, and Cloudflare ingress have bounded proof without guest admission or release widening.
+- [x] Private-preview recovery, Guardian secret rotation, Cloudflare ingress, and private-profile People/Share proofs are bounded without guest admission or release widening.
 - [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker, lock, migration, configuration, recovery, and browser evidence gates are green on the claimed path.
+- [ ] Queue, worker, lock, migration, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
 - [ ] CE-L1 and any preview/provider lane being claimed have current-main proof receipts for live execution, durable readback, and their named isolation gates.
 
 ## How to read the rest of the KB
