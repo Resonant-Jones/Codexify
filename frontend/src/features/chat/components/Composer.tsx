@@ -59,8 +59,9 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
-const COMPOSER_EXPANDED_MAX_HEIGHT = "clamp(16rem, 52dvh, 34rem)";
+const COMPOSER_EXPANDED_MAX_HEIGHT = "clamp(14rem, 34vh, 22rem)";
 const COMPOSER_EXPAND_CONTROL_TEXT_INSET = `calc(${COMPOSER_TEXTAREA_PAD_X} + var(--composer-control-size, 2rem) + ${COMPOSER_TEXTAREA_PAD_X})`;
+const COMPOSER_OVERFLOW_TOLERANCE_PX = 2;
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -86,6 +87,7 @@ const measureComposerHeights = (
   return {
     minHeight: lineHeight * minimumRows + paddingBlock + borderBlock,
     maxHeight: lineHeight * maximumRows + paddingBlock + borderBlock,
+    maxContentHeight: lineHeight * maximumRows + paddingBlock,
   } as const;
 };
 
@@ -101,6 +103,44 @@ const autosizeComposerTextarea = (
   const nextHeight = Math.min(el.scrollHeight, maxHeight);
   el.style.height = `${nextHeight}px`;
   el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+};
+
+const hasCollapsedComposerOverflow = (
+  el: HTMLTextAreaElement,
+  minimumRows = MIN_COMPOSER_ROWS,
+  maximumRows = MAX_COMPOSER_ROWS
+) => {
+  const { minHeight, maxHeight, maxContentHeight } = measureComposerHeights(
+    el,
+    minimumRows,
+    maximumRows
+  );
+  const previousStyle = {
+    minHeight: el.style.minHeight,
+    maxHeight: el.style.maxHeight,
+    height: el.style.height,
+    overflowY: el.style.overflowY,
+    paddingRight: el.style.paddingRight,
+  };
+
+  el.style.minHeight = `${minHeight}px`;
+  el.style.maxHeight = `${maxHeight}px`;
+  el.style.paddingRight = COMPOSER_TEXTAREA_PAD_X;
+  el.style.height = "auto";
+  const scrollHeight = el.scrollHeight;
+  el.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+  const hasOverflow =
+    scrollHeight >
+    Math.min(el.clientHeight || maxContentHeight, maxContentHeight) +
+      COMPOSER_OVERFLOW_TOLERANCE_PX;
+
+  el.style.minHeight = previousStyle.minHeight;
+  el.style.maxHeight = previousStyle.maxHeight;
+  el.style.height = previousStyle.height;
+  el.style.overflowY = previousStyle.overflowY;
+  el.style.paddingRight = previousStyle.paddingRight;
+
+  return hasOverflow;
 };
 
 const expandComposerTextarea = (el: HTMLTextAreaElement) => {
@@ -278,6 +318,10 @@ export function Composer({
   compactMobile?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const composerSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const composerSurfaceWidthRef = useRef<number | null>(null);
+  const [composerWidthVersion, setComposerWidthVersion] = useState(0);
+  const [hasCollapsedOverflow, setHasCollapsedOverflow] = useState(false);
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<
@@ -313,7 +357,10 @@ export function Composer({
   const [executionMode, setExecutionMode] =
     useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
-  const isDesktopComposerExpanded = isComposerExpanded && !compactMobile;
+  const showComposerExpansionControl =
+    !compactMobile && hasCollapsedOverflow;
+  const isDesktopComposerExpanded =
+    isComposerExpanded && showComposerExpansionControl;
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
@@ -346,23 +393,76 @@ export function Composer({
   };
 
   useLayoutEffect(() => {
-    if (compactMobile && isComposerExpanded) {
-      setIsComposerExpanded(false);
+    if (compactMobile) {
+      if (isComposerExpanded) {
+        setIsComposerExpanded(false);
+      }
+      if (hasCollapsedOverflow) {
+        setHasCollapsedOverflow(false);
+      }
     }
-  }, [compactMobile, isComposerExpanded]);
+  }, [compactMobile, hasCollapsedOverflow, isComposerExpanded]);
+
+  useEffect(() => {
+    const surface = composerSurfaceRef.current;
+    if (!surface || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry?.contentRect.width ?? surface.clientWidth;
+      const previousWidth = composerSurfaceWidthRef.current;
+      composerSurfaceWidthRef.current = nextWidth;
+      if (
+        previousWidth !== null &&
+        Math.abs(previousWidth - nextWidth) > COMPOSER_OVERFLOW_TOLERANCE_PX
+      ) {
+        setComposerWidthVersion((version) => version + 1);
+      }
+    });
+
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     if (!ref.current) return;
+    const minimumRows = compactMobile
+      ? MIN_COMPOSER_ROWS_MOBILE
+      : MIN_COMPOSER_ROWS;
+    const maximumRows = compactMobile
+      ? MAX_COMPOSER_ROWS_MOBILE
+      : MAX_COMPOSER_ROWS;
+
+    if (compactMobile) {
+      autosizeComposerTextarea(ref.current, minimumRows, maximumRows);
+      return;
+    }
+
+    const nextHasCollapsedOverflow = hasCollapsedComposerOverflow(
+      ref.current,
+      minimumRows,
+      maximumRows
+    );
+    if (nextHasCollapsedOverflow !== hasCollapsedOverflow) {
+      setHasCollapsedOverflow(nextHasCollapsedOverflow);
+    }
+
     if (isDesktopComposerExpanded) {
+      if (!nextHasCollapsedOverflow) {
+        setIsComposerExpanded(false);
+        autosizeComposerTextarea(ref.current, minimumRows, maximumRows);
+        return;
+      }
       expandComposerTextarea(ref.current);
       return;
     }
-    autosizeComposerTextarea(
-      ref.current,
-      compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS,
-      compactMobile ? MAX_COMPOSER_ROWS_MOBILE : MAX_COMPOSER_ROWS
-    );
-  }, [compactMobile, isDesktopComposerExpanded, value]);
+    autosizeComposerTextarea(ref.current, minimumRows, maximumRows);
+  }, [
+    compactMobile,
+    composerWidthVersion,
+    hasCollapsedOverflow,
+    isDesktopComposerExpanded,
+    value,
+  ]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -918,6 +1018,7 @@ export function Composer({
 
   const renderComposerTextarea = () => (
     <div
+      ref={composerSurfaceRef}
       data-testid="composer-textarea-surface"
       data-expanded={isDesktopComposerExpanded ? "true" : "false"}
       className="relative min-w-0 flex-1"
@@ -954,16 +1055,19 @@ export function Composer({
         className="min-w-0 h-full w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
         style={{
           "--composer-expanded-max-h": COMPOSER_EXPANDED_MAX_HEIGHT,
+          "--composer-text-right-pad": showComposerExpansionControl
+            ? COMPOSER_EXPAND_CONTROL_TEXT_INSET
+            : COMPOSER_TEXTAREA_PAD_X,
           boxSizing: "border-box",
           color: "var(--text)",
           overflow: "hidden",
-          padding: `${COMPOSER_TEXTAREA_PAD_Y} ${compactMobile ? COMPOSER_TEXTAREA_PAD_X : COMPOSER_EXPAND_CONTROL_TEXT_INSET} ${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
+          padding: `${COMPOSER_TEXTAREA_PAD_Y} var(--composer-text-right-pad) ${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
           ...(compactMobile
             ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
             : {}),
         } as React.CSSProperties}
       />
-      {!compactMobile ? (
+      {showComposerExpansionControl ? (
         <Button
           type="button"
           data-testid="composer-expand-toggle"
