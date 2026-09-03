@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
 
@@ -9,124 +9,191 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-describe("Composer expansion", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-    window.localStorage.clear();
+const defaultProps = {
+  onSend: vi.fn(),
+  isSending: false,
+  isTurnInFlight: false,
+};
+
+let textareaGeometry = { clientHeight: 96, scrollHeight: 96 };
+let originalClientHeight: PropertyDescriptor | undefined;
+let originalScrollHeight: PropertyDescriptor | undefined;
+
+beforeEach(() => {
+  textareaGeometry = { clientHeight: 96, scrollHeight: 96 };
+  originalClientHeight = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "clientHeight",
+  );
+  originalScrollHeight = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "scrollHeight",
+  );
+  Object.defineProperty(HTMLTextAreaElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => textareaGeometry.clientHeight,
   });
+  Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => textareaGeometry.scrollHeight,
+  });
+});
 
-  it("renders collapsed with an accessible desktop expand control", () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="thread-1" draftValue="" />);
+afterEach(() => {
+  if (originalClientHeight) {
+    Object.defineProperty(
+      HTMLTextAreaElement.prototype,
+      "clientHeight",
+      originalClientHeight,
+    );
+  }
+  if (originalScrollHeight) {
+    Object.defineProperty(
+      HTMLTextAreaElement.prototype,
+      "scrollHeight",
+      originalScrollHeight,
+    );
+  }
+  vi.clearAllMocks();
+  window.localStorage.clear();
+});
 
-    const expandButton = screen.getByRole("button", {
-      name: "Expand composer",
-    });
+describe("Composer expansion", () => {
+  it("keeps the affordance and its clearance hidden for empty and short drafts", () => {
+    const { rerender } = render(<Composer {...defaultProps} />);
 
-    expect(expandButton).toHaveAttribute("type", "button");
-    expect(expandButton).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTestId("composer-textarea-surface")).toHaveAttribute(
-      "data-expanded",
-      "false"
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+    expect(textarea.style.getPropertyValue("--composer-text-right-pad")).toBe(
+      "var(--composer-text-pad-x, 14px)",
+    );
+
+    rerender(<Composer {...defaultProps} draftValue="Short draft" />);
+
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+    expect(textarea.style.getPropertyValue("--composer-text-right-pad")).toBe(
+      "var(--composer-text-pad-x, 14px)",
     );
   });
 
-  it("expands without sending, committing, or replacing the current draft", () => {
+  it("reveals expansion only when collapsed rendered geometry overflows", () => {
+    const { rerender } = render(<Composer {...defaultProps} draftValue="Short draft" />);
+
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
+    rerender(<Composer {...defaultProps} draftValue="A longer draft" />);
+
+    expect(screen.getByRole("button", { name: "Expand composer" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(
+      screen
+        .getByPlaceholderText("Write a message…")
+        .style.getPropertyValue("--composer-text-right-pad"),
+    ).toContain(
+      "composer-control-size",
+    );
+  });
+
+  it("expands the existing focused textarea without changing draft or send behavior", () => {
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
     const onSend = vi.fn();
     const onDraftValueChange = vi.fn();
-
-    render(
+    const { container } = render(
       <Composer
+        {...defaultProps}
+        draftValue="Long enough to overflow"
         onSend={onSend}
-        draftScopeKey="thread-1"
-        draftValue=""
-        draftSyncDebounceMs={10_000}
         onDraftValueChange={onDraftValueChange}
-      />
+        draftSyncDebounceMs={10_000}
+      />,
     );
 
-    const textarea = screen.getByTestId("composer-textarea");
-    const expandButton = screen.getByRole("button", {
-      name: "Expand composer",
-    });
-
+    const textarea = screen.getByPlaceholderText("Write a message…");
     textarea.focus();
-    fireEvent.change(textarea, { target: { value: "Long-form task draft" } });
-    fireEvent.mouseDown(expandButton);
-    fireEvent.click(expandButton);
+    fireEvent.click(screen.getByRole("button", { name: "Expand composer" }));
 
-    expect(textarea).toHaveValue("Long-form task draft");
-    expect(textarea).toHaveFocus();
-    expect(onDraftValueChange).not.toHaveBeenCalled();
-    expect(onSend).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Collapse composer" })).toHaveAttribute(
       "aria-expanded",
-      "true"
+      "true",
     );
-    expect(screen.getByTestId("composer-textarea-surface")).toHaveAttribute(
-      "data-expanded",
-      "true"
-    );
-    expect(textarea.style.maxHeight).toBe("var(--composer-expanded-max-h)");
-    expect(textarea.style.overflowY).toBe("auto");
+    expect(screen.getByPlaceholderText("Write a message…")).toBe(textarea);
+    expect(textarea).toHaveValue("Long enough to overflow");
+    expect(textarea).toHaveFocus();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onDraftValueChange).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("textarea")).toHaveLength(1);
+    expect(textarea.getAttribute("style")).toContain("--composer-expanded-max-h");
   });
 
-  it("collapses back to the normal autosize mode without changing the draft", () => {
-    render(
-      <Composer
-        onSend={vi.fn()}
-        draftScopeKey="thread-1"
-        draftValue="Retain this draft"
-      />
-    );
+  it("keeps the affordance available after a manual collapse of overflowing content", () => {
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
+    render(<Composer {...defaultProps} draftValue="Long enough to overflow" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Expand composer" }));
     fireEvent.click(screen.getByRole("button", { name: "Collapse composer" }));
 
-    const textarea = screen.getByTestId("composer-textarea");
-    expect(textarea).toHaveValue("Retain this draft");
     expect(screen.getByRole("button", { name: "Expand composer" })).toHaveAttribute(
       "aria-expanded",
-      "false"
+      "false",
     );
-    expect(screen.getByTestId("composer-textarea-surface")).toHaveAttribute(
-      "data-expanded",
-      "false"
+    expect(screen.getByPlaceholderText("Write a message…")).toHaveValue(
+      "Long enough to overflow",
     );
-    expect(textarea.style.maxHeight).not.toBe(
-      "var(--composer-expanded-max-h)"
-    );
-    expect(textarea.style.overflowY).toBe("hidden");
   });
 
-  it("contains expansion to the desktop composer and resets it on compact mobile", () => {
-    const { rerender } = render(
-      <Composer onSend={vi.fn()} draftScopeKey="thread-1" draftValue="" />
+  it("auto-collapses and hides the affordance when an expanded draft shrinks", () => {
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
+    const { rerender, container } = render(
+      <Composer {...defaultProps} draftValue="Long enough to overflow" />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Expand composer" }));
+    textareaGeometry = { clientHeight: 96, scrollHeight: 48 };
+    rerender(<Composer {...defaultProps} draftValue="Short draft" />);
 
+    expect(screen.queryByRole("button", { name: "Collapse composer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+    expect(container.querySelector("[data-composer-expanded='true']")).toBeNull();
+  });
+
+  it("reevaluates an externally synchronized draft without replacing the textarea", () => {
+    const { rerender } = render(<Composer {...defaultProps} draftValue="Short draft" />);
+    const textarea = screen.getByPlaceholderText("Write a message…");
+
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
     rerender(
       <Composer
-        onSend={vi.fn()}
-        draftScopeKey="thread-1"
-        draftValue=""
-        compactMobile
-      />
+        {...defaultProps}
+        draftValue="Externally synchronized long draft"
+      />,
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Expand composer" })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Collapse composer" })
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("composer-textarea-surface")).toHaveAttribute(
-      "data-expanded",
-      "false"
+    expect(screen.getByPlaceholderText("Write a message…")).toBe(textarea);
+    expect(textarea).toHaveValue("Externally synchronized long draft");
+    expect(screen.getByRole("button", { name: "Expand composer" })).toBeInTheDocument();
+    expect(defaultProps.onSend).not.toHaveBeenCalled();
+  });
+
+  it("contains expansion to the desktop surface", () => {
+    textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
+    const { rerender } = render(
+      <Composer {...defaultProps} draftValue="Long enough to overflow" />,
     );
-    expect(screen.getByTestId("composer-textarea")).toHaveAttribute(
-      "rows",
-      "1"
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand composer" }));
+    rerender(
+      <Composer
+        {...defaultProps}
+        compactMobile
+        draftValue="Long enough to overflow"
+      />,
     );
+
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse composer" })).toBeNull();
+    expect(screen.queryByTestId("composer-expand-toggle")).toBeNull();
   });
 });
