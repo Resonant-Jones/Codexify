@@ -1,10 +1,11 @@
 # Guardian Chat Portal
 
 Purpose: Document the current Guardian chat portal shell so operators can understand how the chat surface is mounted, how the sidebar and mobile overlay work, and which controls are already available in the UI.
-Last updated: 2026-06-25
+Last updated: 2026-09-03
 Source anchors:
 - frontend/src/components/persona/layout/AppShell.tsx
 - frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx
+- frontend/src/components/persona/layout/MobileAppSidebarDrawer.tsx
 - frontend/src/features/chat/GuardianChat.tsx
 - frontend/src/features/chat/ChatView.tsx
 - frontend/src/components/SessionRail/SessionRail.tsx
@@ -24,7 +25,7 @@ It is not a public portal and it is not a standalone room server. It is the UI c
 - renders the sidebar thread list
 - shows the thread rail for tabs
 - hosts the message history and composer
-- opens the sidebar as a React portal on mobile
+- composes the shared phone sidebar drawer as a React portal
 - keeps the chat surface, workspace preview, and diagnostics in sync
 
 The current portal is a single-user browser surface around a thread timeline. It can look like "group chat" because it includes multiple threads and tab-like sessions, but the implemented runtime is still Guardian thread chat rather than a multi-actor room protocol.
@@ -34,12 +35,12 @@ The current portal is a single-user browser surface around a thread timeline. It
 | Surface | Status now | Meaning |
 |---|---|---|
 | AppShell portal root | runtime-active | `AppShell` renders `#cfy-portal-root` inside the themed shell wrapper so portaled UI inherits the same CSS variables. |
-| Guardian chat shell | runtime-active | `GuardianChatWithSidebar` coordinates the sidebar, chat pane, workspace preview, and mobile overlay. |
+| Guardian chat shell | runtime-active | `GuardianChatWithSidebar` coordinates Guardian sidebar data, the chat pane, workspace preview, and use of the shared mobile drawer. |
 | Thread list sidebar | runtime-active | `SidebarRoot` renders thread navigation and thread actions. |
 | Session rail | runtime-active | `SessionRail` renders tabs for session/thread switching and a new-tab control. |
 | Message timeline | runtime-active | `ChatView` renders history and older-message loading, but does not own fetch loops. |
 | Composer and controls | runtime-active | The composer exposes provider, model, inference mode, source mode, depth, and voice controls. |
-| Mobile overlay portal | runtime-active | The sidebar becomes a full-screen portal overlay on narrow layouts. |
+| Mobile overlay portal | runtime-active | `MobileAppSidebarDrawer` supplies the shared portal, scrim, frame, disclosure, focus, and Escape presentation used by Guardian and primary non-Guardian phone views. |
 | RAG trace panel | gated | The trace viewer is available when the RAG trace flag or route capability enables it. |
 
 ## How the Portal Is Wired
@@ -48,9 +49,11 @@ The current portal is a single-user browser surface around a thread timeline. It
 flowchart TB
   A["AppShell"] --> B["#cfy-portal-root"]
   A --> C["GuardianChatWithSidebar"]
+  A --> F["MobileAppSidebarDrawer<br/>primary non-Guardian phone views"]
   C --> D["SidebarRoot"]
   C --> E["GuardianChat"]
-  C --> F["Mobile overlay via createPortal()"]
+  C --> F["MobileAppSidebarDrawer<br/>Guardian phone projection"]
+  F --> D
   E --> G["SessionRail"]
   E --> H["ChatView"]
   E --> I["Composer + thread actions"]
@@ -60,9 +63,12 @@ flowchart TB
 The portal wiring follows this path:
 
 1. `AppShell` creates a themed shell wrapper and a dedicated `#cfy-portal-root`.
-2. `GuardianChatWithSidebar` prefers that portal root when it mounts the mobile sidebar overlay.
+2. `GuardianChatWithSidebar` composes its existing `SidebarRoot` workspace into
+   `MobileAppSidebarDrawer`, which prefers that portal root.
 3. On desktop, the sidebar stays in the normal layout grid.
-4. On mobile, the sidebar is rendered into the portal root as a fixed overlay with a scrim.
+4. On mobile, the shared drawer is rendered into the portal root as a fixed
+   overlay with a scrim. AppShell uses the same presentation for Documents,
+   Gallery, Dashboard, and Settings.
 5. `GuardianChat` renders the chat body, provider/request banners, session rail, and composer.
 6. `ChatView` renders the message list and older-message pagination.
 
@@ -81,11 +87,19 @@ The portal wiring follows this path:
 - The overlay includes:
   - a scrim that closes the drawer when clicked
   - a fixed drawer panel
+  - AppShell-owned application destinations above the workspace when disclosed
   - the same thread list and thread actions used on desktop
 - While the overlay is active:
   - body scrolling is disabled
-  - Escape closes the sidebar
+  - focus moves into the drawer and returns to the invoking control on close
+  - Escape collapses application navigation first when expanded; a subsequent
+    Escape closes the drawer
   - the drawer stops click and pointer propagation so the scrim can close it cleanly
+- Guardian opens workspace-first. Primary non-Guardian views retain
+  application-first disclosure across navigation, and returning to Guardian
+  restores the workspace-first state.
+- Drawer-open state is separate from this transient AppShell disclosure state;
+  route selection closes the drawer without creating a durable preference.
 
 ## Operator Controls
 
@@ -130,6 +144,7 @@ Backend-backed or server-synced state includes:
 Browser-local state includes:
 
 - current sidebar open/closed state
+- AppShell-owned mobile application-disclosure priority
 - session tab state
 - source mode per thread or per tab
 - voice playback and voice turn preferences
@@ -194,8 +209,10 @@ If you want to change how the portal behaves, these are the first seams to inspe
   - shell theme inheritance
 - `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
   - desktop versus mobile layout selection
-  - portal overlay behavior
-  - scroll lock and Escape handling
+  - Guardian composition of SidebarRoot into the shared drawer
+- `frontend/src/components/persona/layout/MobileAppSidebarDrawer.tsx`
+  - portal/scrim and drawer frame presentation
+  - application disclosure, destination rendering, focus containment, and Escape handling
 - `frontend/src/features/chat/GuardianChat.tsx`
   - thread actions
   - provider/model controls
@@ -211,7 +228,7 @@ The current implementation is a strong starting point, but it still hardcodes a 
 
 - one active chat surface at a time
 - thread tabs rather than true room membership
-- local overlay logic rather than server-driven layout orchestration
+- local shared-drawer logic rather than server-driven layout orchestration
 - source mode as a per-thread/per-tab preference
 - mobile portal behavior that is intentionally UI-local
 
@@ -220,7 +237,7 @@ If your ideas change any of those choices, the biggest design questions are:
 - Is this still a thread shell, or should it become a true room with membership and presence?
 - Should routing and identity live in the browser, the backend, or both?
 - Should source mode remain a chat-composer preference, or become a thread contract?
-- Should the mobile overlay remain portal-based, or move into a different shell composition?
+- Should the shared mobile drawer remain portal-based, or move into a different shell composition?
 
 ## Related Reading
 

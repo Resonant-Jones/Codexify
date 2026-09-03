@@ -3,9 +3,8 @@
  * each lives inside its own glass shell while sharing data feeds for threads/projects/messages.
  */
 import React, { useMemo } from "react";
-import { createPortal } from "react-dom";
 import clsx from "clsx";
-import { ChevronRight, Menu, X } from "lucide-react";
+import { ChevronRight, Menu } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +15,6 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useProjectsCache } from "@/components/sidebar/useProjectsCache";
 import { cleanSidebarProjectTitle } from "@/components/sidebar/sidebarPresentation";
-import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
@@ -79,6 +77,11 @@ import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { getMobileNavigationControlStyle } from "./mobileNavigationContract";
+import type {
+  MobileApplicationDestination,
+  MobileApplicationView,
+} from "./mobileNavigationContract";
+import MobileAppSidebarDrawer from "./MobileAppSidebarDrawer";
 import type { GuardianSidebarSnapshot } from "@/components/documents/documentScopeProjection";
 
 type PanelShellProps = React.PropsWithChildren<{
@@ -262,18 +265,8 @@ const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
 const THREAD_PAGE_SIZE = 50;
 const NEW_THREAD_TITLE = "New Thread";
 
-export type GuardianApplicationView =
-  | "guardian"
-  | "documents"
-  | "gallery"
-  | "dashboard"
-  | "settings";
-
-export type GuardianApplicationDestination = {
-  view: GuardianApplicationView;
-  label: string;
-  priority: "primary" | "secondary";
-};
+export type GuardianApplicationView = MobileApplicationView;
+export type GuardianApplicationDestination = MobileApplicationDestination;
 
 function readStoredGeneralProjectId(): number | null {
   if (typeof window === "undefined") return null;
@@ -327,6 +320,8 @@ type GuardianChatWithSidebarProps = {
   activeApplicationView?: GuardianApplicationView;
   applicationDestinations?: readonly GuardianApplicationDestination[];
   onNavigateApplicationView?: (view: GuardianApplicationView) => void;
+  isApplicationNavigationExpanded?: boolean;
+  onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
   frameFirstMobile?: boolean;
   mobileFramePrelude?: React.ReactNode;
 };
@@ -351,6 +346,8 @@ export default function GuardianChatWithSidebar({
   activeApplicationView = "guardian",
   applicationDestinations = [],
   onNavigateApplicationView,
+  isApplicationNavigationExpanded = false,
+  onApplicationNavigationExpandedChange,
   frameFirstMobile = false,
   mobileFramePrelude,
 }: GuardianChatWithSidebarProps) {
@@ -361,7 +358,6 @@ export default function GuardianChatWithSidebar({
     return stored === null ? true : stored === "true";
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
-  const [isAppNavigationOpen, setIsAppNavigationOpen] = React.useState(false);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const stored = window.localStorage.getItem("cfy.lastProjectId");
@@ -463,11 +459,7 @@ export default function GuardianChatWithSidebar({
     },
     [invalidateThreadQuery, selectedOriginSystem]
   );
-  const mobileSidebarTriggerRef = React.useRef<HTMLElement | null>(null);
-  const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
-  const mobileSidebarCloseRef = React.useRef<HTMLButtonElement | null>(null);
-  const mobileAppNavigationTriggerRef = React.useRef<HTMLButtonElement | null>(null);
-  const restoreMobileSidebarFocusRef = React.useRef(false);
+  const mobileSidebarTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
   const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
@@ -746,20 +738,6 @@ export default function GuardianChatWithSidebar({
       ? "split"
       : "collapsed_drawer";
 
-  // Portal target: mount inside the themed app shell so the overlay inherits
-  // the same CSS variables and theme context as the rest of the UI.
-  const portalTarget = React.useMemo(() => {
-    if (typeof document === "undefined") return null;
-    return (
-      document.getElementById("cfy-portal-root") ??
-      document.getElementById("app") ??
-      document.getElementById("root") ??
-      document.body ??
-      document.documentElement
-    );
-  }, []);
-
-
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
       if (isDesktopLayout) {
@@ -776,77 +754,18 @@ export default function GuardianChatWithSidebar({
   }, []);
 
   const closeSidebar = React.useCallback(() => {
-    if (!isDesktopLayout) {
-      restoreMobileSidebarFocusRef.current = true;
-      setIsAppNavigationOpen(false);
-    }
     setSidebarOpen(false);
-  }, [isDesktopLayout, setSidebarOpen]);
+  }, [setSidebarOpen]);
 
   const toggleSidebar = React.useCallback(() => {
-    if (
-      !isDesktopLayout &&
-      !isSidebarOpen &&
-      typeof document !== "undefined" &&
-      document.activeElement instanceof HTMLElement
-    ) {
-      mobileSidebarTriggerRef.current = document.activeElement;
-    }
-    if (!isDesktopLayout && !isSidebarOpen) {
-      setIsAppNavigationOpen(false);
-    }
     setSidebarOpen(!isSidebarOpen);
-  }, [isDesktopLayout, isSidebarOpen, setSidebarOpen]);
+  }, [isSidebarOpen, setSidebarOpen]);
 
   React.useEffect(() => {
     if (isDesktopLayout && isMobileSidebarOpen) {
       setIsMobileSidebarOpen(false);
     }
   }, [isDesktopLayout, isMobileSidebarOpen]);
-
-  React.useEffect(() => {
-    if (!isMobileOverlayActive || typeof document === "undefined") return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    mobileSidebarCloseRef.current?.focus();
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isMobileOverlayActive]);
-
-  React.useEffect(() => {
-    if (
-      isMobileOverlayActive ||
-      !restoreMobileSidebarFocusRef.current
-    ) {
-      return;
-    }
-    restoreMobileSidebarFocusRef.current = false;
-    mobileSidebarTriggerRef.current?.focus();
-  }, [isMobileOverlayActive]);
-
-  React.useEffect(() => {
-    if (!isMobileOverlayActive || typeof window === "undefined") return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (isAppNavigationOpen) {
-          event.preventDefault();
-          setIsAppNavigationOpen(false);
-          mobileAppNavigationTriggerRef.current?.focus();
-          return;
-        }
-        closeSidebar();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [closeSidebar, isAppNavigationOpen, isMobileOverlayActive]);
-
-  React.useEffect(() => {
-    setIsAppNavigationOpen(false);
-  }, [activeApplicationView]);
 
   const mapThreadRecord = React.useCallback(
     (raw: any): Thread | null => {
@@ -1869,93 +1788,6 @@ export default function GuardianChatWithSidebar({
   const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
-  const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
-    event.stopPropagation();
-  }, []);
-  const containMobileDrawerFocus = React.useCallback(
-    (event: React.KeyboardEvent<HTMLElement>) => {
-      if (event.key !== "Tab") return;
-      const drawer = mobileSidebarDrawerRef.current;
-      if (!drawer) return;
-
-      const focusableControls = Array.from(
-        drawer.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-      ).filter(
-        (control) =>
-          !control.hasAttribute("hidden") &&
-          control.getAttribute("aria-hidden") !== "true"
-      );
-      if (focusableControls.length === 0) {
-        event.preventDefault();
-        return;
-      }
-
-      const firstControl = focusableControls[0];
-      const lastControl = focusableControls[focusableControls.length - 1];
-      const activeControl =
-        typeof document === "undefined" ? null : document.activeElement;
-
-      if (
-        event.shiftKey &&
-        (activeControl === firstControl ||
-          !(activeControl instanceof Node) ||
-          !drawer.contains(activeControl))
-      ) {
-        event.preventDefault();
-        lastControl.focus();
-      } else if (!event.shiftKey && activeControl === lastControl) {
-        event.preventDefault();
-        firstControl.focus();
-      }
-    },
-    []
-  );
-  const handleApplicationNavigation = React.useCallback(
-    (nextView: GuardianApplicationView) => {
-      setIsAppNavigationOpen(false);
-      closeSidebar();
-      onNavigateApplicationView?.(nextView);
-    },
-    [closeSidebar, onNavigateApplicationView]
-  );
-  const primaryApplicationDestinations = useMemo(
-    () =>
-      applicationDestinations.filter(
-        (destination) => destination.priority === "primary"
-      ),
-    [applicationDestinations]
-  );
-  const secondaryApplicationDestinations = useMemo(
-    () =>
-      applicationDestinations.filter(
-        (destination) => destination.priority === "secondary"
-      ),
-    [applicationDestinations]
-  );
-
-  const renderApplicationDestinations = React.useCallback(
-    (destinations: readonly GuardianApplicationDestination[]) =>
-      destinations.map((destination) => {
-        const isActive = activeApplicationView === destination.view;
-        return (
-          <button
-            key={destination.view}
-            type="button"
-            className="pill-tab flex w-full items-center justify-start text-left"
-            data-testid={`guardian-mobile-destination-${destination.view}`}
-            data-state={isActive ? "active" : "inactive"}
-            aria-current={isActive ? "page" : undefined}
-            onClick={() => handleApplicationNavigation(destination.view)}
-            style={getMobileNavigationControlStyle(true)}
-          >
-            {destination.label}
-          </button>
-        );
-      }),
-    [activeApplicationView, handleApplicationNavigation]
-  );
 
   // Extract prelude toolbar and runtime notices for compact mobile header
   const preludeParts = React.useMemo(() => {
@@ -1969,169 +1801,41 @@ export default function GuardianChatWithSidebar({
     return { toolbar, notices };
   }, [frameFirstMobile, mobileFramePrelude]);
 
-  const mobileOverlay = isMobileOverlayActive && portalTarget
-    ? createPortal(
-        <div
-          data-testid="mobile-sidebar-overlay"
-          style={{ position: "fixed", inset: 0, zIndex: 10000 }}
-        >
-          <div
-            data-testid="mobile-sidebar-scrim"
-            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
-            role="button"
-            aria-label="Dismiss navigation and threads sidebar"
-            tabIndex={0}
-            onClick={closeSidebar}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                if (isAppNavigationOpen) {
-                  setIsAppNavigationOpen(false);
-                  mobileAppNavigationTriggerRef.current?.focus();
-                } else {
-                  closeSidebar();
-                }
-              }
-            }}
-          />
-          <aside
-            ref={mobileSidebarDrawerRef}
-            data-testid="mobile-sidebar-drawer"
-            className="h-full overflow-hidden"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Guardian navigation and threads"
-            onKeyDown={containMobileDrawerFocus}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              height: "100%",
-              width: mobileShellProfile.guardian.drawerWidth,
-              zIndex: 10001,
-            }}
-            onPointerDown={stopDrawerEvent}
-            onClick={stopDrawerEvent}
-          >
-            <div className="relative h-full w-full min-h-0 min-w-0 box-border">
-              <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
-                <RefractiveGlassCard
-                  wallpaperUrl={wallpaperUrl}
-                  className="h-full w-full rounded-[var(--card-radius)]"
-                  style={{ background: "transparent", border: "none" }}
-                  intensity={0.006}
-                  aberration={0}
-                />
-              </div>
-              <div
-                data-layer="panel-shell"
-                className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
-              >
-                <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                  <div className="flex h-full min-h-0 flex-col">
-                    <header
-                      className="flex shrink-0 items-center justify-between gap-[var(--card-pad)] p-[var(--card-pad)]"
-                      style={{
-                        borderBlockEnd:
-                          "var(--frame) solid var(--panel-border)",
-                      }}
-                    >
-                      <button
-                        ref={mobileAppNavigationTriggerRef}
-                        type="button"
-                        className="icon-inline flex shrink-0 items-center justify-center rounded-[var(--radius-micro)] bg-[var(--accent)] p-[calc(var(--radius-micro)/2)]"
-                        aria-label={
-                          isAppNavigationOpen
-                            ? "Close Codexify navigation"
-                            : "Open Codexify navigation"
-                        }
-                        aria-expanded={isAppNavigationOpen}
-                        aria-controls="guardian-mobile-application-navigation"
-                        onClick={() =>
-                          setIsAppNavigationOpen((isOpen) => !isOpen)
-                        }
-                      >
-                        <img
-                          src={codexifyMarkSrc}
-                          alt=""
-                          aria-hidden="true"
-                          data-testid="guardian-mobile-codexify-mark"
-                          className="block h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] shrink-0 object-contain"
-                        />
-                      </button>
-                      <button
-                        ref={mobileSidebarCloseRef}
-                        type="button"
-                        className="icon-inline shrink-0"
-                        aria-label="Close navigation and threads sidebar"
-                        onClick={closeSidebar}
-                        style={getMobileNavigationControlStyle(true, {
-                          square: true,
-                        })}
-                      >
-                        <X
-                          aria-hidden="true"
-                          className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]"
-                        />
-                      </button>
-                    </header>
-                    {isAppNavigationOpen &&
-                      onNavigateApplicationView &&
-                      applicationDestinations.length > 0 && (
-                        <nav
-                          id="guardian-mobile-application-navigation"
-                          aria-label="Application destinations"
-                          data-testid="guardian-mobile-application-navigation"
-                          className="shrink-0 p-[var(--card-pad)]"
-                        >
-                          <div className="flex flex-col gap-[var(--pill-gap)]">
-                            {renderApplicationDestinations(
-                              primaryApplicationDestinations
-                            )}
-                          </div>
-                          {secondaryApplicationDestinations.length > 0 && (
-                            <div
-                              className="mt-[var(--card-pad)] flex flex-col gap-[var(--pill-gap)] pt-[var(--card-pad)]"
-                              style={{
-                                borderBlockStart:
-                                  "var(--frame) solid var(--panel-border)",
-                              }}
-                            >
-                              {renderApplicationDestinations(
-                                secondaryApplicationDestinations
-                              )}
-                            </div>
-                          )}
-                        </nav>
-                      )}
-                    <div className="min-h-0 flex-1">
-                      <SidebarRoot
-                        threads={threads}
-                        activeId={activeId}
-                        onSelect={handleSelectThread}
-                        onNewChat={handleNewChatImmediate}
-                        projectId={selectedProjectId}
-                        projectName={selectedProjectName}
-                        onProjectChange={handleSelectedProjectChange}
-                        originSystem={selectedOriginSystem}
-                        onOriginSystemChange={handleSelectedOriginSystemChange}
-                        projectCache={projectCache}
-                        hasMoreThreads={threadsHasMore}
-                        loadingMoreThreads={threadsLoadingMore}
-                        onLoadMoreThreads={loadMoreThreads}
-                        onBeforeDeleteThread={handleBeforeDeleteThread}
-                        onDeleteThread={handleDeleteThread}
-                      />
-                    </div>
-                  </div>
-                </PanelShell>
-              </div>
-            </div>
-          </aside>
-        </div>,
-        portalTarget
-      )
-    : null;
+  const mobileOverlay = isMobileOverlayActive ? (
+    <MobileAppSidebarDrawer
+      isOpen
+      onClose={closeSidebar}
+      isApplicationNavigationExpanded={isApplicationNavigationExpanded}
+      onApplicationNavigationExpandedChange={(expanded) =>
+        onApplicationNavigationExpandedChange?.(expanded)
+      }
+      activeApplicationView={activeApplicationView}
+      applicationDestinations={applicationDestinations}
+      onNavigateApplicationView={(nextView) =>
+        onNavigateApplicationView?.(nextView)
+      }
+      returnFocusRef={mobileSidebarTriggerRef}
+      wallpaperUrl={wallpaperUrl}
+    >
+      <SidebarRoot
+        threads={threads}
+        activeId={activeId}
+        onSelect={handleSelectThread}
+        onNewChat={handleNewChatImmediate}
+        projectId={selectedProjectId}
+        projectName={selectedProjectName}
+        onProjectChange={handleSelectedProjectChange}
+        originSystem={selectedOriginSystem}
+        onOriginSystemChange={handleSelectedOriginSystemChange}
+        projectCache={projectCache}
+        hasMoreThreads={threadsHasMore}
+        loadingMoreThreads={threadsLoadingMore}
+        onLoadMoreThreads={loadMoreThreads}
+        onBeforeDeleteThread={handleBeforeDeleteThread}
+        onDeleteThread={handleDeleteThread}
+      />
+    </MobileAppSidebarDrawer>
+  ) : null;
 
   return (
     <>
@@ -2240,6 +1944,7 @@ export default function GuardianChatWithSidebar({
                   >
                     {/* Left: sidebar control */}
                     <button
+                      ref={mobileSidebarTriggerRef}
                       type="button"
                       className="icon-inline shrink-0"
                       aria-label={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}

@@ -88,18 +88,18 @@ flowchart TD
     O --> R["Settings<br/>one primary card with compact full-width dock<br/>and responsive one/two-column tabpanel grid"]
     O --> S["Gallery<br/>single card to inner card to grid"]
     O --> T["Guardian<br/>card-wrapped content with optional sidebar"]
-    T --> U["Narrow Guardian drawer<br/>AppShell-owned app destinations<br/>plus SessionSpine-owned thread navigation"]
-    C --> V["Narrow Guardian exception"]
-    V --> W["Wallpaper or configured gradient"]
-    W --> X["Uniform edge chrome<br/>same token on all four sides"]
-    X --> Y["Frame-first Guardian primary card<br/>all current interaction content contained"]
-    Y --> Z["Navigation-complete drawer projection<br/>no persistent global pill in closed view"]
-    Y --> ZA["Compact mobile header"]
+    T --> U["Shared mobile drawer presentation<br/>AppShell-owned app destinations<br/>plus existing SidebarRoot workspace"]
+    C --> V["Phone shell"]
+    V --> W["Uniform edge chrome<br/>same token on all four sides"]
+    W --> X["Frame-first primary view<br/>Guardian · Documents · Gallery · Dashboard · Settings"]
+    X --> ZA["Compact mobile header"]
     ZA --> ZB["Sidebar trigger"]
-    ZA --> ZC["Guardian tools menu"]
-    Y --> ZD["Runtime / auth truth notices"]
-    Y --> ZE["Transcript durable record layer<br/>internal scroll owner"]
-    Y --> ZF["Compact mobile composer pill<br/>attachment/add · authored text · voice · send"]
+    ZB --> Z["Navigation-complete drawer"]
+    Z --> ZC["Application destinations<br/>plus view-context sidebar content"]
+    Z --> ZN["No persistent global application pill<br/>in the closed phone view"]
+    X --> ZD["Guardian runtime / auth truth notices"]
+    X --> ZE["Guardian transcript durable record layer<br/>internal scroll owner"]
+    X --> ZF["Guardian compact mobile composer pill<br/>attachment/add · authored text · voice · send"]
     ZE --> ZG["Focused composition mode"]
     ZG --> ZI["Keyboard below settled visible aperture"]
     ZE --> ZJ["Command-only slash draft"]
@@ -122,27 +122,37 @@ Explicit exclusions:
 - No route graph, navigation flow, or frontend file/component map.
 - No runtime meaning assigned to workspace drawers, session rails, or sidebars beyond structural placement.
 
-Guardian/mobile interpretation:
-- On narrow Guardian layouts, the optional sidebar may be a
-  navigation-complete drawer rather than icon-only or stacked content.
-- The drawer is workspace-first by default. Its collapsed/default presentation
+Primary phone-shell interpretation:
+- Guardian, Documents, Gallery, Dashboard, and Settings use a frame-first
+  primary view with no mounted global application pill in the closed phone
+  presentation.
+- All five views summon the same navigation-complete drawer presentation. The
+  existing SidebarRoot workspace is composed as child content, so the drawer
+  does not become a second owner of threads, projects, DocumentsScope, or
+  Guardian sessions.
+- The drawer is workspace-first when Guardian is active. Its collapsed/default presentation
   places the Threads / Projects header directly beneath drawer chrome; no
   application destination remains rendered or focusable in that state.
+- The drawer is application-first on primary non-Guardian views. Its disclosure
+  state survives Documents, Gallery, Dashboard, and Settings navigation even
+  though the drawer closes after each selection.
+- Returning to Guardian resets application navigation to collapsed. This route
+  transition is the chat-focus boundary for this presentation slice; no
+  composer or timeline DOM-focus listener is involved.
 - The Codexify mark in drawer chrome is a disclosure trigger, not a route
   destination. Expanding it inserts the existing AppShell-owned application
   destinations above the stateful Threads / Projects workspace without
   remounting that workspace.
 - Escape collapses expanded application navigation and restores focus to the
-  mark before a subsequent Escape closes the drawer. Destination selection and
-  drawer closure reset the disclosure to its default state.
+  mark before a subsequent Escape closes the drawer. Drawer-open state remains
+  independent from application-disclosure state.
 - AppShell continues to own application routing, while SessionSpine continues
   to own thread/session state.
-- This remains presentation-side architecture subordinate to the single
-  Guardian primary card; it does not transfer routing ownership into Guardian
-  or thread/session ownership into AppShell.
-- In the narrow Guardian exception, AppShell omits the persistent global pill
-  and its reserved space because the drawer provides the replacement navigation
-  path. Desktop Guardian and non-Guardian views retain the default scene path.
+- This remains presentation-side architecture subordinate to the active
+  primary frame; it does not transfer routing ownership into the drawer or
+  thread/session ownership into AppShell.
+- Desktop and tablet/non-phone views retain the default scene path and existing
+  top application pill behavior.
 - The Guardian primary card fills the settled mobile shell inside a uniform
   token-backed edge-chrome perimeter. The drawer overlays that frame without
   becoming a second shell.
@@ -183,10 +193,12 @@ Guardian/mobile interpretation:
 - Existing runtime availability, authorization, compatibility, and disabled
   states remain authoritative. Desktop composer behavior and visible selectors
   remain unchanged.
-- Documents/Gallery mobile-shell redesign remain unimplemented and outside
-  this diagram update.
+- Documents uses the same outer phone frame geometry and shared drawer as
+  Guardian while retaining DocumentsScope semantics. Dashboard, Gallery, and
+  Settings reuse the same shell navigation contract; their interior styling is
+  not redefined here.
 
-Narrow Guardian drawer states:
+Contextual phone drawer states:
 
 ```text
 Default workspace state
@@ -205,8 +217,8 @@ Expanded application-navigation state
 └── workspace content
 ```
 
-These states are presentation-side only. Desktop Guardian retains its current
-persistent sidebar and navigation presentation.
+These states are presentation-side only. Desktop Guardian and the other
+non-phone primary views retain their current persistent navigation presentation.
 
 Narrow Guardian interaction modes:
 

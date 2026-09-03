@@ -169,7 +169,12 @@ vi.mock("@/state/session/hooks", () => ({
   useSessionActiveInferenceMode: () => "default",
 }));
 
-vi.mock("@/lib/api", () => ({ default: apiSpies }));
+vi.mock("@/lib/api", () => ({
+  default: apiSpies,
+  buildChatThreadsPath: () => "/api/chat/threads",
+  fetchChatThread: vi.fn(),
+  moveChatThread: vi.fn(),
+}));
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
@@ -457,7 +462,7 @@ describe("Guardian mobile header tools", () => {
       // Sidebar drawer should open
       expect(
         screen.getByRole("dialog", {
-          name: "Guardian navigation and threads",
+          name: "Application navigation and workspace",
         })
       ).toBeInTheDocument();
       expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({

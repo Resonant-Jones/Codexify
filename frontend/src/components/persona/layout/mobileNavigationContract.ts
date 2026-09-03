@@ -13,6 +13,19 @@ import {
   type MobileNavigationRailFeedbackContext,
 } from "./navigationRailFeedbackContract";
 
+export type MobileApplicationView =
+  | "guardian"
+  | "documents"
+  | "gallery"
+  | "dashboard"
+  | "settings";
+
+export type MobileApplicationDestination = {
+  view: MobileApplicationView;
+  label: string;
+  priority: "primary" | "secondary";
+};
+
 export {
   getMobileNavPillSelectionStyle,
   getMobileTopNavDockStyle,

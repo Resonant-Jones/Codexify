@@ -18,8 +18,8 @@
  *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
  *   - Migration should be trivial if naming consistency is preserved.
  */
-import api from "@/lib/api";
-import { Settings2 } from "lucide-react";
+import api, { buildChatThreadsPath } from "@/lib/api";
+import { ChevronRight, Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -45,9 +45,8 @@ import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
-import GuardianChatWithSidebar, {
-  type GuardianApplicationDestination,
-} from "@/components/persona/layout/GuardianChatWithSidebar";
+import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -109,6 +108,8 @@ import {
 import {
   getMobileTopNavDockStyle,
   getMobileNavigationControlStyle,
+  type MobileApplicationDestination,
+  type MobileApplicationView,
   type MobileNavPillFeedbackContext,
   getMobileTopNavRailStyle,
   getMobileNavPillSelectionStyle,
@@ -266,13 +267,13 @@ const APP_SHELL_VIEWS = [
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
-const GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS = [
+const PHONE_NAVIGATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
   { view: "documents", label: "Documents", priority: "primary" },
   { view: "gallery", label: "Gallery", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
   { view: "settings", label: "Settings", priority: "secondary" },
-] as const satisfies readonly GuardianApplicationDestination[];
+] as const satisfies readonly MobileApplicationDestination[];
 
 const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
 const DOCK_AUTO_COLLAPSE_DELAY_MS = 900;
@@ -281,10 +282,22 @@ const DOCK_TOP_ENGAGEMENT_ZONE_PX = 48;
 export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
-): "default" | "guardian_frame_first" {
-  return isPhoneShell && activeView === "guardian"
-    ? "guardian_frame_first"
+): "default" | "phone_frame_first" {
+  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+    ? "phone_frame_first"
     : "default";
+}
+
+function isPrimaryMobileApplicationView(
+  view: AppShellView
+): view is MobileApplicationView {
+  return (
+    view === "guardian" ||
+    view === "documents" ||
+    view === "gallery" ||
+    view === "dashboard" ||
+    view === "settings"
+  );
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -572,6 +585,30 @@ function routeThreadIdFromPath(pathname: string): number | null {
 function readRouteThreadId(): number | null {
   if (typeof window === "undefined") return null;
   return routeThreadIdFromPath(window.location.pathname);
+}
+
+function mapPhoneSidebarThread(raw: any): Thread | null {
+  const rawId = raw?.id ?? raw?.thread_id ?? raw?.threadId;
+  if (rawId == null) return null;
+  return {
+    id: String(rawId),
+    title: String(raw?.title ?? raw?.summary ?? "Untitled Chat"),
+    lastMessage: String(raw?.lastMessage ?? raw?.last_message ?? ""),
+    unread: 0,
+    participants: [],
+    messages: [],
+    projectId:
+      raw?.project_id == null && raw?.projectId == null
+        ? null
+        : String(raw?.project_id ?? raw?.projectId),
+    projectName:
+      raw?.project_name == null && raw?.projectName == null
+        ? null
+        : String(raw?.project_name ?? raw?.projectName),
+    lastInteractionAt:
+      raw?.last_interaction_at ?? raw?.lastInteractionAt ?? null,
+    archivedAt: raw?.archived_at ?? raw?.archivedAt ?? null,
+  };
 }
 
 function normalizeGallerySrc(value: unknown): string {
@@ -1287,6 +1324,13 @@ export default function AppShell({
 
     return "dashboard";
   });
+  const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
+  const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
+    useState(
+      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+    );
+  const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previousApplicationViewRef = useRef<AppShellView>(view);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return parseHostedRoomRoute(window.location.pathname)?.roomId ?? null;
@@ -1463,6 +1507,7 @@ export default function AppShell({
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
+  const phoneSidebarHydrationAttemptedRef = useRef(false);
   const [documentsScope, setDocumentsScope] = useState<DocumentsScope>(() =>
     selectDocumentsProject(null)
   );
@@ -1547,6 +1592,14 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
+      if (isPrimaryMobileApplicationView(nextView)) {
+        if (nextView === "guardian") {
+          setIsApplicationNavigationExpanded(false);
+        } else if (view === "guardian") {
+          setIsApplicationNavigationExpanded(true);
+        }
+      }
+      setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
       if (typeof window === "undefined") return;
@@ -1562,6 +1615,8 @@ export default function AppShell({
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
 
+    setIsApplicationNavigationExpanded(false);
+    setIsPhoneSidebarOpen(false);
     setActiveRoomId(null);
     const nextPath =
       lastGuardianPathRef.current ?? resolvePathForView("guardian", activeRouteThreadId);
@@ -1571,6 +1626,8 @@ export default function AppShell({
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [activeRouteThreadId]);
   const navigateToThread = useCallback((threadId: string | number | null) => {
+    setIsApplicationNavigationExpanded(false);
+    setIsPhoneSidebarOpen(false);
     setActiveRoomId(null);
     setView("guardian");
     if (typeof window === "undefined") return;
@@ -2029,9 +2086,81 @@ export default function AppShell({
     view,
     isPhoneShell
   );
-  const isNarrowGuardianFrameShell =
+  const isPhoneFrameFirstShell =
     activeRoomId == null &&
-    appShellPresentationProfile === "guardian_frame_first";
+    appShellPresentationProfile === "phone_frame_first";
+  const isNarrowGuardianFrameShell =
+    isPhoneFrameFirstShell && view === "guardian";
+  const isNonGuardianPhoneFrameShell =
+    isPhoneFrameFirstShell && view !== "guardian";
+  useEffect(() => {
+    const previousView = previousApplicationViewRef.current;
+    previousApplicationViewRef.current = view;
+    setIsPhoneSidebarOpen(false);
+    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (view === "guardian") {
+      setIsApplicationNavigationExpanded(false);
+      return;
+    }
+    if (previousView === "guardian") {
+      setIsApplicationNavigationExpanded(true);
+    }
+  }, [isPhoneShell, view]);
+  useEffect(() => {
+    if (
+      !isPhoneShell ||
+      !isPrimaryMobileApplicationView(view) ||
+      view === "guardian" ||
+      guardianSidebarSnapshot != null ||
+      phoneSidebarHydrationAttemptedRef.current ||
+      !checkAuthGate(auth, "phone sidebar threads load")
+    ) {
+      return;
+    }
+
+    phoneSidebarHydrationAttemptedRef.current = true;
+    let cancelled = false;
+    void api
+      .get(buildChatThreadsPath(), { params: { limit: 50, offset: 0 } })
+      .then((response) => {
+        if (cancelled) return;
+        const data = response?.data;
+        const rawThreads = Array.isArray(data?.threads)
+          ? data.threads
+          : Array.isArray(data)
+            ? data
+            : [];
+        const threads = rawThreads
+          .map(mapPhoneSidebarThread)
+          .filter((thread): thread is Thread => thread != null && !thread.archivedAt);
+        setGuardianSidebarSnapshot({
+          threads,
+          activeThreadId: activeRouteThreadId,
+          selectedProjectId: null,
+          selectedProjectName: null,
+          activeThreadProjectId: null,
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("[app-shell] failed to hydrate phone sidebar threads", error);
+          phoneSidebarHydrationAttemptedRef.current = false;
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (guardianSidebarSnapshot == null) {
+        phoneSidebarHydrationAttemptedRef.current = false;
+      }
+    };
+  }, [
+    activeRouteThreadId,
+    auth.ready,
+    auth.status,
+    guardianSidebarSnapshot,
+    isPhoneShell,
+    view,
+  ]);
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -2503,9 +2632,7 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
     return raw === "false" ? false : true;
   });
-  const [documentsSidebarOverlayOpen, setDocumentsSidebarOverlayOpen] = useState(false);
   const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
-  const documentsSidebarOverlayVisible = isPhoneShell && documentsSidebarOverlayOpen;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2523,15 +2650,7 @@ export default function AppShell({
   }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
 
   const toggleDocumentsSidebar = useCallback(() => {
-    if (isPhoneShell) {
-      setDocumentsSidebarOverlayOpen((prev) => !prev);
-      return;
-    }
     setDocumentsSidebarOpen((prev) => !prev);
-  }, [isPhoneShell]);
-
-  const closeDocumentsSidebarOverlay = useCallback(() => {
-    setDocumentsSidebarOverlayOpen(false);
   }, []);
 
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
@@ -3002,44 +3121,22 @@ export default function AppShell({
       }}
     />
   ) : null;
-  const documentsSidebarToggle = activeRoomId == null && view === "documents" ? (
+  const documentsSidebarToggle =
+    activeRoomId == null && view === "documents" && !isPhoneShell ? (
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
       className="pill-tab shrink-0 whitespace-nowrap"
-      data-state={documentsSidebarOpen || documentsSidebarOverlayOpen ? "active" : "inactive"}
+      data-state={documentsSidebarOpen ? "active" : "inactive"}
       data-testid="documents-sidebar-toggle"
-      aria-pressed={documentsSidebarOpen || documentsSidebarOverlayOpen}
-      aria-label={
-        isPhoneShell
-          ? documentsSidebarOverlayOpen
-            ? "Close sidebar"
-            : "Open sidebar"
-          : documentsSidebarOpen
-            ? "Hide sidebar"
-            : "Show sidebar"
-      }
-      title={
-        isPhoneShell
-          ? documentsSidebarOverlayOpen
-            ? "Close sidebar"
-            : "Open sidebar"
-          : documentsSidebarOpen
-            ? "Hide sidebar"
-            : "Show sidebar"
-      }
+      aria-pressed={documentsSidebarOpen}
+      aria-label={documentsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+      title={documentsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
       onClick={toggleDocumentsSidebar}
     >
-      {isPhoneShell ? (
-        <span className="inline-flex items-center" style={{ gap: "6px" }}>
-          <span className="h-4 w-4" aria-hidden="true">☰</span>
-          <span>{documentsSidebarOverlayOpen ? "Close" : "Sidebar"}</span>
-        </span>
-      ) : (
-        documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"
-      )}
+      {documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
     </PhonePressButton>
-  ) : null;
+    ) : null;
   const desktopHeaderUtilityActions = (
     <>
       {settingsUtilityAction}
@@ -3053,13 +3150,97 @@ export default function AppShell({
   const mobileHeaderUtilityActions = (
     <>
       {workspaceDrawerToggle}
-      {documentsSidebarToggle}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
       {contactsUtilityAction}
       {shareUtilityAction}
     </>
   );
+  const phonePrimaryFrameHeader = isNonGuardianPhoneFrameShell ? (
+    <header
+      data-testid="phone-primary-frame-header"
+      className="flex shrink-0 items-center justify-between gap-[var(--card-pad)] px-[var(--card-pad)] py-2"
+      style={{
+        borderBlockEnd: "var(--frame) solid var(--panel-border)",
+      }}
+    >
+      <button
+        ref={phoneSidebarTriggerRef}
+        type="button"
+        className="icon-inline shrink-0"
+        data-testid="phone-sidebar-toggle"
+        aria-label="Show sidebar"
+        onClick={() => setIsPhoneSidebarOpen(true)}
+        style={{
+          borderRadius: "var(--radius-micro)",
+          ...getMobileNavigationControlStyle(true, { square: true }),
+        }}
+      >
+        <ChevronRight
+          aria-hidden="true"
+          className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]"
+        />
+      </button>
+      <div
+        role="toolbar"
+        aria-label="View utilities"
+        data-testid="phone-primary-frame-utilities"
+        className="flex min-w-0 items-center justify-end gap-[var(--pill-gap)] overflow-x-auto"
+      >
+        {mobileHeaderUtilityActions}
+      </div>
+    </header>
+  ) : null;
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell ? (
+    view === "documents" ? (
+      <SidebarRoot
+        threads={documentsSidebarThreadsForRender}
+        activeId={
+          documentsScope.kind === "thread"
+            ? String(documentsScope.threadId)
+            : null
+        }
+        onSelect={(threadId) => {
+          handleDocumentsSidebarThreadSelect(threadId);
+          setIsPhoneSidebarOpen(false);
+        }}
+        onNewChat={() => navigateToThread(null)}
+        projectId={
+          documentsScope.projectId == null
+            ? null
+            : String(documentsScope.projectId)
+        }
+        onProjectChange={handleDocumentsSidebarProjectChange}
+        persistence={documentsSidebarPersistence}
+      />
+    ) : (
+      <SidebarRoot
+        threads={documentsSidebarThreadsForRender}
+        activeId={
+          activeRouteThreadId == null ? null : String(activeRouteThreadId)
+        }
+        onSelect={(threadId) => navigateToThread(threadId)}
+        onNewChat={() => navigateToThread(null)}
+      />
+    )
+  ) : null;
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell ? (
+    <MobileAppSidebarDrawer
+      isOpen={isPhoneSidebarOpen}
+      onClose={() => setIsPhoneSidebarOpen(false)}
+      isApplicationNavigationExpanded={isApplicationNavigationExpanded}
+      onApplicationNavigationExpandedChange={
+        setIsApplicationNavigationExpanded
+      }
+      activeApplicationView={view as MobileApplicationView}
+      applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
+      onNavigateApplicationView={navigateToView}
+      returnFocusRef={phoneSidebarTriggerRef}
+      wallpaperUrl={activeWallpaper}
+    >
+      {phoneSidebarWorkspace}
+    </MobileAppSidebarDrawer>
+  ) : null;
   const runtimeStatusNotice = showRuntimeBanner ? (
     <div className="relative z-10 w-full mt-3">
       <div
@@ -3233,6 +3414,9 @@ export default function AppShell({
       data-narrow-guardian-frame-shell={
         isNarrowGuardianFrameShell ? "true" : "false"
       }
+      data-phone-frame-first-shell={
+        isPhoneFrameFirstShell ? "true" : "false"
+      }
     >
       {/*
         --bezel: Visual margin between the refractive glass and the opaque content surface.
@@ -3254,15 +3438,15 @@ export default function AppShell({
         />
       </div>
       <div
-        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden mx-auto ${isNarrowGuardianFrameShell ? "" : "py-[var(--edge-chrome)]"} ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
+        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden mx-auto ${isPhoneFrameFirstShell ? "" : "py-[var(--edge-chrome)]"} ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
           borderRadius: "var(--viewport-radius)",
-          paddingLeft: isNarrowGuardianFrameShell
+          paddingLeft: isPhoneFrameFirstShell
             ? undefined
             : "var(--edge-chrome)",
-          paddingRight: isNarrowGuardianFrameShell
+          paddingRight: isPhoneFrameFirstShell
             ? undefined
             : "var(--edge-chrome)",
           boxSizing: "border-box",
@@ -3270,12 +3454,13 @@ export default function AppShell({
           colorScheme: resolved,
         }}
         data-shell-profile={mobileShellProfile.shellMode}
-        data-frame-first-guardian={
-          isNarrowGuardianFrameShell ? "true" : "false"
+        data-frame-first-phone={
+          isPhoneFrameFirstShell ? "true" : "false"
         }
         data-dock-engaged={dockEngaged ? "true" : "false"}
       >
       <div id="cfy-portal-root" />
+      {phoneSidebarOverlay}
       {/* Global People messaging projection: the state owner lives here
           (above all view-dependent chrome) so the portable floating
           Conversation survives dock/menu unmounts during navigation. */}
@@ -3290,7 +3475,7 @@ export default function AppShell({
         />
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
-      {!isNarrowGuardianFrameShell && (
+      {!isPhoneFrameFirstShell && (
         <div
         ref={topChromeRef}
         data-testid="app-shell-top-chrome"
@@ -3450,8 +3635,8 @@ export default function AppShell({
         </div>
       )}
 
-      {!isNarrowGuardianFrameShell && runtimeStatusNotice}
-      {!isNarrowGuardianFrameShell && liveUpdatesNotice}
+      {!isPhoneFrameFirstShell && runtimeStatusNotice}
+      {!isPhoneFrameFirstShell && liveUpdatesNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -3465,11 +3650,13 @@ export default function AppShell({
       <div
         data-testid="app-shell-main-content"
         className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch"
+        aria-hidden={isPhoneSidebarOpen ? true : undefined}
+        inert={isPhoneSidebarOpen ? true : undefined}
       >
         <div
           className="flex-1 h-full min-h-0 flex overflow-hidden"
           style={{
-            paddingTop: isNarrowGuardianFrameShell
+            paddingTop: isPhoneFrameFirstShell
               ? undefined
               : dockCollapsed
                 ? "var(--dock-collapsed-page-gutter)"
@@ -3477,7 +3664,14 @@ export default function AppShell({
             paddingRight: "var(--page-pad)",        // mode-dependent
             paddingBottom: "var(--page-pad)",       // mode-dependent
             paddingLeft: "var(--page-pad)",         // mode-dependent
-          }}
+            ...(isPhoneFrameFirstShell
+              ? {
+                  "--frame": "1px",
+                  "--bezel": "var(--bezel, 6px)",
+                  "--rim": "1px",
+                }
+              : {}),
+          } as React.CSSProperties}
         >
           {startupLocked && (
             <FrameCard
@@ -3618,79 +3812,23 @@ export default function AppShell({
                       refractiveFallback
                       shimmerMode="subtle"
                       className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                      data-testid="documents-primary-frame"
                     >
-                      <DocumentsView
-                        documents={allDocuments}
-                        extColors={extColors}
-                        onOpenInThread={openDocInThread}
-                        onDeleteDocument={deleteDocument}
-                        projectId={documentsUploadScope.projectId}
-                        threadId={documentsUploadScope.threadId}
-                        loading={documentsLoading}
-                        error={documentsLoadError}
-                      />
+                      {phonePrimaryFrameHeader}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                        <DocumentsView
+                          documents={allDocuments}
+                          extColors={extColors}
+                          onOpenInThread={openDocInThread}
+                          onDeleteDocument={deleteDocument}
+                          projectId={documentsUploadScope.projectId}
+                          threadId={documentsUploadScope.threadId}
+                          loading={documentsLoading}
+                          error={documentsLoadError}
+                        />
+                      </div>
                     </FrameCard>
                   </div>
-                  {documentsSidebarOverlayVisible && (
-                    <div
-                      data-testid="documents-sidebar-overlay"
-                      data-overlay-mode="mobile"
-                      className="absolute inset-0 z-20 flex items-stretch bg-black/35 backdrop-blur-sm"
-                    >
-                      <button
-                        type="button"
-                        aria-label="Close sidebar"
-                        className="absolute inset-0 border-0 bg-transparent p-0"
-                        onClick={closeDocumentsSidebarOverlay}
-                      />
-                      <div
-                        data-testid="documents-sidebar-overlay-pane"
-                        data-overlay="true"
-                        className="relative z-10 h-full min-h-0 overflow-visible rounded-[var(--card-radius)]"
-                        style={{
-                          width: "clamp(300px, 80vw, 360px)",
-                          minWidth: 0,
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        <FrameCard
-                          fill
-                          refractiveFallback
-                          shimmerMode="subtle"
-                          liquidBezelWidth={3}
-                          className="flex h-full w-full min-h-0 flex-col box-border"
-                          style={{
-                            borderRadius: "var(--card-radius)",
-                            borderWidth: 1,
-                            borderStyle: "solid",
-                            borderColor: "var(--panel-border)",
-                          }}
-                        >
-                        <SidebarRoot
-                            threads={documentsSidebarThreadsForRender}
-                            activeId={
-                              documentsScope.kind === "thread"
-                                ? String(documentsScope.threadId)
-                                : null
-                            }
-                            onSelect={(id) => {
-                              handleDocumentsSidebarThreadSelect(id);
-                              closeDocumentsSidebarOverlay();
-                            }}
-                            onNewChat={() => navigateToThread(null)}
-                            projectId={
-                              documentsScope.projectId == null
-                                ? null
-                                : String(documentsScope.projectId)
-                            }
-                            onProjectChange={handleDocumentsSidebarProjectChange}
-                            persistence={documentsSidebarPersistence}
-                          />
-                        </FrameCard>
-                      </div>
-                    </div>
-                  )}
                 </div>
                 {sharedWorkspaceDrawer}
               </div>
@@ -3703,8 +3841,10 @@ export default function AppShell({
                 refractiveFallback
                 shimmerMode="subtle"
                 className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="gallery-primary-frame"
               >
-                <div className="flex h-full min-h-0 flex-col p-[var(--card-pad)]">
+                {phonePrimaryFrameHeader}
+                <div className="flex min-h-0 flex-1 flex-col p-[var(--card-pad)]">
                   <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
                   <div
                     className="min-h-0"
@@ -3822,9 +3962,15 @@ export default function AppShell({
                         onSidebarSnapshot={handleGuardianSidebarSnapshot}
                         activeApplicationView={view}
                         applicationDestinations={
-                          GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS
+                          PHONE_NAVIGATION_DESTINATIONS
                         }
                         onNavigateApplicationView={navigateToView}
+                        isApplicationNavigationExpanded={
+                          isApplicationNavigationExpanded
+                        }
+                        onApplicationNavigationExpandedChange={
+                          setIsApplicationNavigationExpanded
+                        }
                         frameFirstMobile={isNarrowGuardianFrameShell}
                         mobileFramePrelude={guardianMobileFramePrelude}
                       />
@@ -3863,16 +4009,40 @@ export default function AppShell({
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
-                  <DashboardView
-                    extColors={extColors}
-                    gallery={gallery}
-                    onImagePrompt={openChatWithPrompt}
-                    onRequestNewProject={openCreateProjectModal}
-                    onRequestNewThread={createThreadFromDashboard}
-                    onNavigateDocuments={() => navigateToView("documents")}
-                    onNavigateGallery={() => navigateToView("gallery")}
-                    threadGridRows={dashboardThreadRows}
-                  />
+                  {isPhoneShell ? (
+                    <FrameCard
+                      fill
+                      refractiveFallback
+                      shimmerMode="subtle"
+                      className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                      data-testid="dashboard-primary-frame"
+                    >
+                      {phonePrimaryFrameHeader}
+                      <div className="min-h-0 flex-1 overflow-auto">
+                        <DashboardView
+                          extColors={extColors}
+                          gallery={gallery}
+                          onImagePrompt={openChatWithPrompt}
+                          onRequestNewProject={openCreateProjectModal}
+                          onRequestNewThread={createThreadFromDashboard}
+                          onNavigateDocuments={() => navigateToView("documents")}
+                          onNavigateGallery={() => navigateToView("gallery")}
+                          threadGridRows={dashboardThreadRows}
+                        />
+                      </div>
+                    </FrameCard>
+                  ) : (
+                    <DashboardView
+                      extColors={extColors}
+                      gallery={gallery}
+                      onImagePrompt={openChatWithPrompt}
+                      onRequestNewProject={openCreateProjectModal}
+                      onRequestNewThread={createThreadFromDashboard}
+                      onNavigateDocuments={() => navigateToView("documents")}
+                      onNavigateGallery={() => navigateToView("gallery")}
+                      threadGridRows={dashboardThreadRows}
+                    />
+                  )}
                 </div>
                 {sharedWorkspaceDrawer}
               </div>
@@ -3886,7 +4056,8 @@ export default function AppShell({
               data-testid="settings-framecard"
               style={settingsLayout}
             >
-              <div className="w-full min-h-0 max-h-full overflow-auto p-0" data-testid="settings-scroll-body">
+              {phonePrimaryFrameHeader}
+              <div className="w-full min-h-0 flex-1 overflow-auto p-0" data-testid="settings-scroll-body">
                 <ErrorBoundary>
                   <SettingsView
                     mode={mode}

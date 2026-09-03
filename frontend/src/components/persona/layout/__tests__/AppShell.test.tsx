@@ -201,6 +201,7 @@ vi.mock("@/api/codex", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  buildChatThreadsPath: () => "/api/chat/threads",
   default: {
     get: vi.fn(async () => ({ data: {} })),
     post: vi.fn(async () => ({ data: {} })),
@@ -373,6 +374,8 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
       priority: "primary" | "secondary";
     }>;
     onNavigateApplicationView?: (view: string) => void;
+    isApplicationNavigationExpanded?: boolean;
+    onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
     frameFirstMobile?: boolean;
     mobileFramePrelude?: ReactNode;
   }) => {
@@ -383,8 +386,22 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
         data-frame-first-mobile={
           props.frameFirstMobile ? "true" : "false"
         }
+        data-application-navigation-expanded={
+          props.isApplicationNavigationExpanded ? "true" : "false"
+        }
       >
         {props.mobileFramePrelude}
+        <button
+          type="button"
+          data-testid="guardian-toggle-application-navigation-mock"
+          onClick={() =>
+            props.onApplicationNavigationExpandedChange?.(
+              !props.isApplicationNavigationExpanded
+            )
+          }
+        >
+          Toggle application navigation
+        </button>
         <button
           type="button"
           data-testid="guardian-set-project-2"
@@ -752,7 +769,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     ).toBeInTheDocument();
   });
 
-  it("omits the complete top-chrome wrapper only in narrow Guardian", async () => {
+  it("omits the complete top-chrome wrapper in narrow Guardian", async () => {
     setViewportWidth(390);
     setAuthenticatedAuthState();
     render(<AppShell />);
@@ -788,42 +805,165 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
     expect(viewportOwner.style.padding).toBe("var(--edge-chrome)");
     expect(viewportOwner.style.getPropertyValue("--edge-chrome")).toBe("4px");
-    expect(shell).toHaveAttribute("data-frame-first-guardian", "true");
+    expect(shell).toHaveAttribute("data-frame-first-phone", "true");
     expect(shell.style.paddingLeft).toBe("");
     expect(shell.style.paddingRight).toBe("");
     expect(mainContentLane.style.paddingTop).toBe("");
   });
 
   it.each([
-    ["/dashboard", "dashboard"],
-    ["/documents", "documents"],
-    ["/gallery", "gallery"],
-    ["/settings", "settings"],
+    ["/dashboard", "dashboard-primary-frame"],
+    ["/documents", "documents-primary-frame"],
+    ["/gallery", "gallery-primary-frame"],
+    ["/settings", "settings-framecard"],
   ])(
-    "retains global navigation for narrow non-Guardian route %s",
-    async (pathname, expectedView) => {
+    "uses the sidebar-first frame shell for narrow route %s",
+    async (pathname, primaryFrameTestId) => {
+      const user = userEvent.setup();
       setViewportWidth(390);
       setRoutePath(pathname);
       render(<AppShell />);
 
+      const primaryFrame = await screen.findByTestId(primaryFrameTestId);
+      expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("app-shell-top-chrome")).not.toBeInTheDocument();
+      expect(screen.getByTestId("app-shell-main-content").parentElement).toHaveAttribute(
+        "data-frame-first-phone",
+        "true"
+      );
+      expect(within(primaryFrame).getByTestId("phone-primary-frame-header")).toBeInTheDocument();
+
+      await user.click(within(primaryFrame).getByRole("button", { name: "Show sidebar" }));
+
+      const drawer = await screen.findByRole("dialog", {
+        name: "Application navigation and workspace",
+      });
       expect(
-        await screen.findByTestId("app-shell-top-nav")
-      ).toBeInTheDocument();
-      expect(screen.getByTestId("app-shell-top-chrome")).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", {
-          name:
-            expectedView === "documents"
-              ? "Documents"
-              : expectedView === "gallery"
-                ? "Gallery"
-                : expectedView === "dashboard"
-                  ? "Dashboard"
-                  : "Settings",
+        within(drawer).getByRole("navigation", {
+          name: "Application destinations",
         })
       ).toBeInTheDocument();
+      expect(within(drawer).getByTestId("sidebar-root-mock")).toBeInTheDocument();
     }
   );
+
+  it("preserves application priority across non-Guardian navigation and resets it on Guardian", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(430);
+    setRoutePath("/chat");
+    render(<AppShell />);
+
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      isApplicationNavigationExpanded: false,
+    });
+
+    await user.click(screen.getByTestId("guardian-toggle-application-navigation-mock"));
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      isApplicationNavigationExpanded: true,
+    });
+    await user.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+
+    expect(await screen.findByTestId("documents-primary-frame")).toBeInTheDocument();
+    expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+
+    for (const [destination, expectedPath, expectedFrame] of [
+      ["gallery", "/gallery", "gallery-primary-frame"],
+      ["dashboard", "/dashboard", "dashboard-primary-frame"],
+      ["settings", "/settings", "settings-framecard"],
+    ] as const) {
+      await user.click(screen.getByTestId("phone-sidebar-toggle"));
+      const drawer = await screen.findByRole("dialog", {
+        name: "Application navigation and workspace",
+      });
+      expect(
+        within(drawer).getByRole("button", {
+          name: "Collapse application navigation",
+        })
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(
+        within(drawer).getByTestId("mobile-sidebar-workspace")
+      ).toContainElement(within(drawer).getByTestId("sidebar-root-mock"));
+
+      await user.click(
+        within(drawer).getByTestId(
+          `mobile-app-sidebar-destination-${destination}`
+        )
+      );
+
+      expect(await screen.findByTestId(expectedFrame)).toBeInTheDocument();
+      expect(window.location.pathname).toBe(expectedPath);
+      expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+    }
+
+    await user.click(screen.getByTestId("phone-sidebar-toggle"));
+    await user.click(
+      screen.getByTestId("mobile-app-sidebar-destination-guardian")
+    );
+
+    const guardian = await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    expect(window.location.pathname).toBe("/chat");
+    expect(guardian).toHaveAttribute(
+      "data-application-navigation-expanded",
+      "false"
+    );
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      isApplicationNavigationExpanded: false,
+    });
+  });
+
+  it("hydrates the existing sidebar projection on a direct non-Guardian phone route", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(430);
+    setRoutePath("/gallery");
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/chat/threads") {
+        return {
+          data: {
+            threads: [
+              {
+                id: 31,
+                title: "Direct route thread",
+                project_id: 7,
+                project_name: "Launch",
+              },
+            ],
+          },
+        };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [] } };
+      }
+      return { data: {} };
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/api/chat/threads", {
+        params: { limit: 50, offset: 0 },
+      });
+    });
+    await user.click(await screen.findByTestId("phone-sidebar-toggle"));
+    await screen.findByRole("dialog", {
+      name: "Application navigation and workspace",
+    });
+    await waitFor(() => {
+      expect(documentsSidebarPropsSpy.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({
+          threads: expect.arrayContaining([
+            expect.objectContaining({
+              id: "31",
+              title: "Direct route thread",
+              projectId: "7",
+            }),
+          ]),
+        })
+      );
+    });
+  });
 });
 
 describe("AppShell settings utility trigger", () => {
@@ -958,9 +1098,9 @@ describe("AppShell settings utility trigger", () => {
     }
   });
 
-  it("keeps the phone Dock expanded after a touch leaves the top chrome", () => {
+  it("keeps the legacy phone Dock behavior on non-primary Flow Builder", () => {
     setViewportWidth(390);
-    localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/flow-builder");
 
     render(<AppShell />);
 
@@ -1514,11 +1654,10 @@ describe("AppShell workspace drawer shell", () => {
     });
   });
 
-  it("keeps the non-Guardian phone nav rail momentum-enabled and the selected pill tactile", async () => {
+  it("retires the phone rail when a non-primary route enters a primary view", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
-    localStorage.setItem("cfy.lastView", "dashboard");
-    setRouteThread(null);
+    setRoutePath("/flow-builder");
 
     render(<AppShell />);
 
@@ -1528,35 +1667,13 @@ describe("AppShell workspace drawer shell", () => {
     expect(railStyle).toContain("scroll-padding-inline: 12px");
     expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
 
-    const dashboard = screen.getByRole("button", { name: "Dashboard" });
-    const dashboardStyle = dashboard.getAttribute("style") ?? "";
-    expect(dashboard).toHaveAttribute("data-state", "active");
-    expect(dashboardStyle).toContain(
-      "background: color-mix(in oklab, var(--accent-strong) 90%, var(--panel-bg) 10%)"
-    );
-    expect(dashboardStyle).toContain("transition-duration: 140ms");
-    expect(dashboardStyle).toContain(
-      "transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1)"
-    );
-    expect(dashboardStyle).toContain(
-      "transition-property: color, background, border-color, box-shadow, transform, opacity, filter"
-    );
-    expect(dashboardStyle).not.toContain("transform:");
-
-    fireEvent.pointerDown(dashboard, { button: 0, pointerType: "touch" });
-    expect(dashboard).toHaveAttribute("data-press-feedback", "pressed");
-
-    fireEvent.pointerUp(dashboard, { button: 0, pointerType: "touch" });
-    expect(dashboard).toHaveAttribute("data-press-feedback", "idle");
-
     await user.click(screen.getByRole("button", { name: "Documents" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Documents" })).toHaveAttribute(
-        "data-state",
-        "active"
-      );
+      expect(screen.getByTestId("documents-primary-frame")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+    expect(screen.getByTestId("phone-sidebar-toggle")).toBeInTheDocument();
   });
 
   it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {
@@ -1971,7 +2088,7 @@ describe("AppShell documents sidebar posture", () => {
     expect(sidebarToggle).toHaveAttribute("data-state", "active");
   });
 
-  it("uses sidebar overlay on mobile instead of permanent sidebar", async () => {
+  it("uses the shared application drawer on mobile instead of a permanent sidebar", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
@@ -1980,29 +2097,36 @@ describe("AppShell documents sidebar posture", () => {
     render(<AppShell />);
 
     expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-sidebar-toggle")).not.toBeInTheDocument();
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("documents-primary-frame")).getByTestId(
+        "phone-primary-frame-header"
+      )
+    ).toBeInTheDocument();
 
-    const sidebarToggle = screen.getByTestId("documents-sidebar-toggle");
+    const sidebarToggle = screen.getByTestId("phone-sidebar-toggle");
     await user.click(sidebarToggle);
 
-    expect(await screen.findByTestId("documents-sidebar-overlay")).toBeInTheDocument();
-    expect(screen.getByTestId("documents-sidebar-overlay")).toHaveAttribute(
-      "data-overlay-mode",
-      "mobile"
-    );
-    expect(screen.getByTestId("documents-sidebar-overlay-pane")).toHaveAttribute(
-      "data-overlay",
-      "true"
-    );
-
-    const overlayBackdrop = screen.getByTestId("documents-sidebar-overlay").querySelector(
-      'button[aria-label="Close sidebar"]'
-    );
-    expect(overlayBackdrop).toBeInTheDocument();
+    const drawer = await screen.findByRole("dialog", {
+      name: "Application navigation and workspace",
+    });
+    expect(screen.getByTestId("mobile-sidebar-overlay")).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("navigation", {
+        name: "Application destinations",
+      })
+    ).toBeInTheDocument();
+    expect(within(drawer).getByTestId("sidebar-root-mock")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Dismiss application navigation and workspace sidebar",
+      })
+    ).toBeInTheDocument();
   });
 
-  it("closes the Documents sidebar overlay on mobile via backdrop click", async () => {
+  it("closes the shared Documents drawer on mobile via scrim click", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
@@ -2010,16 +2134,17 @@ describe("AppShell documents sidebar posture", () => {
 
     render(<AppShell />);
 
-    await user.click(screen.getByTestId("documents-sidebar-toggle"));
-    expect(await screen.findByTestId("documents-sidebar-overlay")).toBeInTheDocument();
+    await user.click(screen.getByTestId("phone-sidebar-toggle"));
+    expect(await screen.findByTestId("mobile-sidebar-overlay")).toBeInTheDocument();
 
-    const backdrop = screen.getByTestId("documents-sidebar-overlay").querySelector(
-      'button[aria-label="Close sidebar"]'
+    await user.click(
+      screen.getByRole("button", {
+        name: "Dismiss application navigation and workspace sidebar",
+      })
     );
-    fireEvent.click(backdrop!);
 
     await waitFor(() => {
-      expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
     });
   });
 
@@ -2043,7 +2168,7 @@ describe("AppShell documents sidebar posture", () => {
 
     expect(screen.queryByTestId("documents-sidebar-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("workspace-drawer-toggle"));
     expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();

@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as React from "react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -183,7 +184,12 @@ vi.mock("@/state/session/hooks", () => ({
   useSessionActiveInferenceMode: () => "default",
 }));
 
-vi.mock("@/lib/api", () => ({ default: apiSpies }));
+vi.mock("@/lib/api", () => ({
+  default: apiSpies,
+  buildChatThreadsPath: () => "/api/chat/threads",
+  fetchChatThread: vi.fn(),
+  moveChatThread: vi.fn(),
+}));
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
@@ -197,25 +203,31 @@ function renderGuardian(
   onNavigateApplicationView = vi.fn(),
   activeApplicationView: GuardianApplicationDestination["view"] = "guardian"
 ) {
-  return {
-    onNavigateApplicationView,
-    ...render(
+  function ControlledGuardian() {
+    const [isApplicationNavigationExpanded, setExpanded] = React.useState(false);
+    return (
       <GuardianChatWithSidebar
         guardianName="Guardian"
         userName="User"
         activeApplicationView={activeApplicationView}
         applicationDestinations={APPLICATION_DESTINATIONS}
         onNavigateApplicationView={onNavigateApplicationView}
+        isApplicationNavigationExpanded={isApplicationNavigationExpanded}
+        onApplicationNavigationExpandedChange={setExpanded}
         frameFirstMobile
       />
-    ),
+    );
+  }
+  return {
+    onNavigateApplicationView,
+    ...render(<ControlledGuardian />),
   };
 }
 
 async function openMobileSidebar(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Show sidebar" }));
   return screen.findByRole("dialog", {
-    name: "Guardian navigation and threads",
+    name: "Application navigation and workspace",
   });
 }
 
@@ -227,7 +239,7 @@ describe("Guardian mobile application navigation", () => {
     window.history.pushState({}, "", "/chat");
     setViewportWidth(430);
     apiSpies.get.mockImplementation(async (url: string) => {
-      if (url === "/chat/threads") {
+      if (url === "/api/chat/threads") {
         return {
           data: {
             ok: true,
@@ -245,10 +257,10 @@ describe("Guardian mobile application navigation", () => {
     renderGuardian();
 
     expect(
-      screen.queryByTestId("guardian-mobile-application-navigation")
+      screen.queryByTestId("mobile-app-sidebar-application-navigation")
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByTestId("guardian-mobile-codexify-mark")
+      screen.queryByTestId("mobile-app-sidebar-codexify-mark")
     ).not.toBeInTheDocument();
 
     await openMobileSidebar(user);
@@ -256,19 +268,19 @@ describe("Guardian mobile application navigation", () => {
     expect(
       screen.getByTestId("guardian-primary-frame").parentElement
     ).toHaveAttribute("data-guardian-frame-shell", "frame-first");
-    const mark = screen.getByTestId("guardian-mobile-codexify-mark");
+    const mark = screen.getByTestId("mobile-app-sidebar-codexify-mark");
     expect(mark).toHaveAttribute("alt", "");
     expect(mark).toHaveAttribute("aria-hidden", "true");
     expect(
-      screen.queryByTestId("guardian-mobile-application-navigation")
+      screen.queryByTestId("mobile-app-sidebar-application-navigation")
     ).not.toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "Open Codexify navigation" })
+      screen.getByRole("button", { name: "Expand application navigation" })
     );
 
     expect(
-      screen.getByTestId("guardian-mobile-destination-guardian")
+      screen.getByTestId("mobile-app-sidebar-destination-guardian")
     ).toHaveAttribute("aria-current", "page");
 
     for (const destination of APPLICATION_DESTINATIONS) {
@@ -285,12 +297,20 @@ describe("Guardian mobile application navigation", () => {
 
     for (const destination of APPLICATION_DESTINATIONS) {
       await openMobileSidebar(user);
-      await user.click(
-        screen.getByRole("button", { name: "Open Codexify navigation" })
-      );
+      if (
+        !screen.queryByRole("navigation", {
+          name: "Application destinations",
+        })
+      ) {
+        await user.click(
+          screen.getByRole("button", {
+            name: "Expand application navigation",
+          })
+        );
+      }
       await user.click(
         screen.getByTestId(
-          `guardian-mobile-destination-${destination.view}`
+          `mobile-app-sidebar-destination-${destination.view}`
         )
       );
       expect(navigate).toHaveBeenLastCalledWith(destination.view);
@@ -313,14 +333,14 @@ describe("Guardian mobile application navigation", () => {
     await openMobileSidebar(user);
     expect(
       screen.getByRole("button", {
-        name: "Close navigation and threads sidebar",
+        name: "Close application navigation and workspace sidebar",
       })
     ).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(
       screen.getByRole("dialog", {
-        name: "Guardian navigation and threads",
+        name: "Application navigation and workspace",
       })
     ).toContainElement(document.activeElement as HTMLElement);
 
@@ -357,13 +377,13 @@ describe("Guardian mobile application navigation", () => {
     await screen.findByTestId("sidebar-root-mock");
 
     expect(
-      screen.queryByTestId("guardian-mobile-application-navigation")
+      screen.queryByTestId("mobile-app-sidebar-application-navigation")
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByTestId("guardian-mobile-codexify-mark")
+      screen.queryByTestId("mobile-app-sidebar-codexify-mark")
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByTestId("guardian-mobile-destination-documents")
+      screen.queryByTestId("mobile-app-sidebar-destination-documents")
     ).not.toBeInTheDocument();
   });
 });

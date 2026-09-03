@@ -158,7 +158,12 @@ vi.mock("@/state/session/hooks", () => ({
   useSessionActiveInferenceMode: () => "default",
 }));
 
-vi.mock("@/lib/api", () => ({ default: apiSpies }));
+vi.mock("@/lib/api", () => ({
+  default: apiSpies,
+  buildChatThreadsPath: () => "/api/chat/threads",
+  fetchChatThread: vi.fn(),
+  moveChatThread: vi.fn(),
+}));
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
@@ -184,21 +189,23 @@ describe("Guardian frame-first mobile shell", () => {
     cleanup();
   });
 
-  it("selects the frame-first profile only for narrow Guardian", () => {
-    expect(resolveAppShellPresentationProfile("guardian", true)).toBe(
-      "guardian_frame_first"
-    );
-
+  it("selects the view-neutral frame-first profile for every primary phone view", () => {
     for (const view of [
+      "guardian",
       "dashboard",
       "documents",
       "gallery",
       "settings",
     ] as const) {
-      expect(resolveAppShellPresentationProfile(view, true)).toBe("default");
+      expect(resolveAppShellPresentationProfile(view, true)).toBe(
+        "phone_frame_first"
+      );
     }
 
     expect(resolveAppShellPresentationProfile("guardian", false)).toBe(
+      "default"
+    );
+    expect(resolveAppShellPresentationProfile("flowBuilder", true)).toBe(
       "default"
     );
   });
