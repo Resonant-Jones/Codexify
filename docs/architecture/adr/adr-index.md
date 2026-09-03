@@ -236,6 +236,10 @@ Use this note as the local map for all ADRs.
   - Companion contract: [[../direct-messaging-contract|Direct Messaging Contract]].
   - Governing and related ADRs: [[076-archive-before-delete-and-built-in-project-roles|ADR-076 Archive Before Delete and Built-In Project Roles]] (Project authority/lifecycle reused for origin validation and stale-reference nulling), [[053-node-hosted-room-access-boundary|ADR-053]], and [[055-threadspace-whispermesh-managed-service-boundary|ADR-055]].
   - Current-truth boundary: Project invitation acceptance, Guardian retrieval, retrieval/disclosure scope policy, ambient context, realtime delivery, Inbox/Share Sheet UI, and federation remain unproven and deferred; `00-current-state.md` remains release authority.
+- [[081-project-ownership-authority|ADR-081 Project Ownership Authority]]
+  - Accepted governing decision designating `projects.user_id` as the sole canonical durable Project ownership authority and classifying description-envelope ownership as legacy, non-authoritative compatibility metadata.
+  - Extends [[005-runtime-mode-and-account-boundary-invariants|ADR-005]] without superseding it and preserves [[076-archive-before-delete-and-built-in-project-roles|ADR-076]]. Conflicting owner representations fail closed as `project_ownership_authority_conflict`; legacy `local` reconciliation requires exactly one owner proven by durable canonical relationships.
+  - Current-truth boundary: runtime normalization still gives the legacy envelope precedence, legacy Project rows remain unreconciled, and private preview remains at `f41493d13761` while repository head is `b2c8d0e3f5a7`. This ADR changes doctrine only; it does not change runtime behavior, data, migrations, or release claims.
 
 ## Relationship to the main architecture docs
 

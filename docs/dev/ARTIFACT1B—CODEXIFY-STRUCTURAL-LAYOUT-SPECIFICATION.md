@@ -141,7 +141,7 @@ Nesting:
 
 Rules:
 
-Desktop and default/non-Guardian profiles retain the top-left pill navigation.
+Desktop and non-phone profiles retain the top-left pill navigation.
 
 When rendered, navigation always uses the glass component + pill style.
 
@@ -151,13 +151,14 @@ NEVER alters the main content geometry
 
 Navigation is logically independent (no absolute overlays except pill)
 
-Bounded narrow Guardian exception:
+Primary phone-shell rule:
 
-- Narrow Guardian MAY omit the global pill because its drawer is
+- Guardian, Documents, Gallery, Dashboard, and Settings MUST omit the global
+  pill on phone layouts because the shared sidebar drawer is
   navigation-complete.
-- The omission MUST remove the navigation wrapper and its layout reservation;
+- The phone path MUST remove the navigation wrapper and its layout reservation;
   hidden or off-screen tabbable controls are not permitted.
-- Desktop Guardian and every non-Guardian view retain the global pill contract.
+- Desktop and tablet/non-phone presentation retain the global pill contract.
 - Application routing remains AppShell-owned.
 
 VII. MAIN CONTENT AREA
@@ -290,37 +291,44 @@ Height: 100%
 
 No extra wrappers outside token-approved structure
 
-Narrow/mobile Guardian navigation projection:
+Primary phone navigation projection:
 
-- The Guardian sidebar MAY act as a navigation-complete drawer on narrow/mobile
-  layouts.
-- The drawer MAY contain compact Codexify application identity, application
-  destinations, and the existing thread/session picker.
-- The narrow drawer is workspace-first by default. Its chrome contains the
-  Codexify mark disclosure and the independent drawer-close control; with the
-  disclosure collapsed, Threads / Projects is the first content header directly
-  beneath that chrome.
+- Guardian, Documents, Gallery, Dashboard, and Settings use one shared mobile
+  drawer presentation containing compact Codexify application identity,
+  application destinations, and the existing Threads / Projects workspace.
+- The shared drawer owns only portal/scrim structure, frame chrome, disclosure,
+  destination rendering, focus containment, Escape behavior, and workspace
+  placement. It does not own thread, project, DocumentsScope, or Guardian
+  session state.
+- Guardian opens workspace-first. Its chrome contains the Codexify mark
+  disclosure and the independent drawer-close control; with the disclosure
+  collapsed, Threads / Projects is the first content directly beneath chrome.
+- A primary non-Guardian view opens application-first. Application disclosure
+  remains expanded across Documents, Gallery, Dashboard, and Settings
+  navigation, while each destination selection still closes the drawer.
+- Returning to Guardian collapses application navigation and restores Threads /
+  Projects-first ordering. Drawer-open state and application-disclosure state
+  remain separate and transient; neither creates a durable preference.
 - Activating the Codexify mark expands the existing application destinations
   above Threads / Projects through ordinary layout flow. Threads / Projects and
   its search, selection, and content state remain mounted and visible beneath
   the expanded section.
 - Escape dismisses the expanded application destinations first and restores
   focus to the Codexify mark. A subsequent Escape follows the existing
-  drawer-close behavior. Closing the drawer or selecting a destination also
-  resets the disclosure to its collapsed default.
-- Application routing remains owned by AppShell. The Guardian drawer receives
-  only a bounded active-view value, destination metadata, and navigation
-  callback.
+  drawer-close behavior. Closing the drawer does not independently rewrite the
+  disclosure priority.
+- Application routing and disclosure memory remain owned by AppShell. The
+  shared drawer receives only controlled state, bounded destination metadata,
+  navigation callbacks, and the existing sidebar workspace as child content.
 - Thread and session state remain owned by SessionSpine and continue through
   the existing sidebar and session intent seams.
-- The drawer remains subordinate to the single Guardian primary card and MUST
+- The drawer remains subordinate to the active primary frame and MUST
   NOT become a second application shell.
-- Narrow Guardian MAY omit the global navigation pill because this drawer
-  preserves complete application-navigation continuity. Desktop Guardian and
-  non-Guardian views retain the pill.
-- Narrow Guardian becomes one frame-first mobile primary block. The current
-  utility/header controls, runtime notices, session rail, transcript or empty
-  state, and composer remain inside the canonical Guardian frame.
+- Every primary phone view becomes one frame-first mobile primary block inside
+  the same uniform edge-chrome, bezel, frame, rim, and card-radius law.
+- Narrow Guardian keeps its current utility/header controls, runtime notices,
+  session rail, transcript or empty state, and composer inside the canonical
+  Guardian frame.
 - Wallpaper or the configured gradient remains visible around that frame
   through one uniform `--edge-chrome` perimeter on all four sides.
 - The drawer remains a subordinate overlay/projection and MUST NOT resize the
@@ -337,7 +345,7 @@ Narrow/mobile Guardian navigation projection:
 - Desktop Guardian retains its existing persistent controls (global
   navigation pill, persistent sidebar, Open Workspace, settings/audio/profile
   icons, chat action icons, and runtime-notice positioning).
-- This Codexify-mark disclosure contract applies only to the narrow Guardian
+- This Codexify-mark disclosure contract applies to the shared primary phone
   drawer. Desktop Guardian navigation and its persistent sidebar remain
   unchanged.
 - The transcript is the durable record layer and remains the internal vertical
@@ -381,7 +389,10 @@ Narrow/mobile Guardian navigation projection:
   disabled-state truth surfaces remain authoritative.
 - Desktop Guardian retains its existing composer flow, typography, controls,
   visible selectors, and focus behavior.
-- Documents and Gallery do not inherit this mobile-shell exception.
+- Documents mirrors the Guardian phone shell structurally without adopting chat
+  content or session behavior. Documents thread/project selection continues to
+  update DocumentsScope; Dashboard, Gallery, and Settings thread selection or
+  New Chat enters Guardian without mutating DocumentsScope.
 
 Session Pill Rail (implemented):
 
@@ -417,6 +428,13 @@ Left side scrolls
 Right side is optional and collapsible
 
 MUST use card structure for BOTH columns
+
+On phone layouts, Documents uses the primary frame-first shell instead of the
+desktop split. Its compact frame header summons the shared mobile drawer, and
+its document content begins at the same shell depth and edge-chrome boundary as
+Guardian. The existing SidebarRoot projection remains authoritative for
+DocumentsScope selection and is composed into the shared drawer rather than a
+Documents-owned overlay.
 
 C. GALLERY VIEW
 

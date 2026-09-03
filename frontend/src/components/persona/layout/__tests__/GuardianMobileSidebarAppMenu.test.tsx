@@ -169,7 +169,12 @@ vi.mock("@/state/session/hooks", () => ({
   useSessionActiveModelId: () => "default",
   useSessionActiveInferenceMode: () => "default",
 }));
-vi.mock("@/lib/api", () => ({ default: apiSpies }));
+vi.mock("@/lib/api", () => ({
+  default: apiSpies,
+  buildChatThreadsPath: () => "/api/chat/threads",
+  fetchChatThread: vi.fn(),
+  moveChatThread: vi.fn(),
+}));
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
@@ -183,15 +188,23 @@ function renderGuardian(
   onNavigateApplicationView = vi.fn(),
   activeApplicationView: GuardianApplicationDestination["view"] = "guardian"
 ) {
+  function ControlledGuardian() {
+    const [isApplicationNavigationExpanded, setExpanded] = React.useState(false);
+    return (
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        activeApplicationView={activeApplicationView}
+        applicationDestinations={APPLICATION_DESTINATIONS}
+        onNavigateApplicationView={onNavigateApplicationView}
+        isApplicationNavigationExpanded={isApplicationNavigationExpanded}
+        onApplicationNavigationExpandedChange={setExpanded}
+        frameFirstMobile
+      />
+    );
+  }
   const rendered = render(
-    <GuardianChatWithSidebar
-      guardianName="Guardian"
-      userName="User"
-      activeApplicationView={activeApplicationView}
-      applicationDestinations={APPLICATION_DESTINATIONS}
-      onNavigateApplicationView={onNavigateApplicationView}
-      frameFirstMobile
-    />
+    <ControlledGuardian />
   );
   return { ...rendered, onNavigateApplicationView };
 }
@@ -199,7 +212,7 @@ function renderGuardian(
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Show sidebar" }));
   return screen.findByRole("dialog", {
-    name: "Guardian navigation and threads",
+    name: "Application navigation and workspace",
   });
 }
 
@@ -220,14 +233,14 @@ describe("Guardian mobile sidebar application menu", () => {
     renderGuardian();
     const drawer = await openDrawer(user);
     const trigger = within(drawer).getByRole("button", {
-      name: "Open Codexify navigation",
+      name: "Expand application navigation",
     });
     const workspace = within(drawer).getByTestId("sidebar-root-mock");
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveAttribute(
       "aria-controls",
-      "guardian-mobile-application-navigation"
+      "mobile-app-sidebar-application-navigation"
     );
     expect(
       within(drawer).queryByRole("navigation", {
@@ -280,17 +293,17 @@ describe("Guardian mobile sidebar application menu", () => {
     const opener = screen.getByRole("button", { name: "Show sidebar" });
     const drawer = await openDrawer(user);
     const trigger = within(drawer).getByRole("button", {
-      name: "Open Codexify navigation",
+      name: "Expand application navigation",
     });
 
     await user.click(trigger);
     await user.keyboard("{Escape}");
 
     expect(
-      screen.getByRole("dialog", { name: "Guardian navigation and threads" })
+      screen.getByRole("dialog", { name: "Application navigation and workspace" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Open Codexify navigation" })
+      screen.getByRole("button", { name: "Expand application navigation" })
     ).toHaveFocus();
     expect(
       screen.queryByRole("navigation", { name: "Application destinations" })
@@ -300,7 +313,7 @@ describe("Guardian mobile sidebar application menu", () => {
     await waitFor(() => {
       expect(
         screen.queryByRole("dialog", {
-          name: "Guardian navigation and threads",
+          name: "Application navigation and workspace",
         })
       ).not.toBeInTheDocument();
     });
@@ -308,7 +321,7 @@ describe("Guardian mobile sidebar application menu", () => {
   });
 
   it.each(APPLICATION_DESTINATIONS)(
-    "routes $label through the supplied callback and resets the disclosure",
+    "routes $label, closes the drawer, and retains the disclosure",
     async (destination) => {
       const user = userEvent.setup();
       const navigate = vi.fn();
@@ -316,7 +329,7 @@ describe("Guardian mobile sidebar application menu", () => {
       const drawer = await openDrawer(user);
       await user.click(
         within(drawer).getByRole("button", {
-          name: "Open Codexify navigation",
+          name: "Expand application navigation",
         })
       );
       await user.click(within(drawer).getByRole("button", { name: destination.label }));
@@ -325,20 +338,20 @@ describe("Guardian mobile sidebar application menu", () => {
       await waitFor(() => {
         expect(
           screen.queryByRole("dialog", {
-            name: "Guardian navigation and threads",
+            name: "Application navigation and workspace",
           })
         ).not.toBeInTheDocument();
       });
 
       await openDrawer(user);
       expect(
-        screen.getByRole("button", { name: "Open Codexify navigation" })
-      ).toHaveAttribute("aria-expanded", "false");
+        screen.getByRole("button", { name: "Collapse application navigation" })
+      ).toHaveAttribute("aria-expanded", "true");
       expect(
-        screen.queryByRole("navigation", {
+        screen.getByRole("navigation", {
           name: "Application destinations",
         })
-      ).not.toBeInTheDocument();
+      ).toBeInTheDocument();
     }
   );
 
@@ -352,7 +365,7 @@ describe("Guardian mobile sidebar application menu", () => {
       ).toHaveLength(1)
     );
     const trigger = within(drawer).getByRole("button", {
-      name: "Open Codexify navigation",
+      name: "Expand application navigation",
     });
 
     await user.click(trigger);
@@ -369,7 +382,7 @@ describe("Guardian mobile sidebar application menu", () => {
 
     await screen.findByTestId("sidebar-root-mock");
     expect(
-      screen.queryByRole("button", { name: "Open Codexify navigation" })
+      screen.queryByRole("button", { name: "Expand application navigation" })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("navigation", { name: "Application destinations" })
