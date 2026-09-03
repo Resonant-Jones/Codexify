@@ -1,9 +1,3 @@
-{
-  "name": "@earendil-works/pi-coding-agent",
-  "version": "0.82.1",
-  "type": "module",
-  "main": "dist/index.js",
-  "exports": {
-    ".": "./dist/index.js"
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:2440f0fb1703e233f71b9cabb6711703be2782efe4260f049e334886d3cea4ff
+size 164
