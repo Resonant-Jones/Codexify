@@ -70,6 +70,12 @@ for service_name in ("backend", "worker-chat"):
             raise SystemExit(
                 f"{service_name}.{key} expected {value!r}, found {actual!r}"
             )
+worker_chat = services.get("worker-chat", {}).get("environment", {})
+if str(worker_chat.get("CHAT_WORKER_CONCURRENCY", "")) != "1":
+    raise SystemExit(
+        "worker-chat.CHAT_WORKER_CONCURRENCY must be '1' for the "
+        "single-slot MLX-VLM runtime"
+    )
 frontend = services.get("frontend", {}).get("environment", {})
 for key in ("VITE_GUARDIAN_API_KEY", "VITE_GUARDIAN_DEV_API_KEY"):
     if str(frontend.get(key) or ""):

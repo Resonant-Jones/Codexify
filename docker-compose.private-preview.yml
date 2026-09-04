@@ -52,6 +52,10 @@ services:
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
       LLM_PROVIDER: "local"
+      # The installed MLX-VLM runtime has one execution slot. Keep burst
+      # absorption in the durable Redis chat queue instead of accepting a
+      # second provider call that the runtime will reject mid-turn.
+      CHAT_WORKER_CONCURRENCY: "1"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
       CODEXIFY_EGRESS_ALLOWLIST: "deepseek"

@@ -103,6 +103,10 @@ def test_private_preview_compose_selects_dual_provider_contract() -> None:
             assert str(environment[key]).lower() == expected.lower()
         assert environment["DEEPSEEK_API_KEY"] == "inert-deepseek-key"
 
+    assert config["services"]["worker-chat"]["environment"][
+        "CHAT_WORKER_CONCURRENCY"
+    ] == "1"
+
 
 def test_private_preview_compose_publishes_only_loopback_8081() -> None:
     config = _render_compose()

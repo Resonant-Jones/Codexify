@@ -24,6 +24,10 @@ remains local-first and local-only.
 - Guardian remote/session authentication remains authoritative behind
   Cloudflare Access. The browser receives neither a Guardian API key nor a
   DeepSeek credential.
+- The preview `worker-chat` has one execution slot. This matches the installed
+  MLX-VLM runtime's single provider slot; additional accepted local turns wait
+  in the durable Redis chat queue rather than becoming transient provider
+  failures. Do not raise this value without requalifying the live runtime.
 
 ### Private-preview path ownership
 
