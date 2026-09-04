@@ -284,6 +284,47 @@ def get_current_persona_profile_manifest(
     return profile.manifest if profile is not None else None
 
 
+def get_persona_profile_revision_manifest(
+    profile_id: str,
+    *,
+    account_id: str,
+    revision: int,
+) -> PersonaProfileManifest | None:
+    """Read one validated immutable revision through its account binding.
+
+    The current pointer and its compatibility projection are deliberately not
+    involved: a missing historical revision must never resolve to latest.
+    """
+    cleaned_account_id = _require_account_id(account_id)
+    cleaned_profile_id = _clean_text(profile_id)
+    if not cleaned_profile_id or type(revision) is not int or revision <= 0:
+        return None
+    SessionFactory = _get_session_factory()
+    with SessionFactory() as session:
+        row = session.scalar(
+            select(PersonaProfileRevision)
+            .join(
+                PersonaProfileBinding,
+                PersonaProfileBinding.profile_id == PersonaProfileRevision.profile_id,
+            )
+            .where(
+                PersonaProfileBinding.owner_account_id == cleaned_account_id,
+                PersonaProfileRevision.profile_id == cleaned_profile_id,
+                PersonaProfileRevision.revision == revision,
+            )
+        )
+        if row is None:
+            return None
+        manifest = PersonaProfileManifest.model_validate(row.manifest_json)
+        if (
+            manifest.profile_identity != cleaned_profile_id
+            or manifest.revision != revision
+            or manifest.api_version != row.api_version
+        ):
+            raise RuntimeError("persona_profile_revision_mismatch")
+        return manifest
+
+
 def create_persona_profile(
     *,
     account_id: str,
@@ -502,6 +543,7 @@ __all__ = [
     "create_persona_profile",
     "get_current_persona_profile_manifest",
     "get_persona_profile_by_id",
+    "get_persona_profile_revision_manifest",
     "list_persona_profiles",
     "persona_profile_to_dict",
     "update_persona_profile",

@@ -38,7 +38,7 @@ SUPPORTED_SCHEMA_VERSIONS = {
 # Restore order is dependency-safe for the current schema. It differs from the
 # export order because `chat_threads` must exist before any row that points at a
 # thread, and `media_assets` must exist before document/image rows that carry an
-# `asset_id` FK.
+# `asset_id` FK. V3 also restores Persona state before any pinned thread.
 HISTORICAL_RESTORE_ORDER = (
     "projects",
     "chat_threads",
@@ -57,10 +57,10 @@ HISTORICAL_RESTORE_ORDER = (
     "extension_install_bindings",
 )
 RESTORE_ORDER = (
-    *HISTORICAL_RESTORE_ORDER,
     "persona_profiles",
     "persona_profile_revisions",
     "persona_profile_bindings",
+    *HISTORICAL_RESTORE_ORDER,
 )
 
 RESTORE_METHODS = {
@@ -1496,6 +1496,77 @@ class AccountRestoreService:
                 payload_rows=payload_rows,
                 user_id=user_id,
             )
+        payload_rows["chat_threads"] = self._prepare_thread_profile_pins(
+            manifest=manifest, payload_rows=payload_rows, user_id=user_id
+        )
+
+    def _prepare_thread_profile_pins(
+        self,
+        *,
+        manifest: dict[str, Any],
+        payload_rows: dict[str, list[dict[str, Any]]],
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        """Validate pins before writes; normalize historical archive omissions.
+
+        Derivation consults only this validated archive, never the receiving
+        database's current profiles. Explicit NULL remains revisionless.
+        """
+        profiles = {row["id"]: row for row in payload_rows.get("persona_profiles", [])}
+        bindings = {
+            row["profile_id"]: row
+            for row in payload_rows.get("persona_profile_bindings", [])
+        }
+        revision_keys = {
+            (row["profile_id"], row["revision"])
+            for row in payload_rows.get("persona_profile_revisions", [])
+        }
+        normalized = []
+        for original in payload_rows["chat_threads"]:
+            row = dict(original)
+            profile_id = row.get("active_profile_id")
+            if profile_id is not None and not isinstance(profile_id, str):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "Thread active_profile_id must be a string or null",
+                    manifest=manifest,
+                    details={"thread_id": row.get("id")},
+                )
+            if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+                row["active_profile_revision"] = None
+            elif "active_profile_revision" not in row:
+                row["active_profile_revision"] = None
+                metadata = row.get("metadata") or {}
+                overrides = (
+                    metadata.get("profile_overrides")
+                    if isinstance(metadata, dict)
+                    else None
+                )
+                if (
+                    profile_id in profiles
+                    and bindings.get(profile_id, {}).get("owner_account_id") == user_id
+                    and row.get("user_id") == user_id
+                    and not (isinstance(overrides, dict) and profile_id in overrides)
+                ):
+                    current = profiles[profile_id]["current_revision"]
+                    if (profile_id, current) in revision_keys:
+                        row["active_profile_revision"] = current
+            revision = row.get("active_profile_revision")
+            if revision is not None and (
+                type(revision) is not int
+                or revision <= 0
+                or row.get("user_id") != user_id
+                or bindings.get(profile_id, {}).get("owner_account_id") != user_id
+                or (profile_id, revision) not in revision_keys
+            ):
+                raise self._validation_error(
+                    "persona_thread_revision_unavailable",
+                    "Thread Persona Profile revision is unavailable in this account archive",
+                    manifest=manifest,
+                    details={"thread_id": row.get("id")},
+                )
+            normalized.append(row)
+        return normalized
 
     def _validate_persona_profiles(
         self,
@@ -1504,9 +1575,7 @@ class AccountRestoreService:
         payload_rows: dict[str, list[dict[str, Any]]],
         user_id: str,
     ) -> None:
-        profiles = self._index_rows(
-            payload_rows["persona_profiles"], "id", manifest
-        )
+        profiles = self._index_rows(payload_rows["persona_profiles"], "id", manifest)
         bindings = self._index_rows(
             payload_rows["persona_profile_bindings"],
             "profile_id",

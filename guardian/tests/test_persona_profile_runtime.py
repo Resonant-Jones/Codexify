@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -76,9 +77,7 @@ def _persona_profile_session() -> Iterator[None]:
 
 
 class _FakeChatLogDB:
-    def __init__(
-        self, thread: dict[str, object], messages: list[dict[str, object]]
-    ):
+    def __init__(self, thread: dict[str, object], messages: list[dict[str, object]]):
         self._thread = thread
         self._messages = messages
 
@@ -86,6 +85,16 @@ class _FakeChatLogDB:
         if _coerce_int(self._thread.get("id", 0)) == int(thread_id):
             return dict(self._thread)
         return None
+
+    def set_thread_active_profile_id(
+        self, thread_id, profile_id, *, profile_revision=None
+    ):
+        if int(self._thread["id"]) != thread_id:
+            return False
+        self._thread.update(
+            active_profile_id=profile_id, active_profile_revision=profile_revision
+        )
+        return True
 
     def list_messages(self, thread_id: int, limit: int = 50, offset: int = 0):
         if _coerce_int(self._thread.get("id", 0)) != int(thread_id):
@@ -126,6 +135,7 @@ def test_resolve_thread_system_profile_embeds_backend_profile_guidance(
                 "id": 42,
                 "user_id": "account-a",
                 "active_profile_id": "profile-runtime",
+                "active_profile_revision": 1,
             },
             [{"id": 1, "role": "user", "content": "hello"}],
         )
@@ -138,9 +148,7 @@ def test_resolve_thread_system_profile_embeds_backend_profile_guidance(
         assert resolved.provider_override == "anthropic"
         assert resolved.model_override == "claude-sonnet-4-20250514"
         assert resolved.temperature_override == 0.2
-        assert (
-            resolved.system_prompt == "Backend prompt for the runtime profile."
-        )
+        assert resolved.system_prompt == "Backend prompt for the runtime profile."
 
         monkeypatch.setattr(
             system_prompt_builder,
@@ -213,6 +221,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
                 "id": 42,
                 "user_id": "account-a",
                 "active_profile_id": "profile-runtime",
+                "active_profile_revision": 1,
             },
             [{"id": 1, "role": "user", "content": "hello"}],
         )
@@ -235,7 +244,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             chat_completion_service,
             "build_guardian_system_prompt",
             lambda **kwargs: (
-                "system prompt",
+                kwargs["profile"].system_prompt,
                 {
                     "estimated_tokens": 1,
                     "resolved_persona_id": "profile-runtime",
@@ -286,9 +295,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             captured["temperature"] = temperature
             return "assistant answer"
 
-        monkeypatch.setattr(
-            chat_completion_service, "chat_with_ai", _fake_chat_with_ai
-        )
+        monkeypatch.setattr(chat_completion_service, "chat_with_ai", _fake_chat_with_ai)
 
         task = ChatCompletionTask(
             user_id="account-a",
@@ -296,6 +303,20 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             thread_id=42,
             origin="test",
         )
+
+        system_profile_resolver.switch_thread_profile(
+            42, "profile-runtime", chatlog_db=fake_db
+        )
+        persona_profile_store.update_persona_profile(
+            "profile-runtime",
+            account_id="account-a",
+            name="Edited Persona",
+            system_prompt="Edited instructions.",
+            model_provider="anthropic",
+            model_id="edited-model",
+            temperature=0.8,
+        )
+        assert fake_db._thread["active_profile_revision"] == 1
 
         result = chat_completion_service.run_chat_completion_task(
             task,
@@ -312,6 +333,38 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         assert captured["temperature"] == 0.25
         assert captured["messages"][0]["role"] == "system"
         assert captured["messages"][-1]["role"] == "user"
+        assert (
+            captured["messages"][0]["content"]
+            == "Backend prompt for the runtime profile."
+        )
+
+        system_profile_resolver.switch_thread_profile(
+            42, "profile-runtime", chatlog_db=fake_db
+        )
+        assert fake_db._thread["active_profile_revision"] == 2
+        next_task = ChatCompletionTask(
+            user_id="account-a", task_id="next-task", thread_id=42, origin="test"
+        )
+        chat_completion_service.run_chat_completion_task(
+            next_task, persist_assistant_message=False
+        )
+        assert (captured["provider"], captured["model"], captured["temperature"]) == (
+            "anthropic",
+            "edited-model",
+            0.8,
+        )
+        assert captured["messages"][0]["content"] == "Edited instructions."
+
+        fake_db._thread["active_profile_revision"] = 99
+        captured.clear()
+        invalid_task = ChatCompletionTask(
+            user_id="account-a", task_id="invalid-task", thread_id=42, origin="test"
+        )
+        with pytest.raises(system_profile_resolver.ProfileResolutionError):
+            chat_completion_service.run_chat_completion_task(
+                invalid_task, persist_assistant_message=False
+            )
+        assert captured == {}
 
 
 def test_backend_catalog_does_not_leak_profile_values_across_accounts():
@@ -362,6 +415,7 @@ def test_backend_catalog_does_not_leak_profile_values_across_accounts():
                 "id": 101,
                 "user_id": "account-a",
                 "active_profile_id": "account-a-profile",
+                "active_profile_revision": 1,
             },
             [],
         )
@@ -370,6 +424,7 @@ def test_backend_catalog_does_not_leak_profile_values_across_accounts():
                 "id": 202,
                 "user_id": "account-b",
                 "active_profile_id": "account-a-profile",
+                "active_profile_revision": 1,
             },
             [],
         )
@@ -386,14 +441,10 @@ def test_backend_catalog_does_not_leak_profile_values_across_accounts():
         assert owner.tool_permissions is None
         assert owner.model_config_payload is None
 
-        foreign = system_profile_resolver.resolve_thread_system_profile(
-            202,
-            chatlog_db=foreign_db,
-        )
-        assert foreign.system_prompt != "Account A private system prompt."
-        assert foreign.provider_override != "anthropic"
-        assert foreign.model_override != "account-a-model"
-        assert foreign.temperature_override != 0.17
+        with pytest.raises(system_profile_resolver.ProfileResolutionError):
+            system_profile_resolver.resolve_thread_system_profile(
+                202, chatlog_db=foreign_db
+            )
 
         owner_ids = {
             profile["id"]

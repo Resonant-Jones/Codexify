@@ -19,9 +19,7 @@ try:  # pragma: no cover - optional backend catalog
     from guardian.cognition.system_profiles import (
         store as persona_profile_store,
     )
-except (
-    Exception
-):  # pragma: no cover - backend store may be unavailable in tests
+except Exception:  # pragma: no cover - backend store may be unavailable in tests
     persona_profile_store = None
 
 
@@ -175,9 +173,51 @@ class ResolvedSystemProfile(SystemProfilePayload):
     """Fully resolved profile payload used by the completion runtime."""
 
     active_profile_id: str | None = None
+    active_profile_revision: int | None = Field(default=None, strict=True, gt=0)
     source: str = "default"
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ProfileResolutionError(RuntimeError):
+    """A selected profile is unavailable; completion must stop before inference."""
+
+    code = "system_profile_resolution_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
+def _resolve_persona_revision(
+    profile_id: str | None, revision: Any, account_id: str | None
+) -> ResolvedSystemProfile:
+    if (
+        not profile_id
+        or not account_id
+        or type(revision) is not int
+        or revision <= 0
+        or persona_profile_store is None
+    ):
+        raise ProfileResolutionError()
+    try:
+        manifest = persona_profile_store.get_persona_profile_revision_manifest(
+            profile_id, account_id=account_id, revision=revision
+        )
+        if manifest is None:
+            raise ProfileResolutionError()
+        return ResolvedSystemProfile(
+            profile_id=profile_id,
+            active_profile_id=profile_id,
+            active_profile_revision=revision,
+            source="persona_profile_revision",
+            name=manifest.identity.name,
+            system_prompt=manifest.prompt.system_prompt,
+            provider_override=manifest.model.provider,
+            model_override=manifest.model.model,
+            temperature_override=manifest.model.temperature,
+        )
+    except Exception as exc:
+        raise ProfileResolutionError() from exc
 
 
 def _default_profile_catalog() -> dict[str, SystemProfilePayload]:
@@ -383,9 +423,13 @@ def _save_profile_override(
         raise RuntimeError("chat_db_missing_profile_override_persistence")
 
 
-def _set_active_profile(db: Any, thread_id: int, profile_id: str) -> None:
+def _set_active_profile(
+    db: Any, thread_id: int, profile_id: str, profile_revision: int | None
+) -> None:
     if hasattr(db, "set_thread_active_profile_id"):
-        updated = db.set_thread_active_profile_id(thread_id, profile_id)
+        updated = db.set_thread_active_profile_id(
+            thread_id, profile_id, profile_revision=profile_revision
+        )
         if not updated:
             raise RuntimeError("active_profile_update_failed")
         return
@@ -394,6 +438,7 @@ def _set_active_profile(db: Any, thread_id: int, profile_id: str) -> None:
             thread_id,
             active_profile_id=profile_id,
             active_profile_id_set=True,
+            active_profile_revision=profile_revision,
         )
         return
     raise RuntimeError("chat_db_missing_active_profile_api")
@@ -477,8 +522,7 @@ def list_available_system_profiles(
             {
                 "id": profile.profile_id,
                 "profile_id": profile.profile_id,
-                "name": profile.name
-                or _default_profile_name(profile.profile_id),
+                "name": profile.name or _default_profile_name(profile.profile_id),
                 "mode": profile.mode
                 or _normalize_mode(None, profile.provider_override),
                 "provider_override": profile.provider_override,
@@ -496,14 +540,21 @@ def resolve_thread_system_profile(
     *,
     chatlog_db: Any | None = None,
 ) -> ResolvedSystemProfile:
-    """Resolve the active profile for a thread and merge flow overrides."""
+    """Resolve an exact Persona pin, or a revisionless built-in/flow profile."""
     db = _resolve_chatlog_db(chatlog_db)
     thread = db.get_chat_thread(thread_id) if db is not None else None
     active_profile_id = _clean_text(
         thread.get("active_profile_id") if isinstance(thread, dict) else None
     )
 
-    catalog = _profile_catalog(_thread_owner_id(thread))
+    revision = thread.get("active_profile_revision") if thread else None
+    if revision is not None:
+        return _resolve_persona_revision(
+            active_profile_id, revision, _thread_owner_id(thread)
+        )
+
+    # Never load the mutable account catalog for revisionless runtime state.
+    catalog = _profile_catalog()
     base = catalog.get(active_profile_id or "")
 
     overrides = _override_profiles_for_thread(thread)
@@ -520,6 +571,8 @@ def resolve_thread_system_profile(
                 "source": "default",
             }
         )
+    if base is None and override is None:
+        raise ProfileResolutionError()
     return _merge_profiles(
         base,
         override,
@@ -543,7 +596,7 @@ def persist_flow_profile_override(
     parsed = _validate_profile_payload(profile_override_payload)
     fallback_profile_id = _fallback_profile_id_if_unavailable(parsed)
     _save_profile_override(db=db, thread_id=thread_id, profile=parsed)
-    _set_active_profile(db, thread_id, fallback_profile_id or parsed.profile_id)
+    _set_active_profile(db, thread_id, fallback_profile_id or parsed.profile_id, None)
     return resolve_thread_system_profile(thread_id, chatlog_db=db)
 
 
@@ -561,17 +614,30 @@ def switch_thread_profile(
     if not cleaned:
         raise ValueError("profile_id is required")
 
-    thread = (
-        db.get_chat_thread(thread_id)
-        if hasattr(db, "get_chat_thread")
-        else None
-    )
-    catalog = _profile_catalog(_thread_owner_id(thread))
+    thread = db.get_chat_thread(thread_id) if hasattr(db, "get_chat_thread") else None
+    if not thread:
+        raise ValueError("thread_not_found")
+    account_id = _thread_owner_id(thread)
     overrides = _override_profiles_for_thread(thread)
+    if cleaned not in overrides and account_id and persona_profile_store is not None:
+        try:
+            manifest = persona_profile_store.get_current_persona_profile_manifest(
+                cleaned, account_id=account_id
+            )
+        except Exception as exc:
+            raise ProfileResolutionError() from exc
+        if manifest is not None:
+            selected = _resolve_persona_revision(cleaned, manifest.revision, account_id)
+            _set_active_profile(
+                db, thread_id, cleaned, selected.active_profile_revision
+            )
+            return selected
+
+    catalog = _profile_catalog()
     candidate = overrides.get(cleaned) or catalog.get(cleaned)
     if candidate is None:
         raise ValueError(f"unknown_profile_id:{cleaned}")
     fallback_profile_id = _fallback_profile_id_if_unavailable(candidate)
 
-    _set_active_profile(db, thread_id, fallback_profile_id or cleaned)
+    _set_active_profile(db, thread_id, fallback_profile_id or cleaned, None)
     return resolve_thread_system_profile(thread_id, chatlog_db=db)

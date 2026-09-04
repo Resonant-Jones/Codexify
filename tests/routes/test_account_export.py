@@ -91,6 +91,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "exclude_from_identity": False,
                 "modeling_excluded": False,
                 "active_profile_id": "profile-a",
+                "active_profile_revision": None,
                 "created_at": _utc("2026-03-05T00:00:00Z"),
                 "updated_at": _utc("2026-03-05T01:00:00Z"),
             },
@@ -107,6 +108,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "exclude_from_identity": True,
                 "modeling_excluded": True,
                 "active_profile_id": None,
+                "active_profile_revision": None,
                 "created_at": _utc("2026-03-06T00:00:00Z"),
                 "updated_at": _utc("2026-03-10T00:00:00Z"),
             },
@@ -563,6 +565,7 @@ def test_account_export_zip_returns_truthful_manifest(
     # Schema v3 adds complete Persona Profile recovery state; historical
     # v1/v2 archives remain supported by restore.
     assert manifest["schema_version"] == "account-export.v3"
+    assert all("active_profile_revision" in row for row in _load_json(archive, "entities/chat_threads.json"))
     assert manifest["app_version"] == "0.1.0"
     assert manifest["export_kind"] == "full_account"
     assert manifest["user_id"] == USER_ID

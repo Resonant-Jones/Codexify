@@ -240,6 +240,17 @@ credential, and grant fields are rejected.
 11. At runtime, `chat_threads.user_id` scopes the backend catalog. A missing or
     foreign owner cannot load another account's profile; built-in and env
     profiles keep their existing behavior.
+12. Selecting a persisted Persona pins `active_profile_id` plus the server's
+    current immutable `active_profile_revision` atomically on the thread.
+    Edits do not advance existing pins. Explicit re-selection of the same ID
+    advances to the then-current revision. Runtime projects the five fields
+    from the exact pinned manifest; unavailable pins fail closed before
+    inference. Built-in/env and flow selections clear the pin to NULL.
+
+See [Chat Runtime State Contract](./chat-runtime-state-contract.md) for thread
+binding and diagnostic semantics. Per-completion request/attempt snapshotting
+remains deferred; a switch before worker resolution can affect an already
+accepted completion.
 
 The practical relationship is:
 
@@ -347,7 +358,6 @@ Likely next phases, if the surface is promoted beyond local preview, are:
 - frontend adoption of the canonical full-manifest API
 - YAML/JSON import and export
 - richer Project, participant, and logical Connection binding scopes
-- immutable thread-to-profile-revision binding
 - Effective Config inspection
 - individually authorized capability, retrieval, connector, and voice
   enforcement

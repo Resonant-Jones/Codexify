@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -884,6 +885,7 @@ class ChatThread(Base):
         TIMESTAMP(timezone=True)
     )
     active_profile_id: Mapped[str | None] = mapped_column(String(128))
+    active_profile_revision: Mapped[int | None] = mapped_column(Integer)
     thread_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id")
@@ -941,6 +943,19 @@ class ChatThread(Base):
     __mapper_args__ = {"eager_defaults": True}
 
     __table_args__ = (
+        CheckConstraint(
+            "active_profile_revision IS NULL OR active_profile_revision > 0",
+            name="ck_chat_threads_active_profile_revision_positive",
+        ),
+        CheckConstraint(
+            "active_profile_revision IS NULL OR active_profile_id IS NOT NULL",
+            name="ck_chat_threads_active_profile_revision_requires_id",
+        ),
+        ForeignKeyConstraint(
+            ["active_profile_id", "active_profile_revision"],
+            ["persona_profile_revisions.profile_id", "persona_profile_revisions.revision"],
+            name="fk_chat_threads_persona_profile_revision",
+        ),
         CheckConstraint(
             "origin_system IN ('codexify', 'openai', 'anthropic')",
             name="ck_chat_threads_origin_system_canonical",

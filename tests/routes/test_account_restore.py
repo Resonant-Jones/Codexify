@@ -599,7 +599,7 @@ def _rewrite_archive_member(
         src.close()
 
 
-def _as_historical_v2_archive(archive_bytes: bytes) -> bytes:
+def _as_historical_v2_archive(archive_bytes: bytes, schema_version: str = "account-export.v2") -> bytes:
     persona_paths = {
         "entities/persona_profiles.json",
         "entities/persona_profile_revisions.json",
@@ -612,7 +612,7 @@ def _as_historical_v2_archive(archive_bytes: bytes) -> bytes:
             if not info.is_dir() and info.filename not in persona_paths
         }
     manifest = json.loads(bodies["manifest.json"])
-    manifest["schema_version"] = "account-export.v2"
+    manifest["schema_version"] = schema_version
     manifest["included_families"] = [
         family
         for family in manifest["included_families"]
@@ -669,6 +669,7 @@ class FakeAccountRestoreDB:
                 "modeling_excluded",
                 "metadata",
                 "active_profile_id",
+                "active_profile_revision",
                 "origin_system",
                 "created_at",
                 "updated_at",
@@ -1315,21 +1316,24 @@ def test_account_metadata_restore_imports_clean_fixture(
     )
 
 
+@pytest.mark.parametrize("schema_version", ["account-export.v1", "account-export.v2"])
 def test_account_metadata_restore_accepts_historical_v2_without_persona_families(
+    schema_version,
     client: TestClient,
     archive_package,
     restore_db: FakeAccountRestoreDB,
 ):
     archive_bytes, _manifest, _export_calls = archive_package
-    response = _post_archive(client, _as_historical_v2_archive(archive_bytes))
+    response = _post_archive(client, _as_historical_v2_archive(archive_bytes, schema_version))
 
     assert response.status_code == 200, response.text
     report = response.json()
-    assert report["schema_version"] == "account-export.v2"
+    assert report["schema_version"] == schema_version
     assert [row["family"] for row in report["families"]] == list(
         HISTORICAL_RESTORE_ORDER
     )
     assert restore_db.calls == list(HISTORICAL_RESTORE_ORDER)
+    assert all(row["active_profile_revision"] is None for row in restore_db.tables["chat_threads"].values())
     assert not any(
         row["family"].startswith("persona_profile")
         for row in report["families"]

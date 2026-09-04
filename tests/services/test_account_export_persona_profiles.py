@@ -35,6 +35,9 @@ from guardian.services.account_restore import (
     AccountRestoreService,
     AccountRestoreValidationError,
 )
+from tests.migration.test_persona_profile_manifest_binding_migration import (
+    temporary_postgres as temporary_postgres,  # noqa: PLC0414
+)
 
 ACCOUNT_A = "account-a"
 ACCOUNT_B = "account-b"
@@ -94,6 +97,7 @@ def _manifest(profile_id: str, revision: int, *, name: str) -> dict[str, Any]:
 
 class ScopedExportDB:
     def __init__(self) -> None:
+        self.threads = []
         self.profiles = {
             "a-1": {"id": "a-1", "current_revision": 3},
             "a-2": {"id": "a-2", "current_revision": 1},
@@ -142,6 +146,7 @@ class ScopedExportDB:
             if owner == user_id
         }
         bundle = {family: [] for family in PAYLOAD_FAMILIES}
+        bundle["chat_threads"] = deepcopy(self.threads)
         bundle["persona_profiles"] = [
             deepcopy(self.profiles[profile_id]) for profile_id in sorted(bound_ids)
         ]
@@ -173,6 +178,7 @@ class SqlAlchemyRestoreDB:
 
     def __init__(self, session_factory: sessionmaker) -> None:
         self.session_factory = session_factory
+        self.threads = {}
 
     def __getattr__(self, name: str):
         if name.startswith("restore_account_export_"):
@@ -183,6 +189,35 @@ class SqlAlchemyRestoreDB:
                 "unresolved": 0,
             }
         raise AttributeError(name)
+
+    def get_chat_thread(self, thread_id):
+        return deepcopy(self.threads.get(thread_id))
+
+    def restore_account_export_chat_threads(self, rows, **_kwargs):
+        imported = skipped = 0
+        with self.session_factory() as session:
+            for row in rows:
+                revision = row["active_profile_revision"]
+                if revision is not None:
+                    assert (
+                        session.get(
+                            PersonaProfileRevision, (row["active_profile_id"], revision)
+                        )
+                        is not None
+                    )
+                    assert (
+                        session.get(
+                            PersonaProfileBinding, row["active_profile_id"]
+                        ).owner_account_id
+                        == row["user_id"]
+                    )
+                if row["id"] in self.threads:
+                    assert self.threads[row["id"]] == row
+                    skipped += 1
+                else:
+                    self.threads[row["id"]] = deepcopy(row)
+                    imported += 1
+        return self._counts(imported, skipped)
 
     @staticmethod
     def _counts(imported: int, skipped: int) -> dict[str, int]:
@@ -566,3 +601,222 @@ def test_production_pgdb_reader_scopes_personas_through_account_binding(
     assert "JOIN persona_profile_bindings" in persona_sql
     assert "WHERE b.owner_account_id = %s" in persona_sql
     assert "WHERE owner_account_id = %s" in persona_sql
+
+
+def _pinned_thread():
+    return {
+        "id": 42,
+        "user_id": ACCOUNT_A,
+        "title": "Pinned thread",
+        "summary": "",
+        "project_id": None,
+        "parent_id": None,
+        "archived_at": None,
+        "active_profile_id": "a-1",
+        "active_profile_revision": 1,
+        "metadata": {},
+        "is_diary": False,
+        "diary_mode": False,
+        "exclude_from_identity": False,
+        "modeling_excluded": False,
+        "created_at": _timestamp(1),
+        "updated_at": _timestamp(1),
+    }
+
+
+@pytest.mark.parametrize("old_v3", [False, True])
+def test_thread_revision_round_trip_and_old_v3_derivation(tmp_path, old_v3):
+    from guardian.cognition.system_profiles.resolver import (
+        resolve_thread_system_profile,
+    )
+
+    source = ScopedExportDB()
+    source.threads = [_pinned_thread()]
+    archive = _archive_bytes(source, tmp_path)
+    _, payloads = _read_archive(archive)
+    assert payloads["chat_threads"][0]["active_profile_revision"] == 1
+    if old_v3:
+        archive = _rewrite_payload(
+            archive, "chat_threads", lambda rows: rows[0].pop("active_profile_revision")
+        )
+    expected_revision = 3 if old_v3 else 1
+    with _target_store() as factory:
+        db = SqlAlchemyRestoreDB(factory)
+        service = AccountRestoreService(db)
+        assert service.restore_from_zip(archive, user_id=ACCOUNT_A)["ok"] is True
+        assert (
+            service.restore_from_zip(archive, user_id=ACCOUNT_A)["counts"]["imported"]
+            == 0
+        )
+        resolved = resolve_thread_system_profile(42, chatlog_db=db)
+        assert resolved.active_profile_revision == expected_revision
+        assert resolved.system_prompt == f"Prompt {expected_revision}"
+        assert resolved.provider_override == "openai"
+        assert resolved.model_override == f"gpt-profile-{expected_revision}"
+        assert resolved.temperature_override == expected_revision / 10
+        assert resolved.tool_permissions is None
+        assert resolved.retrieval_config is None
+
+
+@pytest.mark.parametrize("case", ["null", "unknown", "builtin", "flow"])
+def test_restore_does_not_invent_ambiguous_thread_revision(tmp_path, case):
+    source = ScopedExportDB()
+    row = _pinned_thread()
+    if case == "null":
+        row["active_profile_revision"] = None
+    else:
+        row.pop("active_profile_revision")
+        if case == "unknown":
+            row["active_profile_id"] = "absent"
+        elif case == "builtin":
+            row["active_profile_id"] = "local_mode"
+        else:
+            row["metadata"] = {
+                "profile_overrides": {
+                    "a-1": {"profile_id": "a-1", "system_prompt": "flow"}
+                }
+            }
+    source.threads = [row]
+    with _target_store() as factory:
+        db = SqlAlchemyRestoreDB(factory)
+        assert (
+            AccountRestoreService(db).restore_from_zip(
+                _archive_bytes(source, tmp_path), user_id=ACCOUNT_A
+            )["ok"]
+            is True
+        )
+        assert db.get_chat_thread(42)["active_profile_revision"] is None
+
+
+@pytest.mark.parametrize("revision", [0, -1, True, "1", 1.0, 99])
+def test_invalid_thread_pin_fails_before_any_restore_writes(tmp_path, revision):
+    source = ScopedExportDB()
+    source.threads = [_pinned_thread()]
+    archive = _rewrite_payload(
+        _archive_bytes(source, tmp_path),
+        "chat_threads",
+        lambda rows: rows[0].update(active_profile_revision=revision),
+    )
+    with _target_store() as factory:
+        db = SqlAlchemyRestoreDB(factory)
+        with pytest.raises(AccountRestoreValidationError):
+            AccountRestoreService(db).restore_from_zip(archive, user_id=ACCOUNT_A)
+        assert db.threads == {}
+        assert persona_store.list_persona_profiles(account_id=ACCOUNT_A) == []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("old_v3", [False, True])
+def test_production_postgres_thread_pin_export_restore(
+    temporary_postgres, tmp_path, monkeypatch, old_v3
+):
+    from sqlalchemy import text
+
+    from guardian.cognition.system_profiles.resolver import (
+        resolve_thread_system_profile,
+        switch_thread_profile,
+    )
+    from tests.migration.test_persona_profile_manifest_binding_migration import _upgrade
+
+    config, database_url = temporary_postgres
+    _upgrade(config, "d4e0f2a5b7c9")
+    engine = create_engine(database_url)
+    factory = sessionmaker(bind=engine, future=True)
+    persona_store._set_session_factory(factory)
+    plain_dsn = database_url.replace("postgresql+psycopg://", "postgresql://")
+    monkeypatch.setattr(pgdb_module, "_resolve_dsn", lambda: plain_dsn)
+    db = pgdb_module.PgDB(plain_dsn)
+    try:
+        with factory.begin() as session:
+            session.add(
+                User(
+                    id=ACCOUNT_A, username=ACCOUNT_A, password_hash="test", role="guest"
+                )
+            )
+        persona_store.create_persona_profile(
+            account_id=ACCOUNT_A,
+            profile_id="recovery-pin",
+            name="Historical Persona",
+            system_prompt="Historical prompt.",
+            model_provider="openai",
+            model_id="historical-model",
+            temperature=0.25,
+        )
+        with engine.begin() as conn:
+            thread_id = conn.execute(
+                text(
+                    "INSERT INTO chat_threads (user_id, title) VALUES (:owner, 'recovery') RETURNING id"
+                ),
+                {"owner": ACCOUNT_A},
+            ).scalar_one()
+        before = switch_thread_profile(thread_id, "recovery-pin", chatlog_db=db)
+        persona_store.update_persona_profile(
+            "recovery-pin",
+            account_id=ACCOUNT_A,
+            name="Current Persona",
+            system_prompt="Current prompt.",
+            model_provider="anthropic",
+            model_id="current-model",
+            temperature=0.75,
+        )
+        archive = _archive_bytes(pgdb_module, tmp_path)
+        _, payloads = _read_archive(archive)
+        assert payloads["chat_threads"][0]["active_profile_revision"] == 1
+        if old_v3:
+            archive = _rewrite_payload(
+                archive,
+                "chat_threads",
+                lambda rows: rows[0].pop("active_profile_revision"),
+            )
+        # Empty only the source fixture in this disposable Alembic database.
+        # The authenticated target account remains for full-account restore.
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM chat_threads WHERE id = :id"), {"id": thread_id}
+            )
+            conn.execute(text("DELETE FROM persona_profiles WHERE id = 'recovery-pin'"))
+        service = AccountRestoreService(db)
+        assert service.restore_from_zip(archive, user_id=ACCOUNT_A)["ok"] is True
+        assert (
+            service.restore_from_zip(archive, user_id=ACCOUNT_A)["counts"]["imported"]
+            == 0
+        )
+        restored = resolve_thread_system_profile(thread_id, chatlog_db=db)
+        if old_v3:
+            assert restored.active_profile_revision == 2
+            assert (
+                restored.name,
+                restored.system_prompt,
+                restored.provider_override,
+                restored.model_override,
+                restored.temperature_override,
+            ) == (
+                "Current Persona",
+                "Current prompt.",
+                "anthropic",
+                "current-model",
+                0.75,
+            )
+        else:
+            assert restored.model_dump() == before.model_dump()
+    finally:
+        persona_store._set_session_factory(None)
+        db._sa_engine.dispose()
+        engine.dispose()
+
+
+@pytest.mark.parametrize("profile_id", [None, "absent", "b-1", {}, []])
+def test_invalid_profile_revision_pair_fails_before_restore(tmp_path, profile_id):
+    source = ScopedExportDB()
+    source.threads = [_pinned_thread()]
+    archive = _rewrite_payload(
+        _archive_bytes(source, tmp_path),
+        "chat_threads",
+        lambda rows: rows[0].update(active_profile_id=profile_id),
+    )
+    with _target_store() as factory:
+        db = SqlAlchemyRestoreDB(factory)
+        with pytest.raises(AccountRestoreValidationError):
+            AccountRestoreService(db).restore_from_zip(archive, user_id=ACCOUNT_A)
+        assert db.threads == {}
+        assert persona_store.list_persona_profiles(account_id=ACCOUNT_A) == []

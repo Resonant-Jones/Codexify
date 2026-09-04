@@ -876,6 +876,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 try:  # pragma: no cover - profile store may be unavailable in some tests
     from guardian.cognition.system_profiles.resolver import (
+        ProfileResolutionError,
         resolve_thread_system_profile,
     )
 except Exception:  # pragma: no cover - optional dependency
@@ -4679,6 +4680,13 @@ async def build_messages_for_llm(
                 thread_id,
                 chatlog_db=getattr(dependencies, "chatlog_db", None),
             )
+        except ProfileResolutionError as exc:
+            logger.warning(
+                "[chat-completion] profile unavailable thread_id=%s code=%s",
+                thread_id,
+                exc.code,
+            )
+            raise
         except Exception as exc:
             logger.debug(
                 "[chat-completion] thread profile resolution failed thread_id=%s err=%s",

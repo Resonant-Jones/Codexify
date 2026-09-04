@@ -439,6 +439,7 @@ class PgDB(ChatDB):
                 row["parent_id"] = int(parent)
             except (TypeError, ValueError):
                 pass
+        row.setdefault("active_profile_revision", None)
         active_profile_id = row.get("active_profile_id")
         if active_profile_id is None:
             row["active_profile_id"] = None
@@ -703,7 +704,7 @@ class PgDB(ChatDB):
                             p.name AS project_name, ct.last_interaction_at, ct.parent_id,
                             ct.archived_at, ct.is_diary, ct.diary_mode,
                             ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
-                            ct.active_profile_id, ct.origin_system, ct.thread_config, ct.created_at,
+                            ct.active_profile_id, ct.active_profile_revision, ct.origin_system, ct.thread_config, ct.created_at,
                             ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -723,7 +724,7 @@ class PgDB(ChatDB):
                         SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
                                p.name AS project_name, ct.parent_id, ct.archived_at,
                                ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
-                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id, ct.active_profile_revision,
                                ct.thread_config, ct.created_at, ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -762,7 +763,7 @@ class PgDB(ChatDB):
                             p.name AS project_name, ct.last_interaction_at, ct.parent_id,
                             ct.archived_at, ct.is_diary, ct.diary_mode,
                             ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
-                            ct.active_profile_id, ct.origin_system, ct.thread_config, ct.created_at,
+                            ct.active_profile_id, ct.active_profile_revision, ct.origin_system, ct.thread_config, ct.created_at,
                             ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -779,7 +780,7 @@ class PgDB(ChatDB):
                         SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
                                p.name AS project_name, ct.parent_id, ct.archived_at,
                                ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
-                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id, ct.active_profile_revision,
                                ct.thread_config, ct.created_at, ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -823,7 +824,7 @@ class PgDB(ChatDB):
             "ct.id, ct.user_id, ct.title, ct.summary, ct.project_id, "
             "p.name AS project_name, ct.last_interaction_at, ct.parent_id, ct.archived_at, "
             "ct.is_diary, ct.diary_mode, ct.exclude_from_identity, ct.modeling_excluded, "
-            "ct.metadata, ct.active_profile_id, ct.origin_system, ct.thread_config, "
+            "ct.metadata, ct.active_profile_id, ct.active_profile_revision, ct.origin_system, ct.thread_config, "
             "ct.created_at, ct.updated_at "
             "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
         )
@@ -851,7 +852,7 @@ class PgDB(ChatDB):
                     "SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id, "
                     "p.name AS project_name, ct.parent_id, ct.archived_at, ct.is_diary, "
                     "ct.diary_mode, ct.exclude_from_identity, ct.modeling_excluded, ct.metadata, "
-                    "ct.active_profile_id, ct.thread_config, ct.created_at, ct.updated_at "
+                    "ct.active_profile_id, ct.active_profile_revision, ct.thread_config, ct.created_at, ct.updated_at "
                     "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
                 )
                 if clauses:
@@ -895,6 +896,7 @@ class PgDB(ChatDB):
         project_id_set: bool = False,
         active_profile_id: str | None = None,
         active_profile_id_set: bool = False,
+        active_profile_revision: int | None = None,
     ):
         """Patch fields on a thread and return the updated row."""
         fields: list[str] = []
@@ -912,8 +914,8 @@ class PgDB(ChatDB):
             fields.append("project_id = %s")
             params.append(project_id)
         if active_profile_id_set:
-            fields.append("active_profile_id = %s")
-            params.append(active_profile_id)
+            fields.extend(["active_profile_id = %s", "active_profile_revision = %s"])
+            params.extend([active_profile_id, active_profile_revision])
 
         now = datetime.now(timezone.utc)
         fields.append("updated_at = %s")
@@ -930,9 +932,9 @@ class PgDB(ChatDB):
         return updated
 
     def set_thread_active_profile_id(
-        self, thread_id: int, profile_id: str | None
+        self, thread_id: int, profile_id: str | None, *, profile_revision: int | None = None
     ) -> bool:
-        """Set `active_profile_id` for a thread."""
+        """Atomically set ID and revision; revisionless callers clear any pin."""
         now = datetime.now(timezone.utc)
         with self._connect() as conn:
             try:
@@ -940,10 +942,11 @@ class PgDB(ChatDB):
                     cur.execute(
                         """
                         UPDATE chat_threads
-                        SET active_profile_id = %s, updated_at = %s
+                        SET active_profile_id = %s, active_profile_revision = %s,
+                            updated_at = %s
                         WHERE id = %s
                         """,
-                        (profile_id, now, thread_id),
+                        (profile_id, profile_revision, now, thread_id),
                     )
                     return cur.rowcount > 0
             except pg_errors.UndefinedColumn:
@@ -1437,7 +1440,7 @@ class PgDB(ChatDB):
                             p.name AS project_name, ct.last_interaction_at, ct.parent_id,
                             ct.archived_at, ct.is_diary, ct.diary_mode,
                             ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
-                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.active_profile_id, ct.active_profile_revision, ct.thread_config, ct.created_at,
                             ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -1454,7 +1457,7 @@ class PgDB(ChatDB):
                         SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
                                p.name AS project_name, ct.parent_id, ct.archived_at,
                                ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
-                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id, ct.active_profile_revision,
                                ct.thread_config, ct.created_at, ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -3186,6 +3189,7 @@ class PgDB(ChatDB):
                 "modeling_excluded",
                 "metadata",
                 "active_profile_id",
+                "active_profile_revision",
                 "origin_system",
                 "created_at",
                 "updated_at",
@@ -4243,6 +4247,7 @@ def fetch_account_export_chat_threads_for_user(
                     modeling_excluded,
                     metadata,
                     active_profile_id,
+                    active_profile_revision,
                     origin_system,
                     created_at,
                     updated_at
@@ -4899,9 +4904,9 @@ def fetch_account_export_bundle_for_user(
                 """
                 SELECT
                     id, user_id, title, summary, project_id,
-                    active_profile_id, parent_id, archived_at,
+                    active_profile_id, active_profile_revision, parent_id, archived_at,
                     is_diary, diary_mode, exclude_from_identity,
-                    modeling_excluded, created_at, updated_at
+                    modeling_excluded, metadata, origin_system, created_at, updated_at
                 FROM chat_threads
                 WHERE user_id = %s
                 ORDER BY updated_at DESC, id DESC

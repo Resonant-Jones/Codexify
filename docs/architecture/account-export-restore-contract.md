@@ -228,6 +228,27 @@ Required behavior:
   secrets. Account scoping comes from the server-owned binding, and exports must
   exclude profiles bound to another account as well as unbound legacy profiles.
 
+### Thread Persona revision recovery
+
+The v3 `chat_threads` payload includes nullable `active_profile_revision` alongside
+`active_profile_id`. An explicit pin restores the exact immutable revision even
+when the archived Persona's current pointer is newer. Restore validates the pin
+against the archive's account binding and immutable history before any writes.
+Persona registry, revisions, and bindings restore before pinned threads; restore
+never allocates a new authored revision or substitutes a newer revision.
+
+Older v3 archives can omit the field. For those rows only, restore derives the
+pin from the archived current pointer when the profile and revision exist in the
+same archive, the binding and thread match the validated restore account, and
+thread-local override metadata does not make the selection revisionless.
+Otherwise the pin is NULL. Derivation never consults the receiving database's
+current profile state. Explicit NULL remains NULL. V1/v2 archives restore NULL
+pins and create no Persona revision state.
+
+This additive nullable field does not introduce account-export.v4. Recovery
+preserves thread binding reproducibility; request/attempt profile snapshots
+remain deferred. See [Chat Runtime State Contract](./chat-runtime-state-contract.md).
+
 Restore must never produce silent corruption.
 
 ## Integrity Requirements
