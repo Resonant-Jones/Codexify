@@ -39,7 +39,7 @@ DEFAULT_PI_PACKAGE_ROOT = (
 )
 DEFAULT_PI_NODE_MODULES = "/opt/codexify/pi-sdk/node_modules"
 DEFAULT_PI_PROVIDER = "anthropic"
-DEFAULT_PI_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_PI_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass(frozen=True)

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Import profile management
-from profile import Profile, ProfileManager
+from profile import DEFAULT_MODEL, Profile, ProfileManager
 from typing import Any
 
 # Configuration
@@ -85,7 +85,7 @@ def run_pi_agent(
 
     # Build environment
     env = os.environ.copy()
-    env["PI_MODEL"] = options.get("model", "claude-sonnet-4-20250514")
+    env["PI_MODEL"] = options.get("model", DEFAULT_MODEL)
     env["PI_THINKING"] = options.get("thinking", "medium")
     if options.get("verbose"):
         env["PI_VERBOSE"] = "1"
@@ -251,7 +251,7 @@ Respond with JSON only. Format:
 """
 
     agent_options = {
-        "model": profile.model if profile else "claude-sonnet-4-20250514",
+        "model": profile.model if profile else DEFAULT_MODEL,
         "thinking": profile.thinking if profile else "medium",
         "verbose": options.get("verbose", False),
         "cwd": str(repo_root),
@@ -326,7 +326,7 @@ Report your findings and actions as JSON.
 """
 
     agent_options = {
-        "model": profile.model if profile else "claude-sonnet-4-20250514",
+        "model": profile.model if profile else DEFAULT_MODEL,
         "thinking": profile.thinking if profile else "medium",
         "verbose": options.get("verbose", False),
         "cwd": str(repo_root),

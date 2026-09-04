@@ -143,7 +143,8 @@ auth file at `/home/codexify/.pi/agent/auth.json`.
 
 `PI_PROVIDER` and `PI_MODEL` select the coding adapter's effective provider and
 model; their source-Compose defaults are `anthropic` and
-`claude-sonnet-4-20250514`. `ANTHROPIC_API_KEY` is an allowed worker input for
+`claude-sonnet-4-6`. The exact model identifier must resolve from the pinned
+Pi runtime registry. `ANTHROPIC_API_KEY` is an allowed worker input for
 the current default provider, while Pi's mounted auth store remains the
 persistent authentication boundary. These variables do not change general
 chat routing, provider authorization, supported-profile approval, or the

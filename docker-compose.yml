@@ -593,7 +593,7 @@ services:
       CAMPAIGN_RUNNER_PI_ROUTE: "${CAMPAIGN_RUNNER_PI_ROUTE:-default}"
       CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT: "${CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT:-true}"
       PI_PROVIDER: "${PI_PROVIDER:-anthropic}"
-      PI_MODEL: "${PI_MODEL:-claude-sonnet-4-20250514}"
+      PI_MODEL: "${PI_MODEL:-claude-sonnet-4-6}"
       PI_CODING_AGENT_PACKAGE_ROOT: /opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent
       PI_CODING_AGENT_NODE_MODULES: /opt/codexify/pi-sdk/node_modules
       # Current default-provider credential; alternate providers use the Pi auth store.
