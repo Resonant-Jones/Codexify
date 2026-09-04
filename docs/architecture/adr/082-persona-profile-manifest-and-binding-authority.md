@@ -1,6 +1,6 @@
 # ADR-082: Persona Profile Manifest and Binding Authority
 
-**Status:** Proposed — architecture review required
+**Status:** Accepted
 
 **Date:** 2026-09-04
 
@@ -102,22 +102,29 @@ thread-to-revision binding are deferred implementation work.
 ### Server-owned binding envelope
 
 Codexify defines **PersonaProfileBinding** as the separate, server-owned
-environmental binding envelope for a manifest or manifest revision.
+profile-to-environment binding envelope for a manifest or manifest revision.
 
-The binding owns or resolves environmental authority, including:
+It records server-derived or server-validated mappings and policy decisions
+after the owning systems resolve them. It is authoritative for a profile's
+binding state, but it does not supersede the canonical authorities for account
+identity, Project ownership or access, participant relationships, Connections
+authorization or credentials, capability grants, or runtime availability.
 
-- owning account identity;
-- permitted Project bindings;
-- permitted participant or contact policy;
+A binding may carry:
+
+- a server-derived owning-account reference;
+- server-validated permitted Project scope references;
+- server-validated participant or contact policy references;
 - profile activation state;
-- connection and connector resolution;
+- non-secret connection or connector resolution mappings returned by the
+  Connections control plane;
 - environment-specific reference mappings; and
 - the account, Project, and profile scope inputs needed by existing authority
   resolvers.
 
 The binding is not a portable persona identity. It is server-owned state that
 is created, validated, changed, and audited through the relevant canonical
-control planes.
+control planes; those systems remain authoritative for the underlying values.
 
 An imported YAML or JSON manifest must never self-assign:
 

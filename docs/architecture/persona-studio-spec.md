@@ -9,8 +9,10 @@ serialization formats only. Browser localStorage and a database JSON blob are
 not authority sources.
 
 PersonaProfileManifest records requested configuration. A separate,
-server-owned PersonaProfileBinding owns account, Project, participant,
-connection, activation, and environment-specific authority. A profile import
+server-owned PersonaProfileBinding records server-derived or server-validated
+account, Project, participant, connection, activation, and environment
+mappings. It is authoritative only for a profile's binding state and does not
+supersede the systems that own the underlying authority. A profile import
 cannot self-assign those bindings, credentials, or execution permission.
 
 Current code-path scope is deliberately narrower: the Studio maintains a broad
@@ -59,7 +61,7 @@ Saving, validating, importing, or exporting a profile does not write memory,
 infer durable traits, or execute runtime behavior
 2.5 Manifest and Binding Separation
 PersonaProfileManifest owns authored intent
-PersonaProfileBinding is server-owned environmental authority
+PersonaProfileBinding is server-owned environmental binding state
 Requested configuration is not effective configuration
 3. Core Entities
 3.1 PersonaProfileManifest (conceptual)
@@ -151,12 +153,15 @@ credential, or connection secret belongs in the manifest.
 
 3.2 PersonaProfileBinding (server-owned conceptual envelope)
 
-The server separately owns the binding for a manifest or revision. It contains
-the authoritative account owner, permitted Project bindings, participant or
-contact policy, connection-resolution mappings, activation state, and
-environment-specific reference mappings. Imported YAML or JSON must be
-validated, remapped, approved, or rejected against those server-owned
-controls; it cannot choose them.
+The server separately owns the profile-to-environment binding record for a
+manifest or revision. It records server-derived account references,
+server-validated Project and participant policy scope references, non-secret
+connection-resolution mappings returned by the Connections control plane,
+activation state, and environment-specific reference mappings. It is
+authoritative for that profile binding record, but does not replace canonical
+account, Project, relationship, Connections, capability, or runtime-support
+authority. Imported YAML or JSON must be validated, remapped, approved, or
+rejected against those server-owned controls; it cannot choose them.
 
 3.3 Studio-Only Entities
 type ProfileDraft = PersonaProfileManifest & {
@@ -335,8 +340,9 @@ has a separately implemented, authorized, and proven enforcement seam.
 The intended profile-application path is not a direct UI-to-runtime pipe:
 
 1. PersonaProfileManifest records requested configuration.
-2. PersonaProfileBinding supplies server-owned account, Project,
-   participant, connection, activation, and environmental scope.
+2. PersonaProfileBinding supplies server-derived or server-validated account,
+   Project, participant, connection, activation, and environmental scope
+   references; the owning systems retain authority over those inputs.
 3. The owning systems determine resource availability and policy denials.
 4. The existing effective capability resolver supplies the capability snapshot
    with its unchanged profile > Project > account precedence.
