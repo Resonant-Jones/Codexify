@@ -75,7 +75,8 @@ unrelated host user and do not loosen auth-file permissions to compensate.
 
 The effective provider and model are selected with `PI_PROVIDER` and
 `PI_MODEL`. Their source-Compose defaults are `anthropic` and
-`claude-sonnet-4-20250514`. For the default provider, Pi may resolve a
+`claude-sonnet-4-6`. The exact model identifier must resolve from the pinned
+Pi runtime registry. For the default provider, Pi may resolve a
 credential from the mounted auth file or from `ANTHROPIC_API_KEY` in the
 worker's Compose environment. Other Pi-supported providers should be selected
 explicitly and authenticated through the same mounted Pi auth store. General
@@ -700,7 +701,7 @@ and is not made Pi-ready by this source-Compose change.
 | `CAMPAIGN_RUNNER_PI_ROUTE` | No | `default` | Declares the requested Pi route label |
 | `CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT` | No | `true` | Documents that brokered execution should preserve backend receipts |
 | `PI_PROVIDER` | No | `anthropic` | Effective provider resolved by the Pi wrapper |
-| `PI_MODEL` | No | `claude-sonnet-4-20250514` | Effective model resolved for the selected provider |
+| `PI_MODEL` | No | `claude-sonnet-4-6` | Effective model resolved for the selected provider; must resolve from the pinned Pi runtime registry |
 | `ANTHROPIC_API_KEY` | Required only for env-based default-provider auth | None | Worker-only Compose credential alternative; never print or commit it |
 
 ## Pi Broker Operational Note

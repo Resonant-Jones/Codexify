@@ -8,6 +8,8 @@ import pytest
 
 from guardian.agents import pi_readiness
 from guardian.agents.pi_readiness import (
+    DEFAULT_PI_MODEL,
+    DEFAULT_PI_PROVIDER,
     PI_READINESS_REASONS,
     PI_READINESS_STATES,
     evaluate_pi_readiness,
@@ -50,8 +52,8 @@ def _fixture_environment(
         "PI_WRAPPER_PATH": str(wrapper_path),
         "PI_CODING_AGENT_PACKAGE_ROOT": str(package_root),
         "PI_CODING_AGENT_NODE_MODULES": str(node_modules),
-        "PI_PROVIDER": "anthropic",
-        "PI_MODEL": "claude-sonnet-4-20250514",
+        "PI_PROVIDER": DEFAULT_PI_PROVIDER,
+        "PI_MODEL": DEFAULT_PI_MODEL,
     }
 
 
@@ -70,11 +72,16 @@ def _probe(
             "adapter_initialized": initialized,
             "provider_resolved": resolved,
             "provider_credential_available": credential,
-            "effective_provider": "anthropic",
-            "effective_model": "claude-sonnet-4-20250514",
+            "effective_provider": DEFAULT_PI_PROVIDER,
+            "effective_model": DEFAULT_PI_MODEL,
         }
 
     return probe
+
+
+def test_active_anthropic_default_is_explicitly_reconciled() -> None:
+    assert DEFAULT_PI_PROVIDER == "anthropic"
+    assert DEFAULT_PI_MODEL == "claude-sonnet-4-6"
 
 
 def test_readiness_tokens_are_bounded() -> None:

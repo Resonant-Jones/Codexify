@@ -14,6 +14,7 @@ from guardian.agents.adapters.base import (
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
+from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
 from guardian.pi.tokens import (
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
@@ -53,7 +54,7 @@ class PiCodexRunnerAdapter:
         env = os.environ.copy()
 
         # Set model and thinking from environment or defaults
-        env["PI_MODEL"] = env.get("PI_MODEL", "claude-sonnet-4-20250514")
+        env["PI_MODEL"] = env.get("PI_MODEL", DEFAULT_PI_MODEL)
         env["PI_THINKING"] = env.get("PI_THINKING", "medium")
 
         # Build the command

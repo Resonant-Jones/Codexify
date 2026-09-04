@@ -31,6 +31,7 @@ const prompt = args.slice(1).join(" ");
 const guardianAuthorizedMode = mode === "guardian-authorized-task";
 const guardianAuthorizedReadinessMode = mode === "guardian-authorized-readiness";
 const ACTUAL_HARNESS_ID = "pi-coding-agent";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 
 const AUTHORIZED_FAILURE_CLASSES = new Set([
 	"adapter_timeout",
@@ -51,7 +52,7 @@ const AUTHORIZED_FAILURE_CLASSES = new Set([
 
 const OPTIONS = {
 	cwd: process.cwd(),
-	model: process.env.PI_MODEL || "claude-sonnet-4-20250514",
+	model: process.env.PI_MODEL || DEFAULT_ANTHROPIC_MODEL,
 	provider: process.env.PI_PROVIDER || "anthropic",
 	thinking: process.env.PI_THINKING || "medium",
 	verbose: process.env.PI_VERBOSE === "1",
@@ -62,13 +63,13 @@ const OPTIONS = {
 
 // Known model mappings
 const MODEL_ALIASES = {
-	"sonnet": "claude-sonnet-4-20250514",
-	"sonnet4": "claude-sonnet-4-20250514",
+	"sonnet": DEFAULT_ANTHROPIC_MODEL,
+	"sonnet4": DEFAULT_ANTHROPIC_MODEL,
 	"opus": "claude-opus-4-5",
 	"opus4": "claude-opus-4-5",
 	"haiku": "claude-haiku-4",
 	"haiku4": "claude-haiku-4",
-	"sonnet-4": "claude-sonnet-4-20250514",
+	"sonnet-4": DEFAULT_ANTHROPIC_MODEL,
 	"opus-4": "claude-opus-4-5",
 	"haiku-4": "claude-haiku-4",
 };
@@ -83,7 +84,7 @@ function resolveModel(modelId, getModel) {
 	if (model) return modelId;
 	// Try partial match
 	const normalized = modelId.toLowerCase().replace(/[^a-z0-9]/g, "");
-	const models = ["claude-sonnet-4-20250514", "claude-opus-4-5", "claude-haiku-4"];
+	const models = [DEFAULT_ANTHROPIC_MODEL, "claude-opus-4-5", "claude-haiku-4"];
 	for (const m of models) {
 		if (m.toLowerCase().replace(/[^a-z0-9]/g, "").includes(normalized)) {
 			return m;
@@ -440,7 +441,7 @@ async function runAgent() {
 		}
 		console.error(`Model not found: ${resolvedModelId}`);
 		console.error("Available models:");
-		console.error("  - claude-sonnet-4-20250514 (Claude Sonnet 4)");
+		console.error(`  - ${DEFAULT_ANTHROPIC_MODEL} (Claude Sonnet 4.6)`);
 		console.error("  - claude-opus-4-5 (Claude Opus 4)");
 		console.error("  - claude-haiku-4 (Claude Haiku 4)");
 		console.error("Aliases: sonnet, opus, haiku (or with -4 suffix)");
@@ -809,14 +810,14 @@ Modes:
   help     - Show this help
 
 Environment Variables:
-  PI_MODEL      - Model to use (default: claude-sonnet-4-20250514)
+  PI_MODEL      - Model to use (default: ${DEFAULT_ANTHROPIC_MODEL})
   PI_PROVIDER   - Provider to use (default: anthropic)
   PI_THINKING   - Thinking level: off, minimal, low, medium, high, xhigh
   PI_VERBOSE    - Set to 1 for verbose output
   PI_DISABLE_TOOLS - Set to 1 to run without coding tools
 
 Model Aliases:
-  sonnet, sonnet4, sonnet-4  → claude-sonnet-4-20250514
+  sonnet, sonnet4, sonnet-4  → ${DEFAULT_ANTHROPIC_MODEL}
   opus, opus4, opus-4         → claude-opus-4-5
   haiku, haiku4, haiku-4      → claude-haiku-4
 

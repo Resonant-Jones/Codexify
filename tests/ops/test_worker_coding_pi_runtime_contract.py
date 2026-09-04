@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -14,9 +16,78 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker-compose.yml"
 DOCKERFILE = ROOT / "backend/Dockerfile"
 RUNBOOK = ROOT / "docs/Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md"
+PROFILE = ROOT / "codex_runner/src/profile.py"
+RUNNER_CLI = ROOT / "codex_runner/src/runner_cli.py"
 RUNTIME_PACKAGE = ROOT / "codex_runner/pi-runtime/package.json"
 RUNTIME_LOCK = ROOT / "codex_runner/pi-runtime/package-lock.json"
 VENDORED_PACKAGE = ROOT / "codex_runner/vendor/pi-coding-agent/package.json"
+CANONICAL_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+OBSOLETE_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+
+
+def _load_runner_cli_for_test():
+    """Load the source-only Campaign Runner modules without importing stdlib ``profile``."""
+    profile_spec = importlib.util.spec_from_file_location(
+        "codexify_campaign_profile_under_test", PROFILE
+    )
+    assert profile_spec and profile_spec.loader
+    profile_module = importlib.util.module_from_spec(profile_spec)
+    sys.modules[profile_spec.name] = profile_module
+
+    previous_profile = sys.modules.get("profile")
+    runner_name = "codexify_runner_cli_under_test"
+    try:
+        profile_spec.loader.exec_module(profile_module)
+        runner_spec = importlib.util.spec_from_file_location(runner_name, RUNNER_CLI)
+        assert runner_spec and runner_spec.loader
+        runner_module = importlib.util.module_from_spec(runner_spec)
+        sys.modules["profile"] = profile_module
+        sys.modules[runner_name] = runner_module
+        runner_spec.loader.exec_module(runner_module)
+        return profile_module, runner_module
+    finally:
+        sys.modules.pop(profile_spec.name, None)
+        sys.modules.pop(runner_name, None)
+        if previous_profile is None:
+            sys.modules.pop("profile", None)
+        else:
+            sys.modules["profile"] = previous_profile
+
+
+def _run_guardian_authorized_readiness(
+    model_id: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real source-vendored wrapper with an isolated, empty Pi home."""
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-anthropic-readiness-"))
+    pi_agent_dir = home / "pi-agent"
+    pi_agent_dir.mkdir()
+    try:
+        result = subprocess.run(
+            [
+                "node",
+                str(ROOT / "codex_runner/src/agent-wrapper.js"),
+                "guardian-authorized-readiness",
+            ],
+            cwd=str(home),
+            env={
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "PI_CODING_AGENT_DIR": str(pi_agent_dir),
+                "PI_OFFLINE": "1",
+                "PI_PROVIDER": "anthropic",
+                "PI_MODEL": model_id,
+                "PI_GUARDIAN_AUTHORIZED": "1",
+                "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+                "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+                "PI_DISABLE_TOOLS": "1",
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+    return result
 
 
 def _service_block(text: str, service: str) -> str:
@@ -110,6 +181,93 @@ def test_active_runtime_loader_uses_canonical_model_runtime() -> None:
     assert "authStorage.hasAuth(" not in loader
     assert "ModelRegistry.create(" not in loader
     assert "OPENAI_CODEX_MODELS" not in loader
+
+
+def test_active_coding_worker_defaults_are_coherent() -> None:
+    """The six active default surfaces must share the reconciled model."""
+    from guardian.agents.adapters.pi_codex_runner import (
+        DEFAULT_PI_MODEL as ADAPTER_DEFAULT_PI_MODEL,
+    )
+    from guardian.agents.pi_readiness import (
+        DEFAULT_PI_MODEL,
+        DEFAULT_PI_PROVIDER,
+    )
+
+    profile_module, runner_module = _load_runner_cli_for_test()
+    assert profile_module.DEFAULT_MODEL == CANONICAL_ANTHROPIC_MODEL
+    assert runner_module.DEFAULT_MODEL == profile_module.DEFAULT_MODEL
+    assert profile_module.Profile(name="default").model == CANONICAL_ANTHROPIC_MODEL
+    assert (
+        profile_module.Profile.from_dict("default", {}).model
+        == CANONICAL_ANTHROPIC_MODEL
+    )
+    for name in ("default", "fast", "review"):
+        assert (
+            profile_module.DEFAULT_PROFILES[name]["model"]
+            == CANONICAL_ANTHROPIC_MODEL
+        )
+    assert profile_module.DEFAULT_PROFILES["thorough"]["model"] == "claude-opus-4-5"
+
+    assert DEFAULT_PI_PROVIDER == "anthropic"
+    assert DEFAULT_PI_MODEL == CANONICAL_ANTHROPIC_MODEL
+    assert ADAPTER_DEFAULT_PI_MODEL == DEFAULT_PI_MODEL
+
+    loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
+    assert 'const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";' in loader
+    assert "model: process.env.PI_MODEL || DEFAULT_ANTHROPIC_MODEL" in loader
+    for alias in ('"sonnet":', '"sonnet4":', '"sonnet-4":'):
+        assert f"{alias} DEFAULT_ANTHROPIC_MODEL" in loader
+    assert OBSOLETE_ANTHROPIC_MODEL not in loader
+
+    compose = COMPOSE.read_text(encoding="utf-8")
+    assert 'PI_PROVIDER: "${PI_PROVIDER:-anthropic}"' in compose
+    assert f'PI_MODEL: "${{PI_MODEL:-{CANONICAL_ANTHROPIC_MODEL}}}"' in compose
+
+
+def test_runner_cli_uses_canonical_default_for_agent_and_command_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Behaviorally cover run_pi_agent, audit, and run default fallbacks."""
+    _profile_module, runner_module = _load_runner_cli_for_test()
+
+    subprocess_calls: list[dict[str, object]] = []
+
+    def fake_subprocess_run(*args, **kwargs):
+        subprocess_calls.append(kwargs)
+        return subprocess.CompletedProcess(args[0], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(runner_module.subprocess, "run", fake_subprocess_run)
+    direct_result = runner_module.run_pi_agent(
+        "readiness", "probe", {"cwd": str(tmp_path)}
+    )
+    assert direct_result.success is True
+    assert subprocess_calls[-1]["env"]["PI_MODEL"] == CANONICAL_ANTHROPIC_MODEL
+
+    class EmptyProfileManager:
+        active_profile = "default"
+
+        def load(self):
+            return self
+
+        def get(self, _name):
+            return None
+
+    command_options: list[dict[str, object]] = []
+
+    def fake_agent(_mode: str, _prompt: str, options: dict[str, object]):
+        command_options.append(options)
+        return runner_module.CommandResult(success=True)
+
+    monkeypatch.setattr(runner_module, "ProfileManager", EmptyProfileManager)
+    monkeypatch.setattr(runner_module, "run_pi_agent", fake_agent)
+
+    assert runner_module.cmd_audit(["default probe"], {"cwd": str(ROOT)}).success
+    assert runner_module.cmd_run(["default probe"], {"cwd": str(ROOT)}).success
+    assert [options["model"] for options in command_options] == [
+        CANONICAL_ANTHROPIC_MODEL,
+        CANONICAL_ANTHROPIC_MODEL,
+    ]
 
 
 def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> None:
@@ -244,6 +402,114 @@ def test_source_relative_wrapper_loads_pi_runtime_with_full_locked_closure() -> 
     assert identity["actual_harness_id"] == "pi-coding-agent"
     assert identity["actual_harness_version"] == "0.82.1"
 
+    assert payload["session_initialized"] is False
+    assert payload["provider_request_started"] is False
+
+
+def test_reconciled_anthropic_model_supports_canonical_session_provider_free() -> None:
+    """Prove the replacement model accepts the wrapper's session posture."""
+    home = Path(tempfile.mkdtemp(prefix="codexify-pi-anthropic-session-"))
+    pi_agent_dir = home / "pi-agent"
+    pi_agent_dir.mkdir()
+    script = r'''
+import { ModelRuntime } from "./codex_runner/vendor/pi-coding-agent/dist/core/model-runtime.js";
+import { createAgentSession } from "./codex_runner/vendor/pi-coding-agent/dist/core/sdk.js";
+import { SessionManager } from "./codex_runner/vendor/pi-coding-agent/dist/core/session-manager.js";
+
+const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+const model = runtime.getModel("anthropic", "claude-sonnet-4-6");
+if (!model) throw new Error("model_unresolved");
+const { session } = await createAgentSession({
+    cwd: process.cwd(),
+    model,
+    modelRuntime: runtime,
+    tools: ["read", "bash", "edit", "write"],
+    thinkingLevel: "medium",
+    sessionManager: SessionManager.inMemory(),
+});
+const activeToolNames = session.getActiveToolNames();
+const thinkingLevels = session.getAvailableThinkingLevels();
+if (JSON.stringify(activeToolNames) !== JSON.stringify(["read", "bash", "edit", "write"])) {
+    throw new Error(`unexpected_tools:${JSON.stringify(activeToolNames)}`);
+}
+if (!thinkingLevels.includes("medium") || session.thinkingLevel !== "medium") {
+    throw new Error(`unexpected_thinking:${JSON.stringify({ thinkingLevels, effective: session.thinkingLevel })}`);
+}
+console.log(JSON.stringify({
+    provider: model.provider,
+    id: model.id,
+    api: model.api,
+    activeToolNames,
+    effectiveThinkingLevel: session.thinkingLevel,
+}));
+'''
+    try:
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=str(ROOT),
+            env={
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "PI_CODING_AGENT_DIR": str(pi_agent_dir),
+                "PI_OFFLINE": "1",
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+    assert result.returncode == 0, (
+        f"provider-free Anthropic session probe failed: exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload == {
+        "provider": "anthropic",
+        "id": CANONICAL_ANTHROPIC_MODEL,
+        "api": "anthropic-messages",
+        "activeToolNames": ["read", "bash", "edit", "write"],
+        "effectiveThinkingLevel": "medium",
+    }
+
+
+def test_anthropic_replacement_resolves_through_authorized_readiness_provider_free(
+) -> None:
+    """Exact Guardian-authorized replacement resolution must precede auth use."""
+    result = _run_guardian_authorized_readiness(CANONICAL_ANTHROPIC_MODEL)
+
+    assert result.returncode == 0, (
+        f"authorized replacement readiness failed: exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["failure_class"] == "oauth_auth_unavailable"
+    assert payload["failure_stage"] == "oauth_readiness"
+    assert payload["runtime_identity_established"] is True
+    assert payload["actual_runtime_identity"] == {
+        "actual_provider_id": "anthropic",
+        "actual_model_id": CANONICAL_ANTHROPIC_MODEL,
+        "actual_harness_id": "pi-coding-agent",
+        "actual_harness_version": "0.82.1",
+    }
+    assert payload["session_initialized"] is False
+    assert payload["provider_request_started"] is False
+
+
+def test_obsolete_anthropic_identity_fails_closed_without_silent_remap() -> None:
+    """The obsolete exact ID must remain an unresolved identity, not an alias."""
+    result = _run_guardian_authorized_readiness(OBSOLETE_ANTHROPIC_MODEL)
+
+    assert result.returncode == 0, (
+        f"obsolete identity readiness probe failed: exit {result.returncode}; "
+        f"stderr={result.stderr[:500]!r}"
+    )
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["failure_class"] == "model_unresolved"
+    assert payload["failure_stage"] == "model_resolution"
+    assert payload["runtime_identity_established"] is False
+    assert payload["actual_runtime_identity"] is None
     assert payload["session_initialized"] is False
     assert payload["provider_request_started"] is False
 

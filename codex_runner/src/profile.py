@@ -28,18 +28,19 @@ except ImportError:
 
 PROFILE_DIR = Path.home() / ".config" / "campaign_runner"
 PROFILES_PATH = PROFILE_DIR / "profiles.toml"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Default profiles
 DEFAULT_PROFILES = {
     "default": {
-        "model": "claude-sonnet-4-20250514",
+        "model": DEFAULT_MODEL,
         "thinking": "medium",
         "passes": 1,
         "verify": False,
         "execute": False,
     },
     "fast": {
-        "model": "claude-sonnet-4-20250514",
+        "model": DEFAULT_MODEL,
         "thinking": "low",
         "passes": 2,
         "verify": False,
@@ -53,7 +54,7 @@ DEFAULT_PROFILES = {
         "execute": True,
     },
     "review": {
-        "model": "claude-sonnet-4-20250514",
+        "model": DEFAULT_MODEL,
         "thinking": "medium",
         "passes": 1,
         "verify": False,
@@ -65,7 +66,7 @@ DEFAULT_PROFILES = {
 @dataclass
 class Profile:
     name: str
-    model: str = "claude-sonnet-4-20250514"
+    model: str = DEFAULT_MODEL
     thinking: str = "medium"
     passes: int = 1
     verify: bool = False
@@ -87,7 +88,7 @@ class Profile:
     def from_dict(cls, name: str, data: dict[str, Any]) -> Profile:
         return cls(
             name=name,
-            model=data.get("model", "claude-sonnet-4-20250514"),
+            model=data.get("model", DEFAULT_MODEL),
             thinking=data.get("thinking", "medium"),
             passes=int(data.get("passes", 1)),
             verify=bool(data.get("verify", False)),
