@@ -84,7 +84,27 @@ UMS-01: AUTHORIZED TO START
 `FROZEN` describes the design state, while this checkpoint records the completed
 repository transaction. The six-file governance packet is included in this
 commit, so UMS-00 is closed and UMS-01 is authorized as the next atomic packet.
-This does not mean UMS-01 has started, been implemented, or been proven.
+That closeout did not itself start or prove UMS-01; the following checkpoint
+records the separately authorized UMS-01A execution slice.
+
+### Current UMS-01 checkpoint
+
+```text
+UMS-01 PROJECT OWNERSHIP RUNTIME AUTHORITY: PROVEN IN UMS-01A
+UMS-01 MATCHING-ENVELOPE MIGRATION: UNIT-PROVEN; DISPOSABLE POSTGRES EXECUTION BLOCKED BY HARNESS SHARED-MEMORY POLICY
+UMS-01 LEGACY LOCAL OWNER RECONCILIATION: PENDING
+UMS-01 CAMPAIGN GATE: OPEN
+UMS-02: NOT AUTHORIZED TO START
+```
+
+UMS-01A removes description-envelope authority from the covered Project and
+Media runtime paths, stops new envelope writes, and adds a fail-closed
+classify-before-mutate cleanup revision. Matching envelopes recover exact human
+description text without changing canonical ownership; conflicting envelopes
+block direct operations and are suppressed from normal lists. The revision has
+not been applied to the live private-preview database. UMS-01 cannot close
+until the separately authorized legacy `projects.user_id == 'local'`
+reconciliation and remaining migration proof gates are complete.
 
 ## Workstreams
 
