@@ -8,6 +8,17 @@
 
 This is a docs-only campaign closeout. It closes the Persona Studio V1 beta boundary proof. It does **not** implement Persona Studio, add UI, routes, persistence, permissions behavior, retrieval behavior, runtime flags, execution authority, migrations, or tests. It does not widen release support.
 
+## Current-truth / supersession notice (added 2026-09-04)
+
+This closeout remains an accurate historical record of the C07 V1 bounded
+proof. Later code introduced backend Persona Profile persistence and
+five-field system-profile runtime integration, so its local-only and
+no-backend-persistence claims are no longer current implementation truth.
+ADR-082 governs future Persona Profile manifest, persistence, revision, and
+binding semantics. The C07 no-chat, no-memory, no-durable-identity, and
+no-implicit-authority invariants remain preserved unless a later governing
+record explicitly supersedes them.
+
 ## Preconditions Verified
 
 | Task | Gate | Evidence Artifact | Bounded Proof Claim |
