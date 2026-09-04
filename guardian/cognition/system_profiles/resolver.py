@@ -256,11 +256,16 @@ def _load_env_catalog() -> dict[str, SystemProfilePayload]:
     return catalog
 
 
-def _load_backend_catalog() -> dict[str, SystemProfilePayload]:
-    if persona_profile_store is None:
+def _load_backend_catalog(
+    account_id: str | None,
+) -> dict[str, SystemProfilePayload]:
+    cleaned_account_id = _clean_text(account_id)
+    if persona_profile_store is None or not cleaned_account_id:
         return {}
     try:
-        backend_profiles = persona_profile_store.list_persona_profiles()
+        backend_profiles = persona_profile_store.list_persona_profiles(
+            account_id=cleaned_account_id
+        )
     except Exception:
         return {}
 
@@ -284,10 +289,12 @@ def _load_backend_catalog() -> dict[str, SystemProfilePayload]:
     return catalog
 
 
-def _profile_catalog() -> dict[str, SystemProfilePayload]:
+def _profile_catalog(
+    account_id: str | None = None,
+) -> dict[str, SystemProfilePayload]:
     catalog = _default_profile_catalog()
     catalog.update(_load_env_catalog())
-    catalog.update(_load_backend_catalog())
+    catalog.update(_load_backend_catalog(account_id))
     if "default" not in catalog:
         catalog["default"] = SystemProfilePayload(
             profile_id="default",
@@ -335,6 +342,13 @@ def _resolve_chatlog_db(chatlog_db: Any | None) -> Any | None:
         return getattr(dependencies, "chatlog_db", None)
     except Exception:
         return None
+
+
+def _thread_owner_id(thread: dict[str, Any] | None) -> str | None:
+    """Return the canonical persisted thread owner for profile scoping."""
+    if not isinstance(thread, dict):
+        return None
+    return _clean_text(thread.get("user_id"))
 
 
 def _validate_profile_payload(payload: dict[str, Any]) -> SystemProfilePayload:
@@ -452,7 +466,7 @@ def list_available_system_profiles(
         else None
     )
 
-    catalog = _profile_catalog()
+    catalog = _profile_catalog(_thread_owner_id(thread))
     overrides = _override_profiles_for_thread(thread)
     catalog.update(overrides)
 
@@ -489,7 +503,7 @@ def resolve_thread_system_profile(
         thread.get("active_profile_id") if isinstance(thread, dict) else None
     )
 
-    catalog = _profile_catalog()
+    catalog = _profile_catalog(_thread_owner_id(thread))
     base = catalog.get(active_profile_id or "")
 
     overrides = _override_profiles_for_thread(thread)
@@ -552,7 +566,7 @@ def switch_thread_profile(
         if hasattr(db, "get_chat_thread")
         else None
     )
-    catalog = _profile_catalog()
+    catalog = _profile_catalog(_thread_owner_id(thread))
     overrides = _override_profiles_for_thread(thread)
     candidate = overrides.get(cleaned) or catalog.get(cleaned)
     if candidate is None:

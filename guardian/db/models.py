@@ -3941,7 +3941,7 @@ class ImprintFoldState(Base):
 
 
 class PersonaProfile(Base):
-    """Backend-backed persona profile used by Persona Studio."""
+    """Stable Persona Profile registry and five-field runtime projection."""
 
     __tablename__ = "persona_profiles"
 
@@ -3951,6 +3951,11 @@ class PersonaProfile(Base):
     model_provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model_id: Mapped[str] = mapped_column(String(255), nullable=False)
     temperature: Mapped[float] = mapped_column(Float, nullable=False)
+    current_revision: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -3965,10 +3970,116 @@ class PersonaProfile(Base):
         nullable=False,
     )
 
+    revisions: Mapped[list[PersonaProfileRevision]] = relationship(
+        "PersonaProfileRevision",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    binding: Mapped[PersonaProfileBinding | None] = relationship(
+        "PersonaProfileBinding",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
+
     __table_args__ = (
         CheckConstraint(
             "temperature >= 0.0 AND temperature <= 2.0",
             name="persona_profiles_temperature_check",
+        ),
+        CheckConstraint(
+            "current_revision > 0",
+            name="persona_profiles_current_revision_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonaProfileRevision(Base):
+    """Immutable authored Persona Profile manifest snapshot."""
+
+    __tablename__ = "persona_profile_revisions"
+
+    profile_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("persona_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    api_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    profile: Mapped[PersonaProfile] = relationship(
+        "PersonaProfile",
+        back_populates="revisions",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "revision > 0",
+            name="persona_profile_revisions_revision_check",
+        ),
+        Index(
+            "ix_persona_profile_revisions_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonaProfileBinding(Base):
+    """Server-owned account binding for a Persona Profile."""
+
+    __tablename__ = "persona_profile_bindings"
+
+    profile_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("persona_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    owner_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    profile: Mapped[PersonaProfile] = relationship(
+        "PersonaProfile",
+        back_populates="binding",
+    )
+    owner: Mapped[User] = relationship("User")
+
+    __table_args__ = (
+        Index(
+            "ix_persona_profile_bindings_owner_account_id",
+            "owner_account_id",
         ),
     )
 

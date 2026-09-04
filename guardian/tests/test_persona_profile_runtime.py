@@ -40,16 +40,39 @@ def _persona_profile_session() -> Iterator[None]:
     )
     db_models.Base.metadata.create_all(
         engine,
-        tables=[db_models.PersonaProfile.__table__],
+        tables=[
+            db_models.User.__table__,
+            db_models.PersonaProfile.__table__,
+            db_models.PersonaProfileRevision.__table__,
+            db_models.PersonaProfileBinding.__table__,
+        ],
     )
     session_factory = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, future=True
     )
+    with session_factory.begin() as session:
+        session.add_all(
+            [
+                db_models.User(
+                    id="account-a",
+                    username="account-a",
+                    password_hash="not-a-real-hash",
+                    role="guest",
+                ),
+                db_models.User(
+                    id="account-b",
+                    username="account-b",
+                    password_hash="not-a-real-hash",
+                    role="guest",
+                ),
+            ]
+        )
     persona_profile_store._set_session_factory(session_factory)
     try:
         yield
     finally:
         persona_profile_store._set_session_factory(None)
+        engine.dispose()
 
 
 class _FakeChatLogDB:
@@ -88,7 +111,8 @@ def test_resolve_thread_system_profile_embeds_backend_profile_guidance(
     monkeypatch,
 ):
     with _persona_profile_session():
-        backend_profile = persona_profile_store.create_persona_profile(
+        persona_profile_store.create_persona_profile(
+            account_id="account-a",
             profile_id="profile-runtime",
             name="Runtime Persona",
             system_prompt="Backend prompt for the runtime profile.",
@@ -98,7 +122,11 @@ def test_resolve_thread_system_profile_embeds_backend_profile_guidance(
         )
 
         fake_db = _FakeChatLogDB(
-            {"id": 42, "active_profile_id": "profile-runtime"},
+            {
+                "id": 42,
+                "user_id": "account-a",
+                "active_profile_id": "profile-runtime",
+            },
             [{"id": 1, "role": "user", "content": "hello"}],
         )
 
@@ -171,6 +199,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
 ):
     with _persona_profile_session():
         persona_profile_store.create_persona_profile(
+            account_id="account-a",
             profile_id="profile-runtime",
             name="Runtime Persona",
             system_prompt="Backend prompt for the runtime profile.",
@@ -180,7 +209,11 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         )
 
         fake_db = _FakeChatLogDB(
-            {"id": 42, "active_profile_id": "profile-runtime"},
+            {
+                "id": 42,
+                "user_id": "account-a",
+                "active_profile_id": "profile-runtime",
+            },
             [{"id": 1, "role": "user", "content": "hello"}],
         )
 
@@ -225,6 +258,16 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             "validate_llm_config",
             lambda *args, **kwargs: None,
         )
+        monkeypatch.setattr(
+            chat_completion_service,
+            "resolve_thread_completion_settings",
+            lambda *args, **kwargs: chat_completion_service.ThreadCompletionSettings(
+                provider="",
+                model="",
+                reasoning_mode=None,
+                source_mode="thread",
+            ),
+        )
 
         captured = {}
 
@@ -248,7 +291,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         )
 
         task = ChatCompletionTask(
-            user_id="local",
+            user_id="account-a",
             task_id="task-runtime",
             thread_id=42,
             origin="test",
@@ -269,3 +312,104 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         assert captured["temperature"] == 0.25
         assert captured["messages"][0]["role"] == "system"
         assert captured["messages"][-1]["role"] == "user"
+
+
+def test_backend_catalog_does_not_leak_profile_values_across_accounts():
+    with _persona_profile_session():
+        persona_profile_store.create_persona_profile(
+            account_id="account-a",
+            manifest={
+                "apiVersion": "codexify.persona/v1",
+                "profileIdentity": "account-a-profile",
+                "identity": {
+                    "name": "Account A Persona",
+                    "description": "Persistence-only description.",
+                },
+                "prompt": {
+                    "systemPrompt": "Account A private system prompt.",
+                },
+                "model": {
+                    "provider": "anthropic",
+                    "model": "account-a-model",
+                    "temperature": 0.17,
+                    "topK": 21,
+                    "topP": 0.8,
+                    "maxTokens": 2048,
+                },
+                "capabilities": {
+                    "pinnedTools": ["account-a-tool"],
+                    "allowedTools": ["account-a-tool"],
+                    "skills": ["account-a-skill"],
+                    "permissions": {
+                        "web": True,
+                        "email": True,
+                        "calendar": True,
+                        "cli": True,
+                        "filesystem": True,
+                    },
+                },
+                "retrieval": {
+                    "enabled": True,
+                    "mode": "hybrid",
+                    "topK": 7,
+                    "rerank": True,
+                },
+            },
+        )
+
+        owner_db = _FakeChatLogDB(
+            {
+                "id": 101,
+                "user_id": "account-a",
+                "active_profile_id": "account-a-profile",
+            },
+            [],
+        )
+        foreign_db = _FakeChatLogDB(
+            {
+                "id": 202,
+                "user_id": "account-b",
+                "active_profile_id": "account-a-profile",
+            },
+            [],
+        )
+
+        owner = system_profile_resolver.resolve_thread_system_profile(
+            101,
+            chatlog_db=owner_db,
+        )
+        assert owner.system_prompt == "Account A private system prompt."
+        assert owner.provider_override == "anthropic"
+        assert owner.model_override == "account-a-model"
+        assert owner.temperature_override == 0.17
+        assert owner.retrieval_config is None
+        assert owner.tool_permissions is None
+        assert owner.model_config_payload is None
+
+        foreign = system_profile_resolver.resolve_thread_system_profile(
+            202,
+            chatlog_db=foreign_db,
+        )
+        assert foreign.system_prompt != "Account A private system prompt."
+        assert foreign.provider_override != "anthropic"
+        assert foreign.model_override != "account-a-model"
+        assert foreign.temperature_override != 0.17
+
+        owner_ids = {
+            profile["id"]
+            for profile in system_profile_resolver.list_available_system_profiles(
+                thread_id=101,
+                chatlog_db=owner_db,
+            )
+        }
+        foreign_ids = {
+            profile["id"]
+            for profile in system_profile_resolver.list_available_system_profiles(
+                thread_id=202,
+                chatlog_db=foreign_db,
+            )
+        }
+        assert "account-a-profile" in owner_ids
+        assert "account-a-profile" not in foreign_ids
+        assert "default" in owner_ids
+        assert "default" in foreign_ids
