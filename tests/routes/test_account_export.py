@@ -39,6 +39,9 @@ EXPECTED_PAYLOAD_FILES = [
     "entities/extension_install_gate_decisions.json",
     "entities/extension_registry_entries.json",
     "entities/extension_install_bindings.json",
+    "entities/persona_profiles.json",
+    "entities/persona_profile_revisions.json",
+    "entities/persona_profile_bindings.json",
 ]
 
 
@@ -436,6 +439,9 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
         "extension_install_gate_decisions": [],
         "extension_registry_entries": [],
         "extension_install_bindings": [],
+        "persona_profiles": [],
+        "persona_profile_revisions": [],
+        "persona_profile_bindings": [],
     }
 
 
@@ -554,18 +560,18 @@ def test_account_export_zip_returns_truthful_manifest(
         assert path in names
 
     manifest = _load_json(archive, "manifest.json")
-    # Schema v2 introduces the canonical ``origin_system`` field on
-    # ``chat_threads``; legacy v1 archives remain supported by restore.
-    assert manifest["schema_version"] == "account-export.v2"
+    # Schema v3 adds complete Persona Profile recovery state; historical
+    # v1/v2 archives remain supported by restore.
+    assert manifest["schema_version"] == "account-export.v3"
     assert manifest["app_version"] == "0.1.0"
     assert manifest["export_kind"] == "full_account"
     assert manifest["user_id"] == USER_ID
     assert manifest["blob_mode"] == "canonical_bundled"
-    assert manifest["compatibility"]["restore_mode"] == "not_implemented"
+    assert manifest["compatibility"]["restore_mode"] == "metadata_only"
     assert manifest["compatibility"]["binary_payloads_included"] is True
     assert manifest["integrity"]["algorithm"] == "sha256"
     assert (
-        "restore/import is not implemented"
+        "metadata restore is supported"
         in " ".join(manifest["notes"]).lower()
     )
 

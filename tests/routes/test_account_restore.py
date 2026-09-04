@@ -20,13 +20,16 @@ os.environ.setdefault("LOCAL_DEV", "1")
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("STORAGE_URL_PREFIX", "/media")
 
-from guardian.routes import migration as migration_routes
 from guardian.core import dependencies as dependencies_module
+from guardian.routes import migration as migration_routes
 from guardian.services.account_export import (
     ZIP_FILENAME,
     build_account_export_zip,
 )
-from guardian.services.account_restore import RESTORE_ORDER
+from guardian.services.account_restore import (
+    HISTORICAL_RESTORE_ORDER,
+    RESTORE_ORDER,
+)
 
 USER_ID = "user-123"
 
@@ -547,6 +550,9 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
             }
         ],
         "extension_install_bindings": [],
+        "persona_profiles": [],
+        "persona_profile_revisions": [],
+        "persona_profile_bindings": [],
     }
 
 
@@ -591,6 +597,45 @@ def _rewrite_archive_member(
         return buffer.getvalue()
     finally:
         src.close()
+
+
+def _as_historical_v2_archive(archive_bytes: bytes) -> bytes:
+    persona_paths = {
+        "entities/persona_profiles.json",
+        "entities/persona_profile_revisions.json",
+        "entities/persona_profile_bindings.json",
+    }
+    with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as source:
+        bodies = {
+            info.filename: source.read(info.filename)
+            for info in source.infolist()
+            if not info.is_dir() and info.filename not in persona_paths
+        }
+    manifest = json.loads(bodies["manifest.json"])
+    manifest["schema_version"] = "account-export.v2"
+    manifest["included_families"] = [
+        family
+        for family in manifest["included_families"]
+        if not family.startswith("persona_profile")
+    ]
+    for family in (
+        "persona_profiles",
+        "persona_profile_revisions",
+        "persona_profile_bindings",
+    ):
+        manifest["entity_counts"].pop(family, None)
+    for section in ("payload_files", "files"):
+        for path in persona_paths:
+            manifest["integrity"][section].pop(path, None)
+    bodies["manifest.json"] = json.dumps(
+        manifest, ensure_ascii=False, separators=(",", ":")
+    ).encode()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, body in bodies.items():
+            target.writestr(name, body)
+    return buffer.getvalue()
 
 
 class FakeAccountRestoreDB:
@@ -854,6 +899,39 @@ class FakeAccountRestoreDB:
                 "unbound_at",
             ),
         },
+        "persona_profiles": {
+            "pk": "id",
+            "columns": (
+                "id",
+                "name",
+                "system_prompt",
+                "model_provider",
+                "model_id",
+                "temperature",
+                "current_revision",
+                "created_at",
+                "updated_at",
+            ),
+        },
+        "persona_profile_revisions": {
+            "pk": ("profile_id", "revision"),
+            "columns": (
+                "profile_id",
+                "revision",
+                "api_version",
+                "manifest_json",
+                "created_at",
+            ),
+        },
+        "persona_profile_bindings": {
+            "pk": "profile_id",
+            "columns": (
+                "profile_id",
+                "owner_account_id",
+                "created_at",
+                "updated_at",
+            ),
+        },
     }
 
     def __init__(self) -> None:
@@ -883,7 +961,7 @@ class FakeAccountRestoreDB:
     ) -> dict[str, int]:
         self.calls.append(family)
         spec = self.TABLE_SPECS[family]
-        pk_column = str(spec["pk"])
+        pk_spec = spec["pk"]
         columns = tuple(spec["columns"])
         unique_keys = tuple(spec.get("unique", ()))
         imported = 0
@@ -914,7 +992,11 @@ class FakeAccountRestoreDB:
                 raise ValueError(
                     f"{family} row is missing required columns: {missing}"
                 )
-            pk_value = normalized[pk_column]
+            pk_value = (
+                tuple(normalized[column] for column in pk_spec)
+                if isinstance(pk_spec, tuple)
+                else normalized[str(pk_spec)]
+            )
             existing = self.tables[family].get(pk_value)
             if existing is not None:
                 if existing == normalized:
@@ -1008,6 +1090,25 @@ class FakeAccountRestoreDB:
     ):
         _ = conn
         return self._restore_family("extension_install_bindings", rows)
+
+    def restore_account_export_persona_profiles(self, rows, *, conn=None):
+        _ = conn
+        return self._restore_family("persona_profiles", rows)
+
+    def restore_account_export_persona_profile_revisions(
+        self, rows, *, conn=None
+    ):
+        _ = conn
+        return self._restore_family("persona_profile_revisions", rows)
+
+    def restore_account_export_persona_profile_bindings(
+        self, rows, *, target_user_id, conn=None
+    ):
+        _ = conn
+        authoritative = [
+            {**row, "owner_account_id": target_user_id} for row in rows
+        ]
+        return self._restore_family("persona_profile_bindings", authoritative)
 
 
 @pytest.fixture
@@ -1214,6 +1315,27 @@ def test_account_metadata_restore_imports_clean_fixture(
     )
 
 
+def test_account_metadata_restore_accepts_historical_v2_without_persona_families(
+    client: TestClient,
+    archive_package,
+    restore_db: FakeAccountRestoreDB,
+):
+    archive_bytes, _manifest, _export_calls = archive_package
+    response = _post_archive(client, _as_historical_v2_archive(archive_bytes))
+
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["schema_version"] == "account-export.v2"
+    assert [row["family"] for row in report["families"]] == list(
+        HISTORICAL_RESTORE_ORDER
+    )
+    assert restore_db.calls == list(HISTORICAL_RESTORE_ORDER)
+    assert not any(
+        row["family"].startswith("persona_profile")
+        for row in report["families"]
+    )
+
+
 def test_account_metadata_restore_is_idempotent_on_reimport(
     client: TestClient,
     archive_package,
@@ -1279,7 +1401,7 @@ def test_account_restore_preserves_origin_system_round_trip(
     restore_db: FakeAccountRestoreDB,
 ):
     """The export → restore round-trip must preserve the canonical
-    ``origin_system`` field exactly. A current-format v2 archive with
+    ``origin_system`` field exactly. A current-format v3 archive with
     ``origin_system="anthropic"`` (or any canonical value) on every
     ``chat_threads`` row must restore it byte-for-byte; it must NOT be
     silently rewritten to ``codexify``.
@@ -1366,6 +1488,9 @@ def test_account_restore_preserves_origin_system_round_trip(
         "extension_install_gate_decisions": [],
         "extension_registry_entries": [],
         "extension_install_bindings": [],
+        "persona_profiles": [],
+        "persona_profile_revisions": [],
+        "persona_profile_bindings": [],
     }
 
     base_path = tmp_path / "storage"
@@ -1421,7 +1546,7 @@ def test_account_restore_legacy_export_backfills_origin_from_import_source(
 def test_account_restore_unsupported_declared_origin_system_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """A current-format v2 export that declares an unsupported canonical
+    """A current-format v3 export that declares an unsupported canonical
     value (e.g. ``chatgpt``, a legacy product name) must fail closed
     rather than silently rewrite the lineage. The production restore
     raises ``AccountImportError`` with code ``unsupported_origin_system``;

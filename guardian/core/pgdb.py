@@ -3581,6 +3581,146 @@ class PgDB(ChatDB):
             ),
         )
 
+    def restore_account_export_persona_profiles(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        """Restore stable registries using projection values derived by the service."""
+        return self._restore_account_export_rows(
+            table_name="persona_profiles",
+            pk_column="id",
+            columns=(
+                "id",
+                "name",
+                "system_prompt",
+                "model_provider",
+                "model_id",
+                "temperature",
+                "current_revision",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_persona_profile_revisions(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        """Restore immutable Persona Profile history without overwriting conflicts."""
+        if conn is None:
+            with self._connect() as restore_conn:
+                return self.restore_account_export_persona_profile_revisions(
+                    rows,
+                    conn=restore_conn,
+                )
+
+        columns = (
+            "profile_id",
+            "revision",
+            "api_version",
+            "manifest_json",
+            "created_at",
+        )
+        imported = 0
+        skipped = 0
+        with conn.cursor() as cur:
+            for raw_row in rows:
+                row = self._restore_account_export_normalize_row(
+                    table_name="persona_profile_revisions",
+                    row=raw_row,
+                    columns=columns,
+                )
+                cur.execute(
+                    """
+                    SELECT
+                        profile_id, revision, api_version,
+                        manifest_json, created_at
+                    FROM persona_profile_revisions
+                    WHERE profile_id = %s AND revision = %s
+                    """,
+                    (row["profile_id"], row["revision"]),
+                )
+                existing = cur.fetchone()
+                normalized_existing = (
+                    {
+                        column: _normalize_export_value(existing.get(column))
+                        for column in columns
+                    }
+                    if existing
+                    else None
+                )
+                if normalized_existing is not None:
+                    if normalized_existing == row:
+                        skipped += 1
+                        continue
+                    raise ValueError(
+                        "persona_profile_revisions row "
+                        f"{(row['profile_id'], row['revision'])!r} conflicts "
+                        "with immutable history"
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO persona_profile_revisions (
+                        profile_id, revision, api_version,
+                        manifest_json, created_at
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (profile_id, revision) DO NOTHING
+                    RETURNING profile_id
+                    """,
+                    (
+                        row["profile_id"],
+                        row["revision"],
+                        row["api_version"],
+                        _to_json(row["manifest_json"]),
+                        row["created_at"],
+                    ),
+                )
+                if cur.fetchone() is None:
+                    raise ValueError(
+                        "persona_profile_revisions row "
+                        f"{(row['profile_id'], row['revision'])!r} could not "
+                        "be restored idempotently"
+                    )
+                imported += 1
+
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "failed": 0,
+            "unresolved": 0,
+        }
+
+    def restore_account_export_persona_profile_bindings(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        target_user_id: str,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        """Restore bindings under the validated target account authority."""
+        authoritative_rows = [
+            {**row, "owner_account_id": target_user_id} for row in rows
+        ]
+        return self._restore_account_export_rows(
+            table_name="persona_profile_bindings",
+            pk_column="profile_id",
+            columns=(
+                "profile_id",
+                "owner_account_id",
+                "created_at",
+                "updated_at",
+            ),
+            rows=authoritative_rows,
+            conn=conn,
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -4670,6 +4810,10 @@ ACCOUNT_EXPORT_PAYLOAD_ORDER = (
     "extension_proposals",
     "extension_install_gate_decisions",
     "extension_registry_entries",
+    "extension_install_bindings",
+    "persona_profiles",
+    "persona_profile_revisions",
+    "persona_profile_bindings",
 )
 
 
@@ -5061,6 +5205,43 @@ def fetch_account_export_bundle_for_user(
                 (user_id,),
             )
 
+            bundles["persona_profiles"] = _export_rows(
+                cur,
+                """
+                SELECT p.id, p.current_revision, p.created_at, p.updated_at
+                FROM persona_profiles AS p
+                JOIN persona_profile_bindings AS b ON b.profile_id = p.id
+                WHERE b.owner_account_id = %s
+                ORDER BY p.created_at ASC, p.id ASC
+                """,
+                (user_id,),
+            )
+            bundles["persona_profile_revisions"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    r.profile_id, r.revision, r.api_version,
+                    r.manifest_json, r.created_at
+                FROM persona_profile_revisions AS r
+                JOIN persona_profile_bindings AS b
+                  ON b.profile_id = r.profile_id
+                WHERE b.owner_account_id = %s
+                ORDER BY r.profile_id ASC, r.revision ASC
+                """,
+                (user_id,),
+            )
+            bundles["persona_profile_bindings"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    profile_id, owner_account_id, created_at, updated_at
+                FROM persona_profile_bindings
+                WHERE owner_account_id = %s
+                ORDER BY created_at ASC, profile_id ASC
+                """,
+                (user_id,),
+            )
+
             bundles["projects"] = (
                 _export_rows(
                     cur,
@@ -5191,6 +5372,24 @@ def fetch_account_export_extension_install_bindings_for_user(
     return _bundle_family_rows(user_id, "extension_install_bindings")
 
 
+def fetch_account_export_persona_profiles_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "persona_profiles")
+
+
+def fetch_account_export_persona_profile_revisions_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "persona_profile_revisions")
+
+
+def fetch_account_export_persona_profile_bindings_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "persona_profile_bindings")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
 ):
@@ -5270,6 +5469,21 @@ def iter_account_export_payloads_for_user(
             "extension_install_bindings",
             "entities/extension_install_bindings.json",
             "fetch_account_export_extension_install_bindings_for_user",
+        ),
+        (
+            "persona_profiles",
+            "entities/persona_profiles.json",
+            "fetch_account_export_persona_profiles_for_user",
+        ),
+        (
+            "persona_profile_revisions",
+            "entities/persona_profile_revisions.json",
+            "fetch_account_export_persona_profile_revisions_for_user",
+        ),
+        (
+            "persona_profile_bindings",
+            "entities/persona_profile_bindings.json",
+            "fetch_account_export_persona_profile_bindings_for_user",
         ),
     ):
         yield family, path, bundle.get(family, [])

@@ -6,7 +6,7 @@
 
 Purpose: Define the canonical, versioned, user-owned export artifact that can rehydrate a full Codexify account without losing provenance, project membership, thread/message structure, media/document linkage, metadata, artifact relationships, or imported-source lineage.
 
-Last updated: 2026-04-01
+Last updated: 2026-09-04
 
 ## Purpose
 
@@ -85,6 +85,17 @@ Versioned restore behavior must be intentional. A newer or incompatible schema m
 
 Forward migration behavior must be designed and tested as a first-class path, not an accidental side effect of permissive parsing.
 
+### Current archive compatibility
+
+New full-account exports use `account-export.v3`. The v3 family contract adds
+`persona_profiles`, `persona_profile_revisions`, and
+`persona_profile_bindings` as three required, integrity-covered payloads.
+Restore retains explicit readers for historical `account-export.v1` and
+`account-export.v2` archives using their historical family set; those archives
+do not contain and must not fabricate Persona Profile state. Required-file,
+family, count, and checksum validation is selected by schema version and remains
+fail-closed.
+
 ## Required Export Surface
 
 All IDs, metadata, and relationships in the following families must be explicit in the export. No family may depend on implicit joins during restore.
@@ -105,6 +116,9 @@ All IDs, metadata, and relationships in the following families must be explicit 
 | Thread-linked artifacts and related metadata | Stable artifact IDs, thread ID, relationship metadata, timestamps, tags/flags, and provenance. |
 | User-authored tags / flags / timestamps relevant to restore | Stable target IDs, tag or flag namespace, value, actor or owner where relevant, timestamps, and provenance if imported. |
 | User profile metadata | Stable user/profile ownership mapping, display name, avatar URL, timezone, timestamps, and provenance where preserved. |
+| Persona Profile registry | Stable profile ID, current immutable revision pointer, and restore-relevant timestamps. The five-field runtime projection is derived from the current manifest rather than archived as canonical truth. |
+| Persona Profile revisions | Every immutable revision with profile ID, revision, manifest API version, complete validated `PersonaProfileManifest`, and creation timestamp. |
+| Persona Profile bindings | The profile-to-owning-account relationship and timestamps, physically separate from authored manifest content. |
 | Hosted Rooms | Stable room ID, owner account, backing-thread relationship, title, slug, lifecycle state, bounded enabled-agent identifiers, and lifecycle timestamps. |
 | Hosted Room participants | Stable participant ID, room relationship, optional originating-invitation relationship, optional account binding, display label, constrained kind/role/state, and lifecycle timestamps, subject to sensitive-data treatment. |
 | Hosted Room invitations | Stable invitation ID, room relationship, intended display-name snapshot, constrained lifecycle state, expiry and transition timestamps, and privacy-safe verifier disposition; no plaintext credential. |
@@ -202,6 +216,17 @@ Required behavior:
 - Restore must produce an explicit report output. The report must include counts, migrated items, duplicate hits, missing blobs, warnings, failures, and any export-ID to local-ID mapping if remapping occurs.
 - Restore must preserve the canonical `chat_threads.origin_system` exactly as declared by the export. Older archives that pre-date the canonical column must derive origin deterministically from explicit historical import provenance (ChatGPT/OpenAI → `openai`, Claude/Anthropic → `anthropic`, anything else → `codexify`); derivation must not consult runtime model/provider metadata. Archives that declare an unsupported `origin_system` must fail closed rather than silently rewriting it.
 - Restore must preserve user profile metadata and the owning account mapping. If local persistence IDs are remapped, profile rows must follow the canonical owner and must not be reassigned by display label.
+- Persona Profile restore must validate registry, complete immutable history,
+  current-revision pointers, and binding ownership before writes. It restores
+  registry, revisions, then bindings; reconstructs the five-field projection
+  from the current manifest; and never allocates an authored revision.
+- Persona Profile binding rows are full-account recovery metadata, not portable
+  persona authority. Their owner must match the validated archive account, and
+  the actual binding write uses the authenticated restore target. A mismatch or
+  conflicting existing profile, immutable revision, or binding fails closed.
+- Persona Profile manifests may not contain account authority, credentials, or
+  secrets. Account scoping comes from the server-owned binding, and exports must
+  exclude profiles bound to another account as well as unbound legacy profiles.
 
 Restore must never produce silent corruption.
 

@@ -9,13 +9,15 @@ import os
 import tempfile
 import zipfile
 from collections import OrderedDict
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
+from guardian.cognition.system_profiles.manifest import PersonaProfileManifest
 from guardian.core.auth import AuthenticatedUser
 from guardian.core.media_signing import extract_media_path
 from guardian.core.storage import FileNotFoundError as StorageFileNotFoundError
@@ -23,7 +25,7 @@ from guardian.core.storage import StorageError, create_storage_from_env
 
 logger = logging.getLogger(__name__)
 
-MANIFEST_SCHEMA_VERSION = "account-export.v2"
+MANIFEST_SCHEMA_VERSION = "account-export.v3"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -102,9 +104,33 @@ PAYLOAD_ORDER = (
         "entities/extension_install_bindings.json",
         "fetch_account_export_extension_install_bindings_for_user",
     ),
+    (
+        "persona_profiles",
+        "entities/persona_profiles.json",
+        "fetch_account_export_persona_profiles_for_user",
+    ),
+    (
+        "persona_profile_revisions",
+        "entities/persona_profile_revisions.json",
+        "fetch_account_export_persona_profile_revisions_for_user",
+    ),
+    (
+        "persona_profile_bindings",
+        "entities/persona_profile_bindings.json",
+        "fetch_account_export_persona_profile_bindings_for_user",
+    ),
 )
 
 PAYLOAD_FAMILIES = tuple(entry[0] for entry in PAYLOAD_ORDER)
+HISTORICAL_PAYLOAD_ORDER = PAYLOAD_ORDER[:-3]
+HISTORICAL_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in HISTORICAL_PAYLOAD_ORDER
+)
+PAYLOAD_ORDER_BY_SCHEMA = {
+    "account-export.v1": HISTORICAL_PAYLOAD_ORDER,
+    "account-export.v2": HISTORICAL_PAYLOAD_ORDER,
+    MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
+}
 BINARY_FAMILIES = {
     "uploaded_documents",
     "generated_documents",
@@ -239,6 +265,80 @@ def _load_rows_by_family(
     for family, _path, reader_name in PAYLOAD_ORDER:
         rows_by_family[family] = _reader_rows(db, reader_name, user.id)
     return rows_by_family
+
+
+def _validate_persona_profile_export(
+    rows_by_family: dict[str, list[dict[str, Any]]],
+    *,
+    user_id: str,
+) -> None:
+    """Fail closed when account-owned Persona Profile state is inconsistent."""
+    profiles = rows_by_family["persona_profiles"]
+    revisions = rows_by_family["persona_profile_revisions"]
+    bindings = rows_by_family["persona_profile_bindings"]
+
+    profiles_by_id: dict[str, dict[str, Any]] = {}
+    for row in profiles:
+        profile_id = str(row.get("id") or "").strip()
+        try:
+            current_revision = int(row.get("current_revision"))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "persona_profile_export_invalid_current_revision"
+            ) from exc
+        if (
+            not profile_id
+            or current_revision <= 0
+            or profile_id in profiles_by_id
+            or row.get("created_at") is None
+            or row.get("updated_at") is None
+        ):
+            raise RuntimeError("persona_profile_export_invalid_registry")
+        profiles_by_id[profile_id] = row
+
+    revision_keys: set[tuple[str, int]] = set()
+    for row in revisions:
+        profile_id = str(row.get("profile_id") or "").strip()
+        try:
+            revision_number = int(row.get("revision"))
+            manifest = PersonaProfileManifest.model_validate(
+                row.get("manifest_json")
+            )
+        except Exception as exc:
+            raise RuntimeError("persona_profile_export_invalid_manifest") from exc
+        api_version = str(row.get("api_version") or "").strip()
+        key = (profile_id, revision_number)
+        if (
+            profile_id not in profiles_by_id
+            or revision_number <= 0
+            or key in revision_keys
+            or manifest.profile_identity != profile_id
+            or manifest.revision != revision_number
+            or manifest.api_version != api_version
+            or row.get("created_at") is None
+        ):
+            raise RuntimeError("persona_profile_export_revision_mismatch")
+        revision_keys.add(key)
+
+    binding_profiles: set[str] = set()
+    for row in bindings:
+        profile_id = str(row.get("profile_id") or "").strip()
+        owner_account_id = str(row.get("owner_account_id") or "").strip()
+        if (
+            profile_id not in profiles_by_id
+            or profile_id in binding_profiles
+            or owner_account_id != user_id
+            or row.get("created_at") is None
+            or row.get("updated_at") is None
+        ):
+            raise RuntimeError("persona_profile_export_binding_mismatch")
+        binding_profiles.add(profile_id)
+
+    if binding_profiles != set(profiles_by_id):
+        raise RuntimeError("persona_profile_export_binding_missing")
+    for profile_id, row in profiles_by_id.items():
+        if (profile_id, int(row["current_revision"])) not in revision_keys:
+            raise RuntimeError("persona_profile_export_current_revision_missing")
 
 
 def _family_rows(
@@ -550,8 +650,8 @@ def _build_manifest(
             "files": all_integrity,
         },
         "compatibility": {
-            "reader": "account_export.v1",
-            "restore_mode": "not_implemented",
+            "reader": "account_export.v3",
+            "restore_mode": "metadata_only",
             "binary_payloads_included": bool(blob_files),
             "blob_layout": "canonical-content-hash-v1",
         },
@@ -567,7 +667,7 @@ def _build_manifest(
         },
         "notes": [
             "manifest.json is the source of truth for this archive.",
-            "Restore/import is not implemented in this task.",
+            "Metadata restore is supported; bundled blob write-back remains deferred.",
             "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
             "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
             "Projects are exported by reachability from user-owned rows because project ownership is not stored directly on the projects table.",
@@ -584,6 +684,7 @@ def build_account_export_zip(
     created_at = datetime.now(timezone.utc).isoformat()
     resolved_app_version = app_version or _resolve_app_version()
     rows_by_family = _load_rows_by_family(db, user)
+    _validate_persona_profile_export(rows_by_family, user_id=user.id)
     storage = create_storage_from_env()
     blob_groups = _build_blob_groups(rows_by_family, storage)
 

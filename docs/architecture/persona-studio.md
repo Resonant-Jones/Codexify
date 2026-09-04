@@ -48,6 +48,7 @@ Persona Studio is:
 | Save / Save As New | compatibility persistence | The frontend updates local state and sends only name, system prompt, model provider, model ID, and temperature. The backend creates an account binding and immutable manifest revision or appends one substantive revision. |
 | Reset | frontend-local | Reset restores the last local saved/seed state; it does not write the backend. |
 | Canonical manifest persistence | backend-active | Strict V1 manifests, immutable revisions, and server-owned account bindings are durable and account-scoped. |
+| Full-account recovery | backend-active | `account-export.v3` preserves account-bound registry rows, every immutable manifest revision, and server-owned binding rows as distinct integrity-covered families. Historical v1/v2 archives contain none of these families. |
 | Runtime profile application | five-field only | A thread may resolve its owning account's current profile projection. Voice, capabilities, retrieval, and other broad fields remain inert. |
 
 ### Presentational, Frontend-Local, Runtime-Bound
@@ -197,6 +198,15 @@ The backend persistence model is separate:
 - `PersonaProfileBinding` stores the server-derived owning account only. It is
   not part of the portable manifest.
 
+Full-account recovery preserves these three concepts separately. The v3
+archive stores the stable registry/current pointer, every immutable manifest
+revision, and the account binding in separate payload files. Restore validates
+the binding against the archive account, writes authority under the validated
+restore target, and reconstructs the five-field compatibility projection from
+the current manifest. It does not treat archive YAML/JSON as new ownership
+authority and does not allocate a new authored revision. Historical v1/v2
+archives predate this coverage and therefore restore no Persona Profile state.
+
 The V1 manifest can persist identity name/description, prompt systemPrompt,
 styleNotes and directives, model provider/model/temperature/topK/topP/maxTokens,
 the current voice shape, requested tools/skills/five permission flags, and the
@@ -239,6 +249,8 @@ The practical relationship is:
 - the binding is server-owned account authority, never manifest content
 - immutable revisions preserve authored history
 - only the five compatibility fields project into the current runtime seam
+- account-export.v3 preserves canonical profile history and binding recovery
+  without making persistence-only broad fields executable
 
 ## Diagrams
 
