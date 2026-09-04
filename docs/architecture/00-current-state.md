@@ -81,3 +81,150 @@ This file is authoritative for:
 - `config-and-ops.md` explains operator/runtime truth.
 - `roadmap-signals.md` is planning guidance, not live status.
 - `tech-debt-and-risks.md` is a risk register, not the active blocker list unless repeated here.
+
+## Release classes
+
+The five release classes below are accepted architecture per ADR-069. They are
+human-facing release interpretations over the existing Product Architecture
+Assertion dimensions and the `00-current-state.md` short-form authority, not
+new schema enums. Evidence maturity and support posture remain orthogonal
+under ADR-069. Support doctrine does not prove every current-tip gate is
+green; the "Not yet true / do not assume" and "Active blockers" sections above
+remain authoritative for the present live-state truth.
+
+### Beta Supported
+
+The current Beta Supported envelope is the local-first supported install
+path and its core surfaces, already present in this document and accepted
+by ADR-069:
+
+- Local Docker Compose runtime, with the local-only default provider posture
+  (`CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`,
+  `LLM_PROVIDER=local`).
+- Local inference (Whoosh'd) and the supported local profile.
+- Core startup / migration lifecycle.
+- Queue-backed chat completion lifecycle.
+- Durable thread / message / task persistence.
+- Supported health and runtime diagnostics.
+- Ordinary chat, threads, durable conversation history, projects, and
+  project / thread / workspace navigation.
+- Documents and media ingestion on currently implemented supported formats.
+- Embedding and workspace-scoped retrieval.
+- Codexify-native identity / authentication boundaries and account-scoped
+  ownership behavior.
+- Operator-visible health and configuration truth required to run the
+  self-hosted node.
+
+This is support doctrine, not current-tip qualification. The "Not yet true
+/ do not assume" section above continues to bound what is provably green
+on the current `main` tip. Implementation presence in a code path does not
+promote a capability to Beta Supported; only the architecture-accepted
+support envelope under ADR-069 does.
+
+### Beta Bounded / Conditional
+
+Surfaces intentionally inside the Beta envelope but only under an explicit
+authority, topology, provider, mode, or capability boundary. The
+classification below is the current accepted one; no new bounded surface
+is added by this section.
+
+- Persona Studio: profile creation / editing, persistence, selection, and
+  application of supported persona / profile configuration to ordinary chat.
+  TTS / voice execution, unsupported permission authoring, unsupported
+  retrieval-policy execution, and "preview UI equals enforcement" claims
+  are excluded from this promotion.
+- Import / continuity entry surfaces: OpenAI / ChatGPT export import, Task
+  Prompt Archive, owner-scoped retry / recovery behavior already
+  implemented, and account export / restore to the exact extent supported
+  by the existing contract and implementation. Not every historical
+  corpus, provider export format, or migration shape is claimed.
+- Repository intelligence on the supported local single-user path:
+  repository candidate discovery, explicit repository import,
+  account / Project `RepositoryBinding`, direct Project-bound repository
+  search, and ordinary-chat repository search exposure only when
+  Guardian resolves exactly one valid active binding and existing
+  authority checks pass. Remote / multi-user / Hosted-Room repository
+  authority remains outside this bounded Beta claim.
+- Bounded Guardian tool execution: read-only health capability, and
+  bounded Project repository search where current eligibility /
+  authority checks pass. Advertised-subset authority, Guardian-owned
+  execution authority, exact capability eligibility, bounded command
+  count, and provider capability checks are preserved. Arbitrary tools,
+  arbitrary write operations, and generic shell / filesystem execution
+  are not promoted.
+- MCP / extensibility: the public MCP extension posture may be described as
+  part of Beta only as a bounded extension interface. A general plugin
+  marketplace, plugin SDK internals as public Beta API, and arbitrary
+  plugin execution bypassing Guardian policy are not claimed.
+- Desktop / Tauri client (if current `main` still contains the functioning
+  local desktop / Tauri presentation layer): Beta Bounded / Conditional
+  when used as a client of the same supported local Guardian node. Not a
+  packaged production desktop distribution, not auto-update support, not
+  an independent desktop persistence / runtime authority, not a separate
+  release topology not currently proven.
+
+### Internal
+
+The following remain explicitly internal, not user-facing release promises:
+
+- direct Command Bus HTTP / control-plane API
+- plugin SDK internals
+- generic tools / API tools surfaces currently marked internal or
+  quarantined
+- developer-only diagnostics
+- unsafe operator mutation surfaces
+- implementation / control-plane mechanisms that support Beta behavior
+  without being user-facing promises
+- Pi 0.82.1 wrapper/API, source-vendor, identity, framing, and telemetry
+  surfaces (per the "Current supported reality" / "Not yet true" sections
+  above; non-inference / OAuth-readiness qualification; not a
+  user-facing release promise at the current `main` tip).
+- CE-L1 wiring (lives in code paths and is required to close active
+  blockers, but remains internal / qualification pending — see below).
+- Campaign / coding-worker substrate (operational substrate that supports
+  Beta behavior; not a user-facing release promise).
+
+Implementation presence of Pi, CE-L1, or coding-worker wiring does not
+promote those surfaces to Beta Supported merely because their code paths
+exist.
+
+### Qualification Pending
+
+Intended or plausible Beta surface with implementation present, but a
+specifically named proof / authority / operational gate remains open.
+Each entry below names its explicit `remaining gate` rather than only
+saying "not supported," per the ADR-069 Qualification-Pending Doctrine.
+
+- **Coding Loop** — `remaining gate` requires: live provider/model
+  execution, terminal durable result, and source-thread readback on the
+  claimed supported profile. CE-L1 wiring remains internal / qualification
+  pending; no `LIVE_EXECUTOR_PROVEN_CANONICAL` is emitted by this section.
+- **Hosted Rooms** — `remaining gate` requires: clean supported / tester
+  startup and owner / guest live semantic proof after migration repair.
+- **DeepSeek / private-preview provider lane** — `remaining gate` requires
+  required credentials, authenticated provider-specific persisted runtime
+  proof, and explicit supported-profile promotion.
+- **Browser side-panel / Browser Host release surface** — `remaining gate`
+  follows whichever current host / auth / release proof remains open on the
+  current `main` tip after the present private-preview gates.
+- **Any desktop packaging behavior not covered by the bounded local-client
+  claim** in the Beta Bounded / Conditional section above.
+
+### Out of Beta
+
+The following are explicitly excluded from the present Beta promise under
+ADR-069 and are not classified as qualification-pending; they are
+intentionally out of scope:
+
+- TTS / voice — Out of Beta
+- federation — Out of Beta
+- unrestricted autonomous / recursive agent execution
+- arbitrary write-capability tool use
+- generic shell / filesystem execution through ordinary Beta chat
+- public Command Bus exposure
+- generic cron / unattended automation
+- generic connectors without separate qualification
+- graph-write / Neo4j-derived-write behavior where the supported path
+  remains flagged off or quarantined
+- remote / multi-user repository execution not covered by a separately
+  accepted authority contract and live proof
