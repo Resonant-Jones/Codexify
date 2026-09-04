@@ -30,9 +30,13 @@ This file is authoritative for:
   classify-before-mutate migration for matching legacy envelopes. Focused
   helper, route, and migration-unit tests pass; conflicting envelopes fail
   closed.
-- Legacy `projects.user_id == 'local'` reconciliation remains unfinished,
-  UMS-01 remains open, and revision `c3d9e4f6a8b1` has not been applied to the
-  live private-preview database.
+- Implemented fail-closed reconciliation for legacy
+  `projects.user_id == 'local'` rows under ADR-081's exact canonical-thread
+  evidence rule. Always-on classification and mutation-order tests pass, but
+  this harness could not execute the required disposable-PostgreSQL migration
+  proof, so UMS-01 remains open.
+- Revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9` have not been applied to the live
+  private-preview database.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 
@@ -50,8 +54,8 @@ This file is authoritative for:
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
 - Do not treat focused Project-ownership route/migration-unit proof as live
-  private-preview migration application, legacy `local` owner reconciliation,
-  UMS-01 closure, or supported browser proof.
+  private-preview migration application, disposable-PostgreSQL migration-chain
+  proof, UMS-01 closure, or supported browser proof.
 - Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
 - Do not treat private-preview configuration, bounded recovery/ingress receipts, or a live health/read result as an admitted canary; tester isolation, provider, persistence, and observability gates remain open.
 - Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
@@ -64,7 +68,7 @@ This file is authoritative for:
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
 - The friends-and-family canary is blocked on approved non-admin testers plus reruns of Access, isolation, provider, persistence, and bounded-observability gates; DeepSeek rotation/requalification remains open.
-- Project-ownership legacy `local` data reconciliation, Safari multipart-envelope repair, Watchdog policy/model, immutable image-retention, hosted-sandbox, and recent supported-path browser gates remain unclosed.
+- Project-ownership disposable-PostgreSQL migration proof, Safari multipart-envelope repair, Watchdog policy/model, immutable image-retention, hosted-sandbox, and recent supported-path browser gates remain unclosed.
 
 ## This week’s priorities
 

@@ -92,7 +92,8 @@ records the separately authorized UMS-01A execution slice.
 ```text
 UMS-01 PROJECT OWNERSHIP RUNTIME AUTHORITY: PROVEN IN UMS-01A
 UMS-01 MATCHING-ENVELOPE MIGRATION: UNIT-PROVEN; DISPOSABLE POSTGRES EXECUTION BLOCKED BY HARNESS SHARED-MEMORY POLICY
-UMS-01 LEGACY LOCAL OWNER RECONCILIATION: PENDING
+UMS-01 LEGACY LOCAL OWNER RECONCILIATION: IMPLEMENTED; UNIT-PROVEN
+UMS-01 MIGRATION CHAIN: REAL POSTGRESQL EXECUTION BLOCKED BY HARNESS
 UMS-01 CAMPAIGN GATE: OPEN
 UMS-02: NOT AUTHORIZED TO START
 ```
@@ -102,9 +103,15 @@ Media runtime paths, stops new envelope writes, and adds a fail-closed
 classify-before-mutate cleanup revision. Matching envelopes recover exact human
 description text without changing canonical ownership; conflicting envelopes
 block direct operations and are suppressed from normal lists. The revision has
-not been applied to the live private-preview database. UMS-01 cannot close
-until the separately authorized legacy `projects.user_id == 'local'`
-reconciliation and remaining migration proof gates are complete.
+not been applied to the live private-preview database. UMS-01B adds a
+self-contained successor revision that classifies every legacy
+`projects.user_id == 'local'` Project from all canonical referencing threads,
+reconciles only one exact non-local canonical owner, preflights built-in role
+uniqueness, and aborts before mutation on any unresolved candidate. Its
+always-on unit proof and the runtime regressions pass. The required real
+disposable-PostgreSQL proof remains blocked by this harness, neither ownership
+revision has been applied to the live private-preview database, UMS-01 remains
+open, and UMS-02 remains unauthorized.
 
 ## Workstreams
 
