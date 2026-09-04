@@ -18,12 +18,12 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded live private-preview schema upgrade reached repository Alembic head with data-preservation and immediate runtime-read checks passing, but scheduled reconciliation failed on a stale migrator artifact; no Beta support boundary widened.
+`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded live private-preview schema upgrade reached repository Alembic head with data-preservation and immediate runtime-read checks passing; the installed scheduled reconciler subsequently passed from its coherent shared-image baseline without recreating healthy long-running containers or changing canonical database state. No Beta support boundary widened.
 
 ## What changed recently
 
 - Qualified the private-preview migration lineage on a disposable clone, then upgraded the live database to `b2c8d0e3f5a7` with preservation, worker recovery, no-op, and authenticated read checks passing.
-- Found the post-upgrade scheduled reconciler still fails because its baked migrator image cannot locate `b2c8d0e3f5a7`; lifecycle recovery is not qualified.
+- Proved the installed post-upgrade scheduled reconciler completes against `b2c8d0e3f5a7` from its coherent shared migrator image, while preserving healthy long-running container identities and canonical database state.
 - Proved chat-history disappearance is a data-present/API-filter mismatch caused by legacy Project ownership divergence; no canonical chat row loss or runtime database-target drift was found.
 - Accepted ADR-081 naming `projects.user_id` as Project ownership authority; runtime normalization and legacy reconciliation remain unfinished.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
@@ -41,7 +41,7 @@ This file is authoritative for:
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
-- Do not treat the live private-preview Alembic target as scheduled-recovery closure: the database is at `b2c8d0e3f5a7`, but the reconciler artifact is stale.
+- Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
 - Do not treat ADR-081 acceptance, chat-history classification, or focused UI tests as runtime Project-ownership convergence or supported browser proof.
 - Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
 - Do not treat private-preview configuration, bounded recovery/ingress receipts, or a live health/read result as an admitted canary; tester isolation, provider, persistence, and observability gates remain open.
@@ -51,7 +51,7 @@ This file is authoritative for:
 ## Active blockers
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
-- The private-preview scheduled reconciler must receive a current migrator artifact and pass one scheduled `auto-start` recovery without recreating healthy application containers.
+- Private-preview provider-specific execution, persistence, observability, tester isolation, and approved non-admin canary gates remain open; the bounded scheduled-recovery gate is now proven.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
 - The friends-and-family canary is blocked on approved non-admin testers plus reruns of Access, isolation, provider, persistence, and bounded-observability gates; DeepSeek rotation/requalification remains open.
@@ -59,11 +59,10 @@ This file is authoritative for:
 
 ## This week’s priorities
 
-1. Qualify the current private-preview migrator artifact and scheduled reconciliation at live head.
-2. Rerun current-main supported-Compose closure with the canonical local profile.
-3. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
-4. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
-5. Close Project-ownership convergence, Safari upload-envelope regression, and the browser, Watchdog, retention, and hosted-sandbox gates.
+1. Rerun current-main supported-Compose closure with the canonical local profile.
+2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
+3. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
+4. Close Project-ownership convergence, Safari upload-envelope regression, and the browser, Watchdog, retention, and hosted-sandbox gates.
 
 ## Release definition right now
 
