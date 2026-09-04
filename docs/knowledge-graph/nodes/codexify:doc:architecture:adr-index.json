@@ -1,11 +1,4 @@
 {
-  "schema_version": "1.0.0",
-  "record_type": "document_node",
-  "document_id": "codexify:doc:architecture:adr-index",
-  "path": "docs/architecture/adr/adr-index.md",
-  "title": "ADR Index",
-  "kind": "runtime_map",
-  "summary": "Structural routing index for the Architecture Decision Record set, its reading order, and its recorded ADR graph.",
   "aliases": [
     "Architecture Decision Record Index"
   ],
@@ -15,86 +8,93 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "lifecycle_state": "active",
+  "content_hash": "71d7c52dde6c2c63080cd3e17d5701a1a647513acd794eec20efab31ee04a4d7",
+  "disposition": "accepted",
+  "document_id": "codexify:doc:architecture:adr-index",
+  "evidence_class": "documented-contract",
   "freshness": {
+    "reason": "Re-verified ADR-index metadata against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b. The ADR index and declared ADR anchors were reverified against reachable canonical history; the obsolete unreachable [OBSOLETE-SHA-REDACTED] freshness reference was replaced. No ADR identity, numbering, or release semantics changed. ADR-number collisions (053, 076) remain reported separately and are not addressed by this task.",
     "state": "current",
-    "verified_at": "2026-08-31T13:37:17Z",
-    "verified_commit": "9d5b7a8570ac605e0773892e2b5ba0300a960d80",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-reviewed the ADR index after acceptance and indexing of ADR-077 Sandbox Execution Authority and Provider Boundary; source bytes synchronized during the same focused documentation change; no runtime or release posture changed."
+    "verified_at": "2026-09-04T18:22:01-04:00",
+    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b"
   },
-  "disposition": "accepted",
-  "evidence_class": "documented-contract",
-  "owners": [
-    "Codexify architecture maintainers"
-  ],
-  "source_anchors": [
-    {
-      "path": "docs/architecture/adr/adr-index.md",
-      "anchor_type": "document",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "docs/architecture/adr/*.md",
-      "anchor_type": "document",
-      "invalidates_freshness": true
-    }
-  ],
-  "read_when": [
-    "locating an applicable Architecture Decision Record",
-    "reviewing the ADR reading order or documented ADR graph",
-    "checking which decision document should be read directly"
-  ],
+  "governing_adr_posture": "not_applicable",
+  "kind": "runtime_map",
+  "lifecycle_state": "active",
   "must_not_prove": [
     "acceptance or decision authority independently of the indexed ADR",
     "runtime implementation of an indexed decision",
     "release support for capabilities mentioned by indexed ADRs"
   ],
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "path": "docs/architecture/adr/adr-index.md",
+  "read_when": [
+    "locating an applicable Architecture Decision Record",
+    "reviewing the ADR reading order or documented ADR graph",
+    "checking which decision document should be read directly"
+  ],
+  "record_type": "document_node",
+  "relations": [
+    {
+      "authority_scope": "ADR discovery and routing for the indexed Document Lifecycle Graph decision",
+      "canonicality": "canonical",
+      "rationale": "The ADR Index directly indexes ADR-056 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
+      "relation_type": "depends_on",
+      "review_status": "accepted",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+    },
+    {
+      "authority_scope": "ADR discovery and routing for the indexed Product Architecture Ontology decision",
+      "canonicality": "canonical",
+      "rationale": "The ADR Index directly indexes ADR-057 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
+      "relation_type": "depends_on",
+      "review_status": "accepted",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
+    }
+  ],
   "retrieval_policy": {
-    "default_policy": "conditional",
     "applicable_intents": [
       "adr_discovery",
       "architecture_decision",
       "historical_provenance"
     ],
+    "default_policy": "conditional",
     "excluded_intents": [
       "live_runtime_proof",
       "release_support"
     ],
+    "maximum_chunk_budget": 5,
     "priority": "supporting",
     "section_hints": [
       "Purpose",
       "Reading Order",
       "ADR Graph"
-    ],
-    "maximum_chunk_budget": 5
+    ]
   },
+  "schema_version": "1.0.0",
+  "source_anchors": [
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/adr/adr-index.md"
+    },
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/adr/*.md"
+    }
+  ],
+  "summary": "Structural routing index for the Architecture Decision Record set, its reading order, and its recorded ADR graph.",
   "temporal": {
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "26ca6a555a1bb10187dbd48f07fa7f1c6a6d3a0929ef2ff8eddf61e4289ed258",
-  "relations": [
-    {
-      "relation_type": "depends_on",
-      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
-      "authority_scope": "ADR discovery and routing for the indexed Document Lifecycle Graph decision",
-      "canonicality": "canonical",
-      "review_status": "accepted",
-      "rationale": "The ADR Index directly indexes ADR-056 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes."
-    },
-    {
-      "relation_type": "depends_on",
-      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
-      "authority_scope": "ADR discovery and routing for the indexed Product Architecture Ontology decision",
-      "canonicality": "canonical",
-      "review_status": "accepted",
-      "rationale": "The ADR Index directly indexes ADR-057 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes."
-    }
-  ],
-  "governing_adr_posture": "not_applicable"
+  "title": "ADR Index"
 }
