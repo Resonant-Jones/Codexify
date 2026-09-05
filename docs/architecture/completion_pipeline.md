@@ -59,6 +59,7 @@ UI
      -> route authorization and task preparation
      -> enqueue_chat_completion
         -> Redis turn lock / stale-lock recovery
+        -> canonical Persona selection capture
         -> optional participant prepare
         -> Redis chat queue
         -> optional participant commit
@@ -98,6 +99,9 @@ UI
 
 4. Shared acceptance is queue acceptance, not completion success.
    - `enqueue_chat_completion` enqueues a `ChatCompletionTask` onto `codexify:queue:chat` after the lock is held.
+   - After lock acquisition, the service reads the canonical thread Persona ID/revision pair into a strict `PersonaSelectionSnapshot`, replacing caller-supplied values before participant preparation or serialization. Read or validation failure releases the lock and prevents enqueue.
+   - Every new accepted task includes the snapshot: null/null explicitly records no selection, ID/null records revisionless selection, and ID/positive revision records a persisted Persona. A null snapshot is reserved for legacy payloads. Unknown fields and invalid pairs are rejected.
+   - The frozen value and existing authoritative-field guard prevent acceptance participants from changing the captured selection. The actual queue serializer retains it; later thread switches cannot rewrite the queued pair.
    - When a typed participant is supplied, its preparation runs after lock acquisition and before task serialization/enqueue. No current route supplies a participant.
    - Preparation failure prevents enqueue and causes the service to release the lock through a bounded pre-acceptance failure.
    - Enqueue or synchronous serialization failure after successful preparation invokes one best-effort participant rollback before the existing lock reconciliation. Rollback failure is recorded separately and never replaces the authoritative enqueue failure.
@@ -114,9 +118,15 @@ UI
 
 5. `task.created` is an important breadcrumb, but best-effort.
    - The shared acceptance operation attempts to publish `task.created` after enqueue and after any participant commit attempt.
+   - Its existing payload includes `persona_selection_snapshot` as captured acceptance evidence. This adds no independent truth surface.
    - This breadcrumb is useful because it gives operators and clients evidence that lifecycle publication started.
    - It is not authoritative acceptance proof by itself because enqueue success is the stronger signal; the `task.created` publish can fail without causing the route to fail.
    - Participant-commit failure and `task.created` failure are independent degradations and remain separately represented when both occur.
+
+The snapshot is capture-only in this slice. Worker/runtime execution still uses
+later thread selection. Consuming the accepted snapshot is the deferred next
+seam; no runtime-resolution, authorization, provider, or release semantics change.
+See [Chat Runtime Contract](./chat-runtime-contract.md#accepted-persona-selection).
 
 6. Worker execution starts with explicit running state.
    - The chat worker dequeues from `codexify:queue:chat`.

@@ -40,6 +40,7 @@ The canonical order is:
 
 ```text
 turn lock acquired
+-> canonical Persona selection captured
 -> optional participant prepare
 -> queue enqueue
 -> optional participant commit
@@ -70,6 +71,40 @@ not enqueue, publish events, manipulate locks, execute providers, bypass route
 authorization, or persist messages. This seam is orchestration capability only;
 it does not implement a Browser Context reference, store, or Chrome-sidebar
 binding.
+
+### Accepted Persona selection
+
+Every newly accepted `ChatCompletionTask` carries a service-owned
+`persona_selection_snapshot` (`PersonaSelectionSnapshot`). After acquiring the
+turn lock and before participant preparation or queue serialization, acceptance
+reads canonical thread `active_profile_id` and `active_profile_revision` and
+overwrites any caller-supplied snapshot. An unreadable or invalid pair prevents
+enqueue and releases the lock; it cannot become a new unsnapshotted acceptance.
+
+| Representation | Meaning |
+| --- | --- |
+| Snapshot `null` | Legacy task without an acceptance snapshot |
+| `{profile_id: null, profile_revision: null}` | Explicit no-profile selection |
+| Profile ID with null revision | Revisionless selection |
+| Profile ID with positive integer revision | Exact persisted Persona selection |
+
+The frozen typed pair rejects unknown/missing fields, invalid revisions, and
+revision-without-profile. Historical payloads without the snapshot remain
+readable as `None`; malformed present snapshots are rejected. The existing
+participant authoritative-field guard protects the captured pair from
+replacement during preparation, while the value itself rejects in-place edits.
+No Persona-specific participant authority is introduced.
+
+The serialized queue payload retains the pair. The existing best-effort
+`task.created` payload includes it as acceptance evidence, without becoming a
+second acceptance or execution authority. Capture does not resolve the manifest,
+grant account access, or change message/request/task identity (ADR-001,
+ADR-003, ADR-082).
+
+Worker/runtime consumption is deferred. Runtime still resolves later thread
+selection; this capture slice alone does not make execution reproducible across
+a subsequent thread switch. Revisionless selections capture an ID only, not
+built-in/environment/flow configuration content. No release claim changes.
 
 ### Completion task identity context
 

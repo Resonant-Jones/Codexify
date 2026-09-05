@@ -161,7 +161,11 @@ from guardian.queue.turn_lock import (
     turn_lock_is_stale,
 )
 from guardian.routes.health import _classify_chat_worker_heartbeat
-from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
+from guardian.tasks.types import (
+    ChatCompletionTask,
+    PersonaSelectionSnapshot,
+    TaskLifecycleState,
+)
 from guardian.vector.store import VectorStore
 from guardian.utils.log_safety import install_safe_logging
 
@@ -396,6 +400,11 @@ def _publish_completion_start_event(
         "origin": task.origin,
         "turn_id": turn_id,
         "latest_turn_message_id": getattr(task, "latest_turn_message_id", None),
+        "persona_selection_snapshot": (
+            asdict(task.persona_selection_snapshot)
+            if task.persona_selection_snapshot is not None
+            else None
+        ),
     }
     try:
         publish_result = task_events.publish_with_visibility(
@@ -704,6 +713,20 @@ def enqueue_chat_completion(
         turn_id=turn_id,
     )
 
+    task.persona_selection_snapshot = None
+    try:
+        thread = dependencies.chatlog_db.get_chat_thread(thread_id)
+        task.persona_selection_snapshot = PersonaSelectionSnapshot(
+            profile_id=thread["active_profile_id"],
+            profile_revision=thread["active_profile_revision"],
+        )
+    except Exception as exc:  # noqa: BLE001 - any read/validation failure blocks acceptance
+        _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+        raise ChatCompletionEnqueueError(
+            "persona_selection_snapshot_unavailable",
+            cause_class=type(exc).__name__,
+        ) from None
+
     participant_prepared = False
     if participant is not None:
         authoritative_fields = (
@@ -721,6 +744,7 @@ def enqueue_chat_completion(
             "provider_pinned",
             "requested_source_mode",
             "retrieval_override",
+            "persona_selection_snapshot",
         )
         authoritative_snapshot = {
             field: copy.deepcopy(getattr(task, field))
