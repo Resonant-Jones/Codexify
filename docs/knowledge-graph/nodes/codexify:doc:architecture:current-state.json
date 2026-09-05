@@ -1,79 +1,79 @@
 {
-"schema_version": "1.0.0",
-"record_type": "document_node",
-"document_id": "codexify:doc:architecture:current-state",
-"path": "docs/architecture/00-current-state.md",
-"title": "Codexify Current State",
-"kind": "current_state",
-"summary": "Canonical short-horizon authority for release readiness, supported paths, active blockers, current priorities, and the present release promise.",
-"aliases": [],
-"authority_class": "release_authority",
-"authority_scopes": [
-"release readiness",
-"supported install path",
-"active release blockers",
-"current priorities",
-"present release promise"
-],
-"lifecycle_state": "active",
-"freshness": {
-"state": "current",
-"verified_at": "2026-08-27T17:48:19Z",
-"verified_commit": "3b7264d36310a08e95a220dbfbf71de0893c7759",
-"triggers": [
-"the weekly freshness window expires",
-"the supported profile or release interpretation changes",
-"active blockers, priorities, or the audited implementation tip change"
-],
-"window_days": 7,
-"reason": "Re-verified current-state metadata against committed source revision 3b7264d36310a08e95a220dbfbf71de0893c7759 after restoring local Guardian Evidence bounded-read tooling truth; source hash synchronized, release posture unchanged, and no live-runtime proof or release-support expansion implied."
-},
-"disposition": "accepted",
-"evidence_class": "documented-contract",
-"owners": [
-"Codexify release maintainers"
-],
-"source_anchors": [
-{
-"path": "docs/architecture/00-current-state.md",
-"anchor_type": "document",
-"invalidates_freshness": true
-}
-],
-"read_when": [
-"answering release readiness or support questions",
-"checking the supported install path, active blockers, or current priorities",
-"bounding a product or architecture claim to the present release promise"
-],
-"must_not_prove": [
-"live runtime health at the current head",
-"implementation or support outside its declared release scope",
-"long-term architecture decisions outside current-state scope"
-],
-"retrieval_policy": {
-"default_policy": "include",
-"applicable_intents": [
-"architecture_decision",
-"current_state",
-"release_support"
-],
-"excluded_intents": [
-"live_runtime_proof"
-],
-"priority": "required",
-"section_hints": [
-"Current supported reality",
-"Not yet true / do not assume",
-"Active blockers",
-"Release definition right now"
-],
-"maximum_chunk_budget": 6
-},
-"temporal": {
-"created_at": "2026-03-11T13:30:22Z",
-"effective_from": "2026-08-08T00:00:00Z"
-},
-"content_hash": "eace9dc89bfc28f8f2fa74331602f607309589f348a7acc0818adfa4849bf478",
-"relations": [],
-"governing_adr_posture": "not_applicable"
+  "aliases": [],
+  "authority_class": "release_authority",
+  "authority_scopes": [
+    "release readiness",
+    "supported install path",
+    "active release blockers",
+    "current priorities",
+    "present release promise"
+  ],
+  "content_hash": "43a2318038425645671bd7f23d85c8873807776ec2d9554c17c038b50170cdc4",
+  "disposition": "accepted",
+  "document_id": "codexify:doc:architecture:current-state",
+  "evidence_class": "documented-contract",
+  "freshness": {
+    "reason": "Re-verified current-state against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b after restoring the accepted ADR-069 release-class structure. Source bytes synchronized. No live-runtime proof or release-support boundary widened; TTS/voice and federation remain Out of Beta; CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.",
+    "state": "current",
+    "triggers": [
+      "the weekly freshness window expires",
+      "the supported profile or release interpretation changes",
+      "active blockers, priorities, or the audited implementation tip change"
+    ],
+    "verified_at": "2026-09-04T18:22:01-04:00",
+    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b",
+    "window_days": 7
+  },
+  "governing_adr_posture": "not_applicable",
+  "kind": "current_state",
+  "lifecycle_state": "active",
+  "must_not_prove": [
+    "live runtime health at the current head",
+    "implementation or support outside its declared release scope",
+    "long-term architecture decisions outside current-state scope"
+  ],
+  "owners": [
+    "Codexify release maintainers"
+  ],
+  "path": "docs/architecture/00-current-state.md",
+  "read_when": [
+    "answering release readiness or support questions",
+    "checking the supported install path, active blockers, or current priorities",
+    "bounding a product or architecture claim to the present release promise"
+  ],
+  "record_type": "document_node",
+  "relations": [],
+  "retrieval_policy": {
+    "applicable_intents": [
+      "architecture_decision",
+      "current_state",
+      "release_support"
+    ],
+    "default_policy": "include",
+    "excluded_intents": [
+      "live_runtime_proof"
+    ],
+    "maximum_chunk_budget": 6,
+    "priority": "required",
+    "section_hints": [
+      "Current supported reality",
+      "Not yet true / do not assume",
+      "Active blockers",
+      "Release definition right now"
+    ]
+  },
+  "schema_version": "1.0.0",
+  "source_anchors": [
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/00-current-state.md"
+    }
+  ],
+  "summary": "Canonical short-horizon authority for release readiness, supported paths, active blockers, current priorities, and the present release promise.",
+  "temporal": {
+    "created_at": "2026-03-11T13:30:22Z",
+    "effective_from": "2026-08-08T00:00:00Z"
+  },
+  "title": "Codexify Current State"
 }

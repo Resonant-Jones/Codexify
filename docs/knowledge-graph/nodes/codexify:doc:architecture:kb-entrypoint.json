@@ -1,11 +1,4 @@
 {
-  "schema_version": "1.0.0",
-  "record_type": "document_node",
-  "document_id": "codexify:doc:architecture:kb-entrypoint",
-  "path": "docs/architecture/README.md",
-  "title": "Codexify Architecture KB",
-  "kind": "runtime_map",
-  "summary": "Architecture KB entrypoint that routes readers to current truth, governing documents, subsystem maps, and change locations.",
   "aliases": [],
   "authority_class": "structural_authority",
   "authority_scopes": [
@@ -13,98 +6,105 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "lifecycle_state": "active",
+  "content_hash": "6fda41d8a7996efe17e0424791dfc8333a1872e5c68073442759c7932a54f1d5",
+  "disposition": "accepted",
+  "document_id": "codexify:doc:architecture:kb-entrypoint",
+  "evidence_class": "documented-contract",
   "freshness": {
+    "reason": "Re-verified KB entrypoint metadata against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b. The KB entrypoint and all declared freshness-invalidating anchors (including docs/architecture/00-current-state.md) were re-reviewed against the committed source revision; the unreachable [OBSOLETE-SHA-REDACTED] reference is removed. Broken-link warnings in docs/architecture/README.md are not claimed repaired by this task.",
     "state": "current",
-    "verified_at": "2026-08-31T13:37:17Z",
-    "verified_commit": "9d5b7a8570ac605e0773892e2b5ba0300a960d80",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-reviewed the Architecture KB after adding the ADR-077 routing entry. Source bytes are synchronized during the same focused documentation change; the entry routes sandbox execution work without promoting runtime or release support."
+    "verified_at": "2026-09-04T18:22:01-04:00",
+    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b"
   },
-  "disposition": "accepted",
-  "evidence_class": "documented-contract",
-  "owners": [
-    "Codexify architecture maintainers"
-  ],
-  "source_anchors": [
-    {
-      "path": "docs/architecture/README.md",
-      "anchor_type": "document",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "docs/architecture/00-current-state.md",
-      "anchor_type": "document",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "docs/architecture/",
-      "anchor_type": "document",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "guardian/routes/",
-      "anchor_type": "code",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "guardian/workers/",
-      "anchor_type": "code",
-      "invalidates_freshness": true
-    },
-    {
-      "path": "frontend/src/App.tsx",
-      "anchor_type": "code",
-      "invalidates_freshness": true
-    }
-  ],
-  "read_when": [
-    "orienting to the Codexify architecture corpus",
-    "finding the governing source for a subsystem or task",
-    "locating the code and documents affected by a proposed change"
-  ],
+  "governing_adr_posture": "not_applicable",
+  "kind": "runtime_map",
+  "lifecycle_state": "active",
   "must_not_prove": [
     "release readiness or supported-path truth independently of current-state authority",
     "live runtime behavior",
     "normative authority inherited from linked ADRs or contracts"
   ],
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "path": "docs/architecture/README.md",
+  "read_when": [
+    "orienting to the Codexify architecture corpus",
+    "finding the governing source for a subsystem or task",
+    "locating the code and documents affected by a proposed change"
+  ],
+  "record_type": "document_node",
+  "relations": [
+    {
+      "authority_scope": "release-truth routing and short-horizon architecture orientation",
+      "canonicality": "canonical",
+      "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor.",
+      "relation_type": "depends_on",
+      "review_status": "accepted",
+      "target_document_id": "codexify:doc:architecture:current-state"
+    }
+  ],
   "retrieval_policy": {
-    "default_policy": "conditional",
     "applicable_intents": [
       "architecture_orientation",
       "implementation_planning",
       "source_routing"
     ],
+    "default_policy": "conditional",
     "excluded_intents": [
       "current_head_proof",
       "live_runtime_proof"
     ],
+    "maximum_chunk_budget": 8,
     "priority": "primary",
     "section_hints": [
       "Doc Map",
       "Start Here",
       "Where Do I Change X?"
-    ],
-    "maximum_chunk_budget": 8
+    ]
   },
+  "schema_version": "1.0.0",
+  "source_anchors": [
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/README.md"
+    },
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/00-current-state.md"
+    },
+    {
+      "anchor_type": "document",
+      "invalidates_freshness": true,
+      "path": "docs/architecture/"
+    },
+    {
+      "anchor_type": "code",
+      "invalidates_freshness": true,
+      "path": "guardian/routes/"
+    },
+    {
+      "anchor_type": "code",
+      "invalidates_freshness": true,
+      "path": "guardian/workers/"
+    },
+    {
+      "anchor_type": "code",
+      "invalidates_freshness": true,
+      "path": "frontend/src/App.tsx"
+    }
+  ],
+  "summary": "Architecture KB entrypoint that routes readers to current truth, governing documents, subsystem maps, and change locations.",
   "temporal": {
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "9384fcf5d713a5e2653f24cd2b9490d88cc084a71908c8b27e6bd16514e6a79d",
-  "relations": [
-    {
-      "relation_type": "depends_on",
-      "target_document_id": "codexify:doc:architecture:current-state",
-      "authority_scope": "release-truth routing and short-horizon architecture orientation",
-      "canonicality": "canonical",
-      "review_status": "accepted",
-      "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor."
-    }
-  ],
-  "governing_adr_posture": "not_applicable"
+  "title": "Codexify Architecture KB"
 }
