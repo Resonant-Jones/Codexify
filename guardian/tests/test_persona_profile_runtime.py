@@ -21,7 +21,11 @@ from guardian.cognition.system_profiles import (
 from guardian.cognition.system_profiles import store as persona_profile_store
 from guardian.core import chat_completion_service
 from guardian.db import models as db_models
-from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.types import (
+    ChatCompletionTask,
+    PersonaSelectionSnapshot,
+    task_from_dict,
+)
 
 
 def _coerce_int(value: Any) -> int:
@@ -100,6 +104,29 @@ class _FakeChatLogDB:
         if _coerce_int(self._thread.get("id", 0)) != int(thread_id):
             return []
         return list(self._messages)
+
+
+def _accept_task(monkeypatch, db, task):
+    """Capture through production acceptance and reconstruct the queued task."""
+    from guardian.queue.redis_queue import _deserialize, _serialize
+
+    queued = []
+    monkeypatch.setattr(chat_completion_service.dependencies, "chatlog_db", db)
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *_a: True)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "enqueue",
+        lambda value, _queue: queued.append(_serialize(value)),
+    )
+    monkeypatch.setattr(
+        chat_completion_service.task_events,
+        "publish_with_visibility",
+        lambda *_a: {"ok": True, "event_id": "accepted"},
+    )
+    chat_completion_service.enqueue_chat_completion(
+        task, thread_id=task.thread_id, turn_id="test-turn"
+    )
+    return task_from_dict(_deserialize(queued[0]))
 
 
 def _fake_retrieval_plan():
@@ -299,13 +326,16 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
 
         task = ChatCompletionTask(
             user_id="account-a",
-            task_id="task-runtime",
             thread_id=42,
             origin="test",
         )
 
         system_profile_resolver.switch_thread_profile(
             42, "profile-runtime", chatlog_db=fake_db
+        )
+        task = _accept_task(monkeypatch, fake_db, task)
+        assert task.persona_selection_snapshot == PersonaSelectionSnapshot(
+            "profile-runtime", 1
         )
         persona_profile_store.update_persona_profile(
             "profile-runtime",
@@ -316,7 +346,10 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             model_id="edited-model",
             temperature=0.8,
         )
-        assert fake_db._thread["active_profile_revision"] == 1
+        system_profile_resolver.switch_thread_profile(
+            42, "profile-runtime", chatlog_db=fake_db
+        )
+        assert fake_db._thread["active_profile_revision"] == 2
 
         result = chat_completion_service.run_chat_completion_task(
             task,
@@ -334,7 +367,9 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         assert captured["messages"][0]["role"] == "system"
         assert captured["messages"][-1]["role"] == "user"
         assert (
-            captured["messages"][0]["content"]
+            captured["messages"][0]["content"].split(
+                "\n\nCompletion targeting guidance:"
+            )[0]
             == "Backend prompt for the runtime profile."
         )
 
@@ -342,9 +377,8 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             42, "profile-runtime", chatlog_db=fake_db
         )
         assert fake_db._thread["active_profile_revision"] == 2
-        next_task = ChatCompletionTask(
-            user_id="account-a", task_id="next-task", thread_id=42, origin="test"
-        )
+        next_task = ChatCompletionTask(user_id="account-a", thread_id=42, origin="test")
+        next_task = _accept_task(monkeypatch, fake_db, next_task)
         chat_completion_service.run_chat_completion_task(
             next_task, persist_assistant_message=False
         )
@@ -353,12 +387,61 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
             "edited-model",
             0.8,
         )
-        assert captured["messages"][0]["content"] == "Edited instructions."
+        assert (
+            captured["messages"][0]["content"].split(
+                "\n\nCompletion targeting guidance:"
+            )[0]
+            == "Edited instructions."
+        )
 
-        fake_db._thread["active_profile_revision"] = 99
+        system_profile_resolver.switch_thread_profile(
+            42, "local_mode", chatlog_db=fake_db
+        )
+        task.attempt_id = "retry-attempt"
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+        assert task.persona_selection_snapshot == PersonaSelectionSnapshot(
+            "profile-runtime", 1
+        )
+        assert (captured["provider"], captured["model"], captured["temperature"]) == (
+            "openai",
+            "gpt-4o",
+            0.25,
+        )
+        assert (
+            captured["messages"][0]["content"].split(
+                "\n\nCompletion targeting guidance:"
+            )[0]
+            == "Backend prompt for the runtime profile."
+        )
+
+        # Legacy tasks intentionally follow the current thread selection.
+        system_profile_resolver.switch_thread_profile(
+            42, "profile-runtime", chatlog_db=fake_db
+        )
+        legacy = ChatCompletionTask(user_id="account-a", thread_id=42)
+        chat_completion_service.run_chat_completion_task(
+            legacy, persist_assistant_message=False
+        )
+        assert (
+            captured["messages"][0]["content"].split(
+                "\n\nCompletion targeting guidance:"
+            )[0]
+            == "Edited instructions."
+        )
+        assert (captured["provider"], captured["model"], captured["temperature"]) == (
+            "anthropic",
+            "edited-model",
+            0.8,
+        )
         captured.clear()
         invalid_task = ChatCompletionTask(
-            user_id="account-a", task_id="invalid-task", thread_id=42, origin="test"
+            user_id="account-a",
+            task_id="invalid-task",
+            thread_id=42,
+            origin="test",
+            persona_selection_snapshot=PersonaSelectionSnapshot("profile-runtime", 99),
         )
         with pytest.raises(system_profile_resolver.ProfileResolutionError):
             chat_completion_service.run_chat_completion_task(

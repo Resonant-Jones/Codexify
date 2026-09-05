@@ -772,6 +772,33 @@ class WarmupTask(BaseTask):
         return cls(models=list(models), **base)
 
 
+@dataclass(frozen=True)
+class PersonaSelectionSnapshot:
+    """Server-captured selection; neither authored content nor an authority grant."""
+
+    profile_id: str | None
+    profile_revision: int | None
+
+    def __post_init__(self) -> None:
+        if self.profile_id is not None and (
+            not isinstance(self.profile_id, str) or not self.profile_id.strip()
+        ):
+            raise ValueError("profile_id must be a non-blank string or null")
+        if self.profile_revision is not None:
+            if type(self.profile_revision) is not int or self.profile_revision <= 0:
+                raise ValueError("profile_revision must be a positive integer or null")
+            if self.profile_id is None:
+                raise ValueError("profile_revision requires profile_id")
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> PersonaSelectionSnapshot:
+        if not isinstance(payload, dict) or set(payload) != {
+            "profile_id", "profile_revision"
+        }:
+            raise ValueError("persona_selection_snapshot requires exactly both fields")
+        return cls(**payload)
+
+
 @dataclass(kw_only=True)
 class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
@@ -803,9 +830,17 @@ class ChatCompletionTask(BaseTask):
     guardian_name: str | None = None
     attempt_id: str = ""
     hosted_room_invocation: HostedRoomInvocationMetadata | None = None
+    # None is reserved for historical tasks without an acceptance snapshot.
+    persona_selection_snapshot: PersonaSelectionSnapshot | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        if self.persona_selection_snapshot is not None and not isinstance(
+            self.persona_selection_snapshot, PersonaSelectionSnapshot
+        ):
+            self.persona_selection_snapshot = PersonaSelectionSnapshot.from_dict(
+                self.persona_selection_snapshot
+            )
         self.request_id, _ = normalize_request_id(self.request_id)
         self.task_id = normalize_optional_identifier(self.task_id) or str(uuid.uuid4())
         self.attempt_id = normalize_optional_identifier(self.attempt_id) or ""
@@ -867,6 +902,7 @@ class ChatCompletionTask(BaseTask):
             hosted_room_invocation=_coerce_hosted_room_invocation_metadata(
                 payload.get("hosted_room_invocation")
             ),
+            persona_selection_snapshot=payload.get("persona_selection_snapshot"),
             **base,
         )
 
