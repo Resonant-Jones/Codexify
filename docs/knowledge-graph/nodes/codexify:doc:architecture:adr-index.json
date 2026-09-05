@@ -8,20 +8,20 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "71d7c52dde6c2c63080cd3e17d5701a1a647513acd794eec20efab31ee04a4d7",
+  "content_hash": "d3a153bc0ea324dfad997b7682cd31ffb8cfa3e9a777bb0b693601d1a24bfeb7",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified ADR-index metadata against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b. The ADR index and declared ADR anchors were reverified against reachable canonical history; the obsolete unreachable [OBSOLETE-SHA-REDACTED] freshness reference was replaced. No ADR identity, numbering, or release semantics changed. ADR-number collisions (053, 076) remain reported separately and are not addressed by this task.",
+    "reason": "Re-reverified ADR-index metadata against committed source revision 55e5475a4e53ecdb92a3be15e284a370a55ed05f. The ADR index and declared ADR anchor set were re-reviewed; ADR-082 (Persona Profile Manifest and Binding Authority) and the intervening Persona Studio / ADR-082 cross-references are included. No ADR identity, numbering, acceptance, or release semantics were changed by this metadata task. ADR-053 and ADR-076 numeric collisions remain reported separately and are not gating.",
     "state": "current",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "verified_at": "2026-09-04T18:22:01-04:00",
-    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b"
+    "verified_at": "2026-09-05T12:32:56Z",
+    "verified_commit": "55e5475a4e53ecdb92a3be15e284a370a55ed05f"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
