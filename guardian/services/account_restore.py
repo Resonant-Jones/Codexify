@@ -6,9 +6,10 @@ import json
 import logging
 import zipfile
 from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any, Mapping
+from dataclasses import dataclass
+from typing import Any
 
+from guardian.cognition.system_profiles.manifest import PersonaProfileManifest
 from guardian.extensions.tokens import (
     EXTENSION_INSTALL_BINDING_SCOPES,
     EXTENSION_INSTALL_BINDING_STATUSES,
@@ -23,17 +24,22 @@ from guardian.services.account_export import (
     MANIFEST_SCHEMA_VERSION,
     PAYLOAD_FAMILIES,
     PAYLOAD_ORDER,
+    PAYLOAD_ORDER_BY_SCHEMA,
 )
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_SCHEMA_VERSIONS = {MANIFEST_SCHEMA_VERSION, "account-export.v1"}
+SUPPORTED_SCHEMA_VERSIONS = {
+    "account-export.v1",
+    "account-export.v2",
+    MANIFEST_SCHEMA_VERSION,
+}
 
 # Restore order is dependency-safe for the current schema. It differs from the
 # export order because `chat_threads` must exist before any row that points at a
 # thread, and `media_assets` must exist before document/image rows that carry an
-# `asset_id` FK.
-RESTORE_ORDER = (
+# `asset_id` FK. V3 also restores Persona state before any pinned thread.
+HISTORICAL_RESTORE_ORDER = (
     "projects",
     "chat_threads",
     "chat_messages",
@@ -49,6 +55,12 @@ RESTORE_ORDER = (
     "extension_install_gate_decisions",
     "extension_registry_entries",
     "extension_install_bindings",
+)
+RESTORE_ORDER = (
+    "persona_profiles",
+    "persona_profile_revisions",
+    "persona_profile_bindings",
+    *HISTORICAL_RESTORE_ORDER,
 )
 
 RESTORE_METHODS = {
@@ -80,7 +92,15 @@ def _empty_blob_coverage() -> dict[str, Any]:
     }
 
 
-def _empty_family_reports() -> list[dict[str, Any]]:
+def _restore_order_for_schema(schema_version: str | None) -> tuple[str, ...]:
+    if schema_version == MANIFEST_SCHEMA_VERSION:
+        return RESTORE_ORDER
+    return HISTORICAL_RESTORE_ORDER
+
+
+def _empty_family_reports(
+    restore_order: tuple[str, ...] = RESTORE_ORDER,
+) -> list[dict[str, Any]]:
     return [
         {
             "family": family,
@@ -91,7 +111,7 @@ def _empty_family_reports() -> list[dict[str, Any]]:
             "failed": 0,
             "unresolved": 0,
         }
-        for family in RESTORE_ORDER
+        for family in restore_order
     ]
 
 
@@ -340,6 +360,11 @@ class AccountRestoreService:
                         },
                     )
 
+                schema_payload_order = PAYLOAD_ORDER_BY_SCHEMA[schema_version]
+                schema_payload_families = tuple(
+                    entry[0] for entry in schema_payload_order
+                )
+
                 entity_counts = manifest.get("entity_counts")
                 if not isinstance(entity_counts, dict):
                     raise self._validation_error(
@@ -351,12 +376,16 @@ class AccountRestoreService:
                 included_families = manifest.get("included_families")
                 if not isinstance(included_families, list) or {
                     str(item) for item in included_families
-                } != set(PAYLOAD_FAMILIES):
+                } != set(schema_payload_families) or len(
+                    included_families
+                ) != len(schema_payload_families):
                     raise self._validation_error(
                         "manifest_invalid",
                         "manifest.json must enumerate the canonical payload families",
                         manifest=manifest,
-                        details={"expected_families": list(PAYLOAD_FAMILIES)},
+                        details={
+                            "expected_families": list(schema_payload_families)
+                        },
                     )
 
                 integrity = manifest.get("integrity")
@@ -410,7 +439,7 @@ class AccountRestoreService:
                     )
 
                 payload_rows: dict[str, list[dict[str, Any]]] = {}
-                for family, path, _reader_name in PAYLOAD_ORDER:
+                for family, path, _reader_name in schema_payload_order:
                     if path not in archive_names:
                         raise self._validation_error(
                             "payload_missing",
@@ -1461,6 +1490,208 @@ class AccountRestoreService:
                     details={"binding_id": binding_id},
                 )
 
+        if "persona_profiles" in payload_rows:
+            self._validate_persona_profiles(
+                manifest=manifest,
+                payload_rows=payload_rows,
+                user_id=user_id,
+            )
+        payload_rows["chat_threads"] = self._prepare_thread_profile_pins(
+            manifest=manifest, payload_rows=payload_rows, user_id=user_id
+        )
+
+    def _prepare_thread_profile_pins(
+        self,
+        *,
+        manifest: dict[str, Any],
+        payload_rows: dict[str, list[dict[str, Any]]],
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        """Validate pins before writes; normalize historical archive omissions.
+
+        Derivation consults only this validated archive, never the receiving
+        database's current profiles. Explicit NULL remains revisionless.
+        """
+        profiles = {row["id"]: row for row in payload_rows.get("persona_profiles", [])}
+        bindings = {
+            row["profile_id"]: row
+            for row in payload_rows.get("persona_profile_bindings", [])
+        }
+        revision_keys = {
+            (row["profile_id"], row["revision"])
+            for row in payload_rows.get("persona_profile_revisions", [])
+        }
+        normalized = []
+        for original in payload_rows["chat_threads"]:
+            row = dict(original)
+            profile_id = row.get("active_profile_id")
+            if profile_id is not None and not isinstance(profile_id, str):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "Thread active_profile_id must be a string or null",
+                    manifest=manifest,
+                    details={"thread_id": row.get("id")},
+                )
+            if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+                row["active_profile_revision"] = None
+            elif "active_profile_revision" not in row:
+                row["active_profile_revision"] = None
+                metadata = row.get("metadata") or {}
+                overrides = (
+                    metadata.get("profile_overrides")
+                    if isinstance(metadata, dict)
+                    else None
+                )
+                if (
+                    profile_id in profiles
+                    and bindings.get(profile_id, {}).get("owner_account_id") == user_id
+                    and row.get("user_id") == user_id
+                    and not (isinstance(overrides, dict) and profile_id in overrides)
+                ):
+                    current = profiles[profile_id]["current_revision"]
+                    if (profile_id, current) in revision_keys:
+                        row["active_profile_revision"] = current
+            revision = row.get("active_profile_revision")
+            if revision is not None and (
+                type(revision) is not int
+                or revision <= 0
+                or row.get("user_id") != user_id
+                or bindings.get(profile_id, {}).get("owner_account_id") != user_id
+                or (profile_id, revision) not in revision_keys
+            ):
+                raise self._validation_error(
+                    "persona_thread_revision_unavailable",
+                    "Thread Persona Profile revision is unavailable in this account archive",
+                    manifest=manifest,
+                    details={"thread_id": row.get("id")},
+                )
+            normalized.append(row)
+        return normalized
+
+    def _validate_persona_profiles(
+        self,
+        *,
+        manifest: dict[str, Any],
+        payload_rows: dict[str, list[dict[str, Any]]],
+        user_id: str,
+    ) -> None:
+        profiles = self._index_rows(payload_rows["persona_profiles"], "id", manifest)
+        bindings = self._index_rows(
+            payload_rows["persona_profile_bindings"],
+            "profile_id",
+            manifest,
+        )
+        revision_keys: set[tuple[str, int]] = set()
+
+        for profile_id, row in profiles.items():
+            try:
+                current_revision = int(row.get("current_revision"))
+            except (TypeError, ValueError) as exc:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "persona_profiles.current_revision must be a positive integer",
+                    manifest=manifest,
+                    details={"profile_id": profile_id},
+                ) from exc
+            if current_revision <= 0 or any(
+                row.get(field) is None
+                for field in ("created_at", "updated_at")
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "persona_profiles rows require a positive current_revision and timestamps",
+                    manifest=manifest,
+                    details={"profile_id": profile_id},
+                )
+
+        for row in payload_rows["persona_profile_revisions"]:
+            profile_id = str(row.get("profile_id") or "").strip()
+            try:
+                revision_number = int(row.get("revision"))
+                persona_manifest = PersonaProfileManifest.model_validate(
+                    row.get("manifest_json")
+                )
+            except Exception as exc:
+                raise self._validation_error(
+                    "persona_manifest_invalid",
+                    "Persona Profile revision contains an invalid canonical manifest",
+                    manifest=manifest,
+                    details={"profile_id": profile_id},
+                ) from exc
+            key = (profile_id, revision_number)
+            if key in revision_keys:
+                raise self._validation_error(
+                    "duplicate_ids",
+                    "Archive contains duplicate Persona Profile revisions",
+                    manifest=manifest,
+                    details={"profile_id": profile_id, "revision": revision_number},
+                )
+            if profile_id not in profiles:
+                raise self._validation_error(
+                    "relationship_missing",
+                    "Persona Profile revision does not reference an exported profile",
+                    manifest=manifest,
+                    details={"profile_id": profile_id, "revision": revision_number},
+                )
+            if (
+                revision_number <= 0
+                or persona_manifest.profile_identity != profile_id
+                or persona_manifest.revision != revision_number
+                or persona_manifest.api_version
+                != str(row.get("api_version") or "").strip()
+                or row.get("created_at") is None
+            ):
+                raise self._validation_error(
+                    "persona_revision_mismatch",
+                    "Persona Profile revision metadata does not match its manifest",
+                    manifest=manifest,
+                    details={"profile_id": profile_id, "revision": revision_number},
+                )
+            revision_keys.add(key)
+
+        if set(bindings) != set(profiles):
+            raise self._validation_error(
+                "persona_binding_mismatch",
+                "Every exported Persona Profile must have exactly one account binding",
+                manifest=manifest,
+            )
+        for profile_id, row in bindings.items():
+            owner_account_id = str(row.get("owner_account_id") or "").strip()
+            if owner_account_id != user_id:
+                raise self._validation_error(
+                    "user_mismatch",
+                    "Persona Profile binding owner does not match the archive user",
+                    status_code=403,
+                    manifest=manifest,
+                    details={
+                        "profile_id": profile_id,
+                        "archive_user_id": user_id,
+                        "row_account_id": owner_account_id,
+                    },
+                )
+            if any(
+                row.get(field) is None
+                for field in ("created_at", "updated_at")
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "persona_profile_bindings rows require timestamps",
+                    manifest=manifest,
+                    details={"profile_id": profile_id},
+                )
+
+        for profile_id, row in profiles.items():
+            if (profile_id, int(row["current_revision"])) not in revision_keys:
+                raise self._validation_error(
+                    "persona_current_revision_missing",
+                    "Persona Profile current_revision is absent from immutable history",
+                    manifest=manifest,
+                    details={
+                        "profile_id": profile_id,
+                        "current_revision": row["current_revision"],
+                    },
+                )
+
     def _index_rows(
         self,
         rows: list[dict[str, Any]],
@@ -1508,7 +1739,10 @@ class AccountRestoreService:
         )
 
         def _call_restore(
-            method_name: str, rows: list[dict[str, Any]], conn: Any | None
+            method_name: str,
+            rows: list[dict[str, Any]],
+            conn: Any | None,
+            **kwargs: Any,
         ) -> dict[str, Any]:
             helper = getattr(self.db, method_name, None)
             if not callable(helper):
@@ -1528,9 +1762,9 @@ class AccountRestoreService:
                     ],
                 )
             if conn is None:
-                result = helper(rows)
+                result = helper(rows, **kwargs)
             else:
-                result = helper(rows, conn=conn)
+                result = helper(rows, conn=conn, **kwargs)
             if not isinstance(result, dict):
                 raise AccountRestoreError(
                     f"Restore helper {method_name} must return a mapping of counts",
@@ -1584,6 +1818,7 @@ class AccountRestoreService:
             counts["failed"] += failed
             counts["unresolved"] += unresolved
 
+        restore_order = _restore_order_for_schema(parsed.schema_version)
         ordered_rows = {
             "projects": self._sort_projects(parsed.payload_rows["projects"]),
             "chat_threads": self._sort_threads(
@@ -1629,22 +1864,55 @@ class AccountRestoreService:
                 parsed.payload_rows["extension_install_bindings"]
             ),
         }
+        if parsed.schema_version == MANIFEST_SCHEMA_VERSION:
+            ordered_rows.update(
+                {
+                    "persona_profiles": self._prepare_persona_profiles(
+                        parsed.payload_rows["persona_profiles"],
+                        parsed.payload_rows["persona_profile_revisions"],
+                    ),
+                    "persona_profile_revisions": self._sort_persona_revisions(
+                        parsed.payload_rows["persona_profile_revisions"]
+                    ),
+                    "persona_profile_bindings": self._sort_persona_bindings(
+                        parsed.payload_rows["persona_profile_bindings"]
+                    ),
+                }
+            )
 
         try:
             if hasattr(self.db, "_connect") and callable(
                 getattr(self.db, "_connect")
             ):
                 with self.db._connect() as conn:  # type: ignore[attr-defined]
-                    for family in RESTORE_ORDER:
+                    for family in restore_order:
                         rows = ordered_rows[family]
-                        result = _call_restore(
-                            RESTORE_METHODS[family], rows, conn
-                        )
+                        if family == "persona_profile_bindings":
+                            result = _call_restore(
+                                RESTORE_METHODS[family],
+                                rows,
+                                conn,
+                                target_user_id=parsed.user_id,
+                            )
+                        else:
+                            result = _call_restore(
+                                RESTORE_METHODS[family], rows, conn
+                            )
                         _record_family(family, rows, result)
             else:
-                for family in RESTORE_ORDER:
+                for family in restore_order:
                     rows = ordered_rows[family]
-                    result = _call_restore(RESTORE_METHODS[family], rows, None)
+                    if family == "persona_profile_bindings":
+                        result = _call_restore(
+                            RESTORE_METHODS[family],
+                            rows,
+                            None,
+                            target_user_id=parsed.user_id,
+                        )
+                    else:
+                        result = _call_restore(
+                            RESTORE_METHODS[family], rows, None
+                        )
                     _record_family(family, rows, result)
         except AccountRestoreError:
             raise
@@ -1697,7 +1965,9 @@ class AccountRestoreService:
                 unresolved=family_reports[-1].unresolved,
             )
         else:
-            family_reports = _empty_family_reports()  # type: ignore[assignment]
+            family_reports = _empty_family_reports(
+                _restore_order_for_schema(parsed.schema_version)
+            )  # type: ignore[assignment]
         counts = dict(counts)
         counts["failed"] = counts.get("failed", 0) + 1
         return AccountRestoreConflictError(
@@ -1909,6 +2179,54 @@ class AccountRestoreService:
             ),
         )
 
+    def _prepare_persona_profiles(
+        self,
+        profiles: list[dict[str, Any]],
+        revisions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        revisions_by_key = {
+            (str(row["profile_id"]), int(row["revision"])): row
+            for row in revisions
+        }
+        prepared: list[dict[str, Any]] = []
+        for profile in profiles:
+            profile_id = str(profile["id"])
+            current_revision = int(profile["current_revision"])
+            revision_row = revisions_by_key[(profile_id, current_revision)]
+            persona_manifest = PersonaProfileManifest.model_validate(
+                revision_row["manifest_json"]
+            )
+            prepared.append(
+                {
+                    "id": profile_id,
+                    "name": persona_manifest.identity.name,
+                    "system_prompt": persona_manifest.prompt.system_prompt,
+                    "model_provider": persona_manifest.model.provider,
+                    "model_id": persona_manifest.model.model,
+                    "temperature": persona_manifest.model.temperature,
+                    "current_revision": current_revision,
+                    "created_at": profile["created_at"],
+                    "updated_at": profile["updated_at"],
+                }
+            )
+        return sorted(prepared, key=lambda row: _sort_text(row["id"]))
+
+    def _sort_persona_revisions(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return sorted(
+            rows,
+            key=lambda row: (
+                _sort_text(row.get("profile_id")),
+                int(row.get("revision") or 0),
+            ),
+        )
+
+    def _sort_persona_bindings(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return sorted(rows, key=lambda row: _sort_text(row.get("profile_id")))
+
     def _validation_error(
         self,
         code: str,
@@ -1940,6 +2258,9 @@ class AccountRestoreService:
             export_kind=export_kind,
             archive_includes_blob_coverage=archive_includes_blob_coverage,
             blob_coverage=blob_coverage,
+            families=_empty_family_reports(
+                _restore_order_for_schema(schema_version)
+            ),
             notes=[
                 "No database writes were performed.",
             ],

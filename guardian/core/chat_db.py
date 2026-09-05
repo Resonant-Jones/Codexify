@@ -139,6 +139,7 @@ class ChatDB(ABC):
         project_id_set: bool = False,
         active_profile_id: str | None = None,
         active_profile_id_set: bool = False,
+        active_profile_revision: int | None = None,
     ) -> bool:
         """Update a chat thread.
 
@@ -150,6 +151,7 @@ class ChatDB(ABC):
             project_id_set (bool, optional): True to set project_id even when None.
             active_profile_id (Optional[str], optional): The active system profile id.
             active_profile_id_set (bool, optional): True to set active_profile_id even when None.
+            active_profile_revision: Immutable revision, or None for revisionless selection.
 
         Returns:
             None
@@ -158,9 +160,9 @@ class ChatDB(ABC):
 
     @abstractmethod
     def set_thread_active_profile_id(
-        self, thread_id: int, profile_id: str | None
+        self, thread_id: int, profile_id: str | None, *, profile_revision: int | None = None
     ) -> bool:
-        """Set active profile id for a thread.
+        """Atomically set profile ID and revision; legacy callers clear the pin.
 
         Args:
             thread_id (int): The target thread.

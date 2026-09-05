@@ -312,6 +312,7 @@ class _PostgresGuardianDB:
             ),
             "parent_id": thread.parent_id,
             "active_profile_id": thread.active_profile_id,
+            "active_profile_revision": thread.active_profile_revision,
             "thread_config": thread.thread_config,
             "is_diary": bool(thread.is_diary),
             "diary_mode": bool(thread.diary_mode),
@@ -461,6 +462,7 @@ class _PostgresGuardianDB:
         project_id_set: bool = False,
         active_profile_id: Optional[str] = None,
         active_profile_id_set: bool = False,
+        active_profile_revision: int | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Update thread fields."""
         with self.get_session() as session:
@@ -478,18 +480,20 @@ class _PostgresGuardianDB:
                 )
             if active_profile_id_set:
                 thread.active_profile_id = active_profile_id
+                thread.active_profile_revision = active_profile_revision
 
             session.commit()
             return self.get_chat_thread(thread_id)
 
     def set_thread_active_profile_id(
-        self, thread_id: int, profile_id: Optional[str]
+        self, thread_id: int, profile_id: Optional[str], *, profile_revision: int | None = None
     ) -> bool:
         with self.get_session() as session:
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
             if not thread:
                 return False
             thread.active_profile_id = profile_id
+            thread.active_profile_revision = profile_revision
             session.commit()
             return True
 

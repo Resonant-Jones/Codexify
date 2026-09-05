@@ -8,6 +8,17 @@
 
 This is a docs-only contract and proof-plan artifact. It defines Persona Studio V1 boundaries. It does **not** implement Persona Studio, add UI, routes, persistence, permissions behavior, retrieval behavior, runtime flags, execution authority, migrations, or tests. It does not widen release support.
 
+## Current-truth / supersession notice (added 2026-09-04)
+
+This artifact remains an accurate record of the bounded C07 V1 proof and the
+local-preview claims it tested at that time. Later code introduced backend
+Persona Profile persistence and five-field system-profile runtime integration,
+so its local-only and no-backend-persistence statements are no longer current
+implementation truth. ADR-082 governs future Persona Profile manifest,
+persistence, revision, and binding semantics. C07's no-chat, no-memory,
+no-durable-identity, and no-implicit-authority invariants remain preserved
+unless a later governing record explicitly supersedes them.
+
 ## Current Trail
 
 - C03 closed — coding delegation spine

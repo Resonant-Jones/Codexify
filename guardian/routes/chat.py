@@ -44,6 +44,7 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.cognition.system_profiles.resolver import ProfileResolutionError
 from guardian.context.context_directive_resolver import (
     resolve_context_request_plans,
     serialize_context_request_plans,
@@ -476,6 +477,7 @@ try:
     from guardian.cognition.system_profiles.resolver import (
         list_available_system_profiles,
         resolve_thread_system_profile,
+        switch_thread_profile,
     )
 except Exception:
     list_available_system_profiles = None
@@ -3216,12 +3218,22 @@ def chat_get_thread_profile(
     resolved_profile: dict[str, Any] | None = None
     if resolve_thread_system_profile:
         try:
-            resolved = resolve_thread_system_profile(
-                thread_id, chatlog_db=chatlog_db
+            resolved = resolve_thread_system_profile(thread_id, chatlog_db=chatlog_db)
+            resolved_profile = resolved.model_dump(mode="json")
+        except ProfileResolutionError as exc:
+            logger.warning(
+                "[chat.profile] unavailable thread_id=%s code=%s", thread_id, exc.code
             )
-            resolved_profile = resolved.model_dump(
-                mode="json", exclude_none=True
-            )
+            return {
+                "ok": False,
+                "thread_id": thread_id,
+                "error": exc.code,
+                "profile": {
+                    "active_profile_id": thread.get("active_profile_id"),
+                    "active_profile_revision": thread.get("active_profile_revision"),
+                    "source": "unavailable",
+                },
+            }
         except Exception as exc:
             logger.warning(
                 "[chat.profile] resolve failed thread_id=%s err=%s",
@@ -3248,6 +3260,7 @@ def chat_get_thread_profile(
         resolved_profile = {
             "profile_id": active_profile_id or "default",
             "active_profile_id": active_profile_id,
+            "active_profile_revision": thread.get("active_profile_revision"),
             "name": "Default"
             if not active_profile_id
             else str(active_profile_id),
@@ -3303,9 +3316,10 @@ def _switch_thread_profile_payload(
         "thread_id": thread_id,
         "profile_id": resolved.profile_id or body.profile_id,
         "active_profile_id": resolved.active_profile_id,
+        "active_profile_revision": resolved.active_profile_revision,
         "provider_override": resolved.provider_override,
         "model_override": resolved.model_override,
-        "profile": resolved.model_dump(mode="json", exclude_none=True),
+        "profile": resolved.model_dump(mode="json"),
     }
 
     try:
@@ -3314,6 +3328,7 @@ def _switch_thread_profile_payload(
             {
                 "thread_id": thread_id,
                 "active_profile_id": resolved.active_profile_id,
+                "active_profile_revision": resolved.active_profile_revision,
                 "provider_override": resolved.provider_override,
                 "model_override": resolved.model_override,
             },
