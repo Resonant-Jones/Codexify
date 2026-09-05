@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
@@ -273,14 +273,54 @@ describe("SettingsView save flow", () => {
     renderSettingsView();
 
     const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    const feedbackTab = screen.getByRole("tab", { name: /^feedback$/i });
     const imprintTab = screen.getByRole("tab", { name: /^imprint$/i });
 
     appearanceTab.focus();
     fireEvent.keyDown(appearanceTab, { key: "ArrowRight" });
 
+    expect(feedbackTab).toHaveFocus();
+    expect(feedbackTab).toHaveAttribute("aria-selected", "true");
+    expect(appearanceTab).toHaveAttribute("tabindex", "-1");
+    expect(feedbackTab).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tabpanel", { name: /^feedback$/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(feedbackTab, { key: "ArrowRight" });
+
     expect(imprintTab).toHaveFocus();
     expect(imprintTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: /^imprint$/i })).toBeInTheDocument();
+  });
+
+  it("wraps and supports all navigation keys across visible web tabs only", () => {
+    renderSettingsView();
+    const rail = within(screen.getByRole("tablist", { name: "Settings tabs" }));
+
+    expect(screen.queryByRole("tab", { name: /^connection$/i })).not.toBeInTheDocument();
+    const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    appearanceTab.focus();
+
+    const steps = [
+      ["ArrowLeft", "Personal Facts"],
+      ["ArrowRight", "Appearance"],
+      ["ArrowDown", "Feedback"],
+      ["ArrowUp", "Appearance"],
+      ["End", "Personal Facts"],
+      ["ArrowUp", "Data"],
+      ["ArrowDown", "Personal Facts"],
+      ["ArrowDown", "Appearance"],
+      ["ArrowUp", "Personal Facts"],
+      ["Home", "Appearance"],
+    ];
+
+    for (const [key, name] of steps) {
+      fireEvent.keyDown(document.activeElement!, { key });
+      const selectedTab = screen.getByRole("tab", { name, exact: true });
+      expect(selectedTab).toHaveFocus();
+      expect(selectedTab).toHaveAttribute("aria-selected", "true");
+      expect(selectedTab).toHaveAttribute("tabindex", "0");
+      expect(rail.getAllByRole("tab", { selected: true })).toEqual([selectedTab]);
+    }
   });
 
   it("persists the selected tab and restores it on remount", async () => {
