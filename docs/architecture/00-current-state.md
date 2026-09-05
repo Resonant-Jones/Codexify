@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-04
+2026-09-05
 
 ## Interpretation rule
 
@@ -37,6 +37,21 @@ This file is authoritative for:
   proof, so UMS-01 remains open.
 - Revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9` have not been applied to the live
   private-preview database.
+- Reconciled the UMS ownership migration lineage behind Persona Studio with
+  one Alembic head, `d4e8f1a2b6c9`. Focused migration tests report 15 passed
+  and 18 PostgreSQL-dependent skips; ownership regressions report 47 passed.
+  See the [UMS-01R reconciliation proof](./proofs/runtime/2026-09-05-ums-project-ownership-lineage-reconciliation-proof.md).
+  The checkpoint is:
+
+  ```text
+  UMS-01A: IMPLEMENTED
+  UMS-01B: IMPLEMENTED
+  UMS-01 MIGRATION LINEAGE: RECONCILED WITH PERSONA STUDIO
+  UMS-01Q POSTGRESQL QUALIFICATION: PENDING
+  UMS-01 CAMPAIGN GATE: OPEN
+  UMS-02: NOT AUTHORIZED TO START
+  ```
+
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 

@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - environment specific
     psycopg = None
 
 
-PREVIOUS_REVISION = "b2c8d0e3f5a7"
+PREVIOUS_REVISION = "d4e0f2a5b7c9"
 PROJECT_OWNERSHIP_REVISION = "c3d9e4f6a8b1"
 MIGRATION_MODULE = (
     "guardian.db.migrations.versions."

@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - environment specific
     psycopg = None
 
 
-PRE_UMS_01_REVISION = "b2c8d0e3f5a7"
+PRE_UMS_01_REVISION = "d4e0f2a5b7c9"
 UMS_01A_REVISION = "c3d9e4f6a8b1"
 UMS_01B_REVISION = "d4e8f1a2b6c9"
 MIGRATION_MODULE = (

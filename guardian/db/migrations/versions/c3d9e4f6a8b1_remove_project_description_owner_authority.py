@@ -6,7 +6,7 @@ exact decoded human descriptions.  Canonical ownership in ``projects.user_id``
 and every Project/thread identity and relationship remain unchanged.
 
 Revision ID: c3d9e4f6a8b1
-Revises: b2c8d0e3f5a7
+Revises: d4e0f2a5b7c9
 Create Date: 2026-09-04 00:00:00.000000
 """
 
@@ -24,7 +24,7 @@ from guardian.core.project_ownership import (
 )
 
 revision: str = "c3d9e4f6a8b1"
-down_revision: str | Sequence[str] | None = "b2c8d0e3f5a7"
+down_revision: str | Sequence[str] | None = "d4e0f2a5b7c9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
