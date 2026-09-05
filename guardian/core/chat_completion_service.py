@@ -4698,11 +4698,15 @@ async def build_messages_for_llm(
         user_system_override = None
 
     resolved_profile = None
+    accepted_selection = task.persona_selection_snapshot
+    if accepted_selection is not None and resolve_thread_system_profile is None:
+        raise RuntimeError("system_profile_resolution_unavailable")
     if resolve_thread_system_profile is not None:
         try:
             resolved_profile = resolve_thread_system_profile(
                 thread_id,
                 chatlog_db=getattr(dependencies, "chatlog_db", None),
+                accepted_selection=accepted_selection,
             )
         except ProfileResolutionError as exc:
             logger.warning(
@@ -4712,6 +4716,8 @@ async def build_messages_for_llm(
             )
             raise
         except Exception as exc:
+            if accepted_selection is not None:
+                raise
             logger.debug(
                 "[chat-completion] thread profile resolution failed thread_id=%s err=%s",
                 thread_id,

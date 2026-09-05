@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from guardian.tasks.types import PersonaSelectionSnapshot
+
 try:  # pragma: no cover - optional backend catalog
     from guardian.cognition.system_profiles import (
         store as persona_profile_store,
@@ -539,15 +541,27 @@ def resolve_thread_system_profile(
     thread_id: int,
     *,
     chatlog_db: Any | None = None,
+    accepted_selection: PersonaSelectionSnapshot | None = None,
 ) -> ResolvedSystemProfile:
-    """Resolve an exact Persona pin, or a revisionless built-in/flow profile."""
+    """Resolve accepted selection, or legacy live selection, under thread ownership."""
     db = _resolve_chatlog_db(chatlog_db)
-    thread = db.get_chat_thread(thread_id) if db is not None else None
-    active_profile_id = _clean_text(
-        thread.get("active_profile_id") if isinstance(thread, dict) else None
-    )
+    try:
+        thread = db.get_chat_thread(thread_id) if db is not None else None
+    except Exception as exc:
+        if accepted_selection is not None:
+            raise ProfileResolutionError() from exc
+        raise
+    if accepted_selection is not None:
+        if not isinstance(accepted_selection, PersonaSelectionSnapshot):
+            raise ProfileResolutionError()
+        active_profile_id = accepted_selection.profile_id
+        revision = accepted_selection.profile_revision
+    else:
+        active_profile_id = _clean_text(
+            thread.get("active_profile_id") if isinstance(thread, dict) else None
+        )
+        revision = thread.get("active_profile_revision") if thread else None
 
-    revision = thread.get("active_profile_revision") if thread else None
     if revision is not None:
         return _resolve_persona_revision(
             active_profile_id, revision, _thread_owner_id(thread)

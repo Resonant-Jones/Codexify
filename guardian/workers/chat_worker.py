@@ -26,6 +26,7 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
 from guardian.cognition.system_profiles.resolver import (
+    ProfileResolutionError,
     resolve_thread_system_profile,
 )
 from guardian.context.broker import ContextBroker
@@ -1345,8 +1346,13 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         profile = resolve_thread_system_profile(
             task.thread_id,
             chatlog_db=getattr(dependencies, "chatlog_db", None),
+            accepted_selection=task.persona_selection_snapshot,
         )
+    except ProfileResolutionError:
+        raise
     except Exception:
+        if task.persona_selection_snapshot is not None:
+            raise
         profile = None
 
     requested_provider = _normalize_provider_override(task.provider)

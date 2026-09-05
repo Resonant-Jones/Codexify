@@ -101,10 +101,25 @@ second acceptance or execution authority. Capture does not resolve the manifest,
 grant account access, or change message/request/task identity (ADR-001,
 ADR-003, ADR-082).
 
-Worker/runtime consumption is deferred. Runtime still resolves later thread
-selection; this capture slice alone does not make execution reproducible across
-a subsequent thread switch. Revisionless selections capture an ID only, not
-built-in/environment/flow configuration content. No release claim changes.
+Shared completion and worker pre-resolution both pass a non-null accepted
+snapshot to the same system-profile resolver. The snapshot supplies selection;
+the canonical thread owner still supplies account authority. Later thread
+selection changes cannot choose a different Persona for this accepted task.
+Persisted ID/revision pairs resolve only the exact owned immutable manifest and
+project the established five runtime fields. Missing or invalid accepted
+revisions fail before provider inference, without current/latest substitution.
+Explicit null/null retains no-profile/default semantics; revisionless IDs use
+the existing built-in/environment/flow resolver semantics for that identity.
+
+Legacy snapshot `None` alone retains live-thread selection. Worker task copies
+and same-task attempts preserve the accepted snapshot; dequeue and re-execution
+do not recapture it. A newly accepted task captures the then-current selection.
+This does not change existing explicit provider/model routing precedence or
+provider rescue policy, and grants no new runtime authority.
+
+Revisionless selections capture an ID only, not built-in/environment/flow
+configuration content. Changes to those definitions remain outside the
+reproducibility guarantee. No release claim changes.
 
 ### Completion task identity context
 
