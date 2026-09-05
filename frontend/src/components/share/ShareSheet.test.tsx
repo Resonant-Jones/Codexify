@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -253,6 +253,49 @@ describe("ShareSheet", () => {
     expect(result).not.toHaveTextContent("user_id");
   });
 
+  it("discards profile results from an obsolete search request", async () => {
+    const user = userEvent.setup();
+    let resolveFirstSearch: (profiles: (typeof bob)[]) => void = () => {};
+    dm.searchDirectMessageProfiles
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstSearch = resolve;
+          })
+      )
+      .mockResolvedValueOnce([bob]);
+
+    renderSheet();
+    await user.click(screen.getByTestId("share-action-send-person"));
+    const input = screen.getByLabelText("Search profiles by username");
+    await user.type(input, "old");
+    await waitFor(() => {
+      expect(dm.searchDirectMessageProfiles).toHaveBeenCalledWith("old");
+    });
+
+    await user.clear(input);
+    await user.type(input, "qualbob");
+    await waitFor(() => {
+      expect(dm.searchDirectMessageProfiles).toHaveBeenCalledWith("qualbob");
+    });
+    expect(await screen.findByTestId("share-person-result")).toHaveTextContent(
+      "Bob Tester"
+    );
+
+    resolveFirstSearch([
+      {
+        ...bob,
+        profile_id: "profile-old",
+        username: "old-result",
+        display_name: "Old Result",
+      },
+    ]);
+    await waitFor(() => {
+      expect(screen.queryByText("Old Result")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("share-person-result")).toHaveTextContent("Bob Tester");
+  });
+
   it("resolves the canonical Relationship and lists every existing Conversation distinctly", async () => {
     const user = userEvent.setup();
     renderSheet();
@@ -269,6 +312,31 @@ describe("ShareSheet", () => {
     expect(c1).toBeInTheDocument();
     expect(c2).toBeInTheDocument();
     expect(newChoice).toBeInTheDocument();
+  });
+
+  it("surfaces conversation resolution failures and retries the relationship flow", async () => {
+    const user = userEvent.setup();
+    dm.fetchRelationshipConversations.mockRejectedValueOnce(
+      new Error("conversation lookup unavailable")
+    );
+    renderSheet();
+
+    await openSendToPerson(user);
+
+    expect(
+      await screen.findByText(/Could not load this person's conversations/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/conversation lookup unavailable/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("share-choice-new")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("share-retry-link")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("share-retry-relationship"));
+
+    expect(await screen.findByTestId("share-choice-c1")).toBeInTheDocument();
+    expect(dm.resolveDirectMessageRelationship).toHaveBeenCalledTimes(2);
+    expect(dm.fetchRelationshipConversations).toHaveBeenCalledTimes(2);
   });
 
   it("sends into an existing Conversation without creating or rebinding anything", async () => {
@@ -340,6 +408,60 @@ describe("ShareSheet", () => {
       expect(dm.sendDirectMessage).toHaveBeenCalledTimes(1);
     });
     expect(share.createShareLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a send completion after the sheet closes and its target changes", async () => {
+    const user = userEvent.setup();
+    let resolveSend: (() => void) | undefined;
+    dm.sendDirectMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSend = () =>
+            resolve({
+              ok: true,
+              replayed: false,
+              message: {
+                protocol_version: "1.0",
+                message_id: "m1",
+                conversation_id: "c2",
+                source: { node_id: "n", profile_id: "a" },
+                destination: { node_id: "n", profile_id: "b" },
+                content: {
+                  type: "text/plain",
+                  body: "https://public.test/share/tok-1",
+                },
+                created_at: "2026-09-01T00:00:00Z",
+              },
+            });
+        })
+    );
+    const { onClose, rerender, state } = renderSheet();
+    await openSendToPerson(user);
+    await screen.findByTestId("share-choice-c2");
+    await user.click(screen.getByTestId("share-choice-c2"));
+    await user.click(screen.getByTestId("share-submit"));
+    await waitFor(() => expect(dm.sendDirectMessage).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByLabelText("Close Share"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    rerender(
+      <ShareSheet
+        targetType="thread"
+        targetId={43}
+        open
+        onClose={onClose}
+        capabilityState="available"
+        peopleState={state}
+        sourceThreadId={null}
+      />
+    );
+    await act(async () => {
+      resolveSend?.();
+    });
+
+    expect(screen.getByTestId("share-action-copy")).toBeInTheDocument();
+    expect(state.openConversation).not.toHaveBeenCalled();
+    expect(state.openPeople).not.toHaveBeenCalled();
   });
 
   it("creates a General-origin Conversation when no canonical scope exists", async () => {

@@ -69,6 +69,7 @@ type Stage = "actions" | "person" | "conversations" | "result";
 type SendPhase =
   | "idle"
   | "resolving"
+  | "relationship_failed"
   | "ready"
   | "creating_link"
   | "link_failed"
@@ -149,19 +150,31 @@ export default function ShareSheet({
   );
   const [flow, setFlow] = useState<SendFlow>(INITIAL_FLOW);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestSequence = useRef(0);
   const submissionInFlight = useRef(false);
+  const interactionGeneration = useRef(0);
 
   const messagingEnabled = capabilityState === "available" && peopleState != null;
 
-  // Reset transient state when the sheet opens.
+  // Invalidate async work whenever this open instance or its share target
+  // changes. A stale completion must not take over a later interaction.
   useEffect(() => {
+    interactionGeneration.current += 1;
+    submissionInFlight.current = false;
     if (!open) return;
     setStage("actions");
     setCopyState({ phase: "idle", url: null, message: null });
     setSearchQuery("");
     setSearchResults([]);
+    searchRequestSequence.current += 1;
     setFlow(INITIAL_FLOW);
-  }, [open]);
+  }, [open, targetId, targetType]);
+
+  const close = useCallback(() => {
+    interactionGeneration.current += 1;
+    submissionInFlight.current = false;
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     if (!open || typeof window === "undefined") return;
@@ -169,15 +182,11 @@ export default function ShareSheet({
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      close();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
-
-  const close = useCallback(() => {
-    onClose();
-  }, [onClose]);
+  }, [close, open]);
 
   const handleCopyLink = useCallback(async () => {
     setCopyState({ phase: "copying", url: null, message: null });
@@ -204,28 +213,48 @@ export default function ShareSheet({
     }
   }, [targetType, targetId]);
 
-  const runSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      setSearchResults([]);
-      return;
-    }
-    setSearching(true);
-    try {
-      setSearchResults(await searchDirectMessageProfiles(trimmed));
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }, []);
+  const runSearch = useCallback(
+    async (query: string, requestSequence: number) => {
+      const trimmed = query.trim();
+      if (trimmed.length === 0) {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults([]);
+          setSearching(false);
+        }
+        return;
+      }
+      setSearching(true);
+      try {
+        const results = await searchDirectMessageProfiles(trimmed);
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults(results);
+        }
+      } catch {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearching(false);
+        }
+      }
+    },
+    []
+  );
 
   const handleQueryChange = useCallback(
     (value: string) => {
+      const requestSequence = searchRequestSequence.current + 1;
+      searchRequestSequence.current = requestSequence;
       setSearchQuery(value);
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
+      if (value.trim().length === 0) {
+        setSearchResults([]);
+        setSearching(false);
+        return;
+      }
       searchTimer.current = window.setTimeout(() => {
-        void runSearch(value);
+        void runSearch(value, requestSequence);
       }, 250);
     },
     [runSearch]
@@ -255,7 +284,7 @@ export default function ShareSheet({
       } catch (error) {
         setFlow({
           ...INITIAL_FLOW,
-          phase: "link_failed",
+          phase: "relationship_failed",
           profile,
           error:
             error instanceof Error
@@ -300,6 +329,9 @@ export default function ShareSheet({
         return;
       }
       submissionInFlight.current = true;
+      const generation = interactionGeneration.current;
+      const isCurrentInteraction = () =>
+        interactionGeneration.current === generation;
       const relationshipId = flow.relationship.relationship_id;
 
       let conversationId = choice;
@@ -323,10 +355,12 @@ export default function ShareSheet({
               conversationId = createdConversationId;
             } else {
               const origin = await computeOrigin();
+              if (!isCurrentInteraction()) return;
               const conversation = await createDirectMessageConversation(
                 relationshipId,
                 origin
               );
+              if (!isCurrentInteraction()) return;
               conversationId = conversation.conversation_id;
               createdConversationId = conversation.conversation_id;
               peopleState.cacheConversationMeta(conversation);
@@ -337,6 +371,7 @@ export default function ShareSheet({
             }
           }
         } catch (error) {
+          if (!isCurrentInteraction()) return;
           setFlow((current) => ({
             ...current,
             phase: "conversation_failed",
@@ -358,12 +393,14 @@ export default function ShareSheet({
           }));
           try {
             link = await createShareLink(targetType, targetId);
+            if (!isCurrentInteraction()) return;
             setFlow((current) => ({
               ...current,
               link,
               linkUrl: resolveSharePublicUrl(String(link?.url || "")),
             }));
           } catch (error) {
+            if (!isCurrentInteraction()) return;
             setFlow((current) => ({
               ...current,
               phase: "link_failed",
@@ -387,6 +424,7 @@ export default function ShareSheet({
         }));
         try {
           await sendDirectMessage(conversationId, fullUrl, key);
+          if (!isCurrentInteraction()) return;
           setFlow((current) => ({
             ...current,
             phase: "complete",
@@ -396,6 +434,7 @@ export default function ShareSheet({
           peopleState.openConversation(conversationId, undefined);
           peopleState.openPeople();
         } catch (error) {
+          if (!isCurrentInteraction()) return;
           setFlow((current) => ({
             ...current,
             phase: "send_failed",
@@ -407,7 +446,9 @@ export default function ShareSheet({
           setStage("result");
         }
       } finally {
-        submissionInFlight.current = false;
+        if (isCurrentInteraction()) {
+          submissionInFlight.current = false;
+        }
       }
     },
     [
@@ -432,6 +473,7 @@ export default function ShareSheet({
     flow.phase === "link_failed" &&
     (flow.choice != null || flow.createdConversationId != null);
   const showRetryConversation = flow.phase === "conversation_failed";
+  const showRetryRelationship = flow.phase === "relationship_failed";
   const submissionActive = ACTIVE_SEND_PHASES.has(flow.phase);
 
   return createPortal(
@@ -591,7 +633,7 @@ export default function ShareSheet({
                 <Loader2 size={13} className="spin" aria-hidden="true" />
                 Resolving {peerPresentationLabel(flow.profile)}…
               </p>
-            ) : (
+            ) : flow.phase === "relationship_failed" ? null : (
               <>
                 <p className="share-sheet-subcopy">
                   Send this share link to{" "}
@@ -672,7 +714,11 @@ export default function ShareSheet({
           </div>
         ) : null}
 
-        {stage === "result" || showRetrySend || showRetryLink || showRetryConversation ? (
+        {stage === "result" ||
+        showRetrySend ||
+        showRetryLink ||
+        showRetryConversation ||
+        showRetryRelationship ? (
           <div className="share-sheet-result" data-testid="share-result">
             {flow.phase === "complete" ? (
               <p className="share-sheet-status share-sheet-status-ok">
@@ -728,6 +774,23 @@ export default function ShareSheet({
                   }
                 >
                   Retry Conversation
+                </button>
+              </>
+            ) : null}
+            {showRetryRelationship ? (
+              <>
+                <p className="share-sheet-status share-sheet-status-error">
+                  Could not load this person&apos;s conversations. {flow.error}
+                </p>
+                <button
+                  type="button"
+                  className="share-sheet-primary"
+                  data-testid="share-retry-relationship"
+                  onClick={() => {
+                    if (flow.profile) void selectProfile(flow.profile);
+                  }}
+                >
+                  Retry Conversations
                 </button>
               </>
             ) : null}
