@@ -22,6 +22,8 @@ This file is authoritative for:
 
 ## What changed recently
 
+- [Persona deployment attempt 2](./proofs/runtime/2026-09-06-persona-private-preview-lineage-proof-r2.md) is BLOCKED: the matching backend failed startup with `pyo3_runtime.PanicException` in Chroma initialization. The startup migrator exited 0 and the database remains at `d4e0f2a5b7c9`. The restarting backend was stopped; frontend/origin/workers never reached running state. PostgreSQL, Redis, and Neo4j remain available, the rollback checkpoint is intact, and stack reconciliation remains suspended. Live Persona route and browser proof remain pending; no release claim advances.
+
 - [Persona private-preview live upgrade](./proofs/runtime/2026-09-06-persona-private-preview-live-migration-proof.md) proved the authorized upgrade to `d4e0f2a5b7c9` after a fresh external checkpoint. All 111 pre-existing tables / 5,595 rows retained original-column digests; the second canonical migrator run was a no-op. PostgreSQL remains running, old application services remain stopped, stack reconciliation remains unloaded, and the tunnel agent and desired-up marker remain intact. Matching Persona application deployment and authenticated browser save/readback are pending.
 
 - [Persona private-preview clone migration rehearsal](./proofs/runtime/2026-09-06-persona-private-preview-migration-rehearsal-proof.md) proved `b2c8d0e3f5a7 → c3d9e1f4a6b8 → d4e0f2a5b7c9` compatibility using the canonical Persona-branch migrator on an isolated restored snapshot. All 111 pre-existing tables retained row counts and original-column digests. That prerequisite is closed; no release claim advances.
