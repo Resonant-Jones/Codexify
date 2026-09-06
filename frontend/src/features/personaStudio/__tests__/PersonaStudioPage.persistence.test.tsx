@@ -1,290 +1,159 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { PersonaStudioBackendProfile } from "../personaStudioApi";
 import PersonaStudioPage from "../PersonaStudioPage";
-import {
-  createPersonaStudioSeedState,
-  persistPersonaStudioLocalState,
-} from "../personaStudioStore";
-import {
-  personaStudioApiMock,
-  resetPersonaStudioApiMock,
-} from "./personaStudioApiMock";
+import { createPersonaStudioSeedState, persistPersonaStudioLocalState } from "../personaStudioStore";
+
+import { normalizeProfile, personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
 );
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-const BACKEND_SEED_PROFILES = [
-  {
+function backendProfile(): PersonaStudioBackendProfile {
+  const config = createPersonaStudioSeedState().profiles[0].config;
+  return normalizeProfile({
     id: "profile-1",
-    name: "Guardian Default",
-    system_prompt:
-      "You are a Guardian, a partner in thought. Your primary goal is to foster the user's autonomy and creativity.",
-    model_provider: "openai",
-    model_id: "gpt-4o",
-    temperature: 0.7,
-    created_at: "2026-04-02T00:00:00.000Z",
-    updated_at: "2026-04-02T00:00:00.000Z",
-  },
-  {
-    id: "profile-2",
-    name: "Code Assistant",
-    system_prompt:
-      "You are an expert code assistant. Provide clear, concise, and accurate code solutions with explanation.",
-    model_provider: "anthropic",
-    model_id: "claude-sonnet-4-20250514",
-    temperature: 0.3,
-    created_at: "2026-04-02T00:00:00.000Z",
-    updated_at: "2026-04-02T00:00:00.000Z",
-  },
-];
-
-function seedCodeAssistantPersonaState() {
-  const state = createPersonaStudioSeedState();
-  const profile = state.profiles.find((candidate) => candidate.id === "profile-2");
-
-  if (!profile) {
-    throw new Error("Missing persona studio seed profile-2");
-  }
-
-  const savedDescription = "Saved profile description";
-  const savedProfile = {
-    ...profile,
-    name: "Code Assistant Saved",
-    description: savedDescription,
-    config: {
-      ...profile.config,
-      identity: {
-        ...profile.config.identity,
-        name: "Code Assistant Saved",
-        description: savedDescription,
-      },
+    manifest: {
+      apiVersion: "codexify.persona/v1", profileIdentity: "profile-1", revision: 12,
+      identity: { name: "Backend Persona", description: "Backend description" },
+      prompt: { systemPrompt: "Backend prompt", styleNotes: "Backend style", directives: "Backend directive" },
+      model: { ...config.model, model: "backend-model", temperature: 0.4 },
+      voice: config.voice, capabilities: config.tools, retrieval: config.retrieval,
     },
-  };
-
-  state.profiles = state.profiles.map((candidate) =>
-    candidate.id === profile.id ? savedProfile : candidate
-  );
-  state.draftProfilesById = {
-    ...state.draftProfilesById,
-    [profile.id]: clone(savedProfile),
-  };
-  state.selectedProfileId = profile.id;
-  state.activeTab = "Identity";
-
-  persistPersonaStudioLocalState(state);
+  });
 }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+const editor = () => screen.getByTestId("persona-studio-editor");
 
 beforeEach(() => {
   window.localStorage.clear();
-  resetPersonaStudioApiMock();
+  resetPersonaStudioApiMock([backendProfile()]);
 });
 
 describe("Persona Studio persistence", () => {
-  it("hydrates first-wave fields from backend while preserving local-only draft fields", async () => {
-    resetPersonaStudioApiMock([
-      BACKEND_SEED_PROFILES[0],
-      {
-        ...BACKEND_SEED_PROFILES[1],
-        name: "Code Assistant Backend",
-        system_prompt: "Backend prompt for the runtime profile.",
-        model_provider: "openai",
-        model_id: "gpt-4o-mini",
-        temperature: 0.4,
-      },
-    ]);
-
-    const state = createPersonaStudioSeedState();
-    const profile = state.profiles.find((candidate) => candidate.id === "profile-2");
-
-    if (!profile) {
-      throw new Error("Missing persona studio seed profile-2");
-    }
-
-    const localOnlyDescription = "Local-only description";
-    const localProfile = {
-      ...profile,
-      name: "Code Assistant Local",
-      description: localOnlyDescription,
-      config: {
-        ...profile.config,
-        identity: {
-          ...profile.config.identity,
-          name: "Code Assistant Local",
-          description: localOnlyDescription,
-        },
-        model: {
-          ...profile.config.model,
-          provider: "local",
-          model: "phi3",
-          temperature: 1.1,
-        },
-        prompt: {
-          ...profile.config.prompt,
-          systemPrompt: "Local prompt that should be replaced by backend",
-        },
-      },
-    };
-
-    state.profiles = state.profiles.map((candidate) =>
-      candidate.id === profile.id ? localProfile : candidate
-    );
-    state.draftProfilesById = {
-      ...state.draftProfilesById,
-      [profile.id]: clone(localProfile),
-    };
-    state.selectedProfileId = profile.id;
-    persistPersonaStudioLocalState(state);
-
+  it("hydrates canonical authored fields and establishes the saved editor baseline", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-
-    await waitFor(() =>
-      expect(personaStudioApiMock.fetchPersonaProfiles).toHaveBeenCalled()
-    );
-
-    expect(
-      await screen.findByDisplayValue("Code Assistant Backend")
-    ).toBeInTheDocument();
-    expect(screen.getByDisplayValue(localOnlyDescription)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /prompt/i }));
-
-    expect(
-      screen.getByDisplayValue("Backend prompt for the runtime profile.")
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /model/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("combobox", { name: /provider/i })
-      ).toHaveValue("openai")
-    );
-    expect(screen.getByDisplayValue("gpt-4o-mini")).toBeInTheDocument();
-    expect(screen.getByText("0.4")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+    await screen.findByDisplayValue("Backend Persona");
+    expect(screen.getByDisplayValue("Backend description")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "profile-1");
+    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    expect(screen.getByTestId("persona-studio-action-save")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /^prompt$/i }));
+    expect(screen.getByDisplayValue("Backend prompt")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Backend style")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Backend directive")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^model$/i }));
+    expect(screen.getByDisplayValue("backend-model")).toBeInTheDocument();
   });
 
-  it("renders saved persona state, preserves drafts across tab changes, and round-trips save/reset", async () => {
-    seedCodeAssistantPersonaState();
-
+  it("keeps drafts across tabs and waits for update acknowledgement before becoming clean", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant saved/i);
-    expect(screen.getByDisplayValue("Code Assistant Saved")).toBeInTheDocument();
-    expect(
-      screen.getByDisplayValue("Saved profile description")
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    await screen.findByText("Saved Locally");
-    await user.click(screen.getByRole("button", { name: /identity/i }));
-
-    const nameInput = screen.getByPlaceholderText(/enter persona name/i);
-    await user.clear(nameInput);
-    await user.type(nameInput, "Code Assistant Draft");
-
-    expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    expect(screen.getByText("Unsaved Draft")).toBeInTheDocument();
-    expect(screen.getByText(/"name": "Code Assistant Draft"/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /model/i }));
-    await user.click(screen.getByRole("button", { name: /identity/i }));
-
-    expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    expect(screen.getByText("Unsaved Draft")).toBeInTheDocument();
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await screen.findByDisplayValue("Backend Persona");
+    await user.clear(screen.getByPlaceholderText(/enter persona name/i));
+    await user.type(screen.getByPlaceholderText(/enter persona name/i), "Submitted draft");
+    await user.click(screen.getByRole("button", { name: /^model$/i }));
+    await user.click(screen.getByRole("button", { name: /^identity$/i }));
+    expect(screen.getByDisplayValue("Submitted draft")).toBeInTheDocument();
+    const pending = deferred<PersonaStudioBackendProfile>();
+    personaStudioApiMock.updatePersonaProfile.mockReturnValueOnce(pending.promise);
     await user.click(screen.getByTestId("persona-studio-action-save"));
-
-    await waitFor(() =>
-      expect(personaStudioApiMock.updatePersonaProfile).toHaveBeenCalled()
-    );
-    await waitFor(() =>
-      expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument()
-    );
-
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    await screen.findByText("Saved Locally");
-    expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /identity/i }));
-
-    await user.clear(screen.getByDisplayValue("Code Assistant Draft"));
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), "Code Assistant Reset Candidate");
-
-    expect(screen.getByText("Unsaved Draft")).toBeInTheDocument();
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+    const response = backendProfile();
+    response.manifest.identity.name = "Acknowledged name";
+    response.manifest.revision = response.current_revision = 30;
+    await act(async () => pending.resolve(response));
+    expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    await user.type(screen.getByPlaceholderText(/enter persona name/i), " edit");
     await user.click(screen.getByTestId("persona-studio-action-reset"));
-
-    expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    await screen.findByText("Saved Locally");
-    expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /identity/i }));
+    expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "clean");
   });
 
-  it("duplicates the current draft into a new persona and leaves the original saved profile intact", async () => {
-    seedCodeAssistantPersonaState();
-
+  it("keeps a failed update dirty and resets to the previous canonical snapshot", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-
-    const nameInput = screen.getByPlaceholderText(/enter persona name/i);
-    await user.clear(nameInput);
-    await user.type(nameInput, "Code Assistant Working");
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await screen.findByDisplayValue("Backend Persona");
+    await user.type(screen.getByPlaceholderText(/enter persona name/i), " unsaved");
+    personaStudioApiMock.updatePersonaProfile.mockRejectedValueOnce(new Error("offline"));
     await user.click(screen.getByTestId("persona-studio-action-save"));
-
-    await waitFor(() =>
-      expect(
-        screen.getByDisplayValue("Code Assistant Working")
-      ).toBeInTheDocument()
-    );
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    await screen.findByText("Saved Locally");
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-    await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
-
-    await waitFor(() =>
-      expect(personaStudioApiMock.createPersonaProfile).toHaveBeenCalled()
-    );
-
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant working copy/i);
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-    const list = screen.getByTestId("persona-studio-profile-selector-list");
-    expect(within(list).getByText(/code assistant working copy/i)).toBeVisible();
-    expect(within(list).getByText(/code assistant working(?! copy)/i)).toBeVisible();
-
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    await screen.findByText("Saved Locally");
-    await user.click(screen.getByRole("button", { name: /identity/i }));
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-    await user.click(screen.getByTestId("persona-studio-profile-option-profile-2"));
-
-    expect(
-      screen.getByTestId("persona-studio-profile-selector-trigger")
-    ).toHaveTextContent(/code assistant working/i);
-    expect(screen.getByDisplayValue("Code Assistant Working")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Backend Persona unsaved")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "profile-1");
+    await user.click(screen.getByTestId("persona-studio-action-reset"));
+    expect(screen.getByDisplayValue("Backend Persona")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "clean");
   });
 
-  it("does not render chat composer or message thread UI", () => {
+  it("keeps a new copy unsaved until creation acknowledgement and preserves concurrent edits", async () => {
+    const user = userEvent.setup();
     render(<PersonaStudioPage />);
+    await screen.findByDisplayValue("Backend Persona");
+    const pending = deferred<PersonaStudioBackendProfile>();
+    personaStudioApiMock.createPersonaProfile.mockReturnValueOnce(pending.promise);
+    await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+    await user.type(screen.getByPlaceholderText(/enter persona name/i), " newer");
+    const body = personaStudioApiMock.createPersonaProfile.mock.calls[0][0];
+    if (!("manifest" in body)) throw new Error("Expected canonical write");
+    const response = normalizeProfile({ id: body.manifest.profileIdentity, manifest: { ...body.manifest, revision: 4 } });
+    await act(async () => pending.resolve(response));
+    expect(screen.getByDisplayValue("Backend Persona Copy newer")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+    expect(editor()).toHaveAttribute("data-saved-profile-id", body.manifest.profileIdentity);
+    await user.click(screen.getByTestId("persona-studio-action-reset"));
+    expect(screen.getByDisplayValue("Backend Persona Copy")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    expect(within(screen.getByTestId("persona-studio-profile-selector-list")).getByText("Backend Persona")).toBeVisible();
+  });
 
+  it("recovers failed creation as an unsaved draft after offline remount", async () => {
+    const user = userEvent.setup();
+    const page = render(<PersonaStudioPage />);
+    await screen.findByDisplayValue("Backend Persona");
+    personaStudioApiMock.createPersonaProfile.mockRejectedValueOnce(new Error("offline"));
+    await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+    page.unmount();
+    personaStudioApiMock.fetchPersonaProfiles.mockRejectedValueOnce(new Error("offline"));
+    render(<PersonaStudioPage />);
+    await screen.findByDisplayValue("Backend Persona Copy");
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+  });
+
+  it("recovers local-only work without claiming a saved backend profile", async () => {
+    persistPersonaStudioLocalState(createPersonaStudioSeedState());
+    personaStudioApiMock.fetchPersonaProfiles.mockRejectedValueOnce(new Error("offline"));
+    render(<PersonaStudioPage />);
+    await waitFor(() => expect(personaStudioApiMock.fetchPersonaProfiles).toHaveBeenCalled());
+    expect(screen.getByDisplayValue("Guardian Default")).toBeInTheDocument();
+    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
+    expect(screen.getByTestId("persona-studio-action-save")).toBeEnabled();
+  });
+
+  it("does not render chat composer or message thread UI", async () => {
+    render(<PersonaStudioPage />);
+    await screen.findByDisplayValue("Backend Persona");
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
-    expect(screen.queryByText(/message thread/i)).not.toBeInTheDocument();
   });
 });

@@ -3,6 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createPersonaProfile as createPersonaProfileOnBackend,
   fetchPersonaProfiles,
+  PERSONA_PROFILE_API_VERSION,
+  type PersonaProfileManifest,
+  type PersonaProfileManifestWrite,
   updatePersonaProfile as updatePersonaProfileOnBackend,
   type PersonaStudioBackendProfile,
 } from "@/features/personaStudio/personaStudioApi";
@@ -639,92 +642,115 @@ function cloneProfile(profile: PersonaProfileDraft): PersonaProfileDraft {
   return clone(profile);
 }
 
-function applyBackendProfileToDraft(
-  profile: PersonaProfileDraft,
-  backendProfile: PersonaStudioBackendProfile
+// Session-only authority. None of these manifests/revisions are restored from storage.
+type PersonaStudioSessionState = PersonaStudioLocalState & {
+  savedManifestsById: Record<string, PersonaProfileManifest>;
+  hydrationDraftsById: Record<string, PersonaProfileDraft>;
+};
+
+function manifestToDraft(
+  manifest: PersonaProfileManifest,
+  isDefault?: boolean
 ): PersonaProfileDraft {
+  const defaults = createBlankPersonaProfileDraft(manifest.profileIdentity).config;
   return {
-    ...profile,
-    id: backendProfile.id,
-    name: backendProfile.name,
-    description: profile.description,
+    id: manifest.profileIdentity,
+    name: manifest.identity.name,
+    description: manifest.identity.description ?? "",
+    ...(isDefault != null ? { isDefault } : {}),
     config: {
-      ...profile.config,
       identity: {
-        ...profile.config.identity,
-        name: backendProfile.name,
-        description: profile.description,
-      },
-      model: {
-        ...profile.config.model,
-        provider: backendProfile.model_provider,
-        model: backendProfile.model_id,
-        temperature: backendProfile.temperature,
+        name: manifest.identity.name,
+        description: manifest.identity.description ?? "",
       },
       prompt: {
-        ...profile.config.prompt,
-        systemPrompt: backendProfile.system_prompt,
+        systemPrompt: manifest.prompt.systemPrompt,
+        styleNotes: manifest.prompt.styleNotes ?? "",
+        directives: manifest.prompt.directives ?? "",
       },
+      model: {
+        provider: manifest.model.provider,
+        model: manifest.model.model,
+        temperature: manifest.model.temperature,
+        topK: manifest.model.topK ?? defaults.model.topK,
+        topP: manifest.model.topP ?? defaults.model.topP,
+        maxTokens: manifest.model.maxTokens ?? defaults.model.maxTokens,
+      },
+      voice: clone(manifest.voice ?? defaults.voice),
+      tools: clone(manifest.capabilities ?? defaults.tools),
+      retrieval: clone(manifest.retrieval ?? defaults.retrieval),
     },
   };
 }
 
-function mergeBackendProfileIntoLocalState(
-  previous: PersonaStudioLocalState,
-  backendProfile: PersonaStudioBackendProfile
-): PersonaStudioLocalState {
-  const existingProfile = previous.profiles.find(
-    (profile) => profile.id === backendProfile.id
-  );
-  const existingDraft = previous.draftProfilesById[backendProfile.id];
-  const baseProfile =
-    existingProfile ?? existingDraft ?? getSeedProfileReference(backendProfile.id);
-  const mergedProfile = applyBackendProfileToDraft(baseProfile, backendProfile);
-  const shouldUpdateDraft =
-    Boolean(existingProfile) &&
-    (!existingDraft || sameProfileDraft(existingDraft, existingProfile));
+function acknowledgedManifest(
+  backendProfile: PersonaStudioBackendProfile,
+  expectedId = backendProfile.id
+): PersonaProfileManifest {
+  const manifest = backendProfile.manifest;
+  // The API client validates coherence; also bind write acknowledgements to
+  // the submitted profile so a response cannot save a different local draft.
+  if (
+    !manifest || backendProfile.id !== expectedId ||
+    manifest.profileIdentity !== expectedId ||
+    manifest.apiVersion !== PERSONA_PROFILE_API_VERSION ||
+    backendProfile.api_version !== manifest.apiVersion ||
+    !Number.isInteger(manifest.revision) || manifest.revision <= 0 ||
+    manifest.revision !== backendProfile.current_revision
+  ) {
+    throw new Error("Invalid Persona acknowledgement");
+  }
+  return clone(manifest);
+}
 
-  const profiles = existingProfile
-    ? previous.profiles.map((profile) =>
-        profile.id === backendProfile.id ? mergedProfile : profile
-      )
-    : [...previous.profiles, mergedProfile];
+function acceptManifest(
+  previous: PersonaStudioSessionState,
+  manifest: PersonaProfileManifest,
+  submittedDraft?: PersonaProfileDraft
+): PersonaStudioSessionState {
+  const id = manifest.profileIdentity;
+  const priorManifest = previous.savedManifestsById[id];
+  // A delayed list response must not roll back a write acknowledgement.
+  if (priorManifest && (
+    priorManifest.revision > manifest.revision ||
+    (priorManifest.revision === manifest.revision && !submittedDraft)
+  )) return previous;
+
+  const cachedProfile = previous.profiles.find((profile) => profile.id === id);
+  const savedProfile = manifestToDraft(manifest, cachedProfile?.isDefault);
+  const draft = previous.draftProfilesById[id];
+  const reconcileDraft = !draft || sameProfileDraft(
+    draft,
+    submittedDraft ?? previous.hydrationDraftsById[id]
+  );
 
   return {
     ...previous,
-    profiles,
-    draftProfilesById: shouldUpdateDraft
-      ? {
-          ...previous.draftProfilesById,
-          [backendProfile.id]: cloneProfile(mergedProfile),
-        }
-      : previous.draftProfilesById,
+    savedManifestsById: { ...previous.savedManifestsById, [id]: manifest },
+    profiles: cachedProfile
+      ? previous.profiles.map((profile) => profile.id === id ? savedProfile : profile)
+      : [...previous.profiles, savedProfile],
+    draftProfilesById: {
+      ...previous.draftProfilesById,
+      [id]: reconcileDraft ? cloneProfile(savedProfile) : draft,
+    },
   };
 }
 
-function mergeBackendProfilesIntoLocalState(
-  previous: PersonaStudioLocalState,
-  backendProfiles: PersonaStudioBackendProfile[]
-): PersonaStudioLocalState {
-  if (!Array.isArray(backendProfiles) || backendProfiles.length === 0) {
-    return previous;
-  }
-
-  let nextState = previous;
-  for (const backendProfile of backendProfiles) {
-    nextState = mergeBackendProfileIntoLocalState(nextState, backendProfile);
-  }
-  return nextState;
-}
-
-function buildPersonaProfileWriteBody(profile: PersonaProfileDraft) {
+function buildPersonaProfileWriteBody(
+  profile: PersonaProfileDraft
+): { manifest: PersonaProfileManifestWrite } {
   return {
-    id: profile.id,
-    name: profile.name.trim(),
-    system_prompt: profile.config.prompt.systemPrompt,
-    model_provider: profile.config.model.provider.trim().toLowerCase(),
-    model_id: profile.config.model.model,
-    temperature: profile.config.model.temperature,
+    manifest: {
+      apiVersion: PERSONA_PROFILE_API_VERSION,
+      profileIdentity: profile.id,
+      identity: clone(profile.config.identity),
+      prompt: clone(profile.config.prompt),
+      model: clone(profile.config.model),
+      voice: clone(profile.config.voice),
+      capabilities: clone(profile.config.tools),
+      retrieval: clone(profile.config.retrieval),
+    },
   };
 }
 
@@ -761,7 +787,11 @@ export function persistPersonaStudioLocalState(state: PersonaStudioLocalState): 
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(PERSONA_STUDIO_STORAGE_KEY, JSON.stringify(state));
+    // Explicitly serialize only draft/cache continuity, even for session state.
+    const { profiles, draftProfilesById, selectedProfileId, activeTab } = state;
+    window.localStorage.setItem(PERSONA_STUDIO_STORAGE_KEY, JSON.stringify({
+      profiles, draftProfilesById, selectedProfileId, activeTab,
+    }));
   } catch {
     // Ignore local-only storage failures.
   }
@@ -794,14 +824,35 @@ function sameProfileDraft(
   left: PersonaProfileDraft | null | undefined,
   right: PersonaProfileDraft | null | undefined
 ): boolean {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  // Backend JSON and local normalization may order object keys differently.
+  // Array ordering remains significant for authored lists.
+  const orderedJson = (profile: PersonaProfileDraft | null | undefined) =>
+    JSON.stringify(profile ?? null, (_key, value: unknown) => isRecord(value)
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]))
+      : value);
+  return orderedJson(left) === orderedJson(right);
 }
 
 export function usePersonaStudioLocalDraftState() {
-  const [state, setState] = useState<PersonaStudioLocalState>(() =>
-    readPersonaStudioLocalState()
-  );
-  const hasWrittenToBackendRef = useRef(false);
+  const [state, setState] = useState<PersonaStudioSessionState>(() => {
+    const localState = readPersonaStudioLocalState();
+    let hasStoredDrafts = false;
+    try {
+      hasStoredDrafts = typeof window !== "undefined" &&
+        window.localStorage.getItem(PERSONA_STUDIO_STORAGE_KEY) != null;
+    } catch {
+      // Storage is optional; backend hydration still works.
+    }
+    return {
+      ...localState,
+      savedManifestsById: {},
+      // Fresh seeds can hydrate automatically. Recovered local work is always
+      // retained until explicit reset/save, even if it matched an old cache.
+      hydrationDraftsById: hasStoredDrafts ? {} : clone(localState.draftProfilesById),
+    };
+  });
+  const pendingWritesRef = useRef(new Set<string>());
+  const sessionGenerationRef = useRef(0);
 
   useEffect(() => {
     persistPersonaStudioLocalState(state);
@@ -809,27 +860,21 @@ export function usePersonaStudioLocalDraftState() {
 
   useEffect(() => {
     let cancelled = false;
-
+    const generation = sessionGenerationRef.current;
     void (async () => {
       try {
-        const backendProfiles = await fetchPersonaProfiles();
-        if (cancelled || hasWrittenToBackendRef.current) {
-          return;
-        }
-        if (!backendProfiles.length) {
-          return;
-        }
-        setState((previous) =>
-          mergeBackendProfilesIntoLocalState(previous, backendProfiles)
+        const manifests = (await fetchPersonaProfiles()).map((profile) =>
+          acknowledgedManifest(profile)
         );
+        if (cancelled || generation !== sessionGenerationRef.current) return;
+        setState((previous) => manifests.reduce(
+          (next, manifest) => acceptManifest(next, manifest), previous
+        ));
       } catch {
-        // Keep the local draft-only fallback when backend sync is unavailable.
+        // Local work remains recoverable but unconfirmed when hydration fails.
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const selectedProfile = useMemo(
@@ -840,9 +885,13 @@ export function usePersonaStudioLocalDraftState() {
     [state.draftProfilesById, state.profiles, state.selectedProfileId]
   );
 
+  const selectedSavedManifest = state.savedManifestsById[state.selectedProfileId] ?? null;
   const selectedSavedProfile = useMemo(
-    () => state.profiles.find((profile) => profile.id === state.selectedProfileId) ?? null,
-    [state.profiles, state.selectedProfileId]
+    () => selectedSavedManifest
+      ? manifestToDraft(selectedSavedManifest,
+          state.profiles.find((profile) => profile.id === state.selectedProfileId)?.isDefault)
+      : null,
+    [selectedSavedManifest, state.profiles, state.selectedProfileId]
   );
 
   const seedProfile = useMemo(
@@ -925,48 +974,36 @@ export function usePersonaStudioLocalDraftState() {
     []
   );
 
+  const persistProfile = useCallback(async (
+    submitted: PersonaProfileDraft,
+    create: boolean
+  ) => {
+    const id = submitted.id;
+    // Bound one request per profile in this editor; a second click cannot
+    // introduce overlapping writes or locally predicted revision ordering.
+    if (pendingWritesRef.current.has(id)) return;
+    pendingWritesRef.current.add(id);
+    const generation = sessionGenerationRef.current;
+    try {
+      const body = buildPersonaProfileWriteBody(submitted);
+      const response = create
+        ? await createPersonaProfileOnBackend(body)
+        : await updatePersonaProfileOnBackend(id, body);
+      const manifest = acknowledgedManifest(response, id);
+      if (generation !== sessionGenerationRef.current) return;
+      setState((previous) => acceptManifest(previous, manifest, submitted));
+    } catch {
+      // Neither failure nor request acceptance establishes saved state.
+      // Preserve both the last acknowledged baseline and all draft work.
+    } finally {
+      pendingWritesRef.current.delete(id);
+    }
+  }, []);
+
   const saveSelectedProfile = useCallback(() => {
-    const currentProfile = state.profiles.find(
-      (profile) => profile.id === state.selectedProfileId
-    );
-    if (!currentProfile) {
-      return;
-    }
-
-    const currentDraft =
-      state.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
-    const nextProfile = cloneProfile(currentDraft);
-    if (sameProfileDraft(nextProfile, currentProfile)) {
-      return;
-    }
-
-    setState((previous) => ({
-      ...previous,
-      profiles: previous.profiles.map((profile) =>
-        profile.id === currentProfile.id ? nextProfile : profile
-      ),
-      draftProfilesById: {
-        ...previous.draftProfilesById,
-        [currentProfile.id]: cloneProfile(nextProfile),
-      },
-    }));
-    const nextProfileSnapshot = cloneProfile(nextProfile);
-
-    hasWrittenToBackendRef.current = true;
-    void (async () => {
-      try {
-        const backendProfile = await updatePersonaProfileOnBackend(
-          nextProfileSnapshot.id,
-          buildPersonaProfileWriteBody(nextProfileSnapshot)
-        );
-        setState((previous) =>
-          mergeBackendProfileIntoLocalState(previous, backendProfile)
-        );
-      } catch {
-        // Keep the locally saved draft even if backend persistence fails.
-      }
-    })();
-  }, [state]);
+    if (!selectedProfile || !isDirty) return;
+    void persistProfile(cloneProfile(selectedProfile), !selectedSavedManifest);
+  }, [selectedProfile, selectedSavedManifest, isDirty, persistProfile]);
 
   const saveSelectedProfileAsNew = useCallback(() => {
     const currentProfile = state.profiles.find(
@@ -1003,22 +1040,8 @@ export function usePersonaStudioLocalDraftState() {
       },
       selectedProfileId: nextId,
     }));
-    const nextProfileSnapshot = cloneProfile(nextProfile);
-
-    hasWrittenToBackendRef.current = true;
-    void (async () => {
-      try {
-        const backendProfile = await createPersonaProfileOnBackend(
-          buildPersonaProfileWriteBody(nextProfileSnapshot)
-        );
-        setState((previous) =>
-          mergeBackendProfileIntoLocalState(previous, backendProfile)
-        );
-      } catch {
-        // Keep the locally created persona even if backend creation fails.
-      }
-    })();
-  }, [state]);
+    void persistProfile(cloneProfile(nextProfile), true);
+  }, [state, persistProfile]);
 
   const resetSelectedProfile = useCallback(() => {
     setState((previous) => {
@@ -1028,7 +1051,9 @@ export function usePersonaStudioLocalDraftState() {
 
       if (!currentProfile) return previous;
 
-      const nextProfile = cloneProfile(currentProfile);
+      const manifest = previous.savedManifestsById[currentProfile.id];
+      if (!manifest) return previous;
+      const nextProfile = manifestToDraft(manifest, currentProfile.isDefault);
       const currentDraft = previous.draftProfilesById[currentProfile.id];
 
       if (sameProfileDraft(currentDraft, nextProfile)) {
@@ -1046,13 +1071,20 @@ export function usePersonaStudioLocalDraftState() {
   }, []);
 
   const resetAllLocalPersonaStudioData = useCallback(() => {
-    setState(createPersonaStudioSeedState());
+    sessionGenerationRef.current += 1;
+    setState({
+      ...createPersonaStudioSeedState(),
+      savedManifestsById: {},
+      hydrationDraftsById: {},
+    });
   }, []);
 
   return {
     ...state,
     selectedProfile,
     selectedSavedProfile,
+    selectedSavedManifest,
+    savedRevision: selectedSavedManifest?.revision ?? null,
     seedProfile,
     isDirty,
     hasSavedVersion,

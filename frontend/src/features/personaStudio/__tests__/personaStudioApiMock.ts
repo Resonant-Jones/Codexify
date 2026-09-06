@@ -44,7 +44,7 @@ function createLegacyManifest(
   };
 }
 
-function normalizeProfile(profile: PersonaStudioProfileSeed): PersonaStudioBackendProfile {
+export function normalizeProfile(profile: PersonaStudioProfileSeed): PersonaStudioBackendProfile {
   const timestamp = nowIso();
   const suppliedManifest = profile.manifest ? clone(profile.manifest) : null;
   const suppliedRevision = profile.current_revision ?? suppliedManifest?.revision ?? 1;
@@ -156,6 +156,7 @@ function mergeLegacyUpdateIntoManifest(
 }
 
 export const personaStudioApiMock = {
+  PERSONA_PROFILE_API_VERSION,
   fetchPersonaProfiles: vi.fn(async () => clone(backendProfiles)),
   fetchPersonaProfile: vi.fn(async (profileId: string) => {
     const profile = existingProfile(profileId);
