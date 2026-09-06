@@ -6,20 +6,20 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "6fda41d8a7996efe17e0424791dfc8333a1872e5c68073442759c7932a54f1d5",
+  "content_hash": "fba6eb3e49da5b32780bbb50cd05cd46beb65b36d136093a7edb076f37fe9d01",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified KB entrypoint metadata against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b. The KB entrypoint and all declared freshness-invalidating anchors (including docs/architecture/00-current-state.md) were re-reviewed against the committed source revision; the unreachable [OBSOLETE-SHA-REDACTED] reference is removed. Broken-link warnings in docs/architecture/README.md are not claimed repaired by this task.",
+    "reason": "Re-reverified Architecture KB entrypoint metadata against committed source revision 55e5475a4e53ecdb92a3be15e284a370a55ed05f. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed: Persona Studio / ADR-082 routing, weekly current-state override, and Guardian route/worker changes. No runtime, release, provider, or authority claim was widened. Unrelated broken-link warnings are not claimed repaired.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "verified_at": "2026-09-04T18:22:01-04:00",
-    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b"
+    "verified_at": "2026-09-05T12:32:56Z",
+    "verified_commit": "55e5475a4e53ecdb92a3be15e284a370a55ed05f"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

@@ -8,20 +8,20 @@
     "current priorities",
     "present release promise"
   ],
-  "content_hash": "43a2318038425645671bd7f23d85c8873807776ec2d9554c17c038b50170cdc4",
+  "content_hash": "aad77aa3208bc7d329ffae8a9c0624caf79137622a786a79f58690dca627eda4",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:current-state",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified current-state against committed source revision 5a18dfdd9b4f0957ccc63db325f117a83c66ab0b after restoring the accepted ADR-069 release-class structure. Source bytes synchronized. No live-runtime proof or release-support boundary widened; TTS/voice and federation remain Out of Beta; CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.",
+    "reason": "Re-reverified current-state metadata against committed source revision 55e5475a4e53ecdb92a3be15e284a370a55ed05f after the canonical weekly current-state override and intervening canonical maintenance. Source bytes are synchronized to the post-override current-state.md. No new live-runtime proof or release support boundary is inferred; CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback. Persona Studio and ADR-082 routing remain separate.",
     "state": "current",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
-    "verified_at": "2026-09-04T18:22:01-04:00",
-    "verified_commit": "5a18dfdd9b4f0957ccc63db325f117a83c66ab0b",
+    "verified_at": "2026-09-05T12:32:56Z",
+    "verified_commit": "55e5475a4e53ecdb92a3be15e284a370a55ed05f",
     "window_days": 7
   },
   "governing_adr_posture": "not_applicable",
