@@ -18,11 +18,13 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded live private-preview schema upgrade reached repository Alembic head with data-preservation and immediate runtime-read checks passing; the installed scheduled reconciler subsequently passed from its coherent shared-image baseline without recreating healthy long-running containers or changing canonical database state. No Beta support boundary widened.
+`main` remains in local-first Beta hardening with a gated private-preview lane. The private-preview database has now reached the Persona head `d4e0f2a5b7c9` with original-column preservation and canonical no-op proof. The old application remains stopped and stack reconciliation is intentionally suspended until matching Persona deployment is qualified. No Beta support boundary widened.
 
 ## What changed recently
 
-- [Persona private-preview clone migration rehearsal](./proofs/runtime/2026-09-06-persona-private-preview-migration-rehearsal-proof.md) proved `b2c8d0e3f5a7 → c3d9e1f4a6b8 → d4e0f2a5b7c9` compatibility using the canonical Persona-branch migrator on an isolated restored snapshot. All 111 pre-existing tables retained row counts and original-column digests. The live database remains at `b2c8d0e3f5a7`; its upgrade is not yet authorized or performed. Persona deployment lineage and authenticated browser save/readback remain pending. No release claim advances.
+- [Persona private-preview live upgrade](./proofs/runtime/2026-09-06-persona-private-preview-live-migration-proof.md) proved the authorized upgrade to `d4e0f2a5b7c9` after a fresh external checkpoint. All 111 pre-existing tables / 5,595 rows retained original-column digests; the second canonical migrator run was a no-op. PostgreSQL remains running, old application services remain stopped, stack reconciliation remains unloaded, and the tunnel agent and desired-up marker remain intact. Matching Persona application deployment and authenticated browser save/readback are pending.
+
+- [Persona private-preview clone migration rehearsal](./proofs/runtime/2026-09-06-persona-private-preview-migration-rehearsal-proof.md) proved `b2c8d0e3f5a7 → c3d9e1f4a6b8 → d4e0f2a5b7c9` compatibility using the canonical Persona-branch migrator on an isolated restored snapshot. All 111 pre-existing tables retained row counts and original-column digests. That prerequisite is closed; no release claim advances.
 
 - Repository-level private-preview Persona Profile admission is proven: `v1-whooshd-deepseek-web` adds only `persona_profiles` to enabled routes. Three focused profile/router/auth cases prove mounting, rejection of anonymous/static-key/unapproved sessions, approved-session account scope, and explicit flag disablement; all six private-preview Compose contract cases pass with the hermetic harness. This admits the existing authenticated create/list/read/update API under ADR-082 without changing manifest, revision, binding, provider, service, or runtime implementation semantics. It is bounded tester exposure, not broader Beta support.
 
@@ -60,7 +62,7 @@ This file is authoritative for:
 - Persona Profile deployed lineage is not yet proven, and authenticated Persona Studio browser save/backend readback is not yet proven. Repository/profile admission and focused tests do not establish that the running private-preview deployment contains this Persona branch/profile. Qualify the deployed lineage and `/api/persona-profiles` route before resuming live browser authority proof.
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
-- Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
+- Do not treat historical scheduled-recovery proof at `b2c8d0e3f5a7` or the live Persona migration as canary/provider closure. The database is now at `d4e0f2a5b7c9`; old application services are stopped and stack reconciliation is suspended pending matching deployment. Remaining preview gates stay open.
 - Do not treat one-slot private-preview worker serialization or its contract test as proof that the live MLX-VLM provider executes, persists, or recovers chat successfully.
 - Do not treat ADR-081 acceptance, chat-history classification, or focused UI tests as runtime Project-ownership convergence or supported browser proof.
 - Do not treat ADR-058 acceptance as legacy Persona removal, frontend consumer removal, Settings or Persona Studio convergence, inspector consolidation, Default Guardian Profile semantics, or a Beta/support expansion.
