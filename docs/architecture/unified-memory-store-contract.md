@@ -281,6 +281,270 @@ associated_with
 
 A record may have multiple links. Freeform tags remain user organization only.
 
+### 4.5 Persona-subject mapping contract (UMS-02A)
+
+The conceptual model in §4.3 names the stable Persona-subject identity and the
+binding surface. This section materializes that doctrine against the current
+repository truth, freezes an implementation-ready mapping and enforcement
+contract for UMS-02, and explicitly records the lifecycle gap that blocks
+UMS-02B authorization. It does not create tables, ORM models, or runtime code.
+
+#### 4.5.1 Current repository truth (read-only inventory)
+
+The durable Persona-persistence surfaces at current `main` are:
+
+| Durable surface | Table | Model | Stable identifier | Authoritative account ownership | Lifecycle / versioning |
+| --- | --- | --- | --- | --- | --- |
+| `Persona` | `personas` | `guardian.db.models.Persona` | autoincrement `id` (int) | direct `user_id` FK to `users.id` (`NOT NULL`); partial unique `(user_id, project_id) WHERE is_active` | mutable `is_active` (bool); no immutable revision history; multiple inactive rows may exist per `(user_id, project_id)` |
+| `PersonaProfile` | `persona_profiles` | `guardian.db.models.PersonaProfile` | `id` (string, PK) | none on the row itself; account scope lives in `PersonaProfileBinding.owner_account_id` | mutable registry row with `current_revision`; CHECK `current_revision > 0`; CHECK `0.0 <= temperature <= 2.0` |
+| `PersonaProfileRevision` | `persona_profile_revisions` | `guardian.db.models.PersonaProfileRevision` | `(profile_id, revision)` PK | per-row scope derived via parent `PersonaProfileBinding` | immutable authored V1 manifest snapshot; CHECK `revision > 0`; index on `(profile_id, created_at)` |
+| `PersonaProfileBinding` | `persona_profile_bindings` | `guardian.db.models.PersonaProfileBinding` | `profile_id` PK (1:1) | `owner_account_id` FK to `users.id` (`NOT NULL`) | no lifecycle state column; `created_at` / `updated_at` only |
+| Thread Persona/Profile pin | `chat_threads` | `guardian.db.models.ChatThread` | nullable `active_profile_id` (string), nullable `active_profile_revision` (int) | thread owner is `chat_threads.user_id` (`NOT NULL`) | CHECK `active_profile_revision IS NULL OR active_profile_revision > 0`; CHECK `active_profile_revision IS NULL OR active_profile_id IS NOT NULL`; FK `(active_profile_id, active_profile_revision) → persona_profile_revisions(profile_id, revision)` |
+
+The conceptual `Persona` table introduced by the Imprint persona system
+migration is currently durable at `main`. It is not part of the
+`account-export.v3` family set (only `persona_profiles`,
+`persona_profile_revisions`, and `persona_profile_bindings` are explicit
+export families today). The conceptual mapping between `Persona` and
+`PersonaProfile` is not currently preserved by any persistent foreign key
+or binding row.
+
+#### 4.5.2 Source-reference map
+
+| `ref_kind` | Canonical source entity / table | Stable source identifier | Account-ownership evidence | Mutable configuration | Replaced / versioned | May establish subject continuity |
+| --- | --- | --- | --- | --- | --- | --- |
+| `persona` | `personas` | `personas.id` (autoincrement int) | `personas.user_id` (FK `users.id`, NOT NULL) | yes (`body`, `is_active`, `source`) | replaced by insert + activation (no immutable revision history) | no |
+| `persona_profile` | `persona_profiles` (+ `persona_profile_revisions`) | `persona_profiles.id` (string) | `persona_profile_bindings.owner_account_id` (FK `users.id`, NOT NULL) | yes (manifest revisions; `current_revision` pointer advances on substantive update) | yes (immutable revisions under `(profile_id, revision)`) | yes, only with explicit durable continuity evidence defined in §4.5.5 |
+
+The thread pin (`chat_threads.active_profile_id`,
+`chat_threads.active_profile_revision`) is not a `ref_kind`. It is a
+runtime configuration reference and is never authoritative for Persona-
+subject identity.
+
+#### 4.5.3 Ownership evidence and uniqueness
+
+The authoritative account-ownership sources are exactly:
+
+- `personas.user_id`
+- `persona_profile_bindings.owner_account_id`
+
+No secondary ownership authority may be defined for Persona-subject identity.
+
+A binding from `persona_subjects` to either `ref_kind` is valid only when the
+source's authoritative account is provably equal to the subject's owning
+account. The schema enforces that equality by carrying both:
+
+- `persona_subjects.user_id` (FK to `users.id`, `NOT NULL`); and
+- a binding-row `source_account_id` (FK to `users.id`, `NOT NULL`) populated
+  at insert time from the source's authoritative account.
+
+The DB-level rule rejects any insert or update where
+`source_account_id != subject_user_id`.
+
+#### 4.5.4 Subject-creation rule
+
+A migration may create a `persona_subjects` row only when both:
+
+```text
+proven account ownership
++
+proven source identity
+↓
+stable persona_subject
+```
+
+are satisfied. None of the following may create or coalesce a Persona
+subject:
+
+```text
+same name
+same prompt
+same Project
+same avatar
+same model
+active at same time
+looks equivalent
+↓
+same subject
+```
+
+For `ref_kind = persona_profile`, the durable evidence is the existence of
+`(persona_profile_bindings.profile_id, owner_account_id)` and the
+corresponding `persona_profiles.id`.
+
+For `ref_kind = persona`, the durable evidence is the existence of a
+`personas` row whose `user_id` is provably equal to the subject's user_id.
+
+#### 4.5.5 Coalescing rule
+
+Coalescing follows four explicit categories:
+
+- **proven same subject** — explicit durable continuity evidence exists;
+  the binding may be created or merged.
+- **proven distinct subjects** — repository evidence requires separation;
+  the binding must not be coalesced.
+- **ownership known but identity equivalence unknown** — do not merge;
+  references remain separate bindings, each pointing at its own Persona
+  subject.
+- **ambiguous or contradictory mapping** — fail closed; the row remains
+  unresolved until separately authorized reconciliation.
+
+No heuristic matching is permitted. Coalescing cannot infer identity from
+names, prompts, descriptions, avatars, Project membership, profile
+similarity, active-thread selection, or model output.
+
+If the current repository has no durable evidence capable of proving that a
+legacy `Persona` reference and a `PersonaProfile` reference share the same
+identity, the contract records that absence and preserves them as separate,
+non-coalesced references.
+
+#### 4.5.6 Binding-history semantics
+
+`persona_subject_bindings` fields have the following meanings:
+
+- `valid_from` — the earliest moment at which the binding is authoritative.
+  Inclusivity is fixed: a binding with `valid_from = T` is authoritative for
+  any attribution event whose recorded time is at or after `T`.
+- `valid_until` — the latest moment at which the binding stops being
+  authoritative. Inclusivity is exclusive: the binding does not cover events
+  at or after `valid_until`. A `NULL` `valid_until` denotes an open-ended,
+  currently active binding.
+- An active binding is represented as the unique binding for a given
+  `(ref_kind, ref_id)` whose `valid_until IS NULL`. No separate `is_active`
+  column is required; the active state is derived.
+
+Cardinality and non-overlap invariants:
+
+- A single source reference has at most one active binding at any moment.
+  Enforced by a partial-unique index
+  `(ref_kind, ref_id) WHERE valid_until IS NULL`.
+- A single source reference cannot have two bindings whose validity
+  intervals overlap. Enforced by a CHECK constraint
+  `valid_until IS NULL OR valid_until > valid_from` plus a service-level
+  half-open interval check.
+- A single Persona subject may have multiple active bindings, one per
+  `ref_kind` (or more, when the contract specifically authorizes it).
+
+Replacement semantics:
+
+```text
+stable persona_subject_id
+│
+├── old PersonaProfile binding     [historical / closed]
+│
+└── replacement PersonaProfile     [current / active]
+```
+
+A replacement closes the predecessor binding by setting its
+`valid_until = T` and opens the successor binding with `valid_from = T` and
+`valid_until = NULL`. The transition is atomic; the database must reject
+overlap or gap on the source side. The historical binding row is never
+deleted; it remains queryable for attribution.
+
+Historical attribution resolution: given an attribution event at time `E`,
+the unique binding for `(ref_kind, ref_id)` whose interval
+`[valid_from, valid_until)` contains `E` is the authoritative attribution
+target. If none exists, attribution fails closed.
+
+Deletion or retirement of mutable configuration:
+
+- Deleting or retiring the referenced source row does not delete historical
+  bindings; the historical rows remain queryable for attribution.
+- Future bindings for that source are forbidden; new mappings must start a
+  new subject.
+
+#### 4.5.7 Account-isolation enforcement
+
+Cross-account binding is forbidden:
+
+```text
+account A subject
+↓
+account B Persona/Profile reference
+```
+
+The rule is enforced by database and service authority, not by UI
+filtering or model behavior. The minimum authoritative surface is:
+
+- `persona_subjects.user_id` (FK `users.id`, NOT NULL);
+- `persona_subject_bindings.subject_user_id` (FK `users.id`, NOT NULL),
+  derived from the subject row at insert time;
+- `persona_subject_bindings.source_account_id` (FK `users.id`, NOT NULL),
+  populated at insert time from `personas.user_id` or
+  `persona_profile_bindings.owner_account_id`;
+- a CHECK constraint `source_account_id = subject_user_id` that the
+  database rejects on insert and update.
+
+The polymorphic binding shape cannot enforce account consistency without the
+`source_account_id` column above. This is the minimum required shape
+refinement UMS-02B must introduce; it does not create a second
+ownership authority and reuses `persona_profile_bindings.owner_account_id`
+as the single source of account truth for `ref_kind = persona_profile`.
+
+#### 4.5.8 Lifecycle semantics (option B stop)
+
+There is no canonical lifecycle / token domain at current `main` that
+governs Persona-subject identity:
+
+- Request, provider, bounded tool-loop, and Campaign Runner lifecycle
+  tokens cover runtime and execution semantics, not Persona-subject
+  identity.
+- Personal Facts and ordinary-memory lifecycle tokens govern their own
+  domains only and do not extend to Persona subjects.
+- Project `archived_at` and `system_role` govern Project lifecycle only.
+- The Imprint persona system uses `personas.is_active` as a runtime toggle,
+  not a canonical lifecycle token.
+
+Under option B of the UMS-02A lifecycle resolution, this contract stops
+before freezing `persona_subjects.lifecycle` values and does not authorize
+UMS-02B. The smallest prerequisite is a canonical lifecycle / token
+decision bound to the canonical token registry
+(`guardian/protocol_tokens.py` and
+`docs/architecture/runtime-protocol-token-contract.md`) that specifies
+exact values and transitions for Persona subjects, with separately
+authorized proof.
+
+`persona_subjects.lifecycle` must not be assigned ad hoc values in
+UMS-02A or in any pre-prerequisite code path.
+
+#### 4.5.9 Legacy and ambiguous migration policy
+
+| Source condition | Deterministic handling |
+| --- | --- |
+| valid account-bound `PersonaProfile` (`persona_profile_bindings` exists; account proven) | create one `persona_subjects` row; open one active `persona_subject_bindings` row with `ref_kind = persona_profile`, `valid_from = source_created_at`, `valid_until = NULL`; preserve any historical binding intervals |
+| unbound `PersonaProfile` (no `persona_profile_bindings` row) | do not create `persona_subjects`; do not assign an account; record the row as unresolved until separately authorized reconciliation |
+| cross-account contradiction (source account ≠ would-be subject account, or two competing account signals) | do not create `persona_subjects`; surface the contradiction for separately authorized reconciliation; no partial binding may be persisted |
+| multiple candidate subjects for one source (no deterministic continuity evidence) | do not coalesce; remain unresolved; require separately authorized reconciliation |
+| duplicate source-reference binding (would create a second open-ended binding for the same source) | reject the duplicate; preserve the existing binding; surface as a deterministic conflict |
+| source reference already bound (active binding exists) | reject the redundant binding; preserve the existing binding; do not overwrite history |
+| replacement `PersonaProfile` with explicit continuity evidence | close predecessor binding at the boundary; open successor binding; preserve stable subject |
+| source record with no provable account | do not assign an account; do not create `persona_subjects`; remain unbound or quarantined |
+| legacy `Persona` row (`personas` is currently durable at `main`) | treat as `ref_kind = persona` source with `personas.user_id` as authoritative account; create one `persona_subjects` row only when `user_id` is provable; otherwise remain unbound or quarantined |
+| zero-user / multi-user legacy situations | fail closed; no account is inferred; remain unbound or quarantined until separately authorized reconciliation |
+
+Classification must occur before mutation. No name-based fallback is
+permitted.
+
+#### 4.5.10 Export-shape requirements (review only)
+
+The minimum future portable state needed for stable Persona attribution,
+when the exporter / restore surface is later authorized, is:
+
+- stable `persona_subject_id`;
+- owning account relationship;
+- canonical display snapshot / metadata (descriptive only);
+- lifecycle state, once resolved under the canonical lifecycle prerequisite
+  above;
+- binding source kind and identifier (`ref_kind`, `ref_id`);
+- binding history timestamps (`valid_from`, `valid_until`);
+- explicit relationship records required to remap account-local IDs safely.
+
+Source IDs and display names are provenance and reference data only, not
+authority.
+
+UMS-02A does not modify exporter or restore code; this section freezes the
+export-shape review only.
+
 ### 4.4 Activation projection
 
 Heat and ranking state are derived:
