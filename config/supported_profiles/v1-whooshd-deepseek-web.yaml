@@ -60,6 +60,7 @@ route_posture:
     - embeddings
     - obsidian
     - auth
+    - persona_profiles
     - hosted_rooms
     - hosted_room_guest
   internal_only:

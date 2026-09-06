@@ -367,3 +367,22 @@ def test_local_profile_no_overlapping_route_labels() -> None:
     assert not (enabled & internal), f"overlap: {enabled & internal}"
     assert not (enabled & quarantined), f"overlap: {enabled & quarantined}"
     assert not (internal & quarantined), f"overlap: {internal & quarantined}"
+
+
+def test_whooshd_profile_persona_profiles_enabled() -> None:
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    assert manifest.route_status("persona_profiles") == "enabled"
+    assert manifest.enabled_routes.count("persona_profiles") == 1
+    assert manifest.route_status("auth") == "enabled"
+    for label in (
+        "imprint", "system_prompt", "system_docs", "user_profile", "admin",
+        "federation", "collaboration", "connectors", "tools", "api_tools",
+        "agent", "agent_orchestration", "voice", "cron", "__missing__",
+    ):
+        assert manifest.route_status(label) == "quarantined", label
+    assert manifest.route_status("command_bus") == "internal_only"
+    assert manifest.route_status("coding_work_orders") == "internal_only"
+    # This admission is specific to the shared Whoosh'd private-preview profile.
+    for profile in ("v1-local-core-web-mcp", "v1-friends-family-web"):
+        assert load_supported_profile(profile).route_status("persona_profiles") == "quarantined"

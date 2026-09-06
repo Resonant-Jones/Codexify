@@ -68,6 +68,27 @@ Because the profile manifest is mounted read-only and loaded at backend
 startup, this route posture takes effect after restarting the tester
 `backend` service. It does not require a frontend restart.
 
+## Persona Profile Route Posture (Private Preview)
+
+`v1-whooshd-deepseek-web` enables the existing `persona_profiles` router for
+authenticated, account-scoped create/list/read/update operations at
+`/api/persona-profiles` and `/api/persona-profiles/{profile_id}`. This is bounded
+private-preview/tester admission under [ADR-082](../architecture/adr/082-persona-profile-manifest-and-binding-authority.md),
+not a default Beta profile change. The existing server-owned account binding,
+manifest, revision, and runtime semantics remain unchanged.
+
+Focused tests prove router registration, 401 rejection of anonymous,
+static-key, and unapproved-session requests in remote preview mode, and
+approved-session account scope even with a conflicting `X-User-Id` header.
+`CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES=false` still prevents mounting. No other
+route, provider, service, or topology posture changes.
+
+Repository admission and all six private-preview Compose contract cases are
+test-proven. Deployed Persona lineage and live Persona Studio browser
+save/backend readback remain unproven. A separately authorized deployment
+must first qualify the running lineage and `/api/persona-profiles` route
+before authenticated browser authority proof resumes.
+
 ## First-Time Setup
 
 ### 1. Copy the env template

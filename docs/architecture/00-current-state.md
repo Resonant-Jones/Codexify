@@ -22,6 +22,8 @@ This file is authoritative for:
 
 ## What changed recently
 
+- Repository-level private-preview Persona Profile admission is proven: `v1-whooshd-deepseek-web` adds only `persona_profiles` to enabled routes. Three focused profile/router/auth cases prove mounting, rejection of anonymous/static-key/unapproved sessions, approved-session account scope, and explicit flag disablement; all six private-preview Compose contract cases pass with the hermetic harness. This admits the existing authenticated create/list/read/update API under ADR-082 without changing manifest, revision, binding, provider, service, or runtime implementation semantics. It is bounded tester exposure, not broader Beta support.
+
 - Persona Studio saved state now depends on backend-confirmed canonical V1 manifests and server revisions. Full authored manifest hydration/writes, update/create failure preservation, offline draft recovery without saved authority, and edits surviving delayed acknowledgements are covered by focused store/page tests. localStorage remains draft/cache continuity only; it does not restore revision authority. This is frontend state/component proof with mocked API responses, not live runtime qualification. Persona bindings, thread pins, capability enforcement, backend semantics, and release/support boundaries are unchanged.
 
 - Added the internal authenticated `GET /api/system_prompt/inspect` signal and migrated the Settings `SystemPromptInspector` to consume it as its sole backend read: canonical thread profile ID/revision/source observation, active Imprint metadata, independent system-document counts, legacy-free inspection-builder measurements, and per-layer failure states now remain visible through the existing read-only UI. Focused frontend tests prove one canonical request, state-preserving normalization, revisionless profiles, partial layer unavailability, and request-level retry behavior. This is not supported-profile exposure, live-browser qualification, or release support.
@@ -52,6 +54,8 @@ This file is authoritative for:
 - Pi 0.82.1 wrapper/API, source-vendor, identity, framing, and telemetry changes remain internal, non-inference, or OAuth-readiness qualification.
 
 ## Not yet true / do not assume
+
+- Persona Profile deployed lineage is not yet proven, and authenticated Persona Studio browser save/backend readback is not yet proven. Repository/profile admission and focused tests do not establish that the running private-preview deployment contains this Persona branch/profile. Qualify the deployed lineage and `/api/persona-profiles` route before resuming live browser authority proof.
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
