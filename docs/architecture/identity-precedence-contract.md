@@ -298,9 +298,40 @@ including the modular builder's segment text fields.
 This projection is not the legacy-inclusive runtime composition, an accepted
 task snapshot, or an executed-request trace. The existing runtime builder and
 `/api/system_prompt/summary` retain their legacy Persona compatibility and
-metadata contracts. `GET /api/system_prompt/inspect` remains unimplemented;
-HTTP wiring and frontend adoption require subsequent scoped tasks. No release
-or supported-profile claim follows from this builder prerequisite.
+metadata contracts. `GET /api/system_prompt/inspect` now exposes the canonical
+read-only projection described below. Frontend adoption requires a subsequent
+scoped task. No release or supported-profile claim follows from the builder or
+endpoint.
+
+### Canonical Inspector endpoint
+
+`GET /api/system_prompt/inspect` is the authenticated, read-only Inspector
+projection. It returns `generated_at`, `scope`, `persona_profile`, `imprint`,
+`system_docs`, and `prompt`. Each observation has `state` (`present`, `absent`,
+or `unavailable`) and a bounded `error_code` or null. Scope failures reject the
+request; observational failures preserve independently available layers.
+
+Persona selection comes from the owned thread's persisted profile ID/revision
+through the existing system-profile resolver. Exact unavailable revisions keep
+their selected ID/revision and fail that layer closed; there is no fallback.
+Revisionless selections remain revisionless; explicit no-profile state is
+absent, and no-thread state is unavailable with `thread_context_required`.
+The resolved profile, when available, is supplied to the inspection builder.
+Prompt measurements without available profile guidance are therefore a partial
+inspection projection, never proof of that profile's runtime composition.
+
+Imprint exposes active presentation metadata, documents expose count/truncation
+availability, and prompt exposes normalized token/segment/threshold metadata
+marked `canonical_inspection` with `legacy_persona_included: false`. No raw
+prompt, segment text, proposal internals, document contents, or exception text
+is returned. This is a current observation across independent reads, not an
+atomic persistence snapshot or last-execution trace.
+
+`/api/imprint/status` legacy Persona readback and `/api/system_prompt/summary`
+remain unchanged compatibility surfaces, not canonical Inspector authority.
+The frontend still combines those compatibility endpoints; migration remains
+separate. This internal backend seam proves no supported-profile exposure,
+live-browser qualification, or release support.
 
 ## Current runtime truth and limits
 
