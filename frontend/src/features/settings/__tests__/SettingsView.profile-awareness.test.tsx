@@ -1,11 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "@/features/settings/SettingsView";
 import type { ExtColors } from "@/types/ui";
-import { updatePersonaSettings } from "@/features/settings/api/persona";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import {
   ensureRuntimeRouteCapabilitiesLoaded,
@@ -34,9 +33,6 @@ vi.mock("@/components/modals/ChatGPTImportModal", () => ({
   ChatGPTImportModal: () => null,
 }));
 
-vi.mock("@/features/settings/api/persona", () => ({
-  updatePersonaSettings: vi.fn(),
-}));
 
 const routeCapabilityState = {
   ready: true,
@@ -112,7 +108,6 @@ vi.mock("@/lib/api", () => ({
   setRuntimeApiKey: vi.fn(),
 }));
 
-const updatePersonaSettingsMock = vi.mocked(updatePersonaSettings);
 const ensureCapabilitiesLoadedMock = vi.mocked(
   ensureRuntimeRouteCapabilitiesLoaded
 );
@@ -182,96 +177,27 @@ describe("SettingsView restricted profile behavior", () => {
     routeCapabilityState.states[SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTORS] =
       "unavailable";
     routeCapabilityState.markNotFound = false;
-    updatePersonaSettingsMock.mockResolvedValue({
-      id: 9,
-      text: "Updated runtime persona.",
-      source: "user",
-      createdAt: "2026-03-30T10:00:00Z",
-      canClear: false,
-    });
   });
 
-  it("saves locally and skips persona sync when imprint is unavailable", async () => {
-    const user = userEvent.setup();
-    const props = renderSettingsView();
-
-    await user.click(screen.getByRole("tab", { name: "Imprint" }));
-    const promptField = screen.getByDisplayValue("Current system prompt.");
-    await user.clear(promptField);
-    await user.type(promptField, "Local-only prompt update.");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(props.setSystemPrompt).toHaveBeenCalledWith("Local-only prompt update.");
-    expect(updatePersonaSettingsMock).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText(
-        "Saved locally. Not synced to runtime persona layer in this profile."
-      )
-    ).toBeInTheDocument();
-  });
-
-  it("attempts sync once in unknown state and downgrades 404 to local-only success", async () => {
-    const user = userEvent.setup();
-    routeCapabilityState.states[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] =
-      "unknown";
-    routeCapabilityState.markNotFound = true;
-    updatePersonaSettingsMock.mockRejectedValue({
-      response: { status: 404, data: { detail: "Not Found" } },
-    });
-
-    const props = renderSettingsView();
-
-    await user.click(screen.getByRole("tab", { name: "Imprint" }));
-    const promptField = screen.getByDisplayValue("Current system prompt.");
-    await user.clear(promptField);
-    await user.type(promptField, "Unknown route prompt update.");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(ensureCapabilitiesLoadedMock).toHaveBeenCalled();
-      expect(getRuntimeRouteCapabilityStateMock).toHaveBeenCalledWith(
-        SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT
-      );
-      expect(updatePersonaSettingsMock).toHaveBeenCalledTimes(1);
-      expect(markRuntimeRouteUnavailableIfNotFoundMock).toHaveBeenCalled();
-    });
-
-    expect(props.setSystemPrompt).toHaveBeenCalledWith(
-      "Unknown route prompt update."
-    );
-    expect(
-      await screen.findByText(
-        "Saved locally. Not synced to runtime persona layer in this profile."
-      )
-    ).toBeInTheDocument();
-  });
-
-  it("preserves local save when persona sync fails for non-404 reasons", async () => {
-    const user = userEvent.setup();
-    routeCapabilityState.states[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] =
-      "available";
-    updatePersonaSettingsMock.mockRejectedValue({
-      response: { status: 500, data: { detail: "backend sync broke" } },
-    });
-
-    const props = renderSettingsView();
-
-    await user.click(screen.getByRole("tab", { name: "Imprint" }));
-    const promptField = screen.getByDisplayValue("Current system prompt.");
-    await user.clear(promptField);
-    await user.type(promptField, "Retryable prompt update.");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(updatePersonaSettingsMock).toHaveBeenCalledTimes(1);
-    });
-
-    expect(props.setSystemPrompt).toHaveBeenCalledWith(
-      "Retryable prompt update."
-    );
-    expect(
-      await screen.findByText("Saved locally. Persona sync failed.")
-    ).toBeInTheDocument();
-    expect(screen.getByText("backend sync broke")).toBeInTheDocument();
-  });
+  it.each(["unavailable", "unknown", "available"] as const)(
+    "offers no Persona prompt editing when Imprint is %s",
+    async (capability) => {
+      const user = userEvent.setup();
+      routeCapabilityState.states[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = capability;
+      const props = renderSettingsView();
+      await user.click(screen.getByRole("tab", { name: "Imprint" }));
+      expect(screen.queryByText("Preview Prompt")).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue("Current system prompt.")).not.toBeInTheDocument();
+      const notes = screen.getByDisplayValue("Existing notes");
+      await user.clear(notes);
+      await user.type(notes, "Updated notes");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(props.setNotes).toHaveBeenCalledWith("Updated notes");
+      expect(props.setSystemPrompt).not.toHaveBeenCalled();
+      expect(await screen.findByText("Saved locally.")).toBeInTheDocument();
+      expect(ensureCapabilitiesLoadedMock).not.toHaveBeenCalled();
+      expect(getRuntimeRouteCapabilityStateMock).not.toHaveBeenCalled();
+      expect(markRuntimeRouteUnavailableIfNotFoundMock).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -60,18 +60,9 @@ import {
   refreshApiBaseUrl,
   setRuntimeApiKey,
 } from "@/lib/api";
-import { updatePersonaSettings } from "@/features/settings/api/persona";
-import {
-  SUPPORTED_PROFILE_ROUTE_LABELS,
-  type RuntimeRouteCapabilityState,
-} from "@/contracts/supportedProfileRoutes";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
-import {
-  ensureRuntimeRouteCapabilitiesLoaded,
-  getRuntimeRouteCapabilityState,
-  markRuntimeRouteUnavailableIfNotFound,
-  useRuntimeRouteCapabilities,
-} from "@/lib/runtimeRouteCapabilities";
+import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
 
 type ImportRuntimeStatus =
@@ -313,39 +304,6 @@ function normalizeTaskEventStatus(
   return null;
 }
 
-function getResponseErrorMessage(error: unknown): string | null {
-  if (
-    error &&
-    typeof error === "object" &&
-    "response" in error &&
-    error.response &&
-    typeof error.response === "object" &&
-    "data" in error.response
-  ) {
-    const response = error.response as {
-      data?: { detail?: unknown; error?: unknown };
-    };
-    if (
-      typeof response.data?.detail === "string" &&
-      response.data.detail.trim()
-    ) {
-      return response.data.detail;
-    }
-    if (
-      typeof response.data?.error === "string" &&
-      response.data.error.trim()
-    ) {
-      return response.data.error;
-    }
-  }
-
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  return null;
-}
-
 export function SettingsView({
   mode,
   setMode,
@@ -364,8 +322,6 @@ export function SettingsView({
   fade,
   setFade,
   resolved,
-  systemPrompt,
-  setSystemPrompt,
   wallpaper,
   setWallpaper,
   extColors,
@@ -436,7 +392,6 @@ export function SettingsView({
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
   const [uRole, setURole] = useState(role);
-  const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
@@ -459,21 +414,7 @@ export function SettingsView({
   const isImportTerminal = isTerminalStatus(importStatus);
   const shouldShowImportStatusPanel = importStatus !== "idle" && !importPanelHidden;
   const importElapsed = formatElapsed(importStartedAt, importNow);
-  const [systemPromptSaveStatus, setSystemPromptSaveStatus] = useState<
-    "idle" | "saving" | "success" | "warning" | "error"
-  >("idle");
-  const [systemPromptSaveMessage, setSystemPromptSaveMessage] = useState<
-    string | null
-  >(null);
-  const [systemPromptSaveError, setSystemPromptSaveError] = useState<string | null>(
-    null
-  );
-  const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
-    useState(false);
-
-  const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
-    null
-  );
+  const [localSaveMessage, setLocalSaveMessage] = useState<string | null>(null);
   const {
     ready: runtimeCapabilitiesReady,
     states: runtimeRouteStates,
@@ -514,13 +455,10 @@ export function SettingsView({
   useEffect(() => setName(guardianName), [guardianName]);
   useEffect(() => setUName(userName), [userName]);
   useEffect(() => setURole(role), [role]);
-  useEffect(() => setPrompt(systemPrompt), [systemPrompt]);
   useEffect(() => setMemo(notes), [notes]);
   useEffect(() => {
-    setSystemPromptSaveStatus("idle");
-    setSystemPromptSaveMessage(null);
-    setSystemPromptSaveError(null);
-  }, [memo, name, prompt, uName, uRole]);
+    setLocalSaveMessage(null);
+  }, [memo, name, uName, uRole]);
   useEffect(() => {
     persistSettingsTab(tab);
   }, [tab]);
@@ -821,103 +759,12 @@ export function SettingsView({
     }
   }, [desktopMode, tab]);
 
-  async function handleSave() {
-    const localDirty =
-      name !== guardianName ||
-      uName !== userName ||
-      uRole !== role ||
-      memo !== notes ||
-      prompt !== systemPrompt;
-    const userId = (uName || userName || "default").trim() || "default";
-    const personaId = lastSavedPersonaId;
-    console.log("[SystemPrompt] Save clicked", {
-      value: prompt,
-      length: prompt?.length,
-      dirty: localDirty,
-      userId,
-      personaId,
-    });
+  function handleSave() {
     setGuardianName(name);
     setUserName(uName);
     setRole(uRole);
     setNotes(memo);
-    setSystemPrompt(prompt);
-
-    const shouldAttemptPersonaSync =
-      prompt !== systemPrompt || systemPromptSyncRetryNeeded;
-
-    if (!localDirty && !shouldAttemptPersonaSync) {
-      setSystemPromptSaveStatus("success");
-      setSystemPromptSaveMessage("Saved locally.");
-      return;
-    }
-
-    const projectId =
-      typeof window !== "undefined"
-        ? Number(window.localStorage.getItem("cfy.lastProjectId"))
-        : NaN;
-    const payload = {
-      text: prompt,
-      persona_prompt: prompt,
-      system_prompt: prompt,
-      projectId: Number.isFinite(projectId) ? projectId : undefined,
-    };
-    console.log("[SystemPrompt] Persist payload", payload);
-
-    setSystemPromptSaveStatus("saving");
-    setSystemPromptSaveMessage(null);
-    setSystemPromptSaveError(null);
-    if (!shouldAttemptPersonaSync) {
-      setSystemPromptSaveStatus("success");
-      setSystemPromptSaveMessage("Saved locally.");
-      return;
-    }
-
-    await ensureRuntimeRouteCapabilitiesLoaded();
-    const resolvedImprintCapability: RuntimeRouteCapabilityState =
-      getRuntimeRouteCapabilityState(SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT);
-
-    if (resolvedImprintCapability === "unavailable") {
-      setSystemPromptSyncRetryNeeded(false);
-      setSystemPromptSaveStatus("warning");
-      setSystemPromptSaveMessage(
-        "Saved locally. Not synced to runtime persona layer in this profile."
-      );
-      return;
-    }
-
-    try {
-      const response = await updatePersonaSettings(payload);
-      console.log("[SystemPrompt] Save response", response);
-      setLastSavedPersonaId(response.id);
-      setSystemPromptSyncRetryNeeded(false);
-      setSystemPromptSaveStatus("success");
-      setSystemPromptSaveMessage(
-        "Saved locally and synced to runtime persona layer."
-      );
-    } catch (error) {
-      console.error("[SystemPrompt] Save failed", error);
-      if (
-        markRuntimeRouteUnavailableIfNotFound(
-          SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT,
-          error
-        )
-      ) {
-        setSystemPromptSyncRetryNeeded(false);
-        setSystemPromptSaveStatus("warning");
-        setSystemPromptSaveMessage(
-          "Saved locally. Not synced to runtime persona layer in this profile."
-        );
-        return;
-      }
-
-      setSystemPromptSyncRetryNeeded(true);
-      setSystemPromptSaveStatus("warning");
-      setSystemPromptSaveMessage("Saved locally. Persona sync failed.");
-      setSystemPromptSaveError(
-        getResponseErrorMessage(error) ?? "Persona sync failed."
-      );
-    }
+    setLocalSaveMessage("Saved locally.");
   }
 
   const [fileLabel, setFileLabel] = useState<string>("");
@@ -1229,43 +1076,22 @@ export function SettingsView({
                 </div>
               </div>
               <div className="space-y-[calc(var(--radius-micro)/2)]">
-                <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Preview Prompt</div>
-                <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
-              </div>
-              <div className="space-y-[calc(var(--radius-micro)/2)]">
                 <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Notes</div>
                 <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={4} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
               </div>
-              <div className="flex flex-col gap-[calc(var(--radius-micro)/2)]">
-                <div className="flex items-center gap-[calc(var(--radius-micro)/2)]">
-                  <Button
-                    type="button"
-                    onClick={handleSave}
-                    className="rounded-[var(--tile-radius,19px)]"
-                    disabled={systemPromptSaveStatus === "saving"}
-                  >
-                    {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
-                  </Button>
-                  {systemPromptSaveMessage &&
-                    systemPromptSaveStatus !== "saving" && (
-                      <span
-                        className="text-xs"
-                        style={{
-                          color:
-                            systemPromptSaveStatus === "error"
-                              ? "var(--error, #ef4444)"
-                              : "var(--muted)",
-                        }}
-                      >
-                        {systemPromptSaveMessage}
-                      </span>
-                    )}
-                </div>
-                {systemPromptSaveError && (
-                  <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>
-                    {systemPromptSaveError}
-                  </div>
-                )}
+              <div className="flex items-center gap-[calc(var(--radius-micro)/2)]">
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  className="rounded-[var(--tile-radius,19px)]"
+                >
+                  Save
+                </Button>
+                {localSaveMessage ? (
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
+                    {localSaveMessage}
+                  </span>
+                ) : null}
               </div>
             </div>
 

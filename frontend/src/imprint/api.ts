@@ -109,11 +109,6 @@ export async function fetchSystemPromptSummary(params?: { thread_id?: number; pr
   }
 }
 
-export async function updatePersonaApi(body: string) {
-  const res = await api.post("/api/imprint/persona", { body });
-  return res.data;
-}
-
 export async function fetchSystemDocs(params?: { project_id?: number | null }) {
   const res = await api.get("/api/system_docs", { params });
   return res.data as { docs: Array<{ id: number; title: string; scope: string; enabled: boolean; token_estimate: number }> };

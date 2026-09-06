@@ -7,7 +7,6 @@ import {
   fetchSystemPromptSummary,
   ImprintStatus,
   ImprintProposal,
-  updatePersonaApi,
   fetchSystemDocs,
   toggleSystemDocApi,
 } from "./api";
@@ -109,24 +108,6 @@ export function useImprintZero(options: UseImprintZeroOptions = {}) {
     }
   }, [enabled]);
 
-  const updatePersona = useCallback(
-    async (body: string) => {
-      if (!enabled) return;
-      setLoading(true);
-      setError(null);
-      try {
-        await updatePersonaApi(body);
-        await refreshStatus();
-        await refreshSystemPromptSummary();
-      } catch (e: any) {
-        setError(e?.message || "Failed to update persona");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [enabled, refreshStatus, refreshSystemPromptSummary]
-  );
-
   const toggleSystemDoc = useCallback(
     async (docId: number, nextEnabled: boolean) => {
       if (!enabled) return;
@@ -176,7 +157,6 @@ export function useImprintZero(options: UseImprintZeroOptions = {}) {
     reject,
     hasLargePrompt,
     systemDocs,
-    updatePersona,
     toggleSystemDoc,
   };
 }
