@@ -26,6 +26,7 @@ This file is authoritative for:
 - Proved the installed post-upgrade scheduled reconciler completes against `b2c8d0e3f5a7` from its coherent shared migrator image, while preserving healthy long-running container identities and canonical database state.
 - Proved chat-history disappearance is a data-present/API-filter mismatch caused by legacy Project ownership divergence; no canonical chat row loss or runtime database-target drift was found.
 - Accepted ADR-081 naming `projects.user_id` as Project ownership authority; runtime normalization and legacy reconciliation remain unfinished.
+- Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Imprint-to-Persona runtime and Settings/inspector UI convergence remains unfinished, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 - Pinned private-preview chat worker concurrency to one to match the installed single-slot MLX-VLM runtime; Compose validation and focused contract coverage pass, but live provider qualification remains open.
@@ -46,6 +47,7 @@ This file is authoritative for:
 - Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
 - Do not treat one-slot private-preview worker serialization or its contract test as proof that the live MLX-VLM provider executes, persists, or recovers chat successfully.
 - Do not treat ADR-081 acceptance, chat-history classification, or focused UI tests as runtime Project-ownership convergence or supported browser proof.
+- Do not treat ADR-058 acceptance as legacy Persona removal, Imprint-to-Persona decoupling, Settings or Persona Studio convergence, inspector consolidation, Default Guardian Profile semantics, or a Beta/support expansion.
 - Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
 - Do not treat private-preview configuration, bounded recovery/ingress receipts, or a live health/read result as an admitted canary; tester isolation, provider, persistence, and observability gates remain open.
 - Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
