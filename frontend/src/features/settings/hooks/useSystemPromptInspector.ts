@@ -3,11 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchSystemPromptInspectorSnapshot,
   type SystemPromptInspectorContext,
+  type SystemPromptInspectorLayerState,
   type SystemPromptInspectorSnapshot,
   type SystemPromptSegment,
 } from "@/features/settings/api/systemPrompt";
 
-type LayerPresence = "present" | "absent" | "unavailable";
+type LayerPresence = SystemPromptInspectorLayerState;
 
 export type SystemPromptInspectorLayer = {
   description: string;
@@ -59,18 +60,22 @@ function findSegment(
   return snapshot?.segments.find((segment) => segment.name === name) ?? null;
 }
 
-function resolvePresence(
+function resolveLayerPresence(
   snapshot: SystemPromptInspectorSnapshot | null,
-  segmentName: string
+  layer: "base" | "persona" | "imprint" | "systemDocs"
 ): LayerPresence {
   if (!snapshot) return "unavailable";
-  if (segmentName in snapshot.segmentsPresent) {
-    return snapshot.segmentsPresent[segmentName] ? "present" : "absent";
-  }
 
-  const segment = findSegment(snapshot, segmentName);
-  if (!segment) return "unavailable";
-  return segment.chars > 0 || segment.estimatedTokens > 0 ? "present" : "absent";
+  switch (layer) {
+    case "base":
+      return snapshot.prompt.state;
+    case "persona":
+      return snapshot.persona.state;
+    case "imprint":
+      return snapshot.imprint.state;
+    case "systemDocs":
+      return snapshot.systemDocs.state;
+  }
 }
 
 function pushMetadata(
@@ -80,6 +85,10 @@ function pushMetadata(
 ) {
   if (value === null || value === undefined || value === "") return;
   list.push(`${label}: ${value}`);
+}
+
+function pushErrorCode(list: string[], errorCode: string | null) {
+  pushMetadata(list, "Error code", errorCode);
 }
 
 function buildLayers(
@@ -93,15 +102,25 @@ function buildLayers(
   const baseMetadata: string[] = [];
   pushMetadata(baseMetadata, "Tokens", baseSegment?.estimatedTokens ?? null);
   pushMetadata(baseMetadata, "Chars", baseSegment?.chars ?? null);
+  pushErrorCode(baseMetadata, snapshot?.prompt.errorCode ?? null);
 
+  const persona = snapshot?.persona;
   const personaMetadata: string[] = [];
-  pushMetadata(personaMetadata, "Persona ID", snapshot?.persona?.id ?? null);
-  pushMetadata(personaMetadata, "Source", snapshot?.persona?.source ?? null);
-  pushMetadata(
-    personaMetadata,
-    "Captured",
-    snapshot?.persona?.createdAt ?? null
-  );
+  pushMetadata(personaMetadata, "Profile ID", snapshot?.persona.profileId ?? null);
+  pushMetadata(personaMetadata, "Source", snapshot?.persona.source ?? null);
+  if (
+    persona &&
+    (persona.state === "present" ||
+      persona.profileId !== null ||
+      persona.revision !== null)
+  ) {
+    pushMetadata(
+      personaMetadata,
+      "Revision",
+      persona.revision === null ? "—" : persona.revision
+    );
+  }
+  pushErrorCode(personaMetadata, snapshot?.persona.errorCode ?? null);
   pushMetadata(
     personaMetadata,
     "Tokens",
@@ -111,6 +130,7 @@ function buildLayers(
   const imprintMetadata: string[] = [];
   pushMetadata(imprintMetadata, "Imprint ID", snapshot?.imprint?.id ?? null);
   pushMetadata(imprintMetadata, "Status", snapshot?.imprint?.status ?? null);
+  pushMetadata(imprintMetadata, "Style", snapshot?.imprint?.style ?? null);
   pushMetadata(
     imprintMetadata,
     "Preferred name",
@@ -123,21 +143,18 @@ function buildLayers(
   );
   pushMetadata(
     imprintMetadata,
-    "Captured",
-    snapshot?.imprint?.createdAt ?? null
-  );
-  pushMetadata(
-    imprintMetadata,
     "Tokens",
     imprintSegment?.estimatedTokens ?? null
   );
+  pushErrorCode(imprintMetadata, snapshot?.imprint.errorCode ?? null);
 
   const docsMetadata: string[] = [];
-  pushMetadata(docsMetadata, "Docs", snapshot?.docsCount ?? null);
+  pushMetadata(docsMetadata, "Docs", snapshot?.systemDocs.count ?? null);
   pushMetadata(docsMetadata, "Tokens", docsSegment?.estimatedTokens ?? null);
-  if (snapshot?.docsTruncated) {
+  if (snapshot?.systemDocs.truncated === true) {
     docsMetadata.push("Truncated to fit token budget");
   }
+  pushErrorCode(docsMetadata, snapshot?.systemDocs.errorCode ?? null);
 
   return [
     {
@@ -146,7 +163,7 @@ function buildLayers(
       editableHere: false,
       key: "base",
       metadata: baseMetadata,
-      presence: resolvePresence(snapshot, "base"),
+      presence: resolveLayerPresence(snapshot, "base"),
       title: "Base system layer",
     },
     {
@@ -164,10 +181,7 @@ function buildLayers(
       editableHere: false,
       key: "persona",
       metadata: personaMetadata,
-      presence:
-        snapshot?.persona || resolvePresence(snapshot, "persona") === "present"
-          ? "present"
-          : resolvePresence(snapshot, "persona"),
+      presence: resolveLayerPresence(snapshot, "persona"),
       title: "Persona layer",
     },
     {
@@ -176,10 +190,7 @@ function buildLayers(
       editableHere: false,
       key: "imprint",
       metadata: imprintMetadata,
-      presence:
-        snapshot?.imprint || resolvePresence(snapshot, "imprint") === "present"
-          ? "present"
-          : resolvePresence(snapshot, "imprint"),
+      presence: resolveLayerPresence(snapshot, "imprint"),
       title: "Imprint layer",
     },
     {
@@ -188,10 +199,7 @@ function buildLayers(
       editableHere: false,
       key: "systemDocs",
       metadata: docsMetadata,
-      presence:
-        (snapshot?.docsCount ?? 0) > 0
-          ? "present"
-          : resolvePresence(snapshot, "system_docs"),
+      presence: resolveLayerPresence(snapshot, "systemDocs"),
       title: "System docs layer",
     },
   ];

@@ -329,9 +329,10 @@ atomic persistence snapshot or last-execution trace.
 
 `/api/imprint/status` legacy Persona readback and `/api/system_prompt/summary`
 remain unchanged compatibility surfaces, not canonical Inspector authority.
-The frontend still combines those compatibility endpoints; migration remains
-separate. This internal backend seam proves no supported-profile exposure,
-live-browser qualification, or release support.
+`SystemPromptInspector` now consumes only `/api/system_prompt/inspect`; it no
+longer merges Imprint status with the legacy prompt summary. This bounded
+frontend adoption proves no supported-profile exposure, live-browser
+qualification, or release support.
 
 ## Current runtime truth and limits
 

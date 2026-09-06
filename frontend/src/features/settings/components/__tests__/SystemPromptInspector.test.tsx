@@ -25,17 +25,28 @@ describe("SystemPromptInspector", () => {
       estimatedTokensTotal: 1320,
       generatedAt: "2026-03-09T04:12:00Z",
       imprint: {
-        createdAt: "2026-03-08T18:00:00Z",
+        errorCode: null,
         heatScore: 0.7,
         id: 12,
         preferredName: "Harbor",
+        state: "present",
         status: "active",
+        style: "calm",
       },
       persona: {
-        createdAt: "2026-03-08T18:05:00Z",
-        id: 8,
-        snippet: "Calm and technical.",
+        errorCode: null,
+        profileId: "profile-axis",
+        revision: 3,
         source: "user",
+        state: "present",
+      },
+      prompt: {
+        docsCount: 2,
+        docsTruncated: true,
+        errorCode: null,
+        legacyPersonaIncluded: false,
+        projectionKind: "canonical_inspection",
+        state: "present",
       },
       segments: [
         { name: "base", chars: 1200, estimatedTokens: 300, truncated: false },
@@ -48,11 +59,11 @@ describe("SystemPromptInspector", () => {
           truncated: true,
         },
       ],
-      segmentsPresent: {
-        base: true,
-        imprint: true,
-        persona: true,
-        system_docs: true,
+      systemDocs: {
+        count: 2,
+        errorCode: null,
+        state: "present",
+        truncated: true,
       },
       threshold: {
         hardTokens: 8000,
@@ -77,7 +88,8 @@ describe("SystemPromptInspector", () => {
     expect(screen.getAllByText("Present")).toHaveLength(4);
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(screen.getAllByText("Editable here: No")).toHaveLength(5);
-    expect(screen.getByText("Persona ID: 8")).toBeInTheDocument();
+    expect(screen.getByText("Profile ID: profile-axis")).toBeInTheDocument();
+    expect(screen.getByText("Revision: 3")).toBeInTheDocument();
     expect(screen.getByText("Imprint ID: 12")).toBeInTheDocument();
     expect(screen.getByText("Truncated to fit token budget")).toBeInTheDocument();
 
@@ -93,14 +105,36 @@ describe("SystemPromptInspector", () => {
       docsTruncated: false,
       estimatedTokensTotal: null,
       generatedAt: null,
-      imprint: null,
-      persona: null,
+      imprint: {
+        errorCode: null,
+        heatScore: null,
+        id: null,
+        preferredName: null,
+        state: "absent",
+        status: null,
+        style: null,
+      },
+      persona: {
+        errorCode: null,
+        profileId: null,
+        revision: null,
+        source: null,
+        state: "absent",
+      },
+      prompt: {
+        docsCount: 0,
+        docsTruncated: false,
+        errorCode: null,
+        legacyPersonaIncluded: false,
+        projectionKind: "canonical_inspection",
+        state: "present",
+      },
       segments: [{ name: "base", chars: 1200, estimatedTokens: 300, truncated: false }],
-      segmentsPresent: {
-        base: true,
-        imprint: false,
-        persona: false,
-        system_docs: false,
+      systemDocs: {
+        count: 0,
+        errorCode: null,
+        state: "absent",
+        truncated: false,
       },
       threshold: {
         hardTokens: null,
@@ -121,6 +155,69 @@ describe("SystemPromptInspector", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("uses canonical layer states instead of inferring presence from metadata", async () => {
+    fetchSystemPromptInspectorSnapshotMock.mockResolvedValue({
+      docsCount: 2,
+      docsTruncated: true,
+      estimatedTokensTotal: 900,
+      generatedAt: "2026-03-09T04:30:00Z",
+      imprint: {
+        errorCode: null,
+        heatScore: null,
+        id: 12,
+        preferredName: "Harbor",
+        state: "absent",
+        status: "active",
+        style: "calm",
+      },
+      persona: {
+        errorCode: "system_profile_resolution_unavailable",
+        profileId: "profile-pinned",
+        revision: 7,
+        source: null,
+        state: "unavailable",
+      },
+      prompt: {
+        docsCount: 2,
+        docsTruncated: true,
+        errorCode: "prompt_inspection_unavailable",
+        legacyPersonaIncluded: false,
+        projectionKind: "canonical_inspection",
+        state: "unavailable",
+      },
+      segments: [
+        { name: "base", chars: 1200, estimatedTokens: 300, truncated: false },
+        { name: "persona", chars: 180, estimatedTokens: 45, truncated: false },
+        { name: "imprint", chars: 220, estimatedTokens: 55, truncated: false },
+        { name: "system_docs", chars: 1400, estimatedTokens: 350, truncated: true },
+      ],
+      systemDocs: {
+        count: 2,
+        errorCode: "system_docs_observation_unavailable",
+        state: "unavailable",
+        truncated: true,
+      },
+      threshold: {
+        hardTokens: 8000,
+        status: "unknown",
+        warnTokens: 6000,
+      },
+      warnings: [],
+    });
+
+    render(<SystemPromptInspector />);
+
+    expect(await screen.findByText("System Prompt Inspector")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
+    expect(screen.getByText("Absent")).toBeInTheDocument();
+    expect(
+      screen.getByText("Error code: system_profile_resolution_unavailable")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Error code: system_docs_observation_unavailable")
+    ).toBeInTheDocument();
+  });
+
   test("shows an error and supports reload", async () => {
     const user = userEvent.setup();
 
@@ -131,10 +228,37 @@ describe("SystemPromptInspector", () => {
         docsTruncated: false,
         estimatedTokensTotal: 420,
         generatedAt: "2026-03-09T05:00:00Z",
-        imprint: null,
-        persona: null,
+        imprint: {
+          errorCode: null,
+          heatScore: null,
+          id: null,
+          preferredName: null,
+          state: "absent",
+          status: null,
+          style: null,
+        },
+        persona: {
+          errorCode: null,
+          profileId: null,
+          revision: null,
+          source: null,
+          state: "absent",
+        },
+        prompt: {
+          docsCount: 1,
+          docsTruncated: false,
+          errorCode: null,
+          legacyPersonaIncluded: false,
+          projectionKind: "canonical_inspection",
+          state: "present",
+        },
         segments: [{ name: "base", chars: 600, estimatedTokens: 150, truncated: false }],
-        segmentsPresent: { base: true, system_docs: false },
+        systemDocs: {
+          count: 1,
+          errorCode: null,
+          state: "present",
+          truncated: false,
+        },
         threshold: {
           hardTokens: 8000,
           status: "ok",
