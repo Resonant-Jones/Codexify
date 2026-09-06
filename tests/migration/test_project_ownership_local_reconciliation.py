@@ -407,12 +407,24 @@ def _downgrade_to(config, revision: str) -> None:
 
 
 def _seed_users(connection) -> None:
+    local_user_count = int(
+        connection.execute(
+            sa.text("SELECT count(*) FROM users WHERE id = 'local'")
+        ).scalar_one()
+    )
+    if local_user_count != 1:
+        raise RuntimeError(
+            "PostgreSQL ownership test fixture precondition failed: "
+            "expected exactly one migration-created users(id='local') row "
+            "from f2b3c4d5e6f8_add_user_id_to_core_entities.py::_ensure_default_user, "
+            f"found {local_user_count}. The historical chain must run before "
+            "this fixture seeds non-local test accounts."
+        )
     connection.execute(
         sa.text(
             "INSERT INTO users (id, username, password_hash, role) VALUES "
             "('account-a', 'local-owner-a', 'not-a-real-hash', 'guest'), "
-            "('account-b', 'local-owner-b', 'not-a-real-hash', 'guest'), "
-            "('local', 'local-owner-legacy', 'not-a-real-hash', 'guest')"
+            "('account-b', 'local-owner-b', 'not-a-real-hash', 'guest')"
         )
     )
 
