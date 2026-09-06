@@ -13,7 +13,7 @@
   "document_id": "codexify:doc:architecture:current-state",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified current-state metadata against committed source revision 1ce3a735e91ac05094051c92b9a64d47cb50dfc1 after restoring ADR-069 release-class structure. Current 2026-09-06 short-horizon blockers and priorities preserved. No capability promoted or demoted; no new runtime proof inferred; CE-L1 still lacks live provider/model execution, terminal durable result, source-thread readback.",
+    "reason": "Re-verified current-state metadata against committed source revision 0ef78e03dce504288b008af4f42cea6d486ea99c after restoring ADR-069 release-class structure. Current 2026-09-06 short-horizon blockers and priorities preserved. No capability promoted or demoted; no new runtime proof inferred; CE-L1 still lacks live provider/model execution, terminal durable result, source-thread readback.",
     "state": "current",
     "triggers": [
       "the weekly freshness window expires",
@@ -21,7 +21,7 @@
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "verified_at": "2026-09-06T13:59:09Z",
-    "verified_commit": "1ce3a735e91ac05094051c92b9a64d47cb50dfc1",
+    "verified_commit": "0ef78e03dce504288b008af4f42cea6d486ea99c",
     "window_days": 7
   },
   "governing_adr_posture": "not_applicable",

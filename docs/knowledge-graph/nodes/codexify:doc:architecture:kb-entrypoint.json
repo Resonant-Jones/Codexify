@@ -11,7 +11,7 @@
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified Architecture KB entrypoint metadata against committed source revision 1ce3a735e91ac05094051c92b9a64d47cb50dfc1. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed. The current-state ADR-069 restoration is included. Current Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim was widened. Unrelated warnings/collisions are not claimed repaired.",
+    "reason": "Re-verified Architecture KB entrypoint metadata against committed source revision 0ef78e03dce504288b008af4f42cea6d486ea99c. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed. The current-state ADR-069 restoration is included. Current Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim was widened. Unrelated warnings/collisions are not claimed repaired.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
@@ -19,7 +19,7 @@
       "the current-state routing boundary changes"
     ],
     "verified_at": "2026-09-06T13:59:09Z",
-    "verified_commit": "1ce3a735e91ac05094051c92b9a64d47cb50dfc1"
+    "verified_commit": "0ef78e03dce504288b008af4f42cea6d486ea99c"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
