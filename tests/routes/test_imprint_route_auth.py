@@ -117,20 +117,16 @@ def test_accept_reject_require_owner_scope():
     assert resp.status_code == 403
 
 
-def test_persona_update_rejects_cross_user_thread_scope():
+@pytest.mark.parametrize("headers", [AUTH_HEADERS, {}, {"X-API-Key": "wrong-key"}])
+def test_retired_persona_route_is_unavailable_regardless_of_auth(headers):
     app = make_app()
+    assert "/api/imprint/persona" not in app.openapi()["paths"]
     client = TestClient(app)
-    original = imprint_routes.chatlog_db
-    imprint_routes.chatlog_db = SimpleNamespace(
-        get_chat_thread=lambda _tid: {"user_id": "u2", "project_id": 3},
-        get_project_identity_depth=lambda _pid: "deep",
-    )
-    try:
-        resp = client.post(
+    with patch.object(imprint_routes.persona_store, "set_persona") as write:
+        response = client.post(
             "/api/imprint/persona",
             json={"body": "persona", "thread_id": 1},
-            headers=AUTH_HEADERS,
+            headers=headers,
         )
-    finally:
-        imprint_routes.chatlog_db = original
-    assert resp.status_code == 403
+    assert response.status_code == 404
+    write.assert_not_called()

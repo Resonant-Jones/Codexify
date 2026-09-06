@@ -197,25 +197,23 @@ def test_accept_imprint_preserves_personas_and_prompt_layers(_settings_db):
     }
 
 
-def test_update_persona_persists_project_scoped_active_persona_and_prompt_layers():
-    app = make_app()
-    client = TestClient(app)
-
+def test_retired_persona_route_preserves_legacy_rows_and_status(_settings_db):
+    client = TestClient(make_app())
+    persona_store.create_persona("u1", 11, "old", "Inactive legacy text.")
+    existing = persona_store.set_persona(
+        "u1", 11, "Speak plainly and directly.", source="user"
+    )
+    persona_store.set_persona("u2", 11, "Other user text.", source="user")
+    persona_store.set_persona("u1", None, "Default text.", source="user")
+    before = _persona_rows(_settings_db)
     response = client.post(
         "/api/imprint/persona",
-        json={"body": "Speak plainly and directly.", "project_id": 11},
+        json={"body": "Overwrite me", "project_id": 11},
         headers=AUTH_HEADERS,
     )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["source"] == "user"
-    assert payload["is_active"] is True
-
-    active_persona = persona_store.get_active_persona("u1", 11)
-    assert active_persona is not None
-    assert active_persona.body == "Speak plainly and directly."
-    assert active_persona.is_active is True
-    assert persona_store.get_active_persona("u1", None) is None
+    assert response.status_code == 404
+    assert _persona_rows(_settings_db) == before
+    assert persona_store.get_active_persona("u1", 11).id == existing.id
 
     prompt, meta = build_guardian_system_prompt(
         user_id="u1",
@@ -247,3 +245,20 @@ def test_update_persona_persists_project_scoped_active_persona_and_prompt_layers
         "segments_present",
         "segments",
     }
+
+    assert status_body["persona"]["id"] == existing.id
+    assert status_body["persona"]["snippet"] == existing.body
+    assert _persona_rows(_settings_db) == before
+
+
+@pytest.mark.parametrize("field", ["body", "persona_prompt", "system_prompt"])
+def test_retired_persona_route_cannot_create_rows(_settings_db, field):
+    client = TestClient(make_app())
+    assert _persona_rows(_settings_db) == []
+    response = client.post(
+        "/api/imprint/persona",
+        json={field: "Do not create", "project_id": 11},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 404
+    assert _persona_rows(_settings_db) == []

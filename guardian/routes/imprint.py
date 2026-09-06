@@ -513,63 +513,6 @@ def system_prompt_summary(
     }
 
 
-@router.post("/persona")
-def update_persona(
-    body: dict[str, Any] = Body(...),
-    current_user: str = Depends(get_current_user),
-):
-    """Explicitly set persona text (source=user) for the current user/project."""
-    logger.info("[api/system-prompt/save] incoming body %s", body)
-    text = (
-        body.get("body")
-        or body.get("persona_prompt")
-        or body.get("system_prompt")
-    )
-    thread_id = body.get("thread_id")
-    project_id = body.get("project_id")
-    if not text or not str(text).strip():
-        raise HTTPException(status_code=400, detail="body is required")
-    user_id, resolved_project, thread = _resolve_user_project(
-        current_user,
-        thread_id,
-        project_id,
-        mutation=True,
-    )
-    project_identity_depth = _resolve_project_identity_depth(resolved_project)
-    if not _identity_updates_allowed(
-        user_id,
-        thread,
-        project_identity_depth=project_identity_depth,
-    ):
-        raise HTTPException(
-            status_code=403, detail="identity updates disabled for this context"
-        )
-    try:
-        logger.info(
-            "[persona_prompt] updating active prompt %s",
-            {"userId": user_id, "personaId": None},
-        )
-        persona = persona_store.set_persona(
-            user_id, resolved_project, str(text), source="user"
-        )
-        logger.info(
-            "[persona_prompt_versions] inserting version row %s",
-            {"userId": user_id, "personaId": persona.id},
-        )
-        return {
-            "id": persona.id,
-            "body": persona.body,
-            "source": persona.source,
-            "is_active": persona.is_active,
-            "created_at": getattr(persona, "created_at", None),
-        }
-    except Exception as e:
-        logger.exception("[system-prompt persistence] DB error %s", e)
-        return JSONResponse(
-            status_code=500, content={"ok": False, "error": "update failed"}
-        )
-
-
 @system_docs_router.get("")
 def list_system_docs(
     thread_id: int | None = Query(None),

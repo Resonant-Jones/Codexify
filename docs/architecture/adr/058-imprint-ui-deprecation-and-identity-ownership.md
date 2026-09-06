@@ -78,10 +78,10 @@ authorities:
 4. relational/presentation synthesis and diagnostics.
 
 The implemented canonical Persona Profile path makes the ambiguity operational:
-Settings and the deferred `/api/imprint/persona` route can still author mutable
-legacy Persona state even though ADR-082 assigns authored Persona intent,
-revision history, binding, and deterministic accepted-task execution to the
-canonical profile model.
+Settings still exposes obsolete Persona editing controls and callers to the
+retired `/api/imprint/persona` endpoint. These no longer have backend mutation
+authority. ADR-082 assigns authored Persona intent, revision history, binding,
+and deterministic accepted-task execution to the canonical profile model.
 
 ## Decision
 
@@ -196,11 +196,10 @@ diagnostic surface into identity authority.
 The following current behaviors are preserved as implementation facts, not
 accepted architecture:
 
-* `POST /api/imprint/persona` exposes direct legacy Persona mutation;
 * `GET /api/imprint/status` reports active legacy Persona state alongside
   Imprint and prompt metadata;
-* Settings still exposes legacy Persona editing/synchronization through the
-  Imprint API family;
+* Settings and other frontend consumers still call the retired
+  `/api/imprint/persona` endpoint; their obsolete editing controls remain deferred;
 * legacy Persona resolution remains active in prompt assembly beside canonical
   Persona Profile resolution; and
 * some built-in, environment, Flow, and historical compatibility paths remain
@@ -217,9 +216,17 @@ only Imprint acceptance state and labels legacy proposal text as unapplied
 Persona configuration. Focused route tests prove activation, unchanged legacy
 Persona fields, no new Persona row, and preserved scope checks.
 
-The next slice is retirement of `/api/imprint/persona` and its remaining
-frontend consumers. Legacy Persona observation/status and resolution remain
-unresolved. Existing data, canonical Persona revisions/bindings/selections,
+Also closed on 2026-09-06: `POST /api/imprint/persona` and its mutation
+implementation are removed, with no replacement or compatibility write shim.
+The Imprint router has no Persona mutation handler. Focused tests verify that
+requests to the retired path return 404, preserve every existing legacy Persona
+field, and cannot create a row. `/api/imprint/status` still observes legacy
+Persona state without writing it.
+
+The next prerequisite is removal of the remaining frontend callers and obsolete
+Persona-editing controls. Legacy Persona storage, observation/status, and
+resolution remain unresolved; endpoint retirement does not remove that system.
+Existing data, canonical Persona revisions/bindings/selections,
 accepted-task snapshots, Guardian identity, and prompt order are unchanged.
 No supported-profile or Beta claim follows from this bounded proof.
 
@@ -287,9 +294,10 @@ This decision does **not**:
 
 ## Follow-on implementation slices
 
-1. Retire the remaining legacy `/api/imprint/persona` mutation surface and its
-   frontend consumers without creating a second Persona authority. Acceptance
-   coupling is closed; legacy observation and resolution remain deferred.
+1. Remove `/api/imprint/persona` frontend consumers and obsolete Persona-editing
+   controls without inventing replacement authority. Backend mutation authority
+   and acceptance coupling are closed; legacy observation and resolution remain
+   deferred.
 2. Reconcile Settings and any future My Guardian editor with the canonical
    Persona object without introducing a second persistence model.
 3. Convert prompt inspection to one canonical observational surface that labels

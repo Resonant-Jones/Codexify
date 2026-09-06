@@ -344,57 +344,27 @@ def test_system_docs_toggle():
     assert resp.status_code == 200
 
 
-def test_server_app_mounts_persona_save_route(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def test_server_app_does_not_mount_persona_save_route(monkeypatch):
     sys.modules.setdefault("notion_client", types.SimpleNamespace(Client=object))
 
     from fastapi import APIRouter
 
     tools_stub = types.ModuleType("guardian.server.tools_api")
     tools_stub.router = APIRouter()
-    sys.modules["guardian.server.tools_api"] = tools_stub
+    monkeypatch.setitem(sys.modules, "guardian.server.tools_api", tools_stub)
 
-    persona_obj = SimpleNamespace(
-        id=11,
-        body="Saved prompt",
-        source="user",
-        is_active=True,
-        created_at="2026-03-30T12:00:00Z",
+    from guardian.server.app import app
+
+    assert not any(
+        getattr(route, "path", None) == "/api/imprint/persona"
+        and "POST" in getattr(route, "methods", set())
+        for route in app.routes
     )
-
-    monkeypatch.setattr(
-        imprint_routes.iddb_settings_service,
-        "get_user_settings",
-        lambda _user_id: {
-            "memory_mode": "light",
-            "diary_requires_unlock": False,
-            "allow_sensitive_modeling": False,
-        },
-        raising=True,
-    )
-
-    with patch.object(
-        imprint_routes.persona_store,
-        "set_persona",
-        return_value=persona_obj,
-    ):
-        from guardian.server.app import app
-
-        def _test_current_user(request: Request) -> str:
-            return request.headers.get("X-User-Id") or "default"
-
-        app.dependency_overrides[imprint_routes.get_current_user] = _test_current_user
-        try:
-            client = TestClient(app)
-            resp = client.post(
-                "/api/imprint/persona",
-                json={"body": "Saved prompt"},
-                headers=AUTH_HEADERS,
-            )
-        finally:
-            app.dependency_overrides.pop(imprint_routes.get_current_user, None)
-
-    assert resp.status_code == 200
-    assert resp.json()["id"] == persona_obj.id
-    assert resp.json()["body"] == "Saved prompt"
+    with patch.object(imprint_routes.persona_store, "set_persona") as write:
+        response = TestClient(app).post(
+            "/api/imprint/persona",
+            json={"body": "Saved prompt"},
+            headers=AUTH_HEADERS,
+        )
+    assert response.status_code == 404
+    write.assert_not_called()
