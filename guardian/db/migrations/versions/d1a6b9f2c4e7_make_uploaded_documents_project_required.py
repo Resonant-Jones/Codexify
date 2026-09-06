@@ -21,48 +21,38 @@ depends_on: str | Sequence[str] | None = None
 
 
 DEFAULT_PROJECT_NAME = "General"
-DEFAULT_PROJECT_DESCRIPTION = (
-    "Default project for content without a specified project"
-)
+DEFAULT_PROJECT_DESCRIPTION = "Default project for content without a specified project"
 
 
 def _resolve_default_project_id(bind) -> int:
     general_id = bind.execute(
-        sa.text(
-            """
+        sa.text("""
             SELECT id
             FROM projects
             WHERE lower(trim(name)) = lower(:name)
             ORDER BY id ASC
             LIMIT 1
-            """
-        ),
+            """),
         {"name": DEFAULT_PROJECT_NAME},
     ).scalar()
     if general_id is not None:
         return int(general_id)
 
-    loose_id = bind.execute(
-        sa.text(
-            """
+    loose_id = bind.execute(sa.text("""
             SELECT id
             FROM projects
             WHERE lower(trim(name)) = 'loose threads'
             ORDER BY id ASC
             LIMIT 1
-            """
-        )
-    ).scalar()
+            """)).scalar()
     if loose_id is not None:
         bind.execute(
-            sa.text(
-                """
+            sa.text("""
                 UPDATE projects
                 SET name = :name,
                     description = COALESCE(NULLIF(description, ''), :description)
                 WHERE id = :project_id
-                """
-            ),
+                """),
             {
                 "name": DEFAULT_PROJECT_NAME,
                 "description": DEFAULT_PROJECT_DESCRIPTION,
@@ -72,52 +62,51 @@ def _resolve_default_project_id(bind) -> int:
         return int(loose_id)
 
     bind.execute(
-        sa.text(
-            """
+        sa.text("""
             INSERT INTO projects (name, description)
             VALUES (:name, :description)
-            """
-        ),
+            """),
         {
             "name": DEFAULT_PROJECT_NAME,
             "description": DEFAULT_PROJECT_DESCRIPTION,
         },
     )
     inserted_id = bind.execute(
-        sa.text(
-            """
+        sa.text("""
             SELECT id
             FROM projects
             WHERE lower(trim(name)) = lower(:name)
             ORDER BY id DESC
             LIMIT 1
-            """
-        ),
+            """),
         {"name": DEFAULT_PROJECT_NAME},
     ).scalar()
     if inserted_id is None:
-        raise RuntimeError(
-            "Failed to resolve default project id during migration"
-        )
+        raise RuntimeError("Failed to resolve default project id during migration")
     return int(inserted_id)
 
 
 def upgrade() -> None:
     """Upgrade schema."""
     bind = op.get_bind()
-    default_project_id = _resolve_default_project_id(bind)
-
-    # Backfill legacy rows that were uploaded without project provenance.
-    bind.execute(
-        sa.text(
-            """
-            UPDATE uploaded_documents
-            SET project_id = :project_id
+    null_project_count = bind.execute(sa.text("""
+            SELECT count(*)
+            FROM uploaded_documents
             WHERE project_id IS NULL
-            """
-        ),
-        {"project_id": default_project_id},
-    )
+            """)).scalar_one()
+
+    if int(null_project_count) > 0:
+        default_project_id = _resolve_default_project_id(bind)
+
+        # Backfill legacy rows that were uploaded without project provenance.
+        bind.execute(
+            sa.text("""
+                UPDATE uploaded_documents
+                SET project_id = :project_id
+                WHERE project_id IS NULL
+                """),
+            {"project_id": default_project_id},
+        )
 
     op.alter_column(
         "uploaded_documents",
