@@ -285,9 +285,12 @@ A record may have multiple links. Freeform tags remain user organization only.
 
 The conceptual model in §4.3 names the stable Persona-subject identity and the
 binding surface. This section materializes that doctrine against the current
-repository truth, freezes an implementation-ready mapping and enforcement
-contract for UMS-02, and explicitly records the lifecycle gap that blocks
-UMS-02B authorization. It does not create tables, ORM models, or runtime code.
+repository truth and freezes an implementation-ready mapping and enforcement
+contract for UMS-02. It does not create tables, ORM models, or runtime code.
+The canonical `persona_subjects.lifecycle` token surface is deferred to
+UMS-02B under option C; UMS-02A documents the lifecycle surface as the
+smallest prerequisite for UMS-02B but does not freeze its values or
+transitions.
 
 #### 4.5.1 Current repository truth (read-only inventory)
 
@@ -481,7 +484,7 @@ refinement UMS-02B must introduce; it does not create a second
 ownership authority and reuses `persona_profile_bindings.owner_account_id`
 as the single source of account truth for `ref_kind = persona_profile`.
 
-#### 4.5.8 Lifecycle semantics (option B stop)
+#### 4.5.8 Lifecycle semantics (option C — deferred to UMS-02B)
 
 There is no canonical lifecycle / token domain at current `main` that
 governs Persona-subject identity:
@@ -495,17 +498,27 @@ governs Persona-subject identity:
 - The Imprint persona system uses `personas.is_active` as a runtime toggle,
   not a canonical lifecycle token.
 
-Under option B of the UMS-02A lifecycle resolution, this contract stops
-before freezing `persona_subjects.lifecycle` values and does not authorize
-UMS-02B. The smallest prerequisite is a canonical lifecycle / token
-decision bound to the canonical token registry
-(`guardian/protocol_tokens.py` and
-`docs/architecture/runtime-protocol-token-contract.md`) that specifies
-exact values and transitions for Persona subjects, with separately
-authorized proof.
+Under option C, UMS-02A freezes the contract but explicitly records the
+canonical `persona_subjects.lifecycle` surface as the smallest prerequisite
+for UMS-02B. UMS-02A does not assign lifecycle values or transition rules
+itself; those are bounded-implementation work for UMS-02B. The smallest
+prerequisite UMS-02B must satisfy is:
+
+1. Add a bounded `PersonaSubjectLifecycle` (or equivalent canonical token
+   class) to `guardian/protocol_tokens.py` with exact values and transition
+   meaning for `persona_subjects.lifecycle`.
+2. Record the new canonical lifecycle domain in
+   `docs/architecture/runtime-protocol-token-contract.md`.
+3. Add `persona_subjects` and `persona_subject_bindings` to canonical
+   SQLAlchemy metadata only while keeping all other migration, runtime,
+   and release semantics unchanged.
+4. Qualify the bounded implementation on disposable PostgreSQL without
+   widening the existing migration lineage.
 
 `persona_subjects.lifecycle` must not be assigned ad hoc values in
-UMS-02A or in any pre-prerequisite code path.
+UMS-02A or in any pre-prerequisite code path. UMS-02A stops if a value or
+transition must be invented here; lifecycle values are bound only through
+the canonical token registry.
 
 #### 4.5.9 Legacy and ambiguous migration policy
 
@@ -534,7 +547,7 @@ when the exporter / restore surface is later authorized, is:
 - owning account relationship;
 - canonical display snapshot / metadata (descriptive only);
 - lifecycle state, once resolved under the canonical lifecycle prerequisite
-  above;
+  recorded in §4.5.8;
 - binding source kind and identifier (`ref_kind`, `ref_id`);
 - binding history timestamps (`valid_from`, `valid_until`);
 - explicit relationship records required to remap account-local IDs safely.

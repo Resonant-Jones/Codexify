@@ -102,9 +102,9 @@ UMS-01Q-R3: CLOSED
 UMS-01Q POSTGRESQL QUALIFICATION: PASSED
 UMS-01 CAMPAIGN GATE: CLOSED
 UMS-01: CLOSED
-UMS-02A STABLE PERSONA SUBJECT CONTRACT: BLOCKED
+UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
 UMS-02: OPEN
-UMS-02B IMPLEMENTATION: NOT AUTHORIZED
+UMS-02B IMPLEMENTATION: AUTHORIZED
 UMS-03: NOT AUTHORIZED
 ```
 
@@ -116,12 +116,11 @@ The contract records the current Persona-persistence inventory
 `ref_kind` mapping for `persona` and `persona_profile`, the
 subject-creation rule, the four coalescing categories, the
 binding-history semantics, the cross-account enforcement mechanism, the
-legacy/ambiguous migration policy, and the export-shape review. UMS-02A
-stops under option B because no canonical lifecycle / token domain
-governs Persona-subject identity today, so `persona_subjects.lifecycle`
-remains unbound and UMS-02B is not authorized. The smallest prerequisite
-is a canonical lifecycle/token decision bound to the canonical token
-registry that specifies exact values and transitions for Persona subjects.
+legacy/ambiguous migration policy, and the export-shape review. The
+canonical `persona_subjects.lifecycle` token surface is documented under
+option C as the smallest prerequisite for UMS-02B; UMS-02A does not bind
+lifecycle values or transition rules itself. The UMS-02A qualification
+receipt records the proof.
 No runtime, migration, ORM, model, route, service, test, export, restore,
 or memory code changed. ADR-081, ADR-082, and ADR-084 remain unchanged.
 

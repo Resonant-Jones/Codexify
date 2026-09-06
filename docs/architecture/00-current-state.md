@@ -53,8 +53,21 @@ This file is authoritative for:
   UMS-01Q POSTGRESQL QUALIFICATION: PASSED
   UMS-01 CAMPAIGN GATE: CLOSED
   UMS-01: CLOSED
-  UMS-02: AUTHORIZED TO START
+  UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
+  UMS-02: OPEN
+  UMS-02B IMPLEMENTATION: AUTHORIZED
+  UMS-03: NOT AUTHORIZED
   ```
+
+- Froze the implementation-ready Persona-subject mapping and enforcement
+  contract in [§4.5 of the Unified Memory Store Contract](./unified-memory-store-contract.md),
+  including the current Persona-persistence inventory, `ref_kind` mapping,
+  subject-creation rule, coalescing categories, binding-history semantics,
+  cross-account enforcement mechanism, legacy/ambiguous migration policy,
+  and export-shape review. The canonical `persona_subjects.lifecycle` token
+  surface is documented under option C as the smallest prerequisite for
+  UMS-02B; UMS-02A does not bind lifecycle values or transition rules.
+  See the [UMS-02A stable Persona-subject contract proof](./proofs/runtime/2026-09-07-ums02a-stable-persona-subject-contract-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
