@@ -1,6 +1,14 @@
 import { vi } from "vitest";
 
-import type { PersonaStudioBackendProfile } from "../personaStudioApi";
+import type {
+  PersonaProfileManifest,
+  PersonaProfileManifestWrite,
+  PersonaStudioBackendProfile,
+  PersonaStudioProfileCreateBody,
+  PersonaStudioProfileUpdateBody,
+} from "../personaStudioApi";
+
+const PERSONA_PROFILE_API_VERSION = "codexify.persona/v1" as const;
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -10,19 +18,67 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function normalizeProfile(
-  profile: Partial<PersonaStudioBackendProfile> & Pick<PersonaStudioBackendProfile, "id">
-): PersonaStudioBackendProfile {
+type PersonaStudioProfileSeed = Partial<PersonaStudioBackendProfile> &
+  Pick<PersonaStudioBackendProfile, "id">;
+
+function createLegacyManifest(
+  id: string,
+  name: string,
+  systemPrompt: string,
+  modelProvider: string,
+  modelId: string,
+  temperature: number,
+  revision: number
+): PersonaProfileManifest {
+  return {
+    apiVersion: PERSONA_PROFILE_API_VERSION,
+    profileIdentity: id,
+    identity: { name },
+    prompt: { systemPrompt },
+    model: {
+      provider: modelProvider,
+      model: modelId,
+      temperature,
+    },
+    revision,
+  };
+}
+
+function normalizeProfile(profile: PersonaStudioProfileSeed): PersonaStudioBackendProfile {
   const timestamp = nowIso();
+  const suppliedManifest = profile.manifest ? clone(profile.manifest) : null;
+  const suppliedRevision = profile.current_revision ?? suppliedManifest?.revision ?? 1;
+  const revision = Number.isInteger(suppliedRevision) && suppliedRevision > 0
+    ? suppliedRevision
+    : 1;
+
+  const legacyName = String(profile.name ?? "Persona").trim() || "Persona";
+  const legacySystemPrompt = String(profile.system_prompt ?? "");
+  const legacyModelProvider = String(profile.model_provider ?? "openai")
+    .trim()
+    .toLowerCase();
+  const legacyModelId = String(profile.model_id ?? "gpt-4o").trim() || "gpt-4o";
+  const legacyTemperature = Number(profile.temperature ?? 0.7);
+  const manifest = suppliedManifest ?? createLegacyManifest(
+    profile.id,
+    legacyName,
+    legacySystemPrompt,
+    legacyModelProvider,
+    legacyModelId,
+    legacyTemperature,
+    revision
+  );
+
   return {
     id: profile.id,
-    name: String(profile.name ?? "Persona").trim() || "Persona",
-    system_prompt: String(profile.system_prompt ?? ""),
-    model_provider: String(profile.model_provider ?? "openai")
-      .trim()
-      .toLowerCase(),
-    model_id: String(profile.model_id ?? "gpt-4o").trim() || "gpt-4o",
-    temperature: Number(profile.temperature ?? 0.7),
+    name: manifest.identity.name,
+    system_prompt: manifest.prompt.systemPrompt,
+    model_provider: manifest.model.provider,
+    model_id: manifest.model.model,
+    temperature: manifest.model.temperature,
+    api_version: manifest.apiVersion,
+    current_revision: manifest.revision,
+    manifest,
     created_at: profile.created_at ?? timestamp,
     updated_at: profile.updated_at ?? timestamp,
   };
@@ -30,9 +86,7 @@ function normalizeProfile(
 
 let backendProfiles: PersonaStudioBackendProfile[] = [];
 
-function upsertProfile(
-  profile: Partial<PersonaStudioBackendProfile> & Pick<PersonaStudioBackendProfile, "id">
-): PersonaStudioBackendProfile {
+function upsertProfile(profile: PersonaStudioProfileSeed): PersonaStudioBackendProfile {
   const nextProfile = normalizeProfile(profile);
   const existingIndex = backendProfiles.findIndex(
     (candidate) => candidate.id === nextProfile.id
@@ -60,16 +114,69 @@ function upsertProfile(
   return created;
 }
 
+function existingProfile(profileId: string): PersonaStudioBackendProfile | undefined {
+  return backendProfiles.find((candidate) => candidate.id === profileId);
+}
+
+function mergeLegacyUpdateIntoManifest(
+  profileId: string,
+  body: Exclude<PersonaStudioProfileUpdateBody, { manifest: unknown }>
+): PersonaProfileManifest {
+  const existing = existingProfile(profileId);
+  const base = existing?.manifest ?? createLegacyManifest(
+    profileId,
+    "Persona",
+    "",
+    "openai",
+    "gpt-4o",
+    0.7,
+    1
+  );
+  const nextManifest: PersonaProfileManifest = {
+    ...clone(base),
+    identity: { ...base.identity },
+    prompt: { ...base.prompt },
+    model: { ...base.model },
+    revision: existing ? existing.current_revision + 1 : base.revision,
+  };
+
+  if (body.name !== undefined) nextManifest.identity.name = body.name;
+  if (body.system_prompt !== undefined) {
+    nextManifest.prompt.systemPrompt = body.system_prompt;
+  }
+  if (body.model_provider !== undefined) {
+    nextManifest.model.provider = body.model_provider.toLowerCase();
+  }
+  if (body.model_id !== undefined) nextManifest.model.model = body.model_id;
+  if (body.temperature !== undefined) {
+    nextManifest.model.temperature = body.temperature;
+  }
+
+  return nextManifest;
+}
+
 export const personaStudioApiMock = {
   fetchPersonaProfiles: vi.fn(async () => clone(backendProfiles)),
   fetchPersonaProfile: vi.fn(async (profileId: string) => {
-    const profile = backendProfiles.find((candidate) => candidate.id === profileId);
+    const profile = existingProfile(profileId);
     if (!profile) {
       throw new Error(`persona_profile_missing:${profileId}`);
     }
     return clone(profile);
   }),
-  createPersonaProfile: vi.fn(async (body: any) => {
+  createPersonaProfile: vi.fn(async (body: PersonaStudioProfileCreateBody) => {
+    if ("manifest" in body) {
+      const manifest = body.manifest as PersonaProfileManifestWrite;
+      const profile = upsertProfile({
+        id: manifest.profileIdentity,
+        manifest: {
+          ...clone(manifest),
+          revision: 1,
+        },
+      });
+      return clone(profile);
+    }
+
     const profile = upsertProfile({
       id: String(body.id ?? `profile-${backendProfiles.length + 1}`),
       name: body.name,
@@ -80,35 +187,35 @@ export const personaStudioApiMock = {
     });
     return clone(profile);
   }),
-  updatePersonaProfile: vi.fn(async (profileId: string, body: any) => {
+  updatePersonaProfile: vi.fn(async (
+    profileId: string,
+    body: PersonaStudioProfileUpdateBody
+  ) => {
+    if ("manifest" in body) {
+      const existing = existingProfile(profileId);
+      const manifest = body.manifest as PersonaProfileManifestWrite;
+      const profile = upsertProfile({
+        id: profileId,
+        manifest: {
+          ...clone(manifest),
+          revision: existing ? existing.current_revision + 1 : 1,
+        },
+      });
+      return clone(profile);
+    }
+
     const profile = upsertProfile({
       id: profileId,
-      name: body.name ?? backendProfiles.find((candidate) => candidate.id === profileId)?.name ?? "Persona",
-      system_prompt:
-        body.system_prompt ??
-        backendProfiles.find((candidate) => candidate.id === profileId)?.system_prompt ??
-        "",
-      model_provider:
-        body.model_provider ??
-        backendProfiles.find((candidate) => candidate.id === profileId)?.model_provider ??
-        "openai",
-      model_id:
-        body.model_id ??
-        backendProfiles.find((candidate) => candidate.id === profileId)?.model_id ??
-        "gpt-4o",
-      temperature:
-        body.temperature ??
-        backendProfiles.find((candidate) => candidate.id === profileId)?.temperature ??
-        0.7,
+      manifest: mergeLegacyUpdateIntoManifest(profileId, body),
     });
     return clone(profile);
   }),
 };
 
 export function resetPersonaStudioApiMock(
-  profiles: PersonaStudioBackendProfile[] = []
+  profiles: PersonaStudioProfileSeed[] = []
 ): void {
-  backendProfiles = clone(profiles);
+  backendProfiles = profiles.map((profile) => normalizeProfile(profile));
   personaStudioApiMock.fetchPersonaProfiles.mockClear();
   personaStudioApiMock.fetchPersonaProfile.mockClear();
   personaStudioApiMock.createPersonaProfile.mockClear();
