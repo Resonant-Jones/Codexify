@@ -57,9 +57,9 @@ and materially implemented canonical Persona Profile machinery:
 * worker execution of the accepted Persona revision.
 
 Legacy Imprint and Persona machinery remains active alongside that canonical
-path. In particular, Imprint acceptance still writes legacy Persona state,
-Settings still exposes legacy Persona controls through the Imprint lane, and
-status/inspector surfaces still report legacy assumptions. Those are current
+path. Imprint acceptance is now Imprint-only; Settings still exposes legacy
+Persona controls through the Imprint lane, and status/inspector surfaces still
+report legacy assumptions. Those are current
 implementation facts and migration debt, not a second accepted authority.
 
 Durable identity remains separately governed. Current lifecycle-shaped identity
@@ -78,10 +78,10 @@ authorities:
 4. relational/presentation synthesis and diagnostics.
 
 The implemented canonical Persona Profile path makes the ambiguity operational:
-legacy Imprint acceptance and Settings can still author mutable legacy Persona
-state even though ADR-082 assigns authored Persona intent, revision history,
-binding, and deterministic accepted-task execution to the canonical profile
-model.
+Settings and the deferred `/api/imprint/persona` route can still author mutable
+legacy Persona state even though ADR-082 assigns authored Persona intent,
+revision history, binding, and deterministic accepted-task execution to the
+canonical profile model.
 
 ## Decision
 
@@ -196,8 +196,6 @@ diagnostic surface into identity authority.
 The following current behaviors are preserved as implementation facts, not
 accepted architecture:
 
-* `guardian/routes/imprint.py:accept_imprint()` activates an Imprint and calls
-  the legacy Persona store to create/activate Persona state;
 * `POST /api/imprint/persona` exposes direct legacy Persona mutation;
 * `GET /api/imprint/status` reports active legacy Persona state alongside
   Imprint and prompt metadata;
@@ -212,10 +210,18 @@ Existing legacy Persona or Imprint rows may remain during migration. Their
 existence, active flags, status projection, or prompt participation does not
 supersede ADR-082 or silently reclassify them as canonical Persona revisions.
 
-The next implementation slice must remove legacy Imprint -> Persona mutation
-authority while preserving existing data and canonical Persona Profile
-semantics. Data deletion, row migration, prompt changes, UI changes, and route
-changes require separately scoped implementation and proof.
+Closed on 2026-09-06: `POST /api/imprint/accept` activates the owned Imprint
+without writing or returning Persona state. Supplied `persona_text_override`
+is rejected with HTTP 400 before mutation. Settings Imprint Review consumes
+only Imprint acceptance state and labels legacy proposal text as unapplied
+Persona configuration. Focused route tests prove activation, unchanged legacy
+Persona fields, no new Persona row, and preserved scope checks.
+
+The next slice is retirement of `/api/imprint/persona` and its remaining
+frontend consumers. Legacy Persona observation/status and resolution remain
+unresolved. Existing data, canonical Persona revisions/bindings/selections,
+accepted-task snapshots, Guardian identity, and prompt order are unchanged.
+No supported-profile or Beta claim follows from this bounded proof.
 
 ## Rationale
 
@@ -281,8 +287,9 @@ This decision does **not**:
 
 ## Follow-on implementation slices
 
-1. Remove legacy Imprint -> Persona mutation authority while preserving
-   existing data and canonical Persona Profile semantics.
+1. Retire the remaining legacy `/api/imprint/persona` mutation surface and its
+   frontend consumers without creating a second Persona authority. Acceptance
+   coupling is closed; legacy observation and resolution remain deferred.
 2. Reconcile Settings and any future My Guardian editor with the canonical
    Persona object without introducing a second persistence model.
 3. Convert prompt inspection to one canonical observational surface that labels

@@ -363,12 +363,17 @@ def accept_imprint(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Activate a draft imprint and upsert persona.
+    Activate an owned imprint without changing Persona configuration.
     """
     imprint_id = body.get("imprint_id")
-    persona_override = body.get("persona_text_override")
     if imprint_id is None:
         raise HTTPException(status_code=400, detail="imprint_id is required")
+
+    if "persona_text_override" in body:
+        raise HTTPException(
+            status_code=400,
+            detail="persona_text_override is not supported for Imprint acceptance",
+        )
 
     imprint = imprint_store.get_imprint_by_id(imprint_id)
     if not imprint:
@@ -396,22 +401,7 @@ def accept_imprint(
             status_code=403, detail="identity updates disabled for this context"
         )
 
-    persona_text = persona_override
-    if not persona_text:
-        metrics = getattr(imprint, "metrics", {}) or {}
-        persona_text = metrics.get("persona_draft")
-    if not persona_text:
-        persona_text = (
-            "You are a reliable Guardian. Answer concisely and safely."
-        )
-
     activated = imprint_store.activate_imprint(imprint_id)
-    persona = persona_store.set_persona(
-        user_id=user_id,
-        project_id=resolved_project,
-        body=persona_text,
-        source="user" if persona_override else "imprint_zero_seed",
-    )
 
     return {
         "imprint": {
@@ -420,12 +410,6 @@ def accept_imprint(
             "guardian_name": activated.guardian_name,
             "preferred_name": activated.preferred_name,
             "heat_score": activated.heat_score,
-        },
-        "persona": {
-            "id": persona.id,
-            "body": persona.body,
-            "source": persona.source,
-            "is_active": persona.is_active,
         },
     }
 

@@ -4,7 +4,7 @@ Purpose: define the canonical identity-layer and selection model for Codexify
 so prompt assembly, accepted-task execution, inspector surfaces, Imprint, and
 Persona Profile work share one explicit authority boundary.
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 Source anchors:
 
@@ -194,11 +194,21 @@ reads execution evidence that explicitly records that state.
 
 ## Current compatibility and migration debt
 
+The acceptance coupling is closed: `POST /api/imprint/accept` activates only
+the owned Imprint and returns only Imprint state. It rejects any supplied
+`persona_text_override` with HTTP 400 before mutation. Focused tests verify
+activation, all-field preservation of existing legacy Persona rows, no row
+creation, and scope/policy protections. Settings Imprint Review no longer
+normalizes or displays Persona acceptance results; legacy proposal text is
+explicitly not applied as Persona configuration.
+
+Canonical Persona Profile revisions, bindings, thread selections, and
+acceptance snapshots are untouched, as are Guardian identity and prompt order.
+This closes no release-support gate.
+
 Canonical Persona Profiles are not the only Persona-shaped code path still
 executing. The following legacy behavior remains current compatibility debt:
 
-- `guardian/routes/imprint.py:accept_imprint()` calls the legacy
-  `persona_store.set_persona()` after activating an Imprint;
 - `POST /api/imprint/persona` directly mutates legacy Persona rows;
 - `GET /api/imprint/status` reports an active legacy Persona row;
 - `guardian/cognition/identity_resolution.py:resolve_persona()` still resolves
@@ -273,15 +283,16 @@ implementation work.
 
 ## Current runtime truth and limits
 
-Code and focused tests at the 2026-09-05 acceptance revision support these
-bounded statements:
+Code and focused tests at the 2026-09-05 acceptance revision, plus the bounded
+2026-09-06 acceptance decoupling proof, support these bounded statements:
 
 - Guardian remains the stable actor.
 - Canonical Persona Profile manifests, immutable revisions, account binding,
   thread revision pins, acceptance snapshots, and exact worker execution exist.
 - Imprint continues to resolve as an additive presentation layer.
-- Legacy Imprint-to-Persona mutation and legacy Persona resolution remain
-  active migration debt.
+- Imprint acceptance-to-Persona mutation is closed by the bounded 2026-09-06
+  route and Settings review change; `/api/imprint/persona`, legacy Persona
+  observation/resolution, and remaining frontend consumers remain migration debt.
 - Diagnostics remain read-only projections.
 
 This contract does not claim legacy convergence, broader manifest-field
