@@ -46,10 +46,14 @@ This file is authoritative for:
   ```text
   UMS-01A: IMPLEMENTED
   UMS-01B: IMPLEMENTED
-  UMS-01 MIGRATION LINEAGE: RECONCILED WITH PERSONA STUDIO
-  UMS-01Q POSTGRESQL QUALIFICATION: PENDING
-  UMS-01 CAMPAIGN GATE: OPEN
-  UMS-02: NOT AUTHORIZED TO START
+  UMS-01R: CLOSED
+  UMS-01Q-R1: CLOSED
+  UMS-01Q-R2: CLOSED
+  UMS-01Q-R3: CLOSED
+  UMS-01Q POSTGRESQL QUALIFICATION: PASSED
+  UMS-01 CAMPAIGN GATE: CLOSED
+  UMS-01: CLOSED
+  UMS-02: AUTHORIZED TO START
   ```
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

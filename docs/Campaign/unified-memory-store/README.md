@@ -91,14 +91,18 @@ records the separately authorized UMS-01A execution slice.
 
 ```text
 UMS-01 PROJECT OWNERSHIP RUNTIME AUTHORITY: PROVEN IN UMS-01A
-UMS-01 MATCHING-ENVELOPE MIGRATION: UNIT-PROVEN; DISPOSABLE POSTGRES EXECUTION BLOCKED BY HARNESS SHARED-MEMORY POLICY
-UMS-01 LEGACY LOCAL OWNER RECONCILIATION: IMPLEMENTED; UNIT-PROVEN
+UMS-01 MATCHING-ENVELOPE MIGRATION: QUALIFIED ON DISPOSABLE POSTGRESQL
+UMS-01 LEGACY LOCAL OWNER RECONCILIATION: QUALIFIED ON DISPOSABLE POSTGRESQL
 UMS-01A: IMPLEMENTED
 UMS-01B: IMPLEMENTED
-UMS-01 MIGRATION LINEAGE: RECONCILED WITH PERSONA STUDIO
-UMS-01Q POSTGRESQL QUALIFICATION: PENDING
-UMS-01 CAMPAIGN GATE: OPEN
-UMS-02: NOT AUTHORIZED TO START
+UMS-01R: CLOSED
+UMS-01Q-R1: CLOSED
+UMS-01Q-R2: CLOSED
+UMS-01Q-R3: CLOSED
+UMS-01Q POSTGRESQL QUALIFICATION: PASSED
+UMS-01 CAMPAIGN GATE: CLOSED
+UMS-01: CLOSED
+UMS-02: AUTHORIZED TO START
 ```
 
 UMS-01A removes description-envelope authority from the covered Project and
@@ -111,19 +115,14 @@ self-contained successor revision that classifies every legacy
 `projects.user_id == 'local'` Project from all canonical referencing threads,
 reconciles only one exact non-local canonical owner, preflights built-in role
 uniqueness, and aborts before mutation on any unresolved candidate. Its
-always-on unit proof and the runtime regressions pass. The required real
-disposable-PostgreSQL proof remains blocked by this harness, neither ownership
-revision has been applied to the live private-preview database, UMS-01 remains
-open, and UMS-02 remains unauthorized.
+always-on unit proof and the runtime regressions pass. The complete
+ disposable-PostgreSQL qualification is recorded in the
+[2026-09-06 qualification proof](../../architecture/proofs/runtime/2026-09-06-project-ownership-postgresql-qualification-proof.md), including clean replay, schema parity, ownership cases, and runtime regressions. No ownership revision was applied to live private preview.
 
-UMS-01R now attaches the ownership revisions after Persona Studio's
-`d4e0f2a5b7c9`, with one Alembic head, `d4e8f1a2b6c9`. The
-[2026-09-05 reconciliation proof](../../architecture/proofs/runtime/2026-09-05-ums-project-ownership-lineage-reconciliation-proof.md)
-records the manual rebase identities, static graph, 15 passing migration tests
-with 18 PostgreSQL-dependent skips, and 47 passing ownership regressions.
-Historical UMS-01A/01B receipts retain their original lineage and proof scope.
-UMS-01Q remains the next gate; this reconciliation does not qualify PostgreSQL
-execution or apply migrations to private preview.
+UMS-01R retains the reconciled Persona Studio tail and one Alembic head,
+`d4e8f1a2b6c9`; its historical receipt remains the lineage evidence. UMS-01Q
+has now passed, closing UMS-01 and authorizing UMS-02. This does not qualify
+private-preview or production migration application.
 
 ## Workstreams
 
