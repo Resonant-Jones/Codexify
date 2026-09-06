@@ -285,8 +285,22 @@ segment presence, source metadata, token estimates, and truncation hints. It may
 not claim exact acceptance-time or executed-request state without direct
 evidence, mutate any layer, or become identity authority.
 
-Future consolidation into one canonical inspection endpoint is separate
-implementation work.
+The builder now exposes `build_guardian_system_prompt_inspection_metadata()`
+as a distinct metadata-only projection, labeled
+`projection_kind: "canonical_inspection"` and `legacy_persona_included: false`.
+It accepts already-resolved Persona Profile guidance; it does not resolve or
+establish selection authority. It observes Imprint and system documents through
+their existing owners and shares composition and token accounting with the
+runtime builder, but supplies no legacy Persona body and never resolves legacy
+Persona state. Its allowlisted output excludes raw prompt and document text,
+including the modular builder's segment text fields.
+
+This projection is not the legacy-inclusive runtime composition, an accepted
+task snapshot, or an executed-request trace. The existing runtime builder and
+`/api/system_prompt/summary` retain their legacy Persona compatibility and
+metadata contracts. `GET /api/system_prompt/inspect` remains unimplemented;
+HTTP wiring and frontend adoption require subsequent scoped tasks. No release
+or supported-profile claim follows from this builder prerequisite.
 
 ## Current runtime truth and limits
 
