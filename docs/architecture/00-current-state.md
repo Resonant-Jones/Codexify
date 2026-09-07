@@ -65,8 +65,9 @@ This file is authoritative for:
   UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
   UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
   UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
+  UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
   UMS-03: OPEN
-  UMS-03F: AUTHORIZED TO START
+  UMS-03G: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -358,7 +359,44 @@ This file is authoritative for:
   See the
   [UMS-03E compatibility proof](./proofs/runtime/2026-09-07-ums03e-memory-entry-compatibility-proof.md).
 
-- Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
+- **UMS-03F (verified personal-fact compatibility projection,
+  just closed)**: added the second read-only compatibility
+  reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader enforces the frozen §4.13 eligibility predicate
+  `status='verified' AND is_active=true` in the query itself.
+  Candidate / disputed / archived / inactive rows return
+  `None` identically to not-found / not-owned. The reader
+  reuses the same `MemoryCompatibilityProjection`
+  dataclass and populates the verified-fact shape
+  (`fact_key`, `fact_value`, `confidence`,
+  `last_confirmed_at`, `guardrail_metadata`, full
+  `evidence` rows, full `revisions`). The primary (latest)
+  evidence's `source_type` / `source_message_id` /
+  `evidence_meta` / `modality` / `excerpt` are carried on
+  the projection's provenance. Evidence rows whose
+  `source_type` is outside the closed vocabulary or whose
+  `evidence_meta` is self-referential on the parent fact
+  id fail closed. The reader performs no canonical write,
+  no personal-fact / evidence / revision mutation, and no
+  retrieval integration. Legacy `personal_facts` rows
+  remain durable authority; the canonical memory tables
+  remain non-authoritative at runtime. Focused
+  compatibility tests pass 34/34 (15 UMS-03E + 19
+  UMS-03F) with zero skips; adjacent token and
+  Persona-subject regressions pass 46/46. The Alembic head
+  remains `f6b0d3e8c5a2`; no migration was added; no
+  ContextBroker, MemoryOS, router, worker,
+  account-export, candidate-fact, or frontend file was
+  changed. The candidate / unreviewed fact compatibility
+  is not covered by this slice and remains deferred. No
+  Beta/release claim widened. UMS-03F is now closed;
+  UMS-03G is authorized to start for the next unmapped
+  legacy memory-bearing family; UMS-04 remains NOT
+  AUTHORIZED. See the
+  [UMS-03F verified-fact compatibility proof](./proofs/runtime/2026-09-07-ums03f-verified-personal-fact-compatibility-proof.md).
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 
 ## Current supported reality

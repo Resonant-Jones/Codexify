@@ -114,8 +114,9 @@ UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
 UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
 UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
 UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
+UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03: OPEN
-UMS-03F: AUTHORIZED TO START
+UMS-03G: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -436,7 +437,41 @@ UMS-03F is now authorized to start for the next authoritative
 legacy source family (`personal_facts` with `status='verified'`
 and `is_active=true`).
 
-UMS-01A removes description-envelope authority from the covered Project and
+UMS-03F added the second read-only compatibility reader for the
+verified + active subset of `personal_facts`. It extends
+`guardian.core.memory_compatibility` with
+`read_verified_personal_fact_projection(session, *,
+authenticated_account_id, personal_fact_id)`. Eligibility is the
+frozen §4.13 predicate `status='verified' AND is_active=true`,
+enforced in the query itself so candidate / disputed / archived /
+inactive rows return `None` identically to not-found / not-owned.
+The reader reuses the same `MemoryCompatibilityProjection`
+dataclass and populates the verified-fact shape (`fact_key`,
+`fact_value`, `confidence`, `last_confirmed_at`,
+`guardrail_metadata`, full `evidence` rows, full `revisions`).
+The primary (latest) evidence's `source_type` /
+`source_message_id` / `evidence_meta` / `modality` / `excerpt`
+are carried on the projection's provenance. Evidence rows whose
+`source_type` is outside the closed vocabulary
+(`chatgpt_import`, `runtime_extraction`, `user_stated`,
+`user_corrected`, `claude_import`) or whose `evidence_meta` is
+self-referential on the parent fact id fail closed with
+`MemoryCompatibilityReadError`. The reader performs no canonical
+write, no personal-fact / evidence / revision mutation, and no
+retrieval integration. Legacy `personal_facts` rows remain
+durable authority; canonical memory tables remain
+non-authoritative. Focused compatibility tests pass 34/34 (15
+UMS-03E + 19 UMS-03F) with zero skips; adjacent token and
+Persona-subject regressions pass 46/46. The Alembic head remains
+`f6b0d3e8c5a2`; no migration was added; no ContextBroker,
+MemoryOS, router, worker, account-export, or frontend file was
+changed. The candidate / unreviewed fact compatibility is not
+covered by this slice and remains deferred to a later
+authorization. The complete implementation evidence is at
+[2026-09-07 UMS-03F verified-fact compatibility proof](../../architecture/proofs/runtime/2026-09-07-ums03f-verified-personal-fact-compatibility-proof.md).
+UMS-03G is now authorized to start for the next unmapped legacy
+memory-bearing family from the frozen UMS-03A compatibility
+inventory; UMS-04 remains NOT AUTHORIZED.
 Media runtime paths, stops new envelope writes, and adds a fail-closed
 classify-before-mutate cleanup revision. Matching envelopes recover exact human
 description text without changing canonical ownership; conflicting envelopes

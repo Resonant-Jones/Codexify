@@ -1690,11 +1690,27 @@ authenticated_account_id, memory_entry_id)`, returning a
 `MemoryCompatibilityProjection` dataclass or `None`. The
 projection type is intentionally not registered in
 `Base.metadata`; it is a semantic read view, not an ORM
-mirror of `memory_records`. UMS-03F is the next authorized
-compatibility slice for the `personal_facts` family
-(`personal_fact_evidence` and `personal_fact_revisions`
-remain derived read-alongside-parent per §4.13). The
-compatibility reader was explicitly not in UMS-03D.
+mirror of `memory_records`.
+
+UMS-03F added the second reader for the verified + active
+`personal_facts` subset only. It exposes
+`read_verified_personal_fact_projection(session, *,
+authenticated_account_id, personal_fact_id)`, enforcing the
+canonical eligibility predicate
+`status='verified' AND is_active=true` in the query itself.
+Candidate / disputed / archived / inactive rows return
+`None` identically to not-found / not-owned. The same
+`MemoryCompatibilityProjection` dataclass is reused; the
+verified-fact shape populates `fact_key`, `fact_value`,
+`confidence`, `last_confirmed_at`, `guardrail_metadata`,
+`evidence` (full one-to-many lineage), and `revisions`
+(historical only). Evidence rows whose `source_type` is
+outside the closed vocabulary, or whose `evidence_meta` is
+self-referential on the parent fact id, fail closed with
+`MemoryCompatibilityReadError`. The candidate / unreviewed
+fact compatibility is not covered by UMS-03F and remains
+deferred. The compatibility reader was explicitly not in
+UMS-03D.
 
 #### 4.16.13 Explicit deferrals
 
