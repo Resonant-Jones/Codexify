@@ -103,8 +103,9 @@ UMS-01Q POSTGRESQL QUALIFICATION: PASSED
 UMS-01 CAMPAIGN GATE: CLOSED
 UMS-01: CLOSED
 UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
+UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: PASSED
 UMS-02: OPEN
-UMS-02B IMPLEMENTATION: AUTHORIZED
+UMS-02C PERSONA SUBJECT PERSISTENCE: AUTHORIZED
 UMS-03: NOT AUTHORIZED
 ```
 
@@ -117,12 +118,18 @@ The contract records the current Persona-persistence inventory
 subject-creation rule, the four coalescing categories, the
 binding-history semantics, the cross-account enforcement mechanism, the
 legacy/ambiguous migration policy, and the export-shape review. The
-canonical `persona_subjects.lifecycle` token surface is documented under
-option C as the smallest prerequisite for UMS-02B; UMS-02A does not bind
-lifecycle values or transition rules itself. The UMS-02A qualification
-receipt records the proof.
-No runtime, migration, ORM, model, route, service, test, export, restore,
-or memory code changed. ADR-081, ADR-082, and ADR-084 remain unchanged.
+canonical `persona_subjects.lifecycle` token domain is now
+`active | retired`. It is identity-persistence vocabulary only: no
+Persona-subject table, ORM model, Alembic revision, lifecycle transition,
+route, service, memory attribution, export, or restore behavior exists yet.
+The UMS-02A qualification receipt records the mapping proof.
+
+UMS-02C is narrowly authorized to introduce `persona_subjects` and
+`persona_subject_bindings` ORM schema with a matching Alembic migration,
+deterministic legacy Persona/Profile backfill, account-consistency and
+binding-history enforcement, and PostgreSQL qualification. It must not be
+pre-implemented by this token slice. ADR-081, ADR-082, and ADR-084 remain
+unchanged.
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

@@ -54,8 +54,9 @@ This file is authoritative for:
   UMS-01 CAMPAIGN GATE: CLOSED
   UMS-01: CLOSED
   UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
+  UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: PASSED
   UMS-02: OPEN
-  UMS-02B IMPLEMENTATION: AUTHORIZED
+  UMS-02C PERSONA SUBJECT PERSISTENCE: AUTHORIZED
   UMS-03: NOT AUTHORIZED
   ```
 
@@ -64,9 +65,11 @@ This file is authoritative for:
   including the current Persona-persistence inventory, `ref_kind` mapping,
   subject-creation rule, coalescing categories, binding-history semantics,
   cross-account enforcement mechanism, legacy/ambiguous migration policy,
-  and export-shape review. The canonical `persona_subjects.lifecycle` token
-  surface is documented under option C as the smallest prerequisite for
-  UMS-02B; UMS-02A does not bind lifecycle values or transition rules.
+  and export-shape review. Persona-subject lifecycle vocabulary is now
+  canonical: `active | retired`. It is an identity-persistence token domain;
+  Persona-subject database persistence is not yet implemented. No users can
+  create, bind, retire, retrieve, or manage Persona subjects, and no release
+  capability changed. UMS-02 remains open and UMS-03 remains unauthorized.
   See the [UMS-02A stable Persona-subject contract proof](./proofs/runtime/2026-09-07-ums02a-stable-persona-subject-contract-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

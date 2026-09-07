@@ -287,10 +287,11 @@ The conceptual model in §4.3 names the stable Persona-subject identity and the
 binding surface. This section materializes that doctrine against the current
 repository truth and freezes an implementation-ready mapping and enforcement
 contract for UMS-02. It does not create tables, ORM models, or runtime code.
-The canonical `persona_subjects.lifecycle` token surface is deferred to
-UMS-02B under option C; UMS-02A documents the lifecycle surface as the
-smallest prerequisite for UMS-02B but does not freeze its values or
-transitions.
+UMS-02A froze the lifecycle surface as the smallest prerequisite. UMS-02B
+canonicalizes its exact token domain without adding persistence or transition
+behavior. UMS-02C must introduce `persona_subjects` and
+`persona_subject_bindings` ORM metadata and matching Alembic persistence as
+one coherent slice.
 
 #### 4.5.1 Current repository truth (read-only inventory)
 
@@ -480,45 +481,44 @@ filtering or model behavior. The minimum authoritative surface is:
 
 The polymorphic binding shape cannot enforce account consistency without the
 `source_account_id` column above. This is the minimum required shape
-refinement UMS-02B must introduce; it does not create a second
+refinement UMS-02C must introduce; it does not create a second
 ownership authority and reuses `persona_profile_bindings.owner_account_id`
 as the single source of account truth for `ref_kind = persona_profile`.
 
-#### 4.5.8 Lifecycle semantics (option C — deferred to UMS-02B)
+#### 4.5.8 Lifecycle semantics (canonicalized in UMS-02B)
 
-There is no canonical lifecycle / token domain at current `main` that
-governs Persona-subject identity:
+`PersonaSubjectLifecycle` is the canonical lifecycle domain for
+`persona_subjects.lifecycle`:
 
-- Request, provider, bounded tool-loop, and Campaign Runner lifecycle
-  tokens cover runtime and execution semantics, not Persona-subject
-  identity.
-- Personal Facts and ordinary-memory lifecycle tokens govern their own
-  domains only and do not extend to Persona subjects.
-- Project `archived_at` and `system_role` govern Project lifecycle only.
-- The Imprint persona system uses `personas.is_active` as a runtime toggle,
-  not a canonical lifecycle token.
+```text
+active
+retired
+```
 
-Under option C, UMS-02A freezes the contract but explicitly records the
-canonical `persona_subjects.lifecycle` surface as the smallest prerequisite
-for UMS-02B. UMS-02A does not assign lifecycle values or transition rules
-itself; those are bounded-implementation work for UMS-02B. The smallest
-prerequisite UMS-02B must satisfy is:
+- **`active`** — a current durable attribution identity. Future persistence
+  and runtime work may create current bindings or new attribution to an active
+  subject only when the frozen ownership and authority rules permit it.
+- **`retired`** — a durable historical attribution identity retained for
+  history, but not a current attribution target.
 
-1. Add a bounded `PersonaSubjectLifecycle` (or equivalent canonical token
-   class) to `guardian/protocol_tokens.py` with exact values and transition
-   meaning for `persona_subjects.lifecycle`.
-2. Record the new canonical lifecycle domain in
-   `docs/architecture/runtime-protocol-token-contract.md`.
-3. Add `persona_subjects` and `persona_subject_bindings` to canonical
-   SQLAlchemy metadata only while keeping all other migration, runtime,
-   and release semantics unchanged.
-4. Qualify the bounded implementation on disposable PostgreSQL without
-   widening the existing migration lineage.
+Retirement does not delete historical bindings, rewrite historical
+attribution, transfer ownership, merge the subject with another subject,
+delete memory, or grant another Persona access to its history. It is not
+`deleted`, `purged`, `merged`, or an ownership transfer. No retirement
+transition service is implemented by this token slice.
 
-`persona_subjects.lifecycle` must not be assigned ad hoc values in
-UMS-02A or in any pre-prerequisite code path. UMS-02A stops if a value or
-transition must be invented here; lifecycle values are bound only through
-the canonical token registry.
+This is an identity-persistence lifecycle vocabulary, not evidence that a
+Persona-subject table, route, binding, memory attribution, or runtime behavior
+exists. The Imprint persona system's `personas.is_active` remains a separate
+runtime toggle and is not this lifecycle domain. `persona_subjects.lifecycle`
+must use this registered canonical domain when persistence is introduced;
+ad-hoc lifecycle strings are prohibited.
+
+UMS-02C owns the next persistence slice: matching `persona_subjects` and
+`persona_subject_bindings` ORM schema plus Alembic migration, deterministic
+legacy Persona/Profile backfill, account-consistency and binding-history
+enforcement, and disposable-PostgreSQL qualification. It must introduce ORM
+and migration truth together rather than create metadata/migration drift.
 
 #### 4.5.9 Legacy and ambiguous migration policy
 
@@ -546,8 +546,7 @@ when the exporter / restore surface is later authorized, is:
 - stable `persona_subject_id`;
 - owning account relationship;
 - canonical display snapshot / metadata (descriptive only);
-- lifecycle state, once resolved under the canonical lifecycle prerequisite
-  recorded in §4.5.8;
+- lifecycle state from the canonical domain recorded in §4.5.8;
 - binding source kind and identifier (`ref_kind`, `ref_id`);
 - binding history timestamps (`valid_from`, `valid_until`);
 - explicit relationship records required to remap account-local IDs safely.

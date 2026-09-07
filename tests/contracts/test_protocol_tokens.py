@@ -27,6 +27,8 @@ from guardian.protocol_tokens import (
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
     COMPLETION_TERMINAL_STATUSES,
+    CONNECTION_CAPABILITIES,
+    CONNECTION_CATEGORIES,
     CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
@@ -77,6 +79,8 @@ from guardian.protocol_tokens import (
     CampaignGoalStatus,
     CampaignStatus,
     CompletionTerminalStatus,
+    ConnectionCapability,
+    ConnectionCategory,
     ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -106,6 +110,7 @@ from guardian.protocol_tokens import (
     LoopStopReason,
     OrchestratorDecisionToken,
     OrchestratorReasonCode,
+    PersonaSubjectLifecycle,
     RemoteRecallFailureReason,
     RemoteRecallSourceKind,
     RemoteRecallTraceEvent,
@@ -116,10 +121,6 @@ from guardian.protocol_tokens import (
     TraceSnapshotAbsenceReason,
     TraceSuppressionReason,
     WebEvidenceGateDecision,
-    ConnectionCapability,
-    ConnectionCategory,
-    CONNECTION_CAPABILITIES,
-    CONNECTION_CATEGORIES,
 )
 
 
@@ -1110,6 +1111,15 @@ def test_embedding_lifecycle_tokens() -> None:
         "processing",
         "ready",
         "failed",
+    }
+
+
+def test_persona_subject_lifecycle_tokens() -> None:
+    assert PersonaSubjectLifecycle.ACTIVE.value == "active"
+    assert PersonaSubjectLifecycle.RETIRED.value == "retired"
+    assert {lifecycle.value for lifecycle in PersonaSubjectLifecycle} == {
+        "active",
+        "retired",
     }
 
 

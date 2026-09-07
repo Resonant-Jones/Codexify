@@ -329,6 +329,11 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class PersonaSubjectLifecycle(str, Enum):
+    ACTIVE = "active"
+    RETIRED = "retired"
+
+
 class AccountImportStatus(str, Enum):
     """Canonical lifecycle states for durable account-export imports."""
 
@@ -755,6 +760,7 @@ __all__ = [
     "OrchestratorDecisionToken",
     "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
+    "PersonaSubjectLifecycle",
     "AccountImportStatus",
     "AccountImportEventType",
     "AccountImportErrorCode",

@@ -61,6 +61,16 @@ inline literals.
   `campaign_execution_attempts.status` uses `running`, `succeeded`,
   `failed`, `cancelled`.
 
+- Persona subject lifecycle:
+  `active`, `retired`.
+  These are the canonical identity-persistence lifecycle vocabulary for a
+  stable account-owned Persona subject. `active` is a current durable
+  attribution identity; `retired` is retained historical identity that is not
+  a current attribution target. Registering this domain does not create
+  Persona-subject persistence, retirement behavior, routes, memory
+  attribution, or completion of UMS-02. A future persistence/runtime surface
+  must import this registered domain rather than introduce an inline value.
+
 - Trace suppression reasons:
   `assistant_vision_refusal_on_image_turn`
 - Trace snapshot absence reasons:
