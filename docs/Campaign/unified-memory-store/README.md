@@ -112,9 +112,9 @@ UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
 UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
 UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
 UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
-UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
+UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
 UMS-03: OPEN
-UMS-03E: NOT AUTHORIZED
+UMS-03E: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -362,6 +362,44 @@ implemented by UMS-03D. The Alembic head remains
 file is part of the protected UMS-03D WIP, not committed
 truth). The complete amendment evidence is at
 [2026-09-07 UMS-03C-B project target proof](../../architecture/proofs/runtime/2026-09-07-ums03c-b-project-composite-ownership-target-proof.md).
+
+UMS-03D completed the canonical UMS-03 implementation slice.
+It added the three ORM classes (`MemoryRecord`,
+`MemoryPersonaLink`, `MemoryProvenance`) to
+`guardian/db/models.py`, added the `uq_projects_id_user_id`
+`UniqueConstraint` to the existing `Project` model, and
+authored the one atomic Alembic revision
+`f6b0d3e8c5a2_add_canonical_memory_persistence.py`. The
+revision creates the enabling `uq_projects_id_user_id`
+constraint before any dependent memory FK, then creates
+`memory_records`, `memory_persona_links`, and
+`memory_provenance` exactly as frozen in §4.16. Provenance
+spine and review/activation ordering checks use the
+UMS-03A-A and UMS-03C-A frozen forms. The revision uses
+revision-local immutable string snapshots for all four
+closed vocabularies so historical replay does not depend on
+future mutable application tokens. The migration is purely
+additive: it does not mutate any Project row, does not
+backfill any legacy memory row, and does not redirect
+runtime readers or writers. PostgreSQL 17 qualification
+proved: fresh replay reaches `f6b0d3e8c5a2`; repeat upgrade
+is a no-op; the focused migration suite passes 17/17 with
+zero skips; generic ORM/Alembic parity passes 1/1 with zero
+skips; adjacent token and Persona-subject regressions pass
+46/46; same-account Project scope is accepted; cross-account
+Project scope is rejected at the composite FK; the frozen
+review/activation six boundary cases all behave correctly;
+provenance is one-to-many and source identity lives in typed
+opaque columns; downgrade preserves legacy memory and
+Project rows byte-for-byte. Canonical tables are not yet
+runtime read/write authority; legacy memory sources remain
+authoritative. The UMS-03D Alembic head is
+`f6b0d3e8c5a2`. No runtime memory consumer, no
+ContextBroker, no MemoryOS, no personal-fact, no
+candidate-fact, no router, no worker, no account-export,
+and no frontend file was changed by UMS-03D. The complete
+implementation evidence is at
+[2026-09-07 UMS-03D persistence proof](../../architecture/proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

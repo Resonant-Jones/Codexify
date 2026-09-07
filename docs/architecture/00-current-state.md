@@ -63,9 +63,9 @@ This file is authoritative for:
   UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
   UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
   UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
-  UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
+  UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
   UMS-03: OPEN
-  UMS-03E: NOT AUTHORIZED
+  UMS-03E: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -284,6 +284,35 @@ This file is authoritative for:
   is now authorized to resume; UMS-04 remains NOT
   AUTHORIZED. See the
   [UMS-03C-B project target proof](./proofs/runtime/2026-09-07-ums03c-b-project-composite-ownership-target-proof.md).
+
+- Implemented and PostgreSQL-qualified the canonical UMS
+  memory persistence substrate in
+  [`guardian/db/models.py`](../../guardian/db/models.py)
+  and
+  [`guardian/db/migrations/versions/f6b0d3e8c5a2_add_canonical_memory_persistence.py`](../../guardian/db/migrations/versions/f6b0d3e8c5a2_add_canonical_memory_persistence.py),
+  with
+  [`tests/migration/test_canonical_memory_persistence_migration.py`](../../tests/migration/test_canonical_memory_persistence_migration.py).
+  The implementation adds `uq_projects_id_user_id UNIQUE (id,
+  user_id)` to the existing `projects` table (UMS-03C-B
+  prerequisite) before creating the three canonical memory
+  tables. PostgreSQL 17 qualification proved: fresh replay
+  reaches `f6b0d3e8c5a2`; repeat upgrade is a no-op;
+  focused migration suite passes 17/17 with zero skips;
+  generic ORM/Alembic parity passes 1/1 with zero skips;
+  adjacent token and Persona-subject regressions pass
+  46/46; same-account Project scope is accepted;
+  cross-account Project scope is rejected at the composite
+  FK; the frozen review/activation six boundary cases all
+  behave correctly; provenance is one-to-many and source
+  identity lives in typed opaque columns; downgrade
+  preserves legacy memory and Project rows byte-for-byte.
+  The Alembic head is now `f6b0d3e8c5a2`. Canonical
+  tables are not yet runtime read/write authority; legacy
+  memory sources remain authoritative. No Beta/release
+  claim widened. UMS-03D is now closed; UMS-03E is
+  authorized to start; UMS-04 remains NOT AUTHORIZED. See
+  the
+  [UMS-03D persistence proof](./proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

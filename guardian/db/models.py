@@ -79,6 +79,8 @@ from guardian.protocol_tokens import (
     AccountImportStatus,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
+    MemoryPersonaLinkKind,
+    MemorySemanticSpecies,
     PersonaSubjectLifecycle,
 )
 from guardian.threadspace.membership_tokens import (
@@ -915,6 +917,11 @@ class Project(Base):
         CheckConstraint(
             "system_role IS NULL OR system_role IN ('general','imports')",
             name="projects_system_role_check",
+        ),
+        UniqueConstraint(
+            "id",
+            "user_id",
+            name="uq_projects_id_user_id",
         ),
         Index(
             "uq_projects_user_id_system_role",
@@ -6711,6 +6718,286 @@ class AccountObservabilityPresenceSession(Base):
             "last_seen_at",
             "country_code",
             "region_code",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Unified Account-Owned Memory Store (UMS-03 canonical envelope)
+# =========================
+#
+# Frozen by §4.16 of ``docs/architecture/unified-memory-store-contract.md``.
+# Additive schema only; legacy ``memory_entries`` / ``personal_facts`` rows
+# remain the durable authority for existing records. The token-derived CHECK
+# strings are generated from ``guardian.protocol_tokens`` so ORM metadata
+# stays in lockstep with the canonical token domain. The Alembic migration
+# carries its own revision-local string snapshot so historical replay never
+# depends on mutable application tokens.
+
+
+_UMS_SEMANTIC_SPECIES_VALUES_SQL = ", ".join(
+    f"'{species.value}'" for species in MemorySemanticSpecies
+)
+_UMS_PERSONA_LINK_KIND_VALUES_SQL = ", ".join(
+    f"'{kind.value}'" for kind in MemoryPersonaLinkKind
+)
+_UMS_PROVENANCE_SOURCE_SYSTEM_VALUES_SQL = (
+    "'codexify', 'openai', 'anthropic', 'future_registered'"
+)
+_UMS_PROVENANCE_SOURCE_SUBJECT_KIND_VALUES_SQL = (
+    "'chat', 'vault', 'importer', 'classifier', 'future_registered'"
+)
+
+
+class MemoryRecord(Base):
+    """Canonical UMS memory envelope row (UMS-03D; frozen by §4.16.2).
+
+    Every authority-bearing envelope field is a typed relational column.
+    JSONB ``extensions`` is non-authoritative auxiliary metadata only.
+    """
+
+    __tablename__ = "memory_records"
+
+    memory_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    semantic_species: Mapped[str] = mapped_column(String(32), nullable=False)
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fact_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fact_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fact_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    held: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship("User")
+    project: Mapped[Project | None] = relationship("Project")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "memory_id",
+            "user_id",
+            name="uq_memory_records_memory_user",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "user_id"],
+            ["projects.id", "projects.user_id"],
+            name="fk_memory_records_project_account",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            f"semantic_species IN ({_UMS_SEMANTIC_SPECIES_VALUES_SQL})",
+            name="memory_records_semantic_species_check",
+        ),
+        CheckConstraint(
+            "fact_confidence IS NULL OR "
+            "(fact_confidence >= 0.0 AND fact_confidence <= 1.0)",
+            name="memory_records_fact_confidence_check",
+        ),
+        CheckConstraint(
+            "project_id IS NULL OR " "text_content IS NOT NULL OR fact_key IS NOT NULL",
+            name="memory_records_payload_present_check",
+        ),
+        CheckConstraint(
+            "NOT (semantic_species = 'episodic_semantic_memory') "
+            "OR (text_content IS NOT NULL "
+            "AND fact_key IS NULL "
+            "AND fact_value IS NULL "
+            "AND fact_confidence IS NULL)",
+            name="memory_records_episodic_payload_shape_check",
+        ),
+        CheckConstraint(
+            "NOT (semantic_species IN "
+            "('verified_personal_fact', 'candidate_unreviewed_fact')) "
+            "OR (fact_key IS NOT NULL "
+            "AND fact_value IS NOT NULL "
+            "AND text_content IS NULL)",
+            name="memory_records_fact_payload_shape_check",
+        ),
+        CheckConstraint(
+            "activated_at IS NULL OR "
+            "(reviewed_at IS NOT NULL "
+            "AND activated_at >= reviewed_at)",
+            name="memory_records_review_activation_order_check",
+        ),
+        Index("ix_memory_records_user_id", "user_id"),
+        Index("ix_memory_records_user_project", "user_id", "project_id"),
+        Index("ix_memory_records_user_species", "user_id", "semantic_species"),
+        Index("ix_memory_records_user_activated_at", "user_id", "activated_at"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryPersonaLink(Base):
+    """Typed stable-Persona attribution link for a canonical memory record.
+
+    Frozen by §4.16.3. Attribution only; never ownership.
+    """
+
+    __tablename__ = "memory_persona_links"
+
+    link_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    persona_subject_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    persona_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    link_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_persona_links_memory_account",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["persona_subject_id", "persona_user_id"],
+            [
+                "persona_subjects.persona_subject_id",
+                "persona_subjects.user_id",
+            ],
+            name="fk_memory_persona_links_persona_account",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "user_id = persona_user_id",
+            name="memory_persona_links_same_account_check",
+        ),
+        CheckConstraint(
+            f"link_kind IN ({_UMS_PERSONA_LINK_KIND_VALUES_SQL})",
+            name="memory_persona_links_link_kind_check",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "persona_subject_id",
+            "link_kind",
+            name="uq_memory_persona_links_memory_persona_kind",
+        ),
+        Index("ix_memory_persona_links_user_id", "user_id"),
+        Index(
+            "ix_memory_persona_links_persona_subject_id",
+            "persona_subject_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryProvenance(Base):
+    """First-class durable lineage row for a canonical memory record.
+
+    Frozen by §4.16.4. One-to-many per memory; preserves evidence/revision
+    append-only semantics. Actual source identity lives in typed opaque
+    columns; closed ``source_system`` and ``source_subject_kind`` vocabularies
+    only classify the kind of source.
+    """
+
+    __tablename__ = "memory_provenance"
+
+    provenance_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_system: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_import_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_export_fingerprint: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    source_subject_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_subject_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_imported: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_provenance_memory_account",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            f"source_system IN ({_UMS_PROVENANCE_SOURCE_SYSTEM_VALUES_SQL})",
+            name="memory_provenance_source_system_check",
+        ),
+        CheckConstraint(
+            f"source_subject_kind IS NULL OR "
+            f"source_subject_kind IN ({_UMS_PROVENANCE_SOURCE_SUBJECT_KIND_VALUES_SQL})",
+            name="memory_provenance_source_subject_kind_check",
+        ),
+        Index("ix_memory_provenance_memory_id", "memory_id"),
+        Index(
+            "ix_memory_provenance_user_source_system",
+            "user_id",
+            "source_system",
+        ),
+        Index(
+            "ix_memory_provenance_source_thread_id",
+            "source_thread_id",
+            postgresql_where=text("source_thread_id IS NOT NULL"),
         ),
     )
 

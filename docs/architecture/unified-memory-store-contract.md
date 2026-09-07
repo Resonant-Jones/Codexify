@@ -1315,6 +1315,38 @@ ordering, Persona-link schema, provenance schema, FK delete
 behavior, index strategy, first-migration posture except as
 extended here, compatibility-reader posture) are unchanged.
 
+#### 4.16.2c UMS-03D implementation checkpoint
+
+UMS-03D introduced matching SQLAlchemy ORM metadata and one
+Alembic revision (`f6b0d3e8c5a2`) that mechanically implements
+the §4.16 contract and the §4.16.2b precondition. UMS-03D
+qualification on disposable PostgreSQL 17 confirmed:
+
+- the migration is one additive revision with predecessor
+  `e5a9c2f7b4d1`;
+- the migration adds `uq_projects_id_user_id` before
+  creating any dependent memory FK;
+- the canonical memory tables `memory_records`,
+  `memory_persona_links`, and `memory_provenance` exist empty
+  after the migration;
+- the composite FK
+  `memory_records (project_id, user_id) → projects (id, user_id)`
+  is accepted by PostgreSQL and live in the resulting schema;
+- the frozen review/activation ordering CHECK
+  (`activated_at IS NULL OR (reviewed_at IS NOT NULL AND
+  activated_at >= reviewed_at)`) accepts equal timestamps
+  and rejects earlier-than-review activation;
+- the canonical tables are not yet runtime read/write
+  authority — legacy memory sources remain authoritative.
+
+UMS-03D is a structural implementation slice only. It does not
+implement compatibility readers, runtime readers, runtime
+writers, dual reads, legacy backfill, authority cutover, or
+export / restore. The UMS-03D proof receipt
+(`docs/architecture/proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md`)
+records the qualification evidence. The frozen §4.16 contract
+is unchanged by UMS-03D.
+
 #### 4.16.3 Persona-attribution table — `memory_persona_links`
 
 `memory_persona_links` is the typed stable-Persona attribution
