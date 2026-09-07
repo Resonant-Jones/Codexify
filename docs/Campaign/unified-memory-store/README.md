@@ -111,6 +111,7 @@ UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
 UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
 UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
 UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
+UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
 UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
 UMS-03: OPEN
 UMS-03E: NOT AUTHORIZED
@@ -322,6 +323,45 @@ The Alembic head remains `e5a9c2f7b4d1`. UMS-03D is now
 authorized to resume; UMS-04 remains NOT AUTHORIZED. The
 complete amendment evidence is at
 [2026-09-07 UMS-03C-A ordering proof](../../architecture/proofs/runtime/2026-09-07-ums03c-a-review-activation-ordering-proof.md).
+
+UMS-03C-B is a documentation-only contract amendment that
+froze the canonical enabling Project relational target in
+[§4.16.2b of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md):
+
+```sql
+ALTER TABLE projects
+ADD CONSTRAINT uq_projects_id_user_id
+UNIQUE (id, user_id);
+```
+
+The amendment was required because PostgreSQL correctly
+rejected the UMS-03D migration's composite foreign key
+`(project_id, user_id) → projects (id, user_id)` with
+`psycopg.errors.InvalidForeignKey: there is no unique
+constraint matching given keys for referenced table
+"projects"`. The `projects` table's primary key covers
+`id` alone, and the only existing unique index is a partial
+`(user_id, system_role) WHERE system_role IS NOT NULL` that
+cannot serve as a composite FK target. The new constraint
+is mathematically non-destructive: because `projects.id`
+is already a primary key, no existing row can violate
+`UNIQUE (id, user_id)`. The amendment explicitly authorizes
+the UMS-03D migration to add the constraint in the same
+additive revision that creates the three canonical memory
+tables, rather than introducing a separate prerequisite
+Alembic revision. UMS-03C-B does not change Project
+ownership semantics, does not change `projects.id` as the
+canonical Project identity, and does not authorize any
+Project row mutation. UMS-03D was previously BLOCKED; it
+is now AUTHORIZED TO RESUME. The uncommitted UMS-03D WIP
+(models + migration + tests) is preserved by this
+amendment. ADR-081 and ADR-084 remain controlling. No SQL
+was added by this amendment; the constraint will be
+implemented by UMS-03D. The Alembic head remains
+`e5a9c2f7b4d1` (the untracked `f6b0d3e8c5a2` migration
+file is part of the protected UMS-03D WIP, not committed
+truth). The complete amendment evidence is at
+[2026-09-07 UMS-03C-B project target proof](../../architecture/proofs/runtime/2026-09-07-ums03c-b-project-composite-ownership-target-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

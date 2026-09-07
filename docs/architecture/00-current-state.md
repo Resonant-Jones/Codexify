@@ -62,6 +62,7 @@ This file is authoritative for:
   UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
   UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
   UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
+  UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
   UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
   UMS-03: OPEN
   UMS-03E: NOT AUTHORIZED
@@ -247,6 +248,42 @@ This file is authoritative for:
   Beta/release claim widened. UMS-03D is now authorized to
   resume; UMS-04 remains NOT AUTHORIZED. See the
   [UMS-03C-A ordering proof](./proofs/runtime/2026-09-07-ums03c-a-review-activation-ordering-proof.md).
+
+- Froze the canonical Project composite ownership target in
+  [§4.16.2b of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  CONSTRAINT uq_projects_id_user_id
+  UNIQUE (id, user_id)
+  ```
+
+  The amendment was required because PostgreSQL correctly
+  rejected the UMS-03D migration's composite foreign key
+  `(project_id, user_id) → projects (id, user_id)` with
+  `psycopg.errors.InvalidForeignKey: there is no unique
+  constraint matching given keys for referenced table
+  "projects"`. The `projects` table's primary key covers
+  `id` alone; the only existing unique index is a partial
+  `(user_id, system_role) WHERE system_role IS NOT NULL`
+  that cannot serve as a composite FK target. The new
+  constraint is mathematically non-destructive: because
+  `projects.id` is already a primary key, no existing row
+  can violate `UNIQUE (id, user_id)`. The amendment
+  explicitly authorizes the UMS-03D migration to add the
+  constraint in the same additive revision that creates the
+  three canonical memory tables, rather than introducing a
+  separate prerequisite Alembic revision. UMS-03C-B is
+  documentation-only: no SQL was added, no ORM model was
+  changed, no Alembic migration was added, no runtime
+  writer / reader / retrieval / export behavior was changed,
+  and no new ADR was created. The uncommitted UMS-03D WIP
+  (models + migration + tests) is preserved by this
+  amendment. ADR-081 and ADR-084 remain unchanged; ADR-084
+  remains controlling. The Alembic head remains
+  `e5a9c2f7b4d1`. No Beta/release claim widened. UMS-03D
+  is now authorized to resume; UMS-04 remains NOT
+  AUTHORIZED. See the
+  [UMS-03C-B project target proof](./proofs/runtime/2026-09-07-ums03c-b-project-composite-ownership-target-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

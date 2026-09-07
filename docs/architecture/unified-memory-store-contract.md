@@ -1188,6 +1188,133 @@ were both retracted by UMS-03C-A. UMS-03C-A
 documentation-only; no ORM model, no Alembic migration,
 and no runtime code changed.
 
+#### 4.16.2b Project composite ownership target (UMS-03C-B)
+
+The frozen `memory_records` composite foreign key
+`(project_id, user_id) REFERENCES projects (id, user_id)`
+(`ON DELETE RESTRICT`) requires that the `projects` table
+carry an unconditional `UNIQUE` (or `PRIMARY KEY`) constraint
+on the column pair `(id, user_id)`. PostgreSQL refuses to
+define a composite foreign key whose referenced columns are
+not covered by a unique constraint at the target.
+
+Repository inspection at the UMS-03D preflight confirmed:
+
+```text
+projects.id          = PRIMARY KEY
+projects.user_id      = canonical Project account authority
+projects(id, user_id) = no UNIQUE / no PRIMARY KEY
+```
+
+The only existing uniqueness on `projects` is the partial
+unique index
+`uq_projects_user_id_system_role ON (user_id, system_role)
+WHERE system_role IS NOT NULL`,
+which cannot serve as a composite FK target because it is
+partial and indexes the columns in the wrong order.
+
+UMS-03C-B freezes the canonical enabling relational
+constraint:
+
+```sql
+ALTER TABLE projects
+ADD CONSTRAINT uq_projects_id_user_id
+UNIQUE (id, user_id);
+```
+
+Properties of this constraint, frozen by this contract:
+
+- The new constraint lives on the existing `projects` table
+  and does not change the canonical Project identity
+  (`projects.id`) or the canonical Project ownership field
+  (`projects.user_id`).
+- `projects.id` remains the canonical Project primary key.
+  The new constraint does not replace or extend it.
+- The new constraint is mathematically non-destructive. The
+  existing `projects.id` primary key guarantees that no two
+  rows share `id`; therefore no row can violate
+  `UNIQUE (id, user_id)`. The migration that adds the
+  constraint cannot reject any valid existing Project row.
+- The new constraint does not imply that `(id, user_id)` is a
+  replacement identifier for Project. The canonical Project
+  identity remains `projects.id`.
+- The new constraint is added solely to provide a legal
+  PostgreSQL composite foreign key target for the
+  same-account `memory_records` FK, and for any future
+  same-account composite FK that needs the same Project
+  authority pair.
+- The new constraint does not alter Project ownership
+  semantics. Ownership remains governed by
+  `projects.user_id` per ADR-081.
+
+ORM representation (the UMS-03D ORM must declare this on
+the `Project` table metadata):
+
+```python
+UniqueConstraint(
+    "id",
+    "user_id",
+    name="uq_projects_id_user_id",
+)
+```
+
+Migration representation (the UMS-03D first migration must
+create the constraint before it creates the
+`memory_records` composite FK). UMS-03C-B explicitly rejects
+a separate Alembic prerequisite revision. The UMS-03D first
+migration is the single additive persistence-groundwork
+revision; its frozen upgrade scope becomes:
+
+```text
+1. add uq_projects_id_user_id
+2. create memory_records
+3. create memory_persona_links
+4. create memory_provenance
+5. create their frozen indexes / constraints
+```
+
+The `memory_records` composite FK
+`(project_id, user_id) → projects (id, user_id)` is created
+only after step 1 has succeeded. Step 1 cannot succeed if
+`projects` has a row whose `(id, user_id)` would violate the
+new constraint; that cannot happen under the live schema
+because `id` is already unique.
+
+The UMS-03D downgrade must drop all UMS-03D canonical-memory
+schema objects before dropping the enabling Project
+constraint, because dropping the constraint first would leave
+the memory composite FK pointing at an unsupported target
+during the gap. The frozen downgrade order is:
+
+```text
+1. drop memory_provenance
+2. drop memory_persona_links
+3. drop memory_records
+4. drop uq_projects_id_user_id
+```
+
+UMS-03D qualification on disposable PostgreSQL must prove
+all of the following:
+
+- `uq_projects_id_user_id` exists after the upgrade.
+- `memory_records (project_id, user_id) → projects (id,
+  user_id)` is accepted by PostgreSQL.
+- An existing-schema upgrade preserves every `projects` row
+  byte-for-byte (the constraint changes schema, never data).
+- An account-A memory row referencing an account-A Project
+  is accepted.
+- An account-A memory row referencing an account-B Project
+  is rejected at the relational boundary, with the rejection
+  attributable to the composite FK rather than to
+  application-only enforcement.
+
+This sub-section is the only UMS-03C/03C-A change introduced
+by UMS-03C-B. All other §4.16 decisions (memory identity,
+semantic species, payload strategy, review/activation
+ordering, Persona-link schema, provenance schema, FK delete
+behavior, index strategy, first-migration posture except as
+extended here, compatibility-reader posture) are unchanged.
+
 #### 4.16.3 Persona-attribution table — `memory_persona_links`
 
 `memory_persona_links` is the typed stable-Persona attribution
