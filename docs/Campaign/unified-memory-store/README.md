@@ -103,10 +103,10 @@ UMS-01Q POSTGRESQL QUALIFICATION: PASSED
 UMS-01 CAMPAIGN GATE: CLOSED
 UMS-01: CLOSED
 UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
-UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: PASSED
-UMS-02: OPEN
-UMS-02C PERSONA SUBJECT PERSISTENCE: AUTHORIZED
-UMS-03: NOT AUTHORIZED
+UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
+UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
+UMS-02: CLOSED
+UMS-03: AUTHORIZED TO START
 ```
 
 UMS-02A freezes the implementation-ready Persona-subject mapping and
@@ -124,12 +124,33 @@ Persona-subject table, ORM model, Alembic revision, lifecycle transition,
 route, service, memory attribution, export, or restore behavior exists yet.
 The UMS-02A qualification receipt records the mapping proof.
 
-UMS-02C is narrowly authorized to introduce `persona_subjects` and
-`persona_subject_bindings` ORM schema with a matching Alembic migration,
-deterministic legacy Persona/Profile backfill, account-consistency and
-binding-history enforcement, and PostgreSQL qualification. It must not be
-pre-implemented by this token slice. ADR-081, ADR-082, and ADR-084 remain
-unchanged.
+UMS-02C introduced `persona_subjects` and `persona_subject_bindings`
+ORM schema with a matching Alembic migration
+(`d4e8f1a2b6c9 → e5a9c2f7b4d1`), deterministic legacy Persona/Profile
+backfill, account-consistency and binding-history enforcement, and
+PostgreSQL qualification. The complete disposable-PostgreSQL
+qualification is recorded in the
+[2026-09-07 UMS-02C persistence proof](../../architecture/proofs/runtime/2026-09-07-ums02c-persona-subject-persistence-proof.md).
+Two narrow test-harness repairs were required to obtain a faithful
+PostgreSQL proof: explicit `CAST(:profile_id AS TEXT)` in a JSONB
+fixture helper, and a test-only `_historical_guardian_db(db_url)`
+helper that mirrors the existing `_PostgresGuardianDB.__new__` pattern
+already used in `tests/core/test_project_lifecycle.py` and
+`tests/core/test_chat_message_provenance_persistence.py` so that the
+historical-revision migration test no longer requires current-head
+schema verification. No production runtime, ORM, or migration code was
+changed by these repairs; the implementation-only fingerprint is
+identical before and after the qualification run. ADR-081, ADR-082, and
+ADR-084 remain unchanged.
+
+The combined migration suite ran as 10/10 with zero failures and zero
+skips; the generic ORM/Alembic parity ran 1/1; the resolver and legacy
+Persona regressions ran 17/17; the adjacent export regression ran
+27/27; fresh target upgrade reached `e5a9c2f7b4d1`; repeat upgrade was a
+no-op; the live PostgreSQL constraint inventory matches the contract.
+The disposable PostgreSQL 17 container was destroyed after the proof.
+This does not qualify private-preview or production migration
+application, and does not widen Beta.
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

@@ -54,10 +54,10 @@ This file is authoritative for:
   UMS-01 CAMPAIGN GATE: CLOSED
   UMS-01: CLOSED
   UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
-  UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: PASSED
-  UMS-02: OPEN
-  UMS-02C PERSONA SUBJECT PERSISTENCE: AUTHORIZED
-  UMS-03: NOT AUTHORIZED
+  UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
+  UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
+  UMS-02: CLOSED
+  UMS-03: AUTHORIZED TO START
   ```
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
@@ -67,10 +67,19 @@ This file is authoritative for:
   cross-account enforcement mechanism, legacy/ambiguous migration policy,
   and export-shape review. Persona-subject lifecycle vocabulary is now
   canonical: `active | retired`. It is an identity-persistence token domain;
-  Persona-subject database persistence is not yet implemented. No users can
+  stable Persona-subject persistence is PostgreSQL-qualified. No users can
   create, bind, retire, retrieve, or manage Persona subjects, and no release
-  capability changed. UMS-02 remains open and UMS-03 remains unauthorized.
-  See the [UMS-02A stable Persona-subject contract proof](./proofs/runtime/2026-09-07-ums02a-stable-persona-subject-contract-proof.md).
+  capability changed. UMS-02 is closed and UMS-03 is authorized to start.
+  See the [UMS-02A stable Persona-subject contract proof](./proofs/runtime/2026-09-07-ums02a-stable-persona-subject-contract-proof.md)
+  and the [UMS-02C stable Persona-subject persistence proof](./proofs/runtime/2026-09-07-ums02c-persona-subject-persistence-proof.md).
+  Two narrow test-harness repairs were required to obtain a faithful
+  PostgreSQL proof: an explicit `CAST(:profile_id AS TEXT)` in one JSONB
+  fixture helper, and a test-only `_historical_guardian_db` helper that
+  mirrors the existing `_PostgresGuardianDB.__new__` pattern used elsewhere
+  in the test suite so the historical-revision migration test no longer
+  requires current-head schema verification. No production runtime, ORM,
+  or migration code was changed by these repairs; the implementation-only
+  fingerprint is identical before and after the qualification run.
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

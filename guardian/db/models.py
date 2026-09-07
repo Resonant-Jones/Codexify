@@ -79,6 +79,7 @@ from guardian.protocol_tokens import (
     AccountImportStatus,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
+    PersonaSubjectLifecycle,
 )
 from guardian.threadspace.membership_tokens import (
     INVITATION_STATES,
@@ -4205,6 +4206,140 @@ class PersonaProfileBinding(Base):
         Index(
             "ix_persona_profile_bindings_owner_account_id",
             "owner_account_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Persona Subjects
+# =========================
+
+
+PERSONA_SUBJECT_LIFECYCLE_VALUES_SQL = "','".join(
+    lifecycle.value for lifecycle in PersonaSubjectLifecycle
+)
+PERSONA_SUBJECT_LIFECYCLE_CHECK = (
+    "lifecycle IN ('" + PERSONA_SUBJECT_LIFECYCLE_VALUES_SQL + "')"
+)
+
+
+class PersonaSubject(Base):
+    """Stable account-owned attribution identity for a Persona source."""
+
+    __tablename__ = "persona_subjects"
+
+    persona_subject_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    display_name_snapshot: Mapped[str | None] = mapped_column(String(255))
+    lifecycle: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=PersonaSubjectLifecycle.ACTIVE.value,
+        server_default=PersonaSubjectLifecycle.ACTIVE.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    bindings: Mapped[list[PersonaSubjectBinding]] = relationship(
+        "PersonaSubjectBinding",
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "persona_subject_id",
+            "user_id",
+            name="uq_persona_subjects_subject_user",
+        ),
+        CheckConstraint(
+            PERSONA_SUBJECT_LIFECYCLE_CHECK,
+            name="persona_subjects_lifecycle_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonaSubjectBinding(Base):
+    """Durable source-to-subject attribution with account integrity checks."""
+
+    __tablename__ = "persona_subject_bindings"
+
+    binding_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    persona_subject_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    subject_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ref_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    ref_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    valid_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    subject: Mapped[PersonaSubject] = relationship(
+        "PersonaSubject",
+        back_populates="bindings",
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["persona_subject_id", "subject_user_id"],
+            ["persona_subjects.persona_subject_id", "persona_subjects.user_id"],
+            name="fk_persona_subject_bindings_subject_account",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "ref_kind IN ('persona', 'persona_profile')",
+            name="persona_subject_bindings_ref_kind_check",
+        ),
+        CheckConstraint(
+            "source_account_id = subject_user_id",
+            name="persona_subject_bindings_source_account_check",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until > valid_from",
+            name="persona_subject_bindings_validity_check",
+        ),
+        Index(
+            "uq_persona_subject_bindings_active_ref",
+            "ref_kind",
+            "ref_id",
+            unique=True,
+            postgresql_where=text("valid_until IS NULL"),
         ),
     )
 

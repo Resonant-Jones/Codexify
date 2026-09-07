@@ -520,6 +520,19 @@ legacy Persona/Profile backfill, account-consistency and binding-history
 enforcement, and disposable-PostgreSQL qualification. It must introduce ORM
 and migration truth together rather than create metadata/migration drift.
 
+UMS-02C is now PostgreSQL-qualified on a disposable PostgreSQL 17
+database; the migration `d4e8f1a2b6c9 → e5a9c2f7b4d1` reached `head`,
+repeat upgrade is a no-op, and the live PostgreSQL constraint inventory
+matches §4.5.3, §4.5.6, and §4.5.7. The complete qualification record,
+including the two narrow test-harness repairs that were required to
+obtain a faithful proof, lives in the
+[UMS-02C stable Persona-subject persistence proof](./proofs/runtime/2026-09-07-ums02c-persona-subject-persistence-proof.md).
+This is internal persistence qualification only; it does not imply any
+user-facing Persona-subject route, binding transition, recall, or
+release-capability change. UMS-02 is closed and UMS-03 is authorized to
+start; UMS-03 itself must still pass its own acceptance criteria before
+any memory storage, retrieval, or release widening is claimed.
+
 #### 4.5.9 Legacy and ambiguous migration policy
 
 | Source condition | Deterministic handling |
