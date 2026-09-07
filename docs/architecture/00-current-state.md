@@ -22,6 +22,8 @@ This file is authoritative for:
 
 ## What changed recently
 
+- [Persona Chroma named-volume comparison](./proofs/runtime/2026-09-07-persona-private-preview-chroma-named-volume-comparison.md) proves `PERSISTED_CHROMA_STORE_COMPATIBILITY_BOUNDARY`: both disposable named volumes passed SQLite qualification; the exact failed image initialized empty Chroma but reproduced the historical Rust panic on the byte-identical preserved copy. Canonical and preservation bytes remain unchanged. ADR-067 recovery requires separate authorization; backend remains stopped and deployment/browser proof remains pending.
+
 - [Persona Chroma empty-control qualification](./proofs/runtime/2026-09-06-persona-private-preview-chroma-empty-control-diagnosis.md) establishes `EMPTY_CONTROL_HARNESS_PERMISSION_DEFECT`: the reproduced host bind passes ordinary writes but fails stdlib SQLite with `SQLITE_READONLY_DBMOVED` (1032); container-internal and named-volume controls pass SQLite and first-call Chroma initialization. A corrected preserved-copy comparison remains pending. No canonical retirement, application restart, or recovery is proven.
 
 - [Persona deployment attempt 2](./proofs/runtime/2026-09-06-persona-private-preview-lineage-proof-r2.md) is BLOCKED: the matching backend failed startup with `pyo3_runtime.PanicException` in Chroma initialization. The startup migrator exited 0 and the database remains at `d4e0f2a5b7c9`. The restarting backend was stopped; frontend/origin/workers never reached running state. PostgreSQL, Redis, and Neo4j remain available, the rollback checkpoint is intact, and stack reconciliation remains suspended. Live Persona route and browser proof remain pending; no release claim advances.
