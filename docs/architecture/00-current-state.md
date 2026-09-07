@@ -61,8 +61,10 @@ This file is authoritative for:
   UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
   UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
   UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
+  UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
+  UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
   UMS-03: OPEN
-  UMS-03D: AUTHORIZED TO START
+  UMS-03E: NOT AUTHORIZED
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -218,6 +220,33 @@ This file is authoritative for:
   remains OPEN, UMS-03D is authorized to start, UMS-04 remains
   NOT AUTHORIZED. See the
   [UMS-03C schema proof](./proofs/runtime/2026-09-07-ums03c-canonical-memory-persistence-schema-proof.md).
+
+- Clarified the canonical review-before-activation ordering
+  in
+  [§4.16.2a of the Unified Memory Store Contract](./unified-memory-store-contract.md).
+  The new CHECK predicate is
+
+  ```text
+  activated_at IS NULL
+  OR (
+      reviewed_at IS NOT NULL
+      AND activated_at >= reviewed_at
+  )
+  ```
+
+  Review and activation remain distinct governance states,
+  but they may share the same recorded timestamp.
+  Activation earlier than review is forbidden. The earlier
+  UMS-03C prose that claimed "activation is a strictly later
+  event than review" and the earlier CHECK
+  `NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
+  were both retracted. UMS-03C-A is documentation-only: no
+  SQL table, no ORM model, no Alembic migration, no runtime
+  writer / reader / retrieval / export behavior, and no new
+  ADR. The Alembic head remains `e5a9c2f7b4d1`. No
+  Beta/release claim widened. UMS-03D is now authorized to
+  resume; UMS-04 remains NOT AUTHORIZED. See the
+  [UMS-03C-A ordering proof](./proofs/runtime/2026-09-07-ums03c-a-review-activation-ordering-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

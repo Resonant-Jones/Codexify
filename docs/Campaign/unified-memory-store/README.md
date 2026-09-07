@@ -110,8 +110,10 @@ UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
 UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
 UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
 UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
+UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
+UMS-03D CANONICAL MEMORY PERSISTENCE: AUTHORIZED TO RESUME
 UMS-03: OPEN
-UMS-03D: AUTHORIZED TO START
+UMS-03E: NOT AUTHORIZED
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -291,6 +293,35 @@ explicitly not in UMS-03D. UMS-03D is now authorized to
 introduce the schema; UMS-04 remains NOT AUTHORIZED. The
 complete freeze evidence is at
 [2026-09-07 UMS-03C schema proof](../../architecture/proofs/runtime/2026-09-07-ums03c-canonical-memory-persistence-schema-proof.md).
+
+UMS-03C-A is a documentation-only contract amendment that
+clarified the canonical review-before-activation ordering
+in [§4.16.2a of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md).
+The amendment resolves the contradiction the UMS-03D
+preflight caught between the frozen §4.16 prose and its
+SQL CHECK. The canonical rule is now:
+
+```text
+activated_at IS NULL
+OR (
+    reviewed_at IS NOT NULL
+    AND activated_at >= reviewed_at
+)
+```
+
+Review and activation remain distinct governance states,
+but they may share the same recorded timestamp. Activation
+is forbidden from being recorded before review, but it is
+permitted to be recorded at the same instant as review.
+The earlier UMS-03C prose that claimed "activation is a
+strictly later event than review" and the earlier CHECK
+`NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
+were both retracted. No ORM model, no Alembic migration,
+and no runtime code changed. ADR-084 remains controlling.
+The Alembic head remains `e5a9c2f7b4d1`. UMS-03D is now
+authorized to resume; UMS-04 remains NOT AUTHORIZED. The
+complete amendment evidence is at
+[2026-09-07 UMS-03C-A ordering proof](../../architecture/proofs/runtime/2026-09-07-ums03c-a-review-activation-ordering-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

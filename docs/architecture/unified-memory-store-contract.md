@@ -1081,9 +1081,13 @@ DB-enforced invariants (CHECK / UNIQUE / FK):
   AND fact_value IS NOT NULL AND text_content IS NULL))` —
   the personal-fact species must use the fact payload and must
   not use the text payload.
-- `CHECK (NOT (reviewed_at IS NULL AND activated_at IS NOT
-  NULL))` — a row may not be activated before it is reviewed.
-  Activation is a strictly later event than review.
+- `CHECK (activated_at IS NULL OR (reviewed_at IS NOT NULL
+  AND activated_at >= reviewed_at))` — a row may not be
+  activated before it is reviewed. Activation may be
+  recorded at the same instant as review. Review and
+  activation remain distinct governance states. The full
+  ordering rule and the valid / invalid boundary cases
+  are recorded in §4.16.2a.
 - `CHECK (NOT held OR NOT pinned) OR true` — pin and hold are
   independent flags; the CHECK is a no-op (it preserves the
   pin/hold independence the spec required) and is documented
@@ -1105,6 +1109,84 @@ because:
 - the foreign key from `memory_persona_links` and
   `memory_provenance` to `memory_records.memory_id` is
   stable across instances.
+
+#### 4.16.2a Canonical review-before-activation ordering
+
+The frozen `memory_records` CHECK constraint
+`activated_at IS NULL OR (reviewed_at IS NOT NULL
+AND activated_at >= reviewed_at)` encodes the canonical
+review-before-activation ordering rule:
+
+```text
+Review and activation are distinct governance states.
+
+An activated memory must be reviewed.
+
+Activation may be recorded at the same instant as review,
+including when both governance transitions are applied
+atomically by a single user-authoritative action.
+
+Activation must never be recorded before review.
+```
+
+The governance states are logically distinct but need not
+occupy different wall-clock instants. Atomic
+review-and-activate operations may persist one timestamp
+for both transitions. Artificial timestamp offsets (for
+example, an artificial `+1 microsecond` separation) are
+forbidden as a way to satisfy the schema. Timestamp
+equality does not collapse the two governance states into
+one state.
+
+The boundary cases that this rule accepts and rejects are
+the direct UMS-03D migration-test contract.
+
+**Valid** (the row must satisfy the CHECK above):
+
+```text
+reviewed_at  = NULL
+activated_at = NULL
+
+reviewed_at  = T
+activated_at = NULL
+
+reviewed_at  = T
+activated_at = T          (same instant)
+
+reviewed_at  = T1
+activated_at = T2         where T2 > T1
+```
+
+**Invalid** (the row is rejected by the CHECK above):
+
+```text
+reviewed_at  = NULL
+activated_at = T          (activated without review)
+
+reviewed_at  = T2
+activated_at = T1         where T1 < T2   (activated before review)
+```
+
+The `memory_records_review_activation_order_check`
+constraint name is the canonical identifier for this rule
+in the resulting PostgreSQL schema; UMS-03D must use the
+exact name above.
+
+The UMS-03A retrieval governance doctrine remains
+authoritative: row existence, review, activation,
+explicit retrieval, and ambient influence remain five
+conceptually distinct states. The CHECK above enforces
+the activation-vs-review boundary; the other boundaries
+are computed at read time per §3.5 and §6.1. Activation
+alone (even when correctly ordered) does not confer
+ambient influence.
+
+The previous prose claim that "activation is a strictly
+later event than review" and the previous CHECK
+`NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
+were both retracted by UMS-03C-A. UMS-03C-A
+documentation-only; no ORM model, no Alembic migration,
+and no runtime code changed.
 
 #### 4.16.3 Persona-attribution table — `memory_persona_links`
 
@@ -1273,8 +1355,12 @@ protocol-token vocabulary invented:
 - `activated` — represented by `activated_at TIMESTAMPTZ
   NULL`. `NULL` means not activated; non-NULL is the
   activation timestamp. The CHECK constraint
-  `NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
-  enforces that activation is strictly later than review.
+  `activated_at IS NULL OR (reviewed_at IS NOT NULL
+  AND activated_at >= reviewed_at)`
+  enforces the canonical review-before-activation ordering
+  recorded in §4.16.2a: activation may be recorded at the
+  same instant as review, and activation may never be
+  recorded before review.
 - `explicitly retrievable` — not stored; computed at read
   time from `(account authorization, scope, activation,
   explicit recall grant)` per §3.5 and §6.1. No canonical
