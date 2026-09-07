@@ -106,9 +106,11 @@ UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
 UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
 UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
 UMS-02: CLOSED
-UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: PASSED
+UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
+UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
+UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: AUTHORIZED TO RESUME
 UMS-03: OPEN
-UMS-03B: AUTHORIZED TO START
+UMS-03C: NOT AUTHORIZED
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -176,6 +178,41 @@ recorded. UMS-03A introduced no SQL schema, no migration, no ORM model,
 no runtime reader/writer, no retrieval behavior change, and no export
 implementation change. No ADR was created or modified; ADR-084
 remains controlling. UMS-04 remains NOT AUTHORIZED.
+
+The committed UMS-03A artifact at `12075540e29077a40a7d578eef315bc4277c0841`
+was independently reverified at
+`09a13039cc6309188d66782f18514cc2856733b3` by a second harness against the
+full UMS-03A acceptance surface (38/38 verdicts PASS, including the
+acknowledged documentation gap that ADR-083 is not present in the
+canonical ADR registry). The reverification recorded every committed
+file as byte-identical to its UMS-03A state, performed
+`scripts/validate_docs.py` and `git diff --check HEAD^ HEAD` in a detached
+worktree at the exact target commit, and added no other change. The
+UMS-03A reverification proof is preserved as historical evidence at
+[2026-09-07 UMS-03A reverification proof](../../architecture/proofs/runtime/2026-09-07-ums03a-reverification-proof.md).
+
+UMS-03A-A is a documentation-only contract amendment that froze the
+canonical serialized spellings for the three semantic species in
+[§4.8 of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md):
+
+```text
+episodic_semantic_memory
+verified_personal_fact
+candidate_unreviewed_fact
+```
+
+The amendment resolves the slash-joined prose ambiguity
+(`Episodic / semantic memory`, `Candidate / unreviewed fact`) without
+splitting any species, merging any species, or changing any species
+meaning. The human-readable labels remain descriptive and
+non-authoritative for serialization. No new ADR was created; ADR-084
+remains controlling. No SQL schema, no migration, no ORM model, no
+runtime reader/writer, no retrieval behavior, and no export
+implementation changed. No release claim widened. UMS-03B was
+previously BLOCKED because the two slash-joined species did not
+provide unambiguous canonical token spellings; UMS-03A-A removes that
+block. The full amendment evidence is at
+[2026-09-07 UMS-03A-A spelling proof](../../architecture/proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

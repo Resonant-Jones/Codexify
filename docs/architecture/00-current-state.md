@@ -57,9 +57,11 @@ This file is authoritative for:
   UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
   UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
   UMS-02: CLOSED
-  UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: PASSED
+  UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
+  UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
+  UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: AUTHORIZED TO RESUME
   UMS-03: OPEN
-  UMS-03B: AUTHORIZED TO START
+  UMS-03C: NOT AUTHORIZED
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -109,6 +111,45 @@ This file is authoritative for:
   Beta/release claim widened; no canonical memory persistence
   implementation exists yet. See the
   [UMS-03A canonical memory envelope contract proof](./proofs/runtime/2026-09-07-ums03a-canonical-memory-envelope-contract-proof.md).
+  The committed UMS-03A artifact at
+  `12075540e29077a40a7d578eef315bc4277c0841` was independently
+  reverified at `09a13039cc6309188d66782f18514cc2856733b3` by a
+  second harness against the full UMS-03A acceptance surface
+  (38/38 verdicts PASS, including the documentation-gap record that
+  ADR-083 is not present in the canonical ADR registry). See the
+  [UMS-03A reverification proof](./proofs/runtime/2026-09-07-ums03a-reverification-proof.md).
+  UMS-03A was not retroactively edited; the reverification is
+  additive evidence only.
+
+- Froze the canonical serialized spellings for the three
+  UMS-03A semantic species in
+  [§4.8 of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  episodic_semantic_memory
+  verified_personal_fact
+  candidate_unreviewed_fact
+  ```
+
+  UMS-03A-A is a documentation-only architecture amendment. The
+  three-species taxonomy, every species meaning, the
+  review / activation / retrieval / ambient-influence posture, the
+  provenance requirements, the mutation / revision semantics, and
+  the legacy compatibility mapping remain unchanged. The
+  slash-joined human-readable labels (`Episodic / semantic memory`,
+  `Candidate / unreviewed fact`) remain a single combined label
+  per affected species, not a list of protocol aliases. The
+  amendment is purely a serialization-authority clarification:
+  the canonical serialized token is the protocol authority;
+  human-readable labels are descriptive. No new ADR was created;
+  ADR-084 remains controlling. UMS-03B was previously BLOCKED
+  because two slash-joined species did not provide unambiguous
+  canonical token spellings; UMS-03A-A removes that block. UMS-03
+  remains OPEN, UMS-03B is authorized to resume, UMS-03C remains
+  NOT AUTHORIZED, UMS-04 remains NOT AUTHORIZED. No
+  Beta/release claim widened; no canonical memory persistence
+  implementation exists yet. See the
+  [UMS-03A-A memory-species token spelling proof](./proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

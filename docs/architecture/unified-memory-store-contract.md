@@ -655,6 +655,26 @@ retention class only and is not authority for review or activation.
 
 ### 4.8 Semantic species taxonomy
 
+The canonical serialized token is the protocol authority for
+every species defined in this section. Human-readable species
+labels are descriptive and may use natural-language punctuation
+or explanatory phrasing; they are not authoritative for
+serialization. No alternate serialized aliases are accepted.
+
+The canonical serialized spellings frozen by this contract are:
+
+| Human-readable species      | Canonical serialized token  |
+| --------------------------- | --------------------------- |
+| Episodic / semantic memory  | `episodic_semantic_memory`  |
+| Verified personal fact      | `verified_personal_fact`    |
+| Candidate / unreviewed fact | `candidate_unreviewed_fact` |
+
+These three spellings together are the closed canonical
+serialization of the three-species taxonomy. No future contract
+amendment may introduce a fourth species, split an existing
+species, or merge two species without a separately authorized
+ADR / contract slice.
+
 The minimum semantic species required by current persistence are:
 
 1. **Episodic / semantic memory.** A record of an explicit user-
@@ -698,11 +718,25 @@ For each species the contract fixes:
 - whether its content is mutable, revisioned, or append-only;
 - how it maps from current persistence (see §4.12).
 
-| Species | Creator authority | Review before ambient | Explicit recall before activation | Provenance required | Content form | Map from current persistence |
-| --- | --- | --- | --- | --- | --- | --- |
-| episodic / semantic memory | user (Vault, explicit remember) or legacy ordinary-memory writer | yes, by default | yes | yes (§4.10) | mutable in place; revisioned on authority transitions | `memory_entries` row, all silos |
-| verified personal fact | Personal Facts service only | yes (already verified) | yes | yes (Personal Facts evidence trail) | revisioned, append-only mutations | `personal_facts` row where `status='verified'` AND `is_active=true` |
-| candidate / unreviewed fact | Personal Facts service or import pipeline | required before ambient | yes (explicit grant only) | yes (Personal Facts evidence) | revisioned, append-only mutations | `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false` |
+| Species | Canonical token | Creator authority | Review before ambient | Explicit recall before activation | Provenance required | Content form | Map from current persistence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Episodic / semantic memory | `episodic_semantic_memory` | user (Vault, explicit remember) or legacy ordinary-memory writer | yes, by default | yes | yes (§4.10) | mutable in place; revisioned on authority transitions | `memory_entries` row, all silos |
+| Verified personal fact | `verified_personal_fact` | Personal Facts service only | yes (already verified) | yes | yes (Personal Facts evidence trail) | revisioned, append-only mutations | `personal_facts` row where `status='verified'` AND `is_active=true` |
+| Candidate / unreviewed fact | `candidate_unreviewed_fact` | Personal Facts service or import pipeline | required before ambient | yes (explicit grant only) | yes (Personal Facts evidence) | revisioned, append-only mutations | `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false` |
+
+#### 4.8.1 Amendment provenance
+
+UMS-03A-A (`docs/architecture/proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md`)
+froze the canonical serialized spellings above without
+modifying the three-species taxonomy, the species meanings, the
+review / activation / retrieval / ambient-influence posture, the
+provenance requirements, the mutation / revision semantics, or
+the legacy compatibility mapping. The slash-joined prose
+(`Episodic / semantic memory`, `Candidate / unreviewed fact`)
+remains a single human-readable combined label per affected
+species, not a list of protocol aliases. The amendment
+authorizes UMS-03B to consume the spellings above without
+re-deciding the underlying semantic taxonomy.
 
 ### 4.9 Ownership, scope, and attribution independence
 
