@@ -961,7 +961,507 @@ UMS-03B / UMS-03C and are not pre-selected by this contract:
 This contract constrains those later choices but does not pre-select
 them. UMS-03B is the next slice authorized on PASS of UMS-03A.
 
-### 4.4 Activation projection
+### 4.16 Canonical memory persistence schema (UMS-03C)
+
+UMS-03C freezes the physical persistence contract that UMS-03D will
+implement. It is DDL-contract precision: table identity, column
+identity, type, nullability, defaults, foreign-key authority,
+uniqueness, token-derived CHECK constraints, payload placement,
+Persona-link structure, governance representation, FK delete
+behavior, index strategy, and first-migration posture are all
+frozen here. UMS-03C creates no table, no ORM model, no Alembic
+migration, and no runtime code.
+
+This section sits between §4.15 (which deferred physical design
+and was the previous end of the deferred-physical-design chain)
+and §4.4 (the activation-projection section, which is
+schema-independent). §4.4, §4.11, and §15 together remain
+authoritative for derived/heat state.
+
+#### 4.16.1 Canonical table inventory
+
+The canonical UMS-03 persistence substrate consists of exactly
+three new tables:
+
+```text
+memory_records
+    the canonical envelope row; one row per canonical memory atom
+
+memory_persona_links
+    typed stable-Persona attribution relationships for a memory
+    record; zero or more rows per memory record
+
+memory_provenance
+    first-class durable lineage of a memory record; one or more
+    rows per memory record
+```
+
+The three table names are unclaimed in the current
+`guardian/db/models.py` (verified at the start of UMS-03C) and
+introduce no collision with existing persistence. The names were
+preferred by the UMS-03C spec and are accepted here as the
+canonical table identifiers. No alternative name is admitted by
+this contract. A future ADR / contract amendment is required to
+introduce any of these names with different meaning.
+
+No other table is added by the canonical envelope. Derived
+projection state (heat, ranking, embeddings, working-set
+membership, suggestion ranking, UI grouping) is explicitly
+excluded from canonical persistence and is owned by UMS-10.
+Permanent erasure semantics are deferred to UMS-11. Export /
+restore implementation is deferred to UMS-04.
+
+#### 4.16.2 Canonical envelope — `memory_records`
+
+`memory_records` is the canonical authority-bearing row for every
+canonical memory atom. It owns every authority-bearing envelope
+field and references `users`, `projects`, and `persona_subjects`
+by relational foreign key.
+
+| Column                | Type                          | Null    | Default   | Authority meaning |
+|-----------------------|-------------------------------|---------|-----------|-------------------|
+| `memory_id`           | `String(36)` (UUID) PK        | NOT NULL | —        | Stable canonical memory identity (export-stable, portable, suitable for `memory_persona_links` and `memory_provenance` references) |
+| `user_id`             | `String(255)` FK `users.id`   | NOT NULL | —        | Account ownership; CASCADE on user delete |
+| `project_id`          | `Integer` FK `projects.id`    | NULL    | NULL      | Optional Project scope; `NULL` means account scope; ON DELETE RESTRICT |
+| `semantic_species`    | `String(32)`                  | NOT NULL | —        | Closed `MemorySemanticSpecies` value (only the three frozen values; no aliases) |
+| `text_content`        | `Text`                        | NULL    | NULL      | Free-text content for `episodic_semantic_memory`; non-authority payload |
+| `fact_key`            | `String(255)`                 | NULL    | NULL      | Fact identifier for personal-fact species; non-authority payload |
+| `fact_value`          | `Text`                        | NULL    | NULL      | Fact content for personal-fact species; non-authority payload |
+| `fact_confidence`     | `Float` (range 0.0–1.0)       | NULL    | NULL      | Fact confidence for personal-fact species; non-authority payload |
+| `reviewed_at`         | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which user review first approved the row; non-NULL means reviewed |
+| `activated_at`        | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which the row became ambient-eligible; non-NULL means activated |
+| `pinned`              | `Boolean`                     | NOT NULL | `false`  | Priority flag; pinning changes priority only, not truth or ownership |
+| `held`                | `Boolean`                     | NOT NULL | `false`  | Decay-suspension flag; held rows do not transition lifecycle through decay |
+| `extensions`          | `JSONB`                       | NULL    | NULL      | Auxiliary non-authority metadata only; not source of ownership, scope, Persona identity, activation, or review |
+| `created_at`          | `TIMESTAMP(timezone=True)`    | NOT NULL | `now()`  | Row creation timestamp |
+| `updated_at`          | `TIMESTAMP(timezone=True)`    | NOT NULL | `now() + onupdate` | Row last-modified timestamp |
+
+DB-enforced invariants (CHECK / UNIQUE / FK):
+
+- `UNIQUE (memory_id, user_id)` — binds memory identity to its
+  account so composite FKs from child tables can prove
+  same-account.
+- `FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`
+  — account teardown removes the account's memory; aligns with
+  existing `projects.user_id` and `persona_subjects.user_id`
+  delete behavior.
+- `FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE
+  RESTRICT` — Project deletion is blocked while any memory is
+  attached; the application must first detach (or archive) the
+  memory. This prevents Project deletion from silently converting
+  Project-scoped memory into account-wide memory. The composite
+  FK below additionally enforces that the Project belongs to the
+  same account as the memory.
+- `FOREIGN KEY (project_id, user_id) REFERENCES projects(id,
+  user_id)` — when `project_id IS NOT NULL`, the Project's
+  `user_id` must equal the memory's `user_id`. This is the
+  DB-enforced cross-account prevention required by §4.9 and
+  §3.2 (no `Project scope = Project owned by a different
+  account`).
+- `CHECK (semantic_species IN ('episodic_semantic_memory',
+  'verified_personal_fact', 'candidate_unreviewed_fact'))` —
+  derived from the canonical `MemorySemanticSpecies` token
+  domain. The constraint is named
+  `memory_records_semantic_species_check`. No additional values,
+  no aliases (`episodic_memory`, `semantic_memory`,
+  `candidate_fact`, `unreviewed_fact` are all rejected).
+- `CHECK (fact_confidence IS NULL OR (fact_confidence >= 0.0
+  AND fact_confidence <= 1.0))` — preserves the current
+  `personal_facts.confidence` semantic.
+- `CHECK ((project_id IS NULL) OR (text_content IS NOT NULL OR
+  fact_key IS NOT NULL))` — every row must carry some
+  species-appropriate payload; pure shells are rejected.
+- `CHECK (semantic_species = 'episodic_semantic_memory'
+  IMPLIES (text_content IS NOT NULL AND fact_key IS NULL AND
+  fact_value IS NULL AND fact_confidence IS NULL))` — the
+  episodic species must use the text payload and must not
+  use the fact payload.
+- `CHECK (semantic_species IN ('verified_personal_fact',
+  'candidate_unreviewed_fact') IMPLIES (fact_key IS NOT NULL
+  AND fact_value IS NOT NULL AND text_content IS NULL))` —
+  the personal-fact species must use the fact payload and must
+  not use the text payload.
+- `CHECK (NOT (reviewed_at IS NULL AND activated_at IS NOT
+  NULL))` — a row may not be activated before it is reviewed.
+  Activation is a strictly later event than review.
+- `CHECK (NOT held OR NOT pinned) OR true` — pin and hold are
+  independent flags; the CHECK is a no-op (it preserves the
+  pin/hold independence the spec required) and is documented
+  for clarity. Pinning changes priority only; holding suspends
+  decay only. Neither flag ever changes ownership, scope, or
+  Persona attribution.
+
+`memory_id` is a server-generated `String(36)` UUID chosen
+because:
+
+- `persona_subjects.persona_subject_id` already uses the same
+  shape and the canonical export-stable identity contract in
+  §4.1 already references UUID-style stable IDs;
+- the existing autoincrement `BigInteger` pattern used by
+  `memory_entries.id` and `personal_facts.id` is a poor
+  fit for export / restore portability (auto-increment
+  values must be remapped on import, and §4.1 expressly
+  forbids silent remapping);
+- the foreign key from `memory_persona_links` and
+  `memory_provenance` to `memory_records.memory_id` is
+  stable across instances.
+
+#### 4.16.3 Persona-attribution table — `memory_persona_links`
+
+`memory_persona_links` is the typed stable-Persona attribution
+relationship table for canonical memory records. It expresses
+attribution only; it never confers memory ownership.
+
+| Column                 | Type                                    | Null    | Default | Authority meaning |
+|------------------------|-----------------------------------------|---------|---------|-------------------|
+| `link_id`              | `String(36)` (UUID) PK                  | NOT NULL | —      | Stable link identity |
+| `memory_id`            | `String(36)` FK `memory_records.memory_id` | NOT NULL | —  | Memory record being annotated |
+| `user_id`              | `String(255)` FK `users.id`             | NOT NULL | —      | Account of the memory; CASCADE on user delete |
+| `persona_subject_id`   | `String(36)` FK `persona_subjects.persona_subject_id` | NOT NULL | — | Stable Persona subject |
+| `persona_user_id`      | `String(255)` FK `users.id`             | NOT NULL | —      | Account of the Persona subject; RESTRICT on Persona subject's account deletion (covered by Persona subject CASCADE) |
+| `link_kind`            | `String(32)`                            | NOT NULL | —      | Closed `MemoryPersonaLinkKind` value |
+| `created_at`           | `TIMESTAMP(timezone=True)`              | NOT NULL | `now()`| Link creation timestamp |
+
+DB-enforced invariants:
+
+- `FOREIGN KEY (memory_id, user_id) REFERENCES
+  memory_records(memory_id, user_id) ON DELETE CASCADE` — the
+  link follows its memory's account; deleting a memory
+  removes its links.
+- `FOREIGN KEY (persona_subject_id, persona_user_id) REFERENCES
+  persona_subjects(persona_subject_id, user_id) ON DELETE
+  RESTRICT` — a Persona subject with active memory links
+  cannot be deleted; the application must first retire the
+  Persona subject (UMS-02 governance) and accept the link
+  retention as historical evidence. This mirrors the
+  §4.5.6 historical-binding retention rule.
+- `CHECK (user_id = persona_user_id)` — DB-enforced
+  same-account integrity between the memory and the
+  attributed Persona subject. This is the same-account rule
+  required by §4.9 and §4.5.7 and the UMS-03A cross-account
+  attribution prohibition.
+- `CHECK (link_kind IN ('captured_under', 'suggested_by',
+  'associated_with'))` — derived from the canonical
+  `MemoryPersonaLinkKind` token domain. Named
+  `memory_persona_links_link_kind_check`. No additional
+  relationship kinds are accepted.
+- `UNIQUE (memory_id, persona_subject_id, link_kind)` — at
+  most one link of each kind per memory per Persona subject.
+  Multiple Persona subjects and multiple kinds are allowed on
+  the same memory; the constraint is a per-(memory, persona,
+  kind) dedup rule, not a per-memory or per-persona rule.
+
+`persona_user_id` is a denormalized copy of the linked
+`persona_subjects.user_id`. It exists so the same-account CHECK
+can be expressed at the relational boundary without a
+sub-select. It must always equal `persona_subjects.user_id` for
+the row referenced by `(persona_subject_id, persona_user_id)`;
+that equality is enforced by the composite FK to
+`persona_subjects`. No mutable `PersonaProfile` FK is present;
+no `PersonaProfile.id` is a valid target here. Display names,
+similarity scores, prompts, and avatars are not authority for
+the link identity.
+
+#### 4.16.4 Provenance table — `memory_provenance`
+
+`memory_provenance` is the first-class durable lineage row for
+every canonical memory record. It preserves external lineage
+without becoming a parallel authority surface.
+
+| Column                       | Type                          | Null    | Default | Authority meaning |
+|------------------------------|-------------------------------|---------|---------|-------------------|
+| `provenance_id`              | `String(36)` (UUID) PK        | NOT NULL | —      | Stable provenance identity |
+| `memory_id`                  | `String(36)` FK `memory_records.memory_id` | NOT NULL | — | Memory record this lineage belongs to |
+| `user_id`                    | `String(255)` FK `users.id`   | NOT NULL | —      | Account of the memory; CASCADE on user delete |
+| `source_system`              | `String(32)`                  | NOT NULL | —      | Closed source-system set; see below |
+| `source_record_id`           | `String(255)`                 | NULL    | NULL    | Stable identifier of the source row when present |
+| `source_thread_id`           | `BigInteger` FK `chat_threads.id` | NULL | NULL   | Canonical chat-thread reference when present |
+| `source_message_id`          | `BigInteger` FK `chat_messages.id` | NULL | NULL  | Canonical chat-message reference when present; `SET NULL` on chat-message delete |
+| `source_import_job_id`       | `String(36)`                  | NULL    | NULL    | Opaque import-job ref when present (no relational FK today; the import-job table is not a stable public surface) |
+| `source_export_fingerprint`  | `String(128)`                 | NULL    | NULL    | Opaque export hash when the material came from an export |
+| `source_subject_kind`        | `String(32)`                  | NULL    | NULL    | `chat`, `vault`, `importer`, `classifier`, or future-registered |
+| `source_subject_id`          | `String(255)`                 | NULL    | NULL    | Stable identifier of the originating surface entity when present |
+| `is_imported`                | `Boolean`                     | NOT NULL | `false` | Imported-vs-native posture; provenance is durable even for native rows but `is_imported=true` rows came from an external source |
+| `extensions`                 | `JSONB`                       | NULL    | NULL    | Auxiliary non-authority metadata only |
+| `created_at`                 | `TIMESTAMP(timezone=True)`    | NOT NULL | `now()`| Provenance row creation timestamp |
+
+DB-enforced invariants:
+
+- `FOREIGN KEY (memory_id, user_id) REFERENCES
+  memory_records(memory_id, user_id) ON DELETE CASCADE` —
+  provenance follows the memory and its account.
+- `CHECK (source_system IN ('codexify', 'openai',
+  'anthropic', 'future_registered'))` — closed source-system
+  vocabulary matching the UMS-03A §4.11 spine. The trailing
+  `future_registered` value is the future-proofing slot; no
+  new value is admitted by this contract.
+- `CHECK (source_subject_kind IS NULL OR source_subject_kind
+  IN ('chat', 'vault', 'importer', 'classifier',
+  'future_registered'))` — closed source-surface vocabulary.
+  Same `future_registered` future-proofing slot; no additional
+  values are accepted by this contract.
+- The `extensions` JSONB column must never be a source of
+  authority: a separate application-layer invariant (and a
+  future ADR-gated migration if needed) shall reject any
+  authorization decision that consults `extensions` for
+  ownership, scope, activation, review, or Persona identity.
+
+Provenance multiplicity is **one-to-many**. A single canonical
+memory may have multiple `memory_provenance` rows: e.g., one
+`source_system = 'codexify'` row for the native creation event,
+one `source_system = 'openai'` row for the import that
+introduced the candidate, and one `source_system = 'codexify'`
+row for a later user correction. This is the relational
+counterpart of the UMS-03A evidence/revision append-only
+semantics for ordinary memories. There is no
+`(memory_id, source_system)` UNIQUE constraint: collapsing
+multiple lineage records by source would erase the very
+revision evidence the table exists to preserve.
+
+#### 4.16.5 Payload strategy decision
+
+The UMS-03A deferred question "shared typed columns vs.
+species-specific relational tables vs. JSONB species payload"
+is resolved as follows:
+
+- **Authority-bearing data** (account ownership, Project
+  scope, semantic species, review / activation timestamps,
+  pin / hold, identity, FK targets) lives in **typed
+  relational columns** on `memory_records` and its child
+  tables. None of this data is stored in JSON.
+- **Species-specific non-authority content** lives in
+  **typed columns on the same canonical envelope**
+  (`text_content`, `fact_key`, `fact_value`,
+  `fact_confidence`). The `semantic_species` CHECK
+  constraints above enforce which combination is valid per
+  species. This preserves semantic distinction (the three
+  species keep their distinct shapes) without inventing a
+  parallel table for each species or flattening the payload
+  into one untyped text column.
+- **Auxiliary non-authority metadata** (e.g., a future
+  import-routing note or a future export-side annotation)
+  lives in `extensions JSONB` on each table that needs it.
+  `extensions` is explicitly forbidden from carrying any
+  authority question's answer; ownership, scope, Persona
+  identity, activation, and review never come from JSON.
+
+The rejected alternatives:
+
+- A single generic `content JSONB` per row was rejected
+  because it would force the three species to share one
+  payload shape, erasing the UMS-03A semantic distinction
+  between episodic memory and personal facts.
+- A separate relational table per species (e.g.,
+  `memory_episodic_payload`, `memory_verified_fact_payload`,
+  `memory_candidate_fact_payload`) was rejected because
+  the three species are all governed by the same envelope
+  doctrine, share the same FK targets, and the typed
+  columns above already carry the species-specific content
+  without a join.
+
+#### 4.16.6 Governance state physical representation
+
+The UMS-03A distinctions (`stored != reviewed != activated
+!= explicitly retrievable != ambiently influential`) are
+physically represented as follows, with no new closed
+protocol-token vocabulary invented:
+
+- `stored` — the row exists. No column is required; row
+  presence is the representation.
+- `reviewed` — represented by `reviewed_at TIMESTAMPTZ NULL`.
+  `NULL` means unreviewed; non-NULL is the review timestamp.
+- `activated` — represented by `activated_at TIMESTAMPTZ
+  NULL`. `NULL` means not activated; non-NULL is the
+  activation timestamp. The CHECK constraint
+  `NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
+  enforces that activation is strictly later than review.
+- `explicitly retrievable` — not stored; computed at read
+  time from `(account authorization, scope, activation,
+  explicit recall grant)` per §3.5 and §6.1. No canonical
+  column is added for it.
+- `ambiently influential` — not stored; computed at read
+  time per §3.5. No canonical column is added for it.
+
+Boolean and timestamp columns preserve all required
+distinctions without losing current source semantics. No
+monolithic lifecycle enum is introduced. The two
+lifecycle-event timestamps plus the pin / hold booleans
+are the full governance physical representation.
+
+#### 4.16.7 Cross-table integrity invariants
+
+- **Account ownership** of any canonical memory row is
+  expressed by `memory_records.user_id` and DB-enforced via
+  `FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE
+  CASCADE`.
+- **Project scope same-account** is DB-enforced by the
+  composite FK `(project_id, user_id) REFERENCES
+  projects(id, user_id)` on `memory_records` when
+  `project_id IS NOT NULL`. Cross-account Project scope
+  cannot be silently permitted.
+- **Persona-link same-account** is DB-enforced by the
+  composite FKs on `memory_persona_links` plus the
+  `CHECK (user_id = persona_user_id)` constraint.
+- **Provenance same-account** is DB-enforced by the
+  composite FK `(memory_id, user_id)` on `memory_provenance`.
+- **Stable identity, not display**, is the rule for every
+  FK target. `memory_id` is a UUID; `persona_subject_id` is
+  a UUID; `user_id` is the canonical `users.id` string; no
+  display name, prompt, or tag is a key.
+- **PersonaProfile is absent from durable attribution
+  identity.** No `memory_persona_links` column references
+  `persona_profiles`; the only target is
+  `persona_subjects.persona_subject_id`.
+
+#### 4.16.8 Foreign-key delete behavior
+
+| FK reference                          | On parent delete | Rationale |
+|---------------------------------------|------------------|-----------|
+| `memory_records.user_id → users.id`   | CASCADE          | Aligns with `projects.user_id` and `persona_subjects.user_id`; account teardown removes the account's memory. |
+| `memory_records.project_id → projects.id` | RESTRICT    | Prevents Project deletion from silently converting Project-scoped memory into account-wide memory. Application must detach / archive first. |
+| `memory_persona_links.memory_id → memory_records.memory_id` (composite) | CASCADE | A memory and its links are deleted together. |
+| `memory_persona_links.user_id → users.id` | CASCADE      | Account teardown removes the account's links. |
+| `memory_persona_links.persona_subject_id → persona_subjects.persona_subject_id` (composite) | RESTRICT | A Persona subject with active memory links cannot be deleted; retirement is governed by UMS-02. |
+| `memory_provenance.memory_id → memory_records.memory_id` (composite) | CASCADE | A memory and its provenance are deleted together. |
+| `memory_provenance.user_id → users.id` | CASCADE          | Account teardown removes the account's provenance. |
+| `memory_provenance.source_thread_id → chat_threads.id` | RESTRICT (default) | Avoids silently losing source-thread identity when a thread is deleted; chat-thread deletion is rare and should be a separate contract decision. |
+| `memory_provenance.source_message_id → chat_messages.id` | SET NULL | Aligns with `personal_fact_evidence.source_message_id`; allows chat-message deletion without losing the memory's existence, while preserving the rest of the provenance row. |
+
+Permanent erasure semantics are explicitly not implemented
+here; the contract documents that UMS-11 owns permanent purge
+and the surviving `memory_purge_tombstone` semantics.
+
+#### 4.16.9 Index strategy
+
+The minimum required indexes for the canonical envelope are:
+
+- `memory_records (user_id)` — account-scoped memory lookup.
+- `memory_records (user_id, project_id)` — account +
+  Project lookup, with a partial unique index
+  `(user_id, project_id, semantic_species)` to be defined
+  later by the implementation slice if multi-row semantics
+  are required.
+- `memory_records (user_id, semantic_species)` — account +
+  species lookup.
+- `memory_records (user_id, activated_at)` — ambient-
+  eligible lookup at read time.
+- `memory_persona_links (user_id)` — account-scoped link
+  lookup.
+- `memory_persona_links (persona_subject_id)` — Persona-
+  attributed memory lookup.
+- `memory_persona_links (memory_id, link_kind)` — already
+  covered by the existing `UNIQUE (memory_id,
+  persona_subject_id, link_kind)` constraint, but the
+  implementation may add a non-unique supporting index if
+  its query plan requires it.
+- `memory_provenance (memory_id)` — provenance lookup for
+  one memory.
+- `memory_provenance (user_id, source_system)` — account +
+  source lookup.
+- `memory_provenance (source_thread_id)` — only when
+  `source_thread_id IS NOT NULL`; covered by the FK index
+  on that column.
+
+The following derived-state indexes are explicitly
+**excluded** from canonical persistence: ranking, heat,
+embedding, recency score, working-set membership, suggestion
+ranking, and UI grouping. Those concerns are owned by UMS-10
+and will not be persisted as canonical `memory_records`
+data.
+
+#### 4.16.10 First-migration posture
+
+UMS-03D is authorized to introduce the canonical schema
+above as one new Alembic revision whose properties are:
+
+- The migration is **additive only**.
+- The three new tables are created empty.
+- No legacy backfill is performed.
+- No legacy source row is mutated, deleted, or read by the
+  migration.
+- No runtime writer is redirected to the canonical tables.
+- No runtime reader is redirected to the canonical tables.
+- No compatibility reader is implemented by this migration.
+- No authority transfer occurs. The pre-migration authority
+  order remains in force after the migration:
+
+  ```text
+  legacy source row         = durable authority
+  memory_records            = structurally available but not
+                              yet runtime authority
+  ```
+
+The migration's acceptance criteria are:
+
+- `alembic upgrade head` succeeds on a clean disposable
+  PostgreSQL 17 instance.
+- `alembic upgrade head` succeeds on a disposable PostgreSQL
+  17 instance seeded with the current live schema.
+- `alembic downgrade -1` either succeeds and is lossless for
+  the new tables (the new tables are dropped) or is
+  explicitly forbidden by the revision with a documented
+  reason.
+- All canonical CHECK / UNIQUE / FK constraints are
+  present in the resulting schema.
+- No legacy data was read, mutated, or migrated by the
+  upgrade.
+
+The runtime cutover that promotes the canonical tables to
+durable authority belongs to a later UMS-03 slice and is
+explicitly not in UMS-03D.
+
+#### 4.16.11 ORM/Alembic parity requirement
+
+UMS-03D must introduce the SQLAlchemy ORM metadata and the
+Alembic migration together. No migration-only table may be
+added without matching `Base` metadata. No ORM-only class
+may exist without matching Alembic schema. The future
+implementation must preserve the existing generic
+PostgreSQL Alembic/ORM parity smoke used by other UMS
+slices (e.g., UMS-02C).
+
+#### 4.16.12 Compatibility reader relationship to persistence
+
+A future compatibility reader will project legacy rows into
+the canonical envelope shape without writing to
+`memory_records`. The projection is structurally compatible
+with the schema frozen in this section. The compatibility
+reader:
+
+- must not write canonical rows;
+- must not assign canonical durable authority;
+- must not infer missing ownership, Project scope, or
+  Persona attribution;
+- must not upgrade review or activation state;
+- must not destroy provenance;
+- must fail closed for any row whose canonical envelope
+  shape cannot be constructed without inventing authority
+  (per UMS-03A §4.14).
+
+The compatibility reader's implementation belongs to a later
+UMS-03 slice and is explicitly not in UMS-03D.
+
+#### 4.16.13 Explicit deferrals
+
+The following are outside UMS-03C and remain deferred to
+later slices:
+
+- ORM model implementation (UMS-03D);
+- Alembic migration implementation (UMS-03D);
+- PostgreSQL qualification (UMS-03D proof slice);
+- compatibility reader implementation (later UMS-03 slice);
+- runtime write path (later UMS-03 slice);
+- runtime read cutover (later UMS-03 slice);
+- legacy backfill (later UMS-03 slice);
+- export / restore implementation (UMS-04);
+- Vault UI (UMS-05);
+- explicit memory commands (UMS-06);
+- Persona-aware recall (UMS-07);
+- automatic suggestions (UMS-09);
+- heat / decay projection (UMS-10);
+- permanent erasure semantics (UMS-11).
+
+#### 4.4 Activation projection
 
 Heat and ranking state are derived:
 

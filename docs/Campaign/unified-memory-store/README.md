@@ -109,8 +109,9 @@ UMS-02: CLOSED
 UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
 UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
 UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
+UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
 UMS-03: OPEN
-UMS-03C: AUTHORIZED TO START
+UMS-03D: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -240,6 +241,56 @@ export path. No ADR was created or modified; ADR-084 remains
 controlling. UMS-03C is now authorized to start; UMS-04 remains
 NOT AUTHORIZED. The complete qualification is recorded in the
 [2026-09-07 UMS-03B token proof](../../architecture/proofs/runtime/2026-09-07-ums03b-memory-envelope-token-proof.md).
+
+UMS-03C froze the canonical memory persistence schema as
+DDL-contract precision in
+[§4.16 of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md).
+The contract defines three new tables:
+
+- `memory_records` — the canonical envelope row, with
+  typed columns for identity, account ownership, optional
+  Project scope (with a composite FK to `(projects.id,
+  projects.user_id)` that DB-enforces same-account
+  integrity), semantic species (consuming only the
+  `MemorySemanticSpecies` token domain via a CHECK
+  constraint), species-appropriate payload columns
+  (`text_content` for episodic memory; `fact_key`,
+  `fact_value`, `fact_confidence` for personal-fact
+  species), governance state (`reviewed_at` and
+  `activated_at` timestamps with a `NOT (reviewed_at IS
+  NULL AND activated_at IS NOT NULL)` activation-must-
+  follow-review CHECK, plus independent `pinned` and
+  `held` booleans), and a non-authority `extensions JSONB`.
+- `memory_persona_links` — typed stable-Persona
+  attribution relationships consuming only the
+  `MemoryPersonaLinkKind` token domain, with composite FKs
+  to `(memory_records.memory_id, memory_records.user_id)`
+  and to `(persona_subjects.persona_subject_id,
+  persona_subjects.user_id)`, a `CHECK (user_id =
+  persona_user_id)` for same-account enforcement, and a
+  `UNIQUE (memory_id, persona_subject_id, link_kind)` per-
+  (memory, persona, kind) dedup constraint.
+- `memory_provenance` — first-class durable lineage with
+  one-to-many multiplicity per memory (preserving
+  evidence/revision append-only semantics), closed
+  `source_system` and `source_subject_kind` vocabularies,
+  and `source_thread_id` / `source_message_id` FKs to
+  existing chat tables.
+
+UMS-03C is documentation-only: no SQL table was created,
+no ORM model was changed, no Alembic migration was added,
+no runtime writer / reader / retrieval / export behavior
+was changed, and no new ADR was created. ADR-084 remains
+controlling. The first migration is explicitly frozen as
+additive only: the three tables are created empty, no
+legacy backfill is performed, no source row is mutated,
+and the legacy memory / personal-fact stores remain the
+durable authority. The runtime cutover to canonical
+authority belongs to a later UMS-03 slice and is
+explicitly not in UMS-03D. UMS-03D is now authorized to
+introduce the schema; UMS-04 remains NOT AUTHORIZED. The
+complete freeze evidence is at
+[2026-09-07 UMS-03C schema proof](../../architecture/proofs/runtime/2026-09-07-ums03c-canonical-memory-persistence-schema-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

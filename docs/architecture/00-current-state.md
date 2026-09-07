@@ -60,8 +60,9 @@ This file is authoritative for:
   UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
   UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
   UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
+  UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
   UMS-03: OPEN
-  UMS-03C: AUTHORIZED TO START
+  UMS-03D: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -183,6 +184,40 @@ This file is authoritative for:
   yet. The Runtime Protocol Token Contract and §4.8.2 of the
   Unified Memory Store Contract record the new registries. See
   the [UMS-03B memory envelope token proof](./proofs/runtime/2026-09-07-ums03b-memory-envelope-token-proof.md).
+
+- Froze the canonical memory persistence schema as DDL-contract
+  precision in
+  [§4.16 of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  memory_records            — canonical envelope row
+  memory_persona_links      — typed stable-Persona attribution
+  memory_provenance         — first-class durable lineage
+  ```
+
+  The schema freezes table identity, column identity, type,
+  nullability, defaults, FK authority, uniqueness, token-derived
+  CHECK constraints, payload placement, Persona-link structure,
+  governance representation (typed `reviewed_at` / `activated_at`
+  timestamps plus independent `pinned` / `held` booleans; no
+  monolithic lifecycle enum), FK delete behavior, and a
+  minimum index strategy. The first migration is explicitly
+  additive: the three tables are created empty, no legacy
+  backfill is performed, no source row is mutated, and the
+  legacy memory / personal-fact stores remain the durable
+  authority. Same-account integrity between memory and Project
+  scope is DB-enforced by a composite FK
+  `(project_id, user_id) → projects(id, user_id)`; same-account
+  integrity between memory and Persona attribution is
+  DB-enforced by composite FKs plus a
+  `CHECK (user_id = persona_user_id)` constraint on
+  `memory_persona_links`. UMS-03C introduced no SQL table, no
+  ORM model, no Alembic migration, no runtime writer / reader /
+  retrieval / export behavior, and no new ADR. The Alembic head
+  remains `e5a9c2f7b4d1`. No Beta/release claim widened. UMS-03
+  remains OPEN, UMS-03D is authorized to start, UMS-04 remains
+  NOT AUTHORIZED. See the
+  [UMS-03C schema proof](./proofs/runtime/2026-09-07-ums03c-canonical-memory-persistence-schema-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
