@@ -59,9 +59,9 @@ This file is authoritative for:
   UMS-02: CLOSED
   UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
   UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
-  UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: AUTHORIZED TO RESUME
+  UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
   UMS-03: OPEN
-  UMS-03C: NOT AUTHORIZED
+  UMS-03C: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -150,6 +150,39 @@ This file is authoritative for:
   Beta/release claim widened; no canonical memory persistence
   implementation exists yet. See the
   [UMS-03A-A memory-species token spelling proof](./proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md).
+
+- Registered the two closed UMS-03A / UMS-03A-A vocabularies as
+  canonical protocol tokens in
+  [`guardian/protocol_tokens.py`](../../guardian/protocol_tokens.py):
+
+  ```text
+  MemorySemanticSpecies:
+    episodic_semantic_memory
+    verified_personal_fact
+    candidate_unreviewed_fact
+
+  MemoryPersonaLinkKind:
+    captured_under
+    suggested_by
+    associated_with
+  ```
+
+  UMS-03B is a token-only implementation slice. It added the two
+  enum classes plus the `MEMORY_SEMANTIC_SPECIES_VALUES` and
+  `MEMORY_PERSONA_LINK_KIND_VALUES` aggregate frozen sets, plus
+  two new contract tests in
+  [`tests/contracts/test_protocol_tokens.py`](../../tests/contracts/test_protocol_tokens.py)
+  (35/35 tests pass). The new tokens are scoped to the protocol
+  registry and its tests; no runtime memory consumer, no
+  ContextBroker, no retrieval path, no export path, no ORM model,
+  and no Alembic migration consume them. The Alembic head
+  remains `e5a9c2f7b4d1`. No ADR was created or modified; ADR-084
+  remains controlling. UMS-03 remains OPEN, UMS-03C is authorized
+  to start, UMS-04 remains NOT AUTHORIZED. No Beta/release claim
+  widened; no canonical memory persistence implementation exists
+  yet. The Runtime Protocol Token Contract and §4.8.2 of the
+  Unified Memory Store Contract record the new registries. See
+  the [UMS-03B memory envelope token proof](./proofs/runtime/2026-09-07-ums03b-memory-envelope-token-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

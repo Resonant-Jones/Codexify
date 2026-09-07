@@ -108,9 +108,9 @@ UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
 UMS-02: CLOSED
 UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
 UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
-UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: AUTHORIZED TO RESUME
+UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
 UMS-03: OPEN
-UMS-03C: NOT AUTHORIZED
+UMS-03C: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -213,6 +213,33 @@ previously BLOCKED because the two slash-joined species did not
 provide unambiguous canonical token spellings; UMS-03A-A removes that
 block. The full amendment evidence is at
 [2026-09-07 UMS-03A-A spelling proof](../../architecture/proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md).
+
+UMS-03B registered the two closed vocabularies frozen by UMS-03A
+and UMS-03A-A as canonical protocol tokens in
+`guardian/protocol_tokens.py`:
+
+- `MemorySemanticSpecies` — the three semantic species
+  `episodic_semantic_memory`, `verified_personal_fact`,
+  `candidate_unreviewed_fact`.
+- `MemoryPersonaLinkKind` — the three Persona-attribution
+  relationship kinds `captured_under`, `suggested_by`,
+  `associated_with` (already frozen by UMS-02A and re-affirmed
+  in §4.3 / §4.9 of the contract).
+
+UMS-03B is a token-only implementation slice. It added the two
+enum classes plus their `MEMORY_SEMANTIC_SPECIES_VALUES` and
+`MEMORY_PERSONA_LINK_KIND_VALUES` aggregate frozen sets in
+`guardian/protocol_tokens.py`, registered them in `__all__`,
+added two new contract tests in
+`tests/contracts/test_protocol_tokens.py` (35/35 tests pass), and
+updated [the Runtime Protocol Token Contract](../../architecture/runtime-protocol-token-contract.md)
+and [§4.8.2 of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md).
+UMS-03B introduced no SQL schema, no migration, no ORM model, no
+runtime writer, no runtime reader, no retrieval path, and no
+export path. No ADR was created or modified; ADR-084 remains
+controlling. UMS-03C is now authorized to start; UMS-04 remains
+NOT AUTHORIZED. The complete qualification is recorded in the
+[2026-09-07 UMS-03B token proof](../../architecture/proofs/runtime/2026-09-07-ums03b-memory-envelope-token-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

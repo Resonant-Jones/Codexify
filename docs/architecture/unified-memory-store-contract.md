@@ -738,6 +738,28 @@ species, not a list of protocol aliases. The amendment
 authorizes UMS-03B to consume the spellings above without
 re-deciding the underlying semantic taxonomy.
 
+#### 4.8.2 Token implementation checkpoint (UMS-03B)
+
+UMS-03B registered the two closed vocabularies frozen above as
+canonical protocol tokens in `guardian/protocol_tokens.py`:
+
+- `MemorySemanticSpecies` — the three semantic species above.
+- `MemoryPersonaLinkKind` — the three already-frozen Persona-
+  attribution relationship kinds (`captured_under`,
+  `suggested_by`, `associated_with`).
+
+The token registration is a vocabulary-only implementation. It
+does not introduce SQL persistence, an ORM model, an Alembic
+migration, a runtime writer, a runtime reader, a retrieval path,
+an export path, or any other consumer. The freeze of the
+three-species taxonomy and the Persona-link vocabulary is the
+controlling doctrine; the tokens are the protocol representation
+of that doctrine. Future persistence, retrieval, and export
+surfaces must import these registered tokens rather than
+introduce inline string values. The acceptance criteria for
+later UMS-03 slices will require that the registered values are
+the only values emitted by those surfaces.
+
 ### 4.9 Ownership, scope, and attribution independence
 
 Three independent authorities govern every canonical record:

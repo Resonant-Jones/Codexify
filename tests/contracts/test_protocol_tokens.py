@@ -59,6 +59,8 @@ from guardian.protocol_tokens import (
     GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
+    MEMORY_PERSONA_LINK_KIND_VALUES,
+    MEMORY_SEMANTIC_SPECIES_VALUES,
     ORCHESTRATOR_DECISION_TOKENS,
     ORCHESTRATOR_REASON_CODES,
     REMOTE_RECALL_FAILURE_REASONS,
@@ -108,6 +110,8 @@ from guardian.protocol_tokens import (
     GuardianProviderTransportClassification,
     ImageRoutingPath,
     LoopStopReason,
+    MemoryPersonaLinkKind,
+    MemorySemanticSpecies,
     OrchestratorDecisionToken,
     OrchestratorReasonCode,
     PersonaSubjectLifecycle,
@@ -1120,6 +1124,63 @@ def test_persona_subject_lifecycle_tokens() -> None:
     assert {lifecycle.value for lifecycle in PersonaSubjectLifecycle} == {
         "active",
         "retired",
+    }
+
+
+def test_memory_semantic_species_tokens() -> None:
+    """UMS-03B: canonical serialized spellings for the three frozen species.
+
+    These values are exactly the spellings frozen by UMS-03A-A in
+    §4.8 of the Unified Memory Store Contract. They are the closed
+    canonical serialization; no aliases are accepted.
+    """
+
+    assert MemorySemanticSpecies.EPISODIC_SEMANTIC_MEMORY.value == (
+        "episodic_semantic_memory"
+    )
+    assert MemorySemanticSpecies.VERIFIED_PERSONAL_FACT.value == (
+        "verified_personal_fact"
+    )
+    assert MemorySemanticSpecies.CANDIDATE_UNREVIEWED_FACT.value == (
+        "candidate_unreviewed_fact"
+    )
+    assert {species.value for species in MemorySemanticSpecies} == {
+        "episodic_semantic_memory",
+        "verified_personal_fact",
+        "candidate_unreviewed_fact",
+    }
+    assert MEMORY_SEMANTIC_SPECIES_VALUES == {
+        "episodic_semantic_memory",
+        "verified_personal_fact",
+        "candidate_unreviewed_fact",
+    }
+    # Aliases are explicitly not canonical.
+    assert "episodic_memory" not in MEMORY_SEMANTIC_SPECIES_VALUES
+    assert "semantic_memory" not in MEMORY_SEMANTIC_SPECIES_VALUES
+    assert "candidate_fact" not in MEMORY_SEMANTIC_SPECIES_VALUES
+    assert "unreviewed_fact" not in MEMORY_SEMANTIC_SPECIES_VALUES
+
+
+def test_memory_persona_link_kind_tokens() -> None:
+    """UMS-03B: canonical typed stable-Persona attribution relationships.
+
+    These values express attribution only, never ownership. They were
+    frozen by UMS-02A and re-affirmed in UMS-03A §4.3 and §4.9. They
+    are unchanged by UMS-03B.
+    """
+
+    assert MemoryPersonaLinkKind.CAPTURED_UNDER.value == "captured_under"
+    assert MemoryPersonaLinkKind.SUGGESTED_BY.value == "suggested_by"
+    assert MemoryPersonaLinkKind.ASSOCIATED_WITH.value == "associated_with"
+    assert {kind.value for kind in MemoryPersonaLinkKind} == {
+        "captured_under",
+        "suggested_by",
+        "associated_with",
+    }
+    assert MEMORY_PERSONA_LINK_KIND_VALUES == {
+        "captured_under",
+        "suggested_by",
+        "associated_with",
     }
 
 
