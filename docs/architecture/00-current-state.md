@@ -64,8 +64,9 @@ This file is authoritative for:
   UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
   UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
   UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
+  UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
   UMS-03: OPEN
-  UMS-03E: AUTHORIZED TO START
+  UMS-03F: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -313,6 +314,49 @@ This file is authoritative for:
   authorized to start; UMS-04 remains NOT AUTHORIZED. See
   the
   [UMS-03D persistence proof](./proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md).
+
+- **UMS-03E (memory-entry compatibility projection, just
+  closed)**: added the first read-only compatibility
+  reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader projects authoritative legacy
+  `memory_entries` rows into the canonical envelope
+  shape frozen in UMS-03A §4.13. It does not write
+  `memory_records`, `memory_persona_links`, or
+  `memory_provenance`; it does not assign a canonical
+  durable `memory_id`; it does not invent Project scope;
+  it does not invent Persona attribution; it does not
+  mutate the legacy source row. The envelope species is
+  exactly `episodic_semantic_memory` (canonical
+  `MemorySemanticSpecies` token). Provenance is
+  preserved as `source_system='codexify'`,
+  `source_record_id='memory_entries:<id>'` exactly as
+  the §4.13 mapping prescribes. Account authorization
+  is enforced by a single SQLAlchemy filter on
+  `(id == memory_entry_id AND user_id ==
+  authenticated_account_id)`; not-found and not-owned
+  are concealed identically per existing repository
+  posture. The projection type is intentionally not
+  registered in `Base.metadata`; it is a semantic read
+  object, not an ORM mirror. Focused tests pass 15/15
+  with zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no
+  retrieval / ambient-influence consumer was wired;
+  no ContextBroker, MemoryOS, router, worker,
+  account-export, personal-fact, candidate-fact, or
+  frontend file was changed. Legacy `memory_entries`
+  rows remain durable authority; the canonical memory
+  tables remain non-authoritative at runtime. No
+  Beta/release claim widened. UMS-03E is now closed;
+  UMS-03F is authorized to start for the next
+  authoritative legacy source family
+  (`personal_facts` with `status='verified'` and
+  `is_active=true`); UMS-04 remains NOT AUTHORIZED.
+  See the
+  [UMS-03E compatibility proof](./proofs/runtime/2026-09-07-ums03e-memory-entry-compatibility-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

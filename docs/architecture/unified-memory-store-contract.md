@@ -1667,11 +1667,10 @@ slices (e.g., UMS-02C).
 
 #### 4.16.12 Compatibility reader relationship to persistence
 
-A future compatibility reader will project legacy rows into
-the canonical envelope shape without writing to
-`memory_records`. The projection is structurally compatible
-with the schema frozen in this section. The compatibility
-reader:
+A compatibility reader projects legacy rows into the canonical
+envelope shape without writing to `memory_records`. The
+projection is structurally compatible with the schema frozen
+in this section. The compatibility reader:
 
 - must not write canonical rows;
 - must not assign canonical durable authority;
@@ -1683,8 +1682,19 @@ reader:
   shape cannot be constructed without inventing authority
   (per UMS-03A §4.14).
 
-The compatibility reader's implementation belongs to a later
-UMS-03 slice and is explicitly not in UMS-03D.
+UMS-03E implemented the first such reader for the
+`memory_entries` source family only. The reader lives in
+`guardian.core.memory_compatibility` and exposes one public
+function, `read_memory_entry_projection(session, *,
+authenticated_account_id, memory_entry_id)`, returning a
+`MemoryCompatibilityProjection` dataclass or `None`. The
+projection type is intentionally not registered in
+`Base.metadata`; it is a semantic read view, not an ORM
+mirror of `memory_records`. UMS-03F is the next authorized
+compatibility slice for the `personal_facts` family
+(`personal_fact_evidence` and `personal_fact_revisions`
+remain derived read-alongside-parent per §4.13). The
+compatibility reader was explicitly not in UMS-03D.
 
 #### 4.16.13 Explicit deferrals
 

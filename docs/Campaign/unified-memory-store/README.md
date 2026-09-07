@@ -113,8 +113,9 @@ UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
 UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
 UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
 UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
+UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
 UMS-03: OPEN
-UMS-03E: AUTHORIZED TO START
+UMS-03F: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -400,6 +401,40 @@ candidate-fact, no router, no worker, no account-export,
 and no frontend file was changed by UMS-03D. The complete
 implementation evidence is at
 [2026-09-07 UMS-03D persistence proof](../../architecture/proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md).
+
+UMS-03E added the first read-only compatibility reader. It introduces
+`guardian.core.memory_compatibility`, exposing
+`read_memory_entry_projection(session, *, authenticated_account_id,
+memory_entry_id) -> MemoryCompatibilityProjection | None` and the
+`MemoryCompatibilityProjection` dataclass. The reader is purely a
+projection of authoritative legacy `memory_entries` rows into the
+canonical envelope shape frozen in UMS-03A §4.13 — it does not write
+to `memory_records`, `memory_persona_links`, or
+`memory_provenance`; it does not assign a canonical durable
+`memory_id`; it does not invent Project scope; it does not invent
+Persona attribution; it does not mutate the legacy source row. The
+envelope species is exactly `episodic_semantic_memory` (canonical
+`MemorySemanticSpecies` token). Provenance is preserved as
+`source_system='codexify'`, `source_record_id='memory_entries:<id>'`
+exactly as the §4.13 mapping prescribes. Account authorization is
+enforced by filtering on both the legacy row identity and the
+authenticated account; not-found and not-owned are concealed
+identically per existing repository posture. The projection type is
+intentionally not registered in `Base.metadata`; it is a semantic
+read object, not an ORM mirror of `memory_records`. No
+ContextBroker, no MemoryOS, no router, no worker, no account-export,
+no personal-fact, no candidate-fact, and no frontend file was
+changed by UMS-03E. The Alembic head remains `f6b0d3e8c5a2`; no
+migration was added. Focused tests pass 15/15 with zero skips; the
+adjacent token and Persona-subject regressions pass 46/46. Legacy
+`memory_entries` rows remain durable authority; the canonical
+memory tables remain non-authoritative at runtime; no retrieval /
+ambient-influence consumer has been wired. The complete
+implementation evidence is at
+[2026-09-07 UMS-03E compatibility proof](../../architecture/proofs/runtime/2026-09-07-ums03e-memory-entry-compatibility-proof.md).
+UMS-03F is now authorized to start for the next authoritative
+legacy source family (`personal_facts` with `status='verified'`
+and `is_active=true`).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
