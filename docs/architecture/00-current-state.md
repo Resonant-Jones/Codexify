@@ -57,7 +57,10 @@ This file is authoritative for:
   UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
   UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
   UMS-02: CLOSED
-  UMS-03: AUTHORIZED TO START
+  UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: PASSED
+  UMS-03: OPEN
+  UMS-03B: AUTHORIZED TO START
+  UMS-04: NOT AUTHORIZED
   ```
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
@@ -80,6 +83,32 @@ This file is authoritative for:
   requires current-head schema verification. No production runtime, ORM,
   or migration code was changed by these repairs; the implementation-only
   fingerprint is identical before and after the qualification run.
+
+- Froze the canonical memory envelope and the legacy compatibility-read
+  boundary as semantic doctrine in
+  [§4.6–§4.15 of the Unified Memory Store Contract](./unified-memory-store-contract.md).
+  UMS-03A is documentation-only: no SQL schema, no migration, no ORM
+  model, no runtime reader/writer, no retrieval behavior change, and no
+  export implementation change. The freeze records the current
+  memory-bearing source inventory (`memory_entries`,
+  `personal_facts`, `personal_fact_evidence`,
+  `personal_fact_revisions`, candidates, verified facts, and the
+  external `Memoryos` library state); the canonical envelope semantic
+  categories (identity, ownership, scope, semantic species,
+  content/payload, Persona attribution, provenance, governance,
+  lifecycle, priority/decay control, compatibility); the minimum
+  semantic-species taxonomy (episodic/semantic memory, verified
+  personal fact, candidate/unreviewed fact); explicit independence of
+  ownership, scope, and Persona attribution; explicit independence of
+  stored / retrievable / ambient-eligible states; the minimum
+  provenance spine; the compatibility-read matrix with explicit
+  `not safely mappable` rows; eight fail-closed cases; and the
+  deferred physical-design questions. ADR-081, ADR-082, and ADR-084
+  remain unchanged; ADR-084 remains controlling. UMS-03 remains
+  OPEN, UMS-03B is authorized to start, UMS-04 is NOT AUTHORIZED. No
+  Beta/release claim widened; no canonical memory persistence
+  implementation exists yet. See the
+  [UMS-03A canonical memory envelope contract proof](./proofs/runtime/2026-09-07-ums03a-canonical-memory-envelope-contract-proof.md).
 
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.

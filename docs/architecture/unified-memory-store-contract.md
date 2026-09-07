@@ -570,6 +570,341 @@ authority.
 UMS-02A does not modify exporter or restore code; this section freezes the
 export-shape review only.
 
+### 4.6 Memory-bearing source inventory (current persistence truth, read-only)
+
+UMS-03A freezes the canonical memory envelope as semantic doctrine.
+Before any future canonical migration, the contract records the durable
+memory-bearing persistence surfaces that exist at the current `main`
+HEAD and that later Campaign slices must integrate with or read
+through. The inventory is read-only. No durable surface is reclassified
+or merged in UMS-03A.
+
+For each legacy source family, the inventory records the canonical
+table/model, the account-ownership authority in place today, the Project
+scope posture today, the Persona attribution posture today, the
+semantic meaning, the lifecycle/status fields, the provenance fields
+that already exist, the retrieval consumers today, the write authority
+today, the current export coverage, and whether the source is canonical
+or derived today.
+
+| Legacy source family | Table / model | Account ownership today | Project scope today | Persona attribution today | Semantic meaning | Lifecycle / status | Provenance today | Retrieval consumers | Write authority | Export coverage today | Canonical or derived today |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `memory_entries` | `memory_entries` / `guardian.db.models.MemoryEntry` | `user_id` (FK `users.id`, NOT NULL, `ON DELETE CASCADE`) | none | none | episodic / semantic memory organized by retention silo | `silo ∈ {ephemeral, midterm, longterm}`; `pinned` (priority); `content` (mutable in place via existing UPDATE path) | none (no `source_system`, no `source_record_id`, no `source_thread_id`) | `guardian.core.pgdb` CRUD; `guardian.routes.memory`; `guardian.context.broker` semantic lane | `guardian.routes.memory`; external `Memoryos` integration | OMITTED from `account-export.v3` (see `guardian.services.account_export.OMITTED_FAMILIES`) | canonical for its purpose; lacks envelope governance |
+| `personal_facts` | `personal_facts` / `PersonalFact` | `user_id` (`String(255)`, NOT NULL, no explicit database-level FK declared; implicit via the `(user_id, key)` unique index and application authority) | none | none | correctable verified / candidate facts about the user | `status ∈ {candidate, verified, disputed, archived}`; `is_active`; `confidence ∈ [0.0, 1.0]`; `last_confirmed_at`; `guardrail_metadata` (JSONB) | indirect via `personal_fact_evidence.source_type` | `guardian.routes.personal_facts`; `guardian.context.broker` (verified+active only per ADR-013) | `guardian.services.personal_facts`; `guardian.fact_candidate_pipeline` | OMITTED from `account-export.v3` | canonical for its purpose; specialized per ADR-013 and ADR-084 |
+| `personal_fact_evidence` | `personal_fact_evidence` / `PersonalFactEvidence` | via `fact_id` FK to `personal_facts` (`ON DELETE CASCADE`) | none | none | evidence backing a Personal Fact | none (append-only via `fact_id`) | `source_type ∈ {chatgpt_import, runtime_extraction, user_stated, user_corrected, claude_import}`; nullable `source_message_id` FK to `chat_messages`; `evidence_meta` (JSONB); `modality`; `excerpt` | Personal Facts service; broker evidence rendering | Personal Facts service | OMITTED | derived from fact creation, but durable |
+| `personal_fact_revisions` | `personal_fact_revisions` / `PersonalFactRevision` | via `fact_id` FK to `personal_facts` (`ON DELETE CASCADE`) | none | none | audit trail of fact updates | none (append-only) | `actor`; `action`; `field_changed`; `old_value`; `new_value`; `reason`; `created_at` | Personal Facts service | Personal Facts service | OMITTED | canonical audit trail |
+| Candidate / unreviewed fact (subset of `personal_facts`) | same as `personal_facts` with `status ∈ {candidate, disputed, archived}` or `is_active = false` | same as `personal_facts` | none | none | pending fact extraction from live chat or import before user review | same as `personal_facts` | `personal_fact_evidence.source_type` distinguishes live-chat (`runtime_extraction`), explicit Vault (`user_stated`), and import (`chatgpt_import`, `claude_import`) | Personal Facts service | `guardian.fact_candidate_pipeline` (live chat); import pipeline; Vault explicit remember | OMITTED | durable candidate per ADR-084; storage ≠ ambient influence |
+| Verified personal fact (subset of `personal_facts`) | `personal_facts` with `status='verified'` AND `is_active=true` | same as `personal_facts` | none | none | already-approved fact eligible for ambient influence per ADR-013 | same as `personal_facts` | same evidence trail | broker verified-active filter | Personal Facts service | OMITTED | canonical for its purpose; review authority owned by Personal Facts service |
+| `Memoryos` library state | external library `guardian/memoryos/`; library-internal short_term / mid_term / long_term storage; not currently Postgres-backed | embedded account-keyed file paths | none | none | short / mid / long-term memory with heat-based retention in the external library | library-internal | library-internal | Memoryos `Retriever`; chat completion prompt assembly | Memoryos `Updater`; `memoryos.mid_term.compute_segment_heat` | not part of account export | not currently Postgres-canonical; reconciliation into the canonical envelope is deferred to a later contract and proof slice |
+
+Notes on the inventory:
+
+- `memory_entries` and `personal_facts` (together with their dependent
+  tables `personal_fact_evidence` and `personal_fact_revisions`) are
+  currently OMITTED from the `account-export.v3` family set in
+  `guardian/services/account_export.py`. Their future export coverage
+  is the responsibility of the Account Export + Restore Contract under
+  UMS-04. UMS-03A does not authorize that export implementation.
+- `personal_facts.user_id` does not declare a database-level FK to
+  `users.id`. Account ownership is currently enforced by the
+  `(user_id, key)` unique index, by application-layer authority checks
+  in `guardian.services.personal_facts`, and by ADR-005's
+  `AccountBoundary` rule. UMS-03B must add an explicit FK at the time
+  it introduces the canonical envelope so account ownership is
+  enforceable at the database layer, not only by application
+  convention.
+- The external `Memoryos` library is treated as a read-only inventory
+  source in UMS-03A. It is not currently backed by Postgres, its
+  storage shape is library-internal, and its reconciliation into the
+  canonical envelope is explicitly deferred to a later task that must
+  introduce its own contract and proof.
+- No `memory_records`, `memory_ordinary_payloads`,
+  `memory_persona_links`, or `memory_activation_projection` tables
+  exist at the current `main` HEAD. Their existence and physical shape
+  are deferred to UMS-03B.
+
+### 4.7 Canonical envelope semantic categories
+
+§4.1 above names the field list of the canonical shared memory envelope.
+That list is a semantic declaration; physical column names, types, and
+table layouts are deferred to UMS-03B. This subsection re-states the
+envelope as a small set of independent semantic categories. Every
+future canonical memory record must populate or resolve every category
+below:
+
+| Category | Conceptual question | Required? |
+| --- | --- | --- |
+| Identity | What is the stable record identity used for routing, audit, and export? | yes |
+| Ownership | Which authenticated account principal owns the record? | yes |
+| Scope | Is the record account-scoped or Project-scoped? | yes |
+| Semantic species | Which of the species in §4.8 is this record? | yes |
+| Content / payload | What is the species-appropriate canonical payload or payload reference? | yes |
+| Persona attribution | Which stable persona subjects (if any) witnessed, suggested, or are otherwise associated with this record? | optional; zero or more |
+| Provenance | Where did the record originate and how was it transformed? | yes |
+| Governance | What review, activation, and user-authority state applies? | yes |
+| Lifecycle | What are the timestamps and any retirement / tombstone posture? | yes |
+| Priority / decay control | Is the record pinned, held, or under normal decay? | yes |
+| Compatibility | For records read through a legacy source, which legacy source family and identifier produced this view? | required for compatibility reads; absent for canonical-only records |
+
+The categories are independent. A single field (such as the legacy
+`silo` column, the legacy `pinned` boolean, or a comma-separated tag
+list) must not answer more than one category's question. The legacy
+`tags` text column on `memory_entries` is descriptive metadata only and
+is not authority for any category above. The legacy `silo` column is
+retention class only and is not authority for review or activation.
+
+### 4.8 Semantic species taxonomy
+
+The minimum semantic species required by current persistence are:
+
+1. **Episodic / semantic memory.** A record of an explicit user-
+   authored memory statement or of an ordinary memory lane entry.
+   Today this is the `memory_entries` row family with
+   `silo ∈ {ephemeral, midterm, longterm}` as its retention class.
+   May be created by explicit user remember, by Vault authoring, or
+   by legacy ordinary-memory writes. Review authority is the user;
+   ambient context eligibility is the default, subject to §3.5 and
+   §5.1.
+
+2. **Verified personal fact.** A record that has passed the Personal
+   Facts service's review authority with `status='verified'` and
+   `is_active=true`. Today this is the `personal_facts` row family
+   in the verified+active subset. May be created by explicit user
+   approval, by an approved fact merge, or by an explicitly
+   authorized classifier path. Review and activation authority remain
+   Personal Facts service authority.
+
+3. **Candidate / unreviewed fact.** A pending fact that has not been
+   approved. Today this is the `personal_facts` row family in the
+   `status ∈ {candidate, disputed, archived}` subset, the live-chat
+   pipeline `runtime_extraction` evidence, and the
+   `chatgpt_import` / `claude_import` imported facts before approval.
+   Storage of a candidate is durable collection; ambient influence
+   authority is forbidden until the record passes the relevant
+   review authority per ADR-084 and §5.1.
+
+The taxonomy is closed under current persistence. New species must be
+introduced by a future ADR / contract slice; this contract does not
+admit speculative species for capabilities that have no current
+evidence.
+
+For each species the contract fixes:
+
+- what the record means;
+- which authority may create it;
+- whether user review is required before ambient influence;
+- whether it may be explicitly retrieved before activation;
+- its provenance requirements;
+- whether its content is mutable, revisioned, or append-only;
+- how it maps from current persistence (see §4.12).
+
+| Species | Creator authority | Review before ambient | Explicit recall before activation | Provenance required | Content form | Map from current persistence |
+| --- | --- | --- | --- | --- | --- | --- |
+| episodic / semantic memory | user (Vault, explicit remember) or legacy ordinary-memory writer | yes, by default | yes | yes (§4.10) | mutable in place; revisioned on authority transitions | `memory_entries` row, all silos |
+| verified personal fact | Personal Facts service only | yes (already verified) | yes | yes (Personal Facts evidence trail) | revisioned, append-only mutations | `personal_facts` row where `status='verified'` AND `is_active=true` |
+| candidate / unreviewed fact | Personal Facts service or import pipeline | required before ambient | yes (explicit grant only) | yes (Personal Facts evidence) | revisioned, append-only mutations | `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false` |
+
+### 4.9 Ownership, scope, and attribution independence
+
+Three independent authorities govern every canonical record:
+
+```text
+memory owner         = authenticated account principal
+memory scope         = account or one Project (ADR-081 governed)
+memory attribution   = zero or more typed links to stable persona
+                       subjects (UMS-02 governed; never mutable
+                       PersonaProfile)
+```
+
+These three authorities must not be conflated. The following
+anti-patterns are forbidden by this contract:
+
+- `owner_persona_id` — a persona never owns memory;
+- `persona_profile_id` as durable attribution — runtime profile
+  configuration is not identity and must not be the attribution target;
+- `projects.user_id` as the canonical memory owner — Project authority
+  scopes but does not own;
+- display names, names, prompts, avatars, similarity, Project IDs,
+  Persona IDs, or PersonaProfile IDs as identity authority;
+- `tags` as governance authority.
+
+The future typed Persona link vocabulary follows the direction already
+frozen by this contract:
+
+```text
+captured_under
+suggested_by
+associated_with
+```
+
+These three values are sufficient to represent current proven
+behavior. No additional typed-link value is required by current
+evidence. A future slice that requires a new typed-link value must add
+it to the canonical token registry before it appears in code, tests,
+or documentation that cross the backend, frontend, or persistence
+boundary.
+
+### 4.10 Activation versus retrieval separation
+
+Activation, retrieval, and ambient influence are three independent
+states. The contract freezes their independence:
+
+- **stored** — a row exists and is queryable by its owner through a
+  scoped query path;
+- **retrievable** — the owner may issue an explicit recall grant that
+  resolves the row and renders it into a turn-scoped context;
+- **ambient-eligible** — the row may enter provider context without
+  an explicit recall grant, only after all policy gates in §3.5 pass.
+
+A record may be stored without being ambient-eligible (every candidate
+fact). A record may be retrievable without being ambient-eligible
+(every imported fact in dormant posture). A record may become
+ambient-eligible only after review authority and activation authority
+both approve, the policy gates in §3.5 pass, and the explicit user
+consent state permits collection.
+
+The governing doctrine is preserved unchanged:
+
+```text
+Automatic capture, explicit activation.
+Retrievable != authorized for ambient influence.
+```
+
+No client, model, importer, classifier, or UI writes final ambient
+eligibility. Guardian computes it at read time per §3.5.
+
+### 4.11 Provenance spine requirements
+
+Every canonical memory record must retain, where applicable, the
+minimum provenance required to support replay, attribution,
+export / restore, and fail-closed governance:
+
+```text
+source_system           ∈ {codexify, openai, anthropic, future registered}
+source_record_id        stable source identifier when present
+source_thread_id        nullable; canonical chat_threads row reference when present
+source_message_id       nullable; canonical chat_messages row reference when present
+source_import_job_id    nullable; account_import_jobs row reference for imported material
+source_export_fingerprint
+                         nullable; export hash when material was imported from an export
+source_subject_kind     taxonomy of the originating surface
+                         (chat, vault, importer, classifier, future registered)
+source_subject_id       stable identifier of the originating surface entity
+created_at, updated_at  server-generated authoritative timestamps
+```
+
+Imported content may normalize into Codexify semantic species but must
+preserve its external lineage. The presence of external provenance
+does not confer activation authority.
+
+### 4.12 Compatibility-read boundary and authority order
+
+Before any future canonical migration, the authority order is:
+
+```text
+legacy source row         = durable authority for that legacy record
+compatibility envelope    = normalized read projection only
+```
+
+After any future canonical migration, the authority order becomes:
+
+```text
+canonical memory row      = durable authority
+legacy compatibility path = migration / transition support only
+```
+
+UMS-03A does not authorize the authority transition. That transition
+belongs to a future implementation + migration proof slice whose
+acceptance criteria will require UMS-03B's persistence substrate,
+UMS-03C's dual-read sequencing, and UMS-04's export / restore
+preservation.
+
+Compatibility reads must:
+
+- remain read-only with respect to legacy persistence in UMS-03A;
+- not backfill canonical rows;
+- not mutate source rows;
+- not upgrade candidate material to approved material;
+- not infer Persona attribution;
+- not infer missing Project scope;
+- not erase provenance;
+- not silently widen retrieval;
+- not introduce a second permanent source of truth.
+
+### 4.13 Compatibility-read matrix
+
+The matrix below names every durable memory-bearing source identified
+in §4.6 and assigns its canonical envelope read-projection shape.
+Where a source cannot be mapped without inventing authority, the row
+is marked `not safely mappable` and the failure reason is recorded.
+
+| Legacy source family | Envelope species | Owner derivation | Project scope derivation | Persona attribution derivation | Provenance derivation | Activation / review interpretation | Lossless fields (read projection) | Fields that cannot yet be represented | Fail-closed conditions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `memory_entries` (any `silo`) | episodic / semantic memory | `user_id` | absent today → account scope | absent today → zero links | absent today → `source_system='codexify'`, `source_record_id='memory_entries:<id>'`; no `source_thread_id` / `source_message_id` | absent today → read posture is "ambient-eligible by default"; promotion to ambient must still pass §3.5 gates | `id`, `user_id`, `silo`, `content`, `tags`, `pinned`, `created_at`, `updated_at` | full §4.11 spine beyond `source_system` + `source_record_id`; Project scope; Persona attribution; canonical `source_thread_id` / `source_message_id` | rows with malformed `silo` or missing `user_id`; rows whose `user_id` does not resolve to a real `users.id`; rows whose `content` cannot be losslessly represented |
+| `personal_facts` (`status='verified'`, `is_active=true`) | verified personal fact | `user_id` | absent today → account scope | absent today → zero links | primary `source_type` from latest `personal_fact_evidence`; latest `evidence_meta`; `source_message_id` when present | unified read posture = approved, active | `id`, `user_id`, `key`, `value`, `status`, `confidence`, `is_active`, `last_confirmed_at`, `guardrail_metadata`, `created_at`, `updated_at`; full evidence rows; revisions | Project scope; Persona attribution; canonical `source_thread_id` for facts whose evidence lacks `source_message_id` | rows with evidence whose `source_type` is outside the enumerated set; rows whose `evidence_meta` is non-JSON or self-referential |
+| `personal_facts` (`status ∈ {candidate, disputed, archived}` or `is_active=false`) | candidate / unreviewed fact | `user_id` | absent today → account scope | absent today → zero links | `personal_fact_evidence` rows; `source_type` distinguishes live-chat vs import vs user_stated | unified read posture = pending, ambient-excluded | same as verified; additionally the `status` value and `is_active` | same as verified | same as verified |
+| `personal_fact_evidence` | read alongside its parent fact; never independently a memory record | n/a (derived) | n/a | n/a | `source_type`; `source_message_id`; `evidence_meta`; `modality`; `excerpt` | n/a (derived audit row) | every column | none — fully lossless | `source_type` outside the current enumerated set |
+| `personal_fact_revisions` | read alongside its parent fact; never independently a memory record | n/a (derived) | n/a | n/a | `actor`; `action`; `field_changed`; `old_value`; `new_value`; `reason`; `created_at` | n/a (derived audit row) | every column | none — fully lossless | none |
+| `Memoryos` library state | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | `not safely mappable` — current storage is library-internal, has no current account-export coverage, and has no current provenance spine; reconciliation into the canonical envelope is deferred to a future slice |
+| `memory_entries` rows with malformed `silo`, missing `user_id`, or with a `user_id` not resolvable to a real `users.id` | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | `not safely mappable` — account ownership authority is ambiguous |
+| `personal_facts` rows with `user_id` not resolvable to a real `users.id`, with `status` outside the enumerated set, or with evidence rows whose `source_type` is unknown | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | `not safely mappable` — review authority is ambiguous; provenance spine is incomplete |
+
+### 4.14 Fail-closed cases for compatibility reads
+
+A future implementation must fail closed (not "best effort") when:
+
+- account ownership cannot be proven (`user_id` not resolvable to a
+  real `users.id`);
+- legacy semantic species cannot be determined (`silo`, `status`,
+  `source_type`, or `is_active` outside its enumerated set);
+- activation status cannot be mapped safely (for example, a
+  `personal_facts` row whose `evidence_meta` is malformed or
+  self-referential);
+- provenance required for a source cannot be preserved (for example,
+  evidence without a recognized `source_type`);
+- Persona attribution would require heuristic inference (for example,
+  inferring a persona from a thread pin or a recent selection);
+- Project scope would require guessing (for example, inferring a
+  Project from a recent chat thread);
+- one source maps ambiguously to multiple incompatible species (for
+  example, an imported fact whose `source_type` is unknown and whose
+  status is unverifiable);
+- normalization would erase revision or evidence semantics (for
+  example, flattening `personal_fact_revisions` into a single current
+  value).
+
+A future migration may not "best effort" any of these cases. The
+acceptance criteria for the future migration proof slice must
+enumerate the same fail-closed cases and prove each one is honored.
+
+### 4.15 Deferred physical-design questions
+
+The following physical-design choices are intentionally left to
+UMS-03B / UMS-03C and are not pre-selected by this contract:
+
+- exact canonical table name and physical schema;
+- exact primary-key representation (server-generated UUID versus current
+  autoincrement integer) and the export-stable identity contract;
+- JSON column versus typed columns for species payload;
+- normalized provenance tables versus embedded provenance columns;
+- physical design of the Persona-link table, the link-type registry,
+  and the half-open validity semantics for attribution history;
+- exact lifecycle token registries (`active` / `dormant` / `retired` /
+  `purged`) and which of them are physical columns versus derived
+  projections;
+- exact revision table physical design;
+- canonical migration revision identifier and the data-preservation
+  acceptance criteria it must satisfy;
+- write adapter surface for the Vault, explicit remember commands,
+  classifier, and import paths;
+- compatibility reader implementation shape (view, function, service);
+- cutover and dual-read sequencing (which readers run when, how
+  drift is detected, when the legacy source row stops being the
+  durable authority).
+
+This contract constrains those later choices but does not pre-select
+them. UMS-03B is the next slice authorized on PASS of UMS-03A.
+
 ### 4.4 Activation projection
 
 Heat and ranking state are derived:

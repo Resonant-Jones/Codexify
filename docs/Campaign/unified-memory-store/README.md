@@ -106,7 +106,10 @@ UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
 UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
 UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
 UMS-02: CLOSED
-UMS-03: AUTHORIZED TO START
+UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: PASSED
+UMS-03: OPEN
+UMS-03B: AUTHORIZED TO START
+UMS-04: NOT AUTHORIZED
 ```
 
 UMS-02A freezes the implementation-ready Persona-subject mapping and
@@ -151,6 +154,28 @@ no-op; the live PostgreSQL constraint inventory matches the contract.
 The disposable PostgreSQL 17 container was destroyed after the proof.
 This does not qualify private-preview or production migration
 application, and does not widen Beta.
+
+UMS-03A froze the canonical memory envelope and the legacy compatibility-
+read boundary as semantic doctrine in
+[§4.6–§4.15 of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md).
+The frozen surface is documented as four self-consistent slices: the
+memory-bearing source inventory (current persistence truth), the
+canonical envelope semantic categories, the semantic-species taxonomy
+(episodic/semantic memory, verified personal fact, candidate/unreviewed
+fact), and the compatibility-read matrix for every admitted legacy
+source. The contract records that `memory_entries` and `personal_facts`
+are currently OMITTED from `account-export.v3`; that
+`personal_facts.user_id` does not declare a database-level FK to
+`users.id` and UMS-03B must add one; that the external `Memoryos`
+library is library-internal and is `not safely mappable` to the
+canonical envelope today; and that ownership, scope, and Persona
+attribution remain three independent authorities. Activation,
+retrieval, and ambient influence are explicitly independent states.
+Provenance spine requirements and eight fail-closed cases are
+recorded. UMS-03A introduced no SQL schema, no migration, no ORM model,
+no runtime reader/writer, no retrieval behavior change, and no export
+implementation change. No ADR was created or modified; ADR-084
+remains controlling. UMS-04 remains NOT AUTHORIZED.
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
