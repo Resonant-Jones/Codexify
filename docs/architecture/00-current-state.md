@@ -22,6 +22,8 @@ This file is authoritative for:
 
 ## What changed recently
 
+- [Persona SQLite host-storage diagnosis](./proofs/runtime/2026-09-07-persona-private-preview-sqlite-host-storage-diagnosis.md) classifies `DOCKER_HOST_BIND_SQLITE_IDENTITY_DEFECT`: the exact runtime fails the first SQLite insert with `SQLITE_READONLY_DBMOVED` across the worktree bind, an outside-worktree bind on the same APFS mount, and a separate APFS mount. Prior named-volume/internal controls succeed. ADR-067 recovery remains blocked pending a storage-topology decision; no retirement, runtime recovery, or Persona qualification is claimed.
+
 - [Persona Chroma named-volume comparison](./proofs/runtime/2026-09-07-persona-private-preview-chroma-named-volume-comparison.md) proves `PERSISTED_CHROMA_STORE_COMPATIBILITY_BOUNDARY`: both disposable named volumes passed SQLite qualification; the exact failed image initialized empty Chroma but reproduced the historical Rust panic on the byte-identical preserved copy. Canonical and preservation bytes remain unchanged. ADR-067 recovery requires separate authorization; backend remains stopped and deployment/browser proof remains pending.
 
 - [Persona Chroma empty-control qualification](./proofs/runtime/2026-09-06-persona-private-preview-chroma-empty-control-diagnosis.md) establishes `EMPTY_CONTROL_HARNESS_PERMISSION_DEFECT`: the reproduced host bind passes ordinary writes but fails stdlib SQLite with `SQLITE_READONLY_DBMOVED` (1032); container-internal and named-volume controls pass SQLite and first-call Chroma initialization. A corrected preserved-copy comparison remains pending. No canonical retirement, application restart, or recovery is proven.
