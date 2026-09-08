@@ -553,10 +553,24 @@ async function runAgent() {
 		// after a failed first attempt — the retry would not see the
 		// required ``tool_choice`` and ``disable_parallel_tool_use``
 		// projection (which is composed for the FIRST provider turn
-		// only).  ADR-068's bounded one-attempt semantics make retry
-		// suppression the correct fail-closed behavior here.  The
-		// non-required-tool modes keep the maintained Pi retry
-		// settings unchanged.
+		// only). ADR-068's bounded one-attempt semantics make retry
+		// suppression the correct fail-closed behavior here, so
+		// establishing the retry-disabled posture is MANDATORY for
+		// required-tool runs: the wrapper does NOT fall back to the
+		// default settings manager (which is retry-enabled and is
+		// exactly the behavior that can let an automatic retry escape
+		// the bounded mandatory selection).
+		//
+		// The maintained Pi 0.82.1 API for that posture is
+		//     SettingsManager.inMemory({ retry: { enabled: false } })
+		// (see codex_runner/vendor/pi-coding-agent/dist/core/
+		// settings-manager.js — `getRetryEnabled` reads
+		// `this.settings.retry?.enabled ?? true`). If the
+		// `SettingsManager` export, the `inMemory` factory, or
+		// construction of the retry-disabled instance is unavailable
+		// for a required-tool run, the wrapper fails closed BEFORE
+		// `createAgentSession` is called. Non-required-tool modes keep
+		// the maintained Pi retry settings unchanged.
 		const sessionOptions = {
 			cwd: OPTIONS.cwd,
 			model,
@@ -565,23 +579,49 @@ async function runAgent() {
 			tools: configuredToolNames,
 			sessionManager: SessionManager.inMemory(),
 		};
-		if (
-			guardianAuthorizedMode &&
-			requiredToolName !== null &&
-			SettingsManager &&
-			typeof SettingsManager.inMemory === "function"
-		) {
+		if (guardianAuthorizedMode && requiredToolName !== null) {
+			if (
+				!SettingsManager ||
+				typeof SettingsManager.inMemory !== "function"
+			) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"required_tool_retry_suppression",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+					},
+				);
+				return;
+			}
 			try {
 				sessionOptions.settingsManager =
 					SettingsManager.inMemory({
 						retry: { enabled: false },
 					});
 			} catch (_settingsError) {
-				// Settings manager construction is best-effort; if the
-				// maintained Pi surface does not accept this exact
-				// shape, fall through to the default settings manager
-				// rather than failing session initialization on a
-				// non-authority configuration concern.
+				// Required-tool runs cannot tolerate a retry-enabled
+				// fallback — the default settings manager is
+				// retry-enabled, which is the exact behavior that can
+				// let an automatic retry escape the bounded mandatory
+				// selection. Emit a bounded `wrapper_protocol_failed`
+				// failure with the local `required_tool_retry_suppression`
+				// stage and return BEFORE `createAgentSession` is
+				// called. Provider transport and session initialization
+				// must not begin on this path.
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"required_tool_retry_suppression",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+					},
+				);
+				return;
 			}
 		}
 		result = await createAgentSession(sessionOptions);

@@ -1083,3 +1083,159 @@ def test_real_wrapper_async_onpayload_without_required_tool_unchanged(
     assert tt["tool_execution_end_count"] == 1
     assert tt["executed_tool_names"] == ["write"]
     assert tt["assistant_tool_call_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 6. Required-tool retry-suppression fail-closed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_required_tool_fails_closed_when_retry_settings_construction_throws(
+    tmp_path: Path,
+) -> None:
+    """Required-tool run with a fake Pi whose `SettingsManager.inMemory`
+    refuses to construct a retry-disabled instance.
+
+    The wrapper MUST fail closed BEFORE `createAgentSession` is called.
+    The bounded failure must identify the configuration problem (not a
+    provider transport failure), and `provider_request_started` /
+    `session_initialized` must both be false on the emitted envelope.
+    The fake's first-turn diagnostic must not appear because the
+    session was never constructed.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            "PI_FAKE_REFUSE_RETRY_DISABLED_SETTINGS": "1",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    assert parsed["status"] == "error"
+    assert parsed["failure_class"] == "wrapper_protocol_failed"
+    assert parsed["failure_stage"] == "required_tool_retry_suppression"
+    # Provider transport and session initialization must not begin on
+    # this path.
+    assert parsed["session_initialized"] is False
+    assert parsed["provider_request_started"] is False
+    assert parsed["runtime_identity_established"] is True
+    # No required-tool selection evidence was attempted.
+    assert "required_tool_selection" not in parsed
+    # No tool_telemetry was assembled (session was never constructed).
+    assert parsed["tool_telemetry"] is None
+    # The fake's first-turn diagnostic lives inside the fake's
+    # `prompt()`, which is only reached after `createAgentSession`
+    # returns a session. The fail-closed check fires BEFORE that
+    # call, so the diagnostic must not appear in stdout.
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in result.stdout
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_required_tool_establishes_retry_disabled_settings(
+    tmp_path: Path,
+) -> None:
+    """Positive control: required-tool run with normal fake Pi.
+
+    The wrapper successfully establishes the retry-disabled
+    `SettingsManager`, the session is created, the required-tool
+    projection path executes, and the hard selection remains exactly
+    one application. The fake's first-turn diagnostic appears
+    (proving `createAgentSession` was reached and returned).
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={"PI_GUARDIAN_REQUIRED_TOOL": "write"},
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    assert parsed["status"] == "ok"
+    # Session was created (fake's first-turn diagnostic appears).
+    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
+    # Required-tool projection applied exactly once.
+    sel = parsed.get("required_tool_selection")
+    assert sel is not None
+    assert sel["required_tool_name"] == "write"
+    assert sel["hard_tool_selection_applied"] is True
+    assert sel["hard_tool_selection_application_count"] == 1
+    tt = parsed["tool_telemetry"]
+    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
+    assert tt["write_tool_available"] is True
+    assert tt["tool_execution_start_count"] == 1
+    assert tt["tool_execution_end_count"] == 1
+    assert tt["executed_tool_names"] == ["write"]
+    assert tt["assistant_tool_call_count"] == 1
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
+    tmp_path: Path,
+) -> None:
+    """Ordinary-path preservation control: non-required-tool run with a
+    fake Pi whose `SettingsManager.inMemory` refuses to construct a
+    retry-disabled instance.
+
+    The fail-closed retry-suppression posture applies only to the
+    bounded required-tool path. Non-required-tool runs must not be
+    blocked when the maintained retry-disabled surface is unavailable.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            # PI_GUARDIAN_REQUIRED_TOOL is intentionally unset; the
+            # refuse knob is set to prove the wrapper does not invoke
+            # SettingsManager.inMemory for non-required-tool runs.
+            "PI_FAKE_REFUSE_RETRY_DISABLED_SETTINGS": "1",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    assert parsed["status"] == "ok"
+    # No required-tool selection was attempted.
+    assert "required_tool_selection" not in parsed
+    # Session was created (fake's first-turn diagnostic appears).
+    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
+    tt = parsed["tool_telemetry"]
+    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
+    assert tt["write_tool_available"] is True
+    assert tt["tool_execution_start_count"] == 1
+    assert tt["tool_execution_end_count"] == 1
+    assert tt["executed_tool_names"] == ["write"]
+    assert tt["assistant_tool_call_count"] == 1

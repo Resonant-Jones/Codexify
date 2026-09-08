@@ -91,6 +91,23 @@ class FakeSettingsManager {
         };
     }
     static inMemory(settings = {}, _options = {}) {
+        // Bounded knob: when `PI_FAKE_REFUSE_RETRY_DISABLED_SETTINGS`
+        // is set, refuse to construct a SettingsManager whose
+        // settings object requests `retry.enabled === false`. This
+        // is the bounded failure surface that the wrapper's
+        // required-tool retry-suppression fail-closed repair must
+        // handle: the maintained API was available and callable,
+        // but construction threw. Default behavior (no env knob)
+        // is unchanged — accept the settings object and return a
+        // real instance.
+        if (process.env.PI_FAKE_REFUSE_RETRY_DISABLED_SETTINGS === "1") {
+            const retryEnabled = settings && settings.retry && settings.retry.enabled;
+            if (retryEnabled === false) {
+                throw new Error(
+                    "fake Pi: refused to construct retry-disabled SettingsManager",
+                );
+            }
+        }
         return new FakeSettingsManager(settings);
     }
 }
