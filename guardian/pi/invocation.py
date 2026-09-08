@@ -101,6 +101,12 @@ class PiAuthorizedHarnessRequest:
     timeout_seconds: int
     identity: PiAuthorizedExecutionIdentity
     read_only: bool
+    # Bounded Campaign Engine declared execution requirement.
+    # When non-null, the adapter must project it into the first provider
+    # request only. `None` preserves ordinary authorized execution.
+    # Guardian permits this value only inside an already-authorized
+    # `files.write` grant.
+    required_tool_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +142,10 @@ class PiHarnessRuntimeEvidence:
     assistant_content_block_types: tuple[str, ...] | None = None
     assistant_message_event_types: tuple[str, ...] | None = None
     assistant_tool_call_event_count: int | None = None
+    # Bounded required-tool selection evidence (separate from tool telemetry).
+    required_tool_name: str | None = None
+    hard_tool_selection_applied: bool | None = None
+    hard_tool_selection_application_count: int | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -175,6 +185,10 @@ class PiLiveInvocationOutcome:
     assistant_content_block_types: tuple[str, ...] | None = None
     assistant_message_event_types: tuple[str, ...] | None = None
     assistant_tool_call_event_count: int | None = None
+    # Bounded required-tool selection evidence (separate from tool telemetry).
+    required_tool_name: str | None = None
+    hard_tool_selection_applied: bool | None = None
+    hard_tool_selection_application_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,11 +223,22 @@ def invoke_guardian_authorized_pi(
     cwd: str | Path,
     timeout_seconds: int,
     harness_runner: PiAuthorizedHarnessRunner | None = None,
+    required_tool_name: str | None = None,
 ) -> PiLiveInvocationOutcome:
     """Authorize and invoke one Pi harness call without durable side effects.
 
     The function never retries, falls back, repairs a target, or writes a
     receipt/result to a database, queue, store, or Campaign Engine artifact.
+
+    When ``required_tool_name`` is non-null, Guardian enforces a bounded
+    permission-bound projection contract:
+
+    - the value must be a non-empty string admitted by the canonical
+      supported-required-tool set (initial: ``"write"``);
+    - the envelope must already grant at least one valid
+      ``files.write`` permission;
+    - the value is propagated to the adapter and Pi projection but does
+      not itself grant any new permission.
     """
     authorization = validate_policy_decision_against_envelope(envelope, decision)
     if not authorization.ok:
@@ -249,6 +274,31 @@ def invoke_guardian_authorized_pi(
     if scope_failure is not None:
         return _blocked(scope_failure, runner_call_count=0)
 
+    # Required-tool selection contract: never broadens Guardian permissions.
+    # First reject any non-empty value that is not in the canonical
+    # supported set BEFORE normalization (so an unsupported required
+    # tool is blocked with runner_call_count=0, not silently coerced
+    # to no required tool).
+    if required_tool_name is not None and (
+        not isinstance(required_tool_name, str)
+        or required_tool_name.strip() == ""
+        or required_tool_name.strip() not in _GUARDIAN_SUPPORTED_REQUIRED_TOOLS
+    ):
+        return _blocked(
+            PiValidationFailureReason.MUTATION_SCOPE_VIOLATION,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="tool_selection",
+        )
+    normalized_required_tool = _normalize_required_tool(required_tool_name)
+    if normalized_required_tool is not None and not write_roots:
+        return _blocked(
+            PiValidationFailureReason.MUTATION_SCOPE_VIOLATION,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="tool_selection",
+        )
+
     pre_execution = _snapshot_target(target)
     request = PiAuthorizedHarnessRequest(
         prompt=str(prompt),
@@ -256,6 +306,7 @@ def invoke_guardian_authorized_pi(
         timeout_seconds=max(1, int(timeout_seconds)),
         identity=identity,
         read_only=not write_roots,
+        required_tool_name=normalized_required_tool,
     )
     runner = harness_runner or _run_with_pi_adapter
     evidence: PiHarnessRuntimeEvidence | None = None
@@ -313,6 +364,12 @@ def invoke_guardian_authorized_pi(
         )
 
     artifact_ref = f"pi://guardian-authorized/{envelope.invocation_id}/result"
+    # Bounded selection evidence (separate from the ten-field telemetry).
+    # Only non-null when the requested required tool was propagated through.
+    selection_evidence = _selection_evidence_dict(
+        evidence=evidence,
+        requested_required_tool=normalized_required_tool,
+    )
     receipt = PiInvocationReceipt(
         receipt_id=f"pi-receipt-{envelope.invocation_id}",
         guardian_boundary=envelope.guardian_boundary,
@@ -352,6 +409,13 @@ def invoke_guardian_authorized_pi(
             }
             if evidence.effective_tool_names is not None
             else None,
+            # Required-tool selection evidence is a separate top-level
+            # key; never placed inside the ten-field tool_telemetry.
+            **(
+                {"required_tool_selection": selection_evidence}
+                if selection_evidence is not None
+                else {}
+            ),
         },
     )
     receipt_validation = validate_receipt_against_envelope(envelope, receipt)
@@ -410,6 +474,13 @@ def invoke_guardian_authorized_pi(
             }
             if evidence.effective_tool_names is not None
             else None,
+            # Required-tool selection evidence is a separate top-level
+            # key; never placed inside the ten-field tool_telemetry.
+            **(
+                {"required_tool_selection": selection_evidence}
+                if selection_evidence is not None
+                else {}
+            ),
         },
     )
     result_validation = validate_harness_result_against_receipt(receipt, harness_result)
@@ -445,6 +516,22 @@ def invoke_guardian_authorized_pi(
         assistant_content_block_types=evidence.assistant_content_block_types,
         assistant_message_event_types=evidence.assistant_message_event_types,
         assistant_tool_call_event_count=evidence.assistant_tool_call_event_count,
+        # Required-tool selection evidence (copied without recomputation).
+        required_tool_name=(
+            selection_evidence["required_tool_name"]
+            if selection_evidence is not None
+            else None
+        ),
+        hard_tool_selection_applied=(
+            selection_evidence["hard_tool_selection_applied"]
+            if selection_evidence is not None
+            else None
+        ),
+        hard_tool_selection_application_count=(
+            selection_evidence["hard_tool_selection_application_count"]
+            if selection_evidence is not None
+            else None
+        ),
     )
 
 
@@ -471,6 +558,7 @@ def _run_with_pi_adapter(
             harness_version=request.identity.harness_version,
         ),
         read_only=request.read_only,
+        required_tool_name=request.required_tool_name,
     )
     return PiHarnessRuntimeEvidence(
         status=result.status,
@@ -499,6 +587,14 @@ def _run_with_pi_adapter(
         assistant_content_block_types=result.assistant_content_block_types,
         assistant_message_event_types=result.assistant_message_event_types,
         assistant_tool_call_event_count=result.assistant_tool_call_event_count,
+        # Bounded required-tool selection evidence (copied without
+        # recomputation; the wrapper-produced bounded object is the
+        # source of truth).
+        required_tool_name=result.required_tool_name,
+        hard_tool_selection_applied=result.hard_tool_selection_applied,
+        hard_tool_selection_application_count=(
+            result.hard_tool_selection_application_count
+        ),
     )
 
 
@@ -722,6 +818,65 @@ def _granted_write_roots(
             return (), PiValidationFailureReason.MUTATION_SCOPE_VIOLATION
         roots.append(resolved)
     return tuple(roots), None
+
+
+# Bounded canonical supported required-tool set. Adding a new value here
+# is a deliberate architectural expansion; the current CE-L1 repair only
+# admits ``"write"``.
+_GUARDIAN_SUPPORTED_REQUIRED_TOOLS = frozenset({"write"})
+
+
+def _normalize_required_tool(value: Any) -> str | None:
+    """Normalize a required-tool declaration.
+
+    Returns the canonical supported value (the only current supported
+    value is ``"write"``), or ``None`` when the input is absent.
+    Any other non-empty string is rejected by the caller via the
+    selection-validator so an unauthorized required tool never reaches
+    the adapter.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text not in _GUARDIAN_SUPPORTED_REQUIRED_TOOLS:
+        return None
+    return text
+
+
+def _selection_evidence_dict(
+    *,
+    evidence: PiHarnessRuntimeEvidence,
+    requested_required_tool: str | None,
+) -> dict[str, Any] | None:
+    """Return the bounded required-tool selection evidence object.
+
+    Only non-null when a required tool was actually requested (and thus
+    propagated to the adapter). For read-only or no-required-tool
+    invocations, the selection evidence is absent and receipt/result
+    metadata is unchanged.
+    """
+    if requested_required_tool is None:
+        return None
+    applied = evidence.hard_tool_selection_applied
+    count = evidence.hard_tool_selection_application_count
+    return {
+        "required_tool_name": (
+            evidence.required_tool_name
+            if isinstance(evidence.required_tool_name, str)
+            and len(evidence.required_tool_name) > 0
+            else None
+        ),
+        "hard_tool_selection_applied": (
+            applied if isinstance(applied, bool) else None
+        ),
+        "hard_tool_selection_application_count": (
+            count if isinstance(count, int) and count >= 0 else None
+        ),
+    }
 
 
 def _snapshot_target(target: Path) -> _TargetSnapshot:

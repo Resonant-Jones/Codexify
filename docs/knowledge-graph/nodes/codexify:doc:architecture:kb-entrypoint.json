@@ -6,20 +6,20 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "cf86c9d9a0b8ce1ce4f0c414559e49bca5caf43abda847397b13c9f29b1550bc",
+  "content_hash": "de595ed74bfa0e66ea7e9448594f6b0bf017117e77775fd0b28238ecffa41329",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified Architecture KB entrypoint metadata against committed source revision 0ef78e03dce504288b008af4f42cea6d486ea99c. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed. The current-state ADR-069 restoration is included. Current Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim was widened. Unrelated warnings/collisions are not claimed repaired.",
+    "reason": "Re-verified against 54a4e1932a8c after canonical-main DLG source canonicalization. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed; ADR-053 duplicate retirement and ADR-076 to ADR-083 renumbering are included. Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim widened.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "verified_at": "2026-09-06T13:59:09Z",
-    "verified_commit": "0ef78e03dce504288b008af4f42cea6d486ea99c"
+    "verified_at": "2026-09-08T21:16:54Z",
+    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

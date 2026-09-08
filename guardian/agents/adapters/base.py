@@ -66,6 +66,12 @@ class AgentRunEnvelope(BaseModel):
     assistant_message_event_types: tuple[str, ...] | None = None
     assistant_tool_call_event_count: int | None = Field(default=None, ge=0)
 
+    # Bounded required-tool selection evidence (separate from tool
+    # telemetry). None for read-only / no-required-tool invocations.
+    required_tool_name: str | None = None
+    hard_tool_selection_applied: bool | None = None
+    hard_tool_selection_application_count: int | None = Field(default=None, ge=0)
+
     model_config = ConfigDict(extra="forbid")
 
 

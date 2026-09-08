@@ -66,13 +66,6 @@ type AcceptImprintResponse = {
     preferred_name?: string | null;
     status?: string | null;
   } | null;
-  persona?: {
-    body?: string | null;
-    created_at?: string | null;
-    id?: number | null;
-    is_active?: boolean | null;
-    source?: string | null;
-  } | null;
 };
 
 type RejectImprintResponse = {
@@ -138,12 +131,6 @@ export type AcceptedImprintReview = {
     id: number | null;
     preferredName: string | null;
     status: string | null;
-  } | null;
-  persona: {
-    createdAt: string | null;
-    id: number | null;
-    isActive: boolean;
-    source: string | null;
   } | null;
 };
 
@@ -365,21 +352,6 @@ function normalizeAcceptedImprint(
           status:
             typeof data.imprint.status === "string"
               ? data.imprint.status
-              : null,
-        }
-      : null,
-    persona: data.persona
-      ? {
-          createdAt:
-            typeof data.persona.created_at === "string"
-              ? data.persona.created_at
-              : null,
-          id:
-            typeof data.persona.id === "number" ? data.persona.id : null,
-          isActive: Boolean(data.persona.is_active),
-          source:
-            typeof data.persona.source === "string"
-              ? data.persona.source
               : null,
         }
       : null,

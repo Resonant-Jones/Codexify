@@ -18,164 +18,305 @@ tags:
 
 ## Status
 
-Proposed
-
-## Canonicalization history
-
-This proposal was originally stored as ADR-005, which collided with the later
-Accepted Runtime Mode and Account Boundary Invariants. Human canonicalization
-retained Runtime Mode as ADR-005 and moved this decision to ADR-058. The move
-changes numeric identity and path only; this proposal remains Proposed.
-Historical references to the former Imprint ADR-005 remain historical evidence
-and must not be reinterpreted as references to Runtime Mode.
+Accepted
 
 ## Date
 
 2026-04-15
 
+## Acceptance revision
+
+Accepted 2026-09-05 after reconciliation with the implemented Persona Profile
+architecture governed by ADR-082. This revision ratifies the ownership
+boundary; it does not perform the remaining runtime or frontend convergence.
+
+## Canonicalization history
+
+This decision was originally stored as ADR-005, which collided with the later
+Accepted Runtime Mode and Account Boundary Invariants. Human canonicalization
+retained Runtime Mode as ADR-005 and moved this decision to ADR-058. Historical
+references to the former Imprint ADR-005 remain historical evidence and must
+not be reinterpreted as references to Runtime Mode.
+
+ADR-058 remained Proposed when ADR-082 was accepted. ADR-082 therefore aligned
+with this boundary without accepting it. The 2026-09-05 ratification accepts
+ADR-058 and preserves ADR-082 as the governing authority for canonical Persona
+Profile manifests, bindings, revisions, selection, and accepted-task execution.
+
 ## Context
 
-The Imprint Zero concept was originally introduced as the durable user substrate underlying persona behavior and relational fit. Since then, Codexify has evolved distinct surfaces with clearer responsibilities:
+The original Imprint Zero concept combined durable user modeling, relational
+fit, and Persona-adjacent prompt authoring. Codexify now has distinct surfaces
+and materially implemented canonical Persona Profile machinery:
 
-* **Persona Studio**: a non-conversational configuration and observability surface for authored runtime profile and mask composition.
-* **Settings → Diagnostics**: the dedicated home for cognitive inspectors, trace surfaces, and troubleshooting views.
-* **Durable identity data seams**: lifecycle-shaped identity records represented in the data model by `personal_facts`, `personal_fact_evidence`, and `personal_fact_revisions`.
+* `PersonaProfileManifest` as the authored profile configuration object;
+* immutable Persona Profile revisions;
+* server-owned account/profile binding state;
+* thread pins to an exact profile revision;
+* `PersonaSelectionSnapshot` captured at task acceptance; and
+* worker execution of the accepted Persona revision.
 
-Recent UI evolution has created overlap between Settings-owned identity surfaces, Persona Studio profile composition, and legacy Imprint authoring patterns. The original Imprint tab, especially as a standalone narrative "imprint draft" authoring surface, no longer matches the current ownership model.
+Legacy Imprint and Persona machinery remains active alongside that canonical
+path. Imprint acceptance is now Imprint-only; Settings still exposes legacy
+Persona controls through the Imprint lane, and status/inspector surfaces still
+report legacy assumptions. Those are current
+implementation facts and migration debt, not a second accepted authority.
+
+Durable identity remains separately governed. Current lifecycle-shaped identity
+data includes the `personal_facts`, `personal_fact_evidence`, and
+`personal_fact_revisions` seams. Their presence does not establish a supported
+end-user surface or make either Imprint or Persona Studio their owner.
 
 ## Problem
 
-Imprint as a first-class user-authored UI module conflates two distinct concerns:
+Without one accepted boundary, four adjacent concerns can become competing
+authorities:
 
-1. The durable user substrate (`Imprint_Zero`, light/deep identity modeling).
-2. Persona composition and runtime profile authoring.
+1. Guardian's stable first-person actor identity;
+2. durable user identity and memory;
+3. authored Persona Profile configuration; and
+4. relational/presentation synthesis and diagnostics.
 
-This blurs the ownership boundary between:
-
-* **Persona Studio** as the authored runtime profile surface
-* **Settings** as the durable identity governance surface
-* **Diagnostics** as the inspector surface
-
-Without a formal boundary, UI growth risks duplicating functionality, scattering identity ownership across inconsistent surfaces, and reintroducing confusion between the user substrate and authored masks.
+The implemented canonical Persona Profile path makes the ambiguity operational:
+Settings still exposes obsolete Persona editing controls and callers to the
+retired `/api/imprint/persona` endpoint. These no longer have backend mutation
+authority. ADR-082 assigns authored Persona intent, revision history, binding,
+and deterministic accepted-task execution to the canonical profile model.
 
 ## Decision
 
-Codexify establishes the following ownership boundaries:
+Codexify adopts the following ownership doctrine.
 
-1. **Imprint is not a first-class user-authored UI module.**
-   The standalone Imprint tab is deprecated as a **primary authored UI pattern**.
+### Guardian
 
-2. **Durable user modeling belongs under Settings-owned identity governance, not Persona Studio.**
-   The current durable identity data seam is the `personal_facts` family:
+Guardian is the stable platform actor and the only stable first-person actor in
+the current runtime. Persona Profiles and Imprint are additive configuration
+and presentation layers. Neither may replace Guardian, rebind first-person
+identity, or override base safety and policy rules.
 
-   * `personal_facts`
-   * `personal_fact_evidence`
-   * `personal_fact_revisions`
+### Durable user identity
 
-   These structures represent the current lifecycle-friendly identity data model. Their eventual user-facing exposure remains subject to supported-surface validation and must not be overstated.
+Durable user identity remains outside Persona Studio and Imprint. Settings-owned
+governance may expose durable identity and relational preferences, while
+Personal Facts and any future MemoryOS identity seams remain governed by their
+own contracts, consent rules, and authority boundaries.
 
-3. **Persona Studio owns authored runtime profile and mask composition.**
-   Persona Studio is the surface for composing, validating, and observing personas as runtime masks. It is not the owner of durable user substrate mutation.
+Neither saving a Persona Profile nor resolving an Imprint may infer, persist,
+or claim durable user identity. This decision does not change MemoryOS
+authority or make Personal Facts a Beta-supported product surface.
 
-4. **Derived relational synthesis may still exist internally.**
-   Codexify may continue to derive relational or interaction-shaping guidance from durable identity state as an implementation detail, but that does not require a standalone authored Imprint tab.
+### Canonical Persona Profile
 
-5. **Heavy inspector surfaces remain in Settings → Diagnostics.**
-   Cognitive inspectors, trace tooling, and related introspection surfaces belong there, not inside primary authored interaction surfaces.
+`PersonaProfileManifest` is the canonical authored configuration object for how
+Guardian may be configured to operate as a Persona or profile. ADR-082 governs
+its authority, serialization, account binding, immutable revisions, selection,
+and execution semantics.
 
-6. **Do not assume `personal_facts` is part of the current beta promise.**
-   Operational truth at the time of this ADR does not confirm end-user-supported beta functionality for Personal Facts surfaces. References to `personal_facts` in this ADR describe current data-model ownership, not a shipped product claim.
+Canonical Persona Profiles own authored:
+
+* profile identity and display intent;
+* prompt configuration;
+* requested model configuration;
+* requested voice configuration;
+* requested capabilities;
+* requested retrieval configuration; and
+* other profile intent governed by ADR-082.
+
+Authored requests are not grants. Canonical account, Project, participant,
+Connections, capability, retrieval, provider, and runtime policies remain
+authoritative for what is available, authorized, and effective. Persona
+Profiles do not own durable user identity.
+
+### Imprint
+
+Imprint is a **derived relational/presentation layer**. It may encode or
+synthesize authorized interaction-shaping guidance such as:
+
+* Guardian presentation name;
+* preferred user address;
+* style;
+* grammar preferences;
+* warmth or heat; and
+* other relational presentation guidance.
+
+Imprint is not:
+
+* an authored Persona Profile;
+* a second system-prompt editor;
+* durable user identity authority;
+* memory authority;
+* model, tool, skill, or capability authority;
+* connector, Project, participant, or retrieval authority; or
+* runtime execution authority.
+
+Derived relational synthesis may remain internally useful and may contribute
+an additive prompt segment. Its derived output does not become canonical
+authored Persona state merely because it is persisted, displayed, or used by a
+legacy compatibility path.
+
+The standalone Imprint UI is deprecated as a primary authored UI pattern. Any
+retained Imprint surface must govern or explain relational/presentation state;
+it must not author a parallel Persona or system prompt.
+
+### Settings
+
+Settings owns user-facing governance surfaces for durable identity and
+relational preferences. Settings must not create a parallel Persona/Profile
+persistence model.
+
+A future simplified **My Guardian** editor may surface a subset of canonical
+Persona Profile configuration. If implemented, it must edit the same canonical
+Persona object as Persona Studio rather than copy, mirror, or synchronize a
+second object. This decision deliberately does not define Default Guardian
+Profile persistence or binding semantics.
+
+### Persona Studio
+
+Persona Studio owns advanced authored Persona Profile composition through the
+canonical Persona Profile model. It does not own:
+
+* durable user identity;
+* Imprint-derived relational state;
+* memory;
+* account or Project authority;
+* participant authority;
+* connector credentials or authorization; or
+* runtime execution grants.
+
+### Diagnostics
+
+System Prompt Inspector and related diagnostics report persisted, resolved,
+acceptance-time, or executed/runtime truth only to the extent their evidence
+supports those claims. They are observational and do not own or mutate any
+layer they inspect. Combining multiple status endpoints does not promote a
+diagnostic surface into identity authority.
+
+## Current compatibility and migration debt
+
+The following current behaviors are preserved as implementation facts, not
+accepted architecture:
+
+* `GET /api/imprint/status` reports active legacy Persona state alongside
+  Imprint and prompt metadata;
+* Settings and other frontend consumers still call the retired
+  `/api/imprint/persona` endpoint; their obsolete editing controls remain deferred;
+* legacy Persona resolution remains active in prompt assembly beside canonical
+  Persona Profile resolution; and
+* some built-in, environment, Flow, and historical compatibility paths remain
+  revisionless.
+
+Existing legacy Persona or Imprint rows may remain during migration. Their
+existence, active flags, status projection, or prompt participation does not
+supersede ADR-082 or silently reclassify them as canonical Persona revisions.
+
+Closed on 2026-09-06: `POST /api/imprint/accept` activates the owned Imprint
+without writing or returning Persona state. Supplied `persona_text_override`
+is rejected with HTTP 400 before mutation. Settings Imprint Review consumes
+only Imprint acceptance state and labels legacy proposal text as unapplied
+Persona configuration. Focused route tests prove activation, unchanged legacy
+Persona fields, no new Persona row, and preserved scope checks.
+
+Also closed on 2026-09-06: `POST /api/imprint/persona` and its mutation
+implementation are removed, with no replacement or compatibility write shim.
+The Imprint router has no Persona mutation handler. Focused tests verify that
+requests to the retired path return 404, preserve every existing legacy Persona
+field, and cannot create a row. `/api/imprint/status` still observes legacy
+Persona state without writing it.
+
+The next prerequisite is removal of the remaining frontend callers and obsolete
+Persona-editing controls. Legacy Persona storage, observation/status, and
+resolution remain unresolved; endpoint retirement does not remove that system.
+Existing data, canonical Persona revisions/bindings/selections,
+accepted-task snapshots, Guardian identity, and prompt order are unchanged.
+No supported-profile or Beta claim follows from this bounded proof.
 
 ## Rationale
 
-Codexify’s identity model already distinguishes:
+One authored profile authority avoids copy/synchronization conflicts between
+Settings, Persona Studio, and Imprint. Keeping relational presentation separate
+preserves useful adaptive behavior without turning derived synthesis into a
+permission, identity, or execution control plane. Keeping Diagnostics
+observational prevents a read model from acquiring authority merely because it
+can describe resolved state.
 
-* chat history as diary-like conversational record
-* light and deep identity modeling
-* `Imprint_Zero` as the underlying user substrate
-* personas as masks that borrow from that substrate rather than owning it
-
-Persona Studio is explicitly defined as a **non-conversational configuration and observability interface** and must not mutate durable identity or memory systems.
-
-The diagnostics canon separately places cognitive inspectors in **Settings → Diagnostics**, not inside primary authored interaction surfaces.
-
-The original Imprint Zero concept has been functionally distributed across more mature system features. What remains valuable is not a standalone narrative prompt-authoring surface, but a clear distinction between:
-
-* **durable identity governance**
-* **runtime mask composition**
-* **diagnostic inspection**
-
-This ADR formalizes that distinction.
-
-## Superseded assumptions
-
-The following assumptions should no longer guide design or implementation:
-
-* Imprint should remain a primary narrative prompt-authoring surface.
-* Persona Studio is an appropriate owner for durable user substrate mutation.
-* Diagnostics may be colocated inside profile-authoring surfaces for convenience.
-* The existence of durable identity tables automatically implies a beta-ready end-user feature surface.
+The split also preserves the constitutional distinction between intent and
+authority: authored Persona configuration expresses requested intent; server
+control planes determine ownership, authorization, availability, and effective
+execution.
 
 ## Consequences
 
 ### Positive
 
-* Ownership boundaries become explicit and enforceable.
-* Persona Studio scope is clearer: authored profile composition, not user substrate mutation.
-* Settings retains ownership of durable identity governance.
-* Diagnostics remains the correct home for cognitive inspectors and trace tooling.
-* Contributors can reason about identity, mask composition, and inspection as distinct system concerns.
+* Guardian actor semantics remain stable.
+* ADR-082 has one compatible ownership boundary for authored Persona Profiles.
+* Imprint retains a bounded relational/presentation role.
+* Settings and Persona Studio cannot become parallel profile stores.
+* Inspector surfaces remain read-only truth projections.
+* Later convergence work has an explicit migration target without silently
+  deleting or reclassifying legacy data.
 
 ### Negative
 
-* Existing Imprint UI surfaces may require future migration or removal work.
-* Contributors must learn and preserve the distinction between durable identity state and authored personas.
-* Some legacy naming and conceptual residue may remain in code or docs until follow-on cleanup lands.
+* Runtime and UI behavior temporarily continues to diverge from the accepted
+  ownership model.
+* Legacy rows, endpoints, tests, and labels require bounded migration work.
+* Diagnostics must distinguish legacy, canonical, resolved, accepted, and
+  executed state during the convergence period.
+
+## Invariants
+
+* Guardian remains the stable first-person actor.
+* `PersonaProfileManifest` is the sole canonical authored Persona configuration
+  object.
+* Imprint is derived relational/presentation synthesis, not authored Persona or
+  durable user identity.
+* Imprint and Persona configuration cannot grant authority.
+* Durable identity and MemoryOS authority remain separately governed.
+* Diagnostics are observational only.
+* Legacy state is compatibility/migration debt and is not silently canonical.
+* No runtime, frontend, supported-profile, Beta, or release claim changes merely
+  because this ADR is Accepted.
 
 ## Non-goals
 
-This ADR does **not**:
+This decision does **not**:
 
-* mandate an immediate UI refactor or rewrite
-* claim that Personal Facts is currently an end-user-supported beta feature
-* introduce undocumented runtime behavior
-* change the data model
-* remove internal derived identity synthesis where it remains implementation-useful
+* modify runtime or frontend behavior;
+* remove, migrate, or reinterpret legacy rows;
+* change prompt assembly or Persona selection;
+* implement a canonical inspection endpoint;
+* define Default Guardian Profile persistence or binding;
+* change account, Project, participant, Connections, capability, retrieval, or
+  MemoryOS authority;
+* make Personal Facts a supported user-facing feature; or
+* widen the Beta or release promise.
 
 ## Follow-on implementation slices
 
-1. **Align Persona Studio documentation** with this ownership boundary: configuration and observability only, no durable identity mutation.
-2. **Audit existing Imprint references** in the codebase and UI to determine which should be removed, redirected, or retained as internal terminology only.
-3. **Verify Personal Facts surface readiness** before treating `personal_facts` as a supported user-facing beta surface.
-4. **Review diagnostics placement** to ensure cognitive inspectors remain in Settings and are not duplicated in primary authored surfaces.
-5. **Plan UI consolidation in bounded slices** rather than as a single large refactor spanning Settings, Persona Studio, and internal synthesis behavior.
+1. Remove `/api/imprint/persona` frontend consumers and obsolete Persona-editing
+   controls without inventing replacement authority. Backend mutation authority
+   and acceptance coupling are closed; legacy observation and resolution remain
+   deferred.
+2. Reconcile Settings and any future My Guardian editor with the canonical
+   Persona object without introducing a second persistence model.
+3. Convert prompt inspection to one canonical observational surface that labels
+   legacy, canonical, acceptance-time, and executed state truthfully.
+4. Reshape or remove standalone Imprint authoring UI in bounded, separately
+   proven slices.
 
-## Invariants created by this decision
+## Governing and related records
 
-* Persona Studio must not mutate durable identity or memory systems.
-* `Imprint_Zero` is an internal user substrate, not a primary authored UI surface.
-* The `personal_facts` family is the current durable identity data seam; exposure level remains governed by Settings-owned product decisions.
-* Cognitive inspectors belong in Settings → Diagnostics, not in primary authored interaction surfaces.
-* Derived relational synthesis may exist internally without requiring a standalone authored Imprint tab.
-
-## Links
-
-* [ADR Index](./adr-index.md)
-* [System Overview](../system-overview.md)
-* [Modules and Ownership](../modules-and-ownership.md)
+* [ADR-082: Persona Profile Manifest and Binding Authority](./082-persona-profile-manifest-and-binding-authority.md)
+* [Identity Precedence Contract](../identity-precedence-contract.md)
+* [IDDB Policy v1](../../iddb_policy_v1.md)
+* [Persona Studio Spec](../persona-studio-spec.md)
 * [00 Current State](../00-current-state.md)
-* [Chat Runtime Contract](../chat-runtime-contract.md)
 
 ## Notes
 
-This ADR establishes the doctrine that **identity ownership is Settings-governed, not Imprint-authored**.
-
-In short:
-
-* **Settings** owns durable identity governance.
-* **Persona Studio** owns authored runtime profile composition.
-* **Diagnostics** owns inspector surfaces.
-
-These are adjacent layers, but they are not interchangeable.
-
-> If this decision has already been formally ratified in-repo, change **Status** from `Proposed` to `Accepted`.
+The convergence rule is compact: Guardian acts; durable identity remains
+separately governed; canonical Persona Profiles own authored profile intent;
+Imprint shapes relational presentation; Settings governs user-facing identity
+and relational preferences; Persona Studio composes canonical profiles; and
+Diagnostics observes.

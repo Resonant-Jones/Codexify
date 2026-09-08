@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
@@ -15,7 +15,6 @@ const mockedApi = vi.hoisted(() => ({
   },
 }));
 
-const mockedUpdatePersonaSettings = vi.hoisted(() => vi.fn());
 const mockedUseConnectors = vi.hoisted(() =>
   vi.fn(() => ({
     connectors: [],
@@ -117,9 +116,6 @@ vi.mock("@/lib/api", () => ({
   setRuntimeApiKey: vi.fn(),
 }));
 
-vi.mock("@/features/settings/api/persona", () => ({
-  updatePersonaSettings: mockedUpdatePersonaSettings,
-}));
 
 function renderSettingsView(
   overrides: Partial<Parameters<typeof SettingsView>[0]> = {}
@@ -158,7 +154,6 @@ function renderSettingsView(
 
 describe("SettingsView save flow", () => {
   beforeEach(() => {
-    mockedUpdatePersonaSettings.mockReset();
     mockedUseConnectors.mockClear();
     mockedUseConnections.mockReset();
     mockedUseConnections.mockReturnValue({
@@ -176,45 +171,16 @@ describe("SettingsView save flow", () => {
     window.history.pushState({}, "", "/chat/42");
   });
 
-  it("shows success after the system prompt save resolves", async () => {
+  it("removes prompt editing while preserving local preview saves", async () => {
     const setSystemPrompt = vi.fn();
-    mockedUpdatePersonaSettings.mockResolvedValue({
-      id: 42,
-      text: "Updated system prompt",
-      source: "user",
-      createdAt: "2026-03-30T12:00:00Z",
-      canClear: false,
-    });
-
     renderSettingsView({ setSystemPrompt });
-
     fireEvent.click(screen.getByRole("tab", { name: /^imprint$/i }));
-    fireEvent.change(screen.getByDisplayValue("Original system prompt"), {
-      target: { value: "Updated system prompt" },
-    });
+    expect(screen.queryByText("Preview Prompt")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Original system prompt")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => {
-      expect(mockedUpdatePersonaSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          text: "Updated system prompt",
-          persona_prompt: "Updated system prompt",
-          system_prompt: "Updated system prompt",
-        })
-      );
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Saved locally and synced to runtime persona layer\./)
-      ).toBeInTheDocument();
-    });
-
-    expect(
-      screen.queryByTestId("personal-facts-panel")
-    ).not.toBeInTheDocument();
-
-    expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
+    expect(await screen.findByText("Saved locally.")).toBeInTheDocument();
+    expect(setSystemPrompt).not.toHaveBeenCalled();
+    expect(mockedApi.post.mock.calls.every(([url]) => url === "/api/imprint/proposal")).toBe(true);
   });
 
   it("renders Connections while legacy sync connectors remain unavailable", async () => {
@@ -273,14 +239,54 @@ describe("SettingsView save flow", () => {
     renderSettingsView();
 
     const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    const feedbackTab = screen.getByRole("tab", { name: /^feedback$/i });
     const imprintTab = screen.getByRole("tab", { name: /^imprint$/i });
 
     appearanceTab.focus();
     fireEvent.keyDown(appearanceTab, { key: "ArrowRight" });
 
+    expect(feedbackTab).toHaveFocus();
+    expect(feedbackTab).toHaveAttribute("aria-selected", "true");
+    expect(appearanceTab).toHaveAttribute("tabindex", "-1");
+    expect(feedbackTab).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tabpanel", { name: /^feedback$/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(feedbackTab, { key: "ArrowRight" });
+
     expect(imprintTab).toHaveFocus();
     expect(imprintTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: /^imprint$/i })).toBeInTheDocument();
+  });
+
+  it("wraps and supports all navigation keys across visible web tabs only", () => {
+    renderSettingsView();
+    const rail = within(screen.getByRole("tablist", { name: "Settings tabs" }));
+
+    expect(screen.queryByRole("tab", { name: /^connection$/i })).not.toBeInTheDocument();
+    const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    appearanceTab.focus();
+
+    const steps = [
+      ["ArrowLeft", "Personal Facts"],
+      ["ArrowRight", "Appearance"],
+      ["ArrowDown", "Feedback"],
+      ["ArrowUp", "Appearance"],
+      ["End", "Personal Facts"],
+      ["ArrowUp", "Data"],
+      ["ArrowDown", "Personal Facts"],
+      ["ArrowDown", "Appearance"],
+      ["ArrowUp", "Personal Facts"],
+      ["Home", "Appearance"],
+    ];
+
+    for (const [key, name] of steps) {
+      fireEvent.keyDown(document.activeElement!, { key });
+      const selectedTab = screen.getByRole("tab", { name, exact: true });
+      expect(selectedTab).toHaveFocus();
+      expect(selectedTab).toHaveAttribute("aria-selected", "true");
+      expect(selectedTab).toHaveAttribute("tabindex", "0");
+      expect(rail.getAllByRole("tab", { selected: true })).toEqual([selectedTab]);
+    }
   });
 
   it("persists the selected tab and restores it on remount", async () => {

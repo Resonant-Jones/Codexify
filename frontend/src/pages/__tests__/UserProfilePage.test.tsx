@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
-import * as personaSettingsApi from "@/features/settings/api/persona";
 import * as personaStudioApi from "@/features/personaStudio/personaStudioApi";
 import api from "@/lib/api";
 import {
@@ -17,14 +16,6 @@ vi.mock("@/components/persona/layout/AppShell", () => ({
 
 const getUserProfileSpy = vi.spyOn(api, "get");
 const updateUserProfileSpy = vi.spyOn(api, "patch");
-const updatePersonaSettingsSpy = vi.spyOn(
-  personaSettingsApi,
-  "updatePersonaSettings"
-);
-const fetchPersonaSettingsSpy = vi.spyOn(
-  personaSettingsApi,
-  "fetchPersonaSettings"
-);
 const fetchPersonaProfilesSpy = vi.spyOn(
   personaStudioApi,
   "fetchPersonaProfiles"
@@ -213,8 +204,6 @@ describe("UserProfilePage", () => {
     await user.type(screen.getByLabelText("Display name"), "Atlas Prime");
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
-    expect(updatePersonaSettingsSpy).not.toHaveBeenCalled();
-    expect(fetchPersonaSettingsSpy).not.toHaveBeenCalled();
     expect(fetchPersonaProfilesSpy).not.toHaveBeenCalled();
     expect(fetchPersonaProfileSpy).not.toHaveBeenCalled();
     expect(createPersonaProfileSpy).not.toHaveBeenCalled();

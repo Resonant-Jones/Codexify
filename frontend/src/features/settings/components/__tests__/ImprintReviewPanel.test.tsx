@@ -97,7 +97,7 @@ describe("ImprintReviewPanel", () => {
     expect(screen.getByText("Proposal available for review")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Imprint is a deeper style and reasoning layer\. Persona is the user-editable mask or voice layer\./
+        /Imprint shapes relational style and presentation\./
       )
     ).toBeInTheDocument();
     expect(
@@ -108,6 +108,10 @@ describe("ImprintReviewPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Prompt hints: 1")).toBeInTheDocument();
     expect(screen.getByText("Heat score: 0.73")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Legacy proposal text is shown for review only\. Acceptance does not apply it as Persona configuration\./)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/upsert/i)).not.toBeInTheDocument();
 
     expect(fetchImprintReviewStatusMock).toHaveBeenCalledWith({
       projectId: 5,
@@ -274,12 +278,6 @@ describe("ImprintReviewPanel", () => {
         preferredName: "friend",
         status: "active",
       },
-      persona: {
-        createdAt: "2026-03-09T10:21:00Z",
-        id: 99,
-        isActive: true,
-        source: "imprint_zero_seed",
-      },
     });
 
     render(<ImprintReviewPanel />);
@@ -297,8 +295,9 @@ describe("ImprintReviewPanel", () => {
     expect(fetchImprintReviewStatusMock).toHaveBeenCalledTimes(2);
     expect(await screen.findByText("Proposal accepted")).toBeInTheDocument();
     expect(
-      screen.getByText("Persona upsert returned by backend")
-    ).toBeInTheDocument();
+      screen.queryByText(/Persona upsert|Persona ID:/)
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Active imprint available")).toBeInTheDocument();
   });
 
   test("rejects a proposal successfully and reloads status", async () => {
@@ -420,5 +419,38 @@ describe("ImprintReviewPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "imprint not found"
     );
+  });
+});
+
+describe("Imprint acceptance response contract", () => {
+  test("normalizes only Imprint state even if legacy Persona metadata is returned", async () => {
+    const api = (await import("@/lib/api")).default;
+    const actual = await vi.importActual<typeof import("@/features/settings/api/imprint")>(
+      "@/features/settings/api/imprint"
+    );
+    const post = vi.spyOn(api, "post").mockResolvedValue({
+      data: {
+        imprint: { id: 27, status: "active", guardian_name: "Harbor" },
+        persona: { id: 99, body: "Legacy text", is_active: true, source: "user" },
+      },
+    });
+    try {
+      const result = await actual.acceptImprintProposal({ imprintId: 27, threadId: 11 });
+      expect(post).toHaveBeenCalledWith("/api/imprint/accept", {
+        imprint_id: 27,
+        thread_id: 11,
+      });
+      expect(result).toEqual({
+        imprint: {
+          id: 27,
+          status: "active",
+          guardianName: "Harbor",
+          preferredName: null,
+          heatScore: null,
+        },
+      });
+    } finally {
+      post.mockRestore();
+    }
   });
 });

@@ -1,5 +1,5 @@
 Purpose: Document Persona Studio as it exists in the shell today so readers can understand the page structure, local state flow, and boundary limits without reading implementation code first.
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 Source anchors:
 - frontend/src/components/persona/layout/AppShell.tsx
 - frontend/src/features/personaStudio/PersonaStudioPage.tsx
@@ -12,6 +12,7 @@ Source anchors:
 - guardian/db/migrations/versions/c3d9e1f4a6b8_persist_persona_profile_manifest_binding.py
 - frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx
 - frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx
+- frontend/src/features/personaStudio/__tests__/personaStudioStore.persistence.test.tsx
 - docs/architecture/persona-studio-spec.md
 - docs/architecture/adr/082-persona-profile-manifest-and-binding-authority.md
 
@@ -24,10 +25,11 @@ profile settings. It keeps a broad browser-local draft while the backend now
 persists the canonical typed Persona Profile manifest, immutable revisions,
 and a server-owned account binding under ADR-082.
 
-The current frontend still uses the five-field compatibility API rather than
-the full canonical manifest write contract. Consequently, broad browser fields
-remain local unless another canonical API client authors them, and only the
-existing five-field projection is runtime-active.
+The frontend hydrates and writes the full V1 authored manifest. Only a
+coherent backend-returned manifest/revision establishes saved Persona truth.
+localStorage retains draft/cache continuity, selection, and the active editor
+tab; it never restores canonical saved authority. Only the existing five-field
+projection is runtime-active; broad persisted requests remain inert.
 
 Persona Studio is:
 
@@ -42,11 +44,11 @@ Persona Studio is:
 |---|---|---|
 | AppShell navigation entry and route | runtime-active | `AppShell` exposes `/persona-studio` as a first-class shell view and renders the page inside a `FrameCard`. |
 | Three-panel layout | runtime-active | The page renders left Profiles, center Editor, and right Diagnostics panels. |
-| Profile list | hybrid local/backend | Seed drafts and localStorage provide the fallback; the frontend also loads the request account's backend profiles and merges their five compatibility fields. |
+| Profile list | hybrid local/backend | Seed drafts and localStorage provide continuity; the request account's backend manifest/revision establishes the canonical saved baseline without discarding recovered work. |
 | Editor draft state | frontend-local | The selected profile draft is mutated in browser state and persisted to localStorage. |
 | Diagnostics panel | frontend-local preview | The panel renders a JSON config preview plus a synthetic debug log derived from the current draft. |
-| Save / Save As New | compatibility persistence | The frontend updates local state and sends only name, system prompt, model provider, model ID, and temperature. The backend creates an account binding and immutable manifest revision or appends one substantive revision. |
-| Reset | frontend-local | Reset restores the last local saved/seed state; it does not write the backend. |
+| Save / Save As New | canonical acknowledgement | Full V1 manifest writes omit revision. Saved state advances only after backend acknowledgement; failed writes retain drafts and the previous canonical baseline. |
+| Reset | frontend-local | Reset restores the backend-confirmed manifest projected into editor state. Without a confirmed baseline it preserves the draft; it does not write the backend. |
 | Canonical manifest persistence | backend-active | Strict V1 manifests, immutable revisions, and server-owned account bindings are durable and account-scoped. |
 | Full-account recovery | backend-active | `account-export.v3` preserves account-bound registry rows, every immutable manifest revision, and server-owned binding rows as distinct integrity-covered families. Historical v1/v2 archives contain none of these families. |
 | Runtime profile application | five-field only | A thread may resolve its owning account's current profile projection. Voice, capabilities, retrieval, and other broad fields remain inert. |
@@ -62,7 +64,6 @@ Persona Studio is:
 
 ### What Is Not Yet Wired
 
-- No frontend adoption of the canonical full-manifest write contract
 - No thread-to-immutable-revision binding
 - No live application of voice, capability, retrieval, connector, or other
   broad manifest settings
@@ -72,8 +73,8 @@ Persona Studio is:
 
 ### Do Not Assume
 
-- Do not assume the current frontend Save sends the broad local draft; it sends
-  only the five compatibility fields
+- Do not assume localStorage or a pending Save establishes a saved Persona;
+  only canonical backend acknowledgement establishes that baseline
 - Do not assume Reset changes live assistant behavior
 - Do not assume selecting a Studio profile changes an active thread or binds a
   manifest revision
@@ -179,11 +180,13 @@ type PersonaProfileDraft = {
 };
 ```
 
-Diagnostics-facing derived state is not a separate persisted contract. It is computed from the selected draft and the local save snapshot:
+Diagnostics-facing derived state is not a separate persisted contract. It is computed from the selected draft and the session-only canonical manifest:
 
 - `selectedProfile`
 - `currentConfig`
-- `selectedSavedProfile` from `profiles`
+- `selectedSavedManifest` from session-only `savedManifestsById`
+- `savedRevision` from that manifest, or null before backend confirmation
+- `selectedSavedProfile` projected from that manifest into the editor shape
 - `seedProfile`
 - `isDirty`
 - `hasSavedVersion`
@@ -216,18 +219,32 @@ credential, and grant fields are rejected.
 
 ## State Flow
 
-1. `readPersonaStudioLocalState()` loads local state from localStorage, or falls
-   back to built-in seed profiles if nothing valid exists.
-2. The frontend loads account-scoped backend profiles and merges only their
-   five compatibility fields into local drafts.
-3. `selectedProfileId` chooses the current draft; `activeTab` chooses the
-   visible editor subpanel.
-4. `updateSelectedProfile()` changes `draftProfilesById`; a `useEffect` persists
-   the broad local state to localStorage.
-5. Diagnostics and dirty state remain derived in the browser.
-6. `saveSelectedProfile()` updates the local saved profile and sends a legacy
-   five-field PATCH. `saveSelectedProfileAsNew()` sends the same five-field
-   shape through POST.
+1. `readPersonaStudioLocalState()` loads draft/cache continuity from
+   localStorage, falling back to built-in seed drafts. The session starts with
+   an empty `savedManifestsById`, regardless of stored values.
+2. Account-scoped backend list hydration establishes canonical manifests and
+   server revisions. Full manifest fields project into Studio configuration;
+   compatibility fields do not supply authored values. Fresh, untouched seeds
+   hydrate automatically; recovered drafts and edits made during loading remain
+   intact and are compared against the backend-confirmed baseline.
+3. `selectedProfileId` and `activeTab` retain editor continuity.
+4. `updateSelectedProfile()` changes `draftProfilesById`. Storage serialization
+   includes only profiles as cache, drafts, selection, and tab; it excludes
+   session manifests/revisions and hydration bookkeeping.
+5. `hasSavedVersion` requires a backend-confirmed manifest. `isDirty` compares
+   the current draft with the editor projection of that manifest. An
+   unconfirmed draft remains dirty even if it matches the local cache.
+6. Save sends a full `PersonaProfileManifestWrite` with the accepted API version
+   and `profileIdentity == profile.id`, never a revision. Confirmed profiles
+   use PATCH; unconfirmed drafts use POST. Save As New prepares a recoverable
+   local copy before POST, without establishing saved truth. Acknowledgement
+   alone adopts the server manifest/revision, including a same-revision no-op.
+   The draft reconciles to that acknowledgement only if it still equals the
+   submitted snapshot; newer edits survive and remain dirty. Failed requests
+   preserve the prior canonical baseline and draft. One request per profile
+   may be in flight in this editor; later Save clicks during it are ignored,
+   and a later explicit Save can submit remaining edits. Older list responses
+   cannot roll back a newer acknowledged revision.
 7. The API derives account identity from `RequestUserScope`; the client cannot
    submit owner authority.
 8. A create transaction writes one registry row, one binding, and revision 1.
@@ -255,6 +272,8 @@ accepted completion.
 The practical relationship is:
 
 - browser draft state remains the editor and diagnostics source
+- backend-confirmed manifests/revisions alone define saved state and its
+  dirty-state comparison baseline
 - localStorage remains the broad unsaved-draft store
 - the canonical backend manifest is durable profile truth
 - the binding is server-owned account authority, never manifest content
@@ -262,6 +281,26 @@ The practical relationship is:
 - only the five compatibility fields project into the current runtime seam
 - account-export.v3 preserves canonical profile history and binding recovery
   without making persistence-only broad fields executable
+
+## Saved-State Proof and Limits
+
+The focused store and page persistence tests prove full V1 hydration/write
+mapping, backend revision acknowledgement, failure preservation, offline
+local-draft recovery, and concurrent-edit preservation. These are mocked API
+state/component tests, not authenticated browser or live backend qualification.
+
+Optional manifest values absent or null project to the existing blank-editor
+defaults (empty text, default sampling controls, disabled voice/retrieval, and
+empty requested capabilities). Present values are preserved. The acknowledged
+manifest itself retains its exact optional-field representation; a later Save
+submits the complete editor configuration, including displayed defaults.
+
+An offline startup cannot confirm whether a cached ID exists on the backend.
+Unconfirmed Save attempts creation; if the ID already exists, the backend may
+reject it without changing saved state. Reload with backend hydration available
+reestablishes the baseline before updating that existing profile. Reset without
+a confirmed baseline preserves work. Existing Save/Reset presentation and
+labels are unchanged by this store migration.
 
 ## Diagrams
 
@@ -291,9 +330,9 @@ flowchart TD
 ```mermaid
 flowchart LR
     A["Seeds + localStorage"] --> B["Broad browser draft"]
-    C["Account-scoped profile API"] -->|"five fields"| B
+    C["Account-scoped profile API"] -->|"full manifest acknowledgement"| B
     B --> D["Editor + diagnostics"]
-    B -->|"legacy POST/PATCH: five fields"| C
+    B -->|"full V1 POST/PATCH: no revision"| C
     C --> E["RequestUserScope"]
     E --> F["PersonaProfileBinding<br/>owner account"]
     C --> G["Immutable PersonaProfileRevision<br/>canonical manifest"]
@@ -328,10 +367,13 @@ sequenceDiagram
     D-->>U: effective config preview and save status refresh
     U->>P: Save
     P->>T: saveSelectedProfile() / saveSelectedProfileAsNew()
-    T->>L: write updated local snapshot
-    T->>A: send five-field compatibility write
+    T->>L: retain submitted draft/cache
+    T->>A: send full V1 manifest without revision
+    A-->>T: canonical manifest and server revision, or failure
+    T-->>D: advance saved baseline only on acknowledgement
+    Note over T: Preserve edits newer than the submitted snapshot
     U->>P: Reset
-    P->>T: restore local saved/seed draft only
+    P->>T: restore backend-confirmed editor baseline when available
 ```
 
 ## Boundary Rules
@@ -355,7 +397,6 @@ the Studio remains a configuration surface rather than a second runtime.
 
 Likely next phases, if the surface is promoted beyond local preview, are:
 
-- frontend adoption of the canonical full-manifest API
 - YAML/JSON import and export
 - richer Project, participant, and logical Connection binding scopes
 - Effective Config inspection
