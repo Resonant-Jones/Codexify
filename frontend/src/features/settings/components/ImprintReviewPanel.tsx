@@ -72,10 +72,8 @@ export default function ImprintReviewPanel({
           Imprint Review
         </h2>
         <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-          Imprint is a deeper style and reasoning layer. Persona is the
-          user-editable mask or voice layer. This panel consumes the backend
-          proposal response directly, and the backend result wins over any
-          preview state.
+          Imprint shapes relational style and presentation. Accepting a proposal
+          activates the Imprint without changing Persona configuration.
         </p>
       </div>
 
@@ -252,9 +250,8 @@ export default function ImprintReviewPanel({
                 className="rounded-xl border px-3 py-2 text-sm"
                 style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
               >
-                Accepting an imprint proposal may also upsert persona as returned
-                by the backend. This panel shows returned metadata only; persona
-                editing stays elsewhere.
+                Legacy proposal text is shown for review only. Acceptance does
+                not apply it as Persona configuration.
               </div>
 
               <div className="flex flex-wrap justify-end gap-2">
@@ -311,22 +308,6 @@ export default function ImprintReviewPanel({
               role="status"
             >
               <div className="font-medium">{outcome.message}</div>
-              {outcome.kind === "accepted" && outcome.accepted.persona ? (
-                <ul className="flex flex-wrap gap-2 text-xs">
-                  <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                    Persona upsert returned by backend
-                  </li>
-                  <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                    Persona ID: {outcome.accepted.persona.id ?? "—"}
-                  </li>
-                  <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                    Source: {outcome.accepted.persona.source ?? "—"}
-                  </li>
-                  <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                    Active: {outcome.accepted.persona.isActive ? "Yes" : "No"}
-                  </li>
-                </ul>
-              ) : null}
               {outcome.kind === "rejected" ? (
                 <div className="text-xs opacity-85">
                   Imprint ID: {outcome.rejected.imprintId ?? "—"} | Status:{" "}

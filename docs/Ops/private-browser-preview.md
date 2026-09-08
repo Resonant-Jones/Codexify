@@ -6,6 +6,24 @@ public product surface. Its supported profile is
 DeepSeek V4 Flash is the only admitted cloud lane. The global beta posture
 remains local-first and local-only.
 
+## Persona Profile route admission
+
+`v1-whooshd-deepseek-web` enables `persona_profiles`, admitting the existing
+authenticated, account-scoped Persona Profile create/list/read/update API at
+`/api/persona-profiles` and `/api/persona-profiles/{profile_id}`. This is bounded
+private-preview/tester exposure under [ADR-082](../architecture/adr/082-persona-profile-manifest-and-binding-authority.md).
+In remote preview mode, anonymous requests, static API keys, and unapproved
+sessions fail with 401; approved sessions reach the handler under their own
+account scope. `CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES=false` still disables
+the router. Imprint, System Prompt, and other route postures are unchanged.
+
+Focused profile/router/auth tests and all six private-preview Compose contract
+cases prove repository admission only. A deployed runtime containing this
+Persona branch/profile has not yet been lineage-qualified, and live Persona
+Studio browser save/backend readback remains pending. Qualify the running
+lineage and route before resuming authenticated browser persistence proof;
+this admission does not advance general Beta support.
+
 ## Provider and network posture
 
 - Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.

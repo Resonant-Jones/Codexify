@@ -277,9 +277,6 @@ vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   }),
 }));
 
-vi.mock("@/features/settings/api/persona", () => ({
-  updatePersonaSettings: vi.fn(),
-}));
 
 function renderSettingsView() {
   return render(

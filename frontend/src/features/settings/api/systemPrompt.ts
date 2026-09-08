@@ -1,9 +1,10 @@
 import api from "@/lib/api";
 
-// This snapshot merges persisted active identity rows with resolved prompt
-// summary data. It is not a raw last-request trace.
-
 export type PromptCostStatus = "ok" | "warn" | "hard" | "unknown";
+export type SystemPromptInspectorLayerState =
+  | "present"
+  | "absent"
+  | "unavailable";
 
 export type SystemPromptInspectorContext = {
   projectId?: number | null;
@@ -11,49 +12,67 @@ export type SystemPromptInspectorContext = {
 };
 
 type SegmentPayload = {
-  name?: string;
+  name?: string | null;
   chars?: number | null;
   estimated_tokens?: number | null;
   truncated?: boolean | null;
 };
 
-type ImprintStatusResponse = {
-  imprint?: {
-    id?: number;
-    status?: string | null;
-    heat_score?: number | null;
-    preferred_name?: string | null;
-    created_at?: string | null;
-  } | null;
-  persona?: {
-    id?: number;
-    source?: string | null;
-    snippet?: string | null;
-    created_at?: string | null;
-  } | null;
-  system_prompt_meta?: {
-    estimated_tokens?: number | null;
-    docs_count?: number | null;
-    segments_present?: Record<string, boolean> | null;
-    segments?: SegmentPayload[] | null;
-  } | null;
+type CanonicalThresholdResponse = {
+  warn_tokens?: number | null;
+  hard_tokens?: number | null;
+  status?: PromptCostStatus | null;
 };
 
-type SystemPromptSummaryResponse = {
-  estimated_tokens_total?: number | null;
-  threshold?: {
-    warn_tokens?: number | null;
-    hard_tokens?: number | null;
-    status?: PromptCostStatus | null;
-  } | null;
-  segments?: SegmentPayload[] | null;
-  docs_count?: number | null;
-  generated_at?: string | null;
-  estimated_tokens?: number | null;
-  cap_tokens?: number | null;
-  docs_truncated?: boolean | null;
-  overflow?: boolean | null;
+type CanonicalPersonaProfileResponse = {
+  state: SystemPromptInspectorLayerState;
+  error_code: string | null;
+  profile_id: string | null;
+  revision: number | null;
+  source: string | null;
+};
+
+type CanonicalImprintResponse = {
+  state: SystemPromptInspectorLayerState;
+  error_code: string | null;
+  id: number | null;
+  status: string | null;
+  preferred_name: string | null;
+  heat_score: number | null;
+  style: string | null;
+};
+
+type CanonicalSystemDocsResponse = {
+  state: SystemPromptInspectorLayerState;
+  error_code: string | null;
+  count: number | null;
+  truncated: boolean | null;
+};
+
+type CanonicalPromptResponse = {
+  state: SystemPromptInspectorLayerState;
+  error_code: string | null;
+  projection_kind: string;
+  legacy_persona_included: boolean;
+  estimated_tokens_total: number | null;
+  threshold: CanonicalThresholdResponse;
+  segments: SegmentPayload[];
+  docs_count: number | null;
+  docs_truncated: boolean | null;
   warnings?: string[] | null;
+};
+
+type SystemPromptInspectResponse = {
+  generated_at: string;
+  scope: {
+    user_id: string;
+    thread_id: number | null;
+    project_id: number | null;
+  };
+  persona_profile: CanonicalPersonaProfileResponse;
+  imprint: CanonicalImprintResponse;
+  system_docs: CanonicalSystemDocsResponse;
+  prompt: CanonicalPromptResponse;
 };
 
 export type SystemPromptSegment = {
@@ -65,24 +84,40 @@ export type SystemPromptSegment = {
 
 export type SystemPromptInspectorSnapshot = {
   docsCount: number | null;
-  docsTruncated: boolean;
+  docsTruncated: boolean | null;
   estimatedTokensTotal: number | null;
   generatedAt: string | null;
   imprint: {
-    createdAt: string | null;
+    errorCode: string | null;
     heatScore: number | null;
     id: number | null;
     preferredName: string | null;
+    state: SystemPromptInspectorLayerState;
     status: string | null;
-  } | null;
+    style: string | null;
+  };
   persona: {
-    createdAt: string | null;
-    id: number | null;
-    snippet: string | null;
+    errorCode: string | null;
+    profileId: string | null;
+    revision: number | null;
     source: string | null;
-  } | null;
+    state: SystemPromptInspectorLayerState;
+  };
+  prompt: {
+    docsCount: number | null;
+    docsTruncated: boolean | null;
+    errorCode: string | null;
+    legacyPersonaIncluded: boolean | null;
+    projectionKind: string | null;
+    state: SystemPromptInspectorLayerState;
+  };
   segments: SystemPromptSegment[];
-  segmentsPresent: Record<string, boolean>;
+  systemDocs: {
+    count: number | null;
+    errorCode: string | null;
+    state: SystemPromptInspectorLayerState;
+    truncated: boolean | null;
+  };
   threshold: {
     hardTokens: number | null;
     status: PromptCostStatus;
@@ -98,160 +133,127 @@ function toRequestParams(context: SystemPromptInspectorContext) {
   };
 }
 
-function normalizeSegment(segment: SegmentPayload): SystemPromptSegment | null {
-  if (typeof segment?.name !== "string" || !segment.name.trim()) {
-    return null;
+function normalizeLayerState(
+  state: unknown
+): SystemPromptInspectorLayerState {
+  if (state === "present" || state === "absent" || state === "unavailable") {
+    return state;
   }
+  return "unavailable";
+}
+
+function normalizeNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeErrorCode(value: unknown): string | null {
+  return normalizeNullableString(value);
+}
+
+function normalizePromptCostStatus(value: unknown): PromptCostStatus {
+  if (value === "ok" || value === "warn" || value === "hard" || value === "unknown") {
+    return value;
+  }
+  return "unknown";
+}
+
+function normalizeSegment(segment: SegmentPayload): SystemPromptSegment | null {
+  const name = normalizeNullableString(segment?.name)?.trim();
+  if (!name) return null;
 
   return {
-    name: segment.name.trim(),
-    chars: Math.max(0, Number(segment.chars ?? 0) || 0),
+    name,
+    chars: Math.max(0, normalizeNullableNumber(segment.chars) ?? 0),
     estimatedTokens: Math.max(
       0,
-      Number(segment.estimated_tokens ?? 0) || 0
+      normalizeNullableNumber(segment.estimated_tokens) ?? 0
     ),
     truncated: Boolean(segment.truncated),
   };
 }
 
-function mergeSegments(
-  summarySegments?: SegmentPayload[] | null,
-  statusSegments?: SegmentPayload[] | null
-): SystemPromptSegment[] {
-  const merged = new Map<string, SystemPromptSegment>();
-
-  for (const rawSegment of statusSegments ?? []) {
-    const segment = normalizeSegment(rawSegment);
-    if (segment) {
-      merged.set(segment.name, segment);
-    }
-  }
-
-  for (const rawSegment of summarySegments ?? []) {
-    const segment = normalizeSegment(rawSegment);
-    if (segment) {
-      merged.set(segment.name, segment);
-    }
-  }
-
-  return Array.from(merged.values());
-}
-
-function mergeSegmentsPresent(
-  segments: SystemPromptSegment[],
-  statusPresence?: Record<string, boolean> | null
-): Record<string, boolean> {
-  const merged: Record<string, boolean> = {};
-
-  for (const [name, isPresent] of Object.entries(statusPresence ?? {})) {
-    merged[name] = Boolean(isPresent);
-  }
-
-  for (const segment of segments) {
-    merged[segment.name] =
-      merged[segment.name] ??
-      (segment.chars > 0 || segment.estimatedTokens > 0);
-  }
-
-  return merged;
+function normalizeWarnings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (warning): warning is string =>
+          typeof warning === "string" && warning.trim().length > 0
+      )
+    : [];
 }
 
 export async function fetchSystemPromptInspectorSnapshot(
   context: SystemPromptInspectorContext = {}
 ): Promise<SystemPromptInspectorSnapshot> {
-  const params = toRequestParams(context);
-  const [statusRes, summaryRes] = await Promise.all([
-    api.get<ImprintStatusResponse>("/api/imprint/status", { params }),
-    api.get<SystemPromptSummaryResponse>("/api/system_prompt/summary", {
-      params,
-    }),
-  ]);
-
-  const statusData = statusRes.data ?? {};
-  const summaryData = summaryRes.data ?? {};
-  const segments = mergeSegments(
-    summaryData.segments,
-    statusData.system_prompt_meta?.segments
+  const response = await api.get<SystemPromptInspectResponse>(
+    "/api/system_prompt/inspect",
+    { params: toRequestParams(context) }
   );
+  const data = response.data;
+  const persona = data.persona_profile;
+  const imprint = data.imprint;
+  const systemDocs = data.system_docs;
+  const prompt = data.prompt;
+  const segments = (prompt.segments ?? [])
+    .map(normalizeSegment)
+    .filter((segment): segment is SystemPromptSegment => segment !== null);
+  const docsCount = normalizeNullableNumber(systemDocs.count);
+  const docsTruncated =
+    typeof systemDocs.truncated === "boolean" ? systemDocs.truncated : null;
+  const promptDocsCount = normalizeNullableNumber(prompt.docs_count);
+  const promptDocsTruncated =
+    typeof prompt.docs_truncated === "boolean" ? prompt.docs_truncated : null;
 
   return {
-    docsCount:
-      summaryData.docs_count ?? statusData.system_prompt_meta?.docs_count ?? null,
-    docsTruncated: Boolean(summaryData.docs_truncated),
-    estimatedTokensTotal:
-      summaryData.estimated_tokens_total ??
-      summaryData.estimated_tokens ??
-      statusData.system_prompt_meta?.estimated_tokens ??
-      null,
-    generatedAt:
-      typeof summaryData.generated_at === "string"
-        ? summaryData.generated_at
-        : null,
-    imprint: statusData.imprint
-      ? {
-          createdAt:
-            typeof statusData.imprint.created_at === "string"
-              ? statusData.imprint.created_at
-              : null,
-          heatScore:
-            typeof statusData.imprint.heat_score === "number"
-              ? statusData.imprint.heat_score
-              : null,
-          id:
-            typeof statusData.imprint.id === "number"
-              ? statusData.imprint.id
-              : null,
-          preferredName:
-            typeof statusData.imprint.preferred_name === "string"
-              ? statusData.imprint.preferred_name
-              : null,
-          status:
-            typeof statusData.imprint.status === "string"
-              ? statusData.imprint.status
-              : null,
-        }
-      : null,
-    persona: statusData.persona
-      ? {
-          createdAt:
-            typeof statusData.persona.created_at === "string"
-              ? statusData.persona.created_at
-              : null,
-          id:
-            typeof statusData.persona.id === "number"
-              ? statusData.persona.id
-              : null,
-          snippet:
-            typeof statusData.persona.snippet === "string"
-              ? statusData.persona.snippet
-              : null,
-          source:
-            typeof statusData.persona.source === "string"
-              ? statusData.persona.source
-              : null,
-        }
-      : null,
-    segments,
-    segmentsPresent: mergeSegmentsPresent(
-      segments,
-      statusData.system_prompt_meta?.segments_present
-    ),
-    threshold: {
-      hardTokens:
-        typeof summaryData.threshold?.hard_tokens === "number"
-          ? summaryData.threshold.hard_tokens
-          : null,
-      status: summaryData.threshold?.status ?? "unknown",
-      warnTokens:
-        typeof summaryData.threshold?.warn_tokens === "number"
-          ? summaryData.threshold.warn_tokens
-          : null,
+    docsCount,
+    docsTruncated,
+    estimatedTokensTotal: normalizeNullableNumber(prompt.estimated_tokens_total),
+    generatedAt: normalizeNullableString(data.generated_at),
+    imprint: {
+      errorCode: normalizeErrorCode(imprint.error_code),
+      heatScore: normalizeNullableNumber(imprint.heat_score),
+      id: normalizeNullableNumber(imprint.id),
+      preferredName: normalizeNullableString(imprint.preferred_name),
+      state: normalizeLayerState(imprint.state),
+      status: normalizeNullableString(imprint.status),
+      style: normalizeNullableString(imprint.style),
     },
-    warnings: Array.isArray(summaryData.warnings)
-      ? summaryData.warnings.filter(
-          (warning): warning is string =>
-            typeof warning === "string" && warning.trim().length > 0
-        )
-      : [],
+    persona: {
+      errorCode: normalizeErrorCode(persona.error_code),
+      profileId: normalizeNullableString(persona.profile_id),
+      revision:
+        typeof persona.revision === "number" && Number.isInteger(persona.revision)
+          ? persona.revision
+          : null,
+      source: normalizeNullableString(persona.source),
+      state: normalizeLayerState(persona.state),
+    },
+    prompt: {
+      docsCount: promptDocsCount,
+      docsTruncated: promptDocsTruncated,
+      errorCode: normalizeErrorCode(prompt.error_code),
+      legacyPersonaIncluded:
+        typeof prompt.legacy_persona_included === "boolean"
+          ? prompt.legacy_persona_included
+          : null,
+      projectionKind: normalizeNullableString(prompt.projection_kind),
+      state: normalizeLayerState(prompt.state),
+    },
+    segments,
+    systemDocs: {
+      count: docsCount,
+      errorCode: normalizeErrorCode(systemDocs.error_code),
+      state: normalizeLayerState(systemDocs.state),
+      truncated: docsTruncated,
+    },
+    threshold: {
+      hardTokens: normalizeNullableNumber(prompt.threshold?.hard_tokens),
+      status: normalizePromptCostStatus(prompt.threshold?.status),
+      warnTokens: normalizeNullableNumber(prompt.threshold?.warn_tokens),
+    },
+    warnings: normalizeWarnings(prompt.warnings),
   };
 }

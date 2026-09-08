@@ -17,7 +17,6 @@ vi.mock("@/imprint/api", () => ({
   rejectImprint: vi.fn(),
   requestImprintProposal: vi.fn(),
   toggleSystemDocApi: vi.fn(),
-  updatePersonaApi: vi.fn(),
 }));
 
 const fetchImprintStatusMock = vi.mocked(fetchImprintStatus);
@@ -47,6 +46,18 @@ describe("useImprintZero", () => {
       warnings: [],
     });
     fetchSystemDocsMock.mockResolvedValue({ docs: [] });
+  });
+
+  test("retains read-only Persona status without a Persona mutation action", async () => {
+    fetchImprintStatusMock.mockResolvedValue({
+      imprint: null,
+      persona: { id: 9, source: "user", snippet: "Existing legacy text" },
+    });
+    const { result } = renderHook(() => useImprintZero());
+    await waitFor(() => {
+      expect(result.current.status?.persona?.snippet).toBe("Existing legacy text");
+    });
+    expect(result.current).not.toHaveProperty("updatePersona");
   });
 
   test("surfaces backend proposal truth from the runtime path", async () => {

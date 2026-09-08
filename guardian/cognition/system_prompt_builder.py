@@ -149,8 +149,9 @@ def _current_turn_priority_block() -> str:
     )
 
 
-def build_guardian_system_prompt(
+def _compose_guardian_system_prompt(
     *,
+    include_legacy_persona: bool,
     user_id: str,
     project_id: int | None,
     depth: str,
@@ -170,14 +171,18 @@ def build_guardian_system_prompt(
     resolved_imprint = resolve_imprint(user_id, project_id)
     # Requested persona is request-scoped state copied in by the completion
     # path. It may select a persisted persona record or supply inline text.
-    resolved_persona = resolve_persona(
-        user_id,
-        project_id,
-        requested_persona_id_or_name=bundle_payload.get("requested_persona"),
+    resolved_persona = (
+        resolve_persona(
+            user_id,
+            project_id,
+            requested_persona_id_or_name=bundle_payload.get("requested_persona"),
+        )
+        if include_legacy_persona
+        else None
     )
     docs = get_docs_for(user_id, project_id)
 
-    persona_body = resolved_persona.body or None
+    persona_body = (resolved_persona.body or None) if resolved_persona else None
     imprint_data = {
         "guardian_name": resolved_imprint.guardian_name,
         "preferred_name": resolved_imprint.preferred_name,
@@ -260,14 +265,88 @@ def build_guardian_system_prompt(
                 else None
             )
         ),
-        "resolved_persona_source": resolved_persona.source,
+        "resolved_persona_source": resolved_persona.source if resolved_persona else None,
         "resolved_imprint_source": resolved_imprint.source,
-        "resolved_persona_source": resolved_persona.source,
-        "resolved_persona_id": resolved_persona.persona_id,
+        "resolved_persona_source": resolved_persona.source if resolved_persona else None,
+        "resolved_persona_id": resolved_persona.persona_id if resolved_persona else None,
         "persona_has_body": bool(persona_body),
     }
     meta["docs_estimated_tokens"] = estimate_token_cost_for_docs(docs)
     return system_prompt, meta
 
 
-__all__ = ["build_guardian_system_prompt"]
+def build_guardian_system_prompt(
+    *,
+    user_id: str,
+    project_id: int | None,
+    depth: str,
+    bundle: dict | None = None,
+    token_cap: int | None = None,
+    profile: ResolvedSystemProfile | dict[str, Any] | None = None,
+    identity_context: dict[str, Any] | None = None,
+) -> tuple[str, dict]:
+    """Build the existing legacy-inclusive runtime prompt and metadata."""
+    return _compose_guardian_system_prompt(
+        include_legacy_persona=True,
+        user_id=user_id,
+        project_id=project_id,
+        depth=depth,
+        bundle=bundle,
+        token_cap=token_cap,
+        profile=profile,
+        identity_context=identity_context,
+    )
+
+
+def build_guardian_system_prompt_inspection_metadata(
+    *,
+    user_id: str,
+    project_id: int | None,
+    depth: str,
+    token_cap: int | None = None,
+    profile: ResolvedSystemProfile | None = None,
+    identity_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Measure a canonical inspection projection, not an executed runtime prompt.
+
+    Profile authority must already be resolved by the caller. Legacy Persona
+    resolution is excluded; raw composition text never leaves this API.
+    """
+    _, meta = _compose_guardian_system_prompt(
+        include_legacy_persona=False,
+        user_id=user_id,
+        project_id=project_id,
+        depth=depth,
+        token_cap=token_cap,
+        profile=profile,
+        identity_context=identity_context,
+    )
+    return {
+        "projection_kind": "canonical_inspection",
+        "legacy_persona_included": False,
+        **{
+            key: meta[key]
+            for key in (
+                "total_chars",
+                "estimated_tokens",
+                "estimated_tokens_total",
+                "docs_count",
+                "cap_tokens",
+                "docs_truncated",
+                "profile_truncated",
+                "docs_estimated_tokens",
+            )
+        },
+        "segments": [
+            {key: segment[key] for key in (
+                "name", "chars", "estimated_tokens", "truncated", "cacheable"
+            )}
+            for segment in meta["segments"]
+        ],
+    }
+
+
+__all__ = [
+    "build_guardian_system_prompt",
+    "build_guardian_system_prompt_inspection_metadata",
+]

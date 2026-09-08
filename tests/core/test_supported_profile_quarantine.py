@@ -1,8 +1,9 @@
 import importlib
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from guardian.connections.catalog import get_catalog
@@ -382,3 +383,73 @@ def test_missing_route_does_not_regress_to_unclassified_404(
             },
         )
         assert response.status_code == 200
+
+
+@pytest.mark.parametrize("route_enabled", [True, False], ids=["admitted", "flag-disabled"])
+def test_whooshd_profile_mounts_authenticated_persona_profiles(
+    monkeypatch, route_enabled,
+) -> None:
+    from tests.auth.test_private_preview_access import _preview_env, _session_headers
+    from tests.utils import get_test_auth_headers
+    from guardian.core import event_bus
+    import guardian.guardian_api as guardian_api
+    import guardian.routes.persona_profiles as persona_routes
+
+    try:
+        with monkeypatch.context() as env:
+            _preview_env(env)
+            env.setenv("GUARDIAN_AUTH_MODE", "remote")
+            env.setenv("ENABLE_CONNECTOR_WORKER", "0")
+            env.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+            if route_enabled:
+                # Test ordinary default admission, without forcing the flag on.
+                env.delenv("CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES", raising=False)
+            else:
+                env.setenv("CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES", "false")
+            guardian_api = importlib.reload(guardian_api)
+            # Only persistence IO is stubbed. Authentication, allowlist, scope
+            # resolution, router registration, and route handler remain real.
+            listing = MagicMock(return_value=[])
+            env.setattr(persona_routes, "list_persona_profiles", listing)
+            # Match the existing mounted-route fixture: no service lifespan.
+            with closing(TestClient(guardian_api.app)) as client:
+                paths = client.get("/openapi.json").json()["paths"]
+                mounted = guardian_api.app.state.supported_profile_enabled_labels
+                headers = _session_headers("admin@example.com")
+                if not route_enabled:
+                    assert "/api/persona-profiles" not in paths
+                    assert "/api/persona-profiles/{profile_id}" not in paths
+                    assert "persona_profiles" not in mounted
+                    assert client.get("/api/persona-profiles", headers=headers).status_code == 404
+                    listing.assert_not_called()
+                    return
+
+                assert "/api/persona-profiles" in paths
+                assert set(paths["/api/persona-profiles"]) == {"get", "post"}
+                assert set(paths["/api/persona-profiles/{profile_id}"]) == {"get", "patch"}
+                assert "persona_profiles" in mounted
+                assert client.get("/api/persona-profiles").status_code == 401
+                assert client.get(
+                    "/api/persona-profiles", headers=get_test_auth_headers()
+                ).status_code == 401
+                assert client.get(
+                    "/api/persona-profiles",
+                    headers=_session_headers("unapproved@example.com"),
+                ).status_code == 401
+                listing.assert_not_called()
+                for email in ("admin@example.com", "guest@example.com"):
+                    response = client.get(
+                        "/api/persona-profiles",
+                        headers={**_session_headers(email), "X-User-Id": "foreign@example.com"},
+                    )
+                    assert response.status_code == 200
+                    assert response.json() == {"ok": True, "profiles": []}
+                    listing.assert_called_with(account_id=email)
+                assert listing.call_count == 2
+                for path in ("/api/imprint/status", "/api/system_prompt/summary", "/api/connectors"):
+                    assert path not in paths
+                    assert client.get(path, headers=headers).status_code == 404
+    finally:
+        event_bus.reset()
+        # Restore module route registration after restoring the patched env.
+        importlib.reload(guardian_api)

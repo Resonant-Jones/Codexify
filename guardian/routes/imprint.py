@@ -8,6 +8,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -22,7 +23,9 @@ from guardian.cognition.personas import store as persona_store
 from guardian.cognition.system_docs import store as system_doc_store
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
+    build_guardian_system_prompt_inspection_metadata,
 )
+from guardian.cognition.system_profiles.resolver import resolve_thread_system_profile
 from guardian.core.dependencies import get_current_user, require_api_key
 from guardian.services import (
     iddb_settings_service,
@@ -363,12 +366,17 @@ def accept_imprint(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Activate a draft imprint and upsert persona.
+    Activate an owned imprint without changing Persona configuration.
     """
     imprint_id = body.get("imprint_id")
-    persona_override = body.get("persona_text_override")
     if imprint_id is None:
         raise HTTPException(status_code=400, detail="imprint_id is required")
+
+    if "persona_text_override" in body:
+        raise HTTPException(
+            status_code=400,
+            detail="persona_text_override is not supported for Imprint acceptance",
+        )
 
     imprint = imprint_store.get_imprint_by_id(imprint_id)
     if not imprint:
@@ -396,22 +404,7 @@ def accept_imprint(
             status_code=403, detail="identity updates disabled for this context"
         )
 
-    persona_text = persona_override
-    if not persona_text:
-        metrics = getattr(imprint, "metrics", {}) or {}
-        persona_text = metrics.get("persona_draft")
-    if not persona_text:
-        persona_text = (
-            "You are a reliable Guardian. Answer concisely and safely."
-        )
-
     activated = imprint_store.activate_imprint(imprint_id)
-    persona = persona_store.set_persona(
-        user_id=user_id,
-        project_id=resolved_project,
-        body=persona_text,
-        source="user" if persona_override else "imprint_zero_seed",
-    )
 
     return {
         "imprint": {
@@ -420,12 +413,6 @@ def accept_imprint(
             "guardian_name": activated.guardian_name,
             "preferred_name": activated.preferred_name,
             "heat_score": activated.heat_score,
-        },
-        "persona": {
-            "id": persona.id,
-            "body": persona.body,
-            "source": persona.source,
-            "is_active": persona.is_active,
         },
     }
 
@@ -445,6 +432,114 @@ def reject_imprint(
     )
     imprint = imprint_store.supersede_imprint(imprint.id)
     return {"status": "rejected", "imprint_id": imprint_id}
+
+
+@system_prompt_router.get("/inspect")
+def inspect_system_prompt(
+    thread_id: int | None = Query(None),
+    project_id: int | None = Query(None),
+    current_user: str = Depends(get_current_user),
+):
+    """Observe canonical selection and a legacy-free composition projection."""
+    user_id, resolved_project, thread = _resolve_user_project(
+        current_user, thread_id, project_id,
+    )
+    # Project-only requests also require ownership, before observational catches.
+    if resolved_project is not None:
+        try:
+            projects = chatlog_db.list_projects()
+            project = next(
+                (row for row in projects if row.get("id") == resolved_project), None
+            )
+        except Exception:
+            raise HTTPException(status_code=403, detail="project scope cannot be established")
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        if str(project.get("user_id") or "").strip() != user_id:
+            raise HTTPException(status_code=403, detail="project does not belong to the current user")
+
+    profile = None
+    persona = {
+        "profile_id": None, "revision": None, "source": None,
+        "state": "unavailable", "error_code": "thread_context_required",
+    }
+    if thread is not None:
+        raw_id = thread.get("active_profile_id")
+        raw_revision = thread.get("active_profile_revision")
+        persona.update(
+            profile_id=str(raw_id).strip()[:128] if raw_id is not None else None,
+            revision=raw_revision if type(raw_revision) is int else None,
+            error_code=None,
+        )
+        if not persona["profile_id"] and raw_revision is None:
+            persona["state"] = "absent"
+        else:
+            try:
+                # Resolve the same owned row already checked above, not a later
+                # thread read that could disagree with this observation's pins.
+                profile = resolve_thread_system_profile(
+                    thread_id,
+                    chatlog_db=SimpleNamespace(get_chat_thread=lambda _id: thread),
+                )
+                persona.update(
+                    profile_id=profile.active_profile_id,
+                    revision=profile.active_profile_revision,
+                    source=profile.source,
+                    state="present",
+                )
+            except Exception:
+                persona.update(state="unavailable", error_code="system_profile_resolution_unavailable")
+
+    imprint = {"state": "unavailable", "error_code": None, "id": None,
+               "status": None, "preferred_name": None, "heat_score": None, "style": None}
+    try:
+        active = imprint_store.get_active_imprint(user_id, resolved_project)
+        imprint.update(state="present" if active else "absent")
+        if active:
+            imprint.update({key: getattr(active, key, None) for key in (
+                "id", "status", "preferred_name", "heat_score", "style"
+            )})
+    except Exception:
+        imprint.update(state="unavailable", error_code="imprint_observation_unavailable")
+
+    docs = {"state": "unavailable", "error_code": None, "count": None, "truncated": None}
+    try:
+        count = len(system_doc_store.get_docs_for(user_id, resolved_project))
+        docs.update(state="present" if count else "absent", count=count)
+    except Exception:
+        docs["error_code"] = "system_docs_observation_unavailable"
+
+    warn, hard = _resolve_prompt_thresholds()
+    prompt = {
+        "state": "unavailable", "error_code": None,
+        "projection_kind": "canonical_inspection", "legacy_persona_included": False,
+        "estimated_tokens_total": None,
+        "threshold": {"warn_tokens": warn, "hard_tokens": hard, "status": "unknown"},
+        "segments": [], "docs_count": None, "docs_truncated": None,
+    }
+    try:
+        meta = build_guardian_system_prompt_inspection_metadata(
+            user_id=user_id, project_id=resolved_project, depth="normal", profile=profile,
+        )
+        total = _coerce_int(meta.get("estimated_tokens_total"))
+        prompt.update(
+            state="present", estimated_tokens_total=total,
+            segments=_normalize_segments(meta.get("segments")),
+            docs_count=_coerce_int(meta.get("docs_count")),
+            docs_truncated=bool(meta.get("docs_truncated")),
+        )
+        prompt["threshold"]["status"] = _threshold_status(total, warn, hard)
+        # Independent reads may differ; only associate truncation if counts agree.
+        if docs["count"] is not None and docs["count"] == prompt["docs_count"]:
+            docs["truncated"] = prompt["docs_truncated"]
+    except Exception:
+        prompt.update(state="unavailable", error_code="prompt_inspection_unavailable")
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "scope": {"user_id": user_id, "thread_id": thread_id, "project_id": resolved_project},
+        "persona_profile": persona, "imprint": imprint, "system_docs": docs, "prompt": prompt,
+    }
 
 
 @system_prompt_router.get("/summary")
@@ -527,63 +622,6 @@ def system_prompt_summary(
         "overflow": meta.get("overflow"),
         "warnings": warnings,
     }
-
-
-@router.post("/persona")
-def update_persona(
-    body: dict[str, Any] = Body(...),
-    current_user: str = Depends(get_current_user),
-):
-    """Explicitly set persona text (source=user) for the current user/project."""
-    logger.info("[api/system-prompt/save] incoming body %s", body)
-    text = (
-        body.get("body")
-        or body.get("persona_prompt")
-        or body.get("system_prompt")
-    )
-    thread_id = body.get("thread_id")
-    project_id = body.get("project_id")
-    if not text or not str(text).strip():
-        raise HTTPException(status_code=400, detail="body is required")
-    user_id, resolved_project, thread = _resolve_user_project(
-        current_user,
-        thread_id,
-        project_id,
-        mutation=True,
-    )
-    project_identity_depth = _resolve_project_identity_depth(resolved_project)
-    if not _identity_updates_allowed(
-        user_id,
-        thread,
-        project_identity_depth=project_identity_depth,
-    ):
-        raise HTTPException(
-            status_code=403, detail="identity updates disabled for this context"
-        )
-    try:
-        logger.info(
-            "[persona_prompt] updating active prompt %s",
-            {"userId": user_id, "personaId": None},
-        )
-        persona = persona_store.set_persona(
-            user_id, resolved_project, str(text), source="user"
-        )
-        logger.info(
-            "[persona_prompt_versions] inserting version row %s",
-            {"userId": user_id, "personaId": persona.id},
-        )
-        return {
-            "id": persona.id,
-            "body": persona.body,
-            "source": persona.source,
-            "is_active": persona.is_active,
-            "created_at": getattr(persona, "created_at", None),
-        }
-    except Exception as e:
-        logger.exception("[system-prompt persistence] DB error %s", e)
-        return JSONResponse(
-            status_code=500, content={"ok": False, "error": "update failed"}
-        )
 
 
 @system_docs_router.get("")

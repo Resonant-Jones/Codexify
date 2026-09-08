@@ -53,8 +53,6 @@ def _render_compose(
         "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
         "NEO4J_PASS": "inert-neo4j-password",
     }
-    if runtime_env_file is not None:
-        environment["CODEXIFY_RUNTIME_ENV_FILE"] = runtime_env_file
     command = [
         "docker",
         "compose",
@@ -66,18 +64,32 @@ def _render_compose(
         "--format",
         "json",
     ]
+    temporary_env_file: str | None = None
     try:
-        completed = subprocess.run(
-            command,
-            cwd=ROOT,
-            env=environment,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        pytest.skip("docker compose is unavailable")
-    return json.loads(completed.stdout)
+        if runtime_env_file is None:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".env", prefix="codexify_test_runtime_", delete=False
+            ) as tmp:
+                temporary_env_file = tmp.name
+                os.chmod(temporary_env_file, 0o600)
+                tmp.write(SENTINEL_ENV_CONTENT)
+            runtime_env_file = temporary_env_file
+        environment["CODEXIFY_RUNTIME_ENV_FILE"] = runtime_env_file
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            pytest.skip("docker compose is unavailable")
+        return json.loads(completed.stdout)
+    finally:
+        if temporary_env_file is not None:
+            os.unlink(temporary_env_file)
 
 
 def _published_ports(config: dict[str, Any]) -> list[tuple[str, int, int]]:
