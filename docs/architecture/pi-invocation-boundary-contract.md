@@ -2,7 +2,7 @@
 
 Implementation status (2026-05-08): backend-only Pi invocation boundary contracts now exist under `guardian/pi` for `PiInvocationEnvelope`, `PiInvocationReceipt`, `PiInvocationArtifact`, `PiHarnessResult`, and `PiInvocationValidationResult`, with pure deterministic validation helpers for envelope, receipt, and harness-result provenance/permission checks.
 
-As of 2026-07-24, a bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that uses Pi's built-in `deepseek` provider for read-only analysis delegation. This is dev-tooling only — no runtime integration, no provider widening, and no release-claim change. Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`. The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable. Codex remains the supervising agent; DeepSeek remains a bounded, untrusted external worker.
+As of 2026-09-06, a bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that lets the supervising agent choose an exact provider/model pair from Pi's current `pi --list-models` registry. This is dev-tooling only — no Guardian runtime integration, provider-routing change, or release-claim change. Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`. The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable. Codex/Astra remains the supervising agent; the selected Pi worker remains bounded and untrusted. The legacy DeepSeek names are retained for compatibility with repository proof surfaces.
 
 This seam is contract and validation only:
 - no live Pi SDK call exists
@@ -22,7 +22,7 @@ Deferred in this task:
 - provider implementation docs
 - command-bus runtime docs
 Purpose: Define Codexify's bounded architecture contract for future Pi-like coding-agent harness invocation while preserving Guardian authority, lineage, and sovereignty boundaries.
-Last updated: 2026-07-24 (added canonical skill source and deployment routing)
+Last updated: 2026-09-06 (added supervising-agent-selected Pi provider/model pairs)
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/chat-runtime-contract.md
@@ -385,16 +385,20 @@ Narrow first slice recommendation:
 - no transcript persistence
 - pure validation of envelope shape, provenance, permission posture, and receipt shape
 
-## Development-Tooling Skill (2026-07-24)
+## Development-Tooling Skill (2026-09-06)
 
 A bounded dev-tooling delegation skill exists as a non-runtime companion to this contract:
 
 - **Canonical source:** `skills/pi-deepseek-delegation/`
 - **Installed deployment:** `$HOME/.codex/skills/pi-deepseek-delegation/`
-- **Provider posture:** Uses Pi's built-in `deepseek` provider. No custom provider is registered. No Pi core is patched.
+- **Provider/model posture:** The supervising agent selects an exact provider/model pair from Pi's current `pi --list-models` output. No custom provider is registered and no Pi core is patched.
+- **Selection authority:** The wrapper never chooses a preferred model, first-listed model, or silent provider fallback; missing or unavailable pairs fail closed. Generic operator defaults are accepted only as a complete provider/model pair, with bounded legacy DeepSeek compatibility.
+- **Credential boundary:** Catalog and preflight use Pi's available-model output and do not inspect `auth.json`, API keys, or provider-specific credential state.
+- **Consent boundary:** Real inference requires generic delegation acknowledgement; legacy DeepSeek acknowledgements are accepted only for a DeepSeek selection. Write mode retains a separate generic write gate.
 - **Synchronization:** `bash skills/pi-deepseek-delegation/scripts/install.sh --install`
 - **Drift detection:** `bash skills/pi-deepseek-delegation/scripts/install.sh --check`
-- **Supervision:** Codex remains the supervising agent. DeepSeek remains an external, bounded, untrusted worker.
-- **Authority:** The skill adds no runtime integration, no provider widening, no merge/commit/push/deploy capability, and no release-claim change.
+- **Supervision:** Codex/Astra remains the supervising agent. The selected provider/model remains an external, bounded, untrusted worker.
+- **Compatibility:** Directory, identifier, wrapper filename, and installed target retain the `pi-deepseek-delegation` names until a separate naming-migration task.
+- **Authority:** The skill adds no Guardian runtime integration, no runtime provider routing, no merge/commit/push/deploy capability, and no release-claim change.
 
 This skill is dev-tooling only. It does not implement the Pi Invocation Boundary runtime seam described above.

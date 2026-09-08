@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-05
+2026-09-08
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded live private-preview schema upgrade reached repository Alembic head with data-preservation and immediate runtime-read checks passing; the installed scheduled reconciler subsequently passed from its coherent shared-image baseline without recreating healthy long-running containers or changing canonical database state. No Beta support boundary widened.
+`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded live private-preview schema upgrade reached repository Alembic head with data-preservation and immediate runtime-read checks passing; the installed scheduled reconciler subsequently passed from its coherent shared-image baseline without recreating healthy long-running containers or changing canonical database state. Recent mainline work also improved bounded Persona Profile, sharing, and worker-diagnosis seams. No new release-ready runtime path or wider Beta support boundary was established.
 
 ## What changed recently
 
@@ -32,9 +32,11 @@ This file is authoritative for:
   closed.
 - Implemented fail-closed reconciliation for legacy
   `projects.user_id == 'local'` rows under ADR-081's exact canonical-thread
-  evidence rule. Always-on classification and mutation-order tests pass, but
-  this harness could not execute the required disposable-PostgreSQL migration
-  proof, so UMS-01 remains open.
+  evidence rule. Always-on classification and mutation-order tests passed; the
+  initial harness could not execute the required disposable-PostgreSQL migration
+  proof, so UMS-01 remained open at that checkpoint. The later
+  [UMS-01Q PostgreSQL qualification](./proofs/runtime/2026-09-06-project-ownership-postgresql-qualification-proof.md)
+  closed that proof gap with zero skips.
 - Revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9` have not been applied to the live
   private-preview database.
 - Reconciled the UMS ownership migration lineage behind Persona Studio with
@@ -122,8 +124,9 @@ This file is authoritative for:
   `12075540e29077a40a7d578eef315bc4277c0841` was independently
   reverified at `09a13039cc6309188d66782f18514cc2856733b3` by a
   second harness against the full UMS-03A acceptance surface
-  (38/38 verdicts PASS, including the documentation-gap record that
-  ADR-083 is not present in the canonical ADR registry). See the
+  (38/38 verdicts PASS, including the then-current documentation-gap
+  finding that no ADR-083 document existed; the registry now carries
+  the unissued/retired slot's non-authoritative tombstone). See the
   [UMS-03A reverification proof](./proofs/runtime/2026-09-07-ums03a-reverification-proof.md).
   UMS-03A was not retroactively edited; the reverification is
   additive evidence only.
@@ -442,61 +445,51 @@ This file is authoritative for:
   the
   [UMS-03G candidate-fact compatibility proof](./proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
+- Persona Profile authority, account-scoped persistence, export coverage, acceptance-time snapshots, and five-field runtime application landed with focused tests; broad Studio controls remain outside runtime enforcement.
+- ShareSheet async handling now rejects stale search/send completions and surfaces relationship-load failure with retry coverage.
+- A proof-only Tester worker lineage bridge confirmed that the historical bind/import race still applies to `main`; the fail-closed readiness predicate and fresh Tester runtime proof remain absent.
+- Pi’s Anthropic coding default was reconciled to `claude-sonnet-4-6` with contract/proof coverage; this remains internal coding-worker qualification.
+- Private-preview migration/recovery evidence and one-slot local chat-worker admission remain bounded prerequisites, not provider or persistence closure.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The intended Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
-- Mainline contains focused project lifecycle, conversation-origin, document-artifact preview, Guardian Chat, account-import, and mobile-shell repairs with targeted coverage; supported-path and authenticated browser proof remain separate gates.
+- Mainline has focused coverage for project lifecycle, conversation origin, document artifacts, Guardian Chat, account import, mobile shell, Persona Profile, and ShareSheet paths; supported-path and authenticated browser proof remain separate gates.
+- Persona Studio persistence is account-scoped and runtime-active only through the current five-field projection; broad voice, tools, permissions, retrieval, and connector fields remain inert or local.
 - Valid account-import multipart batches are accepted and durably staged on the server path; the Safari/WebKit envelope failure remains unrepaired.
-- Private-preview live migration preservation/readback, Guardian secret rotation, Cloudflare ingress, and private-profile People/Share behavior have bounded evidence; these do not admit guests or widen Beta.
+- Private-preview live migration preservation/readback, scheduled reconciliation, Guardian secret rotation, Cloudflare ingress, and private-profile People/Share behavior have bounded evidence; these do not admit guests or widen Beta.
 - Pi 0.82.1 wrapper/API, source-vendor, identity, framing, and telemetry changes remain internal, non-inference, or OAuth-readiness qualification.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not treat the private-preview migration and scheduled-recovery proof as a canary or provider/persistence closure: the database and reconciler are coherent at `b2c8d0e3f5a7`, while the remaining preview gates stay open.
-- Do not treat focused Project-ownership route/migration-unit proof as live
-  private-preview migration application, disposable-PostgreSQL migration-chain
-  proof, UMS-01 closure, or supported browser proof.
-- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
-- Do not treat private-preview configuration, bounded recovery/ingress receipts, or a live health/read result as an admitted canary; tester isolation, provider, persistence, and observability gates remain open.
+- Do not treat the Tester lineage bridge as a startup repair or fresh runtime qualification; no current bind-readiness predicate has landed.
+- Do not treat private-preview admission serialization, migration/recovery, or health/read results as live provider, persistence, observability, isolation, or canary proof.
+- Do not treat repository and disposable-PostgreSQL Project-ownership qualification as live private-preview application of revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9`, or as supported browser proof.
+- Do not treat Persona Profile persistence, acceptance snapshots, ADR-082, or focused UI tests as broad configuration enforcement or browser proof.
+- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, source-vendor closure, Chroma state, hosted-sandbox partial conformance, or Watchdog contracts as live provider/model execution, coding-loop completion, persisted-result readback, or release-supported behavior.
 - Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
 - Do not infer shipped reality from mutable `latest`, another checkout, local-only artifacts, planning language, or docs alone; realtime delivery, attachments, federation, and cross-node People messaging remain deferred.
 
 ## Active blockers
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
+- The Tester worker bind-readiness repair and fresh isolated runtime proof remain open; the historical diagnosis is applicable but static.
 - Private-preview provider-specific execution, persistence, observability, tester isolation, and approved non-admin canary gates remain open; the bounded scheduled-recovery gate is now proven.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
 - The friends-and-family canary is blocked on approved non-admin testers plus reruns of Access, isolation, provider, persistence, and bounded-observability gates; DeepSeek rotation/requalification remains open.
-- Project-ownership disposable-PostgreSQL migration proof, Safari multipart-envelope repair, Watchdog policy/model, immutable image-retention, hosted-sandbox, and recent supported-path browser gates remain unclosed.
+- Live private-preview application of Project-ownership revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9`, Safari multipart-envelope repair, authenticated browser gates, Watchdog policy/model, immutable image retention, and hosted-sandbox qualification remain unclosed.
 
 ## This week’s priorities
 
-1. Rerun current-main supported-Compose closure with the canonical local profile.
-2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
-3. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
-4. Close Project-ownership convergence, Safari upload-envelope regression, and the browser, Watchdog, retention, and hosted-sandbox gates.
-
-## Release definition right now
-
-- [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
-- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
-- [x] Private-preview migration preservation/readback and ingress proofs are bounded without guest admission or release widening.
-- [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker, lock, migration, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
-- [ ] Every claimed preview/provider lane has current-main proof for live execution, durable readback, isolation, and scheduled recovery where applicable.
-
-## How to read the rest of the KB
-
-- `system-overview.md` explains structure, not release readiness.
-- `flows.md` explains runtime behavior.
-- `data-and-storage.md` explains persistence/invariants.
-- `config-and-ops.md` explains operator/runtime truth.
-- `roadmap-signals.md` is planning guidance, not live status.
-- `tech-debt-and-risks.md` is a risk register, not the active blocker list unless repeated here.
+1. Land the bounded fail-closed Tester bind-readiness predicate, then run fresh isolated Tester proof.
+2. Rerun current-main supported-Compose closure with the canonical local profile.
+3. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
+4. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
+5. Apply and qualify the outstanding Project-ownership revisions on private preview; close Safari upload-envelope, authenticated browser, Watchdog, retention, and hosted-sandbox gates.
 
 ## Release classes
 
@@ -532,10 +525,10 @@ by ADR-069:
   self-hosted node.
 
 This is support doctrine, not current-tip qualification. The "Not yet true
-/ do not assume" section above continues to bound what is provably green
-on the current `main` tip. Implementation presence in a code path does not
-promote a capability to Beta Supported; only the architecture-accepted
-support envelope under ADR-069 does.
+/ do not assume" and "Active blockers" sections above continue to bound what
+is provably green on the current `main` tip. Implementation presence in a
+code path does not promote a capability to Beta Supported; only the
+architecture-accepted support envelope under ADR-069 does.
 
 ### Beta Bounded / Conditional
 
@@ -544,13 +537,14 @@ authority, topology, provider, mode, or capability boundary. The
 classification below is the current accepted one; no new bounded surface
 is added by this section.
 
-- Persona Studio: profile creation / editing, persistence, selection, and
-  application of supported persona / profile configuration to ordinary chat.
-  TTS / voice execution, unsupported permission authoring, unsupported
-  retrieval-policy execution, and "preview UI equals enforcement" claims
-  are excluded from this promotion.
-- Import / continuity entry surfaces: OpenAI / ChatGPT export import, Task
-  Prompt Archive, owner-scoped retry / recovery behavior already
+- Persona Studio: account-scoped profile creation / editing, persistence,
+  selection, and application of the currently implemented five-field
+  runtime projection to ordinary chat. TTS / voice execution, unsupported
+  permission authoring, unsupported retrieval-policy execution, and
+  "preview UI equals enforcement" claims are excluded from this
+  promotion.
+- Import / continuity entry surfaces: OpenAI / ChatGPT export import,
+  Task Prompt Archive, owner-scoped retry / recovery behavior already
   implemented, and account export / restore to the exact extent supported
   by the existing contract and implementation. Not every historical
   corpus, provider export format, or migration shape is claimed.
@@ -614,10 +608,10 @@ saying "not supported," per the ADR-069 Qualification-Pending Doctrine.
 - **Coding Loop** — `remaining gate` requires: live provider/model
   execution, terminal durable result, and source-thread readback on the
   claimed supported profile. CE-L1 wiring remains internal / qualification
-  pending; no `LIVE_EXECUTOR_PROVEN_CANONICAL` is emitted by this section.
+  pending; no `LIVE_EXECUTOR_PROVEN_CANONICAL` is emitted.
 - **Hosted Rooms** — `remaining gate` requires: clean supported / tester
   startup and owner / guest live semantic proof after migration repair.
-- **DeepSeek / private-preview provider lane** — `remaining gate` requires
+- **DeepSeek / private-preview provider lane** — `remaining gate` requires:
   required credentials, authenticated provider-specific persisted runtime
   proof, and explicit supported-profile promotion.
 - **Browser side-panel / Browser Host release surface** — `remaining gate`
@@ -640,7 +634,25 @@ intentionally out of scope:
 - public Command Bus exposure
 - generic cron / unattended automation
 - generic connectors without separate qualification
-- graph-write / Neo4j-derived-write behavior where the supported path
-  remains flagged off or quarantined
+- graph-write / Neo4j-derived-write behavior where the supported path remains
+  flagged off or quarantined
 - remote / multi-user repository execution not covered by a separately
   accepted authority contract and live proof
+
+## Release definition right now
+
+- [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
+- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
+- [x] Private-preview migration preservation/readback and ingress proofs are bounded without guest admission or release widening.
+- [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
+- [ ] Queue, worker bind readiness, locks, migrations, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
+- [ ] Every claimed preview/provider lane has current-main proof for live execution, durable readback, isolation, and scheduled recovery where applicable.
+
+## How to read the rest of the KB
+
+- `system-overview.md` explains structure, not release readiness.
+- `flows.md` explains runtime behavior.
+- `data-and-storage.md` explains persistence/invariants.
+- `config-and-ops.md` explains operator/runtime truth.
+- `roadmap-signals.md` is planning guidance, not live status.
+- `tech-debt-and-risks.md` is a risk register, not the active blocker list unless repeated here.

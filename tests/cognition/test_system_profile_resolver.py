@@ -266,3 +266,82 @@ def test_store_exact_read_rejects_corrupt_manifest(persona_profiles):
         )
         is None
     )
+
+
+def test_accepted_persona_selection_ignores_later_thread_selection(persona_profiles):
+    from guardian.tasks.types import PersonaSelectionSnapshot
+
+    db = _FakeChatDB()
+    db.thread["user_id"] = "account-a"
+    snapshot = PersonaSelectionSnapshot("axis", 1)
+    persona_profiles.update_persona_profile(
+        "axis", account_id="account-a", system_prompt="Revision two."
+    )
+    for profile_id in ("axis", "local_mode"):
+        switch_thread_profile(1, profile_id, chatlog_db=db)
+        resolved = resolve_thread_system_profile(
+            1, chatlog_db=db, accepted_selection=snapshot
+        )
+        assert resolved.active_profile_revision == 1
+        assert resolved.system_prompt == "Original instructions."
+        assert resolved.provider_override == "openai"
+        assert resolved.model_override == "original-model"
+        assert resolved.temperature_override == 0.2
+    assert resolve_thread_system_profile(1, chatlog_db=db).profile_id == "local_mode"
+
+
+@pytest.mark.parametrize("profile_id", [None, "local_mode", "env-profile", "flow"])
+def test_accepted_revisionless_selection_ignores_later_persona(
+    persona_profiles, monkeypatch, profile_id
+):
+    from guardian.tasks.types import PersonaSelectionSnapshot
+
+    monkeypatch.setenv(
+        "GUARDIAN_SYSTEM_PROFILES_JSON",
+        '[{"profile_id":"env-profile","provider_override":"local","system_prompt":"Environment prompt."}]',
+    )
+    db = _FakeChatDB()
+    db.thread["user_id"] = "account-a"
+    db.thread["metadata"]["profile_overrides"] = {
+        "flow": {
+            "profile_id": "flow",
+            "provider_override": "local",
+            "system_prompt": "Flow prompt.",
+        }
+    }
+    db.thread["active_profile_id"] = profile_id
+    expected = resolve_thread_system_profile(1, chatlog_db=db)
+    switch_thread_profile(1, "axis", chatlog_db=db)
+    assert (
+        resolve_thread_system_profile(
+            1,
+            chatlog_db=db,
+            accepted_selection=PersonaSelectionSnapshot(profile_id, None),
+        )
+        == expected
+    )
+    assert (
+        resolve_thread_system_profile(
+            1, chatlog_db=db, accepted_selection=None
+        ).profile_id
+        == "axis"
+    )
+
+
+@pytest.mark.parametrize(
+    "owner,revision", [("account-b", 1), (None, 1), ("account-a", 99)]
+)
+def test_accepted_selection_requires_exact_owned_revision(
+    persona_profiles, owner, revision
+):
+    from guardian.tasks.types import PersonaSelectionSnapshot
+
+    db = _FakeChatDB()
+    db.thread.update(user_id=owner, active_profile_id="local_mode")
+    db.thread["metadata"]["user_id"] = "account-a"
+    with pytest.raises(ProfileResolutionError):
+        resolve_thread_system_profile(
+            1,
+            chatlog_db=db,
+            accepted_selection=PersonaSelectionSnapshot("axis", revision),
+        )

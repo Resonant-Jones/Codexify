@@ -10,7 +10,11 @@ from guardian.core import chat_completion_service as service
 from guardian.protocol_tokens import AcceptanceStatus
 from guardian.queue.redis_queue import QueueEnqueueError
 from guardian.queue.turn_lock import build_turn_lock_envelope
-from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.types import (
+    ChatCompletionTask,
+    PersonaSelectionSnapshot,
+    task_from_dict,
+)
 
 
 def _task() -> ChatCompletionTask:
@@ -97,6 +101,17 @@ def _failed_event_result(task: ChatCompletionTask) -> dict[str, object]:
     }
 
 
+@pytest.fixture(autouse=True)
+def canonical_thread(monkeypatch):
+    row = {"active_profile_id": None, "active_profile_revision": None}
+    monkeypatch.setattr(
+        service.dependencies,
+        "chatlog_db",
+        MagicMock(get_chat_thread=MagicMock(return_value=row)),
+    )
+    return row
+
+
 @pytest.fixture
 def immediate_redis(monkeypatch):
     monkeypatch.setattr(
@@ -113,6 +128,10 @@ def test_success_preserves_queue_event_and_serialization_contract(
     captured: dict[str, object] = {}
     lock = _lock(task, turn_id="turn-1")
     expected_payload = task.to_dict()
+    expected_payload["persona_selection_snapshot"] = {
+        "profile_id": None,
+        "profile_revision": None,
+    }
     monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
     monkeypatch.setattr(
         service,
@@ -151,6 +170,10 @@ def test_success_preserves_queue_event_and_serialization_contract(
             "origin": task.origin,
             "turn_id": "turn-1",
             "latest_turn_message_id": 7,
+            "persona_selection_snapshot": {
+                "profile_id": None,
+                "profile_revision": None,
+            },
         },
     )
 
@@ -802,7 +825,13 @@ def test_concurrent_duplicate_requests_publish_once(monkeypatch, immediate_redis
         results = list(executor.map(submit, tasks))
 
     assert len(published) == 1
-    assert sum(isinstance(result, service.ChatCompletionEnqueueResult) for result in results) == 1
+    assert (
+        sum(
+            isinstance(result, service.ChatCompletionEnqueueResult)
+            for result in results
+        )
+        == 1
+    )
     failures = [
         result
         for result in results
@@ -836,10 +865,8 @@ def test_stale_terminal_lock_is_recovered(monkeypatch, immediate_redis):
     monkeypatch.setattr(
         service,
         "clear_turn_lock",
-        lambda thread_id, expected=None: cleared.append((thread_id, expected))
-        or True,
+        lambda thread_id, expected=None: cleared.append((thread_id, expected)) or True,
     )
-    monkeypatch.setattr(service.dependencies, "chatlog_db", MagicMock())
     monkeypatch.setattr(
         service.event_bus,
         "emit_event",
@@ -886,3 +913,145 @@ def test_queue_failure_releases_lock_and_returns_safe_typed_failure(
     assert exc.cause_class == "RuntimeError"
     assert "redis down" not in str(exc)
     assert released == [(1, task.task_id)]
+
+
+@pytest.mark.parametrize(
+    "profile_id,revision", [("axis", 3), ("local_mode", None), (None, None)]
+)
+def test_server_captures_after_lock_into_actual_queue_payload(
+    monkeypatch, immediate_redis, canonical_thread, profile_id, revision
+):
+    from guardian.queue import redis_queue
+
+    task = _task()
+    task.persona_selection_snapshot = PersonaSelectionSnapshot("forged", 99)
+    events = []
+
+    def acquire(*_args):
+        events.append("lock")
+        canonical_thread.update(
+            active_profile_id=profile_id, active_profile_revision=revision
+        )
+        return _lock(task, turn_id="turn-1")
+
+    def read(thread_id):
+        assert thread_id == 1
+        events.append("read")
+        assert events == ["lock", "read"]
+        return canonical_thread.copy()
+
+    client = MagicMock()
+    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(service.dependencies.chatlog_db, "get_chat_thread", read)
+    monkeypatch.setattr(
+        redis_queue, "_with_reconnect", lambda operation: operation(client)
+    )
+    monkeypatch.setattr(service, "enqueue", redis_queue.enqueue)
+    publish = MagicMock(return_value=_event_result(task))
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+    result = service.enqueue_chat_completion(task, thread_id=1, turn_id="turn-1")
+    client.lpush.assert_called_once()
+    queue, raw = client.lpush.call_args.args
+    assert queue == "codexify:queue:chat"
+    payload = redis_queue._deserialize(raw)
+    expected = {"profile_id": profile_id, "profile_revision": revision}
+    assert payload["persona_selection_snapshot"] == expected
+    assert publish.call_args.args[2]["persona_selection_snapshot"] == expected
+    assert result.queue_accepted is True
+    canonical_thread.update(active_profile_id="later", active_profile_revision=7)
+    assert task_from_dict(
+        payload
+    ).persona_selection_snapshot == PersonaSelectionSnapshot(profile_id, revision)
+
+
+@pytest.mark.parametrize(
+    "state", [None, {}, {"active_profile_id": "axis"}, RuntimeError("unavailable")]
+)
+def test_unreadable_canonical_selection_fails_before_acceptance(
+    monkeypatch, immediate_redis, state
+):
+    task = _task()
+    participant = _FakeParticipant([])
+    read = (
+        MagicMock(side_effect=state)
+        if isinstance(state, Exception)
+        else MagicMock(return_value=state)
+    )
+    monkeypatch.setattr(service.dependencies.chatlog_db, "get_chat_thread", read)
+    monkeypatch.setattr(
+        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+    )
+    enqueue, release, publish = MagicMock(), MagicMock(), MagicMock()
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    monkeypatch.setattr(service.task_events, "publish_with_visibility", publish)
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc:
+        service.enqueue_chat_completion(
+            task, thread_id=1, turn_id="turn-1", participant=participant
+        )
+    assert exc.value.reason == "persona_selection_snapshot_unavailable"
+    enqueue.assert_not_called()
+    publish.assert_not_called()
+    release.assert_called_once_with(1, task.task_id)
+    assert participant.prepare_calls == 0
+
+
+@pytest.mark.parametrize("replacement", [None, PersonaSelectionSnapshot("forged", 99)])
+def test_participant_cannot_replace_server_snapshot(
+    monkeypatch, immediate_redis, canonical_thread, replacement
+):
+    task = _task()
+    canonical_thread.update(active_profile_id="axis", active_profile_revision=2)
+    participant = _FakeParticipant([])
+
+    def prepare(prepared_task):
+        assert prepared_task.persona_selection_snapshot == PersonaSelectionSnapshot(
+            "axis", 2
+        )
+        prepared_task.persona_selection_snapshot = replacement
+
+    participant.prepare = prepare
+    monkeypatch.setattr(
+        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+    )
+    enqueue, release = MagicMock(), MagicMock()
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc:
+        service.enqueue_chat_completion(
+            task, thread_id=1, turn_id="turn-1", participant=participant
+        )
+    assert exc.value.reason == "acceptance_participant_authoritative_fields_mutated"
+    assert task.persona_selection_snapshot == PersonaSelectionSnapshot("axis", 2)
+    enqueue.assert_not_called()
+    release.assert_called_once_with(1, task.task_id)
+    assert participant.rollback_calls == 1
+    assert participant.commit_calls == 0
+
+
+def test_participant_cannot_edit_snapshot_in_place(
+    monkeypatch, immediate_redis, canonical_thread
+):
+    task = _task()
+    canonical_thread.update(active_profile_id="axis", active_profile_revision=2)
+    participant = _FakeParticipant([])
+
+    def prepare(prepared_task):
+        prepared_task.persona_selection_snapshot.profile_revision = 99
+
+    participant.prepare = prepare
+    monkeypatch.setattr(
+        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+    )
+    enqueue, release = MagicMock(), MagicMock()
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    monkeypatch.setattr(service, "release_turn_lock", release)
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc:
+        service.enqueue_chat_completion(
+            task, thread_id=1, turn_id="turn-1", participant=participant
+        )
+    assert exc.value.reason == "acceptance_participant_prepare_failed"
+    assert exc.value.cause_class == "FrozenInstanceError"
+    assert task.persona_selection_snapshot == PersonaSelectionSnapshot("axis", 2)
+    enqueue.assert_not_called()
+    release.assert_called_once_with(1, task.task_id)
