@@ -1148,15 +1148,15 @@ def test_real_wrapper_required_tool_fails_closed_when_retry_settings_constructio
     not FAKE_SOURCE_INDEX.exists(),
     reason="tracked fake Pi source fixture is missing",
 )
-def test_real_wrapper_required_tool_establishes_retry_disabled_settings(
+def test_real_wrapper_required_tool_disables_retry_and_compaction(
     tmp_path: Path,
 ) -> None:
     """Positive control: required-tool run with normal fake Pi.
 
-    The wrapper successfully establishes the retry-disabled
-    `SettingsManager`, the session is created, the required-tool
-    projection path executes, and the hard selection remains exactly
-    one application. The fake's first-turn diagnostic appears
+    The wrapper successfully establishes a `SettingsManager` with ordinary
+    retries and auto-compaction disabled, the session is created, the
+    required-tool projection path executes, and the hard selection remains
+    exactly one application. The fake's first-turn diagnostic appears
     (proving `createAgentSession` was reached and returned).
     """
     materialized = _materialize_fake_pi_package(tmp_path)
@@ -1177,7 +1177,10 @@ def test_real_wrapper_required_tool_establishes_retry_disabled_settings(
     assert parsed["status"] == "ok"
     # Session was created (fake's first-turn diagnostic appears).
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
-    # Required-tool projection applied exactly once.
+    # The fake refuses required-tool session creation unless retry.enabled and
+    # compaction.enabled are both false. Reaching success proves both
+    # independent first-turn recovery paths were suppressed before projection
+    # applied once.
     sel = parsed.get("required_tool_selection")
     assert sel is not None
     assert sel["required_tool_name"] == "write"

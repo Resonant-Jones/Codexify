@@ -548,26 +548,32 @@ async function runAgent() {
 	let result;
 	try {
 		// Guardian-authorized required-tool path: disable Pi/agent
-		// automatic retries. The bounded mandatory single-tool write
+		// automatic retries and automatic compaction. The bounded
+		// mandatory single-tool write
 		// turn must not silently continue across an automatic retry
 		// after a failed first attempt — the retry would not see the
 		// required ``tool_choice`` and ``disable_parallel_tool_use``
 		// projection (which is composed for the FIRST provider turn
 		// only). ADR-068's bounded one-attempt semantics make retry
 		// suppression the correct fail-closed behavior here, so
-		// establishing the retry-disabled posture is MANDATORY for
+		// establishing the recovery-disabled posture is MANDATORY for
 		// required-tool runs: the wrapper does NOT fall back to the
-		// default settings manager (which is retry-enabled and is
-		// exactly the behavior that can let an automatic retry escape
-		// the bounded mandatory selection).
+		// default settings manager (which enables both mechanisms). In
+		// particular, Pi's overflow compaction recovery calls
+		// `agent.continue()` independently of the ordinary retry setting;
+		// either mechanism can otherwise escape the bounded mandatory
+		// selection after the first projected payload fails.
 		//
 		// The maintained Pi 0.82.1 API for that posture is
-		//     SettingsManager.inMemory({ retry: { enabled: false } })
+		//     SettingsManager.inMemory({
+		//       retry: { enabled: false },
+		//       compaction: { enabled: false },
+		//     })
 		// (see codex_runner/vendor/pi-coding-agent/dist/core/
-		// settings-manager.js — `getRetryEnabled` reads
-		// `this.settings.retry?.enabled ?? true`). If the
+		// settings-manager.js — `getRetryEnabled` and
+		// `getCompactionEnabled` both default to true). If the
 		// `SettingsManager` export, the `inMemory` factory, or
-		// construction of the retry-disabled instance is unavailable
+		// construction of the recovery-disabled instance is unavailable
 		// for a required-tool run, the wrapper fails closed BEFORE
 		// `createAgentSession` is called. Non-required-tool modes keep
 		// the maintained Pi retry settings unchanged.
@@ -600,13 +606,14 @@ async function runAgent() {
 				sessionOptions.settingsManager =
 					SettingsManager.inMemory({
 						retry: { enabled: false },
+						compaction: { enabled: false },
 					});
 			} catch (_settingsError) {
-				// Required-tool runs cannot tolerate a retry-enabled
-				// fallback — the default settings manager is
-				// retry-enabled, which is the exact behavior that can
-				// let an automatic retry escape the bounded mandatory
-				// selection. Emit a bounded `wrapper_protocol_failed`
+				// Required-tool runs cannot tolerate a recovery-enabled
+				// fallback — the default settings manager enables both
+				// ordinary retries and automatic compaction. Either can
+				// escape the bounded mandatory selection. Emit a bounded
+				// `wrapper_protocol_failed`
 				// failure with the local `required_tool_retry_suppression`
 				// stage and return BEFORE `createAgentSession` is
 				// called. Provider transport and session initialization

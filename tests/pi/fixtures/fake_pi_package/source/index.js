@@ -70,10 +70,11 @@ class FakeSessionManager {
 }
 
 // Bounded fake SettingsManager that mirrors the maintained Pi 0.82.1
-// ``SettingsManager.inMemory({retry: {enabled: false}})`` contract.
-// The wrapper passes a custom SettingsManager with retry disabled
+// ``SettingsManager.inMemory({retry: {enabled: false}, compaction:
+// {enabled: false}})`` contract. The wrapper passes a custom
+// SettingsManager with retries and auto-compaction disabled
 // for the Guardian-authorized required-tool path; the fake must
-// accept and honor the same shape so the disabled-retry semantics
+// accept and honor the same shape so the recovery-disabled semantics
 // reach the agent without needing a network or real provider.
 class FakeSettingsManager {
     constructor(initial = {}) {
@@ -89,6 +90,12 @@ class FakeSettingsManager {
             maxRetries: this._settings.retry?.maxRetries ?? 0,
             baseDelayMs: this._settings.retry?.baseDelayMs ?? 2000,
         };
+    }
+    getCompactionEnabled() {
+        return this._settings.compaction?.enabled !== false;
+    }
+    getCompactionSettings() {
+        return { enabled: this.getCompactionEnabled() };
     }
     static inMemory(settings = {}, _options = {}) {
         // Bounded knob: when `PI_FAKE_REFUSE_RETRY_DISABLED_SETTINGS`
@@ -269,10 +276,23 @@ class FakeSession {
 }
 
 async function fakeCreateAgentSession(options = {}) {
+    // Required-tool sessions must suppress both independent Pi recovery
+    // paths before the session starts. This makes the provider-free fixture
+    // reject a wrapper that disables ordinary retries but leaves overflow
+    // auto-compaction able to call agent.continue().
+    if (process.env.PI_GUARDIAN_REQUIRED_TOOL) {
+        if (
+            !options.settingsManager ||
+            options.settingsManager.getRetryEnabled() !== false ||
+            options.settingsManager.getCompactionEnabled() !== false
+        ) {
+            throw new Error("fake Pi: required-tool recovery suppression missing");
+        }
+    }
     const session = new FakeSession(options);
     // Bounded fake honors the wrapper's custom settingsManager so
-    // the Guardian-authorized retry-disabled contract is observable
-    // end-to-end in the fake.  The retry-disabled knob is recorded
+    // the Guardian-authorized recovery-disabled contract is observable
+    // end-to-end in the fake. The settings manager is recorded
     // on the session for diagnostic visibility but is not directly
     // exercised in the existing fake prompt() flow; the wrapper's
     //    onPayload chain still fires exactly once per first turn.
