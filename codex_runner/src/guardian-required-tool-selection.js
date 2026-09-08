@@ -6,10 +6,7 @@
  * credentials, no environment access, no global mutation. The helper
  * never modifies model/messages/system/thinking/output_config/tools/
  * max_tokens/stream/metadata; it only adds or validates a `tool_choice`
- * block on the first provider payload of the first authorized turn, and
- * sets the supported `disable_parallel_tool_use` provider-payload flag
- * that pins the parallel-tool posture to the bounded single-tool forced
- * turn.
+ * block on the first provider payload of the first authorized turn.
  *
  * Initial supported provider: anthropic.
  * Initial supported required tool: "write".
@@ -19,12 +16,27 @@
  * casing "Write" emitted by the OAuth compatibility layer) is preserved
  * in the resulting `tool_choice.name`.
  *
- * The bounded mandatory single-tool write contract requires that the
- * forced turn cannot call more than one tool in parallel; the helper
- * therefore sets ``disable_parallel_tool_use: true`` on the resulting
- * provider payload.  An existing pre-existing tool_choice is accepted
- * only when it already satisfies the COMPLETE required hard-selection
- * contract (type, name, AND the parallel-tool-disable posture).
+ * The maintained Anthropic `ToolChoiceTool` provider request contract
+ * places `disable_parallel_tool_use` INSIDE the same `tool_choice`
+ * object alongside `type` and `name` (see the maintained
+ * ``@anthropic-ai/sdk`` ``ToolChoiceTool`` interface).  The bounded
+ * mandatory single-tool write contract requires that the forced turn
+ * cannot call more than one tool in parallel; the helper therefore
+ * projects the COMPLETE nested Anthropic hard-selection structure:
+ *
+ *     tool_choice: {
+ *         type: "tool",
+ *         name: "<exact advertised required tool>",
+ *         disable_parallel_tool_use: true,
+ *     }
+ *
+ * A root-level `disable_parallel_tool_use` is NOT the maintained
+ * provider wire shape; emitting it at the request root would not
+ * match the maintained Anthropic contract and may be silently
+ * rejected or fail to suppress parallel tool use.  An existing
+ * pre-existing tool_choice is accepted only when it already
+ * satisfies the COMPLETE required hard-selection contract
+ * (type, name, AND the NESTED parallel-tool-disable posture).
  */
 
 const SUPPORTED_PROVIDERS = new Set(["anthropic"]);
@@ -147,40 +159,43 @@ export function applyGuardianRequiredToolSelection({
 	if (Object.prototype.hasOwnProperty.call(copied, "tool_choice")) {
 		// An existing `tool_choice` is accepted only when it is
 		// already the exact hard selection the runtime requires.
-		// HARD selection means `type === "tool"` AND the name
-		// equals the exact advertised required tool spelling.
-		// A matching name with a non-"tool" type (e.g. "auto" or
-		// "any") is a non-hard selection; the helper must fail
-		// closed rather than silently treat it as a hard choice.
+		// HARD selection means:
+		//   - `type === "tool"` AND
+		//   - `name` equals the exact advertised required tool
+		//     spelling AND
+		//   - `tool_choice.disable_parallel_tool_use === true` (the
+		//     parallel-tool-disable posture MUST be NESTED inside
+		//     the same `tool_choice` object, per the maintained
+		//     Anthropic `ToolChoiceTool` provider request contract).
+		// A root-level `disable_parallel_tool_use` is not sufficient
+		// and the helper fails closed rather than silently treating
+		// a stray top-level flag as the hard-selection contract.
 		const existing = copied.tool_choice;
 		if (
 			!_asObject(existing) ||
 			existing.type !== "tool" ||
 			typeof existing.name !== "string" ||
-			existing.name !== advertised
+			existing.name !== advertised ||
+			existing.disable_parallel_tool_use !== true
 		) {
 			throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
 		}
-		// Existing choice already names the exact advertised tool
-		// and uses the hard "tool" type.  Verify the bounded
-		// parallel-tool-disable posture is also satisfied; if a
-		// pre-existing tool_choice lacks the parallel-tool-disable
-		// flag, the existing payload is NOT the complete required
-		// hard-selection contract and the helper must fail closed
-		// rather than silently overwriting caller/provider-hook
-		// state.
-		if (copied.disable_parallel_tool_use !== true) {
-			throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
-		}
+		// Existing choice already names the exact advertised tool,
+		// uses the hard "tool" type, and pins the parallel-tool-
+		// disable posture inside the same object.  Return unchanged.
 		return copied;
 	}
-	copied.tool_choice = { type: "tool", name: advertised };
-	// Pin the parallel-tool posture for the bounded mandatory
-	// single-tool write turn so that the forced first-turn request
-	// cannot call more than one tool in parallel.  Anthropic honors
-	// this provider-payload flag; the projection is provider-local
-	// and does not affect any other provider behavior.
-	copied.disable_parallel_tool_use = true;
+	// Project the canonical Anthropic hard-selection structure.
+	// The maintained Anthropic `ToolChoiceTool` places
+	// `disable_parallel_tool_use` on the same object as `type` and
+	// `name`; emitting the field at the request root would not
+	// match the maintained provider contract and may be silently
+	// rejected or fail to suppress parallel tool use.
+	copied.tool_choice = {
+		type: "tool",
+		name: advertised,
+		disable_parallel_tool_use: true,
+	};
 	return copied;
 }
 

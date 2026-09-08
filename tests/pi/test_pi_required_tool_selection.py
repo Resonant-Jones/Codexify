@@ -100,8 +100,15 @@ def test_helper_lowercase_advertised_write_selected() -> None:
         }));
         """
     out = _node_eval_helper(script)
-    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
     assert out["tool_names"] == ["read", "bash", "edit", "write"]
+    # The helper must not introduce a stray root-level
+    # disable_parallel_tool_use flag.
+    assert "disable_parallel_tool_use" not in out
 
 
 def test_helper_claude_code_casing_selected() -> None:
@@ -124,7 +131,11 @@ def test_helper_claude_code_casing_selected() -> None:
         }));
         """
     out = _node_eval_helper(script)
-    assert out["tool_choice"] == {"type": "tool", "name": "Write"}
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "Write",
+        "disable_parallel_tool_use": True,
+    }
 
 
 def test_helper_existing_matching_choice_accepted() -> None:
@@ -137,14 +148,21 @@ def test_helper_existing_matching_choice_accepted() -> None:
             requiredToolName: "write",
             payload: {
                 tools: [{ name: "write" }],
-                tool_choice: { type: "tool", name: "write" },
-                disable_parallel_tool_use: true,
+                tool_choice: {
+                    type: "tool",
+                    name: "write",
+                    disable_parallel_tool_use: true,
+                },
             },
         });
         process.stdout.write(JSON.stringify({ tool_choice: out.tool_choice }));
         """
     out = _node_eval_helper(script)
-    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
 
 
 def test_helper_existing_conflicting_choice_fails_closed() -> None:
@@ -269,14 +287,14 @@ def test_helper_existing_choice_malformed_fails_closed(
 
 
 def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
-    """Positive control: existing ``{type: 'tool', name: 'write'}``
-    is still accepted and returned unchanged when the complete
-    required hard-selection contract (type, name, AND
-    ``disable_parallel_tool_use: true``) is already present.
+    """Positive control: existing nested complete hard choice is
+    accepted and returned unchanged.
 
-    This is the canonical hard-selection shape.  The repair must
-    preserve the existing positive-control behavior — only the
-    invalid shapes now fail closed.
+    The maintained Anthropic ``ToolChoiceTool`` places the
+    parallel-tool-disable flag inside the same object as ``type``
+    and ``name``.  An existing pre-existing payload whose
+    ``tool_choice`` already carries the complete required
+    hard-selection contract is accepted unchanged.
     """
     script = _import_helper() + """
         const out = applyGuardianRequiredToolSelection({
@@ -284,17 +302,21 @@ def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
             requiredToolName: "write",
             payload: {
                 tools: [{ name: "write" }],
-                tool_choice: { type: "tool", name: "write" },
-                disable_parallel_tool_use: true,
+                tool_choice: {
+                    type: "tool",
+                    name: "write",
+                    disable_parallel_tool_use: true,
+                },
             },
         });
         // Identity check: the helper returns the existing object
         // unchanged when the existing choice already is the exact
-        // hard selection.
+        // nested hard selection.
         const outToolChoice = out.tool_choice;
         const same = (
             outToolChoice.type === "tool" &&
-            outToolChoice.name === "write"
+            outToolChoice.name === "write" &&
+            outToolChoice.disable_parallel_tool_use === true
         );
         process.stdout.write(JSON.stringify({
             tool_choice: outToolChoice,
@@ -302,19 +324,23 @@ def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
         }));
         """
     out = _node_eval_helper(script)
-    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
     assert out["same_hard_choice"] is True
 
 
-def test_helper_projects_disable_parallel_tool_use_on_new_hard_choice() -> None:
-    """Newly created required hard choice pins the parallel-tool posture.
+def test_helper_projects_nested_disable_parallel_tool_use_on_new_hard_choice() -> None:
+    """Newly created required hard choice nests the parallel-tool flag.
 
-    Anthropic hard selection ``{type: "tool", name: "write"}`` does
-    not by itself prevent parallel tool use.  The bounded mandatory
-    single-tool write turn requires that the forced request cannot
-    call more than one tool in parallel; the helper therefore sets
-    ``disable_parallel_tool_use: true`` on the resulting provider
-    payload for the supported Anthropic required-tool path.
+    The maintained Anthropic ``ToolChoiceTool`` places
+    ``disable_parallel_tool_use`` inside the same ``tool_choice``
+    object as ``type`` and ``name``.  A root-level flag does NOT
+    match the maintained provider wire shape; the helper therefore
+    nests the flag inside the projected ``tool_choice`` and never
+    emits a stray root-level flag.
     """
     script = _import_helper() + """
         const input = {
@@ -333,7 +359,11 @@ def test_helper_projects_disable_parallel_tool_use_on_new_hard_choice() -> None:
         });
         process.stdout.write(JSON.stringify({
             tool_choice: out.tool_choice,
-            disable_parallel_tool_use: out.disable_parallel_tool_use,
+            has_root_disable_parallel_tool_use:
+                Object.prototype.hasOwnProperty.call(
+                    out, "disable_parallel_tool_use"
+                ),
+            root_keys: Object.keys(out),
             unrelated_preserved: {
                 model: out.model,
                 max_tokens: out.max_tokens,
@@ -344,8 +374,24 @@ def test_helper_projects_disable_parallel_tool_use_on_new_hard_choice() -> None:
         }));
         """
     out = _node_eval_helper(script)
-    assert out["tool_choice"] == {"type": "tool", "name": "write"}
-    assert out["disable_parallel_tool_use"] is True
+    # The complete nested Anthropic hard-selection structure is
+    # projected, with the parallel-tool-disable flag INSIDE the
+    # tool_choice object (matching the maintained provider contract).
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
+    # No root-level disable_parallel_tool_use is emitted.  A
+    # root-level flag does NOT satisfy the maintained Anthropic
+    # request contract and would be silently rejected.
+    assert out["has_root_disable_parallel_tool_use"] is False, (
+        "helper must NOT introduce a root-level "
+        "disable_parallel_tool_use; the field belongs inside the "
+        "tool_choice object per the maintained Anthropic "
+        "ToolChoiceTool contract"
+    )
+    assert "disable_parallel_tool_use" not in out["root_keys"]
     # Unrelated payload fields remain unchanged.
     assert out["unrelated_preserved"]["model"] == "claude-sonnet-4-6"
     assert out["unrelated_preserved"]["max_tokens"] == 1024
@@ -357,14 +403,16 @@ def test_helper_projects_disable_parallel_tool_use_on_new_hard_choice() -> None:
     assert out["unrelated_preserved"]["output_config"] == {"effort": "medium"}
 
 
-def test_helper_existing_hard_choice_without_parallel_disable_fails_closed() -> None:
-    """Existing hard tool_choice that lacks the parallel-tool-disable
-    posture fails closed rather than being silently accepted.
+def test_helper_existing_hard_choice_without_nested_parallel_disable_fails_closed() -> None:
+    """Existing hard ``tool_choice`` that lacks the NESTED
+    ``disable_parallel_tool_use: true`` posture fails closed rather
+    than being silently accepted.
 
-    A pre-existing tool_choice that names the right tool with the
-    right hard ``type`` but does not pin the parallel-tool-disable
-    posture is NOT the complete required hard-selection contract.
-    The helper fails closed with the canonical conflict code rather
+    A pre-existing ``tool_choice`` that names the right tool with
+    the right hard ``type`` but does not pin
+    ``disable_parallel_tool_use: true`` INSIDE the same object is
+    NOT the complete required hard-selection contract.  The
+    helper fails closed with the canonical conflict code rather
     than overwriting caller/provider-hook state.
     """
     script = _import_helper() + """
@@ -377,6 +425,78 @@ def test_helper_existing_hard_choice_without_parallel_disable_fails_closed() -> 
                 payload: {
                     tools: [{ name: "write" }],
                     tool_choice: { type: "tool", name: "write" },
+                },
+            });
+        } catch (e) {
+            errorCaught = true;
+            code = e && e.code;
+        }
+        process.stdout.write(JSON.stringify({ code, errorCaught }));
+        """
+    out = _node_eval_helper(script)
+    assert out["errorCaught"] is True
+    assert out["code"] == "guard.required_tool_selection.conflicting_choice"
+
+
+def test_helper_root_level_parallel_flag_does_not_satisfy_hard_selection() -> None:
+    """A root-level ``disable_parallel_tool_use: true`` with NO
+    nested flag does NOT satisfy the maintained Anthropic hard-
+    selection contract and fails closed.
+
+    The maintained Anthropic ``ToolChoiceTool`` places the
+    parallel-tool-disable flag INSIDE the same object as ``type``
+    and ``name``.  A stray root-level flag is not the provider
+    wire shape; the helper must not silently treat a root-level
+    flag as if it satisfied the required hard-selection contract.
+    """
+    script = _import_helper() + """
+        let code = null;
+        let errorCaught = false;
+        try {
+            applyGuardianRequiredToolSelection({
+                providerId: "anthropic",
+                requiredToolName: "write",
+                payload: {
+                    tools: [{ name: "write" }],
+                    tool_choice: { type: "tool", name: "write" },
+                    disable_parallel_tool_use: true,
+                },
+            });
+        } catch (e) {
+            errorCaught = true;
+            code = e && e.code;
+        }
+        process.stdout.write(JSON.stringify({ code, errorCaught }));
+        """
+    out = _node_eval_helper(script)
+    assert out["errorCaught"] is True, (
+        "a root-level disable_parallel_tool_use with no nested flag "
+        "is NOT the maintained Anthropic ToolChoiceTool shape; the "
+        "helper must fail closed"
+    )
+    assert out["code"] == "guard.required_tool_selection.conflicting_choice"
+
+
+def test_helper_nested_parallel_flag_false_fails_closed() -> None:
+    """A nested ``disable_parallel_tool_use: false`` explicitly
+    opts out of the parallel-suppression posture and must NOT
+    satisfy the required hard-selection contract.  The helper
+    fails closed with the canonical conflict code.
+    """
+    script = _import_helper() + """
+        let code = null;
+        let errorCaught = false;
+        try {
+            applyGuardianRequiredToolSelection({
+                providerId: "anthropic",
+                requiredToolName: "write",
+                payload: {
+                    tools: [{ name: "write" }],
+                    tool_choice: {
+                        type: "tool",
+                        name: "write",
+                        disable_parallel_tool_use: false,
+                    },
                 },
             });
         } catch (e) {
@@ -486,8 +606,11 @@ def test_helper_does_not_modify_unrelated_payload_fields() -> None:
             result[f] = JSON.stringify(out[f]) === JSON.stringify(original[f]);
         }}
         result.tool_choice_added = JSON.stringify(out.tool_choice) === JSON.stringify({{
-            type: "tool", name: "write"
+            type: "tool", name: "write", disable_parallel_tool_use: true
         }});
+        result.no_root_disable_parallel_tool_use = !Object.prototype.hasOwnProperty.call(
+            out, "disable_parallel_tool_use"
+        );
         result.input_was_unchanged_object = Object.keys(original).every(k => out[k] !== original[k] || true);
         process.stdout.write(JSON.stringify(result));
         """
@@ -505,6 +628,11 @@ def test_helper_does_not_modify_unrelated_payload_fields() -> None:
     ]:
         assert out[field] is True, f"field {field!r} was modified"
     assert out["tool_choice_added"] is True
+    assert out["no_root_disable_parallel_tool_use"] is True, (
+        "helper must not introduce a root-level "
+        "disable_parallel_tool_use; the field belongs inside the "
+        "tool_choice object per the maintained Anthropic contract"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +669,11 @@ def test_helper_preserves_adaptive_thinking_and_effort() -> None:
     out = _node_eval_helper(script)
     assert out["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert out["output_config"] == {"effort": "medium"}
-    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["tool_choice"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -667,7 +799,11 @@ def test_vendored_anthropic_api_key_branch_tool_choice_write() -> None:
     assert cap["request_model"] == "claude-sonnet-4-6"
     assert cap["request_tool_count"] == 4
     assert cap["request_tool_names"] == ["read", "bash", "edit", "write"]
-    assert cap["tool_choice_value"] == {"type": "tool", "name": "write"}
+    assert cap["tool_choice_value"] == {
+        "type": "tool",
+        "name": "write",
+        "disable_parallel_tool_use": True,
+    }
     assert cap["thinking_type"] == "adaptive"
     assert cap["effort"] == "medium"
 
@@ -683,7 +819,11 @@ def test_vendored_anthropic_oauth_branch_tool_choice_Write() -> None:
     assert cap is not None
     assert cap["request_tool_count"] == 4
     assert cap["request_tool_names"] == ["Read", "Bash", "Edit", "Write"]
-    assert cap["tool_choice_value"] == {"type": "tool", "name": "Write"}
+    assert cap["tool_choice_value"] == {
+        "type": "tool",
+        "name": "Write",
+        "disable_parallel_tool_use": True,
+    }
     assert cap["thinking_type"] == "adaptive"
     assert cap["effort"] == "medium"
 
