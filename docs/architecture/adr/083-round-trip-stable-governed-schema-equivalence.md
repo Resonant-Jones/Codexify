@@ -1,4 +1,4 @@
-# ADR-076: Round-Trip-Stable Governed-Schema Equivalence
+# ADR-083: Round-Trip-Stable Governed-Schema Equivalence
 
 **Status:** Accepted
 
@@ -7,7 +7,18 @@ preflight and Phase 3 validation passed on 2026-08-28.  Final source-commit
 lineage is bound by the separate local DLG metadata commit required by the
 reconciliation task.
 
-**Date:** 2026-08-28
+**Date:** 2026-08-28 (originally published as ADR-076; renumbered to ADR-083 on 2026-09-08 to resolve the canonical numeric collision under the human-approved DLG disposition).
+
+> **Renumbering provenance (2026-09-08):** This decision was historically
+> published as **ADR-076** at `docs/architecture/adr/076-round-trip-stable-governed-schema-equivalence.md`.
+> It was renumbered to **ADR-083** on 2026-09-08 under the canonical-main DLG
+> disposition. The semantic status remains **Accepted**; the architecture
+> meaning, governed-schema equivalence contract, evidence posture, and all
+> downstream references to "ADR-076 Round-Trip-Stable Governed-Schema
+> Equivalence" continue to refer to this same decision under its new number.
+> The retained **ADR-076** in the active direct-root namespace is the
+> unrelated **Archive Before Delete and Built-In Project Roles** decision
+> (`docs/architecture/adr/076-archive-before-delete-and-built-in-project-roles.md`).
 
 ## Context
 
