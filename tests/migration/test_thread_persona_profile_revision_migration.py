@@ -6,17 +6,60 @@ import psycopg
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from tests.migration.test_persona_profile_manifest_binding_migration import (
     _insert_user,
     _upgrade,
 )
-from tests.migration.test_persona_profile_manifest_binding_migration import (
-    temporary_postgres as temporary_postgres,  # noqa: PLC0414
+from tests.migration.test_persona_profile_manifest_binding_migration import (  # noqa: PLC0414
+    temporary_postgres as temporary_postgres,
 )
 
 PREVIOUS_REVISION = "c3d9e1f4a6b8"
 PIN_REVISION = "d4e0f2a5b7c9"
+
+
+def _historical_guardian_db(db_url: str):
+    """Build a GuardianDB facade for a historical-revision disposable fixture.
+
+    Migration tests intentionally exercise schemas that pre-date the
+    current head, where the production ``_PostgresGuardianDB.__init__``
+    would refuse to construct because ``verify_schema_consistency``
+    expects every table currently mapped by ``Base.metadata``. The
+    production boot-time check is correct for runtime; it is not the
+    correct gate for tests that intentionally operate against an older
+    schema.
+
+    This helper mirrors the repository pattern used in
+    ``tests/core/test_project_lifecycle.py`` and
+    ``tests/core/test_chat_message_provenance_persistence.py``: build
+    the instance with ``__new__`` to skip ``__init__`` and then wire up
+    the same engine / sessionmaker / facade attributes that production
+    ``__init__`` would. Adapter methods continue to execute against the
+    real database at the historical revision.
+
+    Production runtime never calls this helper; it is test-only and is
+    used solely so historical revision migration tests do not depend on
+    current ORM tables.
+    """
+    from guardian.core.db import GuardianDB, _PostgresGuardianDB
+
+    facade = GuardianDB.__new__(GuardianDB)
+    impl = _PostgresGuardianDB.__new__(_PostgresGuardianDB)
+    impl.db_url = db_url
+    impl.engine = sa.create_engine(db_url, poolclass=NullPool, echo=False)
+    impl.SessionLocal = sessionmaker(
+        bind=impl.engine,
+        autocommit=False,
+        autoflush=False,
+    )
+    impl._events_outbox_ready = True
+    impl._connector_tables_ready = True
+    facade._impl = impl
+    facade.backend = "postgres"
+    return facade
 
 
 @pytest.mark.integration
@@ -58,19 +101,17 @@ def test_backfill_pins_only_proven_account_revisions(temporary_postgres):
                     """),
                         {
                             "id": profile_id,
-                            "identity": "wrong"
-                            if profile_id == "corrupt"
-                            else profile_id,
+                            "identity": (
+                                "wrong" if profile_id == "corrupt" else profile_id
+                            ),
                         },
                     )
                 if profile_id == "owned":
-                    conn.execute(
-                        sa.text("""
+                    conn.execute(sa.text("""
                         INSERT INTO persona_profile_revisions (profile_id, revision, api_version, manifest_json)
                         SELECT profile_id, 2, api_version, jsonb_set(manifest_json::jsonb, '{revision}', '2'::jsonb)
                         FROM persona_profile_revisions WHERE profile_id = 'owned' AND revision = 1
-                    """)
-                    )
+                    """))
                     conn.execute(
                         sa.text(
                             "UPDATE persona_profiles SET current_revision = 2 WHERE id = 'owned'"
@@ -91,9 +132,9 @@ def test_backfill_pins_only_proven_account_revisions(temporary_postgres):
                     """),
                         {
                             "id": profile_id,
-                            "owner": "foreign-account"
-                            if profile_id == "foreign"
-                            else owner,
+                            "owner": (
+                                "foreign-account" if profile_id == "foreign" else owner
+                            ),
                         },
                     )
             for profile_id in (
@@ -115,9 +156,11 @@ def test_backfill_pins_only_proven_account_revisions(temporary_postgres):
                     {
                         "owner": owner,
                         "id": profile_id,
-                        "metadata": '{"profile_overrides":{"flow":{"profile_id":"flow"}}}'
-                        if profile_id == "flow"
-                        else "{}",
+                        "metadata": (
+                            '{"profile_overrides":{"flow":{"profile_id":"flow"}}}'
+                            if profile_id == "flow"
+                            else "{}"
+                        ),
                     },
                 )
         _upgrade(config, PIN_REVISION)
@@ -184,7 +227,6 @@ def test_backfill_pins_only_proven_account_revisions(temporary_postgres):
 
 @pytest.mark.integration
 def test_real_chat_adapters_atomically_write_and_clear_pins(temporary_postgres):
-    from guardian.core.db import GuardianDB
     from guardian.core.pgdb import PgDB
 
     config, database_url = temporary_postgres
@@ -200,8 +242,12 @@ def test_real_chat_adapters_atomically_write_and_clear_pins(temporary_postgres):
                 {"owner": owner},
             ).scalar_one()
         # Both adapters use their production transaction and readback paths.
+        # ``GuardianDB`` is constructed via the test-only historical-revision
+        # helper so it does not run current-head ``verify_schema_consistency``;
+        # ``PgDB.__init__`` does not perform schema verification, so it can be
+        # constructed directly.
         for db in (
-            GuardianDB(database_url),
+            _historical_guardian_db(database_url),
             PgDB(database_url.replace("postgresql+psycopg://", "postgresql://")),
         ):
             assert db.set_thread_active_profile_id(

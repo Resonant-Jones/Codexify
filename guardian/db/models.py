@@ -5,6 +5,7 @@ Postgres-only SQLAlchemy models for Guardian.
 All schema is managed via Alembic migrations.
 No raw DDL creation in application code.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -78,17 +79,22 @@ from guardian.protocol_tokens import (
     AccountImportStatus,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
+    MemoryPersonaLinkKind,
+    MemorySemanticSpecies,
+    PersonaSubjectLifecycle,
+)
+from guardian.threadspace.membership_tokens import (
+    INVITATION_STATES,
+    MEMBERSHIP_LIFECYCLE_STATES,
+    NODE_MEMBERSHIP_ROLES,
+    NODE_STATUSES,
 )
 from guardian.tts.contracts import (
     TTS_LOCAL_BACKEND_IDS,
     TTS_OUTPUT_FORMATS,
     TTS_VOICE_MODES,
 )
-from guardian.threadspace.membership_tokens import NODE_STATUSES
-from guardian.user_profile_tokens import (
-    DEFAULT_USER_ACCENT_COLOR,
-    USER_ACCENT_COLORS,
-)
+from guardian.user_profile_tokens import DEFAULT_USER_ACCENT_COLOR, USER_ACCENT_COLORS
 from guardian.watchdog.contracts import (
     WATCHDOG_ESCALATION_MODES,
     WATCHDOG_MODEL_SELECTION_SOURCES,
@@ -131,12 +137,8 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    username: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False
-    )
-    email: Mapped[str | None] = mapped_column(
-        String(255), unique=True, nullable=True
-    )
+    username: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(
         String(16), nullable=False, default="guest", server_default="guest"
@@ -165,10 +167,23 @@ THREADSPACE_NODE_STATUS_VALUES_SQL = "','".join(sorted(NODE_STATUSES))
 THREADSPACE_NODE_STATUS_CHECK = (
     "status IN ('" + THREADSPACE_NODE_STATUS_VALUES_SQL + "')"
 )
+THREADSPACE_NODE_MEMBERSHIP_ROLES_VALUES_SQL = "','".join(sorted(NODE_MEMBERSHIP_ROLES))
+THREADSPACE_NODE_MEMBERSHIP_ROLES_CHECK = (
+    "role IN ('" + THREADSPACE_NODE_MEMBERSHIP_ROLES_VALUES_SQL + "')"
+)
+THREADSPACE_INVITATION_STATES_VALUES_SQL = "','".join(sorted(INVITATION_STATES))
+THREADSPACE_INVITATION_STATES_CHECK = (
+    "state IN ('" + THREADSPACE_INVITATION_STATES_VALUES_SQL + "')"
+)
+THREADSPACE_MEMBERSHIP_LIFECYCLE_STATES_VALUES_SQL = "','".join(
+    sorted(MEMBERSHIP_LIFECYCLE_STATES)
+)
+THREADSPACE_MEMBERSHIP_LIFECYCLE_STATES_CHECK = (
+    "lifecycle_state IN ('" + THREADSPACE_MEMBERSHIP_LIFECYCLE_STATES_VALUES_SQL + "')"
+)
 USERNAME_STATE_VALUES_SQL = "','".join(sorted(USERNAME_STATES))
 USERNAME_STATE_CHECK = (
-    "username_state IS NULL OR username_state IN "
-    f"('{USERNAME_STATE_VALUES_SQL}')"
+    "username_state IS NULL OR username_state IN " f"('{USERNAME_STATE_VALUES_SQL}')"
 )
 # The username grammar CHECK is Postgres-native (regex ``~``) and lives only
 # in the migration (a1b7c9d2e4f6); application validation in
@@ -191,9 +206,7 @@ class UserProfile(Base):
 
     __tablename__ = "user_profiles"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -230,9 +243,7 @@ class UserProfile(Base):
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_user_profiles_user_id"),
         UniqueConstraint("profile_id", name="uq_user_profiles_profile_id"),
-        UniqueConstraint(
-            "node_id", "username", name="uq_user_profiles_node_username"
-        ),
+        UniqueConstraint("node_id", "username", name="uq_user_profiles_node_username"),
         CheckConstraint(
             USER_ACCENT_COLOR_CHECK,
             name="ck_user_profiles_accent_color",
@@ -289,6 +300,334 @@ class ThreadSpaceNode(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class ThreadSpaceMembershipInvitation(Base):
+    """Durable ThreadSpace membership invitation — persistence mapping only.
+
+    Mirrors ``d6f7a8b9c0d1_add_threadspace_node_membership`` and exposes the
+    already-persisted schema to canonical SQLAlchemy metadata.  No route,
+    service, or runtime behavior is introduced by this mapping.
+    """
+
+    __tablename__ = "threadspace_membership_invitations"
+
+    invitation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    node_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("threadspace_nodes.node_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    intended_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    proposed_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    issuer_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    issued_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    declined_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    accepted_by_account_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "node_id",
+            "issuer_account_id",
+            "idempotency_key",
+            name="uq_threadspace_membership_invitations_idempotency",
+        ),
+        CheckConstraint(
+            THREADSPACE_NODE_MEMBERSHIP_ROLES_CHECK.replace(
+                "role IN", "proposed_role IN", 1
+            ),
+            name="threadspace_membership_invitations_role_check",
+        ),
+        CheckConstraint(
+            THREADSPACE_INVITATION_STATES_CHECK,
+            name="threadspace_membership_invitations_state_check",
+        ),
+        CheckConstraint(
+            """(
+                (state = 'pending'
+                    AND accepted_at IS NULL
+                    AND declined_at IS NULL
+                    AND revoked_at IS NULL)
+                OR
+                (state = 'accepted'
+                    AND accepted_at IS NOT NULL
+                    AND accepted_by_account_id IS NOT NULL
+                    AND declined_at IS NULL
+                    AND revoked_at IS NULL)
+                OR
+                (state = 'declined'
+                    AND accepted_at IS NULL
+                    AND accepted_by_account_id IS NULL
+                    AND declined_at IS NOT NULL
+                    AND revoked_at IS NULL)
+                OR
+                (state = 'revoked'
+                    AND accepted_at IS NULL
+                    AND accepted_by_account_id IS NULL
+                    AND declined_at IS NULL
+                    AND revoked_at IS NOT NULL)
+                OR
+                (state = 'expired'
+                    AND accepted_at IS NULL
+                    AND accepted_by_account_id IS NULL
+                    AND declined_at IS NULL
+                    AND revoked_at IS NULL
+                    AND expires_at IS NOT NULL)
+            )""",
+            name="threadspace_membership_invitations_lifecycle_check",
+        ),
+        CheckConstraint(
+            "length(idempotency_key) > 0",
+            name="threadspace_membership_invitations_idempotency_key_check",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at >= issued_at",
+            name="threadspace_membership_invitations_expiry_check",
+        ),
+        CheckConstraint(
+            "accepted_at IS NULL OR accepted_at >= issued_at",
+            name="threadspace_membership_invitations_accepted_order_check",
+        ),
+        CheckConstraint(
+            "declined_at IS NULL OR declined_at >= issued_at",
+            name="threadspace_membership_invitations_declined_order_check",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= issued_at",
+            name="threadspace_membership_invitations_revoked_order_check",
+        ),
+        Index("ix_threadspace_membership_invitations_node_id", "node_id"),
+        Index(
+            "ix_threadspace_membership_invitations_intended_account_id",
+            "intended_account_id",
+        ),
+        Index("ix_threadspace_membership_invitations_state", "state"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ThreadSpaceMembershipGrant(Base):
+    """Durable ThreadSpace membership grant — persistence mapping only.
+
+    Mirrors ``d6f7a8b9c0d1_add_threadspace_node_membership`` and exposes the
+    already-persisted schema to canonical SQLAlchemy metadata.  No route,
+    service, or runtime behavior is introduced by this mapping.
+    """
+
+    __tablename__ = "threadspace_membership_grants"
+
+    membership_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    node_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("threadspace_nodes.node_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    subject_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default="active",
+    )
+    source_invitation_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "threadspace_membership_invitations.invitation_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    issuer_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accepted_by_account_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    record_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+    )
+    effective_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    suspended_by_account_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_by_account_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revocation_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_invitation_id",
+            name="uq_threadspace_membership_grants_source_invitation",
+        ),
+        CheckConstraint(
+            THREADSPACE_NODE_MEMBERSHIP_ROLES_CHECK,
+            name="threadspace_membership_grants_role_check",
+        ),
+        CheckConstraint(
+            THREADSPACE_MEMBERSHIP_LIFECYCLE_STATES_CHECK,
+            name="threadspace_membership_grants_lifecycle_state_check",
+        ),
+        CheckConstraint(
+            """(
+                (
+                    source_invitation_id IS NULL
+                    AND role IN ('node_owner', 'node_operator')
+                    AND accepted_by_account_id IS NULL
+                )
+                OR
+                (
+                    source_invitation_id IS NOT NULL
+                    AND accepted_by_account_id IS NOT NULL
+                )
+            )""",
+            name="threadspace_membership_grants_source_check",
+        ),
+        CheckConstraint(
+            """(
+                (lifecycle_state = 'invited' AND revoked_at IS NULL)
+                OR (lifecycle_state = 'active' AND revoked_at IS NULL)
+                OR (
+                    lifecycle_state = 'suspended'
+                    AND suspended_at IS NOT NULL
+                    AND suspended_by_account_id IS NOT NULL
+                    AND revoked_at IS NULL
+                )
+                OR (
+                    lifecycle_state = 'revoked'
+                    AND revoked_at IS NOT NULL
+                    AND revoked_by_account_id IS NOT NULL
+                )
+                OR (
+                    lifecycle_state = 'expired'
+                    AND expires_at IS NOT NULL
+                    AND revoked_at IS NULL
+                )
+            )""",
+            name="threadspace_membership_grants_lifecycle_check",
+        ),
+        CheckConstraint(
+            "record_version > 0",
+            name="threadspace_membership_grants_record_version_check",
+        ),
+        CheckConstraint(
+            "suspended_at IS NULL OR suspended_at >= effective_at",
+            name="threadspace_membership_grants_suspended_order_check",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= effective_at",
+            name="threadspace_membership_grants_revoked_order_check",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at >= effective_at",
+            name="threadspace_membership_grants_expiry_check",
+        ),
+        CheckConstraint(
+            "revocation_reason IS NULL OR revoked_at IS NOT NULL",
+            name="threadspace_membership_grants_revocation_reason_check",
+        ),
+        Index("ix_threadspace_membership_grants_node_id", "node_id"),
+        Index(
+            "ix_threadspace_membership_grants_subject_account_id",
+            "subject_account_id",
+        ),
+        Index("ix_threadspace_membership_grants_lifecycle_state", "lifecycle_state"),
+        Index(
+            "uq_threadspace_membership_grants_node_subject_non_revoked",
+            "node_id",
+            "subject_account_id",
+            unique=True,
+            postgresql_where=text("lifecycle_state <> 'revoked'"),
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 EMBEDDING_LIFECYCLE_VALUES_SQL = "','".join(
     status.value for status in EmbeddingLifecycleStatus
 )
@@ -301,9 +640,7 @@ DELEGATION_STATUS_VALUES_SQL = "','".join(
 )
 DELEGATION_STATUS_CHECK = f"status IN ('{DELEGATION_STATUS_VALUES_SQL}')"
 WORKTREE_LEASE_STATUS_VALUES_SQL = "','".join(sorted(WORKTREE_LEASE_STATUSES))
-WORKTREE_LEASE_STATUS_CHECK = (
-    f"status IN ('{WORKTREE_LEASE_STATUS_VALUES_SQL}')"
-)
+WORKTREE_LEASE_STATUS_CHECK = f"status IN ('{WORKTREE_LEASE_STATUS_VALUES_SQL}')"
 WORKTREE_LEASE_CLEANUP_POLICY_VALUES_SQL = "','".join(
     sorted(WORKTREE_LEASE_CLEANUP_POLICIES)
 )
@@ -323,9 +660,7 @@ CAMPAIGN_EXECUTION_ATTEMPT_STATUS_CHECK = (
     "status IN " f"('{CAMPAIGN_EXECUTION_ATTEMPT_STATUS_VALUES_SQL}')"
 )
 TTS_LOCAL_BACKEND_IDS_VALUES_SQL = "','".join(TTS_LOCAL_BACKEND_IDS)
-TTS_LOCAL_BACKEND_ID_CHECK = (
-    f"backend_id IN ('{TTS_LOCAL_BACKEND_IDS_VALUES_SQL}')"
-)
+TTS_LOCAL_BACKEND_ID_CHECK = f"backend_id IN ('{TTS_LOCAL_BACKEND_IDS_VALUES_SQL}')"
 TTS_VOICE_MODE_VALUES_SQL = "','".join(TTS_VOICE_MODES)
 TTS_VOICE_MODE_CHECK = f"voice_mode IN ('{TTS_VOICE_MODE_VALUES_SQL}')"
 TTS_OUTPUT_FORMAT_VALUES_SQL = "','".join(TTS_OUTPUT_FORMATS)
@@ -340,12 +675,9 @@ WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL = "','".join(
     sorted(WATCHDOG_POLICY_RESOLUTION_STATES)
 )
 WATCHDOG_POLICY_RESOLUTION_STATE_CHECK = (
-    "policy_resolution_state IN "
-    f"('{WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL}')"
+    "policy_resolution_state IN " f"('{WATCHDOG_POLICY_RESOLUTION_STATE_VALUES_SQL}')"
 )
-WATCHDOG_ESCALATION_MODE_VALUES_SQL = "','".join(
-    sorted(WATCHDOG_ESCALATION_MODES)
-)
+WATCHDOG_ESCALATION_MODE_VALUES_SQL = "','".join(sorted(WATCHDOG_ESCALATION_MODES))
 WATCHDOG_ESCALATION_MODE_CHECK = (
     "escalation_mode IN " f"('{WATCHDOG_ESCALATION_MODE_VALUES_SQL}')"
 )
@@ -353,8 +685,7 @@ WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL = "','".join(
     sorted(WATCHDOG_MODEL_SELECTION_SOURCES)
 )
 WATCHDOG_MODEL_SELECTION_SOURCE_CHECK = (
-    "model_selection_source IN "
-    f"('{WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL}')"
+    "model_selection_source IN " f"('{WATCHDOG_MODEL_SELECTION_SOURCE_VALUES_SQL}')"
 )
 WATCHDOG_POLICY_BLOCK_REASON_VALUES_SQL = "','".join(
     sorted(WATCHDOG_POLICY_BLOCK_REASONS)
@@ -393,15 +724,13 @@ GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
 )
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_CHECK = (
-    "acceptance_status IN "
-    f"('{GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL}')"
+    "acceptance_status IN " f"('{GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_INTERACTION_MODE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_INTERACTION_MODES)
 )
 GUARDIAN_DELEGATION_INTERACTION_MODE_CHECK = (
-    "interaction_mode IN "
-    f"('{GUARDIAN_DELEGATION_INTERACTION_MODE_VALUES_SQL}')"
+    "interaction_mode IN " f"('{GUARDIAN_DELEGATION_INTERACTION_MODE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_APPROVAL_MODE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_APPROVAL_MODES)
@@ -419,8 +748,7 @@ GUARDIAN_DELEGATION_APPROVAL_SOURCE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_APPROVAL_SOURCES)
 )
 GUARDIAN_DELEGATION_APPROVAL_SOURCE_CHECK = (
-    "approval_source IN "
-    f"('{GUARDIAN_DELEGATION_APPROVAL_SOURCE_VALUES_SQL}')"
+    "approval_source IN " f"('{GUARDIAN_DELEGATION_APPROVAL_SOURCE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_INTENT_STATUSES)
@@ -432,15 +760,12 @@ GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_VISIBILITY_STATUSES)
 )
 GUARDIAN_DELEGATION_VISIBILITY_STATUS_CHECK = (
-    "visibility_status IN "
-    f"('{GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL}')"
+    "visibility_status IN " f"('{GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES)
 )
-CAPABILITY_FAMILY_VALUES_SQL = "','".join(
-    family.value for family in CapabilityFamily
-)
+CAPABILITY_FAMILY_VALUES_SQL = "','".join(family.value for family in CapabilityFamily)
 CAPABILITY_GRANT_SCOPE_VALUES_SQL = "','".join(
     scope.value for scope in CapabilityGrantScope
 )
@@ -450,27 +775,15 @@ CAPABILITY_GRANT_KIND_VALUES_SQL = "','".join(
 CAPABILITY_GRANT_STATUS_VALUES_SQL = "','".join(
     status.value for status in CapabilityGrantStatus
 )
-CAPABILITY_FAMILY_CHECK = (
-    f"capability_family IN ('{CAPABILITY_FAMILY_VALUES_SQL}')"
-)
-CAPABILITY_GRANT_SCOPE_CHECK = (
-    f"grant_scope IN ('{CAPABILITY_GRANT_SCOPE_VALUES_SQL}')"
-)
-CAPABILITY_GRANT_KIND_CHECK = (
-    f"grant_kind IN ('{CAPABILITY_GRANT_KIND_VALUES_SQL}')"
-)
+CAPABILITY_FAMILY_CHECK = f"capability_family IN ('{CAPABILITY_FAMILY_VALUES_SQL}')"
+CAPABILITY_GRANT_SCOPE_CHECK = f"grant_scope IN ('{CAPABILITY_GRANT_SCOPE_VALUES_SQL}')"
+CAPABILITY_GRANT_KIND_CHECK = f"grant_kind IN ('{CAPABILITY_GRANT_KIND_VALUES_SQL}')"
 CAPABILITY_GRANT_STATUS_CHECK = (
     f"grant_status IN ('{CAPABILITY_GRANT_STATUS_VALUES_SQL}')"
 )
-EXTENSION_TARGET_SURFACE_VALUES_SQL = "','".join(
-    sorted(EXTENSION_TARGET_SURFACES)
-)
-EXTENSION_PROPOSAL_SCOPE_VALUES_SQL = "','".join(
-    sorted(EXTENSION_PROPOSAL_SCOPES)
-)
-EXTENSION_PROPOSAL_STATUS_VALUES_SQL = "','".join(
-    sorted(EXTENSION_PROPOSAL_STATUSES)
-)
+EXTENSION_TARGET_SURFACE_VALUES_SQL = "','".join(sorted(EXTENSION_TARGET_SURFACES))
+EXTENSION_PROPOSAL_SCOPE_VALUES_SQL = "','".join(sorted(EXTENSION_PROPOSAL_SCOPES))
+EXTENSION_PROPOSAL_STATUS_VALUES_SQL = "','".join(sorted(EXTENSION_PROPOSAL_STATUSES))
 EXTENSION_TARGET_SURFACE_CHECK = (
     f"target_surface_token IN ('{EXTENSION_TARGET_SURFACE_VALUES_SQL}')"
 )
@@ -480,12 +793,8 @@ EXTENSION_PROPOSAL_SCOPE_CHECK = (
 EXTENSION_PROPOSAL_STATUS_CHECK = (
     f"status_token IN ('{EXTENSION_PROPOSAL_STATUS_VALUES_SQL}')"
 )
-INSTALL_GATE_DECISION_VALUES_SQL = "','".join(
-    sorted(INSTALL_GATE_DECISION_TOKENS)
-)
-CAPABILITY_REGISTRY_STATUS_VALUES_SQL = "','".join(
-    sorted(CAPABILITY_REGISTRY_STATUSES)
-)
+INSTALL_GATE_DECISION_VALUES_SQL = "','".join(sorted(INSTALL_GATE_DECISION_TOKENS))
+CAPABILITY_REGISTRY_STATUS_VALUES_SQL = "','".join(sorted(CAPABILITY_REGISTRY_STATUSES))
 CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL = "','".join(
     sorted(CAPABILITY_ENTRY_PROVENANCE_CLASSES)
 )
@@ -501,7 +810,9 @@ INSTALL_GATE_DECISION_CHECK = (
 CAPABILITY_REGISTRY_STATUS_CHECK = (
     f"status_token IN ('{CAPABILITY_REGISTRY_STATUS_VALUES_SQL}')"
 )
-CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK = f"provenance_class_token IN ('{CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL}')"
+CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK = (
+    f"provenance_class_token IN ('{CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL}')"
+)
 EXTENSION_INSTALL_BINDING_SCOPE_CHECK = (
     f"scope_token IN ('{EXTENSION_INSTALL_BINDING_SCOPE_VALUES_SQL}')"
 )
@@ -536,16 +847,13 @@ AND (
 """.strip()
 
 HOSTED_ROOM_STATUSES = frozenset({"active", "closed"})
-HOSTED_ROOM_INVITE_STATUSES = frozenset(
-    {"pending", "accepted", "revoked", "expired"}
-)
+HOSTED_ROOM_INVITE_STATUSES = frozenset({"pending", "accepted", "revoked", "expired"})
 HOSTED_ROOM_PARTICIPANT_KINDS = frozenset({"human", "agent"})
 HOSTED_ROOM_PARTICIPANT_ROLES = frozenset({"owner", "member", "agent"})
 HOSTED_ROOM_PARTICIPANT_STATES = frozenset({"active", "removed"})
 
 HOSTED_ROOM_STATUS_CHECK = (
-    "status IN "
-    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_STATUSES))})"
+    "status IN " f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_STATUSES))})"
 )
 HOSTED_ROOM_INVITE_STATUS_CHECK = (
     "status IN "
@@ -575,9 +883,7 @@ class Project(Base):
 
     __tablename__ = "projects"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -611,6 +917,11 @@ class Project(Base):
         CheckConstraint(
             "system_role IS NULL OR system_role IN ('general','imports')",
             name="projects_system_role_check",
+        ),
+        UniqueConstraint(
+            "id",
+            "user_id",
+            name="uq_projects_id_user_id",
         ),
         Index(
             "uq_projects_user_id_system_role",
@@ -663,12 +974,8 @@ class RepositoryBinding(Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
-    source_class: Mapped[str] = mapped_column(
-        String(32), nullable=False
-    )
-    canonical_root: Mapped[str] = mapped_column(
-        String(4096), nullable=False
-    )
+    source_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    canonical_root: Mapped[str] = mapped_column(String(4096), nullable=False)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -717,13 +1024,9 @@ class CapabilityTier(Base):
 
     __tablename__ = "capability_tiers"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     capability_family: Mapped[str] = mapped_column(String(64), nullable=False)
-    tier_key: Mapped[str] = mapped_column(
-        String(128), unique=True, nullable=False
-    )
+    tier_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     capabilities_json: Mapped[list[str]] = mapped_column(
@@ -732,9 +1035,7 @@ class CapabilityTier(Base):
     limits_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
-    priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="100"
-    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
@@ -773,9 +1074,7 @@ class CapabilityGrant(Base):
 
     __tablename__ = "capability_grants"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     account_id: Mapped[str] = mapped_column(
         String(255),
         ForeignKey("authenticated_principals.account_id", ondelete="CASCADE"),
@@ -806,9 +1105,7 @@ class CapabilityGrant(Base):
     issued_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     provenance_source: Mapped[str | None] = mapped_column(String(64))
     provenance_ref: Mapped[str | None] = mapped_column(String(255))
     provenance_reason: Mapped[str | None] = mapped_column(Text)
@@ -868,19 +1165,13 @@ class ChatThread(Base):
 
     __tablename__ = "chat_threads"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
-    summary: Mapped[str] = mapped_column(
-        Text, server_default="", nullable=False
-    )
-    project_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("projects.id")
-    )
+    summary: Mapped[str] = mapped_column(Text, server_default="", nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"))
     last_interaction_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
     )
@@ -890,9 +1181,7 @@ class ChatThread(Base):
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id")
     )
-    archived_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    archived_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     is_diary: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -953,7 +1242,10 @@ class ChatThread(Base):
         ),
         ForeignKeyConstraint(
             ["active_profile_id", "active_profile_revision"],
-            ["persona_profile_revisions.profile_id", "persona_profile_revisions.revision"],
+            [
+                "persona_profile_revisions.profile_id",
+                "persona_profile_revisions.revision",
+            ],
             name="fk_chat_threads_persona_profile_revision",
         ),
         CheckConstraint(
@@ -973,9 +1265,7 @@ class ChatMessage(Base):
 
     __tablename__ = "chat_messages"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     thread_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
@@ -991,9 +1281,7 @@ class ChatMessage(Base):
     event_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    kind: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="chat"
-    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, server_default="chat")
     extra_meta: Mapped[dict] = mapped_column(
         # Assistant-side coding_result rows use this JSONB blob for durable
         # source-thread / source-message / attempt lineage and capture flags.
@@ -1004,9 +1292,7 @@ class ChatMessage(Base):
     # Hosted Room participant provenance (optional, paired-null constraint)
     hosted_room_participant_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey(
-            "hosted_room_participants.id", ondelete="SET NULL"
-        ),
+        ForeignKey("hosted_room_participants.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -1018,9 +1304,7 @@ class ChatMessage(Base):
     )
 
     # Relationship
-    thread: Mapped[ChatThread] = relationship(
-        "ChatThread", back_populates="messages"
-    )
+    thread: Mapped[ChatThread] = relationship("ChatThread", back_populates="messages")
     user: Mapped[User] = relationship("User")
     hosted_room_participant: Mapped[HostedRoomParticipant | None] = relationship(
         "HostedRoomParticipant",
@@ -1086,9 +1370,7 @@ class HostedRoom(Base):
         onupdate=func.now(),
         nullable=False,
     )
-    closed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    closed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     owner: Mapped[User] = relationship("User")
     backing_thread: Mapped[ChatThread] = relationship("ChatThread")
@@ -1143,25 +1425,15 @@ class HostedRoomInvite(Base):
         ForeignKey("hosted_rooms.id", ondelete="CASCADE"),
         nullable=False,
     )
-    intended_display_name: Mapped[str] = mapped_column(
-        String(255), nullable=False
-    )
+    intended_display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    expired_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    expired_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1172,9 +1444,7 @@ class HostedRoomInvite(Base):
         nullable=False,
     )
 
-    room: Mapped[HostedRoom] = relationship(
-        "HostedRoom", back_populates="invitations"
-    )
+    room: Mapped[HostedRoom] = relationship("HostedRoom", back_populates="invitations")
     participant: Mapped[HostedRoomParticipant | None] = relationship(
         "HostedRoomParticipant",
         back_populates="originating_invitation",
@@ -1247,22 +1517,14 @@ class HostedRoomParticipant(Base):
     joined_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    removed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    removed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    actor_source: Mapped[str | None] = mapped_column(
-        String(32), nullable=True
-    )
-    actor_ref: Mapped[str | None] = mapped_column(
-        String(128), nullable=True
-    )
+    actor_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    actor_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    room: Mapped[HostedRoom] = relationship(
-        "HostedRoom", back_populates="participants"
-    )
+    room: Mapped[HostedRoom] = relationship("HostedRoom", back_populates="participants")
     originating_invitation: Mapped[HostedRoomInvite | None] = relationship(
         "HostedRoomInvite", back_populates="participant"
     )
@@ -1274,7 +1536,9 @@ class HostedRoomParticipant(Base):
             name="uq_hosted_room_participants_invitation_id",
         ),
         UniqueConstraint(
-            "room_id", "actor_source", "actor_ref",
+            "room_id",
+            "actor_source",
+            "actor_ref",
             name="uq_hosted_room_participants_room_actor",
         ),
         CheckConstraint(
@@ -1336,9 +1600,7 @@ class EvalTraceSnapshot(Base):
     __tablename__ = "eval_trace_snapshots"
 
     trace_snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    task_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True
-    )
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     request_id: Mapped[str] = mapped_column(String(255), nullable=False)
     thread_id: Mapped[int] = mapped_column(
         Integer,
@@ -1388,9 +1650,7 @@ class EvalTraceSnapshot(Base):
     project: Mapped[Project | None] = relationship("Project")
 
     __table_args__ = (
-        Index(
-            "ix_eval_trace_snapshots_thread_created", "thread_id", "created_at"
-        ),
+        Index("ix_eval_trace_snapshots_thread_created", "thread_id", "created_at"),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -1401,15 +1661,11 @@ class EvalVerdict(Base):
 
     __tablename__ = "eval_verdicts"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     eval_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
     trace_snapshot_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey(
-            "eval_trace_snapshots.trace_snapshot_id", ondelete="CASCADE"
-        ),
+        ForeignKey("eval_trace_snapshots.trace_snapshot_id", ondelete="CASCADE"),
         nullable=False,
     )
     request_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1438,9 +1694,7 @@ class EvalVerdict(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
-    trace_snapshot: Mapped[EvalTraceSnapshot] = relationship(
-        "EvalTraceSnapshot"
-    )
+    trace_snapshot: Mapped[EvalTraceSnapshot] = relationship("EvalTraceSnapshot")
     thread: Mapped[ChatThread] = relationship("ChatThread")
     user_message: Mapped[ChatMessage | None] = relationship(
         "ChatMessage", foreign_keys=[user_message_id]
@@ -1478,9 +1732,7 @@ class ThreadMove(Base):
 
     __tablename__ = "thread_moves"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     thread_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
@@ -1508,13 +1760,9 @@ class ThreadMove(Base):
 
 
 DM_CONVERSATION_KIND_VALUES_SQL = "','".join(sorted(DM_CONVERSATION_KINDS))
-DM_CONVERSATION_KIND_CHECK = (
-    f"kind IN ('{DM_CONVERSATION_KIND_VALUES_SQL}')"
-)
+DM_CONVERSATION_KIND_CHECK = f"kind IN ('{DM_CONVERSATION_KIND_VALUES_SQL}')"
 DM_CONTENT_TYPE_VALUES_SQL = "','".join(sorted(DM_CONTENT_TYPES))
-DM_CONTENT_TYPE_CHECK = (
-    f"content_type IN ('{DM_CONTENT_TYPE_VALUES_SQL}')"
-)
+DM_CONTENT_TYPE_CHECK = f"content_type IN ('{DM_CONTENT_TYPE_VALUES_SQL}')"
 
 
 class DirectMessageRelationship(Base):
@@ -1523,9 +1771,7 @@ class DirectMessageRelationship(Base):
     __tablename__ = "direct_message_relationships"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    participant_pair_key: Mapped[str] = mapped_column(
-        String(256), nullable=False
-    )
+    participant_pair_key: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1533,12 +1779,10 @@ class DirectMessageRelationship(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
-    participants: Mapped[list[DirectMessageRelationshipParticipant]] = (
-        relationship(
-            "DirectMessageRelationshipParticipant",
-            back_populates="relationship",
-            cascade="all, delete-orphan",
-        )
+    participants: Mapped[list[DirectMessageRelationshipParticipant]] = relationship(
+        "DirectMessageRelationshipParticipant",
+        back_populates="relationship",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -1792,9 +2036,7 @@ class DelegationPacket(Base):
 
     __tablename__ = "delegation_packets"
 
-    packet_id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, nullable=False
-    )
+    packet_id: Mapped[str] = mapped_column(String(64), primary_key=True, nullable=False)
     thread_id: Mapped[int | None] = mapped_column(Integer)
     conversation_id: Mapped[str | None] = mapped_column(String(255))
     project_id: Mapped[int | None] = mapped_column(Integer)
@@ -1804,21 +2046,15 @@ class DelegationPacket(Base):
         String(32), nullable=False, server_default="draft"
     )
     task_prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    tags: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default="[]"
-    )
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     context_json: Mapped[dict | None] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
@@ -1851,9 +2087,7 @@ class DelegationJob(Base):
         nullable=False,
         unique=True,
     )
-    task_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True
-    )
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     thread_id: Mapped[int | None] = mapped_column(Integer)
     conversation_id: Mapped[str | None] = mapped_column(String(255))
     project_id: Mapped[int | None] = mapped_column(Integer)
@@ -1863,22 +2097,14 @@ class DelegationJob(Base):
         String(32), nullable=False, server_default="approved"
     )
     task_prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    tags: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default="[]"
-    )
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     queued_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
@@ -1914,9 +2140,7 @@ class DelegationSummary(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
@@ -1945,9 +2169,7 @@ class PersonalFact(Base):
 
     __tablename__ = "personal_facts"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     key: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1960,12 +2182,8 @@ class PersonalFact(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
-    last_confirmed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    guardrail_metadata: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    guardrail_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1996,9 +2214,7 @@ class PersonalFact(Base):
             "confidence >= 0.0 AND confidence <= 1.0",
             name="personal_facts_confidence_check",
         ),
-        Index(
-            "ix_personal_facts_user_status", "user_id", "status", "is_active"
-        ),
+        Index("ix_personal_facts_user_status", "user_id", "status", "is_active"),
     )
     __mapper_args__ = {"eager_defaults": True}
 
@@ -2008,9 +2224,7 @@ class PersonalFactEvidence(Base):
 
     __tablename__ = "personal_fact_evidence"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     fact_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("personal_facts.id", ondelete="CASCADE"),
@@ -2035,9 +2249,7 @@ class PersonalFactEvidence(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
-    fact: Mapped[PersonalFact] = relationship(
-        "PersonalFact", back_populates="evidence"
-    )
+    fact: Mapped[PersonalFact] = relationship("PersonalFact", back_populates="evidence")
     source_message: Mapped[ChatMessage | None] = relationship("ChatMessage")
 
     __mapper_args__ = {"eager_defaults": True}
@@ -2048,9 +2260,7 @@ class PersonalFactRevision(Base):
 
     __tablename__ = "personal_fact_revisions"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     fact_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("personal_facts.id", ondelete="CASCADE"),
@@ -2083,9 +2293,7 @@ class MemoryEntry(Base):
 
     __tablename__ = "memory_entries"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -2125,16 +2333,12 @@ class ConnectorConfig(Base):
 
     __tablename__ = "connector_configs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     type: Mapped[str] = mapped_column(
         String(64), nullable=False
     )  # 'github', 'gdrive', etc.
-    config: Mapped[dict] = mapped_column(
-        JSONB, server_default="{}", nullable=False
-    )
+    config: Mapped[dict] = mapped_column(JSONB, server_default="{}", nullable=False)
     schedule: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -2162,9 +2366,7 @@ class ConnectorRun(Base):
 
     __tablename__ = "connector_runs"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     config_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("connector_configs.id", ondelete="CASCADE"),
@@ -2176,9 +2378,7 @@ class ConnectorRun(Base):
     started_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
     document_count: Mapped[int] = mapped_column(
         Integer, server_default="0", nullable=False
@@ -2197,9 +2397,7 @@ class RawDocument(Base):
 
     __tablename__ = "raw_documents"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     config_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("connector_configs.id", ondelete="CASCADE"),
@@ -2226,9 +2424,7 @@ class SyncJob(Base):
 
     __tablename__ = "sync_jobs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     connector_id: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False
@@ -2236,15 +2432,9 @@ class SyncJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    attempts: Mapped[int] = mapped_column(
-        Integer, server_default="0", nullable=False
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
     job_metadata: Mapped[dict | None] = mapped_column(
         "metadata", JSONB
@@ -2258,9 +2448,7 @@ class OAuthConnection(Base):
 
     __tablename__ = "oauth_connections"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     mode: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -2275,12 +2463,8 @@ class OAuthConnection(Base):
     encrypted_refresh_token: Mapped[str | None] = mapped_column(Text)
     encrypted_access_token: Mapped[str | None] = mapped_column(Text)
     relay_grant_id: Mapped[str | None] = mapped_column(String(255))
-    expires_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    last_refresh_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    last_refresh_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -2334,9 +2518,7 @@ class NotionConnectionCredential(Base):
     validation_status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="unvalidated"
     )
-    last_validated_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    last_validated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -2348,9 +2530,7 @@ class NotionConnectionCredential(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", name="uq_notion_connection_credentials_user"
-        ),
+        UniqueConstraint("user_id", name="uq_notion_connection_credentials_user"),
         CheckConstraint(
             "validation_status IN "
             "('unvalidated', 'valid', 'authorization_error', "
@@ -2376,9 +2556,7 @@ class InferenceProvider(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
-    priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="100"
-    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
     default_model_id: Mapped[str | None] = mapped_column(Text)
     capabilities: Mapped[dict] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
@@ -2434,15 +2612,9 @@ class InferenceProviderRuntime(Base):
     consecutive_failures: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
-    last_success_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    last_failure_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    cooldown_until: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    last_success_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    last_failure_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     avg_latency_ms: Mapped[float | None] = mapped_column(Float)
     error_rate: Mapped[float | None] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
@@ -2528,9 +2700,7 @@ class EventOutbox(Base):
 
     __tablename__ = "events_outbox"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     topic: Mapped[str | None] = mapped_column(String(128))
     payload: Mapped[dict | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(
@@ -2644,9 +2814,7 @@ class GitHubWatchdogReviewAttempt(Base):
     provider_id: Mapped[str | None] = mapped_column(String(64))
     model_id: Mapped[str | None] = mapped_column(String(512))
     inference_mode: Mapped[str | None] = mapped_column(String(64))
-    model_selection_source: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
+    model_selection_source: Mapped[str] = mapped_column(String(64), nullable=False)
     policy_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     escalation_mode: Mapped[str] = mapped_column(String(32), nullable=False)
     escalation_provider_id: Mapped[str | None] = mapped_column(String(64))
@@ -2939,9 +3107,7 @@ class AuditLog(Base):
 
     __tablename__ = "audit_log"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     event: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # 'create', 'update', 'delete', 'archive'
@@ -2963,9 +3129,7 @@ class BrowserApproval(Base):
 
     __tablename__ = "browser_approvals"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
     target: Mapped[str | None] = mapped_column(String(512))
 
@@ -2984,9 +3148,7 @@ class BrowserApproval(Base):
         nullable=False,
         index=True,
     )
-    decided_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -3008,9 +3170,7 @@ class BrowserAuditLog(Base):
 
     __tablename__ = "browser_audit_log"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     approval_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("browser_approvals.id", ondelete="SET NULL"),
@@ -3075,9 +3235,7 @@ class Message(Base):
 
     __tablename__ = "messages"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     thread_id: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -3172,18 +3330,14 @@ class OpenAIAccountImportJob(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     queued_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -3246,9 +3400,7 @@ class MediaAsset(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -3311,9 +3463,7 @@ class GeneratedImage(Base):
     src_url: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # Path or URL to image file
-    prompt: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Generation prompt
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)  # Generation prompt
     model: Mapped[str] = mapped_column(
         String(255), nullable=False
     )  # Model used (dall-e-3, sd-xl, etc.)
@@ -3402,9 +3552,7 @@ class GeneratedDocument(Base):
     )
     user_id: Mapped[str | None] = mapped_column(String(255))
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    content: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Full document content
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # Full document content
     format: Mapped[str] = mapped_column(
         String(32), nullable=False
     )  # txt, md, docx, pdf, html, json
@@ -3462,15 +3610,11 @@ class UploadedDocument(Base):
     mime_type: Mapped[str] = mapped_column(
         String(128), nullable=False
     )  # application/pdf, text/plain, etc.
-    src_url: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Path or URL to file
+    src_url: Mapped[str] = mapped_column(Text, nullable=False)  # Path or URL to file
     source_tag: Mapped[str | None] = mapped_column(
         String(64)
     )  # uploaded | generated | other
-    parsed_text: Mapped[str | None] = mapped_column(
-        Text
-    )  # Extracted text for FTS
+    parsed_text: Mapped[str | None] = mapped_column(Text)  # Extracted text for FTS
     embedding_status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -3515,9 +3659,7 @@ class TTSOutput(Base):
 
     __tablename__ = "tts_outputs"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE")
     )
@@ -3525,9 +3667,7 @@ class TTSOutput(Base):
         Integer, ForeignKey("chat_threads.id", ondelete="CASCADE")
     )
     user_id: Mapped[str | None] = mapped_column(String(255))
-    text: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Text that was synthesized
+    text: Mapped[str] = mapped_column(Text, nullable=False)  # Text that was synthesized
     voice: Mapped[str | None] = mapped_column(
         String(128)
     )  # Voice ID (e.g., "josh", "en-US-Standard-A")
@@ -3537,12 +3677,8 @@ class TTSOutput(Base):
     model: Mapped[str | None] = mapped_column(
         String(255)
     )  # Model version if applicable
-    src_url: Mapped[str | None] = mapped_column(
-        Text
-    )  # Path or URL to audio file
-    duration_seconds: Mapped[float | None] = mapped_column(
-        Integer
-    )  # Audio duration
+    src_url: Mapped[str | None] = mapped_column(Text)  # Path or URL to audio file
+    duration_seconds: Mapped[float | None] = mapped_column(Integer)  # Audio duration
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -3559,9 +3695,7 @@ class MessageAudioAsset(Base):
 
     __tablename__ = "message_audio_assets"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     message_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("chat_messages.id", ondelete="CASCADE"),
@@ -3632,9 +3766,7 @@ class TTSVoiceProfile(Base):
     reference_text: Mapped[str | None] = mapped_column(Text)
     x_vector_only_mode: Mapped[bool | None] = mapped_column(Boolean)
     sample_rate: Mapped[int | None] = mapped_column(Integer)
-    output_format: Mapped[str | None] = mapped_column(
-        String(16), server_default="wav"
-    )
+    output_format: Mapped[str | None] = mapped_column(String(16), server_default="wav")
     loudness_normalization: Mapped[bool | None] = mapped_column(Boolean)
     pause_profile: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql")
@@ -3704,9 +3836,7 @@ class ThreadDocument(Base):
 
     __tablename__ = "thread_documents"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     thread_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
@@ -3736,9 +3866,7 @@ class ProjectDocumentLink(Base):
 
     __tablename__ = "project_document_links"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -3779,9 +3907,7 @@ class UserSettings(Base):
 
     __tablename__ = "user_settings"
 
-    user_id: Mapped[str] = mapped_column(
-        String(255), primary_key=True, nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String(255), primary_key=True, nullable=False)
     memory_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="deep", server_default="deep"
     )
@@ -3831,9 +3957,7 @@ class AuthenticatedPrincipal(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "subject_id", name="uq_authenticated_principals_subject_id"
-        ),
+        UniqueConstraint("subject_id", name="uq_authenticated_principals_subject_id"),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -3849,17 +3973,13 @@ class ImprintObservation(Base):
 
     __tablename__ = "imprint_observations"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     schema_version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1"
     )
-    provenance: Mapped[dict] = mapped_column(
-        JSON, nullable=False, server_default="{}"
-    )
+    provenance: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     signal_type: Mapped[str] = mapped_column(String(64), nullable=False)
     signal_payload: Mapped[dict] = mapped_column(
@@ -3904,9 +4024,7 @@ class ImprintFoldState(Base):
 
     __tablename__ = "imprint_fold_states"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     scope_key: Mapped[str] = mapped_column(String(255), nullable=False)
     scope_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -4102,6 +4220,140 @@ class PersonaProfileBinding(Base):
 
 
 # =========================
+# Persona Subjects
+# =========================
+
+
+PERSONA_SUBJECT_LIFECYCLE_VALUES_SQL = "','".join(
+    lifecycle.value for lifecycle in PersonaSubjectLifecycle
+)
+PERSONA_SUBJECT_LIFECYCLE_CHECK = (
+    "lifecycle IN ('" + PERSONA_SUBJECT_LIFECYCLE_VALUES_SQL + "')"
+)
+
+
+class PersonaSubject(Base):
+    """Stable account-owned attribution identity for a Persona source."""
+
+    __tablename__ = "persona_subjects"
+
+    persona_subject_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    display_name_snapshot: Mapped[str | None] = mapped_column(String(255))
+    lifecycle: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=PersonaSubjectLifecycle.ACTIVE.value,
+        server_default=PersonaSubjectLifecycle.ACTIVE.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    bindings: Mapped[list[PersonaSubjectBinding]] = relationship(
+        "PersonaSubjectBinding",
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "persona_subject_id",
+            "user_id",
+            name="uq_persona_subjects_subject_user",
+        ),
+        CheckConstraint(
+            PERSONA_SUBJECT_LIFECYCLE_CHECK,
+            name="persona_subjects_lifecycle_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonaSubjectBinding(Base):
+    """Durable source-to-subject attribution with account integrity checks."""
+
+    __tablename__ = "persona_subject_bindings"
+
+    binding_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    persona_subject_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    subject_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ref_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    ref_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    valid_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    subject: Mapped[PersonaSubject] = relationship(
+        "PersonaSubject",
+        back_populates="bindings",
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["persona_subject_id", "subject_user_id"],
+            ["persona_subjects.persona_subject_id", "persona_subjects.user_id"],
+            name="fk_persona_subject_bindings_subject_account",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "ref_kind IN ('persona', 'persona_profile')",
+            name="persona_subject_bindings_ref_kind_check",
+        ),
+        CheckConstraint(
+            "source_account_id = subject_user_id",
+            name="persona_subject_bindings_source_account_check",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until > valid_from",
+            name="persona_subject_bindings_validity_check",
+        ),
+        Index(
+            "uq_persona_subject_bindings_active_ref",
+            "ref_kind",
+            "ref_id",
+            unique=True,
+            postgresql_where=text("valid_until IS NULL"),
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Extension Proposals
 # =========================
 
@@ -4118,12 +4370,8 @@ class AgentExtensionProposal(Base):
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
-    target_surface_token: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
+    source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    target_surface_token: Mapped[str] = mapped_column(String(64), nullable=False)
     scope_token: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default="project_scoped"
     )
@@ -4292,12 +4540,8 @@ class AgentExtensionRegistryEntry(Base):
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
-    target_surface_token: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
+    source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    target_surface_token: Mapped[str] = mapped_column(String(64), nullable=False)
     scope_token: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default="project_scoped"
     )
@@ -4444,9 +4688,7 @@ class AgentExtensionInstallBinding(Base):
         server_default="{}",
     )
     source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
+    source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -4535,9 +4777,7 @@ class Imprint(Base):
 
     __tablename__ = "imprints"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     guardian_name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -4546,13 +4786,9 @@ class Imprint(Base):
     grammar_prefs: Mapped[dict] = mapped_column(
         JSON, server_default="{}", nullable=False
     )
-    metrics: Mapped[dict] = mapped_column(
-        JSON, server_default="{}", nullable=False
-    )
+    metrics: Mapped[dict] = mapped_column(JSON, server_default="{}", nullable=False)
     heat_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="draft"
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -4576,20 +4812,14 @@ class Persona(Base):
 
     __tablename__ = "personas"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    source: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="user"
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
-    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="user")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -4608,20 +4838,14 @@ class SystemDoc(Base):
 
     __tablename__ = "system_docs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)
-    owner_user_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
-    )
+    owner_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
-    )
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -4652,9 +4876,7 @@ class SystemDocLink(Base):
 
     __tablename__ = "system_doc_links"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     system_doc_id: Mapped[int] = mapped_column(
@@ -4662,9 +4884,7 @@ class SystemDocLink(Base):
         ForeignKey("system_docs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
-    )
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -4728,9 +4948,7 @@ class GuardianDelegationIntent(Base):
     visibility_status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="not_posted"
     )
-    result_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, index=True
-    )
+    result_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     result_delivered_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
     )
@@ -4797,19 +5015,13 @@ class AgentDeployment(Base):
 
     __tablename__ = "agent_deployments"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
-    deployment_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    deployment_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     flow_id: Mapped[str] = mapped_column(String(128), nullable=False)
     thread_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
     )
-    spec_json: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default="{}"
-    )
+    spec_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     spec_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     trust_state: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="supervised"
@@ -4818,9 +5030,7 @@ class AgentDeployment(Base):
         Boolean, nullable=False, server_default="false"
     )
     unlocked_by: Mapped[str | None] = mapped_column(String(255))
-    unlocked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    unlocked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="active"
     )
@@ -4852,9 +5062,7 @@ class AgentRun(Base):
 
     __tablename__ = "agent_runs"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     deployment_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -4883,9 +5091,7 @@ class AgentRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
@@ -4910,9 +5116,7 @@ class AgentRunStep(Base):
 
     __tablename__ = "agent_run_steps"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -4933,9 +5137,7 @@ class AgentRunStep(Base):
     metadata_json: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
@@ -4960,9 +5162,7 @@ class AgentRunAttempt(Base):
 
     __tablename__ = "agent_run_attempts"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_step_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_run_steps.id", ondelete="CASCADE"),
@@ -4974,9 +5174,7 @@ class AgentRunAttempt(Base):
     )
     fail_count: Mapped[int | None] = mapped_column(Integer)
     fail_signature: Mapped[str | None] = mapped_column(String(128))
-    diff_added: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    diff_added: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     diff_deleted: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
@@ -4988,9 +5186,7 @@ class AgentRunAttempt(Base):
     metadata_json: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
@@ -5015,9 +5211,7 @@ class AgentRunArtifact(Base):
 
     __tablename__ = "agent_run_artifacts"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -5046,9 +5240,7 @@ class AgentConfidenceReport(Base):
 
     __tablename__ = "agent_confidence_reports"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -5083,9 +5275,7 @@ class AgentEscalation(Base):
 
     __tablename__ = "agent_escalations"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -5116,9 +5306,7 @@ class AgentEscalation(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    resolved_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -5138,9 +5326,7 @@ class AgentEvent(Base):
 
     __tablename__ = "agent_events"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -5173,9 +5359,7 @@ class AgentReflection(Base):
 
     __tablename__ = "agent_reflections"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("agent_runs.id", ondelete="CASCADE"),
@@ -5213,9 +5397,7 @@ Index(
 )
 Index("ix_chat_threads_parent_id", ChatThread.parent_id)
 Index("ix_chat_threads_project_id", ChatThread.project_id)
-Index(
-    "ix_chat_threads_last_interaction_at", ChatThread.last_interaction_at.desc()
-)
+Index("ix_chat_threads_last_interaction_at", ChatThread.last_interaction_at.desc())
 Index("ix_chat_threads_user_id", ChatThread.user_id)
 Index("ix_chat_threads_updated", ChatThread.updated_at.desc())
 Index("ix_thread_moves_thread_id", ThreadMove.thread_id)
@@ -5223,9 +5405,7 @@ Index("ix_thread_moves_timestamp", ThreadMove.timestamp.desc())
 
 # Memory indexes
 Index("ix_memory_entries_silo", MemoryEntry.silo)
-Index(
-    "ix_memory_entries_silo_updated", MemoryEntry.silo, MemoryEntry.updated_at
-)
+Index("ix_memory_entries_silo_updated", MemoryEntry.silo, MemoryEntry.updated_at)
 Index("ix_memory_entries_user_silo", MemoryEntry.user_id, MemoryEntry.silo)
 
 # Connector indexes
@@ -5240,9 +5420,7 @@ Index(
     RawDocument.external_id,
     unique=True,
 )
-Index(
-    "ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at
-)
+Index("ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at)
 # Audit indexes
 Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
 Index("ix_audit_log_entity", AuditLog.entity, AuditLog.entity_id)
@@ -5425,9 +5603,7 @@ class CollaborationPermission(Base):
 
     __tablename__ = "collaboration_permissions"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     document_id: Mapped[str] = mapped_column(
         String(36), nullable=False
     )  # UUID of GeneratedDocument
@@ -5446,9 +5622,7 @@ class CollaborationPermission(Base):
     )
 
     __table_args__ = (
-        Index(
-            "ix_collab_perms_doc_user", "document_id", "user_id", unique=True
-        ),
+        Index("ix_collab_perms_doc_user", "document_id", "user_id", unique=True),
         Index("ix_collab_perms_document", "document_id"),
         Index("ix_collab_perms_user", "user_id"),
     )
@@ -5460,9 +5634,7 @@ class CollaborationAuditLog(Base):
 
     __tablename__ = "collaboration_audit_log"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     document_id: Mapped[str] = mapped_column(String(36), nullable=False)
     user_id: Mapped[str | None] = mapped_column(String(255))
     action: Mapped[str] = mapped_column(
@@ -5488,9 +5660,7 @@ class WSAuditLog(Base):
 
     __tablename__ = "ws_audit_log"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     connection_id: Mapped[str] = mapped_column(String(128), nullable=False)
     identity: Mapped[str | None] = mapped_column(String(255))
     method: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -5514,17 +5684,13 @@ class CronJob(Base):
 
     __tablename__ = "cron_jobs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     schedule: Mapped[str] = mapped_column(String(128), nullable=False)
     job_type: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="noop"
     )
-    payload: Mapped[dict] = mapped_column(
-        JSON, nullable=False, server_default="{}"
-    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
@@ -5554,9 +5720,7 @@ class CronRun(Base):
 
     __tablename__ = "cron_runs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("cron_jobs.id", ondelete="CASCADE"),
@@ -5565,12 +5729,8 @@ class CronRun(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="queued"
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
     result: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
@@ -5596,9 +5756,7 @@ class CommandRun(Base):
 
     __tablename__ = "command_runs"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     command_id: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(
@@ -5620,9 +5778,7 @@ class CommandRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
@@ -5647,9 +5803,7 @@ class CommandRunEvent(Base):
 
     __tablename__ = "command_run_events"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("command_runs.run_id", ondelete="CASCADE"),
@@ -5775,12 +5929,8 @@ class CampaignExecutionAttempt(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="running"
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     failed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(128))
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -5856,12 +6006,8 @@ class CodingWorktreeLease(Base):
         Boolean, nullable=False, server_default="false"
     )
     cleanup_policy: Mapped[str] = mapped_column(String(64), nullable=False)
-    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    released_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     cleanup_completed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
     )
@@ -5934,9 +6080,7 @@ class CodingWorkOrder(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="ready"
     )
-    priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_by: Mapped[str | None] = mapped_column(String(255))
     assigned_worker_id: Mapped[str | None] = mapped_column(String(255))
     source_thread_id: Mapped[str | None] = mapped_column(String(128))
@@ -5986,9 +6130,7 @@ class CodingWorkOrder(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    archived_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    archived_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -6014,14 +6156,10 @@ class ChannelConfig(Base):
 
     __tablename__ = "channel_configs"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
-    config_json: Mapped[dict] = mapped_column(
-        JSON, nullable=False, server_default="{}"
-    )
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -6049,9 +6187,7 @@ class ChannelAllowlist(Base):
 
     __tablename__ = "channel_allowlists"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -6077,9 +6213,7 @@ class ChannelPairing(Base):
 
     __tablename__ = "channel_pairings"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -6124,9 +6258,7 @@ class WorkOrderResultReceipt(Base):
     receipt_kind: Mapped[str] = mapped_column(
         String(32), nullable=False, default="command_run_observation"
     )
-    observed_command_id: Mapped[str] = mapped_column(
-        String(512), nullable=False
-    )
+    observed_command_id: Mapped[str] = mapped_column(String(512), nullable=False)
     observed_run_status: Mapped[str] = mapped_column(String(32), nullable=False)
     observed_result_summary: Mapped[str] = mapped_column(Text, nullable=False)
     observed_error_text: Mapped[str | None] = mapped_column(Text)
@@ -6145,9 +6277,7 @@ class WorkOrderResultReceipt(Base):
         JSONB, nullable=False, server_default="{}"
     )
     integrity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    schema_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1
-    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     artifact_ids_json: Mapped[dict | None] = mapped_column(JSONB)
     review_state: Mapped[str | None] = mapped_column(String(32))
     operator_note: Mapped[str | None] = mapped_column(Text)
@@ -6173,9 +6303,7 @@ class ChannelMessage(Base):
 
     __tablename__ = "channel_messages"
 
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     direction: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -6238,9 +6366,7 @@ class ContinuityContextPacket(Base):
     sensitivity: Mapped[str] = mapped_column(String(32), nullable=False)
     retention: Mapped[str] = mapped_column(String(32), nullable=False)
     integrity_json: Mapped[dict | None] = mapped_column(JSONB)
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -6281,9 +6407,7 @@ class ContinuityRealityState(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -6314,9 +6438,7 @@ class ContinuityRealityCommit(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -6349,9 +6471,7 @@ class ContinuityStatePacketLink(Base):
 # Account Observability
 # =========================
 
-ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL = "','".join(
-    sorted(INVITE_STATUSES)
-)
+ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL = "','".join(sorted(INVITE_STATUSES))
 ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHOD_VALUES_SQL = "','".join(
     sorted(ATTRIBUTION_METHODS)
 )
@@ -6381,15 +6501,9 @@ class AccountObservabilityInviteLink(Base):
         default=AccountObservabilityInviteStatus.ACTIVE.value,
         server_default=AccountObservabilityInviteStatus.ACTIVE.value,
     )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    disabled_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -6438,12 +6552,8 @@ class AccountObservabilityGuestIdentity(Base):
             ondelete="RESTRICT",
         ),
     )
-    converted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    converted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -6477,9 +6587,7 @@ class AccountObservabilityAccountMetadata(Base):
     registered_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    last_seen_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     acquisition_invite_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey(
@@ -6532,9 +6640,7 @@ class AccountObservabilityPresenceSession(Base):
 
     __tablename__ = "account_observability_presence_sessions"
 
-    presence_session_id: Mapped[str] = mapped_column(
-        String(36), primary_key=True
-    )
+    presence_session_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE")
     )
@@ -6612,6 +6718,286 @@ class AccountObservabilityPresenceSession(Base):
             "last_seen_at",
             "country_code",
             "region_code",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Unified Account-Owned Memory Store (UMS-03 canonical envelope)
+# =========================
+#
+# Frozen by §4.16 of ``docs/architecture/unified-memory-store-contract.md``.
+# Additive schema only; legacy ``memory_entries`` / ``personal_facts`` rows
+# remain the durable authority for existing records. The token-derived CHECK
+# strings are generated from ``guardian.protocol_tokens`` so ORM metadata
+# stays in lockstep with the canonical token domain. The Alembic migration
+# carries its own revision-local string snapshot so historical replay never
+# depends on mutable application tokens.
+
+
+_UMS_SEMANTIC_SPECIES_VALUES_SQL = ", ".join(
+    f"'{species.value}'" for species in MemorySemanticSpecies
+)
+_UMS_PERSONA_LINK_KIND_VALUES_SQL = ", ".join(
+    f"'{kind.value}'" for kind in MemoryPersonaLinkKind
+)
+_UMS_PROVENANCE_SOURCE_SYSTEM_VALUES_SQL = (
+    "'codexify', 'openai', 'anthropic', 'future_registered'"
+)
+_UMS_PROVENANCE_SOURCE_SUBJECT_KIND_VALUES_SQL = (
+    "'chat', 'vault', 'importer', 'classifier', 'future_registered'"
+)
+
+
+class MemoryRecord(Base):
+    """Canonical UMS memory envelope row (UMS-03D; frozen by §4.16.2).
+
+    Every authority-bearing envelope field is a typed relational column.
+    JSONB ``extensions`` is non-authoritative auxiliary metadata only.
+    """
+
+    __tablename__ = "memory_records"
+
+    memory_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    semantic_species: Mapped[str] = mapped_column(String(32), nullable=False)
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fact_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fact_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fact_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    held: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship("User")
+    project: Mapped[Project | None] = relationship("Project")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "memory_id",
+            "user_id",
+            name="uq_memory_records_memory_user",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "user_id"],
+            ["projects.id", "projects.user_id"],
+            name="fk_memory_records_project_account",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            f"semantic_species IN ({_UMS_SEMANTIC_SPECIES_VALUES_SQL})",
+            name="memory_records_semantic_species_check",
+        ),
+        CheckConstraint(
+            "fact_confidence IS NULL OR "
+            "(fact_confidence >= 0.0 AND fact_confidence <= 1.0)",
+            name="memory_records_fact_confidence_check",
+        ),
+        CheckConstraint(
+            "project_id IS NULL OR " "text_content IS NOT NULL OR fact_key IS NOT NULL",
+            name="memory_records_payload_present_check",
+        ),
+        CheckConstraint(
+            "NOT (semantic_species = 'episodic_semantic_memory') "
+            "OR (text_content IS NOT NULL "
+            "AND fact_key IS NULL "
+            "AND fact_value IS NULL "
+            "AND fact_confidence IS NULL)",
+            name="memory_records_episodic_payload_shape_check",
+        ),
+        CheckConstraint(
+            "NOT (semantic_species IN "
+            "('verified_personal_fact', 'candidate_unreviewed_fact')) "
+            "OR (fact_key IS NOT NULL "
+            "AND fact_value IS NOT NULL "
+            "AND text_content IS NULL)",
+            name="memory_records_fact_payload_shape_check",
+        ),
+        CheckConstraint(
+            "activated_at IS NULL OR "
+            "(reviewed_at IS NOT NULL "
+            "AND activated_at >= reviewed_at)",
+            name="memory_records_review_activation_order_check",
+        ),
+        Index("ix_memory_records_user_id", "user_id"),
+        Index("ix_memory_records_user_project", "user_id", "project_id"),
+        Index("ix_memory_records_user_species", "user_id", "semantic_species"),
+        Index("ix_memory_records_user_activated_at", "user_id", "activated_at"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryPersonaLink(Base):
+    """Typed stable-Persona attribution link for a canonical memory record.
+
+    Frozen by §4.16.3. Attribution only; never ownership.
+    """
+
+    __tablename__ = "memory_persona_links"
+
+    link_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    persona_subject_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    persona_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    link_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_persona_links_memory_account",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["persona_subject_id", "persona_user_id"],
+            [
+                "persona_subjects.persona_subject_id",
+                "persona_subjects.user_id",
+            ],
+            name="fk_memory_persona_links_persona_account",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "user_id = persona_user_id",
+            name="memory_persona_links_same_account_check",
+        ),
+        CheckConstraint(
+            f"link_kind IN ({_UMS_PERSONA_LINK_KIND_VALUES_SQL})",
+            name="memory_persona_links_link_kind_check",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "persona_subject_id",
+            "link_kind",
+            name="uq_memory_persona_links_memory_persona_kind",
+        ),
+        Index("ix_memory_persona_links_user_id", "user_id"),
+        Index(
+            "ix_memory_persona_links_persona_subject_id",
+            "persona_subject_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryProvenance(Base):
+    """First-class durable lineage row for a canonical memory record.
+
+    Frozen by §4.16.4. One-to-many per memory; preserves evidence/revision
+    append-only semantics. Actual source identity lives in typed opaque
+    columns; closed ``source_system`` and ``source_subject_kind`` vocabularies
+    only classify the kind of source.
+    """
+
+    __tablename__ = "memory_provenance"
+
+    provenance_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_system: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_import_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_export_fingerprint: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    source_subject_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_subject_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_imported: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_provenance_memory_account",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            f"source_system IN ({_UMS_PROVENANCE_SOURCE_SYSTEM_VALUES_SQL})",
+            name="memory_provenance_source_system_check",
+        ),
+        CheckConstraint(
+            f"source_subject_kind IS NULL OR "
+            f"source_subject_kind IN ({_UMS_PROVENANCE_SOURCE_SUBJECT_KIND_VALUES_SQL})",
+            name="memory_provenance_source_subject_kind_check",
+        ),
+        Index("ix_memory_provenance_memory_id", "memory_id"),
+        Index(
+            "ix_memory_provenance_user_source_system",
+            "user_id",
+            "source_system",
+        ),
+        Index(
+            "ix_memory_provenance_source_thread_id",
+            "source_thread_id",
+            postgresql_where=text("source_thread_id IS NOT NULL"),
         ),
     )
 

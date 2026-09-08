@@ -1,27 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The filename and directory retain their pi_deepseek_delegation compatibility
+# names. Selection itself is provider-neutral and is always explicit.
+
 MODE="analysis"
 TASK=""
 TASK_FILE=""
 CWD="$PWD"
-MODEL="${PI_DEEPSEEK_MODEL:-}"
-PROVIDER="${PI_DEEPSEEK_PROVIDER:-deepseek}"
-THINKING="${PI_DEEPSEEK_THINKING:-high}"
 OUTPUT_DIR=""
+SELECTION_RATIONALE=""
+
+TASK_PROVIDER=""
+TASK_MODEL=""
+TASK_THINKING=""
+TASK_TIMEOUT=""
+PROVIDER_ARG_SET=0
+MODEL_ARG_SET=0
+THINKING_ARG_SET=0
+TIMEOUT_ARG_SET=0
+
+PROVIDER=""
+MODEL=""
+THINKING=""
+TIMEOUT_SECONDS=""
+SELECTION_SOURCE=""
+
 CHECK_ONLY=0
+CATALOG_ONLY=0
 PROBE_ONLY=0
 DRY_RUN=0
-TIMEOUT_SECONDS="${PI_DEEPSEEK_TIMEOUT:-180}"
 JSON_OUTPUT=0
 CONTEXT_FILES=()
+
+MODEL_LIST=""
+PI_PATH=""
+CATALOG_TABLE=""
+CATALOG_COUNT=0
 
 usage() {
   cat <<'USAGE'
 Usage:
-  pi_deepseek_delegate.sh --check
-  pi_deepseek_delegate.sh --probe
-  pi_deepseek_delegate.sh --task "..." [options]
+  pi_deepseek_delegate.sh --catalog
+  pi_deepseek_delegate.sh --check --provider PROVIDER --model MODEL
+  pi_deepseek_delegate.sh --task "..." --provider PROVIDER --model MODEL [options]
+  pi_deepseek_delegate.sh --probe --provider PROVIDER --model MODEL [options]
 
 Options:
   --mode analysis|review|test|implementation
@@ -29,22 +52,35 @@ Options:
   --task-file PATH
   --context-file PATH       Repeatable. Passed to Pi as an @file argument.
   --cwd DIR                 Delegated working directory. Default: current directory.
-  --provider PROVIDER       Pi provider ID. Default: deepseek (built-in).
-  --model MODEL             Pi model ID. Overrides PI_DEEPSEEK_MODEL.
+  --provider PROVIDER       Exact Pi provider ID. Must be paired with --model.
+  --model MODEL             Exact Pi model ID. Must be paired with --provider.
   --thinking LEVEL          off|minimal|low|medium|high|xhigh|max. Default: high.
   --timeout-seconds N       Timeout for the delegation. Default: 180.
-  --output-dir DIR          Default: <cwd>/.codex/delegations/deepseek
-  --check                   Validate local Pi and DeepSeek configuration only.
-  --probe                   Minimal live provider inference with synthetic prompt.
+  --selection-rationale TEXT
+                            Short supervising-agent rationale recorded in metadata.
+  --output-dir DIR          Default: <cwd>/.codex/delegations/pi
+  --catalog                 Print Pi's current available provider/model table.
+  --check                   Validate the exact selection against Pi's catalog only.
+  --probe                   Minimal live inference with a synthetic prompt.
   --dry-run                 Print the planned command without invoking Pi.
-  --json                    Output machine-readable JSON on stdout.
+  --json                    Output machine-readable JSON where supported.
   -h, --help
 
-Required environment for real calls:
-  CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1
+Generic operator defaults:
+  PI_DELEGATION_PROVIDER and PI_DELEGATION_MODEL must both be configured.
+  PI_DELEGATION_THINKING and PI_DELEGATION_TIMEOUT are optional.
 
-Additional requirement for implementation mode:
-  CODEX_DEEPSEEK_WRITE_DELEGATION=1
+Real inference requires:
+  CODEX_PI_DELEGATION_ACK=1
+
+Implementation mode additionally requires:
+  CODEX_PI_WRITE_DELEGATION=1
+
+Legacy compatibility:
+  PI_DEEPSEEK_PROVIDER, PI_DEEPSEEK_MODEL, PI_DEEPSEEK_THINKING,
+  PI_DEEPSEEK_TIMEOUT, CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK, and
+  CODEX_DEEPSEEK_WRITE_DELEGATION are honored only for a DeepSeek selection.
+  They never authorize or select another provider.
 USAGE
 }
 
@@ -82,28 +118,41 @@ while [[ $# -gt 0 ]]; do
       ;;
     --provider)
       [[ $# -ge 2 ]] || fail "--provider requires a value"
-      PROVIDER="$2"
+      TASK_PROVIDER="$2"
+      PROVIDER_ARG_SET=1
       shift 2
       ;;
     --model)
       [[ $# -ge 2 ]] || fail "--model requires a value"
-      MODEL="$2"
+      TASK_MODEL="$2"
+      MODEL_ARG_SET=1
       shift 2
       ;;
     --thinking)
       [[ $# -ge 2 ]] || fail "--thinking requires a value"
-      THINKING="$2"
+      TASK_THINKING="$2"
+      THINKING_ARG_SET=1
       shift 2
       ;;
     --timeout-seconds)
       [[ $# -ge 2 ]] || fail "--timeout-seconds requires a value"
-      TIMEOUT_SECONDS="$2"
+      TASK_TIMEOUT="$2"
+      TIMEOUT_ARG_SET=1
+      shift 2
+      ;;
+    --selection-rationale)
+      [[ $# -ge 2 ]] || fail "--selection-rationale requires a value"
+      SELECTION_RATIONALE="$2"
       shift 2
       ;;
     --output-dir)
       [[ $# -ge 2 ]] || fail "--output-dir requires a value"
       OUTPUT_DIR="$2"
       shift 2
+      ;;
+    --catalog)
+      CATALOG_ONLY=1
+      shift
       ;;
     --check)
       CHECK_ONLY=1
@@ -131,113 +180,240 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ $CATALOG_ONLY -eq 1 ]]; then
+  [[ $CHECK_ONLY -eq 0 ]] || fail "--catalog cannot be combined with --check"
+  [[ $PROBE_ONLY -eq 0 ]] || fail "--catalog cannot be combined with --probe"
+  [[ $DRY_RUN -eq 0 ]] || fail "--catalog cannot be combined with --dry-run"
+  [[ -z "$TASK" && -z "$TASK_FILE" ]] || fail "--catalog does not accept a task"
+fi
+
+if [[ $CHECK_ONLY -eq 1 && $PROBE_ONLY -eq 1 ]]; then
+  fail "--check cannot be combined with --probe"
+fi
+
+if [[ $CHECK_ONLY -eq 1 && $DRY_RUN -eq 1 ]]; then
+  fail "--check cannot be combined with --dry-run"
+fi
+
+if [[ $PROBE_ONLY -eq 1 ]]; then
+  MODE="analysis"
+  TASK="Say exactly: PI_DELEGATION_PROBE_OK"
+  TASK_FILE=""
+fi
+
 case "$MODE" in
   analysis|review|test|implementation) ;;
   *) fail "unsupported mode: $MODE" ;;
 esac
 
-case "$THINKING" in
-  off|minimal|low|medium|high|xhigh|max) ;;
-  *) fail "unsupported thinking level: $THINKING" ;;
-esac
+resolve_selection() {
+  local generic_provider="${PI_DELEGATION_PROVIDER:-}"
+  local generic_model="${PI_DELEGATION_MODEL:-}"
+  local legacy_provider="${PI_DEEPSEEK_PROVIDER:-}"
+  local legacy_model="${PI_DEEPSEEK_MODEL:-}"
 
-command -v pi >/dev/null 2>&1 || fail "pi is not installed or not on PATH"
-[[ -d "$CWD" ]] || fail "working directory does not exist: $CWD"
-CWD="$(cd "$CWD" && pwd)"
-
-AUTH_CONFIGURED=0
-if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
-  AUTH_CONFIGURED=1
-elif [[ -f "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json" ]]; then
-  if python3 -c "
-import json, sys
-try:
-    with open('${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json') as f:
-        auth = json.load(f)
-    if 'deepseek' in auth:
-        sys.exit(0)
-except Exception:
-    pass
-sys.exit(1)
-" 2>/dev/null; then
-    AUTH_CONFIGURED=1
+  if [[ $PROVIDER_ARG_SET -ne $MODEL_ARG_SET ]]; then
+    fail "explicit selection requires both --provider and --model"
   fi
-fi
 
-MODEL_LIST="$(pi --list-models "$PROVIDER" 2>&1 || true)"
-
-select_model() {
-  if [[ -n "$MODEL" ]]; then
-    printf '%s' "$MODEL"
+  if [[ $PROVIDER_ARG_SET -eq 1 ]]; then
+    [[ -n "$TASK_PROVIDER" && -n "$TASK_MODEL" ]] || fail "--provider and --model must both be non-empty"
+    PROVIDER="$TASK_PROVIDER"
+    MODEL="$TASK_MODEL"
+    SELECTION_SOURCE="explicit-task"
     return
   fi
 
-  local preferred_order="deepseek-v4-pro deepseek-v4-flash"
-  local candidate
+  if [[ -n "$generic_provider" || -n "$generic_model" ]]; then
+    [[ -n "$generic_provider" && -n "$generic_model" ]] || fail "PI_DELEGATION_PROVIDER and PI_DELEGATION_MODEL must be configured together"
+    PROVIDER="$generic_provider"
+    MODEL="$generic_model"
+    SELECTION_SOURCE="generic-environment"
+    return
+  fi
 
-  for candidate in $preferred_order; do
-    if printf '%s\n' "$MODEL_LIST" | awk '{print $2}' | grep -Fx "$candidate" >/dev/null 2>&1; then
-      printf '%s' "$candidate"
-      return
+  if [[ -n "$legacy_provider" || -n "$legacy_model" ]]; then
+    if [[ -n "$legacy_provider" && "$legacy_provider" != "deepseek" ]]; then
+      fail "PI_DEEPSEEK_PROVIDER only supports the legacy deepseek provider; use generic provider/model settings for another provider"
     fi
-  done
-
-  # Fall back to first listed model for the provider after the header line
-  local first_model
-  first_model="$(printf '%s\n' "$MODEL_LIST" | awk 'NR>1 && NF>=2 {print $2; exit}')"
-  if [[ -n "$first_model" ]]; then
-    printf '%s' "$first_model"
+    [[ -n "$legacy_model" ]] || fail "legacy DeepSeek selection is missing PI_DEEPSEEK_MODEL; inspect --catalog and choose an exact pair"
+    # PI_DEEPSEEK_MODEL is an explicit legacy selection whose namespace binds
+    # the provider to deepseek. There is still no model fallback or ranking.
+    PROVIDER="deepseek"
+    MODEL="$legacy_model"
+    SELECTION_SOURCE="legacy-deepseek"
     return
   fi
 
-  printf ''
+  fail "no provider/model selected; pass --provider and --model or configure PI_DELEGATION_PROVIDER and PI_DELEGATION_MODEL; inspect --catalog"
 }
 
-MODEL="$(select_model)"
-
-if [[ $CHECK_ONLY -eq 1 ]]; then
-  if [[ $JSON_OUTPUT -eq 1 ]]; then
-    printf '{"pi":"%s","provider":"%s","auth":"%s","model":"%s"}\n' \
-      "$(command -v pi)" \
-      "$PROVIDER" \
-      "$([[ $AUTH_CONFIGURED -eq 1 ]] && printf 'configured' || printf 'missing')" \
-      "${MODEL:-null}"
+resolve_thinking_and_timeout() {
+  if [[ $THINKING_ARG_SET -eq 1 ]]; then
+    THINKING="$TASK_THINKING"
+  elif [[ -n "${PI_DELEGATION_THINKING:-}" ]]; then
+    THINKING="$PI_DELEGATION_THINKING"
+  elif [[ "$PROVIDER" == "deepseek" && -n "${PI_DEEPSEEK_THINKING:-}" ]]; then
+    THINKING="$PI_DEEPSEEK_THINKING"
   else
-    printf 'pi=%s\n' "$(command -v pi)"
-    printf 'provider=%s\n' "$PROVIDER"
-    printf 'deepseek_auth=%s\n' "$([[ $AUTH_CONFIGURED -eq 1 ]] && printf configured || printf missing)"
-    if [[ -n "$MODEL" ]]; then
-      printf 'deepseek_model=%s\n' "$MODEL"
-    else
-      printf 'deepseek_model=missing\n'
-    fi
-    if [[ -n "$MODEL_LIST" ]]; then
-      printf '%s\n' 'available_models_begin'
-      printf '%s\n' "$MODEL_LIST"
-      printf '%s\n' 'available_models_end'
-    fi
+    THINKING="high"
   fi
-  [[ $AUTH_CONFIGURED -eq 1 ]] || exit 2
-  [[ -n "$MODEL" ]] || exit 3
+
+  case "$THINKING" in
+    off|minimal|low|medium|high|xhigh|max) ;;
+    *) fail "unsupported thinking level: $THINKING" ;;
+  esac
+
+  if [[ $TIMEOUT_ARG_SET -eq 1 ]]; then
+    TIMEOUT_SECONDS="$TASK_TIMEOUT"
+  elif [[ -n "${PI_DELEGATION_TIMEOUT:-}" ]]; then
+    TIMEOUT_SECONDS="$PI_DELEGATION_TIMEOUT"
+  elif [[ "$PROVIDER" == "deepseek" && -n "${PI_DEEPSEEK_TIMEOUT:-}" ]]; then
+    TIMEOUT_SECONDS="$PI_DEEPSEEK_TIMEOUT"
+  else
+    TIMEOUT_SECONDS="180"
+  fi
+
+  [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail "timeout must be a positive integer number of seconds: $TIMEOUT_SECONDS"
+}
+
+read_model_catalog() {
+  local catalog_status
+  set +e
+  MODEL_LIST="$(pi --list-models 2>/dev/null)"
+  catalog_status=$?
+  set -e
+  [[ $catalog_status -eq 0 ]] || fail "unable to read Pi model catalog; pi --list-models exited with $catalog_status"
+}
+
+catalog_table() {
+  printf '%s\n' "$MODEL_LIST" | awk '
+    function safe_token(value) {
+      return value ~ /^[[:alnum:]_.:@+\/-]+$/
+    }
+    tolower($1) == "provider" && tolower($2) == "model" {
+      print $0
+      header_seen = 1
+      next
+    }
+    header_seen && NF >= 2 && safe_token($1) && safe_token($2) {
+      print $0
+    }
+  '
+}
+
+catalog_count() {
+  printf '%s\n' "$MODEL_LIST" | awk '
+    function safe_token(value) {
+      return value ~ /^[[:alnum:]_.:@+\/-]+$/
+    }
+    tolower($1) == "provider" && tolower($2) == "model" {
+      header_seen = 1
+      next
+    }
+    header_seen && NF >= 2 && safe_token($1) && safe_token($2) {
+      count++
+    }
+    END { print count + 0 }
+  '
+}
+
+validate_model_pair() {
+  if ! printf '%s\n' "$MODEL_LIST" | awk -v expected_provider="$PROVIDER" -v expected_model="$MODEL" '
+    BEGIN { found = 0 }
+    tolower($1) == "provider" && tolower($2) == "model" {
+      header_seen = 1
+      next
+    }
+    header_seen && $1 == expected_provider && $2 == expected_model {
+      found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  '; then
+    fail "selected provider/model is not available in Pi's current catalog: $PROVIDER/$MODEL; run the wrapper with --catalog and choose an exact registered pair"
+  fi
+}
+
+json_quote() {
+  python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+emit_catalog() {
+  CATALOG_TABLE="$(catalog_table)"
+  CATALOG_COUNT="$(catalog_count)"
+
+  if [[ $JSON_OUTPUT -eq 1 ]]; then
+    printf '{"pi":%s,"catalog_command":"pi --list-models","available_model_entries":%s,"listing":%s}\n' \
+      "$(json_quote "$PI_PATH")" \
+      "$CATALOG_COUNT" \
+      "$(json_quote "$CATALOG_TABLE")"
+    return
+  fi
+
+  printf 'pi=%s\n' "$PI_PATH"
+  printf 'catalog_command=pi --list-models\n'
+  printf 'available_model_entries=%s\n' "$CATALOG_COUNT"
+  printf '%s\n' 'available_models_begin'
+  if [[ -n "$CATALOG_TABLE" ]]; then
+    printf '%s\n' "$CATALOG_TABLE"
+  else
+    printf '%s\n' 'catalog_status=no_available_model_rows'
+  fi
+  printf '%s\n' 'available_models_end'
+}
+
+emit_check() {
+  CATALOG_TABLE="$(catalog_table)"
+  CATALOG_COUNT="$(catalog_count)"
+
+  if [[ $JSON_OUTPUT -eq 1 ]]; then
+    printf '{"pi":%s,"provider":%s,"model":%s,"thinking":%s,"timeout_seconds":%s,"selection_source":%s,"available_model_entries":%s}\n' \
+      "$(json_quote "$PI_PATH")" \
+      "$(json_quote "$PROVIDER")" \
+      "$(json_quote "$MODEL")" \
+      "$(json_quote "$THINKING")" \
+      "$TIMEOUT_SECONDS" \
+      "$(json_quote "$SELECTION_SOURCE")" \
+      "$CATALOG_COUNT"
+    return
+  fi
+
+  printf 'pi=%s\n' "$PI_PATH"
+  printf 'provider=%s\n' "$PROVIDER"
+  printf 'model=%s\n' "$MODEL"
+  printf 'thinking=%s\n' "$THINKING"
+  printf 'timeout_seconds=%s\n' "$TIMEOUT_SECONDS"
+  printf 'selection_source=%s\n' "$SELECTION_SOURCE"
+  printf 'available_model_entries=%s\n' "$CATALOG_COUNT"
+  printf '%s\n' 'available_models_begin'
+  if [[ -n "$CATALOG_TABLE" ]]; then
+    printf '%s\n' "$CATALOG_TABLE"
+  else
+    printf '%s\n' 'catalog_status=no_available_model_rows'
+  fi
+  printf '%s\n' 'available_models_end'
+}
+
+PI_PATH="$(command -v pi 2>/dev/null || true)"
+[[ -n "$PI_PATH" ]] || fail "pi is not installed or not on PATH"
+
+if [[ $CATALOG_ONLY -eq 1 ]]; then
+  read_model_catalog
+  emit_catalog
   exit 0
 fi
 
-[[ -n "$MODEL" ]] || fail "no DeepSeek model selected; run 'pi --list-models $PROVIDER' and set PI_DEEPSEEK_MODEL"
-[[ $AUTH_CONFIGURED -eq 1 ]] || fail "DeepSeek authentication not detected; set DEEPSEEK_API_KEY or authenticate through Pi"
+[[ -d "$CWD" ]] || fail "working directory does not exist: $CWD"
+CWD="$(cd "$CWD" && pwd)"
 
-if [[ $PROBE_ONLY -eq 1 ]]; then
-  [[ "${CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK:-0}" == "1" ]] || fail "external-provider acknowledgement missing; set CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1 after user consent"
-  TASK="Say exactly: DEEPSEEK_PI_PROBE_OK"
-  MODE="analysis"
-  TOOLS="read,ls"
-fi
+resolve_selection
+resolve_thinking_and_timeout
+read_model_catalog
+validate_model_pair
 
-if [[ $PROBE_ONLY -eq 0 ]]; then
-  [[ "${CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK:-0}" == "1" ]] || fail "external-provider acknowledgement missing; set CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1 after user consent"
-fi
-
-if [[ "$MODE" == "implementation" && "${CODEX_DEEPSEEK_WRITE_DELEGATION:-0}" != "1" ]]; then
-  fail "implementation mode requires CODEX_DEEPSEEK_WRITE_DELEGATION=1"
+if [[ $CHECK_ONLY -eq 1 ]]; then
+  emit_check
+  exit 0
 fi
 
 if [[ -n "$TASK_FILE" ]]; then
@@ -262,11 +438,11 @@ is_sensitive_path() {
 PI_FILES=()
 if ((${#CONTEXT_FILES[@]})); then
   for file in "${CONTEXT_FILES[@]}"; do
-  [[ -f "$file" ]] || fail "context file does not exist: $file"
-  if is_sensitive_path "$file"; then
-    fail "refusing sensitive context file: $file"
-  fi
-  absolute_file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+    [[ -f "$file" ]] || fail "context file does not exist: $file"
+    if is_sensitive_path "$file"; then
+      fail "refusing sensitive context file: $file"
+    fi
+    absolute_file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
     PI_FILES+=("@$absolute_file")
   done
 fi
@@ -286,10 +462,36 @@ case "$MODE" in
     ;;
 esac
 
-SYSTEM_PROMPT=$(cat <<PROMPT
-You are a bounded DeepSeek engineering worker invoked by Codex through the Pi coding-agent harness (built-in deepseek provider).
+if [[ $DRY_RUN -eq 0 ]]; then
+  if [[ "${CODEX_PI_DELEGATION_ACK:-0}" != "1" ]]; then
+    if [[ "$PROVIDER" == "deepseek" && "${CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK:-0}" == "1" ]]; then
+      :
+    elif [[ "$PROVIDER" != "deepseek" && "${CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK:-0}" == "1" ]]; then
+      fail "generic delegation acknowledgement missing; CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK only authorizes a DeepSeek selection; set CODEX_PI_DELEGATION_ACK=1 after user consent"
+    else
+      fail "delegation acknowledgement missing; set CODEX_PI_DELEGATION_ACK=1 after user consent"
+    fi
+  fi
 
-Codex is the supervising agent. Complete only the assigned subtask. Do not broaden scope, conceal uncertainty, or claim success without direct evidence.
+  if [[ "$MODE" == "implementation" && "${CODEX_PI_WRITE_DELEGATION:-0}" != "1" ]]; then
+    if [[ "$PROVIDER" == "deepseek" && "${CODEX_DEEPSEEK_WRITE_DELEGATION:-0}" == "1" ]]; then
+      :
+    elif [[ "$PROVIDER" != "deepseek" && "${CODEX_DEEPSEEK_WRITE_DELEGATION:-0}" == "1" ]]; then
+      fail "generic write acknowledgement missing; CODEX_DEEPSEEK_WRITE_DELEGATION only authorizes a DeepSeek selection; set CODEX_PI_WRITE_DELEGATION=1"
+    else
+      fail "implementation mode requires CODEX_PI_WRITE_DELEGATION=1"
+    fi
+  fi
+fi
+
+SYSTEM_PROMPT=$(cat <<PROMPT
+You are a bounded engineering worker invoked by the supervising agent through the Pi coding-agent harness.
+
+The supervising agent selected provider: $PROVIDER
+The supervising agent selected model: $MODEL
+Selection rationale: ${SELECTION_RATIONALE:-not recorded}
+
+Complete only the assigned subtask. Do not broaden scope, conceal uncertainty, or claim success without direct evidence.
 
 Mode: $MODE
 Rules: $MODE_RULES
@@ -309,10 +511,15 @@ PROMPT
 )
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-  OUTPUT_DIR="$CWD/.codex/delegations/deepseek"
+  OUTPUT_DIR="$CWD/.codex/delegations/pi"
 fi
-mkdir -p "$OUTPUT_DIR"
-OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+
+if [[ $DRY_RUN -eq 0 ]]; then
+  mkdir -p "$OUTPUT_DIR"
+  OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+elif [[ "$OUTPUT_DIR" != /* ]]; then
+  OUTPUT_DIR="$CWD/$OUTPUT_DIR"
+fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 SAFE_MODE="$(printf '%s' "$MODE" | tr -cd '[:alnum:]_-')"
@@ -325,24 +532,35 @@ if ((${#PI_FILES[@]})); then
 fi
 CMD+=("$TASK")
 
-{
-  printf 'timestamp_utc=%s\n' "$STAMP"
-  printf 'mode=%s\n' "$MODE"
+if [[ $DRY_RUN -eq 1 ]]; then
   printf 'provider=%s\n' "$PROVIDER"
   printf 'model=%s\n' "$MODEL"
   printf 'thinking=%s\n' "$THINKING"
-  printf 'cwd=%s\n' "$CWD"
-  printf 'tools=%s\n' "$TOOLS"
-  printf 'result_file=%s\n' "$RESULT_FILE"
-} > "$META_FILE"
-
-if [[ $DRY_RUN -eq 1 ]]; then
+  printf 'selection_source=%s\n' "$SELECTION_SOURCE"
   printf 'cwd=%q ' "$CWD"
   printf '%q ' "${CMD[@]}"
   printf '\n'
   printf 'result_file=%s\n' "$RESULT_FILE"
   exit 0
 fi
+
+SAFE_RATIONALE="$(printf '%s' "$SELECTION_RATIONALE" | tr '\r\n' '  ')"
+{
+  printf 'timestamp_utc=%s\n' "$STAMP"
+  printf 'mode=%s\n' "$MODE"
+  printf 'provider=%s\n' "$PROVIDER"
+  printf 'model=%s\n' "$MODEL"
+  printf 'provider_model=%s/%s\n' "$PROVIDER" "$MODEL"
+  printf 'thinking=%s\n' "$THINKING"
+  printf 'timeout_seconds=%s\n' "$TIMEOUT_SECONDS"
+  printf 'selection_source=%s\n' "$SELECTION_SOURCE"
+  printf 'selection_rationale=%s\n' "$SAFE_RATIONALE"
+  printf 'cwd=%s\n' "$CWD"
+  printf 'tools=%s\n' "$TOOLS"
+  printf 'artifact_dir=%s\n' "$OUTPUT_DIR"
+  printf 'artifact_path=%s\n' "$RESULT_FILE"
+  printf 'result_file=%s\n' "$RESULT_FILE"
+} > "$META_FILE"
 
 set +e
 (
@@ -384,24 +602,26 @@ printf 'exit_code=%s\n' "$STATUS" >> "$META_FILE"
 
 if [[ $STATUS -eq 124 ]]; then
   printf 'status=timeout\n' >> "$META_FILE"
-  printf 'Pi delegation timed out after %s seconds.\n' "$TIMEOUT_SECONDS" >&2
+  printf 'Pi delegation for %s/%s timed out after %s seconds.\n' "$PROVIDER" "$MODEL" "$TIMEOUT_SECONDS" >&2
   printf 'stderr_file=%s\n' "${RESULT_FILE}.stderr" >&2
   exit 124
 fi
 
 if [[ $STATUS -ne 0 ]]; then
   printf 'status=worker_failed\n' >> "$META_FILE"
-  printf 'Pi delegation failed with exit code %s.\n' "$STATUS" >&2
+  printf 'Pi delegation for %s/%s failed with exit code %s.\n' "$PROVIDER" "$MODEL" "$STATUS" >&2
   printf 'stderr_file=%s\n' "${RESULT_FILE}.stderr" >&2
   exit "$STATUS"
 fi
 
 if [[ ! -s "$RESULT_FILE" ]]; then
   printf 'status=empty_result\n' >> "$META_FILE"
-  fail "Pi returned an empty result: $RESULT_FILE"
+  fail "Pi returned an empty result for $PROVIDER/$MODEL: $RESULT_FILE"
 fi
 
 printf 'status=success\n' >> "$META_FILE"
+printf 'selected_provider=%s\n' "$PROVIDER"
+printf 'selected_model=%s\n' "$MODEL"
 printf 'delegation_result=%s\n' "$RESULT_FILE"
 printf 'delegation_metadata=%s\n' "$META_FILE"
 if [[ -s "${RESULT_FILE}.stderr" ]]; then

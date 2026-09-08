@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -131,6 +132,133 @@ class _FakeIntegrityOrig(Exception):
     def __init__(self, constraint_name: str | None):
         super().__init__("fk violation")
         self.diag = _FakeIntegrityDiag(constraint_name)
+
+
+class TestProjectOwnershipScope:
+    @staticmethod
+    def _scope(account_id: str) -> RequestUserScope:
+        return RequestUserScope(
+            user_id=account_id,
+            account_id=account_id,
+            multi_user_enabled=True,
+        )
+
+    @staticmethod
+    def _envelope(owner_id: str, description: str) -> str:
+        return json.dumps(
+            {
+                "__codexify_project_owner__": True,
+                "owner_user_id": owner_id,
+                "description": description,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    def test_canonical_project_owner_authorizes_media_scope(self):
+        from guardian.routes import media as media_routes
+
+        db = MagicMock()
+        db.list_projects.return_value = [
+            {
+                "id": 41,
+                "user_id": "account-a",
+                "name": "Canonical Project",
+                "description": "ordinary description",
+            }
+        ]
+
+        project = media_routes._require_project_account_scope(
+            db, 41, self._scope("account-a")
+        )
+
+        assert project["user_id"] == "account-a"
+        assert project["description"] == "ordinary description"
+
+    def test_matching_legacy_envelope_recovers_description_without_authority(self):
+        from guardian.routes import media as media_routes
+
+        db = MagicMock()
+        db.list_projects.return_value = [
+            {
+                "id": 42,
+                "user_id": "account-a",
+                "name": "Legacy Project",
+                "description": self._envelope(
+                    "account-a", "  exact recovered text  "
+                ),
+            }
+        ]
+
+        project = media_routes._require_project_account_scope(
+            db, 42, self._scope("account-a")
+        )
+
+        assert project["user_id"] == "account-a"
+        assert project["description"] == "  exact recovered text  "
+        with pytest.raises(HTTPException) as exc_info:
+            media_routes._require_project_account_scope(
+                db, 42, self._scope("account-b")
+            )
+        assert exc_info.value.status_code == 403
+
+    def test_ownership_shaped_description_cannot_grant_media_scope(self):
+        from guardian.core.project_ownership import (
+            PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+        )
+        from guardian.routes import media as media_routes
+
+        db = MagicMock()
+        db.list_projects.return_value = [
+            {
+                "id": 43,
+                "user_id": "account-b",
+                "name": "Injected Project",
+                "description": self._envelope(
+                    "account-a", "attempted grant"
+                ),
+            }
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            media_routes._require_project_account_scope(
+                db, 43, self._scope("account-a")
+            )
+
+        assert exc_info.value.status_code == 409
+        assert (
+            exc_info.value.detail["code"]
+            == PROJECT_OWNERSHIP_AUTHORITY_CONFLICT
+        )
+
+    def test_conflict_fails_closed_even_when_canonical_owner_is_caller(self):
+        from guardian.core.project_ownership import (
+            PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+        )
+        from guardian.routes import media as media_routes
+
+        db = MagicMock()
+        db.list_projects.return_value = [
+            {
+                "id": 44,
+                "user_id": "account-a",
+                "name": "Conflicted Project",
+                "description": self._envelope(
+                    "account-b", "attempted override"
+                ),
+            }
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            media_routes._require_project_account_scope(
+                db, 44, self._scope("account-a")
+            )
+
+        assert exc_info.value.status_code == 409
+        assert (
+            exc_info.value.detail["code"]
+            == PROJECT_OWNERSHIP_AUTHORITY_CONFLICT
+        )
 
 
 class TestImageGeneration:

@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-06
+2026-09-08
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. The private-preview database has now reached the Persona head `d4e0f2a5b7c9` with original-column preservation and canonical no-op proof. The old application remains stopped and stack reconciliation is intentionally suspended until matching Persona deployment is qualified. No Beta support boundary widened.
+`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded `b2c8d0e3f5a7` live schema upgrade and scheduled reconciliation proved preservation, immediate reads, and coherent shared-image recovery without recreating healthy long-running containers or changing canonical database state. The private-preview database subsequently reached the Persona head `d4e0f2a5b7c9` with original-column preservation and canonical no-op proof, but the matching application deployment is blocked by Chroma initialization and remains stopped pending separate storage-topology and deployment qualification. Recent mainline work also improved bounded Persona Profile, sharing, and worker-diagnosis seams. No new release-ready runtime path or wider Beta support boundary was established.
 
 ## What changed recently
 
@@ -49,20 +49,443 @@ This file is authoritative for:
 - Qualified the private-preview migration lineage on a disposable clone, then upgraded the live database to `b2c8d0e3f5a7` with preservation, worker recovery, no-op, and authenticated read checks passing.
 - Proved the installed post-upgrade scheduled reconciler completes against `b2c8d0e3f5a7` from its coherent shared migrator image, while preserving healthy long-running container identities and canonical database state.
 - Proved chat-history disappearance is a data-present/API-filter mismatch caused by legacy Project ownership divergence; no canonical chat row loss or runtime database-target drift was found.
-- Accepted ADR-081 naming `projects.user_id` as Project ownership authority; runtime normalization and legacy reconciliation remain unfinished.
+- Converged the covered Project and Media runtime authorization paths on
+  `projects.user_id`, stopped new description-envelope writes, and added a
+  classify-before-mutate migration for matching legacy envelopes. Focused
+  helper, route, and migration-unit tests pass; conflicting envelopes fail
+  closed.
+- Implemented fail-closed reconciliation for legacy
+  `projects.user_id == 'local'` rows under ADR-081's exact canonical-thread
+  evidence rule. Always-on classification and mutation-order tests passed; the
+  initial harness could not execute the required disposable-PostgreSQL migration
+  proof, so UMS-01 remained open at that checkpoint. The later
+  [UMS-01Q PostgreSQL qualification](./proofs/runtime/2026-09-06-project-ownership-postgresql-qualification-proof.md)
+  closed that proof gap with zero skips.
+- Revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9` have not been applied to the live
+  private-preview database.
+- Reconciled the UMS ownership migration lineage behind Persona Studio with
+  one Alembic head, `d4e8f1a2b6c9`. Focused migration tests report 15 passed
+  and 18 PostgreSQL-dependent skips; ownership regressions report 47 passed.
+  See the [UMS-01R reconciliation proof](./proofs/runtime/2026-09-05-ums-project-ownership-lineage-reconciliation-proof.md).
+  The checkpoint is:
+
+  ```text
+  UMS-01A: IMPLEMENTED
+  UMS-01B: IMPLEMENTED
+  UMS-01R: CLOSED
+  UMS-01Q-R1: CLOSED
+  UMS-01Q-R2: CLOSED
+  UMS-01Q-R3: CLOSED
+  UMS-01Q POSTGRESQL QUALIFICATION: PASSED
+  UMS-01 CAMPAIGN GATE: CLOSED
+  UMS-01: CLOSED
+  UMS-02A STABLE PERSONA SUBJECT CONTRACT: PASSED
+  UMS-02B PERSONA SUBJECT LIFECYCLE TOKENS: CLOSED
+  UMS-02C PERSONA SUBJECT PERSISTENCE: PASSED
+  UMS-02: CLOSED
+  UMS-03A CANONICAL MEMORY ENVELOPE CONTRACT: REVERIFIED
+  UMS-03A-A MEMORY-SPECIES TOKEN SPELLINGS: CLOSED
+  UMS-03B MEMORY ENVELOPE PROTOCOL TOKENS: CLOSED
+  UMS-03C CANONICAL MEMORY PERSISTENCE SCHEMA: CLOSED
+  UMS-03C-A REVIEW/ACTIVATION ORDERING: CLOSED
+  UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
+  UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
+  UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
+  UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
+  UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
+  UMS-03: OPEN
+  UMS-03H: AUTHORIZED TO START
+  UMS-04: NOT AUTHORIZED
+  ```
+
+- Froze the implementation-ready Persona-subject mapping and enforcement
+  contract in [§4.5 of the Unified Memory Store Contract](./unified-memory-store-contract.md),
+  including the current Persona-persistence inventory, `ref_kind` mapping,
+  subject-creation rule, coalescing categories, binding-history semantics,
+  cross-account enforcement mechanism, legacy/ambiguous migration policy,
+  and export-shape review. Persona-subject lifecycle vocabulary is now
+  canonical: `active | retired`. It is an identity-persistence token domain;
+  stable Persona-subject persistence is PostgreSQL-qualified. No users can
+  create, bind, retire, retrieve, or manage Persona subjects, and no release
+  capability changed. UMS-02 is closed and UMS-03 is authorized to start.
+  See the [UMS-02A stable Persona-subject contract proof](./proofs/runtime/2026-09-07-ums02a-stable-persona-subject-contract-proof.md)
+  and the [UMS-02C stable Persona-subject persistence proof](./proofs/runtime/2026-09-07-ums02c-persona-subject-persistence-proof.md).
+  Two narrow test-harness repairs were required to obtain a faithful
+  PostgreSQL proof: an explicit `CAST(:profile_id AS TEXT)` in one JSONB
+  fixture helper, and a test-only `_historical_guardian_db` helper that
+  mirrors the existing `_PostgresGuardianDB.__new__` pattern used elsewhere
+  in the test suite so the historical-revision migration test no longer
+  requires current-head schema verification. No production runtime, ORM,
+  or migration code was changed by these repairs; the implementation-only
+  fingerprint is identical before and after the qualification run.
+
+- Froze the canonical memory envelope and the legacy compatibility-read
+  boundary as semantic doctrine in
+  [§4.6–§4.15 of the Unified Memory Store Contract](./unified-memory-store-contract.md).
+  UMS-03A is documentation-only: no SQL schema, no migration, no ORM
+  model, no runtime reader/writer, no retrieval behavior change, and no
+  export implementation change. The freeze records the current
+  memory-bearing source inventory (`memory_entries`,
+  `personal_facts`, `personal_fact_evidence`,
+  `personal_fact_revisions`, candidates, verified facts, and the
+  external `Memoryos` library state); the canonical envelope semantic
+  categories (identity, ownership, scope, semantic species,
+  content/payload, Persona attribution, provenance, governance,
+  lifecycle, priority/decay control, compatibility); the minimum
+  semantic-species taxonomy (episodic/semantic memory, verified
+  personal fact, candidate/unreviewed fact); explicit independence of
+  ownership, scope, and Persona attribution; explicit independence of
+  stored / retrievable / ambient-eligible states; the minimum
+  provenance spine; the compatibility-read matrix with explicit
+  `not safely mappable` rows; eight fail-closed cases; and the
+  deferred physical-design questions. ADR-081, ADR-082, and ADR-084
+  remain unchanged; ADR-084 remains controlling. UMS-03 remains
+  OPEN, UMS-03B is authorized to start, UMS-04 is NOT AUTHORIZED. No
+  Beta/release claim widened; no canonical memory persistence
+  implementation exists yet. See the
+  [UMS-03A canonical memory envelope contract proof](./proofs/runtime/2026-09-07-ums03a-canonical-memory-envelope-contract-proof.md).
+  The committed UMS-03A artifact at
+  `12075540e29077a40a7d578eef315bc4277c0841` was independently
+  reverified at `09a13039cc6309188d66782f18514cc2856733b3` by a
+  second harness against the full UMS-03A acceptance surface
+  (38/38 verdicts PASS, including the then-current documentation-gap
+  finding that no ADR-083 document existed; the registry now carries
+  the unissued/retired slot's non-authoritative tombstone). See the
+  [UMS-03A reverification proof](./proofs/runtime/2026-09-07-ums03a-reverification-proof.md).
+  UMS-03A was not retroactively edited; the reverification is
+  additive evidence only.
+
+- Froze the canonical serialized spellings for the three
+  UMS-03A semantic species in
+  [§4.8 of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  episodic_semantic_memory
+  verified_personal_fact
+  candidate_unreviewed_fact
+  ```
+
+  UMS-03A-A is a documentation-only architecture amendment. The
+  three-species taxonomy, every species meaning, the
+  review / activation / retrieval / ambient-influence posture, the
+  provenance requirements, the mutation / revision semantics, and
+  the legacy compatibility mapping remain unchanged. The
+  slash-joined human-readable labels (`Episodic / semantic memory`,
+  `Candidate / unreviewed fact`) remain a single combined label
+  per affected species, not a list of protocol aliases. The
+  amendment is purely a serialization-authority clarification:
+  the canonical serialized token is the protocol authority;
+  human-readable labels are descriptive. No new ADR was created;
+  ADR-084 remains controlling. UMS-03B was previously BLOCKED
+  because two slash-joined species did not provide unambiguous
+  canonical token spellings; UMS-03A-A removes that block. UMS-03
+  remains OPEN, UMS-03B is authorized to resume, UMS-03C remains
+  NOT AUTHORIZED, UMS-04 remains NOT AUTHORIZED. No
+  Beta/release claim widened; no canonical memory persistence
+  implementation exists yet. See the
+  [UMS-03A-A memory-species token spelling proof](./proofs/runtime/2026-09-07-ums03a-a-memory-species-token-spelling-proof.md).
+
+- Registered the two closed UMS-03A / UMS-03A-A vocabularies as
+  canonical protocol tokens in
+  [`guardian/protocol_tokens.py`](../../guardian/protocol_tokens.py):
+
+  ```text
+  MemorySemanticSpecies:
+    episodic_semantic_memory
+    verified_personal_fact
+    candidate_unreviewed_fact
+
+  MemoryPersonaLinkKind:
+    captured_under
+    suggested_by
+    associated_with
+  ```
+
+  UMS-03B is a token-only implementation slice. It added the two
+  enum classes plus the `MEMORY_SEMANTIC_SPECIES_VALUES` and
+  `MEMORY_PERSONA_LINK_KIND_VALUES` aggregate frozen sets, plus
+  two new contract tests in
+  [`tests/contracts/test_protocol_tokens.py`](../../tests/contracts/test_protocol_tokens.py)
+  (35/35 tests pass). The new tokens are scoped to the protocol
+  registry and its tests; no runtime memory consumer, no
+  ContextBroker, no retrieval path, no export path, no ORM model,
+  and no Alembic migration consume them. The Alembic head
+  remains `e5a9c2f7b4d1`. No ADR was created or modified; ADR-084
+  remains controlling. UMS-03 remains OPEN, UMS-03C is authorized
+  to start, UMS-04 remains NOT AUTHORIZED. No Beta/release claim
+  widened; no canonical memory persistence implementation exists
+  yet. The Runtime Protocol Token Contract and §4.8.2 of the
+  Unified Memory Store Contract record the new registries. See
+  the [UMS-03B memory envelope token proof](./proofs/runtime/2026-09-07-ums03b-memory-envelope-token-proof.md).
+
+- Froze the canonical memory persistence schema as DDL-contract
+  precision in
+  [§4.16 of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  memory_records            — canonical envelope row
+  memory_persona_links      — typed stable-Persona attribution
+  memory_provenance         — first-class durable lineage
+  ```
+
+  The schema freezes table identity, column identity, type,
+  nullability, defaults, FK authority, uniqueness, token-derived
+  CHECK constraints, payload placement, Persona-link structure,
+  governance representation (typed `reviewed_at` / `activated_at`
+  timestamps plus independent `pinned` / `held` booleans; no
+  monolithic lifecycle enum), FK delete behavior, and a
+  minimum index strategy. The first migration is explicitly
+  additive: the three tables are created empty, no legacy
+  backfill is performed, no source row is mutated, and the
+  legacy memory / personal-fact stores remain the durable
+  authority. Same-account integrity between memory and Project
+  scope is DB-enforced by a composite FK
+  `(project_id, user_id) → projects(id, user_id)`; same-account
+  integrity between memory and Persona attribution is
+  DB-enforced by composite FKs plus a
+  `CHECK (user_id = persona_user_id)` constraint on
+  `memory_persona_links`. UMS-03C introduced no SQL table, no
+  ORM model, no Alembic migration, no runtime writer / reader /
+  retrieval / export behavior, and no new ADR. The Alembic head
+  remains `e5a9c2f7b4d1`. No Beta/release claim widened. UMS-03
+  remains OPEN, UMS-03D is authorized to start, UMS-04 remains
+  NOT AUTHORIZED. See the
+  [UMS-03C schema proof](./proofs/runtime/2026-09-07-ums03c-canonical-memory-persistence-schema-proof.md).
+
+- Clarified the canonical review-before-activation ordering
+  in
+  [§4.16.2a of the Unified Memory Store Contract](./unified-memory-store-contract.md).
+  The new CHECK predicate is
+
+  ```text
+  activated_at IS NULL
+  OR (
+      reviewed_at IS NOT NULL
+      AND activated_at >= reviewed_at
+  )
+  ```
+
+  Review and activation remain distinct governance states,
+  but they may share the same recorded timestamp.
+  Activation earlier than review is forbidden. The earlier
+  UMS-03C prose that claimed "activation is a strictly later
+  event than review" and the earlier CHECK
+  `NOT (reviewed_at IS NULL AND activated_at IS NOT NULL)`
+  were both retracted. UMS-03C-A is documentation-only: no
+  SQL table, no ORM model, no Alembic migration, no runtime
+  writer / reader / retrieval / export behavior, and no new
+  ADR. The Alembic head remains `e5a9c2f7b4d1`. No
+  Beta/release claim widened. UMS-03D is now authorized to
+  resume; UMS-04 remains NOT AUTHORIZED. See the
+  [UMS-03C-A ordering proof](./proofs/runtime/2026-09-07-ums03c-a-review-activation-ordering-proof.md).
+
+- Froze the canonical Project composite ownership target in
+  [§4.16.2b of the Unified Memory Store Contract](./unified-memory-store-contract.md):
+
+  ```text
+  CONSTRAINT uq_projects_id_user_id
+  UNIQUE (id, user_id)
+  ```
+
+  The amendment was required because PostgreSQL correctly
+  rejected the UMS-03D migration's composite foreign key
+  `(project_id, user_id) → projects (id, user_id)` with
+  `psycopg.errors.InvalidForeignKey: there is no unique
+  constraint matching given keys for referenced table
+  "projects"`. The `projects` table's primary key covers
+  `id` alone; the only existing unique index is a partial
+  `(user_id, system_role) WHERE system_role IS NOT NULL`
+  that cannot serve as a composite FK target. The new
+  constraint is mathematically non-destructive: because
+  `projects.id` is already a primary key, no existing row
+  can violate `UNIQUE (id, user_id)`. The amendment
+  explicitly authorizes the UMS-03D migration to add the
+  constraint in the same additive revision that creates the
+  three canonical memory tables, rather than introducing a
+  separate prerequisite Alembic revision. UMS-03C-B is
+  documentation-only: no SQL was added, no ORM model was
+  changed, no Alembic migration was added, no runtime
+  writer / reader / retrieval / export behavior was changed,
+  and no new ADR was created. The uncommitted UMS-03D WIP
+  (models + migration + tests) is preserved by this
+  amendment. ADR-081 and ADR-084 remain unchanged; ADR-084
+  remains controlling. The Alembic head remains
+  `e5a9c2f7b4d1`. No Beta/release claim widened. UMS-03D
+  is now authorized to resume; UMS-04 remains NOT
+  AUTHORIZED. See the
+  [UMS-03C-B project target proof](./proofs/runtime/2026-09-07-ums03c-b-project-composite-ownership-target-proof.md).
+
+- Implemented and PostgreSQL-qualified the canonical UMS
+  memory persistence substrate in
+  [`guardian/db/models.py`](../../guardian/db/models.py)
+  and
+  [`guardian/db/migrations/versions/f6b0d3e8c5a2_add_canonical_memory_persistence.py`](../../guardian/db/migrations/versions/f6b0d3e8c5a2_add_canonical_memory_persistence.py),
+  with
+  [`tests/migration/test_canonical_memory_persistence_migration.py`](../../tests/migration/test_canonical_memory_persistence_migration.py).
+  The implementation adds `uq_projects_id_user_id UNIQUE (id,
+  user_id)` to the existing `projects` table (UMS-03C-B
+  prerequisite) before creating the three canonical memory
+  tables. PostgreSQL 17 qualification proved: fresh replay
+  reaches `f6b0d3e8c5a2`; repeat upgrade is a no-op;
+  focused migration suite passes 17/17 with zero skips;
+  generic ORM/Alembic parity passes 1/1 with zero skips;
+  adjacent token and Persona-subject regressions pass
+  46/46; same-account Project scope is accepted;
+  cross-account Project scope is rejected at the composite
+  FK; the frozen review/activation six boundary cases all
+  behave correctly; provenance is one-to-many and source
+  identity lives in typed opaque columns; downgrade
+  preserves legacy memory and Project rows byte-for-byte.
+  The Alembic head is now `f6b0d3e8c5a2`. Canonical
+  tables are not yet runtime read/write authority; legacy
+  memory sources remain authoritative. No Beta/release
+  claim widened. UMS-03D is now closed; UMS-03E is
+  authorized to start; UMS-04 remains NOT AUTHORIZED. See
+  the
+  [UMS-03D persistence proof](./proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md).
+
+- **UMS-03E (memory-entry compatibility projection, just
+  closed)**: added the first read-only compatibility
+  reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader projects authoritative legacy
+  `memory_entries` rows into the canonical envelope
+  shape frozen in UMS-03A §4.13. It does not write
+  `memory_records`, `memory_persona_links`, or
+  `memory_provenance`; it does not assign a canonical
+  durable `memory_id`; it does not invent Project scope;
+  it does not invent Persona attribution; it does not
+  mutate the legacy source row. The envelope species is
+  exactly `episodic_semantic_memory` (canonical
+  `MemorySemanticSpecies` token). Provenance is
+  preserved as `source_system='codexify'`,
+  `source_record_id='memory_entries:<id>'` exactly as
+  the §4.13 mapping prescribes. Account authorization
+  is enforced by a single SQLAlchemy filter on
+  `(id == memory_entry_id AND user_id ==
+  authenticated_account_id)`; not-found and not-owned
+  are concealed identically per existing repository
+  posture. The projection type is intentionally not
+  registered in `Base.metadata`; it is a semantic read
+  object, not an ORM mirror. Focused tests pass 15/15
+  with zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no
+  retrieval / ambient-influence consumer was wired;
+  no ContextBroker, MemoryOS, router, worker,
+  account-export, personal-fact, candidate-fact, or
+  frontend file was changed. Legacy `memory_entries`
+  rows remain durable authority; the canonical memory
+  tables remain non-authoritative at runtime. No
+  Beta/release claim widened. UMS-03E is now closed;
+  UMS-03F is authorized to start for the next
+  authoritative legacy source family
+  (`personal_facts` with `status='verified'` and
+  `is_active=true`); UMS-04 remains NOT AUTHORIZED.
+  See the
+  [UMS-03E compatibility proof](./proofs/runtime/2026-09-07-ums03e-memory-entry-compatibility-proof.md).
+
+- **UMS-03F (verified personal-fact compatibility projection,
+  just closed)**: added the second read-only compatibility
+  reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader enforces the frozen §4.13 eligibility predicate
+  `status='verified' AND is_active=true` in the query itself.
+  Candidate / disputed / archived / inactive rows return
+  `None` identically to not-found / not-owned. The reader
+  reuses the same `MemoryCompatibilityProjection`
+  dataclass and populates the verified-fact shape
+  (`fact_key`, `fact_value`, `confidence`,
+  `last_confirmed_at`, `guardrail_metadata`, full
+  `evidence` rows, full `revisions`). The primary (latest)
+  evidence's `source_type` / `source_message_id` /
+  `evidence_meta` / `modality` / `excerpt` are carried on
+  the projection's provenance. Evidence rows whose
+  `source_type` is outside the closed vocabulary or whose
+  `evidence_meta` is self-referential on the parent fact
+  id fail closed. The reader performs no canonical write,
+  no personal-fact / evidence / revision mutation, and no
+  retrieval integration. Legacy `personal_facts` rows
+  remain durable authority; the canonical memory tables
+  remain non-authoritative at runtime. Focused
+  compatibility tests pass 34/34 (15 UMS-03E + 19
+  UMS-03F) with zero skips; adjacent token and
+  Persona-subject regressions pass 46/46. The Alembic head
+  remains `f6b0d3e8c5a2`; no migration was added; no
+  ContextBroker, MemoryOS, router, worker,
+  account-export, candidate-fact, or frontend file was
+  changed. The candidate / unreviewed fact compatibility
+  is not covered by this slice and remains deferred. No
+  Beta/release claim widened. UMS-03F is now closed;
+  UMS-03G is authorized to start for the next unmapped
+  legacy memory-bearing family; UMS-04 remains NOT
+  AUTHORIZED. See the
+  [UMS-03F verified-fact compatibility proof](./proofs/runtime/2026-09-07-ums03f-verified-personal-fact-compatibility-proof.md).
+
+- **UMS-03G (candidate personal-fact compatibility
+  projection, just closed)**: added the third read-only
+  compatibility reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader enforces the frozen §4.13 line 901 /
+  §4.10 line 725 eligibility predicate
+  `status IN ('candidate', 'disputed', 'archived') OR
+  is_active = FALSE` in the query itself. This is the
+  natural complement of the UMS-03F verified + active
+  predicate; together the two readers cover every
+  `personal_facts` row exactly. The reader reuses the
+  same `MemoryCompatibilityProjection` dataclass and
+  populates the same fact shape and evidence / revision
+  lineage as the verified reader, but with
+  `semantic_species = candidate_unreviewed_fact` and
+  `ambient_eligible = False`. Crucially, an active
+  candidate remains pending / unapproved: Personal Fact
+  `is_active` is preserved on the source row as the
+  lifecycle authority, but it does not upgrade the
+  candidate's review posture. Personal Facts remains the
+  durable lifecycle authority; the canonical memory tables
+  remain non-authoritative. The implementation was
+  authorized from the post-disposition governance base
+  `a6b6a5e1b4dbe280a60ea39eb540de80000dda78`; both
+  intervening commits (`ba318cbb8` ADR-083 allocation
+  reconciliation and `a6b6a5e1b` ADR-083 disposition)
+  are governance-only and preserve ADR-084 as the
+  controlling UMS memory ADR. Focused compatibility tests
+  pass 52/52 (15 UMS-03E + 19 UMS-03F + 18 UMS-03G) with
+  zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no
+  ContextBroker, MemoryOS, router, worker,
+  account-export, or frontend file was changed. No
+  Beta/release claim widened. UMS-03G is now closed;
+  UMS-03H is authorized to start for the next remaining
+  compatibility prerequisite identified from the frozen
+  UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. See
+  the
+  [UMS-03G candidate-fact compatibility proof](./proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
+
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
-- Pinned private-preview chat worker concurrency to one to match the installed single-slot MLX-VLM runtime; Compose validation and focused contract coverage pass, but live provider qualification remains open.
+- Persona Profile authority, account-scoped persistence, export coverage, acceptance-time snapshots, and five-field runtime application landed with focused tests; broad Studio controls remain outside runtime enforcement.
+- ShareSheet async handling now rejects stale search/send completions and surfaces relationship-load failure with retry coverage.
+- A proof-only Tester worker lineage bridge confirmed that the historical bind/import race still applies to `main`; the fail-closed readiness predicate and fresh Tester runtime proof remain absent.
+- Pi’s Anthropic coding default was reconciled to `claude-sonnet-4-6` with contract/proof coverage; this remains internal coding-worker qualification.
+- Private-preview migration/recovery evidence and one-slot local chat-worker admission remain bounded prerequisites, not provider or persistence closure.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The intended Beta Supported boundary remains local inference, ordinary chat, durable threads/messages/tasks, upload → embed → readback, workspace-local retrieval, identity/ownership, migrations, and operator diagnostics; this is support doctrine, not current-tip qualification.
-- Mainline contains focused project lifecycle, conversation-origin, document-artifact preview, Guardian Chat, account-import, and mobile-shell repairs with targeted coverage; supported-path and authenticated browser proof remain separate gates.
+- Mainline has focused coverage for project lifecycle, conversation origin, document artifacts, Guardian Chat, account import, mobile shell, Persona Profile, and ShareSheet paths; supported-path and authenticated browser proof remain separate gates.
+- Persona Studio persistence is account-scoped and runtime-active only through the current five-field projection; broad voice, tools, permissions, retrieval, and connector fields remain inert or local.
 - Valid account-import multipart batches are accepted and durably staged on the server path; the Safari/WebKit envelope failure remains unrepaired.
-- Private-preview live migration preservation/readback, Guardian secret rotation, Cloudflare ingress, and private-profile People/Share behavior have bounded evidence; these do not admit guests or widen Beta.
-- Private-preview Compose now routes additional accepted local turns through the durable Redis chat queue behind one provider execution slot; this is a bounded admission configuration, not provider execution proof.
+- Private-preview live migration preservation/readback, scheduled reconciliation, Guardian secret rotation, Cloudflare ingress, and private-profile People/Share behavior have bounded evidence; these do not admit guests or widen Beta.
 - Pi 0.82.1 wrapper/API, source-vendor, identity, framing, and telemetry changes remain internal, non-inference, or OAuth-readiness qualification.
 
 ## Not yet true / do not assume
@@ -70,48 +493,32 @@ This file is authoritative for:
 - Persona Profile deployed lineage is not yet proven, and authenticated Persona Studio browser save/backend readback is not yet proven. Repository/profile admission and focused tests do not establish that the running private-preview deployment contains this Persona branch/profile. Qualify the deployed lineage and `/api/persona-profiles` route before resuming live browser authority proof.
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
-- Do not treat historical scheduled-recovery proof at `b2c8d0e3f5a7` or the live Persona migration as canary/provider closure. The database is now at `d4e0f2a5b7c9`; old application services are stopped and stack reconciliation is suspended pending matching deployment. Remaining preview gates stay open.
-- Do not treat one-slot private-preview worker serialization or its contract test as proof that the live MLX-VLM provider executes, persists, or recovers chat successfully.
-- Do not treat ADR-081 acceptance, chat-history classification, or focused UI tests as runtime Project-ownership convergence or supported browser proof.
-- Do not treat ADR-058 acceptance as legacy Persona removal, frontend consumer removal, Settings or Persona Studio convergence, inspector consolidation, Default Guardian Profile semantics, or a Beta/support expansion.
-- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, or source-vendor closure as live provider/model execution, coding-loop completion, persisted-result readback, or Beta proof.
-- Do not treat private-preview configuration, bounded recovery/ingress receipts, or a live health/read result as an admitted canary; tester isolation, provider, persistence, and observability gates remain open.
+- Do not treat the `b2c8d0e3f5a7` private-preview migration and scheduled-recovery proof, or the later `d4e0f2a5b7c9` Persona migration, as a canary or provider/persistence closure. The matching Persona application remains stopped after Chroma initialization failure, and all remaining preview gates stay open.
+- Do not treat the Tester lineage bridge as a startup repair or fresh runtime qualification; no current bind-readiness predicate has landed.
+- Do not treat private-preview admission serialization, migration/recovery, or health/read results as live provider, persistence, observability, isolation, or canary proof.
+- Do not treat repository and disposable-PostgreSQL Project-ownership qualification as live private-preview application of revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9`, or as supported browser proof.
+- Do not treat Persona Profile persistence, acceptance snapshots, ADR-082, or focused UI tests as broad configuration enforcement or browser proof.
+- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, source-vendor closure, Chroma state, hosted-sandbox partial conformance, or Watchdog contracts as live provider/model execution, coding-loop completion, persisted-result readback, or release-supported behavior.
 - Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
 - Do not infer shipped reality from mutable `latest`, another checkout, local-only artifacts, planning language, or docs alone; realtime delivery, attachments, federation, and cross-node People messaging remain deferred.
 
 ## Active blockers
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
-- Private-preview provider-specific execution, persistence, observability, tester isolation, and approved non-admin canary gates remain open; one-slot worker serialization and scheduled recovery are bounded prerequisites, not closure.
+- The Tester worker bind-readiness repair and fresh isolated runtime proof remain open; the historical diagnosis is applicable but static.
+- Private-preview provider-specific execution, persistence, observability, tester isolation, and approved non-admin canary gates remain open; the bounded scheduled-recovery gate is now proven.
 - Fresh-state Chroma startup/retrieval qualification remains unresolved; Chroma is derived state and no repair or historical restore is proven.
 - CE-L1 still lacks live provider/model execution, terminal durable result, and source-thread readback.
 - The friends-and-family canary is blocked on approved non-admin testers plus reruns of Access, isolation, provider, persistence, and bounded-observability gates; DeepSeek rotation/requalification remains open.
-- Project-ownership runtime/data convergence, Safari multipart-envelope repair, Watchdog policy/model, immutable image-retention, hosted-sandbox, and recent supported-path browser gates remain unclosed.
+- Live private-preview application of Project-ownership revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9`, Safari multipart-envelope repair, authenticated browser gates, Watchdog policy/model, immutable image retention, and hosted-sandbox qualification remain unclosed.
 
 ## This week’s priorities
 
-1. Rerun current-main supported-Compose closure with the canonical local profile.
-2. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
-3. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
-4. Close Project-ownership convergence, Safari upload-envelope regression, and the browser, Watchdog, retention, and hosted-sandbox gates.
-
-## Release definition right now
-
-- [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
-- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
-- [x] Private-preview migration preservation/readback and ingress proofs are bounded without guest admission or release widening.
-- [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker, lock, migration, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
-- [ ] Every claimed preview/provider lane has current-main proof for live execution, durable readback, isolation, and scheduled recovery where applicable.
-
-## How to read the rest of the KB
-
-- `system-overview.md` explains structure, not release readiness.
-- `flows.md` explains runtime behavior.
-- `data-and-storage.md` explains persistence/invariants.
-- `config-and-ops.md` explains operator/runtime truth.
-- `roadmap-signals.md` is planning guidance, not live status.
-- `tech-debt-and-risks.md` is a risk register, not the active blocker list unless repeated here.
+1. Land the bounded fail-closed Tester bind-readiness predicate, then run fresh isolated Tester proof.
+2. Rerun current-main supported-Compose closure with the canonical local profile.
+3. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
+4. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
+5. Apply and qualify the outstanding Project-ownership revisions on private preview; close Safari upload-envelope, authenticated browser, Watchdog, retention, and hosted-sandbox gates.
 
 ## Release classes
 
@@ -147,10 +554,10 @@ by ADR-069:
   self-hosted node.
 
 This is support doctrine, not current-tip qualification. The "Not yet true
-/ do not assume" section above continues to bound what is provably green
-on the current `main` tip. Implementation presence in a code path does not
-promote a capability to Beta Supported; only the architecture-accepted
-support envelope under ADR-069 does.
+/ do not assume" and "Active blockers" sections above continue to bound what
+is provably green on the current `main` tip. Implementation presence in a
+code path does not promote a capability to Beta Supported; only the
+architecture-accepted support envelope under ADR-069 does.
 
 ### Beta Bounded / Conditional
 
@@ -159,13 +566,14 @@ authority, topology, provider, mode, or capability boundary. The
 classification below is the current accepted one; no new bounded surface
 is added by this section.
 
-- Persona Studio: profile creation / editing, persistence, selection, and
-  application of supported persona / profile configuration to ordinary chat.
-  TTS / voice execution, unsupported permission authoring, unsupported
-  retrieval-policy execution, and "preview UI equals enforcement" claims
-  are excluded from this promotion.
-- Import / continuity entry surfaces: OpenAI / ChatGPT export import, Task
-  Prompt Archive, owner-scoped retry / recovery behavior already
+- Persona Studio: account-scoped profile creation / editing, persistence,
+  selection, and application of the currently implemented five-field
+  runtime projection to ordinary chat. TTS / voice execution, unsupported
+  permission authoring, unsupported retrieval-policy execution, and
+  "preview UI equals enforcement" claims are excluded from this
+  promotion.
+- Import / continuity entry surfaces: OpenAI / ChatGPT export import,
+  Task Prompt Archive, owner-scoped retry / recovery behavior already
   implemented, and account export / restore to the exact extent supported
   by the existing contract and implementation. Not every historical
   corpus, provider export format, or migration shape is claimed.
@@ -229,10 +637,10 @@ saying "not supported," per the ADR-069 Qualification-Pending Doctrine.
 - **Coding Loop** — `remaining gate` requires: live provider/model
   execution, terminal durable result, and source-thread readback on the
   claimed supported profile. CE-L1 wiring remains internal / qualification
-  pending; no `LIVE_EXECUTOR_PROVEN_CANONICAL` is emitted by this section.
+  pending; no `LIVE_EXECUTOR_PROVEN_CANONICAL` is emitted.
 - **Hosted Rooms** — `remaining gate` requires: clean supported / tester
   startup and owner / guest live semantic proof after migration repair.
-- **DeepSeek / private-preview provider lane** — `remaining gate` requires
+- **DeepSeek / private-preview provider lane** — `remaining gate` requires:
   required credentials, authenticated provider-specific persisted runtime
   proof, and explicit supported-profile promotion.
 - **Browser side-panel / Browser Host release surface** — `remaining gate`
@@ -255,7 +663,25 @@ intentionally out of scope:
 - public Command Bus exposure
 - generic cron / unattended automation
 - generic connectors without separate qualification
-- graph-write / Neo4j-derived-write behavior where the supported path
-  remains flagged off or quarantined
+- graph-write / Neo4j-derived-write behavior where the supported path remains
+  flagged off or quarantined
 - remote / multi-user repository execution not covered by a separately
   accepted authority contract and live proof
+
+## Release definition right now
+
+- [x] Supported local Compose path, local-only defaults, and Beta boundary are defined on `main`.
+- [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
+- [x] Private-preview migration preservation/readback and ingress proofs are bounded without guest admission or release widening.
+- [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
+- [ ] Queue, worker bind readiness, locks, migrations, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
+- [ ] Every claimed preview/provider lane has current-main proof for live execution, durable readback, isolation, and scheduled recovery where applicable.
+
+## How to read the rest of the KB
+
+- `system-overview.md` explains structure, not release readiness.
+- `flows.md` explains runtime behavior.
+- `data-and-storage.md` explains persistence/invariants.
+- `config-and-ops.md` explains operator/runtime truth.
+- `roadmap-signals.md` is planning guidance, not live status.
+- `tech-debt-and-risks.md` is a risk register, not the active blocker list unless repeated here.

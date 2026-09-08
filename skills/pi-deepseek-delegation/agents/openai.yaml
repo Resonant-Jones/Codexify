@@ -1,3 +1,3 @@
 interface:
-  display_name: "Pi DeepSeek Delegation"
-  short_description: "Delegate bounded Codex subtasks to DeepSeek through Pi."
+  display_name: "Pi Model Delegation"
+  short_description: "Delegate bounded Codex subtasks to an explicit Pi model."

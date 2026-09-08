@@ -6,7 +6,6 @@ Project creation and management endpoints.
 Includes default "General" project initialization.
 """
 
-import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -24,6 +23,11 @@ from guardian.core.project_lifecycle import (
     ProjectLifecycleError,
     require_mutable_project_container,
     require_project_deletable,
+)
+from guardian.core.project_ownership import (
+    PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+    classify_project_ownership,
+    project_row_for_presentation,
 )
 from guardian.core.repository_authority import (
     ActiveBindingAlreadyExists,
@@ -127,9 +131,6 @@ class RepositoryCandidateImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-_PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
-
-
 def _request_account_id(
     request_user_scope: RequestUserScope,
 ) -> str:
@@ -162,79 +163,24 @@ def _resolve_project_owner_hint(
     return requested_user_id or account_id
 
 
-def _encode_project_description(description: str | None, owner_id: str) -> str:
-    return json.dumps(
-        {
-            _PROJECT_OWNER_SENTINEL: True,
-            "owner_user_id": owner_id,
-            "description": (description or "").strip(),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
-
-
-def _decode_project_description(description: Any) -> tuple[str | None, str]:
-    text = str(description or "")
-    if not text:
-        return None, ""
-
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return None, text
-
-    if not isinstance(payload, dict) or not payload.get(
-        _PROJECT_OWNER_SENTINEL
-    ):
-        return None, text
-
-    owner_id = str(payload.get("owner_user_id") or "").strip() or None
-    decoded_description = str(payload.get("description") or "")
-    return owner_id, decoded_description
-
-
-def _normalize_project_row(project: Any) -> dict[str, Any]:
-    row = dict(project or {})
-    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
-    decoded_owner_id, description = _decode_project_description(
-        row.get("description")
-    )
-    if decoded_owner_id:
-        owner_id = decoded_owner_id
-    if owner_id:
-        row["description"] = description
-        row["owner_user_id"] = owner_id
-    return row
-
-
-def _project_is_visible_to_scope(
-    project: Any,
-    request_user_scope: RequestUserScope,
-) -> bool:
-    if not getattr(request_user_scope, "multi_user_enabled", False):
-        return True
-
-    account_id = _request_account_id(request_user_scope)
-    row = _normalize_project_row(project)
-    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
-    return bool(owner_id) and owner_id == account_id
-
-
-def _get_project_record(project_id: int) -> dict[str, Any] | None:
+def _get_project_record(project_id: int) -> Any | None:
     try:
         projects = chatlog_db.list_projects() or []
     except Exception:
         return None
 
     for project in projects:
-        row = _normalize_project_row(project)
+        row_id_value = (
+            project.get("id")
+            if isinstance(project, dict)
+            else getattr(project, "id", None)
+        )
         try:
-            row_id = int(row.get("id"))
+            row_id = int(row_id_value)
         except (TypeError, ValueError):
             continue
         if row_id == int(project_id):
-            return row
+            return project
     return None
 
 
@@ -246,18 +192,25 @@ def _require_project_account_scope(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    ownership = classify_project_ownership(project)
+    if ownership.has_authority_conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+                "message": "Project ownership metadata conflicts with canonical authority.",
+            },
+        )
+
     if getattr(request_user_scope, "multi_user_enabled", False):
         account_id = _request_account_id(request_user_scope)
-        owner_id = str(
-            project.get("owner_user_id") or project.get("user_id") or ""
-        ).strip()
-        if owner_id != account_id:
+        if ownership.canonical_owner_id != account_id:
             raise HTTPException(
                 status_code=403,
                 detail="Project does not belong to the authenticated account",
             )
 
-    return project
+    return project_row_for_presentation(project, ownership)
 
 
 def _project_lifecycle_error_response(
@@ -290,24 +243,26 @@ def list_projects(
     Return all projects as a list for compatibility with frontend /api/projects calls.
     """
     try:
-        projects = chatlog_db.list_projects() or []
-        if getattr(request_user_scope, "multi_user_enabled", False):
-            projects = [
-                _normalize_project_row(project)
-                for project in projects
-                if _project_is_visible_to_scope(project, request_user_scope)
-            ]
-        else:
-            projects = [_normalize_project_row(project) for project in projects]
+        raw_projects = chatlog_db.list_projects() or []
+        projects = []
+        account_id = _request_account_id(request_user_scope)
+        for project in raw_projects:
+            ownership = classify_project_ownership(project)
+            row = project_row_for_presentation(project, ownership)
+            if ownership.has_authority_conflict:
+                logger.warning(
+                    "[projects] suppressed project id=%s classification=%s",
+                    row.get("id"),
+                    ownership.classification,
+                )
+                continue
+            if (
+                getattr(request_user_scope, "multi_user_enabled", False)
+                and ownership.canonical_owner_id != account_id
+            ):
+                continue
+            projects.append(row)
         projects = normalize_projects_for_listing(projects)
-        projects = [
-            {
-                key: value
-                for key, value in project.items()
-                if key != "owner_user_id"
-            }
-            for project in projects
-        ]
     except Exception as exc:
         logger.warning("[projects] failed to list projects: %s", exc)
         projects = []
@@ -341,10 +296,6 @@ def create_project(
             else body.name
         )
         persisted_description = body.description or ""
-        if getattr(request_user_scope, "multi_user_enabled", False):
-            persisted_description = _encode_project_description(
-                persisted_description, owner_id
-            )
         if getattr(request_user_scope, "multi_user_enabled", False):
             project_id = chatlog_db.create_project(
                 requested_name, persisted_description, user_id=owner_id
@@ -631,22 +582,6 @@ def patch_project(
                 "error": "invalid_project_archive_state",
                 "message": "archived must be a boolean",
             },
-        )
-    if getattr(request_user_scope, "multi_user_enabled", False):
-        account_id = _request_account_id(request_user_scope)
-        current_owner = str(
-            project.get("owner_user_id") or project.get("user_id") or ""
-        ).strip()
-        if not current_owner:
-            raise HTTPException(
-                status_code=403,
-                detail="Project does not belong to the authenticated account",
-            )
-        if description is None:
-            description = project.get("description")
-        _, decoded_description = _decode_project_description(description)
-        description = _encode_project_description(
-            decoded_description, account_id
         )
     try:
         if archived is not None:

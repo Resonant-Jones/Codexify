@@ -9,7 +9,6 @@ Handles:
 - TTS synthesis and tracking
 """
 
-import json
 import logging
 import os
 import sys
@@ -39,7 +38,6 @@ from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.default_project import (
     DEFAULT_PROJECT_NAME,
     canonicalize_default_project,
-    is_default_project_name,
 )
 from guardian.core.dependencies import (
     RequestUserScope,
@@ -48,6 +46,11 @@ from guardian.core.dependencies import (
     verify_api_key,
 )
 from guardian.core.media_signing import extract_media_path, sign_media_url
+from guardian.core.project_ownership import (
+    PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+    classify_project_ownership,
+    project_row_for_presentation,
+)
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
     ChatThread,
@@ -314,9 +317,6 @@ def _normalize_source_tag(tag: Optional[str], source_tag: Optional[str]) -> str:
     return candidate or "uploaded"
 
 
-_PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
-
-
 def _request_account_id(request_user_scope: RequestUserScope) -> str:
     account_id = str(
         getattr(request_user_scope, "account_id", "") or ""
@@ -358,62 +358,8 @@ def _row_value(row: Any, field: str) -> Any:
     return getattr(row, field, None)
 
 
-def _decode_project_description(description: Any) -> tuple[str | None, str]:
-    text = str(description or "")
-    if not text:
-        return None, ""
-
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return None, text
-
-    if not isinstance(payload, dict) or not payload.get(
-        _PROJECT_OWNER_SENTINEL
-    ):
-        return None, text
-
-    owner_id = str(payload.get("owner_user_id") or "").strip() or None
-    decoded_description = str(payload.get("description") or "")
-    return owner_id, decoded_description
-
-
-def _normalize_project_row(project: Any) -> dict[str, Any]:
-    row = dict(project or {})
-    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
-    decoded_owner_id, description = _decode_project_description(
-        row.get("description")
-    )
-    if decoded_owner_id:
-        owner_id = decoded_owner_id
-    if owner_id:
-        row["description"] = description
-        row["owner_user_id"] = owner_id
-    return row
-
-
-def _project_owner_id(project: Any) -> str:
-    row = _normalize_project_row(project)
-    return str(row.get("owner_user_id") or row.get("user_id") or "").strip()
-
-
-def _project_is_visible_to_scope(
-    project: Any,
-    request_user_scope: RequestUserScope,
-) -> bool:
-    if not _is_multi_user_scope(request_user_scope):
-        return True
-
-    account_id = _request_account_id(request_user_scope)
-    row = _normalize_project_row(project)
-    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
-    if owner_id:
-        return owner_id == account_id
-    return is_default_project_name(str(row.get("name") or ""))
-
-
-def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
-    projects: list[dict[str, Any]] = []
+def _get_project_record(db, project_id: int) -> Any | None:
+    projects: list[Any] = []
     if hasattr(db, "list_projects"):
         try:
             projects = db.list_projects() or []
@@ -423,18 +369,17 @@ def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
         try:
             with db.get_session() as session:
                 rows = session.query(Project).all()
-                projects = [_normalize_project_row(row) for row in rows]
+                projects = list(rows)
         except Exception:
             projects = []
 
     for project in projects:
-        row = _normalize_project_row(project)
         try:
-            row_id = int(row.get("id"))
+            row_id = int(_row_value(project, "id"))
         except (TypeError, ValueError):
             continue
         if row_id == int(project_id):
-            return row
+            return project
     return None
 
 
@@ -447,25 +392,25 @@ def _require_project_account_scope(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    ownership = classify_project_ownership(project)
+    if ownership.has_authority_conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+                "message": "Project ownership metadata conflicts with canonical authority.",
+            },
+        )
+
     if _is_multi_user_scope(request_user_scope):
         account_id = _request_account_id(request_user_scope)
-        owner_id = str(
-            project.get("owner_user_id") or project.get("user_id") or ""
-        ).strip()
-        if owner_id and owner_id != account_id:
-            raise HTTPException(
-                status_code=403,
-                detail=("Project does not belong to the authenticated account"),
-            )
-        if not owner_id and not is_default_project_name(
-            str(project.get("name") or "")
-        ):
+        if ownership.canonical_owner_id != account_id:
             raise HTTPException(
                 status_code=403,
                 detail=("Project does not belong to the authenticated account"),
             )
 
-    return project
+    return project_row_for_presentation(project, ownership)
 
 
 def _require_thread_account_scope(

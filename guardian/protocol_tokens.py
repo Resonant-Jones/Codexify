@@ -329,6 +329,44 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class PersonaSubjectLifecycle(str, Enum):
+    ACTIVE = "active"
+    RETIRED = "retired"
+
+
+class MemorySemanticSpecies(str, Enum):
+    """Canonical semantic species of a canonical memory envelope record.
+
+    These values are the protocol authority for the three-species taxonomy
+    frozen by UMS-03A and UMS-03A-A. The human-readable labels in
+    §4.8 of the Unified Memory Store Contract are descriptive; the
+    serialized values below are authoritative for any future persistence,
+    retrieval, or migration surface. No aliases are accepted: neither
+    ``episodic_memory`` nor ``semantic_memory`` alone is canonical for
+    the combined species, and neither ``candidate_fact`` nor
+    ``unreviewed_fact`` alone is canonical for the candidate species.
+    """
+
+    EPISODIC_SEMANTIC_MEMORY = "episodic_semantic_memory"
+    VERIFIED_PERSONAL_FACT = "verified_personal_fact"
+    CANDIDATE_UNREVIEWED_FACT = "candidate_unreviewed_fact"
+
+
+class MemoryPersonaLinkKind(str, Enum):
+    """Canonical typed stable-Persona attribution relationship kinds.
+
+    These values are the protocol authority for Persona-attribution
+    relationships on canonical memory envelope records. They express
+    attribution only, never ownership. Persona links target stable
+    Persona subjects (per UMS-02); mutable PersonaProfile identity
+    is not a valid attribution target.
+    """
+
+    CAPTURED_UNDER = "captured_under"
+    SUGGESTED_BY = "suggested_by"
+    ASSOCIATED_WITH = "associated_with"
+
+
 class AccountImportStatus(str, Enum):
     """Canonical lifecycle states for durable account-export imports."""
 
@@ -522,6 +560,12 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 )
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
+)
+MEMORY_SEMANTIC_SPECIES_VALUES: frozenset[str] = frozenset(
+    {species.value for species in MemorySemanticSpecies}
+)
+MEMORY_PERSONA_LINK_KIND_VALUES: frozenset[str] = frozenset(
+    {kind.value for kind in MemoryPersonaLinkKind}
 )
 TRACE_SUPPRESSION_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in TraceSuppressionReason}
@@ -755,6 +799,9 @@ __all__ = [
     "OrchestratorDecisionToken",
     "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
+    "PersonaSubjectLifecycle",
+    "MemorySemanticSpecies",
+    "MemoryPersonaLinkKind",
     "AccountImportStatus",
     "AccountImportEventType",
     "AccountImportErrorCode",
@@ -788,6 +835,8 @@ __all__ = [
     "TEST_RESULT_STATUSES",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "MEMORY_SEMANTIC_SPECIES_VALUES",
+    "MEMORY_PERSONA_LINK_KIND_VALUES",
     "TRACE_SUPPRESSION_REASONS",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",

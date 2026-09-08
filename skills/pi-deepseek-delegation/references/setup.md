@@ -1,141 +1,160 @@
-# Pi and DeepSeek setup
+# Pi Model Delegation setup
 
-Use this guide only when preflight fails or the user asks how the delegation plumbing works.
+Use this guide when Pi delegation preflight fails or the operator asks how the plumbing works. The wrapper is development tooling only: it does not change Guardian runtime provider routing, register a second model catalog, or claim release support.
 
 ## Architecture
 
-Codex invokes a local shell script. The script launches `pi` in non-interactive print mode with an ephemeral session, selects Pi's built-in `deepseek` provider and a currently registered model, restricts the available Pi tools according to the delegation mode, and saves the final response as a local artifact.
+Astra/Codex invokes the compatibility-named shell wrapper. The wrapper asks the installed Pi executable for its current available model table, validates an exact provider/model pair selected by the supervising agent, restricts Pi's tools by delegation mode, and saves a result artifact only for real inference.
 
-Codex remains responsible for planning, repository permissions, diff review, testing, and integration.
+Pi owns provider authentication. The wrapper does not inspect `auth.json`, API-key environment variables, credential payloads, or provider-specific secret state. Catalog and check output contains only the current model table and non-secret selection metadata.
 
-## Canonical source
+Codex remains responsible for task selection, repository permissions, diff review, testing, and integration.
 
-The canonical source lives at `skills/pi-deepseek-delegation/` in the Codexify repository.
+## Canonical source and installation
+
+The canonical source lives at `skills/pi-deepseek-delegation/` in the Codexify repository. The directory and wrapper names are retained for compatibility with proof tooling and historical receipts.
 
 Install from source:
+
 ```bash
 bash skills/pi-deepseek-delegation/scripts/install.sh --install
 ```
 
-Check for drift between installed and canonical:
+Check for drift between installed and canonical copies:
+
 ```bash
 bash skills/pi-deepseek-delegation/scripts/install.sh --check
 ```
 
-Re-install after updating the repository to synchronize the installed deployment. The installer is atomic and idempotent — repeated installation is safe.
+Re-install after updating the repository to synchronize the installed deployment. The installer is atomic and idempotent.
 
 ## 1. Install Pi
 
-Pi requires Node.js. Install the Pi coding agent with the current package name shown by the Pi project documentation. Common installations are:
-
-```bash
-npm install -g @earendil-works/pi-coding-agent
-```
-
-Some existing installations use the earlier package name:
-
-```bash
-npm install -g @mariozechner/pi-coding-agent
-```
-
-Verify the executable:
+Pi requires Node.js. Install it using the current package name shown by the Pi project documentation, then verify the executable:
 
 ```bash
 pi --version
+command -v pi
 ```
 
-Do not install both package names unless troubleshooting requires it.
+Do not install multiple package names unless troubleshooting requires it.
 
-## 2. Configure DeepSeek authentication
+## 2. Configure the selected provider in Pi
 
-Obtain a DeepSeek API key from the DeepSeek platform. Choose one method:
+Configure authentication using Pi's documented `/login` flow or the selected provider's documented environment/configuration mechanism. Keep credentials outside the repository, skill directory, prompts, shell history, and committed dotfiles.
 
-### Environment variable
+The wrapper intentionally does not determine whether a provider is authenticated by reading secret-bearing state. A model appears in Pi's available catalog only when Pi itself considers that model available.
+
+## 3. Inspect the live Pi model catalog
+
+Run the wrapper's non-inference catalog path:
 
 ```bash
-export DEEPSEEK_API_KEY="..."
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh --catalog
 ```
 
-### Pi auth storage
-
-Run Pi interactively:
+This calls:
 
 ```bash
-pi
+pi --list-models
 ```
 
-Then use `/login` and select DeepSeek. Pi stores credentials in `~/.pi/agent/auth.json`.
+The output is the current Pi provider/model table, including the metadata Pi exposes for context, output limit, reasoning, and image input. No prompt, repository content, or inference is sent. The wrapper does not persist the catalog.
 
-Do not write the key into a repository, skill directory, prompt, shell history, or committed dotfile.
+Select an exact pair from the returned table. Do not rely on a preferred model order or the first listed entry.
 
-## 3. Discover available models
+## 4. Configure generic operator defaults (optional)
 
-Run:
+For repeated use, configure both generic selection variables together:
 
 ```bash
-pi --list-models deepseek
+export PI_DELEGATION_PROVIDER="PROVIDER_ID"
+export PI_DELEGATION_MODEL="MODEL_ID"
+export PI_DELEGATION_THINKING="medium"
+export PI_DELEGATION_TIMEOUT="180"
 ```
 
-The current built-in `deepseek` provider ships with models that Pi resolves at runtime. As of writing, the registered models include `deepseek-v4-pro` and `deepseek-v4-flash`.
+`PI_DELEGATION_PROVIDER` and `PI_DELEGATION_MODEL` are an all-or-nothing pair. A half-configured pair fails closed. Task flags `--provider`, `--model`, `--thinking`, and `--timeout-seconds` take precedence over generic settings.
 
-The delegation wrapper automatically prefers:
-1. `deepseek-v4-pro`
-2. `deepseek-v4-flash`
-3. The first listed model as a fallback.
+The wrapper resolves selection in this order:
 
-Optionally set a default:
+1. explicit task `--provider` plus `--model`;
+2. both generic operator defaults;
+3. explicitly configured legacy DeepSeek compatibility;
+4. fail closed with an instruction to inspect `--catalog`.
+
+Legacy `PI_DEEPSEEK_MODEL` remains accepted as an explicit DeepSeek-bound compatibility selection; `PI_DEEPSEEK_PROVIDER`, when supplied, must be `deepseek`, and provider-only legacy configuration fails. Legacy thinking/timeout variables apply only to a selected DeepSeek pair. No provider/model fallback exists.
+
+## 5. Check an exact pair without inference
+
+Use the pair chosen from `--catalog`:
 
 ```bash
-export PI_DEEPSEEK_MODEL="deepseek-v4-pro"
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh \
+  --check \
+  --provider "PROVIDER_ID" \
+  --model "MODEL_ID"
 ```
 
-Model IDs change over time. Run `pi --list-models deepseek` after Pi upgrades and update your default if needed. The wrapper never selects a model that is absent from the current listing.
+`--check` calls Pi's current catalog, verifies the exact pair, and exits before any task or model invocation. It does not require delegation acknowledgement and does not inspect credentials.
 
-## 4. Live probe
-
-After authentication is configured, run a minimal live probe to confirm end-to-end connectivity without sending any repository content:
+For a planned task, `--dry-run` performs the same exact-pair validation and prints the Pi command without invoking it:
 
 ```bash
-CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1 \
-  bash /path/to/skill/scripts/pi_deepseek_delegate.sh --probe --thinking low
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh \
+  --mode analysis \
+  --provider "PROVIDER_ID" \
+  --model "MODEL_ID" \
+  --thinking "medium" \
+  --task "Bounded task description" \
+  --dry-run
 ```
 
-The probe sends a fixed synthetic prompt (`Say exactly: DEEPSEEK_PI_PROBE_OK`). A successful response confirms transport, authentication, model availability, and response handling.
+## 6. Record consent for real inference
 
-## 5. Record external-provider consent
-
-After the user understands that delegated prompts and selected repository content leave the local machine for DeepSeek inference, set:
+After the operator understands that delegated prompts and explicitly selected context leave the local machine for the selected provider, real inference requires:
 
 ```bash
-export CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK=1
+export CODEX_PI_DELEGATION_ACK=1
 ```
 
-This acknowledgement is intentionally separate from the API key.
-
-Write-capable delegation is disabled unless explicitly enabled:
+Implementation mode additionally requires:
 
 ```bash
-export CODEX_DEEPSEEK_WRITE_DELEGATION=1
+export CODEX_PI_WRITE_DELEGATION=1
 ```
 
-Enable write delegation only for the current shell or specific command when possible.
+These gates are not needed by `--catalog`, `--check`, or `--dry-run` because those paths do not invoke inference. Legacy `CODEX_DEEPSEEK_EXTERNAL_PROVIDER_ACK` and `CODEX_DEEPSEEK_WRITE_DELEGATION` may satisfy the corresponding gates only for a DeepSeek selection; they cannot authorize another provider.
 
-## 6. Run preflight
+## 7. Optional synthetic probe
 
-From any directory:
+The compatibility `--probe` path is a real inference operation. It uses a fixed synthetic prompt and sends no repository context, but it still requires the generic acknowledgement (or the legacy DeepSeek acknowledgement for a DeepSeek selection):
 
 ```bash
-bash /path/to/skill/scripts/pi_deepseek_delegate.sh --check
+CODEX_PI_DELEGATION_ACK=1 \
+  bash /path/to/skill/scripts/pi_deepseek_delegate.sh \
+  --probe \
+  --provider "PROVIDER_ID" \
+  --model "MODEL_ID" \
+  --thinking low
 ```
 
-A successful preflight confirms:
+This task's qualification proof must not run a live inference probe.
 
-- `pi` is on `PATH`.
-- DeepSeek authentication appears configured.
-- Pi exposes at least one DeepSeek model or the configured model is present.
-- The wrapper can determine the requested execution settings.
+## 8. Run preflight and delegation
 
-Preflight does not send repository content to DeepSeek.
+From any directory, first check the exact pair, then run one bounded delegation only after the supervising agent has approved the task and selection:
+
+```bash
+bash /path/to/skill/scripts/pi_deepseek_delegate.sh \
+  --mode analysis \
+  --provider "PROVIDER_ID" \
+  --model "MODEL_ID" \
+  --task "One bounded assignment" \
+  --selection-rationale "Short reason for this pair and task shape"
+```
+
+The default artifact directory is `<cwd>/.codex/delegations/pi`. Metadata records the actual provider, model, thinking level, mode, selection source/rationale, tool allowlist, and artifact path.
 
 ## Common failures
 
@@ -143,40 +162,38 @@ Preflight does not send repository content to DeepSeek.
 
 Install Pi or fix the shell `PATH`. Verify with `command -v pi`.
 
-### No DeepSeek authentication detected
+### No provider/model selected
 
-Set `DEEPSEEK_API_KEY` or authenticate through Pi. Do not pass the key through `--api-key` in saved scripts because process listings and logs may expose it.
+Run `--catalog`, select an exact pair, and pass both `--provider` and `--model`, or configure both `PI_DELEGATION_PROVIDER` and `PI_DELEGATION_MODEL`. The wrapper never silently chooses a provider, preferred model, or first-listed model.
 
-### No model selected
+### Only one side of a pair is configured
 
-Run `pi --list-models deepseek`, then set `PI_DEEPSEEK_MODEL` to an exact available identifier or matching pattern.
+Remove the half-configured generic/task setting or provide the missing side. Do not combine a generic provider with a legacy model or vice versa.
 
-### Provider or model rejected at runtime
+### Provider/model rejected by catalog preflight
 
-The Pi model catalog or DeepSeek API may have changed. Run:
-```bash
-pi --list-models deepseek
-```
-Select a currently registered model, or install Pi updates and re-check.
+The pair is not currently available to Pi. Re-run `--catalog` and choose an exact row. Do not treat a Pi runtime error or an old model ID as proof of availability.
 
-### Pi version too old
+### Delegation acknowledgement missing
 
-The built-in `deepseek` provider shipped in Pi 0.82.0. Upgrade Pi if your version predates this:
-```bash
-pi update self
-```
+Set `CODEX_PI_DELEGATION_ACK=1` only after the operator has approved sending the bounded prompt/context to the selected provider. A legacy DeepSeek acknowledgement cannot authorize another provider.
+
+### Implementation write acknowledgement missing
+
+Set `CODEX_PI_WRITE_DELEGATION=1` only for an isolated, explicitly scoped implementation worktree. Keep the generic gate separate from the inference gate.
+
+### Sensitive context rejected
+
+Do not pass `.env`, `auth.json`, credential files, private keys, or other secret-bearing context. Prepare a sanitized, bounded artifact instead.
 
 ### Installed skill drifted from source
 
 Re-install from the canonical source:
+
 ```bash
 bash skills/pi-deepseek-delegation/scripts/install.sh --install
 ```
 
-### API key rotation
+## Verification boundary
 
-After rotating your DeepSeek API key, update either `DEEPSEEK_API_KEY` or re-run `pi` and `/login deepseek`. The wrapper reads the key at invocation time — no cache invalidation is needed.
-
-### Worker can see too much of the repository
-
-Pi's file tools operate relative to the delegated working directory. Create a scoped temporary directory containing only the necessary files for sensitive read-only analysis, or do not delegate that repository.
+Catalog/check/dry-run prove only Pi availability and command construction at the observed time. A real result requires independent supervising-agent verification. None of these paths changes Guardian runtime routing, Campaign Engine routing, supported profiles, provider adapters, or release truth.

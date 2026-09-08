@@ -61,6 +61,44 @@ inline literals.
   `campaign_execution_attempts.status` uses `running`, `succeeded`,
   `failed`, `cancelled`.
 
+- Persona subject lifecycle:
+  `active`, `retired`.
+  These are the canonical identity-persistence lifecycle vocabulary for a
+  stable account-owned Persona subject. `active` is a current durable
+  attribution identity; `retired` is retained historical identity that is not
+  a current attribution target. Registering this domain does not create
+  Persona-subject persistence, retirement behavior, routes, memory
+  attribution, or completion of UMS-02. A future persistence/runtime surface
+  must import this registered domain rather than introduce an inline value.
+
+- Memory semantic species:
+  `episodic_semantic_memory`, `verified_personal_fact`,
+  `candidate_unreviewed_fact`.
+  These are the canonical semantic species of a canonical memory envelope
+  record. The values are the protocol authority for the three-species
+  taxonomy frozen by UMS-03A and UMS-03A-A in §4.8 of the Unified Memory
+  Store Contract. Human-readable labels (`Episodic / semantic memory`,
+  `Verified personal fact`, `Candidate / unreviewed fact`) remain
+  descriptive and are not authoritative for serialization. No aliases are
+  accepted: neither `episodic_memory` nor `semantic_memory` alone is
+  canonical for the combined species, and neither `candidate_fact` nor
+  `unreviewed_fact` alone is canonical for the candidate species. Registering
+  this domain does not create memory persistence, retrieval, candidate
+  behavior, or completion of UMS-03. A future persistence surface must
+  import this registered domain rather than introduce an inline value.
+
+- Memory Persona-attribution link kinds:
+  `captured_under`, `suggested_by`, `associated_with`.
+  These are the canonical typed stable-Persona attribution relationship
+  kinds for canonical memory envelope records. They were frozen by UMS-02A
+  and re-affirmed in §4.3 and §4.9 of the Unified Memory Store Contract.
+  They express attribution only, never ownership. Persona links target
+  stable Persona subjects (per UMS-02); mutable PersonaProfile identity is
+  not a valid attribution target. Registering this domain does not create
+  memory-to-Persona link persistence, retrieval, or completion of UMS-03.
+  A future persistence surface must import this registered domain rather
+  than introduce an inline value.
+
 - Trace suppression reasons:
   `assistant_vision_refusal_on_image_turn`
 - Trace snapshot absence reasons:

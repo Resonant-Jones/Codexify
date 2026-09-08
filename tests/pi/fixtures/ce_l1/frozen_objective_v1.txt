@@ -1,0 +1,1 @@
+Replace the entire contents of proof_target.txt with exactly the following 42-byte sequence (no leading bytes, exactly one trailing LF, no additional trailing bytes): 'CE_L1_POST_INSTRUMENTATION_DRIVER_PASS_OK'
