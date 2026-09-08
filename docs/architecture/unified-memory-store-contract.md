@@ -1741,6 +1741,38 @@ Fact / evidence / revision mutation, and no retrieval
 integration. The compatibility reader was explicitly not in
 UMS-03D.
 
+UMS-03H proved legacy memory compatibility coverage closure
+against current reconciled `main` (post UMS-03H-R rebaseline).
+The complete UMS-03A admitted source/state inventory is
+reconciled against current repository truth, and the
+coverage matrix is:
+
+```text
+memory_entries                        COVERED
+personal_facts (verified+active)       COVERED
+personal_facts (candidate/disputed/
+  archived/inactive)                  COVERED
+personal_fact_evidence                SUBORDINATE_LINEAGE_COVERED
+personal_fact_revisions               SUBORDINATE_LINEAGE_COVERED
+Memoryos library state                EXPLICITLY_EXCLUDED_BY_CONTRACT (§4.13 line 904)
+```
+
+```text
+COVERED                          = 3
+SUBORDINATE_LINEAGE_COVERED      = 2
+EXPLICITLY_EXCLUDED_BY_CONTRACT  = 1
+UNMAPPED_BLOCKER                  = 0
+```
+
+All three canonical semantic species
+(`episodic_semantic_memory`, `verified_personal_fact`,
+`candidate_unreviewed_fact`) have at least one valid
+legacy compatibility path. Coverage closure does not
+equal live retrieval integration; canonical UMS tables
+remain non-authoritative; compatibility projections
+remain read-only. The complete coverage evidence is at
+[§4.16 compatibility coverage proof](../proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
+
 #### 4.16.13 Explicit deferrals
 
 The following are outside UMS-03C and remain deferred to

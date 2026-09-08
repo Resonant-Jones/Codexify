@@ -69,8 +69,10 @@ This file is authoritative for:
   UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
   UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
   UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
+  UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
+  UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: CLOSED
   UMS-03: OPEN
-  UMS-03H: AUTHORIZED TO START
+  UMS-03I UNIFIED COMPATIBILITY READ SURFACE: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -444,6 +446,62 @@ This file is authoritative for:
   UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. See
   the
   [UMS-03G candidate-fact compatibility proof](./proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
+
+- **UMS-03H-R (reconciled-main rebaseline, closed)**
+  and **UMS-03H (legacy memory compatibility coverage,
+  just closed)**: the local operator intentionally
+  reconciled local `main` with `origin/main` after
+  UMS-03G, producing 18 intervening commits. UMS-03H-R
+  revalidated the UMS campaign against the reconciled
+  baseline and proved the post-UMS mainline work is
+  orthogonal to UMS authority. The rebaseline verdict
+  is `REBASELINED_WITH_ORTHOGONAL_MAINLINE_CHANGES`.
+  UMS-03H then proved legacy memory compatibility
+  coverage closure against the frozen UMS-03A
+  inventory and current reconciled repository truth.
+  The final coverage matrix is:
+
+  ```text
+  memory_entries                        COVERED
+  personal_facts (verified+active)       COVERED
+  personal_facts (candidate/disputed/
+    archived/inactive)                  COVERED
+  personal_fact_evidence                SUBORDINATE_LINEAGE_COVERED
+  personal_fact_revisions               SUBORDINATE_LINEAGE_COVERED
+  Memoryos library state                EXPLICITLY_EXCLUDED_BY_CONTRACT
+  ```
+
+  ```text
+  COVERED                          = 3
+  SUBORDINATE_LINEAGE_COVERED      = 2
+  EXPLICITLY_EXCLUDED_BY_CONTRACT  = 1
+  UNMAPPED_BLOCKER                  = 0
+  ```
+
+  All three canonical semantic species
+  (`episodic_semantic_memory`, `verified_personal_fact`,
+  `candidate_unreviewed_fact`) have at least one valid
+  legacy compatibility path. The closure verdict is
+  `LEGACY_MEMORY_COMPATIBILITY_INVENTORY_CLOSED`. The
+  52-test compatibility baseline passes 52/52 with zero
+  skips on the reconciled `main`; the 46-test adjacent
+  regression set passes 46/46; the Alembic head remains
+  `f6b0d3e8c5a2`. No production code, tests, ORM models,
+  migrations, retrieval wiring, retention implementation,
+  or export/restore behavior was changed by UMS-03H-R
+  or UMS-03H. Legacy UMS sources remain durable
+  authority; canonical UMS tables remain non-authoritative;
+  compatibility projections remain read-only; no live
+  compatibility-projection integration exists. No
+  Beta/release claim widened. UMS-03I is now authorized
+  to introduce one bounded unified compatibility read
+  surface that composes the three proven projections;
+  UMS-03I is NOT yet authorized to redirect live
+  ContextBroker / MemoryOS / completion retrieval;
+  UMS-04 remains NOT AUTHORIZED. See the
+  [UMS-03H-R rebaseline proof](./proofs/runtime/2026-09-08-ums03h-r-main-reconciliation-rebaseline-proof.md)
+  and the
+  [UMS-03H compatibility coverage proof](./proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 - Persona Profile authority, account-scoped persistence, export coverage, acceptance-time snapshots, and five-field runtime application landed with focused tests; broad Studio controls remain outside runtime enforcement.
 - ShareSheet async handling now rejects stale search/send completions and surfaces relationship-load failure with retry coverage.

@@ -117,9 +117,9 @@ UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
 UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
-UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: AUTHORIZED TO RESUME
+UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: CLOSED
 UMS-03: OPEN
-UMS-03I: NOT AUTHORIZED
+UMS-03I UNIFIED COMPATIBILITY READ SURFACE: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -548,6 +548,48 @@ baseline. The complete evidence is at
 UMS-03H is now authorized to resume coverage closure from
 reconciled current main; UMS-03I remains NOT AUTHORIZED; UMS-04
 remains NOT AUTHORIZED.
+
+UMS-03H proved legacy memory compatibility coverage closure
+against the reconciled `main` (post UMS-03H-R). The frozen
+UMS-03A admitted source/state inventory was reconciled
+against current repository truth. The coverage matrix is:
+
+```text
+memory_entries                        COVERED
+personal_facts (verified+active)       COVERED
+personal_facts (candidate/disputed/
+  archived/inactive)                  COVERED
+personal_fact_evidence                SUBORDINATE_LINEAGE_COVERED
+personal_fact_revisions               SUBORDINATE_LINEAGE_COVERED
+Memoryos library state                EXPLICITLY_EXCLUDED_BY_CONTRACT (§4.13 line 904)
+```
+
+```text
+COVERED                          = 3
+SUBORDINATE_LINEAGE_COVERED      = 2
+EXPLICITLY_EXCLUDED_BY_CONTRACT  = 1
+UNMAPPED_BLOCKER                  = 0
+```
+
+All three canonical semantic species
+(`episodic_semantic_memory`, `verified_personal_fact`,
+`candidate_unreviewed_fact`) have at least one valid legacy
+compatibility path. The closure verdict is
+`LEGACY_MEMORY_COMPATIBILITY_INVENTORY_CLOSED`. Coverage
+closure does NOT equal live retrieval integration; canonical
+UMS tables remain non-authoritative; compatibility projections
+remain read-only. No production code, tests, ORM models,
+migrations, retrieval wiring, retention implementation, or
+export/restore behavior was changed by UMS-03H. The 52-test
+compatibility baseline passes 52/52 with zero skips; the
+46-test adjacent regression set passes 46/46; the Alembic head
+remains `f6b0d3e8c5a2`. UMS-03I is now authorized to introduce
+one bounded unified compatibility read surface that composes
+the three proven projections; UMS-03I is NOT yet authorized
+to redirect live ContextBroker / MemoryOS / completion
+retrieval. UMS-04 remains NOT AUTHORIZED. The complete
+coverage evidence is at
+[2026-09-08 UMS-03H compatibility coverage proof](../../architecture/proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
