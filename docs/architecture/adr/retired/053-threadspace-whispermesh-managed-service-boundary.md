@@ -1,3 +1,21 @@
+<!--
+RETIREMENT / PROVENANCE NOTICE — 2026-09-08
+
+- Lifecycle: Retired.
+- Historical active path: `docs/architecture/adr/053-threadspace-whispermesh-managed-service-boundary.md`.
+- Canonical successor: [`../055-threadspace-whispermesh-managed-service-boundary.md`](../055-threadspace-whispermesh-managed-service-boundary.md).
+- Canonical successor number: ADR-055.
+- Retirement date: 2026-09-08.
+- Disposition authority: the accepted Phase 4B ADR-number-collision human adjudication
+  (`docs/architecture/proofs/2026-08-09-dlg-phase4b-adr-number-collision-human-adjudication.md`)
+  together with the confirmed 2026-09-08 canonical-main DLG disposition.
+- This file preserves historical provenance and carries no current decision authority.
+
+The historical body below is preserved byte-for-byte from the pre-retirement file.
+The original ADR-053 numeric slot is now occupied only by the retained
+Node-Hosted Room Access Boundary at `../053-node-hosted-room-access-boundary.md`.
+-->
+
 # ADR-053: ThreadSpace ↔ WhisperMesh Managed-Service Boundary
 
 ## Status

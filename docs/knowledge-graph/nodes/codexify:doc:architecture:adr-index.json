@@ -8,20 +8,20 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "d3a153bc0ea324dfad997b7682cd31ffb8cfa3e9a777bb0b693601d1a24bfeb7",
+  "content_hash": "f0eab6e2cf3b730f5513e06dd737b77e477f636fe2dc056dd5aabc9758cacbd0",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-reverified ADR-index metadata against committed source revision 55e5475a4e53ecdb92a3be15e284a370a55ed05f. The ADR index and declared ADR anchor set were re-reviewed; ADR-082 (Persona Profile Manifest and Binding Authority) and the intervening Persona Studio / ADR-082 cross-references are included. No ADR identity, numbering, acceptance, or release semantics were changed by this metadata task. ADR-053 and ADR-076 numeric collisions remain reported separately and are not gating.",
+    "reason": "Re-reverified against 54a4e1932a8c. ADR-053 stale duplicate retired to docs/architecture/adr/retired/. Round-Trip-Stable Governed-Schema Equivalence renumbered to ADR-083 with Accepted status preserved. ADR-053 and ADR-076 collisions removed from active direct-root namespace. ADR-082 and ADR-084 unaffected. No identity, numbering, acceptance, or release semantics widened.",
     "state": "current",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "verified_at": "2026-09-05T12:32:56Z",
-    "verified_commit": "55e5475a4e53ecdb92a3be15e284a370a55ed05f"
+    "verified_at": "2026-09-08T21:16:54Z",
+    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
