@@ -166,6 +166,140 @@ def test_helper_existing_conflicting_choice_fails_closed() -> None:
     assert out["code"] == "guard.required_tool_selection.conflicting_choice"
 
 
+def test_helper_existing_choice_with_auto_type_fails_closed() -> None:
+    """Existing ``{type: "auto", name: "write"}`` is NOT a hard selection.
+
+    A chained ``before_provider_request`` / session ``onPayload`` hook
+    can supply a non-hard ``tool_choice`` such as ``{type: "auto",
+    name: "write"}``.  The pre-repair helper accepted any matching
+    ``name`` as a hard selection and let the wrapper record
+    ``hard_tool_selection_applied=true`` even though the provider
+    payload still permitted automatic selection.  This is the exact
+    review-comment exploit shape; the helper must now fail closed
+    with the canonical conflict code.
+    """
+    script = _import_helper() + """
+        let code = null;
+        let errorCaught = false;
+        try {
+            applyGuardianRequiredToolSelection({
+                providerId: "anthropic",
+                requiredToolName: "write",
+                payload: {
+                    tools: [{ name: "write" }],
+                    tool_choice: { type: "auto", name: "write" },
+                },
+            });
+        } catch (e) {
+            errorCaught = true;
+            code = e && e.code;
+        }
+        process.stdout.write(JSON.stringify({ code, errorCaught }));
+        """
+    out = _node_eval_helper(script)
+    assert out["errorCaught"] is True, (
+        "helper must reject {type:'auto',name:'write'} as a hard selection"
+    )
+    assert out["code"] == "guard.required_tool_selection.conflicting_choice"
+
+
+@pytest.mark.parametrize(
+    "tool_choice_value,label",
+    [
+        # Missing `type` with matching name: not a hard selection.
+        ({"name": "write"}, "missing-type-matching-name"),
+        # Non-object existing choice (string): not a hard selection.
+        ("write", "string-tool-choice"),
+        # Non-object existing choice (null): not a hard selection.
+        (None, "null-tool-choice"),
+        # Non-object existing choice (number): not a hard selection.
+        (42, "number-tool-choice"),
+        # Non-object existing choice (array): not a hard selection.
+        ([{"type": "tool", "name": "write"}], "array-tool-choice"),
+        # Wrong type (any) with matching name: not a hard selection.
+        ({"type": "any", "name": "write"}, "type-any-matching-name"),
+        # Wrong type with wrong name: still fails on type, not name.
+        ({"type": "auto", "name": "read"}, "type-auto-wrong-name"),
+        # Empty type string with matching name: not a hard selection.
+        ({"type": "", "name": "write"}, "empty-type-matching-name"),
+    ],
+)
+def test_helper_existing_choice_malformed_fails_closed(
+    tool_choice_value: Any, label: str
+) -> None:
+    """Existing ``tool_choice`` that is not the exact hard-selection
+    structure must fail closed with the canonical conflict code.
+
+    Each parameter is a distinct malformed existing-choice shape that
+    must NOT be accepted as a hard selection.  The helper never
+    silently overwrites an invalid existing choice with a valid hard
+    choice; the caller/provider-hook state is preserved and the
+    bounded conflict code is raised.
+    """
+    script = _import_helper() + f"""
+        let code = null;
+        let errorCaught = false;
+        try {{
+            applyGuardianRequiredToolSelection({{
+                providerId: "anthropic",
+                requiredToolName: "write",
+                payload: {{
+                    tools: [{{ name: "write" }}],
+                    tool_choice: {json.dumps(tool_choice_value)},
+                }},
+            }});
+        }} catch (e) {{
+            errorCaught = true;
+            code = e && e.code;
+        }}
+        process.stdout.write(JSON.stringify({{ code, errorCaught, label: {json.dumps(label)} }}));
+        """
+    out = _node_eval_helper(script)
+    assert out["errorCaught"] is True, (
+        f"helper must reject malformed existing tool_choice {label!r} "
+        f"(value={tool_choice_value!r}); the pre-repair code accepted it."
+    )
+    assert out["code"] == "guard.required_tool_selection.conflicting_choice", (
+        f"malformed existing tool_choice {label!r} must surface as "
+        f"conflicting_choice; got {out['code']!r}"
+    )
+
+
+def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
+    """Positive control: existing ``{type: 'tool', name: 'write'}``
+    is still accepted and returned unchanged.
+
+    This is the canonical hard-selection shape.  The repair must
+    preserve the existing positive-control behavior — only the
+    invalid shapes now fail closed.
+    """
+    script = _import_helper() + """
+        const out = applyGuardianRequiredToolSelection({
+            providerId: "anthropic",
+            requiredToolName: "write",
+            payload: {
+                tools: [{ name: "write" }],
+                tool_choice: { type: "tool", name: "write" },
+            },
+        });
+        // Identity check: the helper returns the existing object
+        // unchanged when the existing choice already is the exact
+        // hard selection.
+        const outToolChoice = out.tool_choice;
+        const same = (
+            outToolChoice.type === "tool" &&
+            outToolChoice.name === "write"
+        );
+        process.stdout.write(JSON.stringify({
+            tool_choice: outToolChoice,
+            same_hard_choice: same,
+        }));
+        """
+    out = _node_eval_helper(script)
+    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["same_hard_choice"] is True
+
+
 def test_helper_missing_write_fails_closed() -> None:
     """Missing write: helper fails closed with a bounded code."""
     script = _import_helper() + """

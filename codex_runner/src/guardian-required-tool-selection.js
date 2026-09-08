@@ -92,8 +92,16 @@ function _findAdvertisedRequiredTool(tools, requiredToolLower) {
  * - payload must be a plain object with a `tools` array.
  * - exactly one advertised tool must match the required tool
  *   case-insensitively; multiple matches fail closed.
- * - if `payload.tool_choice` is already present, it must name the same
- *   exact advertised required tool; otherwise the helper fails closed.
+ * - if `payload.tool_choice` is already present, it must:
+ *     - be a plain object (not a string, number, array, or null);
+ *     - have `type === "tool"` (a HARD selection — anything else
+ *       such as `"auto"` or `"any"` is a non-hard selection and
+ *       does not satisfy the bounded required-tool contract);
+ *     - have `name` equal to the exact advertised required tool
+ *       spelling (casing preserved);
+ *   otherwise the helper fails closed with
+ *   `guard.required_tool_selection.conflicting_choice` and never
+ *   silently overwrites the existing caller/provider-hook state.
  * - the helper returns a NEW shallow-copied payload with the
  *   `tool_choice` set; it never mutates the input.
  */
@@ -127,15 +135,23 @@ export function applyGuardianRequiredToolSelection({
 	const advertised = result.advertised;
 	const copied = { ...payload };
 	if (Object.prototype.hasOwnProperty.call(copied, "tool_choice")) {
+		// An existing `tool_choice` is accepted only when it is
+		// already the exact hard selection the runtime requires.
+		// HARD selection means `type === "tool"` AND the name
+		// equals the exact advertised required tool spelling.
+		// A matching name with a non-"tool" type (e.g. "auto" or
+		// "any") is a non-hard selection; the helper must fail
+		// closed rather than silently treat it as a hard choice.
 		const existing = copied.tool_choice;
-		const existingName =
-			_asObject(existing) && typeof existing.name === "string"
-				? existing.name
-				: null;
-		if (existingName !== advertised) {
+		if (
+			!_asObject(existing) ||
+			existing.type !== "tool" ||
+			typeof existing.name !== "string" ||
+			existing.name !== advertised
+		) {
 			throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
 		}
-		// Existing choice already names the same exact advertised tool.
+		// Existing choice already is the exact hard selection.
 		return copied;
 	}
 	copied.tool_choice = { type: "tool", name: advertised };
