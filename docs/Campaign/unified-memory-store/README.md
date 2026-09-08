@@ -116,10 +116,20 @@ UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
 UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
 UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
+UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
+UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: AUTHORIZED TO RESUME
 UMS-03: OPEN
-UMS-03H: AUTHORIZED TO START
+UMS-03I: NOT AUTHORIZED
 UMS-04: NOT AUTHORIZED
 ```
+
+UMS-03G remains the semantic compatibility prerequisite.
+
+`091216aef` is the accepted reconciled-main execution baseline.
+
+Intervening mainline work was revalidated rather than discarded.
+
+Current ADR-083 and ADR-084 governance relationship was explicitly checked.
 
 UMS-02A freezes the implementation-ready Persona-subject mapping and
 enforcement contract in [§4.5 of the Unified Memory Store Contract](../../architecture/unified-memory-store-contract.md).
@@ -509,6 +519,35 @@ remaining compatibility prerequisite identified from the
 frozen UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. The
 complete implementation evidence is at
 [2026-09-08 UMS-03G candidate-fact compatibility proof](../../architecture/proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
+
+UMS-03H-R revalidated the UMS campaign on the post-reconciliation
+`main` (`091216aef`). The local operator intentionally reconciled
+`main` with `origin/main` between UMS-03G and the UMS-03H
+attempt, producing 18 intervening commits. The UMS-03H non-impact
+gate correctly fired. The rebaseline proved that the post-UMS
+mainline work is orthogonal to UMS: `PersonaSelectionSnapshot`
+and the persona profile snapshot flow are ADR-082 / Persona
+Studio execution work; the system-profile resolver, chat
+completion service, and chat worker changes are the wiring for
+that persona snapshot flow; ShareSheet async hardening, Pi model
+delegation, CE-L1 frozen objective persistence, and the Tester
+worker bridge are unrelated to UMS authority. Current canonical
+governance still records ADR-083 as unissued/retired and
+ADR-084 as the sole controlling UMS memory ADR. The UMS
+implementation, persistence, semantic-species, and
+protocol-token surfaces are all unchanged on reconciled main.
+The existing 52-test compatibility baseline passes 52/52 with
+zero skips on reconciled main; adjacent token and Persona-subject
+regressions pass 46/46; the Alembic head remains
+`f6b0d3e8c5a2`. The local `origin/main` reconciliation is
+preserved; no `main` rewind, revert, or cherry-pick occurred. The
+rebaseline verdict is `REBASELINED_WITH_ORTHOGONAL_MAINLINE_CHANGES`,
+which reauthorizes UMS-03H to resume from the reconciled
+baseline. The complete evidence is at
+[2026-09-08 UMS-03H-R rebaseline proof](../../architecture/proofs/runtime/2026-09-08-ums03h-r-main-reconciliation-rebaseline-proof.md).
+UMS-03H is now authorized to resume coverage closure from
+reconciled current main; UMS-03I remains NOT AUTHORIZED; UMS-04
+remains NOT AUTHORIZED.
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
