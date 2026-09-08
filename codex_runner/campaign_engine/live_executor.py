@@ -999,12 +999,39 @@ def _pre_execution_drift_check(
     - current Campaign input hash (re-load);
     - current target baseline evidence (re-snapshot);
     - re-loaded locked binding identity;
-    - current prompt hash;
+    - current required-tool requirement re-derivation from the
+      canonical Campaign Engine constant;
+    - current prompt hash (re-derived from the canonical requirement,
+      not from the preparation field);
     - current target identity.
 
     Any material drift fails closed before invocation with
     ``runner_call_count = 0``.
     """
+
+    # 0. Required-tool requirement re-derivation from Campaign Engine
+    # authority.  The canonical live Executor required tool is the
+    # ``LIVE_EXECUTOR_REQUIRED_TOOL_NAME`` constant, NOT the mutable
+    # preparation field.  A preparation whose declared
+    # ``required_tool_name`` no longer equals the canonical value is
+    # material post-authorization drift: the preparation is evidence
+    # of the earlier decision, not authority to redefine that decision
+    # later.  ``None`` is not equivalent to the canonical ``"write"``
+    # requirement.  Fail closed before any other drift check so the
+    # failure reason is unambiguous.
+    if preparation.required_tool_name != LIVE_EXECUTOR_REQUIRED_TOOL_NAME:
+        raise CampaignLiveExecutorError(
+            "preparation required_tool_name drifted from canonical "
+            "Campaign Engine live Executor requirement",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+            issues=[
+                f"preparation.required_tool_name="
+                f"{preparation.required_tool_name!r} does not match "
+                f"canonical LIVE_EXECUTOR_REQUIRED_TOOL_NAME="
+                f"{LIVE_EXECUTOR_REQUIRED_TOOL_NAME!r}"
+            ],
+        )
 
     # 1. Campaign input hash.
     if source_context_path is not None:
@@ -1098,6 +1125,14 @@ def _pre_execution_drift_check(
     allowed_file_paths: tuple[str, ...] = tuple(
         current_executor["live_role_binding"]["allowed_file_paths"]
     )
+    # Recompose the expected prompt from the CANONICAL live Executor
+    # required-tool authority, not the preparation field.  This is the
+    # second of two independent protections against a forged
+    # ``required_tool_name=None`` preparation that also recomposed a
+    # matching prompt/hash: the prompt the runtime would build now
+    # always contains the canonical MANDATORY ACTION clause, so a
+    # forged preparation whose prompt omits it cannot match the
+    # recomposed prompt hash either.
     recomposed_prompt = _build_executor_prompt(
         campaign_id=preparation.campaign_id,
         task_id=preparation.task_id,
@@ -1107,7 +1142,7 @@ def _pre_execution_drift_check(
         prompt_sha256=sha256_canonical(
             {"task": task, "allowed": list(allowed_file_paths)}
         ),
-        required_tool_name=preparation.required_tool_name,
+        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
     )
     if sha256_text(recomposed_prompt) != preparation.prompt_sha256:
         raise CampaignLiveExecutorError(

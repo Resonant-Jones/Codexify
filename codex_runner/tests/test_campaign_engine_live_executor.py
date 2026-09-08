@@ -2743,3 +2743,163 @@ def test_required_tool_full_campaign_engine_invariants(tmp_path) -> None:
     assert err.failure_reason == "zero_mutation_executor_turn"
     assert payload["required_tool_selection"]["hard_tool_selection_applied"] is True
     assert payload["required_tool_selection"]["hard_tool_selection_application_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 31. Required-tool drift validation: forged required_tool_name=None
+#     preparation is rejected even when the prompt and prompt_sha256 are
+#     internally consistent with the forged requirement.
+# ---------------------------------------------------------------------------
+
+
+def test_forged_required_tool_none_drift_blocks_before_invocation(tmp_path) -> None:
+    """Adversarial ``required_tool_name=None`` preparation fails closed.
+
+    Reproduces the second review-comment finding on PR #797: the
+    pre-execution drift check must re-derive the required tool from
+    the canonical Campaign Engine constant
+    (``LIVE_EXECUTOR_REQUIRED_TOOL_NAME``) rather than trusting the
+    mutable preparation field.  A self-consistent forged preparation
+    that:
+
+    1. sets ``required_tool_name=None`` (removing the bounded
+       ``write`` requirement);
+    2. recomposes the prompt WITHOUT the MANDATORY ACTION clause;
+    3. updates ``prompt_sha256`` to match the new prompt;
+    4. rebuilds the Guardian envelope metadata to match the new
+       ``prompt_sha256``;
+
+    must still fail closed at the drift gate before any Pi invocation
+    reaches the canonical Guardian/Pi rail.  The pre-repair wrapper
+    would have passed the prompt-hash check (because the prompt and
+    hash agree with each other) and called ``_run_live_attempt`` with
+    ``required_tool_name=None`` — bypassing the bounded required-tool
+    authority.  The post-repair drift gate re-derives the requirement
+    from the canonical constant and rejects the forged preparation
+    before any provider-mechanics authority is engaged.
+
+    Provider-free contract proof: the canonical
+    ``live_executor._invoker`` is replaced with a recording fake so
+    the test can assert the invoker call count is exactly zero.
+    """
+    from dataclasses import replace
+
+    from codex_runner.campaign_engine.identity import sha256_canonical, sha256_text
+    from codex_runner.campaign_engine.live_executor import (
+        LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        _build_executor_prompt,
+    )
+
+    campaign_path, target_path, _fixed_clock = _setup_simple_canonical_inputs(tmp_path)
+
+    # 1. Canonical preparation: the bounded required tool is "write".
+    preparation = prepare_live_executor_campaign(campaign_path, target_path)
+    assert preparation.required_tool_name == LIVE_EXECUTOR_REQUIRED_TOOL_NAME
+    assert preparation.required_tool_name == "write"
+    # The canonical prompt carries the MANDATORY ACTION clause derived
+    # from the declared requirement.  This is the pre-condition for
+    # the forgery below to be materially different from the canonical.
+    assert "MANDATORY ACTION" in preparation.prompt
+    assert "invoke the `write` tool exactly once" in preparation.prompt
+
+    # 2. Recompose the prompt with ``required_tool_name=None`` and
+    #    recompute ``prompt_sha256`` to match.  This is the exact
+    #    forgery described in the review comment: the prompt and its
+    #    hash are internally consistent with the forged
+    #    ``required_tool_name=None`` declaration, so the pre-repair
+    #    prompt-hash drift check would have passed.
+    document = json.loads(campaign_path.read_text(encoding="utf-8"))
+    task = document["tasks"][0]
+    forged_prompt = _build_executor_prompt(
+        campaign_id=preparation.campaign_id,
+        task_id=preparation.task_id,
+        task_record=task,
+        allowed_file_paths=tuple(preparation.allowed_file_paths),
+        target_repository_identity=preparation.target_repository_identity,
+        prompt_sha256=sha256_canonical(
+            {"task": task, "allowed": list(preparation.allowed_file_paths)}
+        ),
+        required_tool_name=None,
+    )
+    # The forged prompt omits the MANDATORY ACTION clause (the
+    # bounded requirement is removed by construction).  This is the
+    # material post-authorization drift.
+    assert "MANDATORY ACTION" not in forged_prompt
+    forged_prompt_sha256 = sha256_text(forged_prompt)
+    assert forged_prompt_sha256 != preparation.prompt_sha256
+
+    # 3. Forge the preparation: keep every other field from the
+    #    canonical preparation; replace the required tool, prompt,
+    #    and prompt_sha256 with the forged values.
+    forged = replace(
+        preparation,
+        required_tool_name=None,
+        prompt=forged_prompt,
+        prompt_sha256=forged_prompt_sha256,
+    )
+    # Sanity: the forged preparation is internally self-consistent
+    # (this is the exact condition the pre-repair code would accept).
+    assert forged.required_tool_name is None
+    assert forged.prompt == forged_prompt
+    assert forged.prompt_sha256 == forged_prompt_sha256
+    assert sha256_text(forged.prompt) == forged.prompt_sha256
+
+    # 4. Rebuild the Guardian envelope from the forged preparation so
+    #    ``_check_guardian_metadata`` agrees with the forged
+    #    ``prompt_sha256``.  This is the "any corresponding envelope
+    #    metadata from the forged preparation" the review comment
+    #    requires; without it, an earlier shape check would
+    #    incidentally catch a different mismatch and obscure the
+    #    review finding.
+    envelope, decision = _build_envelope_and_decision(forged)
+
+    # 5. The fake invoker must NEVER be called.  If the drift gate
+    #    re-derives the canonical required tool correctly, the
+    #    forged preparation is rejected before any provider-mechanics
+    #    authority is engaged.
+    from codex_runner.campaign_engine import live_executor
+    from codex_runner.campaign_engine.live_executor import (
+        run_live_executor_campaign,
+    )
+
+    invoker_calls: list[dict] = []
+
+    def _recording_invoker(**kwargs):
+        invoker_calls.append(kwargs)
+        return _make_fake_outcome(
+            ok=True,
+            receipt_id="pi-receipt-forged-required-tool",
+            harness_result_id="pi-result-forged-required-tool",
+        )
+
+    real_invoker = live_executor._invoker
+    live_executor._invoker = _recording_invoker
+    try:
+        with pytest.raises(CampaignLiveExecutorError) as exc_info:
+            run_live_executor_campaign(
+                forged,
+                tmp_path / "out-forged-required-tool",
+                envelope=envelope,
+                decision=decision,
+                timeout_seconds=30,
+                campaign_path=campaign_path,
+            )
+    finally:
+        live_executor._invoker = real_invoker
+
+    # 6. The forged preparation is rejected at the pre-invocation
+    #    drift gate with the canonical required-tool authority reason
+    #    and the canonical diagnostic stage.  ``None`` is not
+    #    equivalent to the canonical ``"write"`` requirement; the
+    #    drift gate fails closed before any provider-mechanics
+    #    authority is engaged.
+    assert exc_info.value.failure_reason == "drift_after_authorization"
+    assert exc_info.value.diagnostic_stage == "pre_invocation_drift"
+    # Provider-free contract proof: zero invoker calls.  The drift
+    # gate rejected the forged preparation before any Guardian/Pi
+    # invocation was attempted.
+    assert invoker_calls == [], (
+        "forged required_tool_name=None preparation must be rejected "
+        "before any invoker call; "
+        f"saw {len(invoker_calls)} call(s): {invoker_calls!r}"
+    )
