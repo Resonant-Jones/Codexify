@@ -36,10 +36,17 @@ class FakeModelRuntime {
     }
 
     getAvailable() {
+        // Honor the configured provider/model so a Guardian-authorized
+        // call with PI_PROVIDER=anthropic is not rejected as
+        // oauth_auth_unavailable. The fake is provider-free; the
+        // available list therefore mirrors whatever the wrapper
+        // requested when the provider/model pair is recognized.
+        const provider = process.env.PI_PROVIDER || RUNTIME_IDENTITY.provider_id;
+        const model = process.env.PI_MODEL || RUNTIME_IDENTITY.model_id;
         return [
             {
-                provider: RUNTIME_IDENTITY.provider_id,
-                id: RUNTIME_IDENTITY.model_id,
+                provider,
+                id: model,
             },
         ];
     }
@@ -69,7 +76,10 @@ class FakeSession {
         // Default: success.
         this.behavior = process.env.PI_FAKE_I_BEHAVIOR || "success";
         this._activeToolNames = ["read", "bash", "edit", "write"];
-        this.agent = { state: { messages: [] } };
+        this.agent = {
+            state: { messages: [], tools: [] },
+            onPayload: null,
+        };
         this._subscribers = [];
     }
 
@@ -91,6 +101,24 @@ class FakeSession {
         }
     }
 
+    _buildFirstPayload() {
+        // The fake advertises tool names. The naming convention is
+        // selected by the test via PI_FAKE_ADVERTISE_CASING.
+        const casing = process.env.PI_FAKE_ADVERTISE_CASING || "lowercase";
+        const names = casing === "claude-code" ? ["Read", "Bash", "Edit", "Write"] : ["read", "bash", "edit", "write"];
+        return {
+            model: "claude-sonnet-4-6",
+            messages: [
+                { role: "user", content: [{ type: "text", text: "synthetic" }] },
+            ],
+            max_tokens: 1024,
+            stream: true,
+            tools: names.map((name) => ({ name })),
+            thinking: { type: "adaptive", display: "summarized" },
+            output_config: { effort: "medium" },
+        };
+    }
+
     async prompt(prompt) {
         // Write one diagnostic line to stdout BEFORE the canonical
         // wrapper writes its terminal JSON. This exercises the framing
@@ -101,6 +129,31 @@ class FakeSession {
             // Raise a synthetic provider-request error so the real
             // wrapper emits its bounded failure JSON.
             throw new Error("synthetic provider request failure");
+        }
+
+        // The fake exposes the wrapper's per-session onPayload hook.
+        // The first prompt() invocation is treated as the FIRST provider
+        // turn; we drive the wrapper's hook with a synthetic payload so
+        // it can apply the bounded required-tool projection. A second
+        // invocation, if requested, is the continuation turn and
+        // carries no projection.
+        const params = this._buildFirstPayload();
+        let onPayload = this.agent.onPayload;
+        for (let turn = 0; turn < 2; turn += 1) {
+            if (typeof onPayload === "function") {
+                const projected = onPayload(params, {
+                    provider: "anthropic",
+                    id: "claude-sonnet-4-6",
+                });
+                if (projected !== undefined && projected !== null) {
+                    params.model = projected.model || params.model;
+                    params.tools = projected.tools || params.tools;
+                    params.tool_choice = projected.tool_choice;
+                }
+            }
+            // Only the first turn is a "provider request" in this fake;
+            // a second invocation just records the post-tool continuation
+            // and exits.
         }
 
         if (this.behavior === "assistant-tool-call") {

@@ -402,3 +402,117 @@ A bounded dev-tooling delegation skill exists as a non-runtime companion to this
 - **Authority:** The skill adds no Guardian runtime integration, no runtime provider routing, no merge/commit/push/deploy capability, and no release-claim change.
 
 This skill is dev-tooling only. It does not implement the Pi Invocation Boundary runtime seam described above.
+
+## Guardian-Authorized Required-Tool Selection (2026-09-07)
+
+This section records a bounded implementation refinement of the existing
+Guardian/Pi/Campaign Engine authority split. It is an implementation
+detail, not a change in normative ownership, and does not require a new
+ADR.
+
+### Ownership contract
+
+- **Campaign Engine declares the execution requirement** via the
+  bounded `LiveExecutorPreparation.required_tool_name` field. The initial
+  supported value is `"write"`. The field is set by the canonical
+  runtime constant `LIVE_EXECUTOR_REQUIRED_TOOL_NAME`; the prompt builder
+  consumes the declared value rather than carrying a second hardcoded
+  tool literal.
+- **Guardian authorizes permissions.** A required tool cannot broaden
+  Guardian permissions. For `required_tool_name="write"`, the envelope
+  must already grant at least one valid `files.write` resource; if no
+  writable grant exists, the call is blocked before the harness runner
+  with `runner_call_count=0`. `REQUIRED_TOOL_DOES_NOT_GRANT_PERMISSION=true`.
+- **Pi maps the requirement into provider mechanics** through a bounded
+  per-session `Agent.onPayload` hook installed by the canonical
+  Guardian-authorized Pi wrapper. Pi emits a hard
+  `tool_choice={"type":"tool","name":<exact advertised name>}` on the
+  first provider request only; the continuation turn returns to
+  ordinary provider selection.
+
+### One-shot first-turn-only invariant
+
+Hard selection is applied to the FIRST provider request of the
+authorized Pi run only. After the required tool executes and its
+tool result is reinjected, subsequent provider turns use ordinary
+provider selection. The wrapper enforces
+`hard_tool_selection_application_count <= 1`. A successful authorized
+execution with a required tool must report exactly
+`hard_tool_selection_application_count == 1`. Otherwise the wrapper
+fails closed with `wrapper_protocol_failed` / `tool_selection`.
+
+### Bounded support boundary (initial slice)
+
+- Initial supported provider for required-tool projection: `anthropic`.
+- Initial supported required tool: `write`.
+- Anthropic API-key-shaped request advertises `write`; the wrapper
+  emits `tool_choice={"type":"tool","name":"write"}`.
+- Anthropic OAuth-shaped request advertises `Write`; the wrapper emits
+  `tool_choice={"type":"tool","name":"Write"}` (matching is
+  case-insensitive, but the exact advertised casing is preserved).
+- Adaptive thinking and `output_config.effort` are preserved through
+  the projection; the helper never rewrites `model`, `messages`,
+  `system`, `thinking`, `output_config`, `tools`, `max_tokens`,
+  `stream`, or `metadata`.
+
+### Bounded evidence propagation
+
+The required-tool selection evidence is propagated as a separate
+bounded object — never inside the ten-field `tool_telemetry`:
+
+- `LiveExecutorPreparation.required_tool_name` is the source
+  declaration (Campaign Engine).
+- `PiHarnessRuntimeEvidence.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` are copied without
+  recomputation (Guardian).
+- `AgentRunEnvelope.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` (adapter).
+- `PiLiveInvocationOutcome.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` (Guardian).
+- `PiInvocationReceipt.validation_metadata["required_tool_selection"]`
+  and `PiHarnessResult.validation_metadata["required_tool_selection"]`
+  (Guardian).
+- `CampaignLiveExecutorError.to_payload()["required_tool_selection"]` is
+  emitted on bounded zero-mutation failures so a future failed live
+  proof can distinguish "no hard selection applied" from "hard
+  selection applied but no tool execution observed" without
+  inspecting provider bodies.
+
+### Ordinary runtime preservation
+
+When `required_tool_name=None`, behavior must remain exactly as before:
+
+- Ordinary chat, ordinary completion, legacy
+  `PiCodexRunnerAdapter.execute`, read-only authorized Pi, Pi
+  readiness, general Pi interactive behavior, and global provider
+  routing remain unchanged.
+- No provider-neutral global `tool_choice` semantics are introduced.
+- `docs/architecture/completion_pipeline.md` is NOT modified.
+- Vendored Pi (`codex_runner/vendor/pi-coding-agent/`) remains
+  unchanged; the repair uses Pi's existing public per-session
+  `Agent.onPayload` surface.
+- The selection projection is non-persistent: after the required tool
+  result is reinjected, ordinary provider selection resumes for the
+  continuation turn.
+- `zero_mutation_executor_turn` is not weakened: hard selection is
+  not mutation evidence. Target readback remains authority.
+
+### Validation surface
+
+The required-tool projection is implemented by a pure provider-mechanics
+helper at
+`codex_runner/src/guardian-required-tool-selection.js`. The helper
+performs no I/O, accesses no environment, performs no network, and
+mutates no global state. It is the sole authority for adding or
+verifying `tool_choice` on a provider payload; the wrapper chains it
+with any preexisting session-level `onPayload` and applies it on the
+first provider request only.
+
+### Authority chain (unchanged from ADR-068)
+
+This repair is an implementation refinement of the already-accepted
+Guardian/Pi/Campaign Engine authority split. It does not modify
+ADR-068 normative ownership. No new ADR is required.

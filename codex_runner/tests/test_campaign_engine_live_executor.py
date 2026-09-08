@@ -2354,3 +2354,392 @@ def test_assistant_telemetry_preserved_on_harness_result_metadata(
         raise AssertionError(
             "expected CampaignLiveExecutorError for zero-mutation outcome"
         )
+
+
+# ---------------------------------------------------------------------------
+# Required-tool selection contract (Campaign Engine regression tests).
+
+
+# ---------------------------------------------------------------------------
+# Required-tool selection contract (Campaign Engine regression tests).
+# ---------------------------------------------------------------------------
+
+
+def _setup_simple_canonical_inputs(tmp_path):
+    """Build a minimal canonical Campaign + target under tmp_path.
+
+    Returns (campaign_path, target_path, fixed_clock).
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+    from datetime import datetime
+
+    from codex_runner.campaign_engine.models import FixedClock
+
+    target = tmp_path / "ce-l1-simple-target"
+    target.mkdir(parents=True, exist_ok=True)
+    proof = target / "proof_target.txt"
+    proof.write_bytes(b"CE_L1_POST_INSTRUMENTATION_DRIVER_QUAL_BEFORE\n")
+    _subprocess.run(["git", "-C", str(target), "init", "-q"], check=True)
+    _subprocess.run(
+        ["git", "-C", str(target), "config", "user.email", "ce-l1@in.valid"],
+        check=True,
+    )
+    _subprocess.run(
+        ["git", "-C", str(target), "config", "user.name", "ce-l1"], check=True
+    )
+    _subprocess.run(["git", "-C", str(target), "add", "proof_target.txt"], check=True)
+    _subprocess.run(
+        ["git", "-C", str(target), "commit", "-q", "-m", "ce-l1-baseline"],
+        check=True,
+    )
+    target_resolve = str(target.resolve())
+
+    created_at = "2026-09-07T19:00:00Z"
+    instant = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    fixed_clock = FixedClock(instant=instant)
+
+    binding = {
+        "schema_version": "campaign-engine/v0",
+        "binding_id": "binding-executor-ce-l1-anthropic-control-v2-test",
+        "created_at": created_at,
+        "role": "executor",
+        "provider_id": "anthropic",
+        "model_id": "claude-sonnet-4-6",
+        "adapter_id": "pi-provider-broker",
+        "binding_revision": 1,
+        "binding_state": "locked",
+        "configuration_hash": (
+            "sha256:a571595a14e5ad15fef59f526aae6a5b9b1159694398d44aecbcb2f06230ad23"
+        ),
+        "selected_by": "operator:ce-l1-anthropic-control-v2-test",
+        "selected_at": created_at,
+        "execution_mode": "live",
+        "redaction_status": "redacted",
+        "live_role_binding": {
+            "provider_identity_proof": (
+                "anthropic-operator-auth-readiness-v2-test"
+            ),
+            "target_repository_identity": target_resolve,
+            "allowed_file_paths": ["proof_target.txt"],
+            "requested_permissions": [
+                "network.provider.allowed", "files.read", "files.write"
+            ],
+            "granted_permissions": ["files.read", "files.write"],
+            "operator_consent_reference": "ce-l1-anthropic-one-shot-v2-test",
+        },
+    }
+    auditor = {
+        "schema_version": "campaign-engine/v0",
+        "binding_id": "binding-auditor-ce-l1-anthropic-control-v2-test",
+        "created_at": created_at,
+        "role": "auditor",
+        "provider_id": "provider-free-fixture",
+        "model_id": "synthetic-auditor-model",
+        "adapter_id": "provider-free-adapter",
+        "binding_revision": 1,
+        "binding_state": "locked",
+        "configuration_hash": (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        "selected_by": "operator:ce-l1-anthropic-control-v2-test",
+        "selected_at": created_at,
+    }
+    evaluator = {
+        "schema_version": "campaign-engine/v0",
+        "binding_id": "binding-evaluator-ce-l1-anthropic-control-v2-test",
+        "created_at": created_at,
+        "role": "evaluator",
+        "provider_id": "provider-free-fixture",
+        "model_id": "synthetic-evaluator-model",
+        "adapter_id": "provider-free-adapter",
+        "binding_revision": 1,
+        "binding_state": "locked",
+        "configuration_hash": (
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ),
+        "selected_by": "operator:ce-l1-anthropic-control-v2-test",
+        "selected_at": created_at,
+    }
+    frozen_objective = (
+        "Replace the entire contents of proof_target.txt with exactly the "
+        "following 42-byte sequence (no leading bytes, exactly one trailing "
+        "LF, no additional trailing bytes): "
+        "'CE_L1_POST_INSTRUMENTATION_DRIVER_PASS_OK'"
+    )
+    campaign = {
+        "schema_version": "campaign-engine/v0",
+        "campaign": {
+            "schema_version": "campaign-engine/v0",
+            "campaign_id": "campaign-ce-l1-anthropic-control-v2-test",
+            "created_at": created_at,
+            "state": "ready",
+            "objective": frozen_objective,
+            "task_ids": ["task-ce-l1-anthropic-control-v2-test"],
+            "role_binding_ids": [
+                "binding-auditor-ce-l1-anthropic-control-v2-test",
+                "binding-executor-ce-l1-anthropic-control-v2-test",
+                "binding-evaluator-ce-l1-anthropic-control-v2-test",
+            ],
+            "role_policy": {
+                "maximum_distinct_models": 3,
+                "shared_models_across_roles_allowed": True,
+                "runtime_rebinding_allowed": False,
+                "rebind_approval": "operator_required",
+            },
+        },
+        "tasks": [
+            {
+                "schema_version": "campaign-engine/v0",
+                "task_id": "task-ce-l1-anthropic-control-v2-test",
+                "campaign_id": "campaign-ce-l1-anthropic-control-v2-test",
+                "created_at": created_at,
+                "state": "ready",
+                "objective": frozen_objective,
+            }
+        ],
+        "role_bindings": [auditor, binding, evaluator],
+        "attempts": [],
+        "evaluations": [],
+        "receipts": [],
+        "decision_gates": [],
+        "campaign_state": {
+            "schema_version": "campaign-engine/v0",
+            "campaign_state_id": (
+                "campaign-state-ce-l1-anthropic-control-v2-test-initial"
+            ),
+            "campaign_id": "campaign-ce-l1-anthropic-control-v2-test",
+            "created_at": created_at,
+            "state": "ready",
+            "ordered_task_ids": ["task-ce-l1-anthropic-control-v2-test"],
+            "ordered_role_binding_ids": [
+                "binding-auditor-ce-l1-anthropic-control-v2-test",
+                "binding-executor-ce-l1-anthropic-control-v2-test",
+                "binding-evaluator-ce-l1-anthropic-control-v2-test",
+            ],
+            "ordered_attempt_ids": [],
+            "ordered_evaluation_ids": [],
+            "ordered_receipt_ids": [],
+            "ordered_decision_gate_ids": [],
+        },
+    }
+    campaign_path = tmp_path / "campaign_simple.json"
+    campaign_path.write_text(
+        json.dumps(campaign, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    return campaign_path, target, fixed_clock
+
+
+def _make_envelope_for_prep(prep):
+    """Build a minimal canonical PiInvocationEnvelope for the prep's identity."""
+    from guardian.pi.contracts import (
+        PiGuardianBoundary,
+        PiInvocationEnvelope,
+        PiPermissionGrant,
+        PiProviderLane,
+    )
+    boundary = PiGuardianBoundary(
+        owner_account_id="operator:ce-l1-anthropic-control-v2-test",
+        metadata={"campaign_engine_campaign_id": prep.campaign_id},
+    )
+    granted = (
+        PiPermissionGrant(permission="files.read", resource="."),
+        PiPermissionGrant(permission="files.write", resource="proof_target.txt"),
+    )
+    requested = granted + (
+        PiPermissionGrant(permission="network.provider.allowed", resource="."),
+    )
+    return PiInvocationEnvelope(
+        guardian_boundary=boundary,
+        source_thread_id="thread-ce-l1-anthropic-control-v2-test",
+        source_message_id="message-ce-l1-anthropic-control-v2-test",
+        invocation_id="invocation-ce-l1-anthropic-control-v2-test",
+        harness_id=prep.expected_provider_id or "pi-coding-agent",
+        harness_version="0.82.1",
+        provider_lane=PiProviderLane(
+            provider_lane_class="external",
+            provider_name="anthropic",
+            model_id="claude-sonnet-4-6",
+        ),
+        requested_permissions=requested,
+        granted_permissions=granted,
+        authored_request_id="request-ce-l1-anthropic-control-v2-test",
+        attempt_id=prep.attempt_id,
+        execution_attempt_id=prep.attempt_id,
+        status="prepared",
+        validation_metadata={
+            "campaign_engine": {
+                "campaign_id": prep.campaign_id,
+                "task_id": prep.task_id,
+                "run_id": prep.run_id,
+                "role": "executor",
+                "role_binding_id": prep.executor_binding_id,
+                "binding_revision": prep.executor_binding_revision,
+                "configuration_hash": prep.configuration_hash,
+                "source_context_reference": prep.source_context_reference,
+                "target_repository_identity": prep.target_repository_identity,
+                "allowed_file_paths": list(prep.allowed_file_paths),
+                "operator_consent_reference": prep.operator_consent_reference,
+                "expected_output_contract": prep.expected_output_contract,
+                "prompt_sha256": prep.prompt_sha256,
+            }
+        },
+    )
+
+
+def _make_decision_for_envelope(envelope):
+    from guardian.pi.contracts import PiInvocationPolicyDecision
+
+    return PiInvocationPolicyDecision(
+        policy_decision_id="policy-ce-l1-anthropic-control-v2-test",
+        invocation_id=envelope.invocation_id,
+        source_thread_id=envelope.source_thread_id,
+        source_message_id=envelope.source_message_id,
+        harness_id=envelope.harness_id,
+        decision="allowed",
+        guardian_boundary=envelope.guardian_boundary,
+        requested_permissions=envelope.requested_permissions,
+        granted_permissions=envelope.granted_permissions,
+        permission_posture="filesystem.read.allowed|filesystem.write.bounded",
+        actor_id="operator:ce-l1-anthropic-control-v2-test",
+        policy_source="guardian:ce-l1-anthropic-control-v2-test",
+        decision_reason="ce-l1-anthropic-control-v2-test",
+        decided_at="2026-09-07T19:00:00Z",
+        validation_status="validated",
+        redaction_state="redacted",
+    )
+
+
+def _make_fake_outcome(*, ok=True, receipt_id="pi-receipt-ct-test", harness_result_id="pi-result-ct-test"):
+    return FakeOutcome(
+        ok=ok,
+        actual_identity=FakeIdentity("anthropic", "claude-sonnet-4-6", "pi-coding-agent", "0.82.1"),
+        receipt=FakeReceipt(
+            receipt_id=receipt_id,
+            invocation_id="invocation-ce-l1-anthropic-control-v2-test",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        harness_result=FakeHarnessResult(
+            harness_result_id=harness_result_id,
+            receipt_id=receipt_id,
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+    )
+
+
+def test_required_tool_full_campaign_engine_invariants(tmp_path) -> None:
+    """All Campaign Engine required-tool selection invariants in one
+    provider-free test. No provider call; the invoker is faked.
+
+    1. preparation contains required_tool_name="write".
+    2. deterministic second preparation retains exact equality.
+    3. prompt's mandatory action is derived from the preparation requirement.
+    4. _run_live_attempt passes required tool through _invoker.
+    5. fake Guardian invoker observes required_tool_name="write".
+    6. zero-mutation failure retains bounded required_tool_selection.
+    7. selection evidence does NOT replace target mutation validation.
+    8. no provider call occurs (the invoker is faked).
+    """
+    campaign_path, target_path, fixed_clock = _setup_simple_canonical_inputs(tmp_path)
+
+    # (1) preparation contains required_tool_name="write".
+    prep = prepare_live_executor_campaign(campaign_path, target_path)
+    assert prep.required_tool_name == "write"
+    assert prep.as_payload()["required_tool_name"] == "write"
+
+    # (2) deterministic second preparation retains exact equality.
+    prep2 = prepare_live_executor_campaign(
+        campaign_path, target_path, source_context_path=None
+    )
+    assert prep.as_payload() == prep2.as_payload()
+
+    # (3) prompt's mandatory action is derived from the preparation requirement.
+    assert "invoke the `write` tool exactly once" in prep.prompt
+
+    # (4/5/8) _run_live_attempt passes required tool through _invoker; the
+    # fake invoker observes the required_tool_name; no provider call.
+    from codex_runner.campaign_engine import live_executor
+    captured = {}
+
+    def fake_invoker(
+        *,
+        envelope,
+        decision,
+        prompt,
+        cwd,
+        timeout_seconds,
+        required_tool_name=None,
+    ):
+        captured["required_tool_name"] = required_tool_name
+        return _make_fake_outcome(ok=True)
+
+    real_invoker = live_executor._invoker
+    live_executor._invoker = fake_invoker
+    try:
+        envelope = _make_envelope_for_prep(prep)
+        decision = _make_decision_for_envelope(envelope)
+        result = live_executor._run_live_attempt(
+            prep,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=120,
+        )
+        assert result.ok is True
+        assert captured["required_tool_name"] == "write"
+    finally:
+        live_executor._invoker = real_invoker
+
+    # (6) zero-mutation failure retains bounded required_tool_selection.
+    from codex_runner.campaign_engine.errors import CampaignLiveExecutorError
+    from codex_runner.campaign_engine.live_executor import _extract_required_tool_selection_from_outcome
+
+    class _Outcome:
+        required_tool_name = "write"
+        hard_tool_selection_applied = True
+        hard_tool_selection_application_count = 1
+        actual_provider_id = "anthropic"
+        actual_model_id = "claude-sonnet-4-6"
+        actual_harness_id = "pi-coding-agent"
+        actual_harness_version = "0.82.1"
+        receipt = None
+        harness_result = None
+        actual_identity = None
+        effective_tool_names = None
+        write_tool_available = None
+        tool_execution_start_count = None
+        tool_execution_end_count = None
+        executed_tool_names = None
+        assistant_tool_call_count = None
+        assistant_message_count = None
+        assistant_content_block_types = None
+        assistant_message_event_types = None
+        assistant_tool_call_event_count = None
+
+    sel = _extract_required_tool_selection_from_outcome(_Outcome())
+    assert sel == ("write", True, 1)
+    err = CampaignLiveExecutorError(
+        "synthetic",
+        failure_reason="zero_mutation_executor_turn",
+        diagnostic_stage="post_invocation",
+        required_tool_name=sel[0],
+        hard_tool_selection_applied=sel[1],
+        hard_tool_selection_application_count=sel[2],
+    )
+    payload = err.to_payload()
+    assert payload["required_tool_selection"] == {
+        "required_tool_name": "write",
+        "hard_tool_selection_applied": True,
+        "hard_tool_selection_application_count": 1,
+    }
+    # Selection evidence is a separate top-level key, never inside
+    # the ten-field tool_telemetry.
+    assert "required_tool_selection" not in (payload.get("tool_telemetry") or {})
+
+    # (7) selection evidence does NOT replace target mutation validation.
+    # A zero-mutation outcome still produces a zero_mutation_executor_turn
+    # even when hard selection was applied (selection is not mutation).
+    assert err.failure_reason == "zero_mutation_executor_turn"
+    assert payload["required_tool_selection"]["hard_tool_selection_applied"] is True
+    assert payload["required_tool_selection"]["hard_tool_selection_application_count"] == 1

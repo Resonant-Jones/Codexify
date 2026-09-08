@@ -207,6 +207,29 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
 
 def _fixture_tree(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
+
+def _required_tool_envelope_and_decision(
+    granted: tuple,
+    requested: tuple | None = None,
+):
+    """Build a matching envelope + decision with explicit granted perms.
+
+    Returns (envelope, decision) where granted is a subset of requested.
+    """
+    if requested is None:
+        requested = granted
+    envelope = _envelope(
+        requested_permissions=requested,
+        granted_permissions=granted,
+    )
+    decision = _decision(
+        envelope,
+        requested_permissions=requested,
+        granted_permissions=granted,
+    )
+    return envelope, decision
+
+
     (tmp_path / "src" / "function.py").write_text(
         "def deterministic_value():\n    return 'before'\n", encoding="utf-8"
     )
@@ -912,3 +935,191 @@ def test_assistant_telemetry_string_event_types_with_invalid_member_fails_closed
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
+
+
+# ---------------------------------------------------------------------------
+# Required-tool selection contract (provider-free regression tests).
+# ---------------------------------------------------------------------------
+
+
+def test_default_invocation_reaches_runner_with_no_required_tool(tmp_path: Path) -> None:
+    """Default invocation: no required tool reaches the runner."""
+    _fixture_tree(tmp_path)
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(), _write_permission("src")),
+    )
+    runner = _RecordingRunner()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+    )
+    assert outcome.ok is True
+    assert outcome.runner_call_count == 1
+    assert len(runner.calls) == 1
+    assert runner.calls[0].required_tool_name is None
+
+
+def test_required_write_with_write_grant_reaches_runner_with_required_tool(
+    tmp_path: Path,
+) -> None:
+    """Required write + granted files.write: exactly one runner call,
+    request.required_tool_name == "write"."""
+    _fixture_tree(tmp_path)
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(), _write_permission("src")),
+    )
+    runner = _RecordingRunner()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        required_tool_name="write",
+    )
+    assert outcome.ok is True
+    assert outcome.runner_call_count == 1
+    assert len(runner.calls) == 1
+    assert runner.calls[0].required_tool_name == "write"
+
+
+def test_required_write_with_read_only_permissions_blocked_before_runner(
+    tmp_path: Path,
+) -> None:
+    """Required write + read-only permission: blocked before runner,
+    runner_call_count=0."""
+    _fixture_tree(tmp_path)
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(),),
+    )
+    runner = _RecordingRunner()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        required_tool_name="write",
+    )
+    assert outcome.ok is False
+    assert outcome.runner_call_count == 0
+    assert len(runner.calls) == 0
+    # Fail-closed classification surfaces the authorization/scope mismatch
+    # using the existing bounded Guardian validation token.
+    assert outcome.failure_reason in {
+        PiValidationFailureReason.MUTATION_SCOPE_VIOLATION.value,
+        PiValidationFailureReason.READ_ONLY_VIOLATION.value,
+    }
+
+
+def test_unsupported_required_tool_blocked_before_runner(tmp_path: Path) -> None:
+    """Unsupported required tool: blocked before runner, runner_call_count=0."""
+    _fixture_tree(tmp_path)
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(), _write_permission("src")),
+    )
+    runner = _RecordingRunner()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        required_tool_name="totally-unsupported-tool",
+    )
+    assert outcome.ok is False
+    assert outcome.runner_call_count == 0
+    assert len(runner.calls) == 0
+    # Unsupported required tool is normalized to None by the rail, so the
+    # call falls through to the existing read-only-or-no-target path.
+    # The test only proves no runner call is made.
+
+
+def test_required_tool_does_not_change_granted_permission_set(
+    tmp_path: Path,
+) -> None:
+    """Required-tool constraint never changes the granted permission set."""
+    _fixture_tree(tmp_path)
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(), _write_permission("src")),
+    )
+    runner = _RecordingRunner()
+    pre_permissions = [g.to_payload() for g in decision.granted_permissions]
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        required_tool_name="write",
+    )
+    assert outcome.ok is True
+    # The granted permission set is unchanged by the required-tool argument.
+    post_permissions = [g.to_payload() for g in decision.granted_permissions]
+    assert pre_permissions == post_permissions
+
+
+def test_selection_evidence_copies_into_outcome_and_validation_metadata(
+    tmp_path: Path,
+) -> None:
+    """Selection evidence copies into PiLiveInvocationOutcome and the
+    receipt/harness-result validation_metadata without recomputation."""
+    from guardian.pi.invocation import PiHarnessRuntimeEvidence
+
+    _fixture_tree(tmp_path)
+    selection = {
+        "required_tool_name": "write",
+        "hard_tool_selection_applied": True,
+        "hard_tool_selection_application_count": 1,
+    }
+    envelope, decision = _required_tool_envelope_and_decision(
+        granted=(_read_permission(), _write_permission("src")),
+    )
+    # Construct a PiHarnessRuntimeEvidence that already carries the
+    # bounded selection evidence (as a real wrapper would surface it).
+    evidence = PiHarnessRuntimeEvidence(
+        status="ok",
+        actual_provider_id=IDENTITY["provider_id"],
+        actual_model_id=IDENTITY["model_id"],
+        actual_harness_id=IDENTITY["harness_id"],
+        actual_harness_version=IDENTITY["harness_version"],
+        required_tool_name=selection["required_tool_name"],
+        hard_tool_selection_applied=selection["hard_tool_selection_applied"],
+        hard_tool_selection_application_count=(
+            selection["hard_tool_selection_application_count"]
+        ),
+    )
+    runner = _RecordingRunner(evidence=evidence)
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=decision,
+        prompt="Perform the bounded fixture task.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        required_tool_name="write",
+    )
+    assert outcome.ok is True
+    # Outcome carries the bounded selection evidence unchanged.
+    assert outcome.required_tool_name == "write"
+    assert outcome.hard_tool_selection_applied is True
+    assert outcome.hard_tool_selection_application_count == 1
+    # Receipt validation_metadata carries the bounded selection object
+    # under a separate top-level key (NOT inside tool_telemetry).
+    assert outcome.receipt is not None
+    md = outcome.receipt.validation_metadata
+    assert md["required_tool_selection"] == selection
+    assert "required_tool_selection" not in (md.get("tool_telemetry") or {})
+    # Harness result validation_metadata carries the same object.
+    assert outcome.harness_result is not None
+    md_hr = outcome.harness_result.validation_metadata
+    assert md_hr["required_tool_selection"] == selection
+    assert "required_tool_selection" not in (md_hr.get("tool_telemetry") or {})

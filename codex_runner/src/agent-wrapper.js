@@ -23,6 +23,10 @@ import {
 	observeFinalAssistantMessages,
 	createToolTelemetry,
 } from "./assistant-telemetry.js";
+import {
+	applyGuardianRequiredToolSelection,
+	RequiredToolSelectionError,
+} from "./guardian-required-tool-selection.js";
 
 // Parse command line args
 const args = process.argv.slice(2);
@@ -142,6 +146,9 @@ function emitAuthorizedFailure(failureClass, failureStage, details = {}) {
 		provider_request_started: details.provider_request_started === true,
 		tool_telemetry: details.tool_telemetry || null,
 	};
+	if (details.required_tool_selection) {
+		payload.required_tool_selection = details.required_tool_selection;
+	}
 	console.log(JSON.stringify(payload));
 }
 
@@ -559,6 +566,22 @@ async function runAgent() {
 	toolTelemetry.effective_tool_names = effectiveToolNames;
 	toolTelemetry.write_tool_available = writeToolAvailable;
 
+	// Bounded required-tool selection state (first-turn only).
+	// Read ONLY for guardian-authorized-task. Other modes ignore the
+	// environment variable entirely.
+	let requiredToolName = null;
+	if (guardianAuthorizedMode) {
+		const rawRequired = (process.env.PI_GUARDIAN_REQUIRED_TOOL || "").trim();
+		if (rawRequired.length > 0) {
+			requiredToolName = rawRequired;
+		}
+	}
+	const requiredToolSelection = {
+		required_tool_name: null,
+		hard_tool_selection_applied: false,
+		hard_tool_selection_application_count: 0,
+	};
+
 	// Defense-in-depth: if Guardian-authorized-task has writable intent
 	// (`write` should be active) but the session did not register `write`,
 	// fail closed BEFORE prompting. This protects against any future SDK
@@ -613,19 +636,101 @@ async function runAgent() {
 		}
 	});
 
+	// Bounded required-tool selection: install a per-session onPayload
+	// hook for the FIRST provider request only. After the tool result is
+	// reinjected, subsequent turns return to ordinary provider selection.
+	if (requiredToolName !== null) {
+		if (guardianAuthorizedMode) {
+			// Active tool surface is the authority. The required tool
+			// must actually be available in the live session before we
+			// attempt the projection.
+			const requiredToolLower = requiredToolName.toLowerCase();
+			const requiredToolPresent = effectiveToolNames.some(
+				(name) => typeof name === "string" && name.toLowerCase() === requiredToolLower
+			);
+			if (!requiredToolPresent) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"tool_selection",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: true,
+						provider_request_started: false,
+						tool_telemetry: toolTelemetry,
+					}
+				);
+				return;
+			}
+			// Chain any existing onPayload so a preexisting
+			// extension or test hook can still mutate the payload
+			// before our required-tool projection is applied.
+			const previousOnPayload =
+				typeof session.agent.onPayload === "function"
+					? session.agent.onPayload
+					: null;
+			session.agent.onPayload = (params, modelArg) => {
+				// Let any prior chain run first so the effective payload
+				// it produces is what we project.
+				let effective = params;
+				if (previousOnPayload !== null) {
+					const next = previousOnPayload(effective, modelArg);
+					if (next !== undefined) {
+						effective = next;
+					}
+				}
+				// First provider payload only. After application we leave
+				// the hook in place but it becomes a no-op, so the
+				// continuation turn uses ordinary provider selection.
+				if (
+					!requiredToolSelection.hard_tool_selection_applied
+					&& requiredToolSelection.hard_tool_selection_application_count === 0
+				) {
+					try {
+						const projected = applyGuardianRequiredToolSelection({
+							providerId: modelArg?.provider ?? OPTIONS.provider,
+							requiredToolName,
+							payload: effective,
+						});
+						requiredToolSelection.hard_tool_selection_applied = true;
+						requiredToolSelection.hard_tool_selection_application_count = 1;
+						requiredToolSelection.required_tool_name = requiredToolName;
+						return projected;
+					} catch (selectionError) {
+						const errCode =
+							selectionError instanceof RequiredToolSelectionError
+								? selectionError.code
+								: "guard.required_tool_selection.unknown";
+						throw new Error(errCode);
+					}
+				}
+				return effective;
+			};
+		}
+	}
+
 	// Run the prompt
 	const fullPrompt = buildPrompt(mode, prompt);
 	try {
 		await session.prompt(fullPrompt);
 	} catch (error) {
 		if (guardianAuthorizedMode) {
-			emitAuthorizedFailure(classifyAuthorizedError(error), "provider_request", {
-				actual_runtime_identity: actualRuntimeIdentity,
-				runtime_identity_established: true,
-				session_initialized: true,
-				provider_request_started: true,
-				tool_telemetry: toolTelemetry,
-			});
+			const classified = classifyAuthorizedError(error);
+			// If the projection helper raised a bounded error code, the
+			// failure is a protocol-level selection failure.
+			const message = error instanceof Error ? error.message : String(error);
+			const isSelectionFailure = /^guard\.required_tool_selection\./.test(message);
+			emitAuthorizedFailure(
+				isSelectionFailure ? "wrapper_protocol_failed" : classified,
+				isSelectionFailure ? "tool_selection" : "provider_request",
+				{
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+					session_initialized: true,
+					provider_request_started: true,
+					tool_telemetry: toolTelemetry,
+				}
+			);
 			return;
 		}
 		throw error;
@@ -640,7 +745,30 @@ async function runAgent() {
 	// Print final output
 	if (guardianAuthorizedMode) {
 		const response = extractJsonResponse(session.agent.state.messages);
-		console.log(JSON.stringify({
+		// A successful authorized execution with a required tool MUST have
+		// applied hard selection exactly once. If the session reached the
+		// success terminal without a selection, the wrapper fails closed
+		// here (it never silently invokes provider prompt-only).
+		if (requiredToolName !== null) {
+			if (
+				!requiredToolSelection.hard_tool_selection_applied
+				|| requiredToolSelection.hard_tool_selection_application_count !== 1
+			) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"tool_selection",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: true,
+						provider_request_started: true,
+						tool_telemetry: toolTelemetry,
+					}
+				);
+				return;
+			}
+		}
+		const terminalPayload = {
 			status: "ok",
 			summary: "Guardian-authorized Pi task completed",
 			actual_runtime_identity: actualRuntimeIdentity,
@@ -654,7 +782,20 @@ async function runAgent() {
 			session_initialized: true,
 			provider_request_started: true,
 			tool_telemetry: toolTelemetry,
-		}));
+		};
+		// Bounded required-tool selection evidence is exposed in a
+		// separate top-level key (never inside the ten-field
+		// tool_telemetry object).
+		if (requiredToolName !== null) {
+			terminalPayload.required_tool_selection = {
+				required_tool_name: requiredToolSelection.required_tool_name,
+				hard_tool_selection_applied:
+					requiredToolSelection.hard_tool_selection_applied,
+				hard_tool_selection_application_count:
+					requiredToolSelection.hard_tool_selection_application_count,
+			};
+		}
+		console.log(JSON.stringify(terminalPayload));
 		return;
 	}
 	if (mode === "audit" || mode === "compile" || mode === "task") {
