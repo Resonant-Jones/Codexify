@@ -309,6 +309,325 @@ Source provenance remains attached even after normalization.
 
 Future exports must be emitted from canonical Codexify state, not from the original third-party schema.
 
+## Unified Memory Store (UMS) Export + Restore
+
+This section extends the export + restore contract to canonical UMS state introduced by UMS-03D and the corresponding compatibility surface introduced by UMS-03A/E/F/G/H/I. It is normative for any UMS-04 implementation slice. It does not authorize UMS-05+.
+
+The contract answers:
+
+- what is exported
+- what identity is preserved
+- what identity may be remapped
+- how relationships are reconstructed
+- what order restore uses
+- what conflicts mean
+- what idempotency means
+- what fails closed
+- what remains legacy authority
+
+### UMS families included in the export
+
+The export must cover exactly three canonical UMS families, using the physical canonical table names as the export entity-family identifiers:
+
+| Entity family | Source table | Authority role |
+| --- | --- | --- |
+| `memory_records` | `memory_records` | Canonical envelope row; one row per canonical memory atom |
+| `memory_persona_links` | `memory_persona_links` | Typed stable-Persona attribution relationship; zero or more rows per memory |
+| `memory_provenance` | `memory_provenance` | First-class durable lineage row; one or more rows per memory |
+
+The export artifact uses the physical table names above as the entity-family keys. No alias mapping is created. The existing `OMITTED_FAMILIES` list remains authoritative for currently-uncovered families. UMS-04 implementation is responsible for moving `memory_records`, `memory_persona_links`, and `memory_provenance` from "not yet covered" to a covered payload family in a future `account-export.v4` schema version.
+
+Supporting tables required to satisfy UMS restore are evaluated in the next subsection.
+
+### Legacy authoritative memory sources
+
+The current contract's `OMITTED_FAMILIES` continues to enumerate the legacy authoritative memory sources that are NOT covered by this section's UMS extension:
+
+- `memory_entries`
+- `personal_facts`
+- `personal_fact_evidences`
+- `personal_fact_revisions`
+
+These legacy sources are governed by the existing account-export doctrine that is documented outside this UMS section. They are not merged, deduplicated against, or reconstructed into canonical UMS rows by export or restore.
+
+### Supporting families required to satisfy UMS restore
+
+`memory_persona_links.persona_subject_id` is a foreign key into `persona_subjects`, and `memory_provenance` may carry `source_thread_id` / `source_message_id` foreign keys into Codexify chat tables. Therefore UMS-04 restore cannot be complete unless the supporting entities are either:
+
+- already part of the existing full-account export payload (verifiable from the `Required Export Surface` table above), OR
+- explicitly added to the UMS-04 export in a future schema version
+
+Specifically:
+
+- `persona_subjects` and `persona_subject_bindings` must be present in the export, either by being included in a future UMS-04 schema version, or by being part of the existing full-account payload. PersonaProfile (the `persona_profiles` / `persona_profile_revisions` / `persona_profile_bindings` families) is configuration only and is not a substitute for stable Persona-subject identity. If stable Persona subjects are not restoreable from the export, `memory_persona_links` restore must fail closed per the failure policy below.
+- The existing `chat_threads` and `chat_messages` export families must already be present in the export (they are). UMS-04 must not invent a parallel chat-message mapping; it must reuse the existing chat-thread and chat-message ID maps produced by the rest of full-account restore.
+- For `memory_provenance.source_thread_id` and `memory_provenance.source_message_id`, the existing thread/message ID maps are reused. Missing or unmapped thread/message references must fail closed rather than be silently dropped.
+
+### Required field coverage for `memory_records`
+
+For every `memory_records` row, the export must preserve the complete set of fields required to restore exact semantic, ownership, scope, attribution, governance, and lifecycle state. The field set is the frozen UMS-03C / UMS-03D schema:
+
+- `memory_id` (UUID)
+- `user_id` (logical owner representation as required by account restore; the local raw export `user_id` is not authorization)
+- `project_id` (nullable; explicit Project identity map reference when non-null)
+- `semantic_species` (closed `MemorySemanticSpecies` token — only the three frozen values; no aliases)
+- `text_content` (free-text for `episodic_semantic_memory`; nullable)
+- `fact_key`, `fact_value`, `fact_confidence` (for personal-fact species; nullable)
+- `reviewed_at` (nullable)
+- `activated_at` (nullable)
+- `pinned` (boolean, NOT NULL)
+- `held` (boolean, NOT NULL)
+- `extensions` (JSONB; non-authoritative auxiliary metadata only)
+- `created_at` (NOT NULL)
+- `updated_at` (NOT NULL)
+
+### Required field coverage for `memory_persona_links`
+
+For every `memory_persona_links` row, the export must preserve:
+
+- `link_id` (UUID, stable link identity)
+- `memory_id` (FK to `memory_records.memory_id`)
+- `user_id` (FK to `users.id`; account of the memory; CASCADE on user delete)
+- `persona_subject_id` (FK to `persona_subjects.persona_subject_id`)
+- `persona_user_id` (FK to `users.id`; account of the Persona subject; same-account CHECK)
+- `link_kind` (closed `MemoryPersonaLinkKind` token — only the three frozen values; no aliases)
+- `created_at`
+
+PersonaProfile is never a Persona-subject substitute during restore. Display names, prompts, similarity, or current configuration are not attribution authority.
+
+### Required field coverage for `memory_provenance`
+
+For every `memory_provenance` row, the export must preserve the full frozen UMS-03C / UMS-03D provenance spine:
+
+- `provenance_id` (UUID, stable provenance identity)
+- `memory_id` (FK to `memory_records.memory_id`)
+- `user_id` (FK to `users.id`; account of the memory; CASCADE on user delete)
+- `source_system` (closed vocabulary: `codexify`, `openai`, `anthropic`, `future_registered`)
+- `source_record_id` (opaque, nullable)
+- `source_thread_id` (FK to `chat_threads.id`, nullable)
+- `source_message_id` (FK to `chat_messages.id`, nullable; `SET NULL` on chat-message delete)
+- `source_import_job_id` (opaque, nullable)
+- `source_export_fingerprint` (opaque, nullable)
+- `source_subject_kind` (closed vocabulary: `chat`, `vault`, `importer`, `classifier`, future-registered; nullable)
+- `source_subject_id` (opaque, nullable)
+- `is_imported` (boolean, NOT NULL)
+- `extensions` (JSONB; non-authoritative auxiliary metadata only)
+- `created_at` (NOT NULL)
+
+Multiple provenance rows per memory must NOT be collapsed. Distinct source identities must remain distinct after round-trip.
+
+### Canonical identity behavior
+
+The exported `memory_id` is the stable canonical memory identity. On a successful restore, the same `memory_id` must appear in the restored `memory_records` row.
+
+`memory_id` is NOT remapped merely because restore occurs on another database instance or another user-owned storage area. A `memory_id` is portable across restore operations.
+
+`memory_persona_links.link_id`, `memory_provenance.provenance_id`, and any future stable UMS identity follow the same rule.
+
+### Collision and conflict behavior
+
+Collision policy distinguishes:
+
+- `same memory_id + semantically identical exported record` — treated idempotently by stable identity. No duplicate is created.
+- `same memory_id + conflicting canonical record` — fail closed. The restore report must enumerate the conflict by stable identity. No silent overwrite is allowed.
+- Missing owner / Project / Persona-subject mapping — fail closed per the family-specific mapping rules below.
+
+### Account-owner remapping
+
+The exported raw local `user_id` is never authorization. Canonical memory ownership is rewritten only through the existing account restore owner map. No independent UMS account map is introduced.
+
+If a `memory_records.user_id` does not resolve to the authenticated restore-target account through the existing owner map, restore fails closed for that row.
+
+### Project reference remapping
+
+Project-scoped memories require explicit Project identity mapping. UMS-04 must reuse the existing Project restore identity map.
+
+If Project mapping is unavailable for a `memory_records.project_id`:
+
+- The restore must FAIL CLOSED or report EXPLICIT LOSS for that row.
+- The restore must NEVER silently widen `project_id` from a non-null value to `NULL`.
+- The restore must NEVER silently move a memory from one Project to another.
+
+The Project mapping is the Project identity map owned by the rest of full-account restore. UMS-04 does not own a parallel Project identity map.
+
+### Persona-subject reconstruction
+
+`memory_persona_links.persona_subject_id` is restored only through stable Persona-subject identity.
+
+Restore rules:
+
+- The target Persona subject must be resolvable in the restore-target account (either pre-existing in the receiving database, or restored as part of the same archive).
+- The target Persona subject must belong to the same restore-target account (no cross-account attribution).
+- A missing, ambiguous, or cross-account Persona subject resolution must fail closed for that link row.
+- Display-name matching, prompt matching, similarity, or current Persona configuration is NEVER used to reconstruct Persona attribution.
+- PersonaProfile IDs must NEVER replace stable Persona-subject identity during restore.
+
+### Provenance reference behavior
+
+For `memory_provenance` rows that carry local Codexify foreign keys:
+
+- `source_thread_id` and `source_message_id` must use the existing thread and message ID maps produced by the rest of full-account restore.
+- If a local thread or message reference cannot be remapped, the provenance row restore must fail closed for that row.
+
+For opaque external references:
+
+- `source_record_id`, `source_import_job_id`, `source_export_fingerprint`, and `source_subject_id` are preserved exactly as exported.
+- The restore engine must NOT reinterpret opaque external identifiers as Codexify-local IDs.
+
+`source_system` must be preserved as the exact closed vocabulary value.
+
+### Restore dependency order
+
+The restore must follow a dependency order that satisfies the foreign-key and same-account invariants. The required order, at minimum, is:
+
+```text
+account / user mapping
+    ↓
+Projects (existing)
+    ↓
+stable Persona subjects / bindings (existing or UMS-04)
+    ↓
+memory_records
+    ↓
+memory_persona_links
+memory_provenance
+```
+
+UMS-04 must express this ordering in the existing multi-phase restore pipeline rather than inventing a parallel restore engine.
+
+### Legacy + canonical coexistence
+
+The export may contain both authoritative legacy memory state (`memory_entries`, `personal_facts`, and their dependent families) and canonical UMS state.
+
+The two are distinct persistence families. The following are explicitly PROHIBITED in export and restore:
+
+- Constructing canonical `memory_records` rows from `memory_entries` content
+- Constructing canonical `memory_records` rows from `personal_facts` content
+- Constructing legacy rows from canonical memory
+- Merging by text
+- Merging by fact key
+- Merging by provenance similarity
+- Deduplicating canonical memory by content
+
+Until a future authority-cutover migration exists, both families restore according to their own persistence contracts, side by side, in the same export.
+
+### Compatibility-projection exclusion
+
+`MemoryCompatibilityProjection`, `MemoryCompatibilitySourceRef`, and `MemoryCompatibilitySourceKind` are runtime read objects defined by UMS-03E/F/G/I. They are NOT durable export families.
+
+A compatibility projection is reconstructed from restored legacy state at read time. It is never serialized as an independent account-export entity.
+
+### Semantic and lifecycle preservation
+
+Round-trip must preserve exactly:
+
+- `semantic_species` (closed `MemorySemanticSpecies` token; one of the three frozen values)
+- `reviewed_at` (nullable; round-trips the exact timestamp or NULL)
+- `activated_at` (nullable; round-trips the exact timestamp or NULL)
+- The `reviewed_at IS NULL OR (reviewed_at IS NOT NULL AND activated_at >= reviewed_at)` governance invariant
+- Equal `reviewed_at == activated_at` timestamps are valid
+- `pinned` (boolean)
+- `held` (boolean)
+- All fact payload fields (`text_content`, `fact_key`, `fact_value`, `fact_confidence`)
+
+Restore must NOT infer review. Restore must NOT infer activation. Restore must NOT change a "pending" review posture into "approved". Restore must NOT promote an inactive memory to active. Restore must NOT alter lifecycle state through inference.
+
+### Extension behavior
+
+`extensions` is non-authoritative auxiliary metadata. The export must preserve extension payload subject to the existing schema-version compatibility policy for unknown extension keys.
+
+Unknown extension keys must not:
+
+- alter ownership
+- alter Project scope
+- alter Persona attribution
+- alter semantic species
+- alter activation authority
+
+If a restore engine cannot preserve an unknown extension field's semantics, the field is dropped or reported as lost in the restore report — never reinterpreted.
+
+### Manifest accounting and integrity
+
+The export must extend the existing `manifest.json` model so that UMS families participate in `entity_counts` and integrity checks.
+
+For schema versions that include UMS, `manifest.entity_counts` must include:
+
+- `memory_records`
+- `memory_persona_links`
+- `memory_provenance`
+
+Plus, if UMS-04 implementation requires them:
+
+- `persona_subjects`
+- `persona_subject_bindings`
+
+The existing integrity / checksum policy applies: per-file checksums for every payload and manifest integrity verification before restore proceeds. `entity_counts` validation compares declared, serialized, and restored counts; mismatches fail closed.
+
+### Restore idempotency
+
+Restoring the same export archive into the same restore-target account is idempotent wherever the source-state remains unchanged. A second restore of the same archive does not create duplicate `memory_records` rows for stable `memory_id` values, does not create duplicate `memory_persona_links` rows for the same `(memory_id, persona_subject_id, link_kind)`, and does not collapse `memory_provenance` rows.
+
+Restore may use the existing restore receipt / map mechanism where the receiving database records which canonical identity was already restored. Content-based dedupe is NEVER used.
+
+### Conflict and fail-closed cases
+
+The following are explicit fail-closed cases:
+
+- Duplicate `memory_id` with conflicting canonical content or state
+- Missing account-owner mapping
+- Missing Project mapping for a Project-scoped memory
+- Missing or ambiguous Persona-subject mapping
+- Cross-account Persona subject on `memory_persona_links`
+- Unknown `semantic_species` value
+- Unknown `link_kind` value
+- Unknown `source_system` value
+- Malformed `source_subject_kind` value
+- Dangling parent `memory_id` reference in `memory_persona_links` or `memory_provenance`
+- Incompatible export schema version
+- Manifest integrity failure
+- Entity-count mismatch between declared, serialized, and restored counts
+- Relationship count mismatch where restore validation expects exact counts
+
+The restore report must enumerate every skipped, repaired, or failed entity and relationship by stable identity. Silent degradation is forbidden.
+
+### UMS-04 implementation slicing
+
+UMS-04 is decomposed into the following bounded slices:
+
+```text
+UMS-04A  contract freeze (this section)
+UMS-04B  canonical memory export serialization
+UMS-04C  canonical memory restore reconstruction
+UMS-04D  full export → clean restore → second restore qualification
+```
+
+A smaller prerequisite may justify reordering if current implementation topology proves it. UMS-05+ remain unauthorized throughout UMS-04.
+
+### Future round-trip qualification contract
+
+UMS-04 implementation does not close from unit serialization tests alone. The full UMS-04 closure requires a qualification proof that demonstrates, at minimum:
+
+- A source account state produces an export archive.
+- A clean restore target rehydrates the archive into a separate instance.
+- A second restore of the same archive into the same target is idempotent.
+- The qualification compares, for canonical UMS state:
+  - `memory_id` equality
+  - owner mapping
+  - Project scope
+  - `memory_persona_links` rows (stable Persona subjects, `link_kind`, cardinality)
+  - `memory_provenance` multiplicity (no collapse, no merge)
+  - `semantic_species` (exact canonical token, no aliases)
+  - payload fields (text / fact_key / fact_value / fact_confidence)
+  - governance state (`reviewed_at`, `activated_at`, the `reviewed_at IS NULL OR (reviewed_at IS NOT NULL AND activated_at >= reviewed_at)` invariant, equal timestamps remain valid)
+  - `pinned` and `held` boolean state
+  - timestamps where the contract requires preservation
+  - `extensions` payload preservation (or explicit loss reporting)
+  - legacy memory preservation (separately, under existing doctrine)
+  - manifest `entity_counts` and integrity
+  - idempotency on second restore
+
+No live retrieval change is required for UMS-04 qualification. The qualification is a persistence round-trip proof, not a runtime cutover proof.
+
 ## Open Implementation Questions
 
 The following questions are intentionally unresolved by this contract:

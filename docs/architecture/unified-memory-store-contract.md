@@ -1795,6 +1795,40 @@ closed. The underlying per-source adapters remain independently
 callable. The complete evidence is at
 [§4.16 unified compatibility surface proof](../proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
 
+UMS-04A extended the
+[Account Export + Restore Contract](./account-export-restore-contract.md)
+with one normative section covering canonical UMS export and
+restore. The contract freezes:
+
+- canonical UMS export families (`memory_records`,
+  `memory_persona_links`, `memory_provenance`)
+- exact field coverage per family
+- stable `memory_id` round-trip identity
+- account-owner remapping through the existing account restore
+  owner map (no independent UMS account map)
+- Project reference remapping through the existing Project
+  identity map (no silent widening to `NULL`)
+- stable Persona-subject reconstruction (no PersonaProfile
+  substitution, no display-name matching)
+- provenance reference behavior (reuse existing thread / message
+  ID maps; opaque external IDs remain opaque)
+- restore dependency order
+- legacy + canonical coexistence prohibition
+- compatibility-projection exclusion from durable export
+- semantic and lifecycle preservation (no restore-time
+  inference of review, activation, or lifecycle state)
+- extension non-authority policy
+- manifest accounting
+- restore idempotency
+- conflict and fail-closed cases
+- UMS-04 implementation slicing
+- future round-trip qualification requirements
+
+UMS-04A is architecture only. No export or restore implementation
+is written in UMS-04A. The full implementation is decomposed
+into UMS-04B (export serialization), UMS-04C (restore
+reconstruction), and UMS-04D (round-trip qualification).
+
 #### 4.16.13 Explicit deferrals
 
 The following are outside UMS-03C and remain deferred to

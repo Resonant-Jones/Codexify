@@ -122,7 +122,12 @@ UMS-03I UNIFIED COMPATIBILITY READ SURFACE: CLOSED
 
 UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
 
-UMS-04 EXPORT / RESTORE BEFORE INGESTION: AUTHORIZED TO START
+UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
+UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
+UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO START
+UMS-04C: NOT AUTHORIZED
+UMS-04D: NOT AUTHORIZED
+
 UMS-05+: NOT AUTHORIZED
 ```
 
@@ -133,7 +138,13 @@ canonical storage
     ↓
 compatibility reads
     ↓
-export/restore
+export contract
+    ↓
+export implementation
+    ↓
+restore implementation
+    ↓
+round-trip proof
     ↓
 only then broader ingestion/activation surfaces
 ```
@@ -639,6 +650,38 @@ ingestion/activation surfaces. UMS-04 export / restore before
 ingestion is now authorized to start; UMS-05+ remain NOT
 AUTHORIZED. The complete implementation evidence is at
 [2026-09-08 UMS-03I unified compatibility surface proof](../../architecture/proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
+
+UMS-04A extended the
+[Account Export + Restore Contract](../../architecture/account-export-restore-contract.md)
+with one normative section covering canonical UMS export
+and restore. The contract freezes: canonical UMS export
+families (`memory_records`, `memory_persona_links`,
+`memory_provenance`); exact field coverage per family; stable
+`memory_id` round-trip identity; account-owner remapping
+through the existing account restore owner map (no
+independent UMS account map); Project reference remapping
+through the existing Project identity map (no silent
+widening to `NULL`); stable Persona-subject reconstruction
+(no PersonaProfile substitution, no display-name matching);
+provenance reference behavior (reuse existing thread /
+message ID maps; opaque external IDs remain opaque); restore
+dependency order; legacy + canonical coexistence prohibition;
+compatibility-projection exclusion from durable export;
+semantic and lifecycle preservation (no restore-time
+inference of review, activation, or lifecycle state);
+extension non-authority policy; manifest accounting; restore
+idempotency; conflict and fail-closed cases; UMS-04
+implementation slicing (UMS-04B export serialization, UMS-04C
+restore reconstruction, UMS-04D round-trip qualification); and
+the future round-trip qualification contract. UMS-04A is
+architecture only — no export or restore implementation is
+written in this slice. No production code, tests, ORM models,
+migrations, export/restore implementation, or runtime
+authority was changed by UMS-04A. UMS-04B canonical memory
+export serialization is now authorized to start; UMS-04C and
+UMS-04D remain NOT AUTHORIZED; UMS-05+ remain NOT
+AUTHORIZED. The complete architecture evidence is at
+[2026-09-08 UMS-04A canonical memory export / restore contract proof](../../architecture/proofs/runtime/2026-09-08-ums04a-canonical-memory-export-restore-contract-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
