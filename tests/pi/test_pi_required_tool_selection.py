@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Paths and helpers
 # ---------------------------------------------------------------------------
@@ -64,8 +63,8 @@ def _node_eval_helper(script: str) -> dict:
 def _import_helper() -> str:
     """Return a Node import prelude that loads the helper module."""
     return (
-        f'import {{ applyGuardianRequiredToolSelection, '
-        f'RequiredToolSelectionError }} from '
+        f"import {{ applyGuardianRequiredToolSelection, "
+        f"RequiredToolSelectionError }} from "
         f"{json.dumps(str(HELPER_PATH))};\n"
     )
 
@@ -77,9 +76,7 @@ def _import_helper() -> str:
 
 def test_helper_lowercase_advertised_write_selected() -> None:
     """Anthropic lowercase advertised tools: helper selects `write`."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         const out = applyGuardianRequiredToolSelection({
             providerId: "anthropic",
             requiredToolName: "write",
@@ -102,7 +99,6 @@ def test_helper_lowercase_advertised_write_selected() -> None:
             ].filter(k => k in out),
         }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["tool_choice"] == {"type": "tool", "name": "write"}
     assert out["tool_names"] == ["read", "bash", "edit", "write"]
@@ -110,9 +106,7 @@ def test_helper_lowercase_advertised_write_selected() -> None:
 
 def test_helper_claude_code_casing_selected() -> None:
     """Anthropic Claude-Code casing: helper selects `Write` (exact casing)."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         const out = applyGuardianRequiredToolSelection({
             providerId: "anthropic",
             requiredToolName: "write",
@@ -129,16 +123,13 @@ def test_helper_claude_code_casing_selected() -> None:
             tool_choice: out.tool_choice,
         }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["tool_choice"] == {"type": "tool", "name": "Write"}
 
 
 def test_helper_existing_matching_choice_accepted() -> None:
     """Existing matching choice: helper accepts the same exact advertised tool."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         const out = applyGuardianRequiredToolSelection({
             providerId: "anthropic",
             requiredToolName: "write",
@@ -149,16 +140,13 @@ def test_helper_existing_matching_choice_accepted() -> None:
         });
         process.stdout.write(JSON.stringify({ tool_choice: out.tool_choice }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["tool_choice"] == {"type": "tool", "name": "write"}
 
 
 def test_helper_existing_conflicting_choice_fails_closed() -> None:
     """Existing conflicting choice: helper fails closed with a bounded code."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         let code = null;
         try {
             applyGuardianRequiredToolSelection({
@@ -174,16 +162,13 @@ def test_helper_existing_conflicting_choice_fails_closed() -> None:
         }
         process.stdout.write(JSON.stringify({ code }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["code"] == "guard.required_tool_selection.conflicting_choice"
 
 
 def test_helper_missing_write_fails_closed() -> None:
     """Missing write: helper fails closed with a bounded code."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         let code = null;
         try {
             applyGuardianRequiredToolSelection({
@@ -196,16 +181,13 @@ def test_helper_missing_write_fails_closed() -> None:
         }
         process.stdout.write(JSON.stringify({ code }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["code"] == "guard.required_tool_selection.missing_advertised"
 
 
 def test_helper_duplicate_write_fails_closed() -> None:
     """Duplicate case-insensitive write: helper fails closed."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         let code = null;
         try {
             applyGuardianRequiredToolSelection({
@@ -223,16 +205,13 @@ def test_helper_duplicate_write_fails_closed() -> None:
         }
         process.stdout.write(JSON.stringify({ code }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["code"] == "guard.required_tool_selection.duplicate_advertised"
 
 
 def test_helper_unsupported_provider_fails_closed() -> None:
     """Unsupported provider: helper fails closed."""
-    script = (
-        _import_helper()
-        + """
+    script = _import_helper() + """
         let code = null;
         try {
             applyGuardianRequiredToolSelection({
@@ -245,7 +224,6 @@ def test_helper_unsupported_provider_fails_closed() -> None:
         }
         process.stdout.write(JSON.stringify({ code }));
         """
-    )
     out = _node_eval_helper(script)
     assert out["code"] == "guard.required_tool_selection.unsupported_provider"
 
@@ -268,9 +246,7 @@ def test_helper_does_not_modify_unrelated_payload_fields() -> None:
             {"name": "write"},
         ],
     }
-    script = (
-        _import_helper()
-        + f"""
+    script = _import_helper() + f"""
         const original = {json.dumps(payload)};
         const out = applyGuardianRequiredToolSelection({{
             providerId: "anthropic",
@@ -291,11 +267,17 @@ def test_helper_does_not_modify_unrelated_payload_fields() -> None:
         result.input_was_unchanged_object = Object.keys(original).every(k => out[k] !== original[k] || true);
         process.stdout.write(JSON.stringify(result));
         """
-    )
     out = _node_eval_helper(script)
     for field in [
-        "model", "messages", "system", "thinking",
-        "output_config", "max_tokens", "stream", "metadata", "tools",
+        "model",
+        "messages",
+        "system",
+        "thinking",
+        "output_config",
+        "max_tokens",
+        "stream",
+        "metadata",
+        "tools",
     ]:
         assert out[field] is True, f"field {field!r} was modified"
     assert out["tool_choice_added"] is True
@@ -319,9 +301,7 @@ def test_helper_preserves_adaptive_thinking_and_effort() -> None:
         "thinking": {"type": "adaptive", "display": "summarized"},
         "output_config": {"effort": "medium"},
     }
-    script = (
-        _import_helper()
-        + f"""
+    script = _import_helper() + f"""
         const original = {json.dumps(payload)};
         const out = applyGuardianRequiredToolSelection({{
             providerId: "anthropic",
@@ -334,7 +314,6 @@ def test_helper_preserves_adaptive_thinking_and_effort() -> None:
             tool_choice: out.tool_choice,
         }}));
         """
-    )
     out = _node_eval_helper(script)
     assert out["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert out["output_config"] == {"effort": "medium"}
@@ -550,9 +529,9 @@ def test_real_wrapper_required_tool_lowercase_write(tmp_path: Path) -> None:
         advertise_casing="lowercase",
         extra_env={"PI_GUARDIAN_REQUIRED_TOOL": "write"},
     )
-    assert result.returncode == 0, (
-        f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     final_line = result.stdout.strip().splitlines()[-1]
     parsed = json.loads(final_line)
     assert parsed["status"] == "ok"
@@ -587,9 +566,9 @@ def test_real_wrapper_required_tool_claude_code_casing(tmp_path: Path) -> None:
         advertise_casing="claude-code",
         extra_env={"PI_GUARDIAN_REQUIRED_TOOL": "write"},
     )
-    assert result.returncode == 0, (
-        f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     final_line = result.stdout.strip().splitlines()[-1]
     parsed = json.loads(final_line)
     assert parsed["status"] == "ok"
@@ -607,6 +586,133 @@ def test_real_wrapper_required_tool_claude_code_casing(tmp_path: Path) -> None:
     # The session's effective tool names are the application's tool
     # names (always lowercase); only the outbound advertised provider
     # tool names change between API-key and OAuth casings.
+    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
+    assert tt["write_tool_available"] is True
+    assert tt["tool_execution_start_count"] == 1
+    assert tt["tool_execution_end_count"] == 1
+    assert tt["executed_tool_names"] == ["write"]
+    assert tt["assistant_tool_call_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 5. Async Pi payload-hook chaining regression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_chains_preexisting_async_onpayload(tmp_path: Path) -> None:
+    """Real wrapper + fake Pi with a pre-existing ASYNC onPayload hook.
+
+    Reproduces the real Pi 0.82.1 session-level `Agent.onPayload`
+    contract: the vendored SDK installs an `async` hook on the
+    session agent. The wrapper's installed hook must therefore
+    also be async and must `await` the previous hook before
+    applying the bounded required-tool projection.
+
+    Failure mode that this test proves absent:
+
+    * With the pre-repair synchronous wrapper, the chain captured
+      a Promise from the previous async hook, treated that Promise
+      as the effective payload, and the projection helper failed
+      closed with `guard.required_tool_selection.no_tools`. The
+      wrapper's outer protocol layer then emitted a
+      `wrapper_protocol_failed` / `tool_selection` failure instead
+      of the success terminal payload.
+
+    * With the async-hook repair, the wrapper awaits the previous
+      hook, observes the resolved provider payload, and applies
+      `tool_choice.write` exactly once.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            # Activate the bounded pre-existing async onPayload knob
+            # on the tracked fake Pi fixture. With this knob unset,
+            # the fake exposes `onPayload: null` and the existing
+            # tests above exercise that historical shape.
+            "PI_FAKE_PRE_EXISTING_ASYNC_ONPAYLOAD": "1",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    # Bounded required-tool selection evidence is exposed in a
+    # separate top-level key (never inside the ten-field
+    # tool_telemetry object).
+    assert (
+        parsed["status"] == "ok"
+    ), f"expected successful terminal JSON; got: {parsed!r}"
+    sel = parsed.get("required_tool_selection")
+    assert sel is not None, (
+        "required_tool_selection evidence missing from terminal JSON; "
+        "the wrapper did not apply the bounded required-tool projection."
+    )
+    assert sel["required_tool_name"] == "write"
+    assert sel["hard_tool_selection_applied"] is True
+    assert sel["hard_tool_selection_application_count"] == 1
+    # The pre-existing async hook must be awaited exactly once; the
+    # second iteration in the fake exercises the continuation turn
+    # which the wrapper's hook treats as a no-op (returns the
+    # effective payload unchanged).
+    tt = parsed["tool_telemetry"]
+    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
+    assert tt["write_tool_available"] is True
+    assert tt["tool_execution_start_count"] == 1
+    assert tt["tool_execution_end_count"] == 1
+    assert tt["executed_tool_names"] == ["write"]
+    assert tt["assistant_tool_call_count"] == 1
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_async_onpayload_without_required_tool_unchanged(
+    tmp_path: Path,
+) -> None:
+    """Pre-existing async onPayload with NO required tool: ordinary selection.
+
+    When `PI_GUARDIAN_REQUIRED_TOOL` is unset, the wrapper does not
+    install its required-tool projection hook. The pre-existing async
+    Pi onPayload therefore remains the only hook in the chain and is
+    awaited end-to-end. The terminal JSON must show the success path
+    with no `required_tool_selection` key.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_FAKE_PRE_EXISTING_ASYNC_ONPAYLOAD": "1",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    assert (
+        parsed["status"] == "ok"
+    ), f"expected successful terminal JSON; got: {parsed!r}"
+    # No required-tool selection when PI_GUARDIAN_REQUIRED_TOOL is unset.
+    assert "required_tool_selection" not in parsed
+    tt = parsed["tool_telemetry"]
     assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
     assert tt["write_tool_available"] is True
     assert tt["tool_execution_start_count"] == 1

@@ -665,16 +665,29 @@ async function runAgent() {
 			// Chain any existing onPayload so a preexisting
 			// extension or test hook can still mutate the payload
 			// before our required-tool projection is applied.
+			//
+			// The vendored Pi 0.82.1 Agent installs its own session-level
+			// `onPayload` as an ASYNC function. The installed hook here
+			// must therefore be async too, and it must `await` the
+			// previous hook before applying the required-tool projection;
+			// otherwise the projection helper would receive an unresolved
+			// Promise instead of the resolved provider payload and would
+			// fail closed before the intended provider request shape is
+			// produced.
 			const previousOnPayload =
 				typeof session.agent.onPayload === "function"
 					? session.agent.onPayload
 					: null;
-			session.agent.onPayload = (params, modelArg) => {
+			session.agent.onPayload = async (params, modelArg) => {
 				// Let any prior chain run first so the effective payload
-				// it produces is what we project.
+				// it produces is what we project. The `await` resolves
+				// both a synchronous return value and an async Promise;
+				// a rejection from the previous hook propagates here
+				// unchanged so the existing wrapper error path still
+				// owns the failure classification.
 				let effective = params;
 				if (previousOnPayload !== null) {
-					const next = previousOnPayload(effective, modelArg);
+					const next = await previousOnPayload(effective, modelArg);
 					if (next !== undefined) {
 						effective = next;
 					}

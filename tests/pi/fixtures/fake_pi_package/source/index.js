@@ -76,9 +76,25 @@ class FakeSession {
         // Default: success.
         this.behavior = process.env.PI_FAKE_I_BEHAVIOR || "success";
         this._activeToolNames = ["read", "bash", "edit", "write"];
+        // Bounded knob that exercises the real Pi 0.82.1 session-level
+        // onPayload contract: a pre-existing ASYNC hook installed on
+        // the session agent. The fake's prompt() awaits the chain
+        // composed by the wrapper, so this exposes the regression the
+        // pre-repair wrapper triggered (treating the resolved Promise
+        // as if it were the payload itself). Default is the historical
+        // `null` shape used by unrelated fixture cases.
+        const preExistingAsyncHook =
+            process.env.PI_FAKE_PRE_EXISTING_ASYNC_ONPAYLOAD === "1";
         this.agent = {
             state: { messages: [], tools: [] },
-            onPayload: null,
+            onPayload: preExistingAsyncHook
+                ? async (payload, _model) => {
+                    // Mimic the maintained Pi 0.82.1 default: the
+                    // session-level hook resolves to the (possibly
+                    // extension-mutated) provider payload.
+                    return payload;
+                }
+                : null,
         };
         this._subscribers = [];
     }
@@ -137,11 +153,17 @@ class FakeSession {
         // it can apply the bounded required-tool projection. A second
         // invocation, if requested, is the continuation turn and
         // carries no projection.
+        //
+        // The vendored Pi 0.82.1 session installs the per-session
+        // onPayload as an ASYNC function. The fake awaits the chain
+        // composed by the wrapper here so an async pre-existing hook
+        // (or the wrapper's own async hook) is resolved before the
+        // fake inspects the projected payload.
         const params = this._buildFirstPayload();
         let onPayload = this.agent.onPayload;
         for (let turn = 0; turn < 2; turn += 1) {
             if (typeof onPayload === "function") {
-                const projected = onPayload(params, {
+                const projected = await onPayload(params, {
                     provider: "anthropic",
                     id: "claude-sonnet-4-6",
                 });
