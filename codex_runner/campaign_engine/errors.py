@@ -88,6 +88,15 @@ class CampaignLiveExecutorError(CampaignEngineError):
         assistant_content_block_types: tuple[str, ...] | None = None,
         assistant_message_event_types: tuple[str, ...] | None = None,
         assistant_tool_call_event_count: int | None = None,
+        # Bounded required-tool selection evidence (separate from the
+        # ten-field tool telemetry). Populated when the underlying
+        # Guardian outcome retained these fields so the failure payload
+        # can distinguish "no hard selection applied" from "hard
+        # selection applied but no tool execution observed" without
+        # inspecting provider bodies.
+        required_tool_name: str | None = None,
+        hard_tool_selection_applied: bool | None = None,
+        hard_tool_selection_application_count: int | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_reason = failure_reason
@@ -107,6 +116,11 @@ class CampaignLiveExecutorError(CampaignEngineError):
         self.assistant_content_block_types = assistant_content_block_types
         self.assistant_message_event_types = assistant_message_event_types
         self.assistant_tool_call_event_count = assistant_tool_call_event_count
+        self.required_tool_name = required_tool_name
+        self.hard_tool_selection_applied = hard_tool_selection_applied
+        self.hard_tool_selection_application_count = (
+            hard_tool_selection_application_count
+        )
 
     def to_payload(self) -> dict[str, Any]:
         # Surface only the bounded telemetry fields. Counts are normalized
@@ -165,6 +179,31 @@ class CampaignLiveExecutorError(CampaignEngineError):
             }
             if self.effective_tool_names is not None
             else None,
+            # Required-tool selection evidence is exposed in a separate
+            # `required_tool_selection` object only when the underlying
+            # outcome carried a non-null required_tool_name. The ten-
+            # field `tool_telemetry` shape remains unchanged.
+            "required_tool_selection": (
+                {
+                    "required_tool_name": (
+                        self.required_tool_name
+                        if isinstance(self.required_tool_name, str)
+                        and len(self.required_tool_name) > 0
+                        else None
+                    ),
+                    "hard_tool_selection_applied": (
+                        self.hard_tool_selection_applied
+                        if isinstance(self.hard_tool_selection_applied, bool)
+                        else None
+                    ),
+                    "hard_tool_selection_application_count": _as_int(
+                        self.hard_tool_selection_application_count
+                    ),
+                }
+                if isinstance(self.required_tool_name, str)
+                and len(self.required_tool_name) > 0
+                else None
+            ),
         }
 
 

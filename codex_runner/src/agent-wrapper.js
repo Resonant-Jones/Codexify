@@ -23,6 +23,10 @@ import {
 	observeFinalAssistantMessages,
 	createToolTelemetry,
 } from "./assistant-telemetry.js";
+import {
+	applyGuardianRequiredToolSelection,
+	RequiredToolSelectionError,
+} from "./guardian-required-tool-selection.js";
 
 // Parse command line args
 const args = process.argv.slice(2);
@@ -142,6 +146,9 @@ function emitAuthorizedFailure(failureClass, failureStage, details = {}) {
 		provider_request_started: details.provider_request_started === true,
 		tool_telemetry: details.tool_telemetry || null,
 	};
+	if (details.required_tool_selection) {
+		payload.required_tool_selection = details.required_tool_selection;
+	}
 	console.log(JSON.stringify(payload));
 }
 
@@ -226,6 +233,7 @@ async function loadPiSdk() {
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
+		SettingsManager: codingAgent.SettingsManager,
 		modelRuntime,
 		getModel: modelRuntime.getModel.bind(modelRuntime),
 		getProviders: modelRuntime.getProviders.bind(modelRuntime),
@@ -377,6 +385,7 @@ async function checkReadiness() {
 async function runAgent() {
 	let createAgentSession;
 	let SessionManager;
+	let SettingsManager;
 	let modelRuntime;
 	let getModel;
 	let getProviders;
@@ -391,6 +400,7 @@ async function runAgent() {
 		({
 			createAgentSession,
 			SessionManager,
+			SettingsManager,
 			modelRuntime,
 			getModel,
 			getProviders,
@@ -468,6 +478,19 @@ async function runAgent() {
 		}
 		: null;
 
+	// Bounded required-tool selection state (first-turn only).
+	// Read ONLY for guardian-authorized-task. Other modes ignore the
+	// environment variable entirely. Declared here (before session
+	// creation) so the createAgentSession call below can pass a
+	// retry-disabled SettingsManager when a required tool is in scope.
+	let requiredToolName = null;
+	if (guardianAuthorizedMode) {
+		const rawRequired = (process.env.PI_GUARDIAN_REQUIRED_TOOL || "").trim();
+		if (rawRequired.length > 0) {
+			requiredToolName = rawRequired;
+		}
+	}
+
 	// Check API key availability
 	try {
 		const available = await modelRuntime.getAvailable();
@@ -524,14 +547,91 @@ async function runAgent() {
 	// Create session
 	let result;
 	try {
-		result = await createAgentSession({
+		// Guardian-authorized required-tool path: disable Pi/agent
+		// automatic retries and automatic compaction. The bounded
+		// mandatory single-tool write
+		// turn must not silently continue across an automatic retry
+		// after a failed first attempt — the retry would not see the
+		// required ``tool_choice`` and ``disable_parallel_tool_use``
+		// projection (which is composed for the FIRST provider turn
+		// only). ADR-068's bounded one-attempt semantics make retry
+		// suppression the correct fail-closed behavior here, so
+		// establishing the recovery-disabled posture is MANDATORY for
+		// required-tool runs: the wrapper does NOT fall back to the
+		// default settings manager (which enables both mechanisms). In
+		// particular, Pi's overflow compaction recovery calls
+		// `agent.continue()` independently of the ordinary retry setting;
+		// either mechanism can otherwise escape the bounded mandatory
+		// selection after the first projected payload fails.
+		//
+		// The maintained Pi 0.82.1 API for that posture is
+		//     SettingsManager.inMemory({
+		//       retry: { enabled: false },
+		//       compaction: { enabled: false },
+		//     })
+		// (see codex_runner/vendor/pi-coding-agent/dist/core/
+		// settings-manager.js — `getRetryEnabled` and
+		// `getCompactionEnabled` both default to true). If the
+		// `SettingsManager` export, the `inMemory` factory, or
+		// construction of the recovery-disabled instance is unavailable
+		// for a required-tool run, the wrapper fails closed BEFORE
+		// `createAgentSession` is called. Non-required-tool modes keep
+		// the maintained Pi retry settings unchanged.
+		const sessionOptions = {
 			cwd: OPTIONS.cwd,
 			model,
 			thinkingLevel: OPTIONS.thinking,
 			modelRuntime,
 			tools: configuredToolNames,
 			sessionManager: SessionManager.inMemory(),
-		});
+		};
+		if (guardianAuthorizedMode && requiredToolName !== null) {
+			if (
+				!SettingsManager ||
+				typeof SettingsManager.inMemory !== "function"
+			) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"required_tool_retry_suppression",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+					},
+				);
+				return;
+			}
+			try {
+				sessionOptions.settingsManager =
+					SettingsManager.inMemory({
+						retry: { enabled: false },
+						compaction: { enabled: false },
+					});
+			} catch (_settingsError) {
+				// Required-tool runs cannot tolerate a recovery-enabled
+				// fallback — the default settings manager enables both
+				// ordinary retries and automatic compaction. Either can
+				// escape the bounded mandatory selection. Emit a bounded
+				// `wrapper_protocol_failed`
+				// failure with the local `required_tool_retry_suppression`
+				// stage and return BEFORE `createAgentSession` is
+				// called. Provider transport and session initialization
+				// must not begin on this path.
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"required_tool_retry_suppression",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+					},
+				);
+				return;
+			}
+		}
+		result = await createAgentSession(sessionOptions);
 	} catch (error) {
 		if (guardianAuthorizedMode) {
 			emitAuthorizedFailure("session_initialization_failed", "session_initialization", {
@@ -558,6 +658,18 @@ async function runAgent() {
 	const toolTelemetry = createToolTelemetry();
 	toolTelemetry.effective_tool_names = effectiveToolNames;
 	toolTelemetry.write_tool_available = writeToolAvailable;
+
+	// Bounded required-tool selection state (first-turn only).
+	// Read ONLY for guardian-authorized-task. Other modes ignore the
+	// environment variable entirely. The requiredToolName is read
+	// earlier (before session creation) so the createAgentSession
+	// call can pass a retry-disabled SettingsManager when a required
+	// tool is in scope.
+	const requiredToolSelection = {
+		required_tool_name: null,
+		hard_tool_selection_applied: false,
+		hard_tool_selection_application_count: 0,
+	};
 
 	// Defense-in-depth: if Guardian-authorized-task has writable intent
 	// (`write` should be active) but the session did not register `write`,
@@ -613,19 +725,125 @@ async function runAgent() {
 		}
 	});
 
+	// Bounded required-tool selection: install a per-session onPayload
+	// hook for the FIRST provider request only. After the tool result is
+	// reinjected, subsequent turns return to ordinary provider selection.
+	if (requiredToolName !== null) {
+		if (guardianAuthorizedMode) {
+			// Active tool surface is the authority. The required tool
+			// must actually be available in the live session before we
+			// attempt the projection.
+			const requiredToolLower = requiredToolName.toLowerCase();
+			const requiredToolPresent = effectiveToolNames.some(
+				(name) => typeof name === "string" && name.toLowerCase() === requiredToolLower
+			);
+			if (!requiredToolPresent) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"tool_selection",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: true,
+						provider_request_started: false,
+						tool_telemetry: toolTelemetry,
+					}
+				);
+				return;
+			}
+			// Chain any existing onPayload so a preexisting
+			// extension or test hook can still mutate the payload
+			// before our required-tool projection is applied.
+			//
+			// The vendored Pi 0.82.1 Agent installs its own session-level
+			// `onPayload` as an ASYNC function. The installed hook here
+			// must therefore be async too, and it must `await` the
+			// previous hook before applying the required-tool projection;
+			// otherwise the projection helper would receive an unresolved
+			// Promise instead of the resolved provider payload and would
+			// fail closed before the intended provider request shape is
+			// produced.
+			const previousOnPayload =
+				typeof session.agent.onPayload === "function"
+					? session.agent.onPayload
+					: null;
+			session.agent.onPayload = async (params, modelArg) => {
+				// Let any prior chain run first so the effective payload
+				// it produces is what we project. The `await` resolves
+				// both a synchronous return value and an async Promise;
+				// a rejection from the previous hook propagates here
+				// unchanged so the existing wrapper error path still
+				// owns the failure classification.
+				let effective = params;
+				if (previousOnPayload !== null) {
+					const next = await previousOnPayload(effective, modelArg);
+					if (next !== undefined) {
+						effective = next;
+					}
+				}
+				// First provider payload only. After application we leave
+				// the hook in place but it becomes a no-op, so the
+				// continuation turn uses ordinary provider selection.
+				if (
+					!requiredToolSelection.hard_tool_selection_applied
+					&& requiredToolSelection.hard_tool_selection_application_count === 0
+				) {
+					try {
+						const projected = applyGuardianRequiredToolSelection({
+							providerId: modelArg?.provider ?? OPTIONS.provider,
+							requiredToolName,
+							payload: effective,
+						});
+						requiredToolSelection.hard_tool_selection_applied = true;
+						requiredToolSelection.hard_tool_selection_application_count = 1;
+						requiredToolSelection.required_tool_name = requiredToolName;
+						return projected;
+					} catch (selectionError) {
+						const errCode =
+							selectionError instanceof RequiredToolSelectionError
+								? selectionError.code
+								: "guard.required_tool_selection.unknown";
+						throw new Error(errCode);
+					}
+				}
+				return effective;
+			};
+		}
+	}
+
 	// Run the prompt
 	const fullPrompt = buildPrompt(mode, prompt);
 	try {
 		await session.prompt(fullPrompt);
 	} catch (error) {
 		if (guardianAuthorizedMode) {
-			emitAuthorizedFailure(classifyAuthorizedError(error), "provider_request", {
-				actual_runtime_identity: actualRuntimeIdentity,
-				runtime_identity_established: true,
-				session_initialized: true,
-				provider_request_started: true,
-				tool_telemetry: toolTelemetry,
-			});
+			const classified = classifyAuthorizedError(error);
+			// If the projection helper raised a bounded error code, the
+			// failure is a protocol-level selection failure.
+			const message = error instanceof Error ? error.message : String(error);
+			const isSelectionFailure = /^guard\.required_tool_selection\./.test(message);
+			emitAuthorizedFailure(
+				isSelectionFailure ? "wrapper_protocol_failed" : classified,
+				isSelectionFailure ? "tool_selection" : "provider_request",
+				{
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+					session_initialized: true,
+					// A selection failure is a pre-transport event: the
+					// projection helper rejected the payload inside the
+					// ``onPayload`` hook before the maintained Pi
+					// transport started a real provider request.
+					// Reporting ``provider_request_started: true`` here
+					// would falsely attribute a request that did not
+					// happen to the bounded telemetry. The bounded
+					// distinction must be explicit: selection failures
+					// are pre-provider-request failures.
+					provider_request_started: isSelectionFailure
+						? false
+						: true,
+					tool_telemetry: toolTelemetry,
+				}
+			);
 			return;
 		}
 		throw error;
@@ -640,7 +858,30 @@ async function runAgent() {
 	// Print final output
 	if (guardianAuthorizedMode) {
 		const response = extractJsonResponse(session.agent.state.messages);
-		console.log(JSON.stringify({
+		// A successful authorized execution with a required tool MUST have
+		// applied hard selection exactly once. If the session reached the
+		// success terminal without a selection, the wrapper fails closed
+		// here (it never silently invokes provider prompt-only).
+		if (requiredToolName !== null) {
+			if (
+				!requiredToolSelection.hard_tool_selection_applied
+				|| requiredToolSelection.hard_tool_selection_application_count !== 1
+			) {
+				emitAuthorizedFailure(
+					"wrapper_protocol_failed",
+					"tool_selection",
+					{
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: true,
+						provider_request_started: true,
+						tool_telemetry: toolTelemetry,
+					}
+				);
+				return;
+			}
+		}
+		const terminalPayload = {
 			status: "ok",
 			summary: "Guardian-authorized Pi task completed",
 			actual_runtime_identity: actualRuntimeIdentity,
@@ -654,7 +895,20 @@ async function runAgent() {
 			session_initialized: true,
 			provider_request_started: true,
 			tool_telemetry: toolTelemetry,
-		}));
+		};
+		// Bounded required-tool selection evidence is exposed in a
+		// separate top-level key (never inside the ten-field
+		// tool_telemetry object).
+		if (requiredToolName !== null) {
+			terminalPayload.required_tool_selection = {
+				required_tool_name: requiredToolSelection.required_tool_name,
+				hard_tool_selection_applied:
+					requiredToolSelection.hard_tool_selection_applied,
+				hard_tool_selection_application_count:
+					requiredToolSelection.hard_tool_selection_application_count,
+			};
+		}
+		console.log(JSON.stringify(terminalPayload));
 		return;
 	}
 	if (mode === "audit" || mode === "compile" || mode === "task") {

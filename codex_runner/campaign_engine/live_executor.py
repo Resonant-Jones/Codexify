@@ -77,6 +77,12 @@ SCHEMA_VERSION = "campaign-engine/v0"
 
 LIVE_EXECUTOR_CLASSIFICATION_VALUE = "live_executor"
 
+# Bounded canonical required-tool name for the live Executor.
+# Campaign Engine declares this as an execution requirement. It is NOT
+# a permission grant and NOT provider authority. The initial supported
+# value is "write". Any other value is rejected by Guardian.
+LIVE_EXECUTOR_REQUIRED_TOOL_NAME = "write"
+
 _LINEAGE_ABSENT_TOKEN = "absent"
 
 # Allowed filesystem.write permission name; matches the canonical form
@@ -98,6 +104,7 @@ class _Invoker(Protocol):
         prompt: str,
         cwd: Any,
         timeout_seconds: int,
+        required_tool_name: str | None = None,
     ) -> Any: ...
 
 
@@ -108,6 +115,7 @@ def _real_invoker(
     prompt: str,
     cwd: Any,
     timeout_seconds: int,
+    required_tool_name: str | None = None,
 ) -> Any:
     from guardian.pi.invocation import invoke_guardian_authorized_pi
 
@@ -117,6 +125,7 @@ def _real_invoker(
         prompt=prompt,
         cwd=cwd,
         timeout_seconds=timeout_seconds,
+        required_tool_name=required_tool_name,
     )
 
 
@@ -140,40 +149,60 @@ def _build_executor_prompt(
     allowed_file_paths: tuple[str, ...],
     target_repository_identity: str,
     prompt_sha256: str,
+    required_tool_name: str | None = None,
 ) -> str:
     """Compose the deterministic Executor prompt.
 
     No hidden reasoning, no provider credential material, no runtime
     environment values.  The Task JSON is authoritative.
+
+    The mandatory-action clause consumes the bounded
+    ``required_tool_name`` declared by Campaign Engine rather than
+    carrying a second unrelated hardcoded tool literal.  When no
+    required tool is declared, the prompt's MANDATORY ACTION clause is
+    omitted (so the canonical preparation remains compatible with
+    non-required-tool runs).
     """
 
     canonical_task = json.dumps(task_record, sort_keys=True, separators=(",", ":"))
     allowed = ", ".join(allowed_file_paths)
     primary_target = allowed_file_paths[0] if allowed_file_paths else ""
-    return (
-        "Campaign Engine live Executor — ADR-068 authorized slice.\n"
-        f"campaign_id: {campaign_id}\n"
-        f"task_id: {task_id}\n"
-        f"target_repository_identity: {target_repository_identity}\n"
-        f"allowed_file_paths: {allowed}\n"
+    # The prompt must consume the declared required tool from preparation,
+    # not a hardcoded second literal.  When no required tool is declared,
+    # the mandatory-action clause is omitted entirely.
+    mandatory_action = ""
+    if required_tool_name:
+        mandatory_action = (
+            "MANDATORY ACTION: invoke the `"
+            f"{required_tool_name}"
+            "` tool exactly once with the file"
+            f" path `{primary_target}` (relative to the working directory)"
+            " and the exact byte contents the task_record objective"
+            " demands.  Do NOT produce any text-only response.  Do not"
+            " call any other tool.  The pi-coding-agent harness will treat"
+            f" lack of a `{required_tool_name}` tool call as a failed"
+            " Executor turn.  After the required tool returns success,"
+            " respond with one short confirmation line."
+        )
+    sections = [
+        "Campaign Engine live Executor — ADR-068 authorized slice.\n",
+        f"campaign_id: {campaign_id}\n",
+        f"task_id: {task_id}\n",
+        f"target_repository_identity: {target_repository_identity}\n",
+        f"allowed_file_paths: {allowed}\n",
         "constraints:\n"
         "  - do not commit\n"
         "  - do not push\n"
         "  - do not merge\n"
         "  - do not deploy\n"
         "  - do not modify any file outside allowed_file_paths\n"
-        "  - do not create or delete files outside allowed_file_paths\n"
-        f"task_record (canonical): {canonical_task}\n"
-        f"prompt_sha256: {prompt_sha256}\n"
-        "\n"
-        "MANDATORY ACTION: invoke the `write` tool exactly once with the file"
-        f" path `{primary_target}` (relative to the working directory) and the"
-        " exact byte contents the task_record objective demands.  Do NOT"
-        " produce any text-only response.  Do not call any other tool.  The"
-        " pi-coding-agent harness will treat lack of a `write` tool call as"
-        " a failed Executor turn.  After the `write` tool returns success,"
-        " respond with one short confirmation line."
-    )
+        "  - do not create or delete files outside allowed_file_paths\n",
+        f"task_record (canonical): {canonical_task}\n",
+        f"prompt_sha256: {prompt_sha256}\n",
+    ]
+    if mandatory_action:
+        sections.append("\n" + mandatory_action)
+    return "".join(sections)
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +504,7 @@ def prepare_live_executor_campaign(
         allowed_file_paths=allowed_file_paths,
         target_repository_identity=str(bound_target),
         prompt_sha256=locked_prompt_sha256_placeholder,
+        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
     )
     actual_prompt_sha256 = sha256_text(prompt_body)
 
@@ -551,6 +581,7 @@ def prepare_live_executor_campaign(
         target_baseline_git_head=git_head_pre,
         target_baseline_file_hashes=target_baseline_file_hashes,
         campaign_input_hash=campaign_input_hash,
+        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
     )
 
 
@@ -740,6 +771,52 @@ def _extract_tool_telemetry_from_outcome(outcome: Any) -> tuple:
     )
 
 
+def _extract_required_tool_selection_from_outcome(
+    outcome: Any,
+) -> tuple[str | None, bool | None, int | None]:
+    """Best-effort extraction of bounded required-tool selection evidence.
+
+    Position contract (do not reorder without updating all consumers):
+
+        0. required_tool_name: str | None
+        1. hard_tool_selection_applied: bool | None
+        2. hard_tool_selection_application_count: int | None
+
+    Returns ``(None, None, None)`` when the outcome did not carry selection
+    evidence (e.g. read-only invocation).
+    """
+
+    def _read(obj: Any, name: str) -> Any:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(name)
+        return getattr(obj, name, None)
+
+    def _as_optional_str(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and len(value) > 0:
+            return value
+        return None
+
+    def _as_optional_bool(value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        return None
+
+    def _as_optional_count(value: Any) -> int | None:
+        if isinstance(value, int) and value >= 0:
+            return value
+        return None
+
+    return (
+        _as_optional_str(_read(outcome, "required_tool_name")),
+        _as_optional_bool(_read(outcome, "hard_tool_selection_applied")),
+        _as_optional_count(_read(outcome, "hard_tool_selection_application_count")),
+    )
+
+
 def _read_identity(identity_obj: Any) -> dict[str, Any]:
     if identity_obj is None:
         return {"provider_id": None, "model_id": None, "harness_id": None, "harness_version": None}
@@ -905,6 +982,7 @@ def _run_live_attempt(
         prompt=preparation.prompt,
         cwd=target_path,
         timeout_seconds=timeout_seconds,
+        required_tool_name=preparation.required_tool_name,
     )
 
 
@@ -921,12 +999,39 @@ def _pre_execution_drift_check(
     - current Campaign input hash (re-load);
     - current target baseline evidence (re-snapshot);
     - re-loaded locked binding identity;
-    - current prompt hash;
+    - current required-tool requirement re-derivation from the
+      canonical Campaign Engine constant;
+    - current prompt hash (re-derived from the canonical requirement,
+      not from the preparation field);
     - current target identity.
 
     Any material drift fails closed before invocation with
     ``runner_call_count = 0``.
     """
+
+    # 0. Required-tool requirement re-derivation from Campaign Engine
+    # authority.  The canonical live Executor required tool is the
+    # ``LIVE_EXECUTOR_REQUIRED_TOOL_NAME`` constant, NOT the mutable
+    # preparation field.  A preparation whose declared
+    # ``required_tool_name`` no longer equals the canonical value is
+    # material post-authorization drift: the preparation is evidence
+    # of the earlier decision, not authority to redefine that decision
+    # later.  ``None`` is not equivalent to the canonical ``"write"``
+    # requirement.  Fail closed before any other drift check so the
+    # failure reason is unambiguous.
+    if preparation.required_tool_name != LIVE_EXECUTOR_REQUIRED_TOOL_NAME:
+        raise CampaignLiveExecutorError(
+            "preparation required_tool_name drifted from canonical "
+            "Campaign Engine live Executor requirement",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+            issues=[
+                f"preparation.required_tool_name="
+                f"{preparation.required_tool_name!r} does not match "
+                f"canonical LIVE_EXECUTOR_REQUIRED_TOOL_NAME="
+                f"{LIVE_EXECUTOR_REQUIRED_TOOL_NAME!r}"
+            ],
+        )
 
     # 1. Campaign input hash.
     if source_context_path is not None:
@@ -1020,6 +1125,14 @@ def _pre_execution_drift_check(
     allowed_file_paths: tuple[str, ...] = tuple(
         current_executor["live_role_binding"]["allowed_file_paths"]
     )
+    # Recompose the expected prompt from the CANONICAL live Executor
+    # required-tool authority, not the preparation field.  This is the
+    # second of two independent protections against a forged
+    # ``required_tool_name=None`` preparation that also recomposed a
+    # matching prompt/hash: the prompt the runtime would build now
+    # always contains the canonical MANDATORY ACTION clause, so a
+    # forged preparation whose prompt omits it cannot match the
+    # recomposed prompt hash either.
     recomposed_prompt = _build_executor_prompt(
         campaign_id=preparation.campaign_id,
         task_id=preparation.task_id,
@@ -1029,6 +1142,7 @@ def _pre_execution_drift_check(
         prompt_sha256=sha256_canonical(
             {"task": task, "allowed": list(allowed_file_paths)}
         ),
+        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
     )
     if sha256_text(recomposed_prompt) != preparation.prompt_sha256:
         raise CampaignLiveExecutorError(
@@ -1394,6 +1508,11 @@ def run_live_executor_campaign(
             # so the operator can distinguish absence-of-write-tool from
             # absence-of-tool-execution from absence-of-assistant-tool-call.
             telemetry = _extract_tool_telemetry_from_outcome(outcome)
+            # Extract selection evidence from the underlying outcome so the
+            # zero-mutation failure payload can distinguish "no hard
+            # selection applied" from "hard selection applied but no tool
+            # execution observed" without inspecting provider bodies.
+            selection = _extract_required_tool_selection_from_outcome(outcome)
             raise CampaignLiveExecutorError(
                 "Harness success produced zero allowed-path mutation; "
                 "inspect bounded tool availability and execution telemetry "
@@ -1414,6 +1533,9 @@ def run_live_executor_campaign(
                 assistant_content_block_types=telemetry[7],
                 assistant_message_event_types=telemetry[8],
                 assistant_tool_call_event_count=telemetry[9],
+                required_tool_name=selection[0],
+                hard_tool_selection_applied=selection[1],
+                hard_tool_selection_application_count=selection[2],
             )
     else:
         failed = [
@@ -1684,6 +1806,15 @@ def run_live_executor_campaign(
         assistant_content_block_types=_telemetry[7],
         assistant_message_event_types=_telemetry[8],
         assistant_tool_call_event_count=_telemetry[9],
+        # Required-tool selection evidence (separate from tool telemetry).
+        # Copy directly from the outcome; never recompute.
+        required_tool_name=getattr(outcome, "required_tool_name", None),
+        hard_tool_selection_applied=getattr(
+            outcome, "hard_tool_selection_applied", None
+        ),
+        hard_tool_selection_application_count=getattr(
+            outcome, "hard_tool_selection_application_count", None
+        ),
     )
 
 

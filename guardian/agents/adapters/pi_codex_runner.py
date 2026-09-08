@@ -28,6 +28,14 @@ def _get_pi_wrapper_path() -> Path:
     return repo_root / "codex_runner" / "src" / "agent-wrapper.js"
 
 
+# The canonical supported required-tool name. The adapter must refuse
+# any non-null value that does not normalize to this exact token; an
+# unsupported value must never silently become an unconstrained
+# invocation. Mirrors the canonical Campaign Engine constant for the
+# current supported internal slice.
+LIVE_EXECUTOR_REQUIRED_TOOL_VALUE = "write"
+
+
 class PiCodexRunnerAdapter:
     """Adapter that invokes Codex Runner through the Pi agent wrapper.
 
@@ -96,12 +104,19 @@ class PiCodexRunnerAdapter:
         identity: AgentExecutionIdentity,
         *,
         read_only: bool,
+        required_tool_name: str | None = None,
     ) -> AgentRunEnvelope:
         """Execute exactly one Guardian-authorized Pi task.
 
         This opt-in path never falls back to the legacy provider/model defaults.
         Its local subprocess environment is the only configuration surface it
         changes; global process environment remains untouched.
+
+        When ``required_tool_name`` is non-null, the value is propagated
+        into the subprocess environment under ``PI_GUARDIAN_REQUIRED_TOOL``
+        ONLY after the ambient variable is explicitly removed from the
+        inherited environment. The adapter never sources this value from
+        ambient state.
         """
         if not all(
             (
@@ -119,8 +134,46 @@ class PiCodexRunnerAdapter:
                 failure_stage="authorization",
             )
 
+        # Required-tool support boundary:
+        # - only the canonical supported provider (anthropic) currently
+        #   admits the bounded required-tool projection. Any other
+        #   provider must fail closed before subprocess.
+        # - the normalizer returns three states: python None (no
+        #   required tool), the canonical string "write" (supported),
+        #   or the boolean False (unsupported non-null value: must
+        #   fail closed, not silently become an unconstrained launch).
+        normalized_required = _normalize_required_tool_for_adapter(
+            required_tool_name
+        )
+        if normalized_required is False:
+            return AgentRunEnvelope(
+                status="error",
+                summary=(
+                    "Required-tool selection value is not supported: "
+                    f"{required_tool_name!r}.  The canonical supported "
+                    f"required tool is {LIVE_EXECUTOR_REQUIRED_TOOL_VALUE!r}; "
+                    "an unsupported non-null value must never silently "
+                    "become an unconstrained invocation."
+                ),
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="tool_selection",
+            )
+        if normalized_required is not None and identity.provider_id != "anthropic":
+            return AgentRunEnvelope(
+                status="error",
+                summary=(
+                    "Required-tool selection is not supported for the "
+                    f"authorized provider {identity.provider_id!r}"
+                ),
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="tool_selection",
+            )
+
         wrapper_path = _get_pi_wrapper_path()
         env = os.environ.copy()
+        # Always strip ambient selection so only the validated argument
+        # can grant or force behavior.
+        env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
         env.update(
             {
                 "PI_PROVIDER": identity.provider_id,
@@ -131,6 +184,8 @@ class PiCodexRunnerAdapter:
                 "PI_DISABLE_TOOLS": "1" if read_only else "0",
             }
         )
+        if normalized_required is not None:
+            env["PI_GUARDIAN_REQUIRED_TOOL"] = normalized_required
         cmd = ["node", str(wrapper_path), "guardian-authorized-task", request.prompt]
 
         try:
@@ -146,6 +201,7 @@ class PiCodexRunnerAdapter:
                 result,
                 require_runtime_identity=True,
                 require_tool_telemetry=True,
+                required_tool_name=normalized_required,
             )
         except subprocess.TimeoutExpired:
             return AgentRunEnvelope(
@@ -171,7 +227,8 @@ class PiCodexRunnerAdapter:
         """Run the authorized Pi setup/readiness path without a model prompt.
 
         Readiness does NOT require tool telemetry (it is non-inference and
-        does not create a session).
+        does not create a session). Readiness also MUST NOT propagate
+        required-tool selection; it is selection-free.
         """
         if not all(
             (
@@ -190,6 +247,9 @@ class PiCodexRunnerAdapter:
 
         wrapper_path = _get_pi_wrapper_path()
         env = os.environ.copy()
+        # Strip any ambient required-tool state so readiness remains
+        # selection-free even if the parent shell is contaminated.
+        env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
         env.update(
             {
                 "PI_PROVIDER": identity.provider_id,
@@ -233,6 +293,7 @@ class PiCodexRunnerAdapter:
         *,
         require_runtime_identity: bool = False,
         require_tool_telemetry: bool = False,
+        required_tool_name: str | None = None,
     ) -> AgentRunEnvelope:
         """Parse subprocess result into AgentRunEnvelope.
 
@@ -297,6 +358,9 @@ class PiCodexRunnerAdapter:
                     # On failure paths we still surface whatever telemetry
                     # the wrapper emitted (defense-in-depth visibility).
                     telemetry = _parse_tool_telemetry(data.get("tool_telemetry"))
+                    selection_evidence = _parse_required_tool_selection(
+                        data.get("required_tool_selection")
+                    )
                     return AgentRunEnvelope(
                         status="error",
                         summary="Guardian-authorized Pi operation failed",
@@ -322,6 +386,25 @@ class PiCodexRunnerAdapter:
                         assistant_content_block_types=telemetry[7],
                         assistant_message_event_types=telemetry[8],
                         assistant_tool_call_event_count=telemetry[9],
+                        # Surface selection evidence on failure paths too,
+                        # only when the adapter was invoked with a required
+                        # tool. Read-only / no-required-tool invocations
+                        # leave these fields None.
+                        required_tool_name=(
+                            selection_evidence[0]
+                            if required_tool_name is not None
+                            else None
+                        ),
+                        hard_tool_selection_applied=(
+                            selection_evidence[1]
+                            if required_tool_name is not None
+                            else None
+                        ),
+                        hard_tool_selection_application_count=(
+                            selection_evidence[2]
+                            if required_tool_name is not None
+                            else None
+                        ),
                     )
                 if require_runtime_identity and not isinstance(runtime_identity, dict):
                     return AgentRunEnvelope(
@@ -386,6 +469,66 @@ class PiCodexRunnerAdapter:
                         assistant_message_event_types=telemetry[8],
                         assistant_tool_call_event_count=telemetry[9],
                     )
+                # Bounded required-tool selection evidence (separate
+                # from the ten-field tool telemetry).
+                selection_evidence = _parse_required_tool_selection(
+                    data.get("required_tool_selection")
+                )
+                if required_tool_name is not None and not _is_valid_selection_evidence(
+                    selection_evidence, required_tool_name
+                ):
+                    return AgentRunEnvelope(
+                        status="error",
+                        summary=(
+                            "Required-tool selection evidence missing or "
+                            "mismatched for the authorized required tool"
+                        ),
+                        failure_classification=(
+                            PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+                        ),
+                        failure_stage="wrapper_protocol",
+                        runtime_identity_established=runtime_identity_established,
+                        actual_provider_id=(
+                            runtime_identity.get("actual_provider_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_model_id=(
+                            runtime_identity.get("actual_model_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_harness_id=(
+                            runtime_identity.get("actual_harness_id")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        actual_harness_version=(
+                            runtime_identity.get("actual_harness_version")
+                            if isinstance(runtime_identity, dict)
+                            else None
+                        ),
+                        session_initialized=_bounded_bool(
+                            data.get("session_initialized")
+                        ),
+                        provider_request_started=_bounded_bool(
+                            data.get("provider_request_started")
+                        ),
+                        oauth_available=_bounded_bool(data.get("oauth_available")),
+                        effective_tool_names=telemetry[0],
+                        write_tool_available=telemetry[1],
+                        tool_execution_start_count=telemetry[2],
+                        tool_execution_end_count=telemetry[3],
+                        executed_tool_names=telemetry[4],
+                        assistant_tool_call_count=telemetry[5],
+                        assistant_message_count=telemetry[6],
+                        assistant_content_block_types=telemetry[7],
+                        assistant_message_event_types=telemetry[8],
+                        assistant_tool_call_event_count=telemetry[9],
+                        required_tool_name=selection_evidence[0],
+                        hard_tool_selection_applied=selection_evidence[1],
+                        hard_tool_selection_application_count=selection_evidence[2],
+                    )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
                     summary=data.get(
@@ -431,6 +574,18 @@ class PiCodexRunnerAdapter:
                     assistant_content_block_types=telemetry[7],
                     assistant_message_event_types=telemetry[8],
                     assistant_tool_call_event_count=telemetry[9],
+                    # Required-tool selection evidence (copied without
+                    # recomputation; the wrapper-produced bounded object is
+                    # the source of truth).
+                    required_tool_name=(
+                        selection_evidence[0] if required_tool_name is not None else None
+                    ),
+                    hard_tool_selection_applied=(
+                        selection_evidence[1] if required_tool_name is not None else None
+                    ),
+                    hard_tool_selection_application_count=(
+                        selection_evidence[2] if required_tool_name is not None else None
+                    ),
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:
@@ -623,6 +778,92 @@ def _bounded_text(value: Any) -> str | None:
 
 def _bounded_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _normalize_required_tool_for_adapter(value: Any) -> str | None | bool:
+    """Adapter-side required-tool classifier.
+
+    Returns a 3-state result:
+
+    - ``None`` (the python value): the caller explicitly asked for the
+      no-required-tool case. The adapter will not set
+      ``PI_GUARDIAN_REQUIRED_TOOL`` in the subprocess env.
+    - a non-empty string equal to ``"write"``: the canonical supported
+      required tool. The adapter sets
+      ``PI_GUARDIAN_REQUIRED_TOOL=write``.
+    - the boolean ``False``: the caller supplied a non-null value that
+      does not normalize to a supported required tool. The adapter
+      MUST refuse to launch the subprocess; this is the only way to
+      prevent an unsupported non-null value from silently becoming
+      an unconstrained invocation.
+
+    The boolean-``False`` return is the explicit fail-closed signal
+    and is distinct from the python ``None`` "no required tool"
+    case so that the caller can choose between omitting the env var
+    and refusing the launch entirely.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    if text != "write":
+        return False
+    return text
+
+
+def _parse_required_tool_selection(
+    raw: Any,
+) -> tuple[str | None, bool | None, int | None]:
+    """Parse the bounded required-tool selection object.
+
+    Returns a 3-tuple ``(required_tool_name, hard_tool_selection_applied,
+    hard_tool_selection_application_count)``. Missing/invalid fields
+    surface as ``None``. The wrapper is the only legitimate producer.
+
+    Note: ``bool`` is a subclass of ``int`` in Python, so an ``isinstance
+    (count, int)`` check would silently accept ``True`` (== 1) and
+    ``False`` (== 0) as a valid application count. The bounded contract
+    requires a genuine integer; ``bool`` is explicitly rejected.
+    """
+    if not isinstance(raw, dict):
+        return (None, None, None)
+    name = raw.get("required_tool_name")
+    name_out: str | None = (
+        name if isinstance(name, str) and len(name) > 0 else None
+    )
+    applied = raw.get("hard_tool_selection_applied")
+    applied_out: bool | None = applied if isinstance(applied, bool) else None
+    count = raw.get("hard_tool_selection_application_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        count_out: int | None = None
+    else:
+        count_out = count
+    return (name_out, applied_out, count_out)
+
+
+def _is_valid_selection_evidence(
+    selection_evidence: tuple[str | None, bool | None, int | None],
+    required_tool_name: str,
+) -> bool:
+    """Validate a successful selection evidence object.
+
+    A successful authorized execution with a required tool must report:
+
+    - required_tool_name exactly equal to the requested required tool;
+    - hard_tool_selection_applied == True;
+    - hard_tool_selection_application_count == 1.
+    """
+    name, applied, count = selection_evidence
+    if name != required_tool_name:
+        return False
+    if applied is not True:
+        return False
+    if count != 1:
+        return False
+    return True
 
 
 def _classify_authorized_failure(stderr: str) -> str:

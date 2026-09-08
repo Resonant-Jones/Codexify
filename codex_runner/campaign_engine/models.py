@@ -232,6 +232,12 @@ class LiveExecutorPreparation:
     target_baseline_file_hashes: tuple[tuple[str, str], ...]
     campaign_input_hash: str
 
+    # Bounded Campaign Engine declared execution requirement.
+    # Campaign Engine owns this declaration. It is NOT a permission grant
+    # and NOT provider authority. The initial supported value is "write".
+    # `None` means no required-tool selection.
+    required_tool_name: str | None = None
+
     def as_payload(self) -> dict[str, Any]:
         return {
             "campaign_id": self.campaign_id,
@@ -265,6 +271,7 @@ class LiveExecutorPreparation:
                 for rel, sha256 in self.target_baseline_file_hashes
             ],
             "campaign_input_hash": self.campaign_input_hash,
+            "required_tool_name": self.required_tool_name,
         }
 
 
@@ -315,6 +322,10 @@ class LiveExecutorRunResult:
     assistant_content_block_types: tuple[str, ...] | None = None
     assistant_message_event_types: tuple[str, ...] | None = None
     assistant_tool_call_event_count: int | None = None
+    # Bounded required-tool selection evidence (separate from tool telemetry).
+    required_tool_name: str | None = None
+    hard_tool_selection_applied: bool | None = None
+    hard_tool_selection_application_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -389,4 +400,14 @@ class LiveExecutorRunResult:
             }
             if self.effective_tool_names is not None
             else None,
+            # Required-tool selection evidence (separate from telemetry).
+            "required_tool_selection": (
+                {
+                    "required_tool_name": self.required_tool_name,
+                    "hard_tool_selection_applied": self.hard_tool_selection_applied,
+                    "hard_tool_selection_application_count": self.hard_tool_selection_application_count,
+                }
+                if self.required_tool_name is not None
+                else None
+            ),
         }

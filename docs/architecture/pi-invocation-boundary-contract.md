@@ -1,28 +1,36 @@
 # Pi Invocation Boundary Contract
 
-Implementation status (2026-05-08): backend-only Pi invocation boundary contracts now exist under `guardian/pi` for `PiInvocationEnvelope`, `PiInvocationReceipt`, `PiInvocationArtifact`, `PiHarnessResult`, and `PiInvocationValidationResult`, with pure deterministic validation helpers for envelope, receipt, and harness-result provenance/permission checks.
+Implementation status (2026-05-08 → current): backend-only Pi invocation boundary contracts now exist under `guardian/pi` for `PiInvocationEnvelope`, `PiInvocationReceipt`, `PiInvocationArtifact`, `PiHarnessResult`, and `PiInvocationValidationResult`, with pure deterministic validation helpers for envelope, receipt, and harness-result provenance/permission checks.  A bounded internal runtime invocation seam was added since the original contract (see the Guardian-authorized Pi execution, wrapper subprocess framing, and required-tool selection sections below).
 
-As of 2026-09-06, a bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that lets the supervising agent choose an exact provider/model pair from Pi's current `pi --list-models` registry. This is dev-tooling only — no Guardian runtime integration, provider-routing change, or release-claim change. Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`. The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable. Codex/Astra remains the supervising agent; the selected Pi worker remains bounded and untrusted. The legacy DeepSeek names are retained for compatibility with repository proof surfaces.
+The current implemented runtime seam includes, at minimum:
 
-This seam is contract and validation only:
-- no live Pi SDK call exists
-- no Minimax provider behavior changed
-- no provider routing changed
-- no command execution was added
-- no worker orchestration was added
-- no sandboxing was added
-- no runtime dispatch/autonomous execution was added
-- no transcript persistence was added
-- no HTTP routes were added
+- `guardian/pi` runtime invocation machinery beyond pure shape validation (canonical `invoke_guardian_authorized_pi` reaches the maintained Pi 0.82.1 wrapper through the bounded authorized path);
+- the canonical wrapper (`codex_runner/src/agent-wrapper.js`) implements bounded Pi coding-tool surface activation, session lifecycle, and the maintained Pi 0.82.1 session-level `onPayload` chain;
+- Campaign Engine can pass its canonical `required_tool_name="write"` requirement through Guardian into Pi for the live Executor slice (ADR-068), and the wrapper projects that requirement onto the first provider-request payload;
+- required-tool selection is first-provider-turn-only, does not grant permission, and the selected tool name reaches the bounded live session through a single `tool_choice` projection;
+- bounded live tool-execution and bounded assistant-response telemetry are observed through `tool_telemetry` and propagated as evidence-only fields;
+- the pre-execution drift gate revalidates the canonical required-tool requirement from the `LIVE_EXECUTOR_REQUIRED_TOOL_NAME` constant before any provider-mechanics authority is engaged.
 
-Deferred in this task:
-- `/docs/architecture/00-current-state.md`
-- `/docs/architecture/system-overview.md`
-- `/docs/architecture/flows.md`
-- provider implementation docs
-- command-bus runtime docs
+This seam remains supervised and internal, and the live provider-backed CE-L1 qualification gate (live provider/model execution, terminal durable result, source-thread readback) remains open.  See `docs/architecture/00-current-state.md` for current release status; this document does not widen the release claim.
+
+As of 2026-09-06, a separate bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that lets the supervising agent choose an exact provider/model pair from Pi's current `pi --list-models` registry.  That skill is dev-tooling only — it is not the Guardian runtime seam described above, introduces no provider-routing change, and carries no release-claim change.  Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`.  The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable.  Codex/Astra remains the supervising agent; the selected Pi worker remains bounded and untrusted.  The legacy DeepSeek names are retained for compatibility with repository proof surfaces.
+
+The current seam does not:
+
+- grant provider-routing authority to Pi (provider/model choice remains governed by existing provider/config contracts);
+- add autonomous runtime dispatch or recursive self-dispatch;
+- add sandbox execution authority to Pi;
+- add worker orchestration beyond the bounded `_invoker` seam (no queue, no retry, no fallback);
+- add transcript persistence for Pi execution output;
+- add HTTP routes for Pi invocation;
+- add UI surfaces for Pi invocation;
+- widen the supported beta release promise;
+- authorize direct identity mutation through Pi;
+- authorize command-bus bypass through Pi;
+- replace ADR-020 doctrine.
+
 Purpose: Define Codexify's bounded architecture contract for future Pi-like coding-agent harness invocation while preserving Guardian authority, lineage, and sovereignty boundaries.
-Last updated: 2026-09-06 (added supervising-agent-selected Pi provider/model pairs)
+Last updated: 2026-09-08 (reconciled implementation status with the bounded Guardian/Pi runtime seam and the canonical required-tool selection slice)
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/chat-runtime-contract.md
@@ -47,9 +55,9 @@ Source anchors:
   - Account export + restore contract
   - Existing identity/IDDB policy and Persona Studio identity-boundary rules
 - Brief reason:
-  - This contract defines a bounded architecture seam for future Pi-like harness invocation and clarifies provider-lane separation (including Minimax) without implementing runtime execution.
+  - This contract defines a bounded architecture seam for Pi-like harness invocation and clarifies provider-lane separation (including Minimax).  A bounded internal runtime invocation seam is now implemented under Guardian authority for the canonical Campaign Engine required-tool selection slice (ADR-068).  The seam remains supervised and internal; provider-backed CE-L1 qualification remains open.
 
-Implementation status: backend-only Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts now exist under `guardian/pi/`. They perform shape, provenance, and permission-posture validation only. No live Pi SDK call exists, no Minimax provider behavior changed, and no command execution, worker orchestration, sandboxing, runtime dispatch, or transcript persistence was added by this seam.
+Implementation status: Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts exist under `guardian/pi/`.  A bounded internal runtime invocation seam is now implemented: the canonical `invoke_guardian_authorized_pi` reaches the maintained Pi 0.82.1 wrapper through the bounded authorized path; the wrapper exposes bounded coding-tool surface activation, session lifecycle, and the maintained Pi 0.82.1 session-level `onPayload` chain; the Campaign Engine canonical `required_tool_name="write"` requirement is projected onto the first provider-request payload by the wrapper.  All of this is supervised by Guardian, gated by Guardian permission resolution, and limited to the live Executor slice.  Provider-backed CE-L1 qualification (live provider/model execution, terminal durable result, source-thread readback) remains open; the implementation path does not widen the supported beta release promise and does not change provider routing ownership.
 
 ## Purpose and Problem Statement
 
@@ -167,7 +175,7 @@ Result Return Path metadata must preserve:
 
 This contract aligns with message-versus-attempt doctrine and must not collapse authored turns into execution attempts.
 
-This contract is forward-compatible with existing reinjection and one-turn reentry doctrine and does not claim that Pi execution exists today.
+This contract is forward-compatible with existing reinjection and one-turn reentry doctrine.  A bounded internal Pi execution seam is now implemented under Guardian authority; this contract does not claim that the seam is Beta Supported, that provider-backed CE-L1 qualification has been established, or that the live provider/model execution, terminal durable result, or source-thread readback gates are open.
 
 ### Authorized wrapper subprocess framing
 
@@ -331,20 +339,20 @@ or prompt; it never produces assistant content.
 
 ## Explicit Non-Goals
 
-This contract does not:
+The current implementation remains bounded; this contract does not:
 
-- implement Pi SDK integration
-- implement Minimax provider integration
-- implement a Pi adapter
-- add runtime execution
-- add autonomous dispatch
-- add worker orchestration
-- add sandbox execution
-- add UI
-- widen the supported beta release promise
-- authorize direct identity mutation
-- authorize command-bus bypass
-- replace ADR-020 doctrine
+- claim provider-backed CE-L1 qualification (live provider/model execution, terminal durable result, source-thread readback);
+- claim Beta Supported status for the implemented Pi execution seam;
+- implement Minimax provider integration (Minimax remains a Provider Lane concern only);
+- grant provider-routing authority to Pi (provider/model choice remains governed by existing provider/config contracts);
+- add autonomous runtime dispatch or recursive self-dispatch;
+- add worker orchestration beyond the bounded `_invoker` seam (no queue, no retry, no fallback);
+- add sandbox execution authority to Pi;
+- add UI surfaces for Pi invocation;
+- widen the supported beta release promise;
+- authorize direct identity mutation through Pi;
+- authorize command-bus bypass through Pi;
+- replace ADR-020 doctrine.
 
 ## Current-Truth Anchors and Deferrals
 
@@ -356,26 +364,45 @@ What is true now:
 - The command bus remains the canonical command/tooling lane.
 - The self-extending campaign remains bounded through proposal, gate, registry, binding, resolution, activation, manual dispatch, reinjection, and one-turn reentry seams.
 - Minimax is currently a provider/config lane, not the Pi Invocation Boundary.
+- A bounded Guardian/Pi runtime invocation seam is now implemented under
+  Guardian authority for the canonical Campaign Engine required-tool
+  selection slice (ADR-068).  See the top-of-document implementation
+  status; this section does not repeat that detail.
+- The Pi Invocation Boundary still gates provider-routing authority,
+  transcript lineage, identity, persona state, and command-bus
+  ownership; Pi does not gain any of those authorities from the
+  implemented bounded seam.
+- The forced first-turn selection disables Pi/agent automatic retries
+  for the Guardian-authorized required-tool path so a failed first
+  provider turn cannot continue without the mandatory hard
+  ``tool_choice`` and the parallel-tool-disable posture.
+- The bounded mandatory single-tool write turn is the only path that
+  forces a parallel-tool-disable posture; ordinary chat / non-required
+  Pi behavior is unchanged.
 
 What is not yet true by this task:
 
-- No Pi SDK integration is implemented.
-- No live Pi invocation is implemented.
+- No provider-backed CE-L1 qualification has been established.
+  Live provider/model execution, terminal durable CE-L1 result, and
+  source-thread readback remain open.
 - No Minimax provider change is made.
 - No autonomous coding-agent runtime is enabled.
 - No worker orchestration or sandbox execution is added.
+- The Pi Invocation Boundary implementation remains supervised and
+  internal — it is not a Beta Supported surface.
 
 Explicit deferrals in this task:
 
-- `docs/architecture/00-current-state.md`
+- `docs/architecture/00-current-state.md` (release status remains
+  authoritative there; this document does not widen the release claim)
 - `docs/architecture/system-overview.md`
 - `docs/architecture/flows.md`
 - provider implementation docs
 - command-bus runtime docs
 
-## Recommended First Implementation Slice
+## Historical: Recommended First Implementation Slice (2026-05-08, completed)
 
-Narrow first slice recommendation:
+The narrow first implementation slice recommended when this contract was originally established read:
 
 - backend-only Pi invocation envelope contract
 - no live Pi SDK call
@@ -384,6 +411,8 @@ Narrow first slice recommendation:
 - no worker orchestration
 - no transcript persistence
 - pure validation of envelope shape, provenance, permission posture, and receipt shape
+
+That slice is now historical: the envelope contract, pure validation, and bounded transcript-non-persistence clauses are all in force; the "no live Pi SDK call" and "no command execution" lines are no longer current implementation truth (see the top-of-document implementation status for the current bounded seam).  This block is retained as audit history only.
 
 ## Development-Tooling Skill (2026-09-06)
 
@@ -402,3 +431,117 @@ A bounded dev-tooling delegation skill exists as a non-runtime companion to this
 - **Authority:** The skill adds no Guardian runtime integration, no runtime provider routing, no merge/commit/push/deploy capability, and no release-claim change.
 
 This skill is dev-tooling only. It does not implement the Pi Invocation Boundary runtime seam described above.
+
+## Guardian-Authorized Required-Tool Selection (2026-09-07)
+
+This section records a bounded implementation refinement of the existing
+Guardian/Pi/Campaign Engine authority split. It is an implementation
+detail, not a change in normative ownership, and does not require a new
+ADR.
+
+### Ownership contract
+
+- **Campaign Engine declares the execution requirement** via the
+  bounded `LiveExecutorPreparation.required_tool_name` field. The initial
+  supported value is `"write"`. The field is set by the canonical
+  runtime constant `LIVE_EXECUTOR_REQUIRED_TOOL_NAME`; the prompt builder
+  consumes the declared value rather than carrying a second hardcoded
+  tool literal.
+- **Guardian authorizes permissions.** A required tool cannot broaden
+  Guardian permissions. For `required_tool_name="write"`, the envelope
+  must already grant at least one valid `files.write` resource; if no
+  writable grant exists, the call is blocked before the harness runner
+  with `runner_call_count=0`. `REQUIRED_TOOL_DOES_NOT_GRANT_PERMISSION=true`.
+- **Pi maps the requirement into provider mechanics** through a bounded
+  per-session `Agent.onPayload` hook installed by the canonical
+  Guardian-authorized Pi wrapper. Pi emits a hard
+  `tool_choice={"type":"tool","name":<exact advertised name>}` on the
+  first provider request only; the continuation turn returns to
+  ordinary provider selection.
+
+### One-shot first-turn-only invariant
+
+Hard selection is applied to the FIRST provider request of the
+authorized Pi run only. After the required tool executes and its
+tool result is reinjected, subsequent provider turns use ordinary
+provider selection. The wrapper enforces
+`hard_tool_selection_application_count <= 1`. A successful authorized
+execution with a required tool must report exactly
+`hard_tool_selection_application_count == 1`. Otherwise the wrapper
+fails closed with `wrapper_protocol_failed` / `tool_selection`.
+
+### Bounded support boundary (initial slice)
+
+- Initial supported provider for required-tool projection: `anthropic`.
+- Initial supported required tool: `write`.
+- Anthropic API-key-shaped request advertises `write`; the wrapper
+  emits `tool_choice={"type":"tool","name":"write"}`.
+- Anthropic OAuth-shaped request advertises `Write`; the wrapper emits
+  `tool_choice={"type":"tool","name":"Write"}` (matching is
+  case-insensitive, but the exact advertised casing is preserved).
+- Adaptive thinking and `output_config.effort` are preserved through
+  the projection; the helper never rewrites `model`, `messages`,
+  `system`, `thinking`, `output_config`, `tools`, `max_tokens`,
+  `stream`, or `metadata`.
+
+### Bounded evidence propagation
+
+The required-tool selection evidence is propagated as a separate
+bounded object — never inside the ten-field `tool_telemetry`:
+
+- `LiveExecutorPreparation.required_tool_name` is the source
+  declaration (Campaign Engine).
+- `PiHarnessRuntimeEvidence.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` are copied without
+  recomputation (Guardian).
+- `AgentRunEnvelope.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` (adapter).
+- `PiLiveInvocationOutcome.required_tool_name`,
+  `hard_tool_selection_applied`,
+  `hard_tool_selection_application_count` (Guardian).
+- `PiInvocationReceipt.validation_metadata["required_tool_selection"]`
+  and `PiHarnessResult.validation_metadata["required_tool_selection"]`
+  (Guardian).
+- `CampaignLiveExecutorError.to_payload()["required_tool_selection"]` is
+  emitted on bounded zero-mutation failures so a future failed live
+  proof can distinguish "no hard selection applied" from "hard
+  selection applied but no tool execution observed" without
+  inspecting provider bodies.
+
+### Ordinary runtime preservation
+
+When `required_tool_name=None`, behavior must remain exactly as before:
+
+- Ordinary chat, ordinary completion, legacy
+  `PiCodexRunnerAdapter.execute`, read-only authorized Pi, Pi
+  readiness, general Pi interactive behavior, and global provider
+  routing remain unchanged.
+- No provider-neutral global `tool_choice` semantics are introduced.
+- `docs/architecture/completion_pipeline.md` is NOT modified.
+- Vendored Pi (`codex_runner/vendor/pi-coding-agent/`) remains
+  unchanged; the repair uses Pi's existing public per-session
+  `Agent.onPayload` surface.
+- The selection projection is non-persistent: after the required tool
+  result is reinjected, ordinary provider selection resumes for the
+  continuation turn.
+- `zero_mutation_executor_turn` is not weakened: hard selection is
+  not mutation evidence. Target readback remains authority.
+
+### Validation surface
+
+The required-tool projection is implemented by a pure provider-mechanics
+helper at
+`codex_runner/src/guardian-required-tool-selection.js`. The helper
+performs no I/O, accesses no environment, performs no network, and
+mutates no global state. It is the sole authority for adding or
+verifying `tool_choice` on a provider payload; the wrapper chains it
+with any preexisting session-level `onPayload` and applies it on the
+first provider request only.
+
+### Authority chain (unchanged from ADR-068)
+
+This repair is an implementation refinement of the already-accepted
+Guardian/Pi/Campaign Engine authority split. It does not modify
+ADR-068 normative ownership. No new ADR is required.

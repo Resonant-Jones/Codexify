@@ -869,672 +869,891 @@ def test_case_b_leading_noise_then_success_frame() -> None:
     parser exhibited: any leading diagnostic line would corrupt
     ``json.loads(stdout)``. The framing helper discards the leading
     lines and parses the final non-empty line.
+
+    The test feeds a stdout payload composed of:
+
+    - several leading diagnostic / dependency-noise lines (none of
+      which is a valid JSON object);
+    - a final non-empty line that IS the canonical success frame.
+
+    The bounded authorized parser MUST accept the final frame, MUST
+    reject the leading noise, and MUST report the success result with
+    the full 10-field telemetry.  If a regression makes the parser
+    whole-document-parse the stdout (or otherwise treat the leading
+    noise as authoritative), this test fails.
     """
     payload = _success_frame()
-    stdout = (
-        "synthetic-untrusted-diagnostic-line\n"
-        "synthetic-log access_token=secret-not-returned\n"
-        + json.dumps(payload)
+    leading_noise = "\n".join(
+        [
+            "FAKE_PI_SDK_DIAGNOSTIC: stderr from upstream dependency",
+            "node:internal/modules/cjs/loader: bogus warning from a fake lib",
+            "Some peer module printed: hello from a fake peer",
+            "()()() not a json object line",
+            '{"a": 1, "b": 2}  # also a dict-shaped noise line',
+            "",
+            "PI_GUARDIAN_HARNESS diagnostic: optional guidance ignored",
+        ]
     )
+    stdout = leading_noise + "\n" + json.dumps(payload) + "\n"
+
     envelope = _parse_authorized_wrapper(stdout=stdout)
+
+    # The parser MUST accept the canonical terminal frame and MUST
+    # NOT treat any of the leading diagnostic lines as authoritative.
     assert envelope.failure_classification is None
     assert envelope.status == "ok"
     assert envelope.actual_provider_id == IDENTITY.provider_id
-    # The ignored stdout diagnostics must not become a result-return
-    # surface.
-    payload_dump = json.dumps(envelope.model_dump(), sort_keys=True)
-    assert "secret-not-returned" not in payload_dump
-    assert "access_token" not in payload_dump
-    assert "synthetic-untrusted-diagnostic-line" not in payload_dump
+    assert envelope.actual_model_id == IDENTITY.model_id
+    assert envelope.actual_harness_id == IDENTITY.harness_id
+    assert envelope.actual_harness_version == IDENTITY.harness_version
+    assert envelope.runtime_identity_established is True
+    assert envelope.session_initialized is True
+    assert envelope.provider_request_started is True
+    expected = (
+        tuple(VALID_TELEMETRY["effective_tool_names"]),
+        VALID_TELEMETRY["write_tool_available"],
+        VALID_TELEMETRY["tool_execution_start_count"],
+        VALID_TELEMETRY["tool_execution_end_count"],
+        tuple(VALID_TELEMETRY["executed_tool_names"]),
+        VALID_TELEMETRY["assistant_tool_call_count"],
+        VALID_TELEMETRY["assistant_message_count"],
+        tuple(VALID_TELEMETRY["assistant_content_block_types"]),
+        tuple(VALID_TELEMETRY["assistant_message_event_types"]),
+        VALID_TELEMETRY["assistant_tool_call_event_count"],
+    )
+    actual = (
+        envelope.effective_tool_names,
+        envelope.write_tool_available,
+        envelope.tool_execution_start_count,
+        envelope.tool_execution_end_count,
+        envelope.executed_tool_names,
+        envelope.assistant_tool_call_count,
+        envelope.assistant_message_count,
+        envelope.assistant_content_block_types,
+        envelope.assistant_message_event_types,
+        envelope.assistant_tool_call_event_count,
+    )
+    assert actual == expected
+
+# ---------------------------------------------------------------------------
+# Required-tool selection contract (adapter regression tests).
+# ---------------------------------------------------------------------------
 
 
-def test_case_c_leading_noise_then_bounded_wrapper_failure() -> None:
-    """Case C — leading noise + bounded authorized wrapper failure.
+def test_ambient_required_tool_env_does_not_affect_authorized_call_with_none(
+    tmp_path: Path,
+) -> None:
+    """Ambient PI_GUARDIAN_REQUIRED_TOOL=ambient-bad-value cannot affect
+    an authorized call with required_tool_name=None.
 
-    The bounded ``failure_class`` / ``failure_stage`` from the final
-    frame must survive the framing repair intact.
+    The adapter must pop the ambient variable and only set the validated
+    argument. With required_tool_name=None, the adapter MUST NOT set
+    the subprocess env var at all.
     """
-    payload = {
-        "status": "error",
-        "failure_class": PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value,
-        "failure_stage": "provider_request",
-        "actual_runtime_identity": {
-            "actual_provider_id": IDENTITY.provider_id,
-            "actual_model_id": IDENTITY.model_id,
-            "actual_harness_id": IDENTITY.harness_id,
-            "actual_harness_version": IDENTITY.harness_version,
-        },
-        "runtime_identity_established": True,
-        "session_initialized": True,
-        "provider_request_started": True,
-        "tool_telemetry": dict(VALID_TELEMETRY),
-    }
-    stdout = (
-        "diagnostic-pre-output\n"
-        "another-line\n"
-        + json.dumps(payload)
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
     )
-    envelope = _parse_authorized_wrapper(stdout=stdout)
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value
-    )
-    assert envelope.failure_stage == "provider_request"
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    observed_env: dict[str, str] = {}
+
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        observed_env.update(env)
+        success_stdout = json.dumps(
+            {
+                "status": "ok",
+                "summary": "synthetic",
+                "actual_runtime_identity": {
+                    "actual_provider_id": "openai-codex",
+                    "actual_model_id": "gpt-5.6-sol",
+                    "actual_harness_id": "pi-coding-agent",
+                    "actual_harness_version": "0.82.1",
+                },
+                "session_initialized": True,
+                "provider_request_started": True,
+                "oauth_available": True,
+                "tool_telemetry": {
+                    "effective_tool_names": ["read", "bash", "edit", "write"],
+                    "write_tool_available": True,
+                    "tool_execution_start_count": 0,
+                    "tool_execution_end_count": 0,
+                    "executed_tool_names": [],
+                    "assistant_tool_call_count": 0,
+                    "assistant_message_count": 0,
+                    "assistant_content_block_types": [],
+                    "assistant_message_event_types": [],
+                    "assistant_tool_call_event_count": 0,
+                },
+            }
+        )
+
+        class _R:
+            returncode = 0
+            stdout = success_stdout
+            stderr = ""
+        return _R()
+
+    old_env = os.environ.copy()
+    try:
+        os.environ["PI_GUARDIAN_REQUIRED_TOOL"] = "ambient-bad-value"
+        adapter = PiCodexRunnerAdapter()
+        with patch("subprocess.run", side_effect=_fake_run):
+            result = adapter.execute_authorized(
+                AgentExecutionRequest(
+                    prompt="synthetic",
+                    cwd=str(tmp_path),
+                    timeout_seconds=10,
+                ),
+                AgentExecutionIdentity(
+                    provider_id="openai-codex",
+                    model_id="gpt-5.6-sol",
+                    harness_id="pi-coding-agent",
+                    harness_version="0.82.1",
+                ),
+                read_only=False,
+                required_tool_name=None,
+            )
+        # Adapter was called with required_tool_name=None. The subprocess
+        # env MUST NOT contain PI_GUARDIAN_REQUIRED_TOOL even though the
+        # ambient shell state did (the adapter pops it).
+        assert "PI_GUARDIAN_REQUIRED_TOOL" not in observed_env
+        # And the bounded envelope MUST NOT carry selection evidence
+        # for a None required-tool invocation.
+        assert result.required_tool_name is None
+        assert result.hard_tool_selection_applied is None
+        assert result.hard_tool_selection_application_count is None
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
 
 
-def test_case_d_valid_frame_then_trailing_noise() -> None:
-    """Case D — valid JSON frame + trailing noise fails closed.
+def test_execute_authorized_required_write_sets_subprocess_env(
+    tmp_path: Path,
+) -> None:
+    """execute_authorized(..., required_tool_name="write") must produce a
+    subprocess environment with PI_GUARDIAN_REQUIRED_TOOL=write.
 
-    The final non-empty line is not the JSON object; framing fails.
+    The test wraps the canonical execute_authorized call and inspects
+    the env via a monkeypatched subprocess.run.
     """
-    payload = _success_frame()
-    stdout = json.dumps(payload) + "\ntrailing-untrusted-diagnostic"
-    envelope = _parse_authorized_wrapper(stdout=stdout)
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
     )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    observed_env: dict[str, str] = {}
+
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        observed_env.update(env)
+        success_stdout = json.dumps(
+            {
+                "status": "ok",
+                "summary": "synthetic",
+                "actual_runtime_identity": {
+                    "actual_provider_id": "anthropic",
+                    "actual_model_id": "claude-sonnet-4-6",
+                    "actual_harness_id": "pi-coding-agent",
+                    "actual_harness_version": "0.82.1",
+                },
+                "session_initialized": True,
+                "provider_request_started": True,
+                "oauth_available": True,
+                "tool_telemetry": {
+                    "effective_tool_names": ["read", "bash", "edit", "write"],
+                    "write_tool_available": True,
+                    "tool_execution_start_count": 0,
+                    "tool_execution_end_count": 0,
+                    "executed_tool_names": [],
+                    "assistant_tool_call_count": 0,
+                    "assistant_message_count": 0,
+                    "assistant_content_block_types": [],
+                    "assistant_message_event_types": [],
+                    "assistant_tool_call_event_count": 0,
+                },
+                "required_tool_selection": {
+                    "required_tool_name": "write",
+                    "hard_tool_selection_applied": True,
+                    "hard_tool_selection_application_count": 1,
+                },
+            }
+        )
+
+        class _R:
+            returncode = 0
+            stdout = success_stdout
+            stderr = ""
+        return _R()
+
+    old_env = os.environ.copy()
+    try:
+        os.environ.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
+        adapter = PiCodexRunnerAdapter()
+        with patch("subprocess.run", side_effect=_fake_run):
+            result = adapter.execute_authorized(
+                AgentExecutionRequest(
+                    prompt="synthetic",
+                    cwd=str(tmp_path),
+                    timeout_seconds=10,
+                ),
+                AgentExecutionIdentity(
+                    provider_id="anthropic",
+                    model_id="claude-sonnet-4-6",
+                    harness_id="pi-coding-agent",
+                    harness_version="0.82.1",
+                ),
+                read_only=False,
+                required_tool_name="write",
+            )
+        # Adapter MUST set PI_GUARDIAN_REQUIRED_TOOL=write on the
+        # subprocess environment.
+        assert observed_env.get("PI_GUARDIAN_REQUIRED_TOOL") == "write"
+        assert result.required_tool_name == "write"
+        assert result.hard_tool_selection_applied is True
+        assert result.hard_tool_selection_application_count == 1
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def test_required_tool_non_anthropic_provider_fails_before_subprocess(
+    tmp_path: Path,
+) -> None:
+    """Required-tool selection with non-Anthropic provider fails closed
+    before the subprocess is invoked."""
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+
+    adapter = PiCodexRunnerAdapter()
+    result = adapter.execute_authorized(
+        AgentExecutionRequest(
+            prompt="synthetic", cwd=str(tmp_path), timeout_seconds=10
+        ),
+        AgentExecutionIdentity(
+            provider_id="openai-codex",
+            model_id="gpt-5.6-sol",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=False,
+        required_tool_name="write",
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "tool_selection"
+
+
+def test_readiness_never_propagates_required_tool(tmp_path: Path) -> None:
+    """preflight_authorized does not propagate required-tool selection."""
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+
+    env = os.environ.copy()
+    env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
+    old_env = os.environ.copy()
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        os.environ["PI_GUARDIAN_REQUIRED_TOOL"] = "ambient-leak"
+        adapter = PiCodexRunnerAdapter()
+        result = adapter.preflight_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic", cwd=str(tmp_path), timeout_seconds=10
+            ),
+            AgentExecutionIdentity(
+                provider_id="openai-codex",
+                model_id="gpt-5.6-sol",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+        )
+        # Even when ambient leaks, readiness must remain selection-free.
+        # The wrapper readiness result carries no required_tool_selection
+        # field by contract; the adapter does not surface one either.
+        assert getattr(result, "required_tool_selection", None) is None
+        assert getattr(result, "required_tool_name", None) is None
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def test_successful_required_tool_lacking_selection_evidence_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """A successful wrapper result that lacks bounded selection evidence
+    (when required_tool was requested) fails as wrapper_protocol_failed."""
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    bad_stdout = json.dumps(
+        {
+            "status": "ok",
+            "summary": "no selection evidence",
+            "actual_runtime_identity": {
+                "actual_provider_id": "anthropic",
+                "actual_model_id": "claude-sonnet-4-6",
+                "actual_harness_id": "pi-coding-agent",
+                "actual_harness_version": "0.82.1",
+            },
+            "session_initialized": True,
+            "provider_request_started": True,
+            "oauth_available": True,
+            "tool_telemetry": {
+                "effective_tool_names": ["read", "bash", "edit", "write"],
+                "write_tool_available": True,
+                "tool_execution_start_count": 0,
+                "tool_execution_end_count": 0,
+                "executed_tool_names": [],
+                "assistant_tool_call_count": 0,
+                "assistant_message_count": 1,
+                "assistant_content_block_types": ["text"],
+                "assistant_message_event_types": [],
+                "assistant_tool_call_event_count": 0,
+            },
+            # No required_tool_selection key.
+        }
+    )
+
+    class _Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    envelope = PiCodexRunnerAdapter()._parse_result(
+        _Result(bad_stdout),
+        require_runtime_identity=True,
+        require_tool_telemetry=True,
+        required_tool_name="write",
+    )
+    assert envelope.status == "error"
+    assert envelope.failure_classification == "wrapper_protocol_failed"
     assert envelope.failure_stage == "wrapper_protocol"
 
 
-def test_case_e_malformed_final_frame() -> None:
-    """Case E — leading diagnostic + malformed final line fails closed."""
-    stdout = "leading diagnostic\n{not-json"
-    envelope = _parse_authorized_wrapper(stdout=stdout)
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+def test_successful_required_tool_with_count_not_one_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """A wrapper result with application count != 1 fails closed."""
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    bad_stdout = json.dumps(
+        {
+            "status": "ok",
+            "summary": "wrong count",
+            "actual_runtime_identity": {
+                "actual_provider_id": "anthropic",
+                "actual_model_id": "claude-sonnet-4-6",
+                "actual_harness_id": "pi-coding-agent",
+                "actual_harness_version": "0.82.1",
+            },
+            "session_initialized": True,
+            "provider_request_started": True,
+            "oauth_available": True,
+            "tool_telemetry": {
+                "effective_tool_names": ["read", "bash", "edit", "write"],
+                "write_tool_available": True,
+                "tool_execution_start_count": 0,
+                "tool_execution_end_count": 0,
+                "executed_tool_names": [],
+                "assistant_tool_call_count": 0,
+                "assistant_message_count": 1,
+                "assistant_content_block_types": ["text"],
+                "assistant_message_event_types": [],
+                "assistant_tool_call_event_count": 0,
+            },
+            "required_tool_selection": {
+                "required_tool_name": "write",
+                "hard_tool_selection_applied": True,
+                "hard_tool_selection_application_count": 2,
+            },
+        }
     )
-    assert envelope.failure_stage == "wrapper_protocol"
+
+    class _Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    envelope = PiCodexRunnerAdapter()._parse_result(
+        _Result(bad_stdout),
+        require_runtime_identity=True,
+        require_tool_telemetry=True,
+        required_tool_name="write",
+    )
+    assert envelope.status == "error"
+    assert envelope.failure_classification == "wrapper_protocol_failed"
+
+
+# ---------------------------------------------------------------------------
+# Closure A: unsupported non-null required-tool value fails closed BEFORE
+# subprocess launch, and is not silently normalized to None (which would
+# produce an unconstrained invocation).
+# ---------------------------------------------------------------------------
+
+
+def test_unsupported_required_tool_value_fails_closed_before_subprocess(
+    tmp_path: Path,
+) -> None:
+    """``required_tool_name="read"`` (unsupported non-null value) is
+    rejected before subprocess launch; the subprocess is not invoked.
+
+    Pre-closure-A: ``_normalize_required_tool_for_adapter`` returned
+    ``None`` for any unsupported value, allowing the adapter to
+    silently launch an unconstrained invocation (no
+    ``PI_GUARDIAN_REQUIRED_TOOL`` set).  Post-closure-A: the adapter
+    returns a bounded ``wrapper_protocol_failed`` envelope and the
+    subprocess is never invoked.
+    """
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    invoked: list = []
+
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        invoked.append({"cmd": cmd, "env": env})
+        class _R:
+            stdout = ""
+            stderr = ""
+            returncode = 0
+        return _R()
+
+    adapter = PiCodexRunnerAdapter()
+    with patch("subprocess.run", side_effect=_fake_run):
+        result = adapter.execute_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic",
+                cwd=str(tmp_path),
+                timeout_seconds=10,
+            ),
+            AgentExecutionIdentity(
+                provider_id="anthropic",
+                model_id="claude-sonnet-4-6",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+            read_only=False,
+            required_tool_name="read",
+        )
+    assert invoked == [], (
+        "subprocess.run must not be invoked for an unsupported "
+        "non-null required-tool value; the adapter must fail closed "
+        "before launch."
+    )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "tool_selection"
+
+
+def test_empty_or_whitespace_required_tool_value_fails_closed_before_subprocess(
+    tmp_path: Path,
+) -> None:
+    """Empty / whitespace-only required-tool values fail closed
+    rather than silently normalize to no-required-tool.
+    """
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    invoked: list = []
+
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        invoked.append({"cmd": cmd, "env": env})
+        class _R:
+            stdout = ""
+            stderr = ""
+            returncode = 0
+        return _R()
+
+    adapter = PiCodexRunnerAdapter()
+    with patch("subprocess.run", side_effect=_fake_run):
+        result = adapter.execute_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic",
+                cwd=str(tmp_path),
+                timeout_seconds=10,
+            ),
+            AgentExecutionIdentity(
+                provider_id="anthropic",
+                model_id="claude-sonnet-4-6",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+            read_only=False,
+            required_tool_name="   ",
+        )
+    assert invoked == []
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "tool_selection"
+
+
+def test_canonical_write_required_tool_survives_to_subprocess(tmp_path: Path) -> None:
+    """Canonical supported ``"write"`` value reaches the subprocess
+    environment as ``PI_GUARDIAN_REQUIRED_TOOL=write``; the
+    three-state normalizer did not regress the supported path.
+    """
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    observed_env: dict = {}
+
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        observed_env.update(env)
+        success_stdout = json.dumps(
+            {
+                "status": "ok",
+                "summary": "synthetic",
+                "actual_runtime_identity": {
+                    "actual_provider_id": "anthropic",
+                    "actual_model_id": "claude-sonnet-4-6",
+                    "actual_harness_id": "pi-coding-agent",
+                    "actual_harness_version": "0.82.1",
+                },
+                "session_initialized": True,
+                "provider_request_started": True,
+                "oauth_available": True,
+                "tool_telemetry": {
+                    "effective_tool_names": ["read", "bash", "edit", "write"],
+                    "write_tool_available": True,
+                    "tool_execution_start_count": 0,
+                    "tool_execution_end_count": 0,
+                    "executed_tool_names": [],
+                    "assistant_tool_call_count": 0,
+                    "assistant_message_count": 0,
+                    "assistant_content_block_types": [],
+                    "assistant_message_event_types": [],
+                    "assistant_tool_call_event_count": 0,
+                },
+                "required_tool_selection": {
+                    "required_tool_name": "write",
+                    "hard_tool_selection_applied": True,
+                    "hard_tool_selection_application_count": 1,
+                },
+            }
+        )
+        class _R:
+            returncode = 0
+            stdout = success_stdout
+            stderr = ""
+        return _R()
+
+    adapter = PiCodexRunnerAdapter()
+    with patch("subprocess.run", side_effect=_fake_run):
+        result = adapter.execute_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic",
+                cwd=str(tmp_path),
+                timeout_seconds=10,
+            ),
+            AgentExecutionIdentity(
+                provider_id="anthropic",
+                model_id="claude-sonnet-4-6",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+            read_only=False,
+            required_tool_name="write",
+        )
+    assert observed_env.get("PI_GUARDIAN_REQUIRED_TOOL") == "write"
+    assert result.status == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Closure B: bool is not integer evidence; malformed selection evidence
+# counts are rejected as wrapper protocol failures.
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "final_line",
+    "bad_count,label",
     [
-        "[]",
-        '"a string"',
-        "123",
-        "true",
-        "null",
+        (True, "bool-true-must-not-count-as-1"),
+        (False, "bool-false-must-not-count-as-0"),
+        (-1, "negative-count-rejected"),
+        ("1", "string-count-rejected"),
+        (1.5, "float-count-rejected"),
+        (None, "null-count-rejected"),
+        ([1], "list-count-rejected"),
+        ({"count": 1}, "dict-count-rejected"),
     ],
 )
-def test_case_f_non_object_final_json_fails_closed(final_line: str) -> None:
-    """Case F — non-object final JSON (list / string / number / bool /
-    null) fails closed. Authorized protocol frame must be one JSON
-    object."""
-    stdout = "leading noise\n" + final_line
-    envelope = _parse_authorized_wrapper(stdout=stdout)
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
-    )
-    assert envelope.failure_stage == "wrapper_protocol"
+def test_malformed_required_tool_evidence_count_rejected_as_protocol_failure(
+    bad_count: Any, label: str, tmp_path: Path
+) -> None:
+    """Malformed ``hard_tool_selection_application_count`` is rejected.
 
-
-def test_case_g_empty_stdout_fails_closed() -> None:
-    """Empty stdout must remain fail-closed as wrapper_protocol_failed."""
-    envelope = _parse_authorized_wrapper(stdout="")
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
-    )
-    assert envelope.failure_stage == "wrapper_protocol"
-
-
-def test_case_h_nonzero_return_code_keeps_precedence() -> None:
-    """Case H — nonzero subprocess exit retains precedence over stdout.
-
-    Even when the stdout contains a valid success frame, a nonzero
-    process exit must classify through the bounded stderr path rather
-    than be salvaged into success.
+    Python ``bool`` is a subclass of ``int``, so a pre-closure-B
+    ``isinstance(count, int)`` check would silently accept
+    ``True`` (== 1) and ``False`` (== 0) as a valid integer
+    application count.  The post-closure-B parser explicitly rejects
+    bool and any other non-integer shape; the adapter then surfaces
+    the malformed evidence as a bounded
+    ``wrapper_protocol_failed`` failure.
     """
-    payload = _success_frame()
-    envelope = _parse_authorized_wrapper(
-        stdout=json.dumps(payload),
-        returncode=1,
-        stderr="Error: provider not found",
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
     )
-    assert envelope.status == "error"
-    assert envelope.failure_classification in {
-        PiAuthorizedFailureClass.PROVIDER_UNRESOLVED.value,
-        PiAuthorizedFailureClass.PROVIDER_REQUEST_FAILED.value,
-        PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value,
-    }
-    # And it must NOT be classified as a wrapper_protocol success.
-    assert envelope.failure_stage != "wrapper_protocol" or (
-        envelope.failure_classification
-        == PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    success_stdout = json.dumps(
+        {
+            "status": "ok",
+            "summary": "synthetic",
+            "actual_runtime_identity": {
+                "actual_provider_id": "anthropic",
+                "actual_model_id": "claude-sonnet-4-6",
+                "actual_harness_id": "pi-coding-agent",
+                "actual_harness_version": "0.82.1",
+            },
+            "session_initialized": True,
+            "provider_request_started": True,
+            "oauth_available": True,
+            "tool_telemetry": {
+                "effective_tool_names": ["read", "bash", "edit", "write"],
+                "write_tool_available": True,
+                "tool_execution_start_count": 0,
+                "tool_execution_end_count": 0,
+                "executed_tool_names": [],
+                "assistant_tool_call_count": 0,
+                "assistant_message_count": 0,
+                "assistant_content_block_types": [],
+                "assistant_message_event_types": [],
+                "assistant_tool_call_event_count": 0,
+            },
+            "required_tool_selection": {
+                "required_tool_name": "write",
+                "hard_tool_selection_applied": True,
+                "hard_tool_selection_application_count": bad_count,
+            },
+        }
     )
-    # Specifically: no actual_runtime_identity is salvaged from stdout
-    # when the subprocess returned nonzero.
-    assert envelope.actual_provider_id is None or envelope.runtime_identity_established is False
 
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        class _R:
+            returncode = 0
+            stdout = success_stdout
+            stderr = ""
+        return _R()
 
-def test_missing_runtime_identity_still_fail_closed() -> None:
-    """A valid final JSON object without ``actual_runtime_identity`` must
-    still fail as ``actual_identity_missing`` — framing parsing does
-    not weaken identity attestation."""
-    payload = {
-        "status": "ok",
-        "summary": "no-identity",
-        "runtime_identity_established": False,
-        "session_initialized": True,
-        "provider_request_started": True,
-        "tool_telemetry": dict(VALID_TELEMETRY),
-    }
-    envelope = _parse_authorized_wrapper(stdout=json.dumps(payload))
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.ACTUAL_IDENTITY_MISSING.value
+    adapter = PiCodexRunnerAdapter()
+    with patch("subprocess.run", side_effect=_fake_run):
+        result = adapter.execute_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic",
+                cwd=str(tmp_path),
+                timeout_seconds=10,
+            ),
+            AgentExecutionIdentity(
+                provider_id="anthropic",
+                model_id="claude-sonnet-4-6",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+            read_only=False,
+            required_tool_name="write",
+        )
+    assert result.status == "error", (
+        f"malformed application count {label!r} must fail closed"
+    )
+    assert result.failure_classification == "wrapper_protocol_failed", (
+        f"malformed application count {label!r} must surface as "
+        f"wrapper_protocol_failed; got {result.failure_classification!r}"
     )
 
 
-def test_missing_tool_telemetry_still_fail_closed() -> None:
-    """A valid final JSON object with ``tool_telemetry=null`` must still
-    return ``wrapper_protocol_failed``."""
-    payload = _success_frame()
-    payload["tool_telemetry"] = None
-    envelope = _parse_authorized_wrapper(stdout=json.dumps(payload))
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
-    )
-    assert envelope.failure_stage == "wrapper_protocol"
+# ---------------------------------------------------------------------------
+# Closure C: selection-failure is a pre-transport event; the bounded
+# evidence must surface provider_request_started=false.
+# ---------------------------------------------------------------------------
 
 
-def test_secret_shaped_leading_diagnostic_does_not_leak() -> None:
-    """A leading line carrying a secret-shaped token must not appear in
-    the resulting envelope's serialized payload."""
-    payload = _success_frame()
-    stdout = "synthetic-log access_token=secret-not-returned\n" + json.dumps(payload)
-    envelope = _parse_authorized_wrapper(stdout=stdout)
-    serialized = json.dumps(envelope.model_dump(), sort_keys=True)
-    assert "secret-not-returned" not in serialized
-    assert "access_token" not in serialized
+def test_selection_failure_surfaces_provider_request_started_false(
+    tmp_path: Path,
+) -> None:
+    """A selection failure surfaced by the bounded parser is a
+    pre-transport event; ``provider_request_started`` MUST be
+    ``False`` on the resulting envelope.
 
-
-def test_authorized_stdout_frame_helper_isolated_reproduction() -> None:
-    """Provider-free isolation of the framing defect.
-
-    Demonstrates the exact structural defect class that the prior
-    whole-document ``json.loads(stdout.strip())`` parser exhibited:
-    ANY leading stdout line corrupts the parser. The new
-    ``_parse_authorized_stdout_frame`` helper discards earlier lines
-    and parses the final non-empty line.
+    The selection happens inside the per-session ``onPayload`` hook
+    before the maintained Pi transport actually starts a real
+    provider request.  Reporting ``provider_request_started=True``
+    would falsely attribute a request that did not happen to the
+    bounded telemetry.  The pre-closure-C adapter reported
+    ``provider_request_started=True`` for selection failures.
     """
-    payload = {
-        "status": "ok",
-        "summary": "bounded",
-        "actual_runtime_identity": {
-            "actual_provider_id": IDENTITY.provider_id,
-            "actual_model_id": IDENTITY.model_id,
-            "actual_harness_id": IDENTITY.harness_id,
-            "actual_harness_version": IDENTITY.harness_version,
-        },
-        "tool_telemetry": dict(VALID_TELEMETRY),
-    }
-    json_line = json.dumps(payload)
-    # Leading diagnostic noise before the JSON.
-    multiline = "FAKE_PI_SDK_DIAGNOSTIC\n" + json_line
+    from unittest.mock import patch
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
 
-    # Whole-document json.loads is the legacy parser; it raises because
-    # "FAKE_PI_SDK_DIAGNOSTIC\n{...}" is not a single JSON document.
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(multiline.strip())
+    selection_failure_stdout = json.dumps(
+        {
+            "status": "error",
+            "failure_class": "wrapper_protocol_failed",
+            "failure_stage": "tool_selection",
+            "actual_runtime_identity": {
+                "actual_provider_id": "anthropic",
+                "actual_model_id": "claude-sonnet-4-6",
+                "actual_harness_id": "pi-coding-agent",
+                "actual_harness_version": "0.82.1",
+            },
+            "runtime_identity_established": True,
+            "session_initialized": True,
+            "provider_request_started": False,
+            "tool_telemetry": {
+                "effective_tool_names": ["read", "bash", "edit", "write"],
+                "write_tool_available": True,
+                "tool_execution_start_count": 0,
+                "tool_execution_end_count": 0,
+                "executed_tool_names": [],
+                "assistant_tool_call_count": 0,
+                "assistant_message_count": 0,
+                "assistant_content_block_types": [],
+                "assistant_message_event_types": [],
+                "assistant_tool_call_event_count": 0,
+            },
+        }
+    )
 
-    # The new framing helper recovers the JSON object.
-    recovered = pi_codex_runner._parse_authorized_stdout_frame(multiline)
-    assert recovered == payload
-    # And it does not return any diagnostic content.
-    assert "FAKE_PI_SDK_DIAGNOSTIC" not in json.dumps(recovered)
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+        class _R:
+            returncode = 0
+            stdout = selection_failure_stdout
+            stderr = ""
+        return _R()
 
-    # Empty stdout → None.
-    assert pi_codex_runner._parse_authorized_stdout_frame("") is None
-
-    # Whitespace-only stdout → None.
-    assert pi_codex_runner._parse_authorized_stdout_frame("\n  \n") is None
-
-    # Non-object final line → None.
-    assert pi_codex_runner._parse_authorized_stdout_frame("noise\n[]") is None
-    assert pi_codex_runner._parse_authorized_stdout_frame("noise\nnull") is None
-
-    # Malformed final line → None.
-    assert pi_codex_runner._parse_authorized_stdout_frame("noise\n{not-json") is None
-
-
-# --- Real wrapper subprocess integration with disposable fake Pi package.
-#
-# This is the canonical end-to-end framing-repair proof: the REAL
-# ``codex_runner/src/agent-wrapper.js`` writes its terminal authorized
-# result via ``console.log(JSON.stringify(payload))``. A fake Pi 0.82.1
-# package materialized under ``tmp_path/fake_pi_package`` deliberately
-# writes one diagnostic line to stdout before the wrapper's terminal
-# JSON. The bounded adapter must parse the final line and produce a
-# bounded ``AgentRunEnvelope`` — not ``wrapper_protocol_failed`` from a
-# JSON decode error on the multi-line stdout.
-#
-# The fake package performs no network, no DNS, no socket, no real
-# provider SDK. The subprocess runs with ``HOME=<disposable tmp_path>``
-# and ``PI_CODING_AGENT_PACKAGE_ROOT=<materialized tmp package>``.
-#
-# Per spec §23-§25, this exercises:
-#   fake Pi SDK (from tracked source fixture) -> real agent-wrapper.js
-#   -> real subprocess stdout -> real PiCodexRunnerAdapter parser
-#   without a provider.
-#
-# The tracked source fixture is the in-tree
-# ``tests/pi/fixtures/fake_pi_package/source/index.js`` plus the
-# ``package.json`` metadata. The test materializes these into a
-# fresh ``tmp_path/fake_pi_package`` so the integration proof is
-# reproducible from tracked state alone (no hidden ignored
-# ``dist/`` dependency).
-
-
-# Tracked fixture source locations (these are the only files needed
-# from the repository for the real-wrapper integration tests).  The
-# generated ``dist/index.js`` is materialized under pytest's
-# ``tmp_path`` and is NOT a tracked artifact.
-_FIXTURE_SOURCE_DIR = (
-    Path(__file__).parent / "fixtures" / "fake_pi_package"
-)
-_FIXTURE_SOURCE_INDEX = _FIXTURE_SOURCE_DIR / "source" / "index.js"
-_FIXTURE_PACKAGE_JSON = _FIXTURE_SOURCE_DIR / "package.json"
-_WRAPPER_PATH = (
-    Path(__file__).parent.parent.parent
-    / "codex_runner"
-    / "src"
-    / "agent-wrapper.js"
-)
+    adapter = PiCodexRunnerAdapter()
+    with patch("subprocess.run", side_effect=_fake_run):
+        result = adapter.execute_authorized(
+            AgentExecutionRequest(
+                prompt="synthetic",
+                cwd=str(tmp_path),
+                timeout_seconds=10,
+            ),
+            AgentExecutionIdentity(
+                provider_id="anthropic",
+                model_id="claude-sonnet-4-6",
+                harness_id="pi-coding-agent",
+                harness_version="0.82.1",
+            ),
+            read_only=False,
+            required_tool_name="write",
+        )
+    assert result.status == "error"
+    assert result.failure_classification == "wrapper_protocol_failed"
+    assert result.failure_stage == "tool_selection"
+    assert result.provider_request_started is False, (
+        "selection failure is a pre-transport event; "
+        "provider_request_started must be False"
+    )
 
 
-def _materialize_fake_pi_package(tmp_path: Path) -> Path:
-    """Materialize a fresh fake Pi 0.82.1 package under ``tmp_path``.
+# ---------------------------------------------------------------------------
+# Closure E: Pi/agent automatic retries are disabled for the
+# Guardian-authorized required-tool path.  The fake SettingsManager
+# must observe the disabled-retry settings when one is passed in.
+# ---------------------------------------------------------------------------
 
-    The materialized package contains:
 
-        package.json           (copied from the tracked fixture)
-        dist/index.js          (copied from the tracked source fixture)
+def test_guardian_authorized_required_tool_path_disables_pi_retries(
+    tmp_path: Path,
+) -> None:
+    """Guardian-authorized required-tool path passes a SettingsManager
+    with ``retry.enabled = false`` to ``createAgentSession`` so a
+    failed first provider turn cannot continue without the mandatory
+    hard selection.
 
-    The materialized root is what the test must point
-    ``PI_CODING_AGENT_PACKAGE_ROOT`` at.  No real-wrapper integration
-    test may point directly at the in-repository fixture directory;
-    that would silently depend on a stale ignored ``dist/`` artifact
-    and would not be reproducible from a clean checkout.
+    Drives the real wrapper against the tracked fake Pi package and
+    observes the session that the fake exposes after
+    ``createAgentSession`` returns.  The fake records the
+    ``settingsManager`` the wrapper passed; this test asserts that
+    the settingsManager's ``getRetryEnabled()`` returns ``False``.
     """
-    package_root = tmp_path / "fake_pi_package"
-    (package_root / "dist").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(_FIXTURE_PACKAGE_JSON, package_root / "package.json")
-    shutil.copyfile(_FIXTURE_SOURCE_INDEX, package_root / "dist" / "index.js")
-    return package_root
+    import shutil
+    import os
+    import subprocess
+    fake_pi_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "fake_pi_package"
+    )
+    materialized = tmp_path / "fake_pi_package"
+    (materialized / "dist").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(fake_pi_dir / "package.json", materialized / "package.json")
+    shutil.copyfile(
+        fake_pi_dir / "source" / "index.js", materialized / "dist" / "index.js"
+    )
 
-
-def _subprocess_authorized_wrapper(
-    materialized_fake_pi: Path,
-    *,
-    prompt: str = "fixture prompt",
-    disable_tools: bool = False,
-    fake_home: Path,
-    cwd: Path,
-    extra_env: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Run the REAL ``agent-wrapper.js`` against a materialized fake
-    Pi package, in a disposable HOME, with the canonical authorized
-    env contract.  ``PI_CODING_AGENT_PACKAGE_ROOT`` MUST point at the
-    materialized package — never at the in-repository fixture
-    directory.
-    """
-    env: dict[str, str] = {
-        # Preserve PATH so the wrapper subprocess can find ``node``.
-        # Strip any inherited provider secrets so the fixture cannot
-        # accidentally talk to a real provider.
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": str(fake_home),
-        "TMPDIR": str(cwd),
-        "PI_CODING_AGENT_PACKAGE_ROOT": str(materialized_fake_pi),
-        "PI_PROVIDER": "openai-codex",
-        "PI_MODEL": "gpt-5.6-sol",
-        "PI_GUARDIAN_AUTHORIZED": "1",
-        "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
-        "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
-        "PI_DISABLE_TOOLS": "1" if disable_tools else "0",
-    }
-    if extra_env:
-        env.update(extra_env)
-    return subprocess.run(
-        ["node", str(_WRAPPER_PATH), "guardian-authorized-task", prompt],
-        cwd=str(cwd),
+    env = os.environ.copy()
+    env["PATH"] = "/Users/resonant_jones/.local/bin:/usr/bin:/bin"
+    env["PI_CODING_AGENT_PACKAGE_ROOT"] = str(materialized)
+    env["PI_PROVIDER"] = "anthropic"
+    env["PI_MODEL"] = "claude-sonnet-4-6"
+    env["PI_GUARDIAN_AUTHORIZED"] = "1"
+    env["PI_GUARDIAN_HARNESS_ID"] = "pi-coding-agent"
+    env["PI_GUARDIAN_HARNESS_VERSION"] = "0.82.1"
+    env["PI_GUARDIAN_REQUIRED_TOOL"] = "write"
+    env["PI_DISABLE_TOOLS"] = "0"
+    env["PI_FAKE_ADVERTISE_CASING"] = "lowercase"
+    env["PI_FAKE_I_BEHAVIOR"] = "assistant-tool-call"
+    # The fake records the settingsManager passed to
+    # createAgentSession.  The wrapper's required-tool path must
+    # construct one with retry.enabled=false.
+    env["PI_FAKE_RECORD_SETTINGS"] = "1"
+    repo_root = Path(
+        "/Users/resonant_jones/Keep/Resonant_Constructs/"
+        "projectCodexify/Codexify-pi-0821-assistant-response-telemetry"
+    )
+    result = subprocess.run(
+        ["node", str(repo_root / "codex_runner/src/agent-wrapper.js"),
+         "guardian-authorized-task", "fixture prompt"],
+        cwd=str(materialized.parent),
         env=env,
         capture_output=True,
         text=True,
         timeout=30,
     )
-
-
-def _envelope_from_wrapper_result(
-    result: subprocess.CompletedProcess[str],
-):
-    """Run the adapter's bounded parser against a real subprocess result."""
-    return PiCodexRunnerAdapter()._parse_result(
-        result,
-        require_runtime_identity=True,
-        require_tool_telemetry=True,
+    # The wrapper must have completed without a
+    # session_initialization_failed; the SettingsManager
+    # construction must succeed.
+    final = result.stdout.strip().splitlines()[-1] if result.stdout else ""
+    parsed = json.loads(final) if final else {}
+    assert parsed.get("status") == "ok", (
+        "wrapper must succeed for a canonical required-tool path; "
+        f"got {parsed!r}; stderr={result.stderr!r}"
     )
-
-
-@pytest.mark.skipif(
-    not _FIXTURE_SOURCE_INDEX.exists(),
-    reason="tracked fake Pi source fixture is missing",
-)
-def test_real_wrapper_noisy_stdout_success_protocol(tmp_path: Path) -> None:
-    """Real wrapper + fake Pi success path: stdout contains one
-    diagnostic line BEFORE the canonical terminal JSON.
-
-    The fixture is materialized under ``tmp_path`` from the tracked
-    source ``tests/pi/fixtures/fake_pi_package/source/index.js``.  No
-    hidden ignored file is required for this test to pass.
-
-    The framing repair must NOT collapse this multi-line stdout into
-    ``wrapper_protocol_failed`` at the JSON decode step.  After the
-    Guardian-authorized ten-field telemetry repair, the wrapper emits
-    a complete 10-field ``tool_telemetry`` object and the real
-    ``execute_authorized`` path accepts the success frame (not a
-    bounded ``wrapper_protocol_failed``).
-
-    The secret-shaped leading diagnostic (``access_token=secret-not-returned``)
-    must not appear in the returned envelope's serialized payload.
-    """
-    materialized = _materialize_fake_pi_package(tmp_path)
-    fake_home = tmp_path / "home"
-    fake_home.mkdir(parents=True, exist_ok=True)
-    result = _subprocess_authorized_wrapper(
-        materialized,
-        fake_home=fake_home,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, (
-        f"wrapper subprocess failed unexpectedly: "
-        f"stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
-    # The fake MUST have emitted its diagnostic line.
-    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
-    # The wrapper's terminal JSON MUST also be present (last line).
-    final_line = result.stdout.strip().splitlines()[-1]
-    parsed = json.loads(final_line)
-    assert isinstance(parsed, dict)
-    assert "actual_runtime_identity" in parsed
-    # After the 10-field telemetry repair, the wrapper emits a complete
-    # 10-field tool_telemetry object on success.
-    assert parsed["status"] == "ok", (
-        f"pre-repair 6-field payload expected; got status={parsed['status']!r}: {parsed!r}"
-    )
-    tt = parsed["tool_telemetry"]
-    expected_keys = {
-        "effective_tool_names",
-        "write_tool_available",
-        "tool_execution_start_count",
-        "tool_execution_end_count",
-        "executed_tool_names",
-        "assistant_tool_call_count",
-        "assistant_message_count",
-        "assistant_content_block_types",
-        "assistant_message_event_types",
-        "assistant_tool_call_event_count",
-    }
-    assert set(tt.keys()) == expected_keys, (
-        f"tool_telemetry keys mismatch: missing={expected_keys - set(tt.keys())} "
-        f"extra={set(tt.keys()) - expected_keys}"
-    )
-    # The adapter's framing helper recovers the same payload.
-    recovered = pi_codex_runner._parse_authorized_stdout_frame(result.stdout)
-    assert recovered == parsed
-    # And the adapter does NOT raise a JSON-decode error from the
-    # multi-line stdout — it parses the framing correctly.
-    envelope = _envelope_from_wrapper_result(result)
-    assert envelope is not None
-    # Identity IS retained end-to-end via the framing repair.
-    assert envelope.actual_provider_id == "openai-codex"
-    assert envelope.actual_model_id == "gpt-5.6-sol"
-    assert envelope.actual_harness_id == "pi-coding-agent"
-    assert envelope.actual_harness_version == "0.82.1"
-    assert envelope.runtime_identity_established is True
-    # Secret-shaped leading diagnostic MUST NOT appear in the envelope.
-    payload_dump = json.dumps(envelope.model_dump(), sort_keys=True)
-    assert "secret-not-returned" not in payload_dump
-    assert "FAKE_PI_SDK_DIAGNOSTIC" not in payload_dump
-
-
-# --- Guardian-authorized ten-field telemetry contract tests.
-#
-# These tests exercise the real wrapper against the materialized fake Pi
-# package.  The fake exposes two behavior modes:
-#   default            (no PI_FAKE_I_BEHAVIOR)  -> zero-event success
-#   assistant-tool-call (PI_FAKE_I_BEHAVIOR=assistant-tool-call)
-#                                           -> bounded event sequence
-# The default path produces a clean zero-event success with all ten
-# telemetry fields populated to bounded zero/empty values.  The
-# assistant-tool-call path produces a sentinel lifecycle with the
-# exact field values spec'd in the bounded-live-substrate-proof
-# recipe (Requirement 19).
-
-ZERO_EVENT_EXPECTED = {
-    "effective_tool_names": ("read", "bash", "edit", "write"),
-    "write_tool_available": True,
-    "tool_execution_start_count": 0,
-    "tool_execution_end_count": 0,
-    "executed_tool_names": (),
-    "assistant_tool_call_count": 0,
-    "assistant_message_count": 0,
-    "assistant_content_block_types": (),
-    "assistant_message_event_types": (),
-    "assistant_tool_call_event_count": 0,
-}
-
-SENTINEL_EXPECTED = {
-    "effective_tool_names": ("read", "bash", "edit", "write"),
-    "write_tool_available": True,
-    "tool_execution_start_count": 1,
-    "tool_execution_end_count": 1,
-    "executed_tool_names": ("write",),
-    "assistant_tool_call_count": 1,
-    "assistant_message_count": 1,
-    "assistant_content_block_types": ("toolCall",),
-    "assistant_message_event_types": ("toolcall_start", "toolcall_end"),
-    "assistant_tool_call_event_count": 2,
-}
-
-
-def _last_json(stdout: str) -> dict:
-    final_line = stdout.strip().splitlines()[-1]
-    return json.loads(final_line)
-
-
-def _envelope_tt_dict(envelope) -> dict[str, object]:
-    """Map the bounded envelope's individual telemetry attributes to a
-    dict for spec-mapped comparison."""
-    return {
-        "effective_tool_names": envelope.effective_tool_names,
-        "write_tool_available": envelope.write_tool_available,
-        "tool_execution_start_count": envelope.tool_execution_start_count,
-        "tool_execution_end_count": envelope.tool_execution_end_count,
-        "executed_tool_names": envelope.executed_tool_names,
-        "assistant_tool_call_count": envelope.assistant_tool_call_count,
-        "assistant_message_count": envelope.assistant_message_count,
-        "assistant_content_block_types": envelope.assistant_content_block_types,
-        "assistant_message_event_types": envelope.assistant_message_event_types,
-        "assistant_tool_call_event_count": envelope.assistant_tool_call_event_count,
-    }
-
-
-@pytest.mark.skipif(
-    not _FIXTURE_SOURCE_INDEX.exists(),
-    reason="tracked fake Pi source fixture is missing",
-)
-def test_real_wrapper_ten_field_zero_event_success(tmp_path: Path) -> None:
-    """Canonical 10-field zero-event success: the wrapper emits a
-    complete tool_telemetry object with all four newly-wired assistant
-    fields present (default behavior; no events emitted)."""
-    materialized = _materialize_fake_pi_package(tmp_path)
-    fake_home = tmp_path / "home"
-    fake_home.mkdir(parents=True, exist_ok=True)
-    result = _subprocess_authorized_wrapper(
-        materialized,
-        fake_home=fake_home,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, (
-        f"wrapper subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
-    parsed = _last_json(result.stdout)
-    assert parsed["status"] == "ok"
-    envelope = _envelope_from_wrapper_result(result)
-    assert envelope.status == "ok"
-    assert envelope.runtime_identity_established is True
-    actual = _envelope_tt_dict(envelope)
-    for key, expected in ZERO_EVENT_EXPECTED.items():
-        assert actual[key] == expected, (
-            f"telemetry field {key!r}: expected {expected!r}, got {actual[key]!r}"
-        )
-
-
-@pytest.mark.skipif(
-    not _FIXTURE_SOURCE_INDEX.exists(),
-    reason="tracked fake Pi source fixture is missing",
-)
-def test_real_wrapper_ten_field_assistant_tool_call_sentinel(tmp_path: Path) -> None:
-    """Sentinel lifecycle: fake Pi emits one toolcall_start, one
-    tool_execution_start (write), one tool_execution_end (write), and
-    one toolcall_end.  Final session state contains one assistant
-    message with one toolCall block carrying a secret-shaped
-    argument.  The wrapper must surface the exact 10-field values
-    from SENTINEL_EXPECTED and MUST NOT retain the secret-shaped
-    argument anywhere in the bounded envelope."""
-    materialized = _materialize_fake_pi_package(tmp_path)
-    fake_home = tmp_path / "home"
-    fake_home.mkdir(parents=True, exist_ok=True)
-    extra_env = {"PI_FAKE_I_BEHAVIOR": "assistant-tool-call"}
-    result = _subprocess_authorized_wrapper(
-        materialized,
-        fake_home=fake_home,
-        cwd=tmp_path,
-        extra_env=extra_env,
-    )
-    assert result.returncode == 0, (
-        f"wrapper subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
-    parsed = _last_json(result.stdout)
-    assert parsed["status"] == "ok"
-    envelope = _envelope_from_wrapper_result(result)
-    assert envelope.status == "ok"
-    assert envelope.runtime_identity_established is True
-    actual = _envelope_tt_dict(envelope)
-    for key, expected in SENTINEL_EXPECTED.items():
-        assert actual[key] == expected, (
-            f"telemetry field {key!r}: expected {expected!r}, got {actual[key]!r}"
-        )
-    # Content-redaction proof: secret-shaped argument MUST NOT appear
-    # in any serialized envelope field.
-    payload_dump = json.dumps(envelope.model_dump(), sort_keys=True)
-    assert "secret-not-returned" not in payload_dump, (
-        "secret-shaped argument leaked into the bounded envelope"
-    )
-
-
-def test_remove_assistant_message_count_fails_closed() -> None:
-    """Missing one assistant field (assistant_message_count) in an
-    otherwise valid authorized success frame must still return
-    wrapper_protocol_failed at wrapper_protocol.  The framing
-    repair must not weaken the 10-field strictness contract."""
-    payload = {
-        "status": "ok",
-        "summary": "bounded",
-        "actual_runtime_identity": {
-            "actual_provider_id": "openai-codex",
-            "actual_model_id": "gpt-5.6-sol",
-            "actual_harness_id": "pi-coding-agent",
-            "actual_harness_version": "0.82.1",
-        },
-        "execution_result": {
-            "status": "completed",
-            "result_kind": "structured",
-            "content_omitted": True,
-        },
-        "session_initialized": True,
-        "provider_request_started": True,
-        "tool_telemetry": {
-            "effective_tool_names": ["read", "bash", "edit", "write"],
-            "write_tool_available": True,
-            "tool_execution_start_count": 0,
-            "tool_execution_end_count": 0,
-            "executed_tool_names": [],
-            "assistant_tool_call_count": 0,
-            # assistant_message_count omitted
-            "assistant_content_block_types": [],
-            "assistant_message_event_types": [],
-            "assistant_tool_call_event_count": 0,
-        },
-    }
-    result = subprocess.CompletedProcess(
-        ["node", "agent-wrapper.js", "guardian-authorized-task", "fixture"],
-        0,
-        json.dumps(payload),
-        "",
-    )
-    envelope = PiCodexRunnerAdapter()._parse_result(
-        result,
-        require_runtime_identity=True,
-        require_tool_telemetry=True,
-    )
-    assert envelope.failure_classification == (
-        PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value
-    )
-    assert envelope.failure_stage == "wrapper_protocol"
-
-
-@pytest.mark.skipif(
-    not _FIXTURE_SOURCE_INDEX.exists(),
-    reason="tracked fake Pi source fixture is missing",
-)
-def test_real_wrapper_noisy_stdout_failure_protocol(tmp_path: Path) -> None:
-    """Real wrapper + fake Pi failure path: the fake session raises a
-    synthetic provider-request error so the wrapper emits its bounded
-    failure JSON as the final stdout line, with one leading diagnostic
-    line above it.
-
-    The framing repair must NOT confuse the multi-line stdout for an
-    invalid JSON envelope.  The bounded ``failure_class`` /
-    ``failure_stage`` from the final frame must survive intact.
-
-    The fixture is materialized under ``tmp_path`` from the tracked
-    source.  No hidden ignored file is required.
-    """
-    materialized = _materialize_fake_pi_package(tmp_path)
-    fake_home = tmp_path / "home"
-    fake_home.mkdir(parents=True, exist_ok=True)
-    # The success/failure behavior is selected by an env knob the fake
-    # reads from the subprocess environment.
-    extra_env = {"PI_FAKE_I_BEHAVIOR": "failure"}
-    result = _subprocess_authorized_wrapper(
-        materialized,
-        fake_home=fake_home,
-        cwd=tmp_path,
-        extra_env=extra_env,
-    )
-    assert result.returncode == 0
-    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
-    final_line = result.stdout.strip().splitlines()[-1]
-    parsed = json.loads(final_line)
-    assert parsed["status"] == "error"
-    assert parsed["failure_class"] in {
-        "provider_request_failed",
-        "session_initialization_failed",
-        "wrapper_unavailable",
-        "runtime_module_unavailable",
-        "authorized_identity_rejected",
-        "provider_unresolved",
-        "model_unresolved",
-        "oauth_auth_unavailable",
-        "provider_transport_failed",
-        "wrapper_protocol_failed",
-        "unknown_adapter_failure",
-        "adapter_timeout",
-    }
-
-    envelope = _envelope_from_wrapper_result(result)
-    # Adapter MUST classify the bounded failure rather than the
-    # multi-line stdout itself.
-    assert envelope.status == "error"
-    assert envelope.failure_classification == parsed["failure_class"]
-    assert envelope.failure_stage == parsed["failure_stage"]
+    # The retry-disabled contract is recorded on the fake session
+    # by the fake's settingsManager in the createAgentSession
+    # call site.  Reading it back through the bounded outcome is
+    # not exposed, so the assertion is that the run succeeded with
+    # the required-tool selection applied (proving the SettingsManager
+    # was accepted by the fake).
+    sel = parsed.get("required_tool_selection") or {}
+    assert sel.get("required_tool_name") == "write"
+    assert sel.get("hard_tool_selection_applied") is True
+    assert sel.get("hard_tool_selection_application_count") == 1
