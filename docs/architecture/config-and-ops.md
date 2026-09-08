@@ -446,6 +446,43 @@ fails the requested provider's proof even when a response persists. Use
 `scripts/private_preview_validate.sh providers` and the focused helper it
 invokes; static or reachability modes are deliberately weaker proof classes.
 
+### Private-preview Chroma topology and lifecycle
+
+The [ADR-067 private-preview refinement](./adr/067-operator-approved-derived-chroma-retirement.md)
+is frozen architecture, not deployed configuration. The existing entry point
+`scripts/ops/codexify_private_preview.sh` explicitly loads `docker-compose.yml`
+and `docker-compose.private-preview.yml`, not `docker-compose.override.yml`.
+The narrow implementation target is the private-preview overlay and
+`tests/ops/test_private_preview_contract.py`; live recovery is a separate task.
+
+The selected engine-local volume is `codexify_private_preview_chroma`, referenced
+by Compose key `private_preview_chroma` with `external: true`. It must use
+Docker-managed local storage without bind-backed driver options. Backend,
+chat and embedding workers, and separately enabled ingestion/backfill consumers
+must resolve the same volume at `/app/.chroma`, with `nocopy: true` and common
+vector backend/path/collection configuration. In particular, the preview must
+add the chat-worker mount currently absent from the explicit Compose pair.
+
+The human operator owns volume identity acceptance, creation, preservation and
+ADR-067 retirement. Service restart, container recreation, reconciliation, image
+replacement, and host reboot retain the accepted store while Docker's data
+store survives. Missing/conflicting identity, engine-context drift, or an
+incompatible replacement image must stop activation; there is no automatic
+replacement, historical seeding, host-bind fallback, or parallel project/store.
+Shutdown is not retirement; the lifecycle script's intentional shutdown uses
+`compose stop` and preserves volumes. Raw Compose shutdown leaves desired-up
+intent intact and can be reversed by reconciliation. Keep periodic
+reconciliation suspended until the complete ADR-067 preview proof chain passes.
+
+The current historical preservation remains separate and immutable. Any future
+active-volume backup requires separately authorized quiescent preservation to
+independent storage; Docker persistence alone is not backup. Recovery starts
+only after implementation proof, writer quiescence, preservation re-verification,
+and retirement, then qualifies fresh initialization, panic absence, health,
+queue/workers, matching Persona lineage, authenticated routes and browser
+save/readback, before reconciliation restoration. No live action or release
+support change is authorized by this documentation update.
+
 ### Beta readiness operator verification workflow
 
 1. Confirm the intended beta contract before trusting runtime signals.
