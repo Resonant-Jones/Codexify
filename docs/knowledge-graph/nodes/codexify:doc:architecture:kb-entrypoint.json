@@ -11,15 +11,15 @@
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified against ed4a0eb25b3a after canonical-main DLG source canonicalization. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed; ADR-053 duplicate retirement and ADR-076 to ADR-083 renumbering are included. Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim widened.",
+    "reason": "Re-verified against 54a4e1932a8c after canonical-main DLG source canonicalization. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed; ADR-053 duplicate retirement and ADR-076 to ADR-083 renumbering are included. Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim widened.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "verified_at": "2026-09-08T20:38:00Z",
-    "verified_commit": "ed4a0eb25b3add6050c2bc2a6d6908bb4b6d52ef"
+    "verified_at": "2026-09-08T21:16:54Z",
+    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

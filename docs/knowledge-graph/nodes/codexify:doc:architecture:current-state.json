@@ -13,15 +13,15 @@
   "document_id": "codexify:doc:architecture:current-state",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified current-state metadata against committed source revision ed4a0eb25b3add6050c2bc2a6d6908bb4b6d52ef after the canonical-main DLG source canonicalization. Current 2026-09-08 short-horizon blockers and priorities preserved. No capability promoted or demoted; no new runtime proof inferred; CE-L1 still lacks live provider/model execution, terminal durable result, source-thread readback.",
+    "reason": "Re-verified current-state metadata against committed source revision 54a4e1932a8c239607d9f23e8a1d47ad0f61b195 after the canonical-main DLG source canonicalization. Current 2026-09-08 short-horizon blockers and priorities preserved. No capability promoted or demoted; no new runtime proof inferred; CE-L1 still lacks live provider/model execution, terminal durable result, source-thread readback.",
     "state": "current",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
-    "verified_at": "2026-09-08T20:38:00Z",
-    "verified_commit": "ed4a0eb25b3add6050c2bc2a6d6908bb4b6d52ef",
+    "verified_at": "2026-09-08T21:16:54Z",
+    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195",
     "window_days": 7
   },
   "governing_adr_posture": "not_applicable",
