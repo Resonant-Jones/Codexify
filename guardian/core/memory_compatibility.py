@@ -75,6 +75,11 @@ from guardian.db.models import (
 )
 from guardian.protocol_tokens import MemorySemanticSpecies, PersonalFactStatus
 
+try:
+    from sqlalchemy import or_  # SQLAlchemy >= 1.4
+except ImportError:  # pragma: no cover - SQLAlchemy 1.3 compatibility
+    from sqlalchemy.sql import or_  # type: ignore[no-redef]
+
 # ---------------------------------------------------------------------------
 # Frozen UMS-03A compatibility mapping constants for ``memory_entries``.
 # ---------------------------------------------------------------------------
@@ -114,6 +119,12 @@ PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES: str = (
     MemorySemanticSpecies.VERIFIED_PERSONAL_FACT.value
 )
 
+#: Canonical envelope species for candidate / unreviewed ``personal_facts``
+#: rows. Frozen by UMS-03A §4.13 line 901 and §4.10 line 725 exactly.
+PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES: str = (
+    MemorySemanticSpecies.CANDIDATE_UNREVIEWED_FACT.value
+)
+
 #: Legacy source-family identifier used in compatibility projections.
 PERSONAL_FACT_LEGACY_SOURCE_FAMILY: str = "personal_facts"
 
@@ -124,6 +135,27 @@ PERSONAL_FACT_LEGACY_SOURCE_SYSTEM: str = "codexify"
 #: Mirrors §4.13 line 900 and §4.10 line 724 exactly.
 VERIFIED_PERSONAL_FACT_PREDICATE: str = (
     f"status = '{PersonalFactStatus.VERIFIED.value}' " f"AND is_active = TRUE"
+)
+
+#: Canonical eligibility predicate for the candidate / unreviewed fact
+#: adapter. Mirrors §4.13 line 901 and §4.10 line 725 exactly:
+#: status in {candidate, disputed, archived} OR is_active = false.
+CANDIDATE_PERSONAL_FACT_PREDICATE: str = (
+    f"status IN ("
+    f"'{PersonalFactStatus.CANDIDATE.value}', "
+    f"'{PersonalFactStatus.DISPUTED.value}', "
+    f"'{PersonalFactStatus.ARCHIVED.value}') "
+    f"OR is_active = FALSE"
+)
+
+#: Closed set of status tokens that map to the candidate / unreviewed
+#: species per the §4.13 row.
+CANDIDATE_PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
+    {
+        PersonalFactStatus.CANDIDATE.value,
+        PersonalFactStatus.DISPUTED.value,
+        PersonalFactStatus.ARCHIVED.value,
+    }
 )
 
 
@@ -549,9 +581,13 @@ def _project_personal_fact(
     fact: PersonalFact,
     evidence_rows: list[PersonalFactEvidence],
     revision_rows: list[PersonalFactRevision],
+    *,
+    semantic_species: str = PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES,
+    ambient_eligible: bool = True,
 ) -> MemoryCompatibilityProjection:
-    """Translate a verified + active personal fact into the canonical envelope.
+    """Translate a legacy ``personal_facts`` row into the canonical envelope.
 
+    The default behavior is the UMS-03F verified + active projection.
     Per §4.13, verified + active personal facts project with:
 
         semantic_species     = verified_personal_fact
@@ -567,6 +603,11 @@ def _project_personal_fact(
     state, not routing policy. ``ambient_eligible`` is left as the
     reader's "approved" default; the reader does not perform
     ambient-influence routing decisions.
+
+    UMS-03G reuses this helper to project candidate / unreviewed
+    facts with a different ``semantic_species`` token and
+    ``ambient_eligible=False``. The verified reader is unaffected
+    by the optional keyword arguments.
     """
 
     evidence_projection = _project_evidence(fact.id, evidence_rows)
@@ -578,7 +619,7 @@ def _project_personal_fact(
         legacy_source_family=PERSONAL_FACT_LEGACY_SOURCE_FAMILY,
         legacy_source_record_id=_personal_fact_source_record_id(fact.id),
         account_user_id=fact.user_id,
-        semantic_species=PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES,
+        semantic_species=semantic_species,
         content=None,
         retention_class=None,
         tags=None,
@@ -599,7 +640,7 @@ def _project_personal_fact(
         ),
         evidence=evidence_projection,
         revisions=revisions_projection,
-        ambient_eligible=True,
+        ambient_eligible=ambient_eligible,
     )
 
 
@@ -653,3 +694,88 @@ def read_verified_personal_fact_projection(
     evidence_rows = list(row.evidence)
     revision_rows = list(row.revisions)
     return _project_personal_fact(row, evidence_rows, revision_rows)
+
+
+# ---------------------------------------------------------------------------
+# Candidate / unreviewed personal-fact reader (UMS-03G).
+# ---------------------------------------------------------------------------
+
+
+def read_candidate_personal_fact_projection(
+    session: Session,
+    *,
+    authenticated_account_id: str,
+    personal_fact_id: int,
+) -> MemoryCompatibilityProjection | None:
+    """Project a candidate / unreviewed legacy ``personal_facts`` row.
+
+    Eligibility is the canonical predicate frozen in §4.13 line 901
+    and §4.10 line 725:
+
+        status    IN ('candidate', 'disputed', 'archived')
+        OR
+        is_active = FALSE
+
+    This is the natural complement of the UMS-03F verified + active
+    predicate. Together the two readers cover every ``personal_facts``
+    row exactly.
+
+    Per §4.13, candidate / unreviewed facts project with:
+
+        semantic_species     = candidate_unreviewed_fact
+        review posture       = pending / unapproved (carried by species)
+        lifecycle authority  = Personal Facts (source `is_active` is
+                               preserved; the projection does not
+                               reinterpret activation as approval)
+        ambient_eligible     = False (candidate content is never
+                               ambiently influential through the
+                               compatibility reader)
+
+    The caller supplies only the authenticated account identity and
+    the legacy source identifier. Every other field is derived from
+    the source row, the frozen §4.13 mapping, and the related
+    evidence / revision rows; the caller may not supply ownership,
+    status, activity, semantic species, Project authority, Persona
+    attribution, review authority, activation authority, or
+    provenance authority.
+
+    Account authorization is enforced by filtering the query on the
+    legacy row identity and the authenticated account. The natural
+    complement with the verified reader means a verified + active
+    fact returns ``None`` from this reader, a candidate / disputed /
+    archived / inactive fact returns ``None`` from the verified
+    reader, and either case returns ``None`` for not-found and
+    not-owned, per existing repository concealment semantics. A row
+    that passes the candidate predicate but cannot be losslessly
+    projected (e.g. malformed evidence) raises
+    :class:`MemoryCompatibilityReadError`.
+    """
+
+    if not authenticated_account_id:
+        raise MemoryCompatibilityReadError(
+            "authenticated_account_id is required for compatibility reads"
+        )
+
+    row = (
+        session.query(PersonalFact)
+        .filter(PersonalFact.id == personal_fact_id)
+        .filter(PersonalFact.user_id == authenticated_account_id)
+        .filter(
+            or_(
+                PersonalFact.status.in_(tuple(CANDIDATE_PERSONAL_FACT_STATUSES)),
+                PersonalFact.is_active.is_(False),
+            )
+        )
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    evidence_rows = list(row.evidence)
+    revision_rows = list(row.revisions)
+    return _project_personal_fact(
+        row,
+        evidence_rows,
+        revision_rows,
+        semantic_species=PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES,
+        ambient_eligible=False,
+    )

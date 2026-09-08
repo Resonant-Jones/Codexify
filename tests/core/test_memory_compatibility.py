@@ -47,10 +47,12 @@ from guardian.core.memory_compatibility import (
     MEMORY_ENTRY_ENVELOPE_SPECIES,
     MEMORY_ENTRY_LEGACY_SOURCE_FAMILY,
     MEMORY_ENTRY_LEGACY_SOURCE_SYSTEM,
+    PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES,
     PERSONAL_FACT_LEGACY_SOURCE_FAMILY,
     PERSONAL_FACT_LEGACY_SOURCE_SYSTEM,
     PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES,
     MemoryCompatibilityReadError,
+    read_candidate_personal_fact_projection,
     read_memory_entry_projection,
     read_verified_personal_fact_projection,
 )
@@ -1343,3 +1345,621 @@ def test_verified_fact_species_is_exact_token(session: Session) -> None:
     assert projection.semantic_species == PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES
     # The species must NOT be the memory_entries species.
     assert projection.semantic_species != MEMORY_ENTRY_ENVELOPE_SPECIES
+
+
+# ===========================================================================
+# UMS-03G — Candidate / unreviewed personal-fact compatibility projection.
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 35. Owned candidate fact projects successfully.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_active_fact_projects_successfully(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        key="favorite_food",
+        value="ramen",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=True,
+        confidence=0.6,
+    )
+    _add_evidence(
+        session,
+        fact_id=fact.id,
+        source_type="runtime_extraction",
+        excerpt="user mentioned ramen",
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+
+    # Lineage.
+    assert projection.legacy_source_family == PERSONAL_FACT_LEGACY_SOURCE_FAMILY
+    assert (
+        projection.legacy_source_record_id
+        == f"{PERSONAL_FACT_LEGACY_SOURCE_FAMILY}:{fact.id}"
+    )
+
+    # Ownership.
+    assert projection.account_user_id == "account-A"
+
+    # Species is exact and is the candidate species (not verified, not memory).
+    assert projection.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    assert projection.semantic_species != PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES
+    assert projection.semantic_species != MEMORY_ENTRY_ENVELOPE_SPECIES
+
+    # Review posture is pending / unapproved; species carries this.
+    # Active candidate remains unapproved even though is_active=true.
+    assert projection.ambient_eligible is False
+
+    # Fact payload preserved exactly.
+    assert projection.fact_key == "favorite_food"
+    assert projection.fact_value == "ramen"
+    assert projection.confidence == pytest.approx(0.6)
+
+    # Project + Persona posture: never inferred.
+    assert projection.project_id is None
+    assert projection.persona_links == []
+
+    # Evidence preserved.
+    assert len(projection.evidence) == 1
+    assert projection.evidence[0].source_type == "runtime_extraction"
+
+    # Memory-entries shape remains None.
+    assert projection.content is None
+    assert projection.retention_class is None
+    assert projection.tags is None
+    assert projection.pinned is False
+
+
+# ---------------------------------------------------------------------------
+# 36. Candidate + inactive is also a valid candidate-state combination.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_inactive_fact_projects(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        key="favorite_food",
+        value="ramen",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=False,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    # Inactive candidate is still not approved / not ambient-eligible.
+    assert projection.ambient_eligible is False
+
+
+# ---------------------------------------------------------------------------
+# 37. Active candidate does NOT become approved.
+# ---------------------------------------------------------------------------
+
+
+def test_active_candidate_does_not_become_approved(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=True,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    # Ambient eligibility is the canonical "is approved" surface; the
+    # species is the canonical "what is the review posture" surface.
+    # An active candidate must report neither.
+    assert projection.ambient_eligible is False
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    # And it must NOT be the verified species.
+    assert projection.semantic_species != "verified_personal_fact"
+
+
+# ---------------------------------------------------------------------------
+# 38. Verified + active fact does NOT pass the candidate reader.
+# ---------------------------------------------------------------------------
+
+
+def test_verified_active_fact_excluded_from_candidate_reader(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+        is_active=True,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    # UMS-03F owns verified + active projection; candidate reader
+    # returns None for those rows.
+    assert projection is None
+
+
+# ---------------------------------------------------------------------------
+# 39. Verified + inactive is part of the candidate species (per §4.13).
+# ---------------------------------------------------------------------------
+
+
+def test_verified_inactive_fact_projects_as_candidate(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+        is_active=False,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    # Verified + inactive is not UMS-03F (UMS-03F requires is_active=true)
+    # and is candidate / unreviewed per §4.13 ("OR is_active=false").
+    assert projection is not None
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    assert projection.ambient_eligible is False
+
+
+# ---------------------------------------------------------------------------
+# 40. Disputed fact projects as candidate (per §4.13).
+# ---------------------------------------------------------------------------
+
+
+def test_disputed_fact_projects_as_candidate(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.DISPUTED.value,
+        is_active=True,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    assert projection.ambient_eligible is False
+
+
+# ---------------------------------------------------------------------------
+# 41. Archived fact projects as candidate (per §4.13).
+# ---------------------------------------------------------------------------
+
+
+def test_archived_fact_projects_as_candidate(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.ARCHIVED.value,
+        is_active=True,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    assert projection.ambient_eligible is False
+
+
+# ---------------------------------------------------------------------------
+# 42. Cross-account read returns None.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_cross_account_returns_none(session: Session) -> None:
+    _add_user(session, "account-A")
+    _add_user(session, "account-B")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-B",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is None
+
+
+# ---------------------------------------------------------------------------
+# 43. Missing fact returns None.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_missing_returns_none(session: Session) -> None:
+    _add_user(session, "account-A")
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=999_999,
+    )
+
+    assert projection is None
+
+
+# ---------------------------------------------------------------------------
+# 44. Empty account id fails closed.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_empty_account_fails_closed(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_candidate_personal_fact_projection(
+            session,
+            authenticated_account_id="",
+            personal_fact_id=fact.id,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 45. No canonical-table write occurs.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_read_writes_nothing(session: Session) -> None:
+    """Candidate compatibility read must not write to canonical or personal-fact tables."""
+
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=True,
+    )
+    _add_evidence(session, fact_id=fact.id, source_type="runtime_extraction")
+    _add_revision(session, fact_id=fact.id)
+
+    bind = session.get_bind()
+    engine = bind.engine if hasattr(bind, "engine") else bind
+    statements: list[str] = []
+
+    def _capture(_conn, _cursor, statement, _params, _context, _executemany):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        projection = read_candidate_personal_fact_projection(
+            session,
+            authenticated_account_id="account-A",
+            personal_fact_id=fact.id,
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", _capture)
+
+    assert projection is not None
+
+    import re
+
+    write_pattern = re.compile(
+        r"^\s*(INSERT|UPDATE|DELETE|TRUNCATE|MERGE)\b",
+        re.IGNORECASE,
+    )
+    protected = _CANONICAL_TABLES_F + _PERSONAL_FACT_TABLES_F
+    violations = [
+        s
+        for s in statements
+        if write_pattern.match(s) and any(table in s for table in protected)
+    ]
+    assert violations == [], (
+        "candidate compatibility read must not write to canonical or "
+        f"personal-fact tables; saw: {violations}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 46. No legacy mutation occurs on personal_facts / evidence / revisions.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_read_does_not_mutate_legacy_rows(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        key="favorite_food",
+        value="ramen",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=True,
+        guardrail_metadata={"source": "runtime_extraction"},
+    )
+    evidence = _add_evidence(
+        session, fact_id=fact.id, source_type="runtime_extraction", excerpt="ramen"
+    )
+    revision = _add_revision(
+        session,
+        fact_id=fact.id,
+        action="create",
+        field_changed=None,
+        old_value=None,
+        new_value="candidate",
+    )
+
+    def _snapshot_fact(fid: int) -> dict:
+        f = session.get(PersonalFact, fid)
+        return {
+            "id": f.id,
+            "user_id": f.user_id,
+            "key": f.key,
+            "value": f.value,
+            "status": f.status,
+            "is_active": f.is_active,
+            "confidence": f.confidence,
+            "guardrail_metadata": (
+                dict(f.guardrail_metadata) if f.guardrail_metadata is not None else None
+            ),
+        }
+
+    before_fact = _snapshot_fact(fact.id)
+    before_evidence = {
+        "id": evidence.id,
+        "source_type": evidence.source_type,
+        "excerpt": evidence.excerpt,
+    }
+    before_revision = {
+        "id": revision.id,
+        "actor": revision.actor,
+        "action": revision.action,
+        "old_value": revision.old_value,
+        "new_value": revision.new_value,
+    }
+
+    read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    session.expire_all()
+    after_fact = _snapshot_fact(fact.id)
+    after_evidence = {
+        "id": evidence.id,
+        "source_type": evidence.source_type,
+        "excerpt": evidence.excerpt,
+    }
+    after_revision = {
+        "id": revision.id,
+        "actor": revision.actor,
+        "action": revision.action,
+        "old_value": revision.old_value,
+        "new_value": revision.new_value,
+    }
+
+    assert before_fact == after_fact
+    assert before_evidence == after_evidence
+    assert before_revision == after_revision
+
+
+# ---------------------------------------------------------------------------
+# 47. Candidate projection has no canonical memory_id.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_has_no_canonical_memory_id(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert "memory_id" not in projection.__dataclass_fields__
+    assert "canonical_memory_id" not in projection.__dataclass_fields__
+
+
+# ---------------------------------------------------------------------------
+# 48. Candidate projection does not invent Project or Persona.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_does_not_invent_project_or_persona(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.project_id is None
+    assert projection.persona_links == []
+
+
+# ---------------------------------------------------------------------------
+# 49. Evidence with multiple rows remains distinct on candidate projection.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_multiple_evidence_remain_distinct(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+    _add_evidence(
+        session,
+        fact_id=fact.id,
+        source_type="runtime_extraction",
+        excerpt="first",
+        created_at=NOW - timedelta(days=2),
+    )
+    _add_evidence(
+        session,
+        fact_id=fact.id,
+        source_type="user_stated",
+        excerpt="second (latest)",
+        created_at=NOW,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert len(projection.evidence) == 2
+    # Both source types preserved; no deduplication.
+    assert sorted(ev.source_type for ev in projection.evidence) == sorted(
+        {"runtime_extraction", "user_stated"}
+    )
+    # Primary (latest) is the user_stated row.
+    assert projection.provenance is not None
+    assert projection.provenance.source_type == "user_stated"
+
+
+# ---------------------------------------------------------------------------
+# 50. Unknown evidence source_type still fails closed on candidate reader.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_unknown_evidence_source_type_fails_closed(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+    _add_evidence(session, fact_id=fact.id, source_type="not_in_vocabulary")
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_candidate_personal_fact_projection(
+            session,
+            authenticated_account_id="account-A",
+            personal_fact_id=fact.id,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 51. Candidate fact with no evidence still projects.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_without_evidence_still_projects(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.evidence == []
+    assert projection.provenance is not None
+    assert projection.provenance.source_type is None
+    assert (
+        projection.provenance.source_record_id
+        == f"{PERSONAL_FACT_LEGACY_SOURCE_FAMILY}:{fact.id}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 52. Candidate projection has no canonical memory_id field on the dataclass.
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_fact_species_is_exact_token(session: Session) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+    )
+
+    projection = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+
+    assert projection is not None
+    assert projection.semantic_species == "candidate_unreviewed_fact"
+    assert projection.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+    assert projection.semantic_species != "verified_personal_fact"
+    assert projection.semantic_species != "episodic_semantic_memory"

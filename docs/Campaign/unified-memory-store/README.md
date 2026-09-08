@@ -115,8 +115,9 @@ UMS-03C-B PROJECT COMPOSITE OWNERSHIP TARGET: CLOSED
 UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
 UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
 UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
+UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03: OPEN
-UMS-03G: AUTHORIZED TO START
+UMS-03H: AUTHORIZED TO START
 UMS-04: NOT AUTHORIZED
 ```
 
@@ -472,6 +473,44 @@ authorization. The complete implementation evidence is at
 UMS-03G is now authorized to start for the next unmapped legacy
 memory-bearing family from the frozen UMS-03A compatibility
 inventory; UMS-04 remains NOT AUTHORIZED.
+
+UMS-03G added the third read-only compatibility reader for the
+candidate / unreviewed `personal_facts` subset. It extends
+`guardian.core.memory_compatibility` with
+`read_candidate_personal_fact_projection(session, *,
+authenticated_account_id, personal_fact_id)`. Eligibility is
+the frozen §4.13 line 901 / §4.10 line 725 predicate
+`status IN ('candidate', 'disputed', 'archived') OR is_active = FALSE`,
+enforced in the query itself so verified + active rows return
+`None` from the candidate reader. The reader reuses the same
+`MemoryCompatibilityProjection` dataclass and populates the
+same fact shape and evidence / revision lineage as the verified
+reader, but with `semantic_species = candidate_unreviewed_fact`
+and `ambient_eligible = False`. Crucially, an active candidate
+remains pending / unapproved: Personal Fact `is_active` is
+preserved on the source row as the lifecycle authority, but it
+does not upgrade the candidate's review posture. The reader
+performs no canonical write, no Personal Fact / evidence /
+revision mutation, and no retrieval integration. Legacy
+`personal_facts` rows remain durable authority; canonical
+memory tables remain non-authoritative. The implementation was
+authorized from the post-disposition governance base
+`a6b6a5e1b4dbe280a60ea39eb540de80000dda78`; both intervening
+commits (`ba318cbb8` ADR-083 allocation reconciliation and
+`a6b6a5e1b` ADR-083 disposition) are governance-only and
+preserve ADR-084 as the controlling UMS memory ADR. Focused
+compatibility tests pass 52/52 (15 UMS-03E + 19 UMS-03F + 18
+UMS-03G) with zero skips; adjacent token and Persona-subject
+regressions pass 46/46. The Alembic head remains
+`f6b0d3e8c5a2`; no migration was added; no ContextBroker,
+MemoryOS, router, worker, account-export, or frontend file was
+changed. UMS-03H is now authorized to start for the next
+remaining compatibility prerequisite identified from the
+frozen UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. The
+complete implementation evidence is at
+[2026-09-08 UMS-03G candidate-fact compatibility proof](../../architecture/proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
+
+UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
 classify-before-mutate cleanup revision. Matching envelopes recover exact human
 description text without changing canonical ownership; conflicting envelopes

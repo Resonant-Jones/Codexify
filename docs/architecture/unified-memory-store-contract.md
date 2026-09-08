@@ -1712,6 +1712,35 @@ fact compatibility is not covered by UMS-03F and remains
 deferred. The compatibility reader was explicitly not in
 UMS-03D.
 
+UMS-03G added the third reader for the candidate /
+unreviewed `personal_facts` subset. It exposes
+`read_candidate_personal_fact_projection(session, *,
+authenticated_account_id, personal_fact_id)`, enforcing the
+frozen §4.13 line 901 / §4.10 line 725 eligibility predicate
+
+```text
+status IN ('candidate', 'disputed', 'archived')
+OR
+is_active = FALSE
+```
+
+in the query itself. This is the natural complement of the
+UMS-03F verified + active predicate; together the two
+readers cover every `personal_facts` row exactly. Verified +
+active rows return `None` from the candidate reader. The
+same `MemoryCompatibilityProjection` dataclass is reused;
+the candidate shape populates the same fact fields and
+evidence / revision lineage as the verified reader but with
+`semantic_species = candidate_unreviewed_fact` and
+`ambient_eligible = False`. Crucially, an active candidate
+remains pending / unapproved: Personal Fact `is_active` is
+preserved on the source row as the lifecycle authority, but
+it does not upgrade the candidate's review posture. The
+candidate reader performs no canonical write, no Personal
+Fact / evidence / revision mutation, and no retrieval
+integration. The compatibility reader was explicitly not in
+UMS-03D.
+
 #### 4.16.13 Explicit deferrals
 
 The following are outside UMS-03C and remain deferred to

@@ -66,8 +66,9 @@ This file is authoritative for:
   UMS-03D CANONICAL MEMORY PERSISTENCE: CLOSED
   UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
   UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
+  UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
   UMS-03: OPEN
-  UMS-03G: AUTHORIZED TO START
+  UMS-03H: AUTHORIZED TO START
   UMS-04: NOT AUTHORIZED
   ```
 
@@ -397,6 +398,49 @@ This file is authoritative for:
   legacy memory-bearing family; UMS-04 remains NOT
   AUTHORIZED. See the
   [UMS-03F verified-fact compatibility proof](./proofs/runtime/2026-09-07-ums03f-verified-personal-fact-compatibility-proof.md).
+
+- **UMS-03G (candidate personal-fact compatibility
+  projection, just closed)**: added the third read-only
+  compatibility reader in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py),
+  with
+  [`tests/core/test_memory_compatibility.py`](../../tests/core/test_memory_compatibility.py).
+  The reader enforces the frozen §4.13 line 901 /
+  §4.10 line 725 eligibility predicate
+  `status IN ('candidate', 'disputed', 'archived') OR
+  is_active = FALSE` in the query itself. This is the
+  natural complement of the UMS-03F verified + active
+  predicate; together the two readers cover every
+  `personal_facts` row exactly. The reader reuses the
+  same `MemoryCompatibilityProjection` dataclass and
+  populates the same fact shape and evidence / revision
+  lineage as the verified reader, but with
+  `semantic_species = candidate_unreviewed_fact` and
+  `ambient_eligible = False`. Crucially, an active
+  candidate remains pending / unapproved: Personal Fact
+  `is_active` is preserved on the source row as the
+  lifecycle authority, but it does not upgrade the
+  candidate's review posture. Personal Facts remains the
+  durable lifecycle authority; the canonical memory tables
+  remain non-authoritative. The implementation was
+  authorized from the post-disposition governance base
+  `a6b6a5e1b4dbe280a60ea39eb540de80000dda78`; both
+  intervening commits (`ba318cbb8` ADR-083 allocation
+  reconciliation and `a6b6a5e1b` ADR-083 disposition)
+  are governance-only and preserve ADR-084 as the
+  controlling UMS memory ADR. Focused compatibility tests
+  pass 52/52 (15 UMS-03E + 19 UMS-03F + 18 UMS-03G) with
+  zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no
+  ContextBroker, MemoryOS, router, worker,
+  account-export, or frontend file was changed. No
+  Beta/release claim widened. UMS-03G is now closed;
+  UMS-03H is authorized to start for the next remaining
+  compatibility prerequisite identified from the frozen
+  UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. See
+  the
+  [UMS-03G candidate-fact compatibility proof](./proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 
 ## Current supported reality
