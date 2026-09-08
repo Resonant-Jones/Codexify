@@ -233,6 +233,7 @@ async function loadPiSdk() {
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
+		SettingsManager: codingAgent.SettingsManager,
 		modelRuntime,
 		getModel: modelRuntime.getModel.bind(modelRuntime),
 		getProviders: modelRuntime.getProviders.bind(modelRuntime),
@@ -384,6 +385,7 @@ async function checkReadiness() {
 async function runAgent() {
 	let createAgentSession;
 	let SessionManager;
+	let SettingsManager;
 	let modelRuntime;
 	let getModel;
 	let getProviders;
@@ -398,6 +400,7 @@ async function runAgent() {
 		({
 			createAgentSession,
 			SessionManager,
+			SettingsManager,
 			modelRuntime,
 			getModel,
 			getProviders,
@@ -475,6 +478,19 @@ async function runAgent() {
 		}
 		: null;
 
+	// Bounded required-tool selection state (first-turn only).
+	// Read ONLY for guardian-authorized-task. Other modes ignore the
+	// environment variable entirely. Declared here (before session
+	// creation) so the createAgentSession call below can pass a
+	// retry-disabled SettingsManager when a required tool is in scope.
+	let requiredToolName = null;
+	if (guardianAuthorizedMode) {
+		const rawRequired = (process.env.PI_GUARDIAN_REQUIRED_TOOL || "").trim();
+		if (rawRequired.length > 0) {
+			requiredToolName = rawRequired;
+		}
+	}
+
 	// Check API key availability
 	try {
 		const available = await modelRuntime.getAvailable();
@@ -531,14 +547,44 @@ async function runAgent() {
 	// Create session
 	let result;
 	try {
-		result = await createAgentSession({
+		// Guardian-authorized required-tool path: disable Pi/agent
+		// automatic retries. The bounded mandatory single-tool write
+		// turn must not silently continue across an automatic retry
+		// after a failed first attempt — the retry would not see the
+		// required ``tool_choice`` and ``disable_parallel_tool_use``
+		// projection (which is composed for the FIRST provider turn
+		// only).  ADR-068's bounded one-attempt semantics make retry
+		// suppression the correct fail-closed behavior here.  The
+		// non-required-tool modes keep the maintained Pi retry
+		// settings unchanged.
+		const sessionOptions = {
 			cwd: OPTIONS.cwd,
 			model,
 			thinkingLevel: OPTIONS.thinking,
 			modelRuntime,
 			tools: configuredToolNames,
 			sessionManager: SessionManager.inMemory(),
-		});
+		};
+		if (
+			guardianAuthorizedMode &&
+			requiredToolName !== null &&
+			SettingsManager &&
+			typeof SettingsManager.inMemory === "function"
+		) {
+			try {
+				sessionOptions.settingsManager =
+					SettingsManager.inMemory({
+						retry: { enabled: false },
+					});
+			} catch (_settingsError) {
+				// Settings manager construction is best-effort; if the
+				// maintained Pi surface does not accept this exact
+				// shape, fall through to the default settings manager
+				// rather than failing session initialization on a
+				// non-authority configuration concern.
+			}
+		}
+		result = await createAgentSession(sessionOptions);
 	} catch (error) {
 		if (guardianAuthorizedMode) {
 			emitAuthorizedFailure("session_initialization_failed", "session_initialization", {
@@ -568,14 +614,10 @@ async function runAgent() {
 
 	// Bounded required-tool selection state (first-turn only).
 	// Read ONLY for guardian-authorized-task. Other modes ignore the
-	// environment variable entirely.
-	let requiredToolName = null;
-	if (guardianAuthorizedMode) {
-		const rawRequired = (process.env.PI_GUARDIAN_REQUIRED_TOOL || "").trim();
-		if (rawRequired.length > 0) {
-			requiredToolName = rawRequired;
-		}
-	}
+	// environment variable entirely. The requiredToolName is read
+	// earlier (before session creation) so the createAgentSession
+	// call can pass a retry-disabled SettingsManager when a required
+	// tool is in scope.
 	const requiredToolSelection = {
 		required_tool_name: null,
 		hard_tool_selection_applied: false,
@@ -740,7 +782,18 @@ async function runAgent() {
 					actual_runtime_identity: actualRuntimeIdentity,
 					runtime_identity_established: true,
 					session_initialized: true,
-					provider_request_started: true,
+					// A selection failure is a pre-transport event: the
+					// projection helper rejected the payload inside the
+					// ``onPayload`` hook before the maintained Pi
+					// transport started a real provider request.
+					// Reporting ``provider_request_started: true`` here
+					// would falsely attribute a request that did not
+					// happen to the bounded telemetry. The bounded
+					// distinction must be explicit: selection failures
+					// are pre-provider-request failures.
+					provider_request_started: isSelectionFailure
+						? false
+						: true,
 					tool_telemetry: toolTelemetry,
 				}
 			);

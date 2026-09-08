@@ -69,6 +69,32 @@ class FakeSessionManager {
     }
 }
 
+// Bounded fake SettingsManager that mirrors the maintained Pi 0.82.1
+// ``SettingsManager.inMemory({retry: {enabled: false}})`` contract.
+// The wrapper passes a custom SettingsManager with retry disabled
+// for the Guardian-authorized required-tool path; the fake must
+// accept and honor the same shape so the disabled-retry semantics
+// reach the agent without needing a network or real provider.
+class FakeSettingsManager {
+    constructor(initial = {}) {
+        this._settings = initial && typeof initial === "object" ? initial : {};
+    }
+    getRetryEnabled() {
+        return this._settings.retry?.enabled !== false;
+    }
+    getRetrySettings() {
+        const enabled = this.getRetryEnabled();
+        return {
+            enabled,
+            maxRetries: this._settings.retry?.maxRetries ?? 0,
+            baseDelayMs: this._settings.retry?.baseDelayMs ?? 2000,
+        };
+    }
+    static inMemory(settings = {}, _options = {}) {
+        return new FakeSettingsManager(settings);
+    }
+}
+
 class FakeSession {
     constructor(options = {}) {
         this.options = options;
@@ -227,9 +253,17 @@ class FakeSession {
 
 async function fakeCreateAgentSession(options = {}) {
     const session = new FakeSession(options);
+    // Bounded fake honors the wrapper's custom settingsManager so
+    // the Guardian-authorized retry-disabled contract is observable
+    // end-to-end in the fake.  The retry-disabled knob is recorded
+    // on the session for diagnostic visibility but is not directly
+    // exercised in the existing fake prompt() flow; the wrapper's
+    //    onPayload chain still fires exactly once per first turn.
+    session.settingsManager = options.settingsManager || null;
     return { session };
 }
 
 export const ModelRuntime = FakeModelRuntimeFactory;
 export const createAgentSession = fakeCreateAgentSession;
 export const SessionManager = FakeSessionManager;
+export const SettingsManager = FakeSettingsManager;

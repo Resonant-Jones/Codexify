@@ -364,18 +364,37 @@ What is true now:
 - The command bus remains the canonical command/tooling lane.
 - The self-extending campaign remains bounded through proposal, gate, registry, binding, resolution, activation, manual dispatch, reinjection, and one-turn reentry seams.
 - Minimax is currently a provider/config lane, not the Pi Invocation Boundary.
+- A bounded Guardian/Pi runtime invocation seam is now implemented under
+  Guardian authority for the canonical Campaign Engine required-tool
+  selection slice (ADR-068).  See the top-of-document implementation
+  status; this section does not repeat that detail.
+- The Pi Invocation Boundary still gates provider-routing authority,
+  transcript lineage, identity, persona state, and command-bus
+  ownership; Pi does not gain any of those authorities from the
+  implemented bounded seam.
+- The forced first-turn selection disables Pi/agent automatic retries
+  for the Guardian-authorized required-tool path so a failed first
+  provider turn cannot continue without the mandatory hard
+  ``tool_choice`` and the parallel-tool-disable posture.
+- The bounded mandatory single-tool write turn is the only path that
+  forces a parallel-tool-disable posture; ordinary chat / non-required
+  Pi behavior is unchanged.
 
 What is not yet true by this task:
 
-- No Pi SDK integration is implemented.
-- No live Pi invocation is implemented.
+- No provider-backed CE-L1 qualification has been established.
+  Live provider/model execution, terminal durable CE-L1 result, and
+  source-thread readback remain open.
 - No Minimax provider change is made.
 - No autonomous coding-agent runtime is enabled.
 - No worker orchestration or sandbox execution is added.
+- The Pi Invocation Boundary implementation remains supervised and
+  internal — it is not a Beta Supported surface.
 
 Explicit deferrals in this task:
 
-- `docs/architecture/00-current-state.md`
+- `docs/architecture/00-current-state.md` (release status remains
+  authoritative there; this document does not widen the release claim)
 - `docs/architecture/system-overview.md`
 - `docs/architecture/flows.md`
 - provider implementation docs

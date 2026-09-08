@@ -128,7 +128,9 @@ def test_helper_claude_code_casing_selected() -> None:
 
 
 def test_helper_existing_matching_choice_accepted() -> None:
-    """Existing matching choice: helper accepts the same exact advertised tool."""
+    """Existing matching choice: helper accepts the same exact advertised tool
+    when the complete required hard-selection contract (type, name, and
+    the parallel-tool-disable posture) is already present."""
     script = _import_helper() + """
         const out = applyGuardianRequiredToolSelection({
             providerId: "anthropic",
@@ -136,6 +138,7 @@ def test_helper_existing_matching_choice_accepted() -> None:
             payload: {
                 tools: [{ name: "write" }],
                 tool_choice: { type: "tool", name: "write" },
+                disable_parallel_tool_use: true,
             },
         });
         process.stdout.write(JSON.stringify({ tool_choice: out.tool_choice }));
@@ -267,7 +270,9 @@ def test_helper_existing_choice_malformed_fails_closed(
 
 def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
     """Positive control: existing ``{type: 'tool', name: 'write'}``
-    is still accepted and returned unchanged.
+    is still accepted and returned unchanged when the complete
+    required hard-selection contract (type, name, AND
+    ``disable_parallel_tool_use: true``) is already present.
 
     This is the canonical hard-selection shape.  The repair must
     preserve the existing positive-control behavior — only the
@@ -280,6 +285,7 @@ def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
             payload: {
                 tools: [{ name: "write" }],
                 tool_choice: { type: "tool", name: "write" },
+                disable_parallel_tool_use: true,
             },
         });
         // Identity check: the helper returns the existing object
@@ -298,6 +304,90 @@ def test_helper_existing_hard_choice_unchanged_after_repair() -> None:
     out = _node_eval_helper(script)
     assert out["tool_choice"] == {"type": "tool", "name": "write"}
     assert out["same_hard_choice"] is True
+
+
+def test_helper_projects_disable_parallel_tool_use_on_new_hard_choice() -> None:
+    """Newly created required hard choice pins the parallel-tool posture.
+
+    Anthropic hard selection ``{type: "tool", name: "write"}`` does
+    not by itself prevent parallel tool use.  The bounded mandatory
+    single-tool write turn requires that the forced request cannot
+    call more than one tool in parallel; the helper therefore sets
+    ``disable_parallel_tool_use: true`` on the resulting provider
+    payload for the supported Anthropic required-tool path.
+    """
+    script = _import_helper() + """
+        const input = {
+            model: "claude-sonnet-4-6",
+            messages: [{ role: "user", content: [{ type: "text", text: "x" }] }],
+            max_tokens: 1024,
+            stream: true,
+            tools: [{ name: "write" }],
+            thinking: { type: "adaptive", display: "summarized" },
+            output_config: { effort: "medium" },
+        };
+        const out = applyGuardianRequiredToolSelection({
+            providerId: "anthropic",
+            requiredToolName: "write",
+            payload: input,
+        });
+        process.stdout.write(JSON.stringify({
+            tool_choice: out.tool_choice,
+            disable_parallel_tool_use: out.disable_parallel_tool_use,
+            unrelated_preserved: {
+                model: out.model,
+                max_tokens: out.max_tokens,
+                stream: out.stream,
+                thinking: out.thinking,
+                output_config: out.output_config,
+            },
+        }));
+        """
+    out = _node_eval_helper(script)
+    assert out["tool_choice"] == {"type": "tool", "name": "write"}
+    assert out["disable_parallel_tool_use"] is True
+    # Unrelated payload fields remain unchanged.
+    assert out["unrelated_preserved"]["model"] == "claude-sonnet-4-6"
+    assert out["unrelated_preserved"]["max_tokens"] == 1024
+    assert out["unrelated_preserved"]["stream"] is True
+    assert out["unrelated_preserved"]["thinking"] == {
+        "type": "adaptive",
+        "display": "summarized",
+    }
+    assert out["unrelated_preserved"]["output_config"] == {"effort": "medium"}
+
+
+def test_helper_existing_hard_choice_without_parallel_disable_fails_closed() -> None:
+    """Existing hard tool_choice that lacks the parallel-tool-disable
+    posture fails closed rather than being silently accepted.
+
+    A pre-existing tool_choice that names the right tool with the
+    right hard ``type`` but does not pin the parallel-tool-disable
+    posture is NOT the complete required hard-selection contract.
+    The helper fails closed with the canonical conflict code rather
+    than overwriting caller/provider-hook state.
+    """
+    script = _import_helper() + """
+        let code = null;
+        let errorCaught = false;
+        try {
+            applyGuardianRequiredToolSelection({
+                providerId: "anthropic",
+                requiredToolName: "write",
+                payload: {
+                    tools: [{ name: "write" }],
+                    tool_choice: { type: "tool", name: "write" },
+                },
+            });
+        } catch (e) {
+            errorCaught = true;
+            code = e && e.code;
+        }
+        process.stdout.write(JSON.stringify({ code, errorCaught }));
+        """
+    out = _node_eval_helper(script)
+    assert out["errorCaught"] is True
+    assert out["code"] == "guard.required_tool_selection.conflicting_choice"
 
 
 def test_helper_missing_write_fails_closed() -> None:

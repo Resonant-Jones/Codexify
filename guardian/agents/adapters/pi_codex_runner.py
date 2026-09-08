@@ -28,6 +28,14 @@ def _get_pi_wrapper_path() -> Path:
     return repo_root / "codex_runner" / "src" / "agent-wrapper.js"
 
 
+# The canonical supported required-tool name. The adapter must refuse
+# any non-null value that does not normalize to this exact token; an
+# unsupported value must never silently become an unconstrained
+# invocation. Mirrors the canonical Campaign Engine constant for the
+# current supported internal slice.
+LIVE_EXECUTOR_REQUIRED_TOOL_VALUE = "write"
+
+
 class PiCodexRunnerAdapter:
     """Adapter that invokes Codex Runner through the Pi agent wrapper.
 
@@ -126,12 +134,30 @@ class PiCodexRunnerAdapter:
                 failure_stage="authorization",
             )
 
-        # Required-tool support boundary: only the canonical supported
-        # provider (anthropic) currently admits the bounded required-tool
-        # projection. Any other provider must fail closed before subprocess.
+        # Required-tool support boundary:
+        # - only the canonical supported provider (anthropic) currently
+        #   admits the bounded required-tool projection. Any other
+        #   provider must fail closed before subprocess.
+        # - the normalizer returns three states: python None (no
+        #   required tool), the canonical string "write" (supported),
+        #   or the boolean False (unsupported non-null value: must
+        #   fail closed, not silently become an unconstrained launch).
         normalized_required = _normalize_required_tool_for_adapter(
             required_tool_name
         )
+        if normalized_required is False:
+            return AgentRunEnvelope(
+                status="error",
+                summary=(
+                    "Required-tool selection value is not supported: "
+                    f"{required_tool_name!r}.  The canonical supported "
+                    f"required tool is {LIVE_EXECUTOR_REQUIRED_TOOL_VALUE!r}; "
+                    "an unsupported non-null value must never silently "
+                    "become an unconstrained invocation."
+                ),
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="tool_selection",
+            )
         if normalized_required is not None and identity.provider_id != "anthropic":
             return AgentRunEnvelope(
                 status="error",
@@ -754,22 +780,37 @@ def _bounded_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _normalize_required_tool_for_adapter(value: Any) -> str | None:
-    """Adapter-side required-tool normalizer.
+def _normalize_required_tool_for_adapter(value: Any) -> str | None | bool:
+    """Adapter-side required-tool classifier.
 
-    Mirrors ``guardian.pi.invocation._normalize_required_tool`` so the
-    adapter can reject non-supported values before constructing the
-    subprocess environment. The canonical supported value is ``"write"``.
+    Returns a 3-state result:
+
+    - ``None`` (the python value): the caller explicitly asked for the
+      no-required-tool case. The adapter will not set
+      ``PI_GUARDIAN_REQUIRED_TOOL`` in the subprocess env.
+    - a non-empty string equal to ``"write"``: the canonical supported
+      required tool. The adapter sets
+      ``PI_GUARDIAN_REQUIRED_TOOL=write``.
+    - the boolean ``False``: the caller supplied a non-null value that
+      does not normalize to a supported required tool. The adapter
+      MUST refuse to launch the subprocess; this is the only way to
+      prevent an unsupported non-null value from silently becoming
+      an unconstrained invocation.
+
+    The boolean-``False`` return is the explicit fail-closed signal
+    and is distinct from the python ``None`` "no required tool"
+    case so that the caller can choose between omitting the env var
+    and refusing the launch entirely.
     """
     if value is None:
         return None
     if not isinstance(value, str):
-        return None
+        return False
     text = value.strip()
     if not text:
-        return None
+        return False
     if text != "write":
-        return None
+        return False
     return text
 
 
@@ -781,6 +822,11 @@ def _parse_required_tool_selection(
     Returns a 3-tuple ``(required_tool_name, hard_tool_selection_applied,
     hard_tool_selection_application_count)``. Missing/invalid fields
     surface as ``None``. The wrapper is the only legitimate producer.
+
+    Note: ``bool`` is a subclass of ``int`` in Python, so an ``isinstance
+    (count, int)`` check would silently accept ``True`` (== 1) and
+    ``False`` (== 0) as a valid application count. The bounded contract
+    requires a genuine integer; ``bool`` is explicitly rejected.
     """
     if not isinstance(raw, dict):
         return (None, None, None)
@@ -791,9 +837,10 @@ def _parse_required_tool_selection(
     applied = raw.get("hard_tool_selection_applied")
     applied_out: bool | None = applied if isinstance(applied, bool) else None
     count = raw.get("hard_tool_selection_application_count")
-    count_out: int | None = (
-        count if isinstance(count, int) and count >= 0 else None
-    )
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        count_out: int | None = None
+    else:
+        count_out = count
     return (name_out, applied_out, count_out)
 
 

@@ -6,7 +6,10 @@
  * credentials, no environment access, no global mutation. The helper
  * never modifies model/messages/system/thinking/output_config/tools/
  * max_tokens/stream/metadata; it only adds or validates a `tool_choice`
- * block on the first provider payload of the first authorized turn.
+ * block on the first provider payload of the first authorized turn, and
+ * sets the supported `disable_parallel_tool_use` provider-payload flag
+ * that pins the parallel-tool posture to the bounded single-tool forced
+ * turn.
  *
  * Initial supported provider: anthropic.
  * Initial supported required tool: "write".
@@ -15,6 +18,13 @@
  * lower-case "write" emitted by the API-key branch, or the Claude-Code
  * casing "Write" emitted by the OAuth compatibility layer) is preserved
  * in the resulting `tool_choice.name`.
+ *
+ * The bounded mandatory single-tool write contract requires that the
+ * forced turn cannot call more than one tool in parallel; the helper
+ * therefore sets ``disable_parallel_tool_use: true`` on the resulting
+ * provider payload.  An existing pre-existing tool_choice is accepted
+ * only when it already satisfies the COMPLETE required hard-selection
+ * contract (type, name, AND the parallel-tool-disable posture).
  */
 
 const SUPPORTED_PROVIDERS = new Set(["anthropic"]);
@@ -151,10 +161,26 @@ export function applyGuardianRequiredToolSelection({
 		) {
 			throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
 		}
-		// Existing choice already is the exact hard selection.
+		// Existing choice already names the exact advertised tool
+		// and uses the hard "tool" type.  Verify the bounded
+		// parallel-tool-disable posture is also satisfied; if a
+		// pre-existing tool_choice lacks the parallel-tool-disable
+		// flag, the existing payload is NOT the complete required
+		// hard-selection contract and the helper must fail closed
+		// rather than silently overwriting caller/provider-hook
+		// state.
+		if (copied.disable_parallel_tool_use !== true) {
+			throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
+		}
 		return copied;
 	}
 	copied.tool_choice = { type: "tool", name: advertised };
+	// Pin the parallel-tool posture for the bounded mandatory
+	// single-tool write turn so that the forced first-turn request
+	// cannot call more than one tool in parallel.  Anthropic honors
+	// this provider-payload flag; the projection is provider-local
+	// and does not affect any other provider behavior.
+	copied.disable_parallel_tool_use = true;
 	return copied;
 }
 
