@@ -1773,6 +1773,28 @@ remain non-authoritative; compatibility projections
 remain read-only. The complete coverage evidence is at
 [§4.16 compatibility coverage proof](../proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
 
+UMS-03I introduced one explicit unified compatibility read
+surface that composes the three proven UMS-03E/F/G adapters
+without changing their authority semantics. The public
+reader is `read_memory_compatibility_projection(session, *,
+authenticated_account_id, source: MemoryCompatibilitySourceRef)`
+in `guardian.core.memory_compatibility`. The source reference
+is a typed (kind, id) pair. The dispatcher uses the source
+kind explicitly; it does not infer kind from identifier shape
+and does not search across legacy tables. The Personal Fact
+adapter selection is derived from the source row's persisted
+`status` and `is_active` columns using the same predicates the
+UMS-03F/G adapters use. The unified output is structurally
+equal to the corresponding direct adapter output for every
+admitted Personal Fact state and for every memory entry. The
+unified surface accepts only `memory_entry` and `personal_fact`
+source kinds; `personal_fact_evidence`, `personal_fact_revisions`,
+`Memoryos` library state, `chat_message`, `documents`, and
+canonical-memory source kinds are NOT supported and fail
+closed. The underlying per-source adapters remain independently
+callable. The complete evidence is at
+[§4.16 unified compatibility surface proof](../proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
+
 #### 4.16.13 Explicit deferrals
 
 The following are outside UMS-03C and remain deferred to

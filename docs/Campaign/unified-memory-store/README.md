@@ -118,9 +118,24 @@ UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
 UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
 UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: CLOSED
-UMS-03: OPEN
-UMS-03I UNIFIED COMPATIBILITY READ SURFACE: AUTHORIZED TO START
-UMS-04: NOT AUTHORIZED
+UMS-03I UNIFIED COMPATIBILITY READ SURFACE: CLOSED
+
+UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
+
+UMS-04 EXPORT / RESTORE BEFORE INGESTION: AUTHORIZED TO START
+UMS-05+: NOT AUTHORIZED
+```
+
+Preserve the Campaign sequencing principle:
+
+```text
+canonical storage
+    ↓
+compatibility reads
+    ↓
+export/restore
+    ↓
+only then broader ingestion/activation surfaces
 ```
 
 UMS-03G remains the semantic compatibility prerequisite.
@@ -590,6 +605,40 @@ to redirect live ContextBroker / MemoryOS / completion
 retrieval. UMS-04 remains NOT AUTHORIZED. The complete
 coverage evidence is at
 [2026-09-08 UMS-03H compatibility coverage proof](../../architecture/proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
+
+UMS-03I added one explicit unified compatibility read surface
+that composes the three proven UMS-03E/F/G adapters without
+changing their authority semantics. The public reader is
+`read_memory_compatibility_projection(session, *,
+authenticated_account_id, source: MemoryCompatibilitySourceRef)`
+in `guardian.core.memory_compatibility`. A
+`MemoryCompatibilitySourceRef` is a typed (kind, id) pair.
+The dispatcher uses the source kind explicitly; it does not
+infer kind from identifier shape and does not search across
+legacy tables. The Personal Fact adapter selection is derived
+from the source row's persisted `status` and `is_active`
+columns using the same predicates the UMS-03F/G adapters use,
+so the caller cannot select "verified" vs "candidate". The
+unified output is structurally equal to the corresponding
+direct adapter output for every admitted Personal Fact state
+and for every memory entry. The unified surface accepts only
+`memory_entry` and `personal_fact` source kinds; evidence,
+revisions, Memoryos library state, chat messages, documents,
+and canonical-memory source kinds are NOT supported and fail
+closed. The underlying per-source adapters remain
+independently callable. The 70-test compatibility suite
+passes 70/70 (52 UMS-03E/F/G + 18 UMS-03I) with zero skips; the
+46-test adjacent regression set passes 46/46; the Alembic head
+remains `f6b0d3e8c5a2`. No ContextBroker, MemoryOS, router,
+worker, account-export, or frontend file was changed by
+UMS-03I. The complete UMS-03 closure verdict is
+`UMS03_CANONICAL_STORAGE_AND_COMPATIBILITY_READS_CLOSED`. The
+Campaign sequencing principle is preserved: canonical storage
+→ compatibility reads → export/restore → only then broader
+ingestion/activation surfaces. UMS-04 export / restore before
+ingestion is now authorized to start; UMS-05+ remain NOT
+AUTHORIZED. The complete implementation evidence is at
+[2026-09-08 UMS-03I unified compatibility surface proof](../../architecture/proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

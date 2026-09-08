@@ -52,7 +52,10 @@ from guardian.core.memory_compatibility import (
     PERSONAL_FACT_LEGACY_SOURCE_SYSTEM,
     PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES,
     MemoryCompatibilityReadError,
+    MemoryCompatibilitySourceKind,
+    MemoryCompatibilitySourceRef,
     read_candidate_personal_fact_projection,
+    read_memory_compatibility_projection,
     read_memory_entry_projection,
     read_verified_personal_fact_projection,
 )
@@ -1963,3 +1966,498 @@ def test_candidate_fact_species_is_exact_token(session: Session) -> None:
     assert projection.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
     assert projection.semantic_species != "verified_personal_fact"
     assert projection.semantic_species != "episodic_semantic_memory"
+
+
+# ===========================================================================
+# UMS-03I — Unified memory compatibility read surface.
+# ===========================================================================
+
+
+def _memory_entry_source(source_id: int) -> MemoryCompatibilitySourceRef:
+    return MemoryCompatibilitySourceRef(
+        source_kind=MemoryCompatibilitySourceKind.MEMORY_ENTRY,
+        source_id=source_id,
+    )
+
+
+def _personal_fact_source(source_id: int) -> MemoryCompatibilitySourceRef:
+    return MemoryCompatibilitySourceRef(
+        source_kind=MemoryCompatibilitySourceKind.PERSONAL_FACT,
+        source_id=source_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 53. Memory entry: unified output equals direct adapter output.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_memory_entry_equals_direct(session: Session) -> None:
+    _add_user(session, "account-A")
+    entry = _add_memory_entry(
+        session,
+        user_id="account-A",
+        silo="longterm",
+        content="remember the trip to Lisbon",
+        tags="travel,2026",
+        pinned=True,
+    )
+
+    direct = read_memory_entry_projection(
+        session,
+        authenticated_account_id="account-A",
+        memory_entry_id=entry.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_memory_entry_source(entry.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.legacy_source_family == MEMORY_ENTRY_LEGACY_SOURCE_FAMILY
+    assert unified.semantic_species == MEMORY_ENTRY_ENVELOPE_SPECIES
+
+
+# ---------------------------------------------------------------------------
+# 54. Verified Personal Fact: unified output equals direct adapter output.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_verified_personal_fact_equals_direct(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+        is_active=True,
+    )
+
+    direct = read_verified_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.semantic_species == PERSONAL_FACT_VERIFIED_ENVELOPE_SPECIES
+
+
+# ---------------------------------------------------------------------------
+# 55. Candidate Personal Fact: unified output equals direct adapter output.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_candidate_personal_fact_equals_direct(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.CANDIDATE.value,
+        is_active=True,
+    )
+
+    direct = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+
+
+# ---------------------------------------------------------------------------
+# 56. Disputed + archived + inactive Personal Facts dispatch to candidate
+#     adapter and produce the same projection as the direct candidate reader.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_dispatches_disputed_to_candidate(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.DISPUTED.value,
+        is_active=True,
+    )
+
+    direct = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+
+
+def test_unified_dispatches_archived_to_candidate(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.ARCHIVED.value,
+        is_active=True,
+    )
+
+    direct = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+
+
+def test_unified_dispatches_inactive_verified_to_candidate(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+        is_active=False,
+    )
+
+    direct = read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id="account-A",
+        personal_fact_id=fact.id,
+    )
+    unified = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert direct is not None
+    assert unified is not None
+    assert unified == direct
+    assert unified.semantic_species == PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES
+
+
+# ---------------------------------------------------------------------------
+# 57. Cross-account reads fail closed.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_cross_account_memory_entry_returns_none(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    _add_user(session, "account-B")
+    entry = _add_memory_entry(session, user_id="account-A")
+
+    projection = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-B",
+        source=_memory_entry_source(entry.id),
+    )
+
+    assert projection is None
+
+
+def test_unified_cross_account_personal_fact_returns_none(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    _add_user(session, "account-B")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+    )
+
+    projection = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-B",
+        source=_personal_fact_source(fact.id),
+    )
+
+    assert projection is None
+
+
+# ---------------------------------------------------------------------------
+# 58. Missing sources return None (not a fail-closed exception).
+# ---------------------------------------------------------------------------
+
+
+def test_unified_missing_memory_entry_returns_none(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    projection = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_memory_entry_source(999_999),
+    )
+    assert projection is None
+
+
+def test_unified_missing_personal_fact_returns_none(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    projection = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_personal_fact_source(999_999),
+    )
+    assert projection is None
+
+
+# ---------------------------------------------------------------------------
+# 59. Empty account id fails closed.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_empty_account_fails_closed(session: Session) -> None:
+    _add_user(session, "account-A")
+    entry = _add_memory_entry(session, user_id="account-A")
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="",
+            source=_memory_entry_source(entry.id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 60. Unsupported source kinds are rejected deterministically.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_unsupported_source_kind_rejected(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+
+    class _FakeKind:
+        # Stringly coerce to look like a valid kind for repr, but it
+        # is not in SUPPORTED_COMPATIBILITY_SOURCE_KINDS.
+        value = "personal_fact_evidence"
+
+    bad = MemoryCompatibilitySourceRef(
+        source_kind=_FakeKind(),  # type: ignore[arg-type]
+        source_id=1,
+    )
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=bad,
+        )
+
+
+def test_unified_chat_message_source_kind_rejected(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+
+    class _ChatMsgKind:
+        value = "chat_message"
+
+    bad = MemoryCompatibilitySourceRef(
+        source_kind=_ChatMsgKind(),  # type: ignore[arg-type]
+        source_id=1,
+    )
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=bad,
+        )
+
+
+def test_unified_memoryos_source_kind_rejected(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+
+    class _MemoryosKind:
+        value = "memoryos"
+
+    bad = MemoryCompatibilitySourceRef(
+        source_kind=_MemoryosKind(),  # type: ignore[arg-type]
+        source_id=1,
+    )
+
+    with pytest.raises(MemoryCompatibilityReadError):
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=bad,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 61. No canonical write or legacy mutation across unified dispatch.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_dispatch_writes_nothing(session: Session) -> None:
+    _add_user(session, "account-A")
+    entry = _add_memory_entry(
+        session,
+        user_id="account-A",
+        content="before unified",
+    )
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+        is_active=True,
+    )
+    _add_evidence(session, fact_id=fact.id, source_type="user_stated")
+    _add_revision(session, fact_id=fact.id)
+
+    bind = session.get_bind()
+    engine = bind.engine if hasattr(bind, "engine") else bind
+    statements: list[str] = []
+
+    def _capture(_conn, _cursor, statement, _params, _context, _executemany):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=_memory_entry_source(entry.id),
+        )
+        read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=_personal_fact_source(fact.id),
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", _capture)
+
+    import re
+
+    write_pattern = re.compile(
+        r"^\s*(INSERT|UPDATE|DELETE|TRUNCATE|MERGE)\b",
+        re.IGNORECASE,
+    )
+    protected = _CANONICAL_TABLES_F + _PERSONAL_FACT_TABLES_F
+    violations = [
+        s
+        for s in statements
+        if write_pattern.match(s) and any(table in s for table in protected)
+    ]
+    assert violations == [], (
+        "unified dispatch must not write to canonical or personal-fact "
+        f"tables; saw: {violations}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 62. No fabricated canonical memory_id.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_has_no_canonical_memory_id(session: Session) -> None:
+    _add_user(session, "account-A")
+    entry = _add_memory_entry(session, user_id="account-A")
+    fact = _add_personal_fact(
+        session,
+        user_id="account-A",
+        status=PersonalFactStatus.VERIFIED.value,
+    )
+
+    for source in (_memory_entry_source(entry.id), _personal_fact_source(fact.id)):
+        projection = read_memory_compatibility_projection(
+            session,
+            authenticated_account_id="account-A",
+            source=source,
+        )
+        assert projection is not None
+        assert "memory_id" not in projection.__dataclass_fields__
+        assert "canonical_memory_id" not in projection.__dataclass_fields__
+
+
+# ---------------------------------------------------------------------------
+# 63. Caller cannot forge species (no species argument exists).
+# ---------------------------------------------------------------------------
+
+
+def test_unified_dispatcher_takes_no_species_argument(
+    session: Session,
+) -> None:
+    """The unified surface has no species argument; it is determined server-side."""
+    import inspect
+
+    sig = inspect.signature(read_memory_compatibility_projection)
+    assert "semantic_species" not in sig.parameters
+    assert "species" not in sig.parameters
+    assert "status" not in sig.parameters
+    assert "is_active" not in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# 64. Memory entry source identity is preserved exactly.
+# ---------------------------------------------------------------------------
+
+
+def test_unified_memory_entry_preserves_source_identity(
+    session: Session,
+) -> None:
+    _add_user(session, "account-A")
+    entry = _add_memory_entry(session, user_id="account-A")
+
+    projection = read_memory_compatibility_projection(
+        session,
+        authenticated_account_id="account-A",
+        source=_memory_entry_source(entry.id),
+    )
+
+    assert projection is not None
+    assert projection.legacy_source_family == MEMORY_ENTRY_LEGACY_SOURCE_FAMILY
+    assert (
+        projection.legacy_source_record_id
+        == f"{MEMORY_ENTRY_LEGACY_SOURCE_FAMILY}:{entry.id}"
+    )

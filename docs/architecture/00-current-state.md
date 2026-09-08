@@ -71,9 +71,12 @@ This file is authoritative for:
   UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
   UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
   UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: CLOSED
-  UMS-03: OPEN
-  UMS-03I UNIFIED COMPATIBILITY READ SURFACE: AUTHORIZED TO START
-  UMS-04: NOT AUTHORIZED
+  UMS-03I UNIFIED COMPATIBILITY READ SURFACE: CLOSED
+
+  UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
+
+  UMS-04 EXPORT / RESTORE BEFORE INGESTION: AUTHORIZED TO START
+  UMS-05+: NOT AUTHORIZED
   ```
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
@@ -502,6 +505,46 @@ This file is authoritative for:
   [UMS-03H-R rebaseline proof](./proofs/runtime/2026-09-08-ums03h-r-main-reconciliation-rebaseline-proof.md)
   and the
   [UMS-03H compatibility coverage proof](./proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
+
+- **UMS-03I (unified memory compatibility read surface,
+  just closed)**: added one explicit unified compatibility
+  read surface that composes the three proven
+  UMS-03E/F/G adapters without changing their authority
+  semantics. The public reader is
+  `read_memory_compatibility_projection(session, *,
+  authenticated_account_id, source:
+  MemoryCompatibilitySourceRef)` in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py).
+  The dispatcher uses the source kind explicitly; it does
+  not infer kind from identifier shape and does not search
+  across legacy tables. The Personal Fact adapter selection
+  is derived from the source row's persisted `status` and
+  `is_active` columns using the same predicates the
+  UMS-03F/G adapters use, so the caller cannot select
+  "verified" vs "candidate". The unified output is
+  structurally equal to the corresponding direct adapter
+  output for every admitted Personal Fact state and for
+  every memory entry. The unified surface accepts only
+  `memory_entry` and `personal_fact` source kinds;
+  evidence, revisions, Memoryos library state, chat
+  messages, documents, and canonical-memory source kinds
+  are NOT supported and fail closed. The underlying
+  per-source adapters remain independently callable. The
+  Campaign sequencing principle is preserved: canonical
+  storage → compatibility reads → export/restore → only
+  then broader ingestion/activation surfaces. Focused
+  compatibility tests pass 70/70 (52 UMS-03E/F/G + 18
+  UMS-03I) with zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no ContextBroker,
+  MemoryOS, router, worker, account-export, or frontend file
+  was changed. No canonical `memory_id` was fabricated. The
+  complete UMS-03 closure verdict is
+  `UMS03_CANONICAL_STORAGE_AND_COMPATIBILITY_READS_CLOSED`.
+  UMS-04 export / restore before ingestion is now
+  authorized to start; UMS-05+ remain NOT AUTHORIZED. No
+  Beta/release claim widened. See the
+  [UMS-03I unified compatibility surface proof](./proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
 - Added a metering/billing foundation design sketch; it is explicitly unimplemented and does not affect release scope.
 - Persona Profile authority, account-scoped persistence, export coverage, acceptance-time snapshots, and five-field runtime application landed with focused tests; broad Studio controls remain outside runtime enforcement.
 - ShareSheet async handling now rejects stale search/send completions and surfaces relationship-load failure with retry coverage.
