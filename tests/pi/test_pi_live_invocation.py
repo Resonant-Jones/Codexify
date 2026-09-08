@@ -207,6 +207,13 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
 
 def _fixture_tree(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "function.py").write_text(
+        "def deterministic_value():\n    return 'before'\n", encoding="utf-8"
+    )
+    (tmp_path / "test_function.py").write_text(
+        "from src.function import deterministic_value\n", encoding="utf-8"
+    )
+
 
 def _required_tool_envelope_and_decision(
     granted: tuple,
@@ -228,14 +235,6 @@ def _required_tool_envelope_and_decision(
         granted_permissions=granted,
     )
     return envelope, decision
-
-
-    (tmp_path / "src" / "function.py").write_text(
-        "def deterministic_value():\n    return 'before'\n", encoding="utf-8"
-    )
-    (tmp_path / "test_function.py").write_text(
-        "from src.function import deterministic_value\n", encoding="utf-8"
-    )
 
 
 def _initialize_git_repository(target: Path) -> None:
