@@ -1311,7 +1311,12 @@ def test_real_wrapper_required_tool_suppresses_compaction_recovery_on_context_ov
     parsed = json.loads(final_line)
     # The first forced provider turn was the ONLY provider turn.
     assert "FAKE_PI_SDK_PROVIDER_TURN_1" in result.stdout
-    assert "FAKE_PI_SDK_PROVIDER_TURN_2" not in result.stdout
+    # The fake only emits the per-turn-2 diagnostic AFTER inspecting
+    # the effective continuation payload. When the wrapper's
+    # combined posture suppresses the recovery branch, neither
+    # _FORCED nor _UNFORCED is emitted.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED" not in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" not in result.stdout
     # Session was created (fake's first-turn diagnostic appears).
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
     # The first provider payload carried the mandatory hard `write`
@@ -1348,11 +1353,20 @@ def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
     `agent.continue()` recovery continuation that the required-tool
     repair must suppress.
 
+    The fresh continuation is passed through the wrapper's hook. For
+    a non-required-tool run, the wrapper did not install a
+    hard-selection hook (because `requiredToolName === null`), so the
+    fresh continuation comes back unforced. The fake emits
+    `FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED` after inspecting the
+    effective continuation and confirming it carries no `tool_choice`.
+
     This control prevents a vacuous regression where "no second
     provider turn" is observed simply because the fake never modeled
     automatic recovery. With this control, the regression above
     proves the wrapper's settings posture is what stops the second
-    turn — not an absent fake model.
+    turn — not an absent fake model. The adversarial regression
+    below adds the required-tool path to prove the one-shot
+    hard-selection hook has been consumed.
     """
     materialized = _materialize_fake_pi_package(tmp_path)
     fake_home = tmp_path / "home"
@@ -1385,10 +1399,106 @@ def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
     # proves the wrapper's settings posture — not the absence
     # of a fake model — is what suppresses the second turn.
     assert "FAKE_PI_SDK_PROVIDER_TURN_1" in result.stdout
-    assert "FAKE_PI_SDK_PROVIDER_TURN_2" in result.stdout
+    # The fresh continuation came back unforced because the wrapper
+    # did not install a hard-selection hook for non-required-tool
+    # runs. The fake emitted _UNFORCED after inspecting the
+    # effective continuation payload.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED" not in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" in result.stdout
     # Session was created (fake's first-turn diagnostic appears).
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
     # No required-tool selection was attempted.
     final_line = result.stdout.strip().splitlines()[-1]
     parsed = json.loads(final_line)
     assert "required_tool_selection" not in parsed
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_required_tool_adversarial_recovery_is_unforced(
+    tmp_path: Path,
+) -> None:
+    """Adversarial/control regression: the one-shot required-tool
+    hard-selection hook has been consumed, so a deliberately allowed
+    recovery continuation comes back unforced.
+
+    This regression proves the reviewed failure mechanism itself:
+
+    1. first turn is a required-tool turn;
+    2. first turn receives the mandatory hard `write` selection
+       (one-shot application);
+    3. a simulated recovery continuation is deliberately allowed via
+       the bounded `PI_FAKE_FORCE_COMPACTION_RECOVERY` adversarial
+       knob (the real `compaction.enabled === false` posture is
+       overridden only in the fake);
+    4. the continuation is built from a FRESH provider payload
+       (distinct from the first-turn payload, no `tool_choice`
+       initially);
+    5. the fresh continuation is passed through the real wrapper
+       `onPayload` hook;
+    6. the one-shot wrapper hook does not reapply hard selection
+       (it has already consumed the projection on the first turn);
+    7. the effective continuation has no `tool_choice` — the fake
+       emits `FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED` only after
+       inspecting the effective payload.
+
+    The adversarial knob is fixture-only and defaults off. It does
+    NOT change production behavior. The real
+    `test_real_wrapper_required_tool_suppresses_compaction_recovery_on_context_overflow`
+    runs without this knob and proves the production posture closes
+    the escape.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            "PI_FAKE_SIMULATE_CONTEXT_OVERFLOW": "1",
+            # Bounded adversarial/control knob. The real wrapper
+            # has `compaction.enabled === false` for this required-tool
+            # session, which would normally suppress the recovery
+            # branch. This knob instructs the FAKE to exercise its
+            # recovery branch anyway so the regression can prove the
+            # one-shot hook has been consumed. It is documented as
+            # an adversarial/control mechanism and defaults off.
+            "PI_FAKE_FORCE_COMPACTION_RECOVERY": "1",
+            # Use the success flow so prompt() reaches the
+            # context-overflow code path rather than the
+            # assistant-tool-call short-circuit.
+            "PI_FAKE_I_BEHAVIOR": "success",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    # First forced provider turn occurred.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_1" in result.stdout
+    # The adversarial recovery turn was deliberately allowed and
+    # came back UNFORCED — the fresh continuation built by the fake
+    # was passed through the wrapper hook, the wrapper's one-shot
+    # hard-selection hook was a no-op (already consumed on the first
+    # turn), and the effective continuation has no `tool_choice`.
+    # The fake emitted _UNFORCED only AFTER inspecting the effective
+    # payload and confirming `tool_choice` is absent.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED" not in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" in result.stdout
+    # Session was created (fake's first-turn diagnostic appears).
+    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
+    # First provider payload carried the mandatory hard `write`
+    # selection. The hard-selection application count remains
+    # EXACTLY one — the wrapper's hook did not reapply the
+    # projection on the continuation turn.
+    sel = parsed.get("required_tool_selection")
+    assert sel is not None
+    assert sel["required_tool_name"] == "write"
+    assert sel["hard_tool_selection_applied"] is True
+    assert sel["hard_tool_selection_application_count"] == 1
