@@ -1741,6 +1741,94 @@ Fact / evidence / revision mutation, and no retrieval
 integration. The compatibility reader was explicitly not in
 UMS-03D.
 
+UMS-03H proved legacy memory compatibility coverage closure
+against current reconciled `main` (post UMS-03H-R rebaseline).
+The complete UMS-03A admitted source/state inventory is
+reconciled against current repository truth, and the
+coverage matrix is:
+
+```text
+memory_entries                        COVERED
+personal_facts (verified+active)       COVERED
+personal_facts (candidate/disputed/
+  archived/inactive)                  COVERED
+personal_fact_evidence                SUBORDINATE_LINEAGE_COVERED
+personal_fact_revisions               SUBORDINATE_LINEAGE_COVERED
+Memoryos library state                EXPLICITLY_EXCLUDED_BY_CONTRACT (§4.13 line 904)
+```
+
+```text
+COVERED                          = 3
+SUBORDINATE_LINEAGE_COVERED      = 2
+EXPLICITLY_EXCLUDED_BY_CONTRACT  = 1
+UNMAPPED_BLOCKER                  = 0
+```
+
+All three canonical semantic species
+(`episodic_semantic_memory`, `verified_personal_fact`,
+`candidate_unreviewed_fact`) have at least one valid
+legacy compatibility path. Coverage closure does not
+equal live retrieval integration; canonical UMS tables
+remain non-authoritative; compatibility projections
+remain read-only. The complete coverage evidence is at
+[§4.16 compatibility coverage proof](../proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
+
+UMS-03I introduced one explicit unified compatibility read
+surface that composes the three proven UMS-03E/F/G adapters
+without changing their authority semantics. The public
+reader is `read_memory_compatibility_projection(session, *,
+authenticated_account_id, source: MemoryCompatibilitySourceRef)`
+in `guardian.core.memory_compatibility`. The source reference
+is a typed (kind, id) pair. The dispatcher uses the source
+kind explicitly; it does not infer kind from identifier shape
+and does not search across legacy tables. The Personal Fact
+adapter selection is derived from the source row's persisted
+`status` and `is_active` columns using the same predicates the
+UMS-03F/G adapters use. The unified output is structurally
+equal to the corresponding direct adapter output for every
+admitted Personal Fact state and for every memory entry. The
+unified surface accepts only `memory_entry` and `personal_fact`
+source kinds; `personal_fact_evidence`, `personal_fact_revisions`,
+`Memoryos` library state, `chat_message`, `documents`, and
+canonical-memory source kinds are NOT supported and fail
+closed. The underlying per-source adapters remain independently
+callable. The complete evidence is at
+[§4.16 unified compatibility surface proof](../proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
+
+UMS-04A extended the
+[Account Export + Restore Contract](./account-export-restore-contract.md)
+with one normative section covering canonical UMS export and
+restore. The contract freezes:
+
+- canonical UMS export families (`memory_records`,
+  `memory_persona_links`, `memory_provenance`)
+- exact field coverage per family
+- stable `memory_id` round-trip identity
+- account-owner remapping through the existing account restore
+  owner map (no independent UMS account map)
+- Project reference remapping through the existing Project
+  identity map (no silent widening to `NULL`)
+- stable Persona-subject reconstruction (no PersonaProfile
+  substitution, no display-name matching)
+- provenance reference behavior (reuse existing thread / message
+  ID maps; opaque external IDs remain opaque)
+- restore dependency order
+- legacy + canonical coexistence prohibition
+- compatibility-projection exclusion from durable export
+- semantic and lifecycle preservation (no restore-time
+  inference of review, activation, or lifecycle state)
+- extension non-authority policy
+- manifest accounting
+- restore idempotency
+- conflict and fail-closed cases
+- UMS-04 implementation slicing
+- future round-trip qualification requirements
+
+UMS-04A is architecture only. No export or restore implementation
+is written in UMS-04A. The full implementation is decomposed
+into UMS-04B (export serialization), UMS-04C (restore
+reconstruction), and UMS-04D (round-trip qualification).
+
 #### 4.16.13 Explicit deferrals
 
 The following are outside UMS-03C and remain deferred to

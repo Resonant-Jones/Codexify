@@ -95,9 +95,19 @@ This file is authoritative for:
   UMS-03E MEMORY-ENTRY COMPATIBILITY PROJECTION: CLOSED
   UMS-03F VERIFIED PERSONAL-FACT COMPATIBILITY: CLOSED
   UMS-03G CANDIDATE PERSONAL-FACT COMPATIBILITY: CLOSED
-  UMS-03: OPEN
-  UMS-03H: AUTHORIZED TO START
-  UMS-04: NOT AUTHORIZED
+  UMS-03H-R RECONCILED-MAIN REBASELINE: CLOSED
+  UMS-03H LEGACY MEMORY COMPATIBILITY COVERAGE: CLOSED
+  UMS-03I UNIFIED COMPATIBILITY READ SURFACE: CLOSED
+
+  UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
+
+  UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
+  UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
+  UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO START
+  UMS-04C: NOT AUTHORIZED
+  UMS-04D: NOT AUTHORIZED
+
+  UMS-05+: NOT AUTHORIZED
   ```
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
@@ -470,6 +480,139 @@ This file is authoritative for:
   UMS-03A inventory; UMS-04 remains NOT AUTHORIZED. See
   the
   [UMS-03G candidate-fact compatibility proof](./proofs/runtime/2026-09-08-ums03g-candidate-personal-fact-compatibility-proof.md).
+
+- **UMS-03H-R (reconciled-main rebaseline, closed)**
+  and **UMS-03H (legacy memory compatibility coverage,
+  just closed)**: the local operator intentionally
+  reconciled local `main` with `origin/main` after
+  UMS-03G, producing 18 intervening commits. UMS-03H-R
+  revalidated the UMS campaign against the reconciled
+  baseline and proved the post-UMS mainline work is
+  orthogonal to UMS authority. The rebaseline verdict
+  is `REBASELINED_WITH_ORTHOGONAL_MAINLINE_CHANGES`.
+  UMS-03H then proved legacy memory compatibility
+  coverage closure against the frozen UMS-03A
+  inventory and current reconciled repository truth.
+  The final coverage matrix is:
+
+  ```text
+  memory_entries                        COVERED
+  personal_facts (verified+active)       COVERED
+  personal_facts (candidate/disputed/
+    archived/inactive)                  COVERED
+  personal_fact_evidence                SUBORDINATE_LINEAGE_COVERED
+  personal_fact_revisions               SUBORDINATE_LINEAGE_COVERED
+  Memoryos library state                EXPLICITLY_EXCLUDED_BY_CONTRACT
+  ```
+
+  ```text
+  COVERED                          = 3
+  SUBORDINATE_LINEAGE_COVERED      = 2
+  EXPLICITLY_EXCLUDED_BY_CONTRACT  = 1
+  UNMAPPED_BLOCKER                  = 0
+  ```
+
+  All three canonical semantic species
+  (`episodic_semantic_memory`, `verified_personal_fact`,
+  `candidate_unreviewed_fact`) have at least one valid
+  legacy compatibility path. The closure verdict is
+  `LEGACY_MEMORY_COMPATIBILITY_INVENTORY_CLOSED`. The
+  52-test compatibility baseline passes 52/52 with zero
+  skips on the reconciled `main`; the 46-test adjacent
+  regression set passes 46/46; the Alembic head remains
+  `f6b0d3e8c5a2`. No production code, tests, ORM models,
+  migrations, retrieval wiring, retention implementation,
+  or export/restore behavior was changed by UMS-03H-R
+  or UMS-03H. Legacy UMS sources remain durable
+  authority; canonical UMS tables remain non-authoritative;
+  compatibility projections remain read-only; no live
+  compatibility-projection integration exists. No
+  Beta/release claim widened. UMS-03I is now authorized
+  to introduce one bounded unified compatibility read
+  surface that composes the three proven projections;
+  UMS-03I is NOT yet authorized to redirect live
+  ContextBroker / MemoryOS / completion retrieval;
+  UMS-04 remains NOT AUTHORIZED. See the
+  [UMS-03H-R rebaseline proof](./proofs/runtime/2026-09-08-ums03h-r-main-reconciliation-rebaseline-proof.md)
+  and the
+  [UMS-03H compatibility coverage proof](./proofs/runtime/2026-09-08-ums03h-legacy-memory-compatibility-coverage-proof.md).
+
+- **UMS-03I (unified memory compatibility read surface,
+  just closed)**: added one explicit unified compatibility
+  read surface that composes the three proven
+  UMS-03E/F/G adapters without changing their authority
+  semantics. The public reader is
+  `read_memory_compatibility_projection(session, *,
+  authenticated_account_id, source:
+  MemoryCompatibilitySourceRef)` in
+  [`guardian/core/memory_compatibility.py`](../../guardian/core/memory_compatibility.py).
+  The dispatcher uses the source kind explicitly; it does
+  not infer kind from identifier shape and does not search
+  across legacy tables. The Personal Fact adapter selection
+  is derived from the source row's persisted `status` and
+  `is_active` columns using the same predicates the
+  UMS-03F/G adapters use, so the caller cannot select
+  "verified" vs "candidate". The unified output is
+  structurally equal to the corresponding direct adapter
+  output for every admitted Personal Fact state and for
+  every memory entry. The unified surface accepts only
+  `memory_entry` and `personal_fact` source kinds;
+  evidence, revisions, Memoryos library state, chat
+  messages, documents, and canonical-memory source kinds
+  are NOT supported and fail closed. The underlying
+  per-source adapters remain independently callable. The
+  Campaign sequencing principle is preserved: canonical
+  storage → compatibility reads → export/restore → only
+  then broader ingestion/activation surfaces. Focused
+  compatibility tests pass 70/70 (52 UMS-03E/F/G + 18
+  UMS-03I) with zero skips; adjacent token and Persona-subject
+  regressions pass 46/46. The Alembic head remains
+  `f6b0d3e8c5a2`; no migration was added; no ContextBroker,
+  MemoryOS, router, worker, account-export, or frontend file
+  was changed. No canonical `memory_id` was fabricated. The
+  complete UMS-03 closure verdict is
+  `UMS03_CANONICAL_STORAGE_AND_COMPATIBILITY_READS_CLOSED`.
+  UMS-04 export / restore before ingestion is now
+  authorized to start; UMS-05+ remain NOT AUTHORIZED. No
+  Beta/release claim widened. See the
+  [UMS-03I unified compatibility surface proof](./proofs/runtime/2026-09-08-ums03i-unified-memory-compatibility-read-surface-proof.md).
+
+- **UMS-04A (canonical memory export / restore
+  contract, just closed)**: extended the
+  [Account Export + Restore Contract](./account-export-restore-contract.md)
+  with one normative section covering canonical UMS
+  export and restore. The contract freezes: canonical
+  UMS export families (`memory_records`,
+  `memory_persona_links`, `memory_provenance`); exact
+  field coverage per family; stable `memory_id` round-trip
+  identity; account-owner remapping through the existing
+  account restore owner map (no independent UMS account
+  map); Project reference remapping through the existing
+  Project identity map (no silent widening to `NULL`);
+  stable Persona-subject reconstruction (no PersonaProfile
+  substitution, no display-name matching); provenance
+  reference behavior (reuse existing thread / message ID
+  maps; opaque external IDs remain opaque); restore
+  dependency order; legacy + canonical coexistence
+  prohibition; compatibility-projection exclusion from
+  durable export; semantic and lifecycle preservation (no
+  restore-time inference of review, activation, or
+  lifecycle state); extension non-authority policy;
+  manifest accounting; restore idempotency; conflict and
+  fail-closed cases; UMS-04 implementation slicing
+  (UMS-04B export serialization, UMS-04C restore
+  reconstruction, UMS-04D round-trip qualification); and
+  the future round-trip qualification contract. UMS-04A is
+  architecture only — no export or restore implementation
+  is written in this slice. No production code, tests,
+  ORM models, migrations, export/restore implementation,
+  retrieval behavior, or runtime authority was changed by
+  UMS-04A. The Alembic head remains `f6b0d3e8c5a2`. No
+  Beta/release claim widened. UMS-04B canonical memory
+  export serialization is now authorized to start;
+  UMS-04C and UMS-04D remain NOT AUTHORIZED; UMS-05+
+  remain NOT AUTHORIZED. See the
+  [UMS-04A canonical memory export / restore contract proof](./proofs/runtime/2026-09-08-ums04a-canonical-memory-export-restore-contract-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

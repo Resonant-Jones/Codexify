@@ -63,6 +63,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -778,4 +779,176 @@ def read_candidate_personal_fact_projection(
         revision_rows,
         semantic_species=PERSONAL_FACT_CANDIDATE_ENVELOPE_SPECIES,
         ambient_eligible=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified compatibility dispatch (UMS-03I).
+# ---------------------------------------------------------------------------
+
+
+class MemoryCompatibilitySourceKind(str, Enum):
+    """Implementation-scoped compatibility source-family discriminator.
+
+    The string values are the same family identifiers already exposed
+    on ``MemoryCompatibilityProjection.legacy_source_family`` by the
+    underlying adapters. No new protocol-token doctrine is introduced;
+    this enum exists so the unified dispatcher can be statically
+    type-checked and so unsupported kinds fail closed deterministically.
+    """
+
+    MEMORY_ENTRY = MEMORY_ENTRY_LEGACY_SOURCE_FAMILY
+    PERSONAL_FACT = PERSONAL_FACT_LEGACY_SOURCE_FAMILY
+
+
+@dataclass(frozen=True)
+class MemoryCompatibilitySourceRef:
+    """Explicit legacy compatibility source reference.
+
+    A source reference is a typed (kind, id) pair that names a
+    specific legacy row whose compatibility projection is being
+    requested. The caller supplies the kind; the dispatcher does
+    not infer it from identifier shape.
+
+    The reference intentionally does NOT carry owner, Project
+    scope, Persona attribution, semantic species, review
+    state, activation state, or provenance authority. Those
+    derive from authoritative persistence.
+    """
+
+    source_kind: MemoryCompatibilitySourceKind
+    source_id: int
+
+
+#: Set of legacy source kinds the unified compatibility surface
+#: currently accepts as root-dispatchable. Evidence, revision,
+#: Memoryos, chat messages, documents, and canonical-memory rows
+#: are NOT in this set. An attempt to dispatch any of them via
+#: the unified surface fails closed.
+SUPPORTED_COMPATIBILITY_SOURCE_KINDS: frozenset[MemoryCompatibilitySourceKind] = (
+    frozenset(
+        {
+            MemoryCompatibilitySourceKind.MEMORY_ENTRY,
+            MemoryCompatibilitySourceKind.PERSONAL_FACT,
+        }
+    )
+)
+
+
+def _dispatch_personal_fact_projection(
+    session: Session,
+    *,
+    authenticated_account_id: str,
+    personal_fact_id: int,
+) -> MemoryCompatibilityProjection | None:
+    """Route a ``personal_facts`` source to its proven compatibility adapter.
+
+    Reads just the lifecycle authority columns needed to choose
+    between the UMS-03F verified + active adapter and the
+    UMS-03G candidate / disputed / archived / inactive adapter.
+    The selected adapter then performs its own authoritative
+    read; the dispatcher's purpose is only to pick the right
+    path. The lifecycle predicate mirrors the existing adapters
+    exactly:
+
+        verified + active   → UMS-03F
+        anything else         → UMS-03G
+    """
+
+    lifecycle = (
+        session.query(
+            PersonalFact.id,
+            PersonalFact.user_id,
+            PersonalFact.status,
+            PersonalFact.is_active,
+        )
+        .filter(PersonalFact.id == personal_fact_id)
+        .filter(PersonalFact.user_id == authenticated_account_id)
+        .one_or_none()
+    )
+    if lifecycle is None:
+        return None
+
+    if lifecycle.status == PersonalFactStatus.VERIFIED.value and lifecycle.is_active:
+        return read_verified_personal_fact_projection(
+            session,
+            authenticated_account_id=authenticated_account_id,
+            personal_fact_id=personal_fact_id,
+        )
+
+    return read_candidate_personal_fact_projection(
+        session,
+        authenticated_account_id=authenticated_account_id,
+        personal_fact_id=personal_fact_id,
+    )
+
+
+def read_memory_compatibility_projection(
+    session: Session,
+    *,
+    authenticated_account_id: str,
+    source: MemoryCompatibilitySourceRef,
+) -> MemoryCompatibilityProjection | None:
+    """Project a legacy compatibility source into the canonical envelope.
+
+    This is the single public compatibility dispatch surface
+    introduced by UMS-03I. It composes the three proven per-source
+    adapters (UMS-03E/F/G) without duplicating their authority
+    semantics.
+
+    Design rules:
+
+    * Source family identity is **explicit**. The caller passes
+      ``MemoryCompatibilitySourceRef.source_kind``. The dispatcher
+      does not guess the kind from identifier shape and does not
+      search across legacy tables.
+    * Authority is server-owned. The caller supplies only
+      ``authenticated_account_id`` and the source reference.
+      Owner / Project / Persona / species / review / activation
+      all derive from the proven adapter, which derives them from
+      authoritative persistence.
+    * The Personal Fact adapter selection is determined from the
+      source row's persisted ``status`` and ``is_active`` columns
+      using the same predicate as the proven adapters. The
+      caller cannot select ``verified`` vs ``candidate``.
+    * Evidence, revision, Memoryos, chat-message, document, and
+      canonical-memory source kinds are NOT supported by the
+      unified surface. An attempt to dispatch any of them fails
+      closed with ``MemoryCompatibilityReadError``.
+    * No canonical write, no legacy mutation, no read repair, no
+      cache side effect, no retrieval integration.
+    * The underlying per-source adapters remain independently
+      callable; the unified surface is additive composition, not
+      a replacement.
+    """
+
+    if not authenticated_account_id:
+        raise MemoryCompatibilityReadError(
+            "authenticated_account_id is required for compatibility reads"
+        )
+
+    if source.source_kind not in SUPPORTED_COMPATIBILITY_SOURCE_KINDS:
+        raise MemoryCompatibilityReadError(
+            f"unsupported compatibility source kind: "
+            f"{source.source_kind!r}; supported kinds are "
+            f"{sorted(k.value for k in SUPPORTED_COMPATIBILITY_SOURCE_KINDS)}"
+        )
+
+    if source.source_kind == MemoryCompatibilitySourceKind.MEMORY_ENTRY:
+        return read_memory_entry_projection(
+            session,
+            authenticated_account_id=authenticated_account_id,
+            memory_entry_id=source.source_id,
+        )
+
+    if source.source_kind == MemoryCompatibilitySourceKind.PERSONAL_FACT:
+        return _dispatch_personal_fact_projection(
+            session,
+            authenticated_account_id=authenticated_account_id,
+            personal_fact_id=source.source_id,
+        )
+
+    # Unreachable: SUPPORTED_COMPATIBILITY_SOURCE_KINDS gate above.
+    raise MemoryCompatibilityReadError(
+        f"unhandled compatibility source kind: {source.source_kind!r}"
     )
