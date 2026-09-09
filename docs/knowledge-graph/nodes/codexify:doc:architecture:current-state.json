@@ -8,20 +8,20 @@
     "current priorities",
     "present release promise"
   ],
-  "content_hash": "786e0535be0b76ecd43e762582571f25aef2ee9be72850ae036bbcaef5233e2c",
+  "content_hash": "5cd7d81783b7d3504c236dc0e642d6148b28e5a4a1ad6c8ee926b2738d4ff2ef",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:current-state",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified current-state metadata against committed source revision 54a4e1932a8c239607d9f23e8a1d47ad0f61b195 after the canonical-main DLG source canonicalization. Current 2026-09-08 short-horizon blockers and priorities preserved. No capability promoted or demoted; no new runtime proof inferred; CE-L1 still lacks live provider/model execution, terminal durable result, source-thread readback.",
+    "reason": "Current-state source reverified after canonical-main advancement was merged into PR #799. The ADR-067 private-preview Chroma topology remains decision-only; implementation, live Chroma recovery, and Persona runtime qualification remain pending. Unrelated newer canonical-main current-state truth is preserved, and this metadata reconciliation widens no release or Beta claim.",
     "state": "current",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
-    "verified_at": "2026-09-08T21:16:54Z",
-    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195",
+    "verified_at": "2026-09-09T09:20:32Z",
+    "verified_commit": "6ffa91391ba8137ca8fe86c8e84dcd9808574472",
     "window_days": 7
   },
   "governing_adr_posture": "not_applicable",

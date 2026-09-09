@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-08-24
+Last updated: 2026-09-08
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -38,6 +38,32 @@ Source anchors:
 ### Vector store authority and derived-state retirement
 
 The vector store is a derived retrieval/index artefact, not canonical application authority: Postgres remains the sole source of truth, and semantic retrieval corpus state is never promoted to authority. When a persisted Chroma index cannot be consumed by the supported `chromadb==1.0.15` runtime, [[adr/067-operator-approved-derived-chroma-retirement|ADR-067]] governs the operator-approved preserve-retire-rebuild handling: the historical bytes must be preserved as evidence before the active index is retired, a fresh store is initialised exclusively through the canonical runtime, no records are copied from the retired store into the fresh one, and restoration of the historical store requires a separate ADR-gated task.
+
+### Private-preview Chroma persistence decision
+
+The [private-preview refinement of ADR-067](./adr/067-operator-approved-derived-chroma-retirement.md)
+freezes one physical substrate for Persona recovery on the diagnosed Docker
+host; implementation and live recovery are still pending.
+
+| Concern | Frozen boundary |
+| --- | --- |
+| Canonical authority | Postgres; no Persona ownership, revision, manifest, binding, or selection change |
+| Derived retrieval state | Chroma, rebuildable only from canonical supported sources or deterministic supported built-ins |
+| Logical runtime path | `/app/.chroma`, shared by backend and applicable workers/ingestion tools |
+| Physical preview persistence | One Docker-managed local volume, `codexify_private_preview_chroma`, declared external to Compose lifecycle; no host-bind driver options |
+| Identity and lifetime | Operator-owned acceptance/retirement; same volume across service restart, container recreation, reconciliation, image replacement, and host reboot while Docker storage survives |
+| Historical preservation | Immutable, separately retained outside active storage; no historical content or SQLite-byte migration into the fresh store |
+
+The existing host bind is rejected for this private-preview recovery after
+the exact-runtime SQLite failures. Container-local state and anonymous volumes
+are diagnostic choices, not approved active persistence. Missing or conflicting
+volume identity must stop activation; no host-bind fallback or parallel active
+store is allowed. An external declaration prevents Compose from silently
+creating a missing replacement; `nocopy` prevents automatic image-content
+seeding. Neither setting proves current deployment or runtime compatibility.
+The full inventory, implementation boundary, lifecycle and preservation rules,
+and ordered proof gates remain in ADR-067. Default local storage and unrelated
+Postgres, Redis, Neo4j, media, and model volumes are unchanged.
 
 ## Key Entities and Collections
 
