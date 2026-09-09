@@ -1245,8 +1245,33 @@ def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
 
 
 # ---------------------------------------------------------------------------
-# 7. Required-tool compaction-escape behavioral proof
+# 7. Required-tool compaction-escape payload-level proofs
 # ---------------------------------------------------------------------------
+#
+# NOTE: The tests in this section exercise a PAYLOAD-LEVEL ESCAPE MODEL
+# in the tracked fake Pi fixture. The fake decides whether to drive a
+# second provider turn based on a bounded env-knob-triggered branch
+# (PI_FAKE_SIMULATE_CONTEXT_OVERFLOW) that consults the fake's
+# SettingsManager. They do NOT exercise the real maintained Pi
+# AgentSession recovery path.
+#
+# These tests prove:
+#
+#   - payload-level escape model: the fake's bounded overflow
+#     simulation does (or does not) drive a second provider turn, and
+#     a fresh continuation payload is (or is not) constructed;
+#   - settings-shape proof: the constructor-time combined-settings
+#     guard in fakeCreateAgentSession rejects required-tool session
+#     creation unless both retry and compaction are disabled;
+#   - adversarial one-shot-hook proof: if a recovery continuation is
+#     deliberately allowed despite compaction being disabled, the
+#     wrapper's one-shot hard-selection hook is a no-op on the
+#     continuation and the effective continuation is unforced.
+#
+# The MAINTAINED Pi recovery-path proof — that the real maintained
+# AgentSession._checkCompaction and _handlePostAgentRun honor
+# compaction.enabled = false at the recovery boundary — lives in
+# section 8 below.
 
 
 @pytest.mark.skipif(
@@ -1502,3 +1527,114 @@ def test_real_wrapper_required_tool_adversarial_recovery_is_unforced(
     assert sel["required_tool_name"] == "write"
     assert sel["hard_tool_selection_applied"] is True
     assert sel["hard_tool_selection_application_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Maintained Pi recovery-path proof
+# ---------------------------------------------------------------------------
+#
+# These tests execute the REAL maintained Pi 0.82.1 AgentSession
+# recovery path (vendored at codex_runner/vendor/pi-coding-agent)
+# through a narrow test-only harness. The harness bypasses the
+# AgentSession constructor via Object.create(AgentSession.prototype)
+# and stubs only side effects (compaction summarization, session
+# persistence, provider transport). The control-flow decisions under
+# review are made by maintained code:
+#
+#   AgentSession._checkCompaction()   (agent-session.js:1508)
+#     - reads SettingsManager.getCompactionSettings()
+#     - calls isContextOverflow()      (maintained @earendil-works/pi-ai)
+#     - calls getLatestCompactionEntry()  (maintained session-manager)
+#     - calls _runAutoCompaction()     (maintained, spied on instance)
+#
+#   AgentSession._handlePostAgentRun()  (agent-session.js:758)
+#     - calls _isRetryableError()      (maintained, recognizes overflow)
+#     - calls _checkCompaction()       (maintained)
+#     - return value drives the recovery loop's `agent.continue()` call
+#
+# These tests prove that the maintained Pi recovery machinery itself
+# honors `compaction.enabled = false` at the recovery boundary, and
+# that the same machinery enters the auto-compaction recovery lane
+# when compaction is enabled.
+
+
+COMPACTION_RECOVERY_HARNESS = (
+    REPO_ROOT / "tests" / "pi" / "fixtures" / "pi_compaction_recovery_harness.mjs"
+)
+
+
+@pytest.mark.skipif(
+    not COMPACTION_RECOVERY_HARNESS.exists(),
+    reason="maintained Pi compaction recovery harness is missing",
+)
+def test_maintained_pi_compaction_disabled_blocks_recovery() -> None:
+    """Maintained-path proof: with `compaction.enabled = false`, the
+    real maintained Pi 0.82.1 `AgentSession._checkCompaction` method
+    returns false at the settings gate (agent-session.js:1510), and the
+    recovery loop never calls `agent.continue()`.
+
+    This is the production-posture proof: the real maintained recovery
+    machinery, not a modeled fake, honors the wrapper's combined
+    settings posture at the recovery boundary.
+    """
+    result = subprocess.run(
+        ["node", str(COMPACTION_RECOVERY_HARNESS), "disabled-block"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=str(REPO_ROOT),
+    )
+    assert (
+        result.returncode == 0
+    ), f"harness failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    parsed = json.loads(result.stdout.strip())
+    # The SettingsManager.compaction.enabled was false.
+    assert parsed["compactionEnabled"] is False
+    # The maintained _checkCompaction gate blocked at line 1510 —
+    # _runAutoCompaction was never called.
+    assert parsed["runAutoCompactionCallCount"] == 0
+    assert parsed["runAutoCompactionArgs"] is None
+    # The recovery loop never called agent.continue().
+    assert parsed["continueCallCount"] == 0
+    assert parsed["iterations"] == 0
+
+
+@pytest.mark.skipif(
+    not COMPACTION_RECOVERY_HARNESS.exists(),
+    reason="maintained Pi compaction recovery harness is missing",
+)
+def test_maintained_pi_compaction_enabled_triggers_recovery() -> None:
+    """Maintained-path control: with `compaction.enabled = true`, the
+    real maintained Pi 0.82.1 `AgentSession._checkCompaction` method
+    recognizes the context overflow (via the maintained
+    `isContextOverflow` function in @earendil-works/pi-ai), calls
+    `AgentSession._runAutoCompaction("overflow", willRetry=true)`, and
+    the recovery loop calls `agent.continue()` exactly once.
+
+    This control proves the harness is not vacuous: the same maintained
+    recovery path that the disabled case blocks IS exercised when
+    compaction is enabled, and it does reach the continuation boundary.
+    """
+    result = subprocess.run(
+        ["node", str(COMPACTION_RECOVERY_HARNESS), "enabled-trigger"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=str(REPO_ROOT),
+    )
+    assert (
+        result.returncode == 0
+    ), f"harness failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    parsed = json.loads(result.stdout.strip())
+    # The SettingsManager.compaction.enabled was true.
+    assert parsed["compactionEnabled"] is True
+    # The maintained _checkCompaction reached the overflow detection
+    # and called _runAutoCompaction with the expected arguments.
+    assert parsed["runAutoCompactionCallCount"] == 1
+    assert parsed["runAutoCompactionArgs"] is not None
+    assert parsed["runAutoCompactionArgs"]["reason"] == "overflow"
+    assert parsed["runAutoCompactionArgs"]["willRetry"] is True
+    # The recovery loop called agent.continue() exactly once — the
+    # continuation boundary was reached via maintained code.
+    assert parsed["continueCallCount"] == 1
+    assert parsed["iterations"] == 1
