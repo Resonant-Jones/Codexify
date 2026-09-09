@@ -1242,3 +1242,153 @@ def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
     assert tt["tool_execution_end_count"] == 1
     assert tt["executed_tool_names"] == ["write"]
     assert tt["assistant_tool_call_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 7. Required-tool compaction-escape behavioral proof
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_required_tool_suppresses_compaction_recovery_on_context_overflow(
+    tmp_path: Path,
+) -> None:
+    """Behavioral proof: context overflow on the first required-tool
+    provider turn cannot trigger a second unforced provider turn when
+    the wrapper has suppressed both retry AND auto-compaction.
+
+    The fake simulates the maintained Pi flow
+    (`_handlePostAgentRun()` → `_checkCompaction()` →
+    `agent.continue()`):
+
+    1. The first provider payload is driven through the wrapper's
+       `onPayload` hook with hard `tool_choice` selection applied.
+    2. A configured context-overflow condition is modeled BEFORE
+       any required tool executes.
+    3. The fake consults the session's `SettingsManager`. When
+       `getCompactionEnabled() === false` (the required-tool
+       posture), NO second provider turn is attempted.
+    4. When `getCompactionEnabled() === true` (the default), a
+       second provider turn IS attempted (see the control test
+       below).
+
+    The fake writes one `FAKE_PI_SDK_PROVIDER_TURN_<N>` diagnostic
+    per provider turn. This test asserts the wrapper's combined
+    recovery-suppression posture results in exactly one provider
+    turn — the forced first turn — and that no second unforced
+    provider payload/request is produced.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            # Activate the bounded context-overflow simulation in the
+            # fake. The wrapper must suppress the recovery continuation
+            # via the combined `retry.enabled=false` AND
+            # `compaction.enabled=false` settings posture.
+            "PI_FAKE_SIMULATE_CONTEXT_OVERFLOW": "1",
+            # The fake's first-turn behavior must NOT be the
+            # assistant-tool-call flow (which would short-circuit
+            # before the overflow simulation). Override it to
+            # `success` so prompt() proceeds through the new code
+            # path that checks the recovery-suppression posture.
+            "PI_FAKE_I_BEHAVIOR": "success",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    # The first forced provider turn was the ONLY provider turn.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_1" in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2" not in result.stdout
+    # Session was created (fake's first-turn diagnostic appears).
+    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
+    # The first provider payload carried the mandatory hard `write`
+    # selection (proves the bounded required-tool projection reached
+    # the provider request that the overflow would have recovered
+    # from).
+    sel = parsed.get("required_tool_selection")
+    assert sel is not None
+    assert sel["required_tool_name"] == "write"
+    assert sel["hard_tool_selection_applied"] is True
+    assert sel["hard_tool_selection_application_count"] == 1
+    # This is a recovery-boundary test, not a successful-write test.
+    # The required tool did not execute (the fake simulated overflow
+    # before tool execution). Do not assert tool execution counts.
+    # The wrapper still emits its success terminal JSON because the
+    # bounded required-tool projection was applied once on the first
+    # (and only) provider turn.
+
+
+@pytest.mark.skipif(
+    not FAKE_SOURCE_INDEX.exists(),
+    reason="tracked fake Pi source fixture is missing",
+)
+def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
+    tmp_path: Path,
+) -> None:
+    """Control proving the fake's compaction escape is real.
+
+    Without the required-tool settings posture (PI_GUARDIAN_REQUIRED_TOOL
+    is unset), the wrapper does not pass a custom SettingsManager. The
+    fake's session therefore has the maintained default compaction
+    posture (enabled). Under the same context-overflow simulation,
+    the fake MUST attempt a second provider turn — the maintained
+    `agent.continue()` recovery continuation that the required-tool
+    repair must suppress.
+
+    This control prevents a vacuous regression where "no second
+    provider turn" is observed simply because the fake never modeled
+    automatic recovery. With this control, the regression above
+    proves the wrapper's settings posture is what stops the second
+    turn — not an absent fake model.
+    """
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            # PI_GUARDIAN_REQUIRED_TOOL is intentionally UNSET. The
+            # wrapper does not pass a custom SettingsManager. The
+            # fake falls back to the maintained default compaction
+            # posture (enabled), so the recovery continuation IS
+            # attempted.
+            "PI_FAKE_SIMULATE_CONTEXT_OVERFLOW": "1",
+            # Use the success flow so prompt() reaches the new
+            # context-overflow code path rather than the
+            # assistant-tool-call short-circuit.
+            "PI_FAKE_I_BEHAVIOR": "success",
+        },
+    )
+    assert (
+        result.returncode == 0
+    ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    # The fake attempted BOTH provider turns: the first forced
+    # turn AND the auto-compaction recovery continuation. This
+    # proves the fake's escape model is real when compaction is
+    # enabled. The required-tool regression above therefore
+    # proves the wrapper's settings posture — not the absence
+    # of a fake model — is what suppresses the second turn.
+    assert "FAKE_PI_SDK_PROVIDER_TURN_1" in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2" in result.stdout
+    # Session was created (fake's first-turn diagnostic appears).
+    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
+    # No required-tool selection was attempted.
+    final_line = result.stdout.strip().splitlines()[-1]
+    parsed = json.loads(final_line)
+    assert "required_tool_selection" not in parsed

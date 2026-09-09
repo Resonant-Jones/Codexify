@@ -211,6 +211,66 @@ class FakeSession {
         // fake inspects the projected payload.
         const params = this._buildFirstPayload();
         let onPayload = this.agent.onPayload;
+
+        if (process.env.PI_FAKE_SIMULATE_CONTEXT_OVERFLOW === "1") {
+            // Bounded behavioral simulation: simulate a context-overflow
+            // failure on the first provider turn, BEFORE any required
+            // tool executes. The fake models the maintained Pi
+            // auto-compaction recovery path (see maintained
+            // codex_runner/vendor/pi-coding-agent/dist/core/
+            // agent-session.js — `_handlePostAgentRun()` invokes
+            // `_checkCompaction()`, which on context overflow compacts
+            // and auto-retries via `agent.continue()` when
+            // auto-compaction is enabled).
+            //
+            // The fake writes a deterministic
+            // `FAKE_PI_SDK_PROVIDER_TURN_<N>` diagnostic line per
+            // provider turn so the regression can count provider turns
+            // from stdout. This is the narrowest deterministic
+            // observable the fixture can expose for the second-attempt
+            // suppression property under review.
+            process.stdout.write("FAKE_PI_SDK_PROVIDER_TURN_1\n");
+            if (typeof onPayload === "function") {
+                const projected = await onPayload(params, {
+                    provider: "anthropic",
+                    id: "claude-sonnet-4-6",
+                });
+                if (projected !== undefined && projected !== null) {
+                    params.model = projected.model || params.model;
+                    params.tools = projected.tools || params.tools;
+                    params.tool_choice = projected.tool_choice;
+                }
+            }
+            const settingsManager =
+                this.settingsManager || this.options.settingsManager || null;
+            const compactionEnabled =
+                settingsManager &&
+                typeof settingsManager.getCompactionEnabled === "function"
+                    ? settingsManager.getCompactionEnabled() === true
+                    : true;
+            if (compactionEnabled) {
+                // Auto-compaction recovery enabled (default). The fake
+                // models the maintained recovery path: another provider
+                // turn is attempted. The wrapper's hook is a no-op on
+                // this continuation (it has already consumed the
+                // one-shot required-tool projection on the first turn),
+                // so the projected payload would carry no hard
+                // selection. This is exactly the reviewed escape.
+                process.stdout.write("FAKE_PI_SDK_PROVIDER_TURN_2\n");
+                if (typeof onPayload === "function") {
+                    await onPayload(params, {
+                        provider: "anthropic",
+                        id: "claude-sonnet-4-6",
+                    });
+                }
+            }
+            // When compaction is disabled (the required-tool posture),
+            // NO second provider turn is attempted. The fake returns;
+            // the wrapper emits its terminal JSON with the bounded
+            // required-tool evidence.
+            return;
+        }
+
         for (let turn = 0; turn < 2; turn += 1) {
             if (typeof onPayload === "function") {
                 const projected = await onPayload(params, {
