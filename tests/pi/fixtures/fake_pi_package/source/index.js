@@ -211,6 +211,135 @@ class FakeSession {
         // fake inspects the projected payload.
         const params = this._buildFirstPayload();
         let onPayload = this.agent.onPayload;
+
+        if (process.env.PI_FAKE_SIMULATE_CONTEXT_OVERFLOW === "1") {
+            // Bounded behavioral simulation: simulate a context-overflow
+            // failure on the first provider turn, BEFORE any required
+            // tool executes. The fake models the maintained Pi
+            // auto-compaction recovery path (see maintained
+            // codex_runner/vendor/pi-coding-agent/dist/core/
+            // agent-session.js — `_handlePostAgentRun()` invokes
+            // `_checkCompaction()`, which on context overflow compacts
+            // and auto-retries via `agent.continue()` when
+            // auto-compaction is enabled).
+            //
+            // CRITICAL: the first-turn payload and the continuation
+            // payload are DISTINCT objects. The first invocation of the
+            // wrapper's `onPayload` hook mutates/copies the effective
+            // first-turn payload to include the mandatory hard
+            // `tool_choice`. A real Pi continuation constructs a FRESH
+            // provider payload — not the mutated first-turn one. This
+            // fake must model that property so the proof demonstrates
+            // the continuation is unforced because the one-shot
+            // hard-selection projection has already been consumed, not
+            // because the fake reused an already-projected object.
+            //
+            // Per-turn diagnostic is emitted only AFTER the effective
+            // provider payload has been inspected, so a simulated
+            // provider request always corresponds to the actual
+            // effective payload that would have been sent.
+            process.stdout.write("FAKE_PI_SDK_PROVIDER_TURN_1\n");
+            const firstTurnPayload = this._buildFirstPayload();
+            let firstTurnProjected = firstTurnPayload;
+            if (typeof onPayload === "function") {
+                const projected = await onPayload(firstTurnPayload, {
+                    provider: "anthropic",
+                    id: "claude-sonnet-4-6",
+                });
+                if (projected !== undefined && projected !== null) {
+                    firstTurnProjected = projected;
+                }
+            }
+            const settingsManager =
+                this.settingsManager || this.options.settingsManager || null;
+            const compactionEnabled =
+                settingsManager &&
+                typeof settingsManager.getCompactionEnabled === "function"
+                    ? settingsManager.getCompactionEnabled() === true
+                    : true;
+            // Adversarial/control knob: when set, the fake exercises
+            // its recovery branch DESPITE the required-tool session's
+            // real `compaction.enabled === false` posture. This is
+            // used ONLY by the adversarial regression to prove that
+            // the one-shot required-tool hook has been consumed (the
+            // fresh continuation comes back unforced). It does NOT
+            // change production behavior and is clearly documented as
+            // an adversarial mechanism. Default: off.
+            const adversarialForceRecovery =
+                process.env.PI_FAKE_FORCE_COMPACTION_RECOVERY === "1";
+            const shouldAttemptRecovery =
+                adversarialForceRecovery || compactionEnabled;
+            if (shouldAttemptRecovery) {
+                // Construct a FRESH continuation payload. This models
+                // what real Pi builds for the recovery continuation —
+                // a new provider payload, not the mutated first-turn
+                // one. The fresh payload must NOT carry `tool_choice`
+                // initially; a real provider payload for a continuation
+                // does not include the first-turn hard selection.
+                const continuationPayload = this._buildFirstPayload();
+                if (continuationPayload === firstTurnProjected) {
+                    throw new Error(
+                        "fake Pi: continuation payload must be a distinct object from the first-turn projected payload",
+                    );
+                }
+                if (
+                    Object.prototype.hasOwnProperty.call(
+                        continuationPayload,
+                        "tool_choice",
+                    )
+                ) {
+                    throw new Error(
+                        "fake Pi: fresh continuation payload must not carry tool_choice",
+                    );
+                }
+                // Drive the fresh continuation through the same
+                // captured wrapper hook. The wrapper's hook is a
+                // no-op for continuations (it has already consumed
+                // the one-shot required-tool projection on the first
+                // turn) and returns the effective payload for the
+                // continuation (see codex_runner/src/agent-wrapper.js
+                // around the `return effective` continuation branch).
+                let effectiveContinuation = continuationPayload;
+                if (typeof onPayload === "function") {
+                    const returned = await onPayload(continuationPayload, {
+                        provider: "anthropic",
+                        id: "claude-sonnet-4-6",
+                    });
+                    if (returned !== undefined && returned !== null) {
+                        effectiveContinuation = returned;
+                    }
+                }
+                // INSPECT the effective continuation for `tool_choice`.
+                // The turn-2 diagnostic is emitted only AFTER this
+                // inspection, so a simulated provider request always
+                // corresponds to the actual effective payload that
+                // would have been sent.
+                const continuationIsForced =
+                    effectiveContinuation !== null &&
+                    typeof effectiveContinuation === "object" &&
+                    Object.prototype.hasOwnProperty.call(
+                        effectiveContinuation,
+                        "tool_choice",
+                    );
+                if (continuationIsForced) {
+                    process.stdout.write(
+                        "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED\n",
+                    );
+                } else {
+                    process.stdout.write(
+                        "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED\n",
+                    );
+                }
+            }
+            // When compaction is disabled AND the adversarial knob is
+            // off (the production required-tool posture), NO second
+            // provider turn is attempted. The fake returns; the
+            // wrapper emits its terminal JSON with the bounded
+            // required-tool evidence. Neither _FORCED nor _UNFORCED
+            // is emitted in that case.
+            return;
+        }
+
         for (let turn = 0; turn < 2; turn += 1) {
             if (typeof onPayload === "function") {
                 const projected = await onPayload(params, {
