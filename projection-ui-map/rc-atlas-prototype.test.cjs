@@ -21,6 +21,50 @@ test("all executable inline JavaScript has valid syntax", () => {
   scripts.forEach((source, index) => assert.doesNotThrow(() => new vm.Script(source, { filename: `inline-${index}.js` })));
 });
 
+test("prototype-local Codexify material tokens preserve the canonical geometry contract", () => {
+  const expectedTokens = {
+    "--radius-micro": "12px",
+    "--radius-tile": "19px",
+    "--card-radius": "19px",
+    "--edge-chrome": "6px",
+    "--frame": "1.5px",
+    "--bezel": "6px",
+    "--rim": "1.5px",
+    "--card-pad": "12px",
+  };
+  for (const [token, value] of Object.entries(expectedTokens)) {
+    assert.match(html, new RegExp(`${token}:\\s*${value.replace(".", "\\.")}`));
+  }
+  for (const token of ["--panel-bg", "--panel-border", "--panel-bezel", "--panel-sheet", "--panel-sheet-border", "--chip-bg", "--chip-border", "--text", "--muted", "--text-subtle", "--surface-hover", "--surface-soft", "--accent", "--accent-strong"]) {
+    assert.match(html, new RegExp(`${token}:`), `${token} is defined locally`);
+  }
+  assert.match(html, /\.entity-card\s*\{[\s\S]*border-radius:\s*var\(--card-radius\)/);
+  assert.match(html, /\.entity-card::before,[\s\S]*clip-path:\s*inset\(0 round var\(--card-radius\)\)/);
+  assert.match(html, /\.entity-card\.active\s*\{[\s\S]*var\(--accent-strong\)/);
+});
+
+test("graph cards use progressive disclosure instead of exposed taxonomy", () => {
+  const graphRenderer = html.match(/function renderGraph\(\)[\s\S]*?function renderRoutes\(\)/)?.[0] || "";
+  assert.match(graphRenderer, /entity-descriptor/);
+  assert.match(graphRenderer, /selection-state/);
+  assert.doesNotMatch(graphRenderer, /entity-kind/);
+  assert.doesNotMatch(graphRenderer, /entity-id/);
+  assert.match(graphRenderer, /title="\$\{esc\(classification\)\}/);
+  assert.match(html, /<dt>Stable ID<\/dt>/, "stable IDs remain available in the inspector");
+  assert.match(html, /<dt>Runtime evidence<\/dt>/, "runtime evidence remains available in the inspector");
+});
+
+test("Galaxy remains explicit, spatial, reversible, and reduced-motion aware", () => {
+  assert.match(html, /id="galaxyGate"/);
+  assert.match(html, /#confirmGalaxy"\)\.addEventListener\("click", enterGalaxy\)/);
+  assert.match(html, /galaxy-departing/);
+  assert.match(html, /galaxy-returning/);
+  assert.match(html, /transform:\s*scale\(\.68\)/);
+  assert.match(html, /state\.navigation = \{ selectedId: prior\.navigation\.selectedId, history: prior\.navigation\.history\.slice\(\) \}/);
+  assert.match(html, /prefers-reduced-motion:\s*reduce/);
+  assert.match(html, /reducedMotion\(\) \? 0 : 540/);
+});
+
 test("fixture IDs are unique and every reference is valid", () => {
   assert.deepEqual(Array.from(M.validate()), []);
   const ids = M.data.entities.map(entity => entity.id);
