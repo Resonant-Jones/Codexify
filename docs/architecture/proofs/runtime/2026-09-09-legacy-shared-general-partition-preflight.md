@@ -313,3 +313,163 @@ Observed results for this authoring pass:
 - `git diff --cached --name-status`: PASS before task staging; only the pre-existing Dev Log deletion was in the index.
 
 The final staged-scope checks are repeated after adding the task-owned proof path. The unrelated staged deletion is expected to remain in the index and is excluded from the commit with an explicit path-limited commit.
+
+## Account-census correction — 2026-09-10
+
+This dated addendum corrects the population boundary of the original proof;
+the original Project-1 findings above remain historical evidence. Its three
+owners are the **Project-1 affected account subset**, not the **complete
+Private Preview account population**. The original scope and validation
+statements describe the original authoring pass, not this addendum.
+
+### Canonical identity authority and counting rule
+
+At repository HEAD `fa232931b2b55c4a07d35528213ccd639e8f1c10`,
+`guardian/db/models.py:134` defines `User` as the canonical user account
+boundary, persisted in `users` with primary key `users.id`. ADR-081 and the
+live `fk_projects_user_id_users` foreign key bind Project ownership to that
+registry. The census enumerates every `users` row, with no owner-column union,
+activity filter, Persona filter, or guessed account mapping.
+
+`guardian/core/dependencies.py` (`get_request_user_id`, `get_request_user_scope`)
+uses the approved signed-session email for Private Preview account scope.
+`AuthenticatedPrincipal` is a separate subject-to-account mapping used by the
+generic multi-user path; its live table contains zero rows. `UserProfile`
+belongs to `users.id` and provides presentation only. Persona Profiles and
+Persona Studio records are not additional accounts. No runtime auth helper
+was invoked during inspection.
+
+The complete persisted registry contains **six rows**, including the legacy
+`local` row. This is **five email-identified accounts plus one legacy default
+account row**, not six proven human users or six approved preview logins.
+Migration `f2b3c4d5e6f8_add_user_id_to_core_entities.py`,
+`_ensure_default_user`, explicitly seeds `local`; its presence is neither an
+ambiguous identity mapping nor authority to make Project `1` a valid global
+General. ADR-081's legacy classification and partition doctrine remain intact.
+
+### Complete population and General-container census
+
+Observed at `2026-09-10 11:16:56.611215+00` in `Codexify`, through existing
+container `codexify_private_preview-db-1` on `VaultNode.local`.
+The stored `users.username` equals the identifier for every row, and no joined
+`user_profiles.display_name` supplied a label. Jones, Maatariki, and Krista retain the original proof’s non-authoritative
+reading labels; no new human-readable profile labels are inferred.
+
+| Canonical identifier (`users.id`) | Reading label / kind | Project-1 threads | Other threads | Other Projects (excluding `1`) | General state |
+| --- | --- | ---: | ---: | ---: | --- |
+| `annieizor@gmail.com` | email account; no additional label | 0 | 0 | 0 | missing; zero General rows; outside affected subset |
+| `jones@resonantconstructs.ai` | Jones; email account | 5 | 63 | 1 | missing; zero General rows; affected |
+| `joselyn.torres70@gmail.com` | email account; no additional label | 0 | 0 | 0 | missing; zero General rows; outside affected subset |
+| `kristaearthmage@yahoo.com` | Krista; email account | 1 | 0 | 0 | missing; zero General rows; affected |
+| `local` | legacy default registry row | 0 | 0 | 1 | one active structural General: Project `1`; conflicting legacy containment, not a canonical destination for any affected account |
+| `maatariki@resonantconstructs.ai` | Maatariki; email account | 2 | 1 | 1 | missing; zero General rows; affected |
+
+The intersection remains exactly Jones (5), Maatariki (2), and Krista (1).
+The registry complement is `annieizor@gmail.com`,
+`joselyn.torres70@gmail.com`, and `local`; presence in that
+complement does not imply activity elsewhere. The two additional email accounts exist in the
+canonical registry despite having no threads or Projects. `local` is the
+pre-existing legacy owner, not an additional thread-partition destination.
+
+There are no duplicate General rows for any registry account and no archived
+General rows. The only `system_role='general'` row anywhere is active Project
+`1`, `user_id='local'`. No valid account-specific General exists for any of
+the five email accounts. Missing Generals for the two additional email accounts are newly
+recorded deferred inconsistencies; they do not expand the Project-1 repair.
+
+Identity integrity checks found six distinct nonblank IDs, no collisions under
+`lower(btrim(id))`, zero orphan Project-1 thread owners, and zero authenticated
+principal mappings. Live primary/unique constraints cover `users.id`,
+`users.username`, `users.email`, `authenticated_principals.account_id`, and
+`authenticated_principals.subject_id`. No conflicting identity mapping was
+found. The known legacy Project containment conflict is preserved, not repaired.
+
+### Reproducible read-only queries and no-write evidence
+
+The existing container access path was used with psql startup files disabled,
+session-default read-only protection, and an explicit repeatable-read,
+read-only transaction:
+
+```bash
+docker exec -i -e PGOPTIONS='-c default_transaction_read_only=on' \
+  codexify_private_preview-db-1 \
+  psql -X -U codexify -d Codexify -v ON_ERROR_STOP=1
+```
+
+Core census and transaction evidence queries:
+
+```sql
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SELECT clock_timestamp(), current_database(),
+       current_setting('default_transaction_read_only'),
+       current_setting('transaction_read_only'),
+       current_setting('transaction_isolation');
+SELECT version_num FROM alembic_version ORDER BY version_num;
+SELECT u.id, u.username, up.display_name,
+       (SELECT count(*) FROM chat_threads t
+        WHERE t.user_id=u.id AND t.project_id=1) AS project_1_threads,
+       (SELECT count(*) FROM chat_threads t
+        WHERE t.user_id=u.id AND t.project_id IS DISTINCT FROM 1) AS other_threads,
+       (SELECT count(*) FROM projects p
+        WHERE p.user_id=u.id AND p.id<>1) AS other_projects,
+       (SELECT count(*) FROM projects p
+        WHERE p.user_id=u.id AND p.system_role='general') AS general_count
+FROM users u LEFT JOIN user_profiles up ON up.user_id=u.id ORDER BY u.id;
+SELECT count(*) AS total_accounts, count(DISTINCT id) AS distinct_ids,
+       count(*) FILTER (WHERE id IS NULL OR btrim(id)='') AS invalid_ids FROM users;
+SELECT count(*) AS principal_mappings FROM authenticated_principals;
+SELECT lower(btrim(id)), count(*) FROM users
+GROUP BY lower(btrim(id)) HAVING count(*)>1;
+SELECT count(*) AS orphan_project_1_threads
+FROM chat_threads t LEFT JOIN users u ON u.id=t.user_id
+WHERE t.project_id=1 AND u.id IS NULL;
+SELECT id,user_id,system_role,archived_at FROM projects
+WHERE system_role='general' ORDER BY id;
+SELECT COALESCE(sum(n_tup_ins),0) AS session_inserts,
+       COALESCE(sum(n_tup_upd),0) AS session_updates,
+       COALESCE(sum(n_tup_del),0) AS session_deletes FROM pg_stat_xact_user_tables;
+SELECT version_num FROM alembic_version ORDER BY version_num;
+SELECT current_setting('transaction_read_only'), txid_current_if_assigned();
+ROLLBACK;
+```
+
+Both read-only settings returned `on`, isolation was `repeatable read`, and
+session inserts/updates/deletes were `0 / 0 / 0`. No transaction ID was assigned.
+Alembic was `d4e0f2a5b7c9` before and after the census; `ROLLBACK` completed.
+An earlier protected inspection used incorrect statistics column names
+(`tup_inserted` etc.), failed with SQLSTATE `42703`, and exited under
+`ON_ERROR_STOP`; disconnect aborted that read-only transaction. The complete
+inspection above reran successfully with PostgreSQL's `n_tup_*` columns.
+No mutation statement was issued in either session. These are evidence of
+zero writes by this task, not a claim that concurrent services were suspended.
+No runtime service, migration, Alembic stamp, or Chroma operation was performed.
+
+### Documentation, delegation, and deferred scope
+
+Only this proof and `00-current-state.md` are corrected. ADR-081 already
+limits partition destinations to accounts owning affected threads and makes
+no incorrect total-population claim; it is unchanged. Original reference
+censuses and historical stop language above are preserved; the subsequently
+accepted ADR-081 partition doctrine governs future repair.
+
+Pi catalog and exact-pair analysis preflight passed for
+`deepseek / deepseek-v4-pro`, thinking `high`, selected for an independent
+static account-authority review. Inference did not run because the wrapper
+reported missing delegation acknowledgement. No account data was sent to Pi;
+all findings were verified directly by Codex.
+
+No automated runtime tests apply to this documentation correction. The
+required docs validators, diff checks, and staged-scope checks are recorded
+in the task closeout. The pre-existing staged Dev Log deletion is preserved
+and excluded using a path-limited commit. No push or merge is authorized.
+
+General creation, shared-General partition, legacy source retirement,
+unrelated-account normalization, migration advancement, and deployed runtime
+qualification remain separately authorized deferred work.
+
+```text
+PRIVATE_PREVIEW_ACCOUNT_CENSUS_PROVEN
+total_canonical_accounts=6
+project_1_affected_accounts=3
+project_1_affected_accounts_are_complete_population=false
+```
