@@ -10,6 +10,7 @@ RETIREMENT / PROVENANCE NOTICE — 2026-09-08
   (`docs/architecture/proofs/2026-08-09-dlg-phase4b-adr-number-collision-human-adjudication.md`)
   together with the confirmed 2026-09-08 canonical-main DLG disposition.
 - This file preserves historical provenance and carries no current decision authority.
+- Current release truth: [`../../00-current-state.md`](../../00-current-state.md).
 
 The historical body below is preserved byte-for-byte from the pre-retirement file.
 The original ADR-053 numeric slot is now occupied only by the retained
@@ -20,7 +21,7 @@ Node-Hosted Room Access Boundary at `../053-node-hosted-room-access-boundary.md`
 
 ## Status
 
-Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../../00-current-state.md).
+Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../00-current-state.md).
 
 ## Context
 
