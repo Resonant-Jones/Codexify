@@ -1,0 +1,126 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const vm = require("node:vm");
+
+const htmlPath = path.join(__dirname, "rc-atlas-prototype.html");
+const html = fs.readFileSync(htmlPath, "utf8");
+const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
+const modelMatch = html.match(/<script\s+data-atlas-model>([\s\S]*?)<\/script>/i);
+
+assert.ok(modelMatch, "prototype exposes the pure Atlas model script");
+const context = { console };
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(modelMatch[1], context, { filename: "rc-atlas-model.js" });
+const M = context.AtlasModel;
+
+test("all executable inline JavaScript has valid syntax", () => {
+  assert.ok(scripts.length >= 2);
+  scripts.forEach((source, index) => assert.doesNotThrow(() => new vm.Script(source, { filename: `inline-${index}.js` })));
+});
+
+test("fixture IDs are unique and every reference is valid", () => {
+  assert.deepEqual(Array.from(M.validate()), []);
+  const ids = M.data.entities.map(entity => entity.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("hierarchy relationships use legal parent-child kinds", () => {
+  for (const entity of M.data.entities.filter(entity => entity.parentId)) {
+    const parent = M.byId(entity.parentId);
+    assert.ok(parent, `parent exists for ${entity.id}`);
+    assert.ok(M.data.hierarchy[parent.kind].includes(entity.kind), `${parent.kind} may contain ${entity.kind}`);
+  }
+  assert.equal(M.byId("home-rc").kind, "homebase");
+  assert.equal(M.byId("space-contributor").parentId, "home-rc");
+  assert.equal(M.byId("room-orientation").parentId, "space-contributor");
+});
+
+test("Threads remain separate from Rooms and Messages remain separate from Threads", () => {
+  const roomThreads = M.childrenOf("room-orientation").filter(entity => entity.kind === "thread");
+  assert.deepEqual(Array.from(roomThreads, entity => entity.id).sort(), ["thread-boundaries", "thread-welcome"]);
+  assert.notDeepEqual(M.data.messages["thread-welcome"], M.data.messages["thread-boundaries"]);
+  for (const [threadId, messages] of Object.entries(M.data.messages)) {
+    assert.equal(M.byId(threadId).kind, "thread");
+    for (const message of messages) {
+      assert.equal(M.byId(message.id).kind, "message");
+      assert.equal(M.byId(message.id).parentId, threadId);
+    }
+  }
+});
+
+test("display names are independent of identity, routing, and hierarchy", () => {
+  const renamed = M.data.entities.map(entity => ({ ...entity, name: `Renamed ${entity.kind}` }));
+  assert.equal(M.byId("home-rc", renamed).kind, "homebase");
+  assert.deepEqual(Array.from(M.childrenOf("home-rc", renamed), entity => entity.id).sort(), ["space-contributor", "space-public"]);
+  assert.deepEqual(Array.from(M.ancestorsOf("thread-welcome", renamed), entity => entity.id), ["org-rc", "home-rc", "space-contributor", "room-orientation", "thread-welcome"]);
+});
+
+test("graph and non-spatial directory expose the same destinations", () => {
+  assert.deepEqual(M.graphIds(), M.listIds());
+  assert.ok(M.graphIds().includes("home-collab"));
+  assert.ok(M.graphIds().includes("node-vault"));
+  assert.ok(!M.graphIds().includes("message-welcome-1"));
+});
+
+test("Project projection exposes only the selected sample resources", () => {
+  assert.deepEqual(Array.from(M.projectedResourceIds("room-orientation")), ["artifact-framework", "artifact-atlas-contract"]);
+  assert.deepEqual(Array.from(M.projectedResourceIds("room-design")), []);
+  const projection = M.data.relationships.find(edge => edge.kind === "projection");
+  assert.equal(M.byId(projection.from).kind, "project");
+  assert.equal(M.byId(projection.to).kind, "room");
+});
+
+test("source snapshots and synthetic fixtures carry explicit truth labels", () => {
+  for (const source of M.data.sources) {
+    assert.ok(source.path.startsWith("docs/architecture/"));
+    assert.match(source.status, /proposed|contract|guide/);
+    assert.equal(source.origin, "repository snapshot");
+    assert.match(source.representation, /excerpt|summary/);
+    assert.equal(source.runtimeEvidence, "not evaluated");
+  }
+  assert.equal(M.byId("home-collab").synthetic, true);
+  assert.ok(M.data.relationships.every(edge => edge.evidence && edge.explanation));
+});
+
+test("navigation preserves history and invalid selections recover safely", () => {
+  let nav = M.createNavigation("home-rc");
+  nav = M.navigate(nav, "space-contributor");
+  nav = M.navigate(nav, "room-orientation");
+  nav = M.navigate(nav, "thread-welcome");
+  assert.equal(nav.selectedId, "thread-welcome");
+  nav = M.back(nav);
+  assert.equal(nav.selectedId, "room-orientation");
+  const recovered = M.navigate(nav, "missing-entity");
+  assert.equal(recovered.selectedId, "home-rc");
+});
+
+test("presentation storage accepts only bounded view state and falls back on failure", () => {
+  const fallback = M.defaultPresentation();
+  const malformed = M.loadPresentation({ getItem() { return "{broken"; } });
+  assert.deepEqual(malformed, fallback);
+  const blocked = M.loadPresentation({ getItem() { throw new Error("blocked"); } });
+  assert.deepEqual(blocked, fallback);
+  const stored = M.loadPresentation({ getItem() { return JSON.stringify({ viewport: { x: 12, y: 18, scale: 99 }, positions: { "home-rc": { x: 77, y: 88 } }, memberships: ["ignored"] }); } });
+  assert.equal(stored.viewport.scale, 1.35);
+  assert.deepEqual(JSON.parse(JSON.stringify(stored.positions["home-rc"])), { x: 77, y: 88 });
+  assert.equal("memberships" in stored, false);
+});
+
+test("persistent simulation boundary and unavailable Send state are present", () => {
+  assert.match(html, /Interactive design prototype · sample topology · no live connections/);
+  assert.match(html, /Send unavailable/);
+  assert.match(html, /Illustrative discovery · synthetic sectors · no live availability/);
+  assert.doesNotMatch(html, />\s*Repo implemented\s*</);
+  assert.doesNotMatch(html, />\s*logged in\s*</i);
+});
+
+test("prototype is self-contained and initiates no external service path", () => {
+  assert.doesNotMatch(html, /<script[^>]+src=/i);
+  assert.doesNotMatch(html, /<link[^>]+rel=["']stylesheet/i);
+  assert.doesNotMatch(html, /@import\s/i);
+  assert.doesNotMatch(html, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/);
+  assert.doesNotMatch(html, /serviceWorker\.register/);
+});
