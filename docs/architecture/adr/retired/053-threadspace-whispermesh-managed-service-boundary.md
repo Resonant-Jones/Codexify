@@ -20,7 +20,7 @@ Node-Hosted Room Access Boundary at `../053-node-hosted-room-access-boundary.md`
 
 ## Status
 
-Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../00-current-state.md).
+Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../../00-current-state.md).
 
 ## Context
 
