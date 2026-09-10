@@ -25,6 +25,7 @@ This file is authoritative for:
 - Frozen private-preview Chroma handling under ADR-067: one Docker-managed named volume is the approved derived-store topology; the diagnosed host bind remains rejected. Implementation, fresh initialization, retirement/recovery, and authenticated deployment proof are pending.
 - Added focused proof that Guardian required-tool selection is applied once and compaction continuation is suppressed for the required-tool turn. This remains internal/provider-free evidence; CE-L1 live execution and readback remain open.
 - Added a read-only Project `1` partition preflight. Eight threads span three account owners, the legacy `local` General cannot be assigned to one account, and no mutation or new General Project was authorized.
+- Defined the ADR-081 legacy shared-General partition and retirement doctrine: canonical thread ownership routes each thread into one account-owned General, never assigns the legacy source Project, never permits loose-thread persistence, and fails closed on ambiguous Project-only dependencies. This is documentation-only; Project `1` remains unrepaired, and restored-copy rehearsal, preview repair, migration completion, retirement readiness, and post-repair account-isolation proof remain open.
 - Landed the unified legacy-memory compatibility read surface and the UMS-04A export/restore contract. The former is read-only; the latter has no export/restore implementation or round-trip qualification.
 - Persona Studio and ADR canonicalization work is present on `main`; it does not prove deployed private-preview Persona runtime or authenticated browser save/readback.
 
@@ -42,6 +43,7 @@ This file is authoritative for:
 - Do not assume a fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
 - Do not assume private-preview Chroma startup/retrieval, matching application deployment, provider execution, persistence, observability, account isolation, or non-admin canary readiness.
 - Do not assign Project `1` by majority thread ownership, chronology, display name, operator identity, or the legacy `local` value; ADR-081 requires exact owner evidence and the preflight found none.
+- Do not treat the new ADR-081 partition doctrine as repair, restored-copy rehearsal, migration completion, retirement readiness, or post-repair account-isolation proof. Account-specific General creation and Project `1` remapping remain unimplemented and separately authorized.
 - Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
