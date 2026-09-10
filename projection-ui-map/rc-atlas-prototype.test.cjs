@@ -43,6 +43,25 @@ test("prototype-local Codexify material tokens preserve the canonical geometry c
   assert.match(html, /\.entity-card\.active\s*\{[\s\S]*var\(--accent-strong\)/);
 });
 
+test("persistent hierarchy rail and hierarchy-only controls are removed", () => {
+  assert.doesNotMatch(html, /<aside[^>]+class=["'][^"']*sidebar/i);
+  assert.doesNotMatch(html, /\b(?:sidebarTree|sidebarSources|renderSidebar|side-scroll|section-title|tree-level|tree-row|mini-glyph)\b/);
+  assert.doesNotMatch(html, /--depth\s*:/);
+  assert.match(html, /\.app\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 350px/);
+  assert.match(html, /<header class="topbar">[\s\S]*<div class="product-identity"[^>]*>[\s\S]*RC Atlas/);
+});
+
+test("Directory is flat and Sources owns source discovery", () => {
+  const directoryRenderer = html.match(/function renderDirectory\(\)[\s\S]*?function renderSources\(\)/)?.[0] || "";
+  assert.match(directoryRenderer, /D\.entities\.filter\(item => item\.graph !== false/);
+  assert.match(directoryRenderer, /class="directory-list"/);
+  assert.match(directoryRenderer, /class="directory-row/);
+  assert.doesNotMatch(directoryRenderer, /hierarchyRows|tree-level|--depth/);
+  assert.match(html, /data-view="sources"/);
+  assert.match(html, /id="sourcesView"/);
+  assert.match(html, /Reviewed architecture reading path/);
+});
+
 test("graph cards use progressive disclosure instead of exposed taxonomy", () => {
   const graphRenderer = html.match(/function renderGraph\(\)[\s\S]*?function renderRoutes\(\)/)?.[0] || "";
   assert.match(graphRenderer, /entity-descriptor/);
@@ -107,6 +126,14 @@ test("graph and non-spatial directory expose the same destinations", () => {
   assert.ok(M.graphIds().includes("home-collab"));
   assert.ok(M.graphIds().includes("node-vault"));
   assert.ok(!M.graphIds().includes("message-welcome-1"));
+});
+
+test("entity selection still drives navigation and contextual inspection", () => {
+  assert.match(html, /const nav = event\.target\.closest\("\[data-navigate\]"\)/);
+  assert.match(html, /navigateTo\(nav\.dataset\.navigate/);
+  assert.match(html, /function renderInspector\(\)/);
+  assert.match(html, /<dt>Stable ID<\/dt>/);
+  assert.match(html, /<dt>Parent\/context<\/dt>/);
 });
 
 test("Project projection exposes only the selected sample resources", () => {

@@ -52,14 +52,14 @@ Every source panel records its repository path, inspected commit, source status,
 ## Interactive behavior
 
 - Spatial Atlas with compact glyph/name/descriptor cards, discoverable relationship detail nodes, drag, pan, zoom, and Reset view.
-- Searchable flat hierarchy and relationship directory equivalent to the graph destinations.
+- Searchable flat entity and relationship Directory equivalent to the graph destinations, with no hierarchy indentation or connector treatment.
 - Breadcrumb and Back navigation through HomeBase, Space, Room workspace, and Thread detail.
 - A Room workspace that keeps Threads, documents/artifacts, and the source Project visibly separate.
 - Two independently selectable fixture Threads in the Atlas Orientation Room, each with distinct fixture Messages and provenance labels.
 - Full-width source-document reading that returns to the prior navigation, selection, search, and viewport state.
 - Explicit Galaxy confirmation, a local-only pull-back transition into the larger field, and return to the exact previous local navigation, selection, search, and viewport state.
 - Namespaced local presentation storage for viewport and card positions only, with fail-open fallback for missing, blocked, or malformed storage.
-- Keyboard-operable controls, visible focus, reduced-motion handling, and a narrow-screen stacked fallback.
+- Keyboard-operable controls, visible focus, reduced-motion handling, and a narrow-screen single-surface fallback.
 
 ## Intentional departures from the source artifact
 
@@ -71,6 +71,7 @@ Every source panel records its repository path, inspected commit, source status,
 - Galaxy content was reduced to clearly synthetic archetypes and retains manual entry.
 - Warm documentation-diagram surfaces were replaced by the current Codexify glass, bezel, inset-face, depth, chip, and accent grammar without changing the Atlas composition.
 - Default graph taxonomy was reduced to a glyph, name, short descriptor, and selected/explore state. Architectural precision remains in the inspector, Directory, Sources, accessible labels, and hover detail.
+- The persistent hierarchy/source rail was removed. Atlas now expands to the left frame edge, source discovery remains in Sources, entity lookup remains in the flat Directory, and boundary detail remains in the fixed prototype disclaimer and contextual inspector.
 
 ## Architecture boundary and ADR impact
 
@@ -80,18 +81,18 @@ No ADR impact. This standalone prototype illustrates a proposed v2 hierarchy wit
 
 Validation results recorded on 2026-09-10:
 
-- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 15 tests, including local token geometry, clipped card material, progressive disclosure, and Galaxy transition contracts.
+- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 18 tests, including rail removal, absence of hierarchy-only controls, flat Directory/source ownership, model hierarchy parity, selection/inspector wiring, local token geometry, progressive disclosure, and Galaxy transition contracts.
 - `python3 scripts/validate_docs.py` — passed.
 - `git diff --check` — passed before final staging.
-- Desktop visual inspection — passed at 1440×1000. The untouched semantic baseline at commit `45ebd555bd5b66ee0f955cac70684d08150a1ac0`, originating prototype, reskinned Atlas, card hover, Directory, source reader, Galaxy, and 130% high-zoom card state were captured with Playwright and inspected at original resolution.
+- Desktop visual inspection — passed at 1440×1000. Before/after captures used material-pass commit `0fea8dd5875e182709d9ca90eb67d385694eb5ff` as the visual baseline. The main surface expanded from 780px to 1072px and the visible Atlas canvas from 778px to 1070px; the current DOM contains zero sidebar, sidebar-ID, or hierarchy-indent elements.
 - Current Codexify comparison — current `theme/index.ts`, `AppShell.tsx`, `FrameCard.tsx`, `index.css`, and the UI Token Constitution supplied the geometry and material rules. Representative repository AppShell Guardian and dark Settings reference images were also inspected. This is material-family comparison, not a claim that a production AppShell runtime was exercised.
-- Narrow viewport — passed at 390×844. The layout stacked navigation and the main experience with `scrollWidth === clientWidth === 390`; search remained visible and the icon-only Galaxy control retained `aria-label="Enter Galaxy"`.
+- Narrow viewport — passed at 390×844. The primary surface starts at the left frame edge with `scrollWidth === clientWidth === 390`; search remained visible, the contextual inspector remained intentionally hidden at this breakpoint, and the icon-only Galaxy control retained `aria-label="Enter Galaxy"`.
 - Card material — passed at default and 130% graph zoom. The card computed to a 19px outer radius with hidden overflow, a 16px inset face, intact hard clipping, readable text, selected accent rim, and restrained hover lift.
-- Hierarchy navigation — passed. Atlas Orientation Room opened as a Room workspace with two distinct Threads, separate documents/artifacts, and separate Project source. The second Thread opened with two fixture Messages, the `thread-boundaries` inspector ID, and disabled Send.
+- Entity navigation — passed. The flat Directory exposed all 16 graph destinations. Atlas Orientation Room opened as a Room workspace with two distinct Threads, separate documents/artifacts, and separate Project source. The second Thread opened with two fixture Messages, the `thread-boundaries` inspector ID, and disabled Send. Keyboard-only navigation selected `space-contributor` through Directory and updated the contextual inspector state.
 - Empty search — passed. An unmatched query showed explicit entity and relationship recovery states; clearing the field restored the complete directory.
 - Document expansion and return — passed. The hierarchy-framework source opened in a full-width material reader with path, status, snapshot representation, inspected commit, runtime-evidence boundary, readable hierarchy block, explicit source link, and Return control.
-- Galaxy explicit entry and return — passed under normal motion. The initial page stayed local, the confirmation gate remained mandatory, and the Galaxy retained the illustrative/synthetic disclaimer. Return reproduced the recorded local state exactly: Atlas view, `home-rc` selection, empty query, and `translate(35px, 12px) scale(0.8)` viewport.
-- Reduced motion — passed with Playwright media emulation. The media query matched, App/Galaxy transition durations computed to `1e-05s`, the Galaxy transform computed to `none`, and entry/return settled without the scale/depth effect.
+- Galaxy explicit entry and return — passed under normal motion. The initial page stayed local, the confirmation gate remained mandatory, and the Galaxy retained the illustrative/synthetic disclaimer. Return reproduced the recorded Atlas selection and reset `70%` viewport.
+- Reduced motion — passed with Playwright media emulation. The media query matched, App/Galaxy transition durations computed to `1e-05s`, and the Galaxy transform computed to `none`.
 - Storage failure and invalid-selection recovery — passed in the pure model suite; the storage format and recovery code were not changed by this visual slice.
 - Console inspection — passed in a fresh final browser session with 0 errors and 0 warnings. A self-contained data-URL favicon prevents a browser-generated `/favicon.ico` 404.
 - Network inspection — passed. The fresh final session recorded one static request, `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request was made.
@@ -102,15 +103,15 @@ Validation results recorded on 2026-09-10:
 | Comparison point | Source evidence | Implementation evidence | Result |
 |---|---|---|---|
 | Palette | Cream paper with muted entity hues | Dark Codexify panel/sheet/chip vocabulary with sky accent; entity hues remain subordinate | Intentional material translation |
-| Shell | 292px left rail, compact topbar/tabs, spatial center, contextual right rail | Same information shell, recast as three clipped 19px glass frames with 6px scene gaps | Structure preserved |
+| Shell | Material-pass baseline had a persistent 286px hierarchy/source rail, spatial center, and contextual right inspector | Two clipped 19px frames: expanded primary surface and contextual right inspector; compact RC Atlas identity moved into the existing top chrome | Intentional hierarchy-rail removal |
 | Canvas | Fine 28px grid, draggable cards, labeled dashed/solid edges | Same grid and routes; labels collapse to detail nodes until hover/focus/selection | Matched with progressive disclosure |
 | Typography | System UI chrome with serif reading/inspection hierarchy | Codexify system UI hierarchy with monospace retained for IDs and paths | Intentional material translation |
 | Card treatment | Thin colored borders, gentle radii, compact metadata | 19px bezel/rim shell, 16px inset face, depth shadow, accent selection, hover lift, clipped layers | Re-skinned, semantics preserved |
 | Galaxy | Explicitly entered dark full-screen context | Explicit confirmation plus pull-back/expansion transition, synthetic disclaimer, exact local-state return, reduced-motion simplification | Extended within local simulation boundary |
-| Responsive behavior | Source is primarily desktop-oriented | Added task-required stacked narrow fallback at 390×844 | Intentional extension |
+| Responsive behavior | Source is primarily desktop-oriented | Single primary surface at 390×844 with no rail, empty gutter, or document overflow | Intentional extension |
 | Source reading | Existing inspector/document browsing | Full-width, provenance-labeled reviewed excerpts with readable code/paths | Intentional extension |
 
-The reskin changes material and information density rather than information architecture. No product, authority, availability, or runtime claim was added. The prototype remains visibly spatial and keeps the originating composition, while the canvas no longer reads like an always-expanded ADR index.
+This presentation change removes redundant hierarchy navigation without changing the model hierarchy or graph semantics. No product, authority, availability, or runtime claim was added. The hierarchy remains in the model; the Atlas now owns the screen.
 
 ## Deferred work
 
