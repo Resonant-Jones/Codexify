@@ -4,6 +4,7 @@ RETIREMENT / PROVENANCE NOTICE — 2026-09-08
 - Lifecycle: Retired.
 - Historical active path: `docs/architecture/adr/053-threadspace-whispermesh-managed-service-boundary.md`.
 - Canonical successor: [`../055-threadspace-whispermesh-managed-service-boundary.md`](../055-threadspace-whispermesh-managed-service-boundary.md).
+- Canonical current-state reference: [`../../00-current-state.md`](../../00-current-state.md).
 - Canonical successor number: ADR-055.
 - Retirement date: 2026-09-08.
 - Disposition authority: the accepted Phase 4B ADR-number-collision human adjudication
@@ -20,7 +21,7 @@ Node-Hosted Room Access Boundary at `../053-node-hosted-room-access-boundary.md`
 
 ## Status
 
-Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../../00-current-state.md).
+Proposed — architecture review required. This is a documentation-only decision. It authorizes no runtime implementation, protocol deployment, hosted service, release claim, or change to [00 Current State](../00-current-state.md).
 
 ## Context
 
