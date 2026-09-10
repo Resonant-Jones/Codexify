@@ -22,6 +22,15 @@ This file is authoritative for:
 
 ## What changed recently
 
+- Corrected a surviving single-user Project schema invariant in the repository:
+  display-name uniqueness is now scoped to canonical ownership through
+  `UNIQUE (user_id, name)` rather than global `UNIQUE (name)`. PostgreSQL
+  migration proof covers cross-account reuse, same-account rejection,
+  multi-account `General`, preservation, and downgrade behavior. Repository
+  Alembic head is `7e5a5fccf253`. This did not migrate Private Preview, repair
+  Project `1`, or implement account-owned General provisioning; the live
+  preview database remains at its separately proven blocked revision
+  `d4e0f2a5b7c9`.
 - Frozen private-preview Chroma handling under ADR-067: one Docker-managed named volume is the approved derived-store topology; the diagnosed host bind remains rejected. Implementation, fresh initialization, retirement/recovery, and authenticated deployment proof are pending.
 - Added focused proof that Guardian required-tool selection is applied once and compaction continuation is suppressed for the required-tool turn. This remains internal/provider-free evidence; CE-L1 live execution and readback remain open.
 - Added a read-only Project `1` partition preflight and [account-census correction](./proofs/runtime/2026-09-09-legacy-shared-general-partition-preflight.md#account-census-correction--2026-09-10). The complete persisted `users` population is six rows: five email-identified accounts plus the legacy `local` registry row. Only Jones, Maatariki, and Krista own the eight Project-1 threads; `annieizor@gmail.com` and `joselyn.torres70@gmail.com` are additional accounts, outside that repair subset. All five email accounts lack an account-owned General; the sole General is legacy Project `1`, owned by `local`, and cannot be assigned to one account. No mutation or General creation occurred; unrelated accounts are not automatically repair participants.
@@ -44,6 +53,10 @@ This file is authoritative for:
 - Do not assume private-preview Chroma startup/retrieval, matching application deployment, provider execution, persistence, observability, account isolation, or non-admin canary readiness.
 - Do not assign Project `1` by majority thread ownership, chronology, display name, operator identity, or the legacy `local` value; ADR-081 requires exact owner evidence and the preflight found none.
 - Do not treat the new ADR-081 partition doctrine as repair, restored-copy rehearsal, migration completion, retirement readiness, or post-repair account-isolation proof. Account-specific General creation and Project `1` remapping remain unimplemented and separately authorized.
+- Do not treat repository-scoped Project-name uniqueness as Private Preview
+  migration progress or startup proof. The live preview database remains at
+  its separately proven blocked revision, and the account-owned General
+  provisioning primitive remains unimplemented.
 - Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
