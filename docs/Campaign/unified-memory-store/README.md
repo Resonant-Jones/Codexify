@@ -122,9 +122,10 @@ UMS-03I UNIFIED COMPATIBILITY READ SURFACE: CLOSED
 
 UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
 
-UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
-UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
-UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO START
+UMS-04: OPEN
+UMS-04A: CLOSED
+UMS-04B-PG DISPOSABLE POSTGRESQL TEST AUTHORITY: CLOSED
+UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO RESUME
 UMS-04C: NOT AUTHORIZED
 UMS-04D: NOT AUTHORIZED
 
@@ -682,6 +683,25 @@ export serialization is now authorized to start; UMS-04C and
 UMS-04D remain NOT AUTHORIZED; UMS-05+ remain NOT
 AUTHORIZED. The complete architecture evidence is at
 [2026-09-08 UMS-04A canonical memory export / restore contract proof](../../architecture/proofs/runtime/2026-09-08-ums04a-canonical-memory-export-restore-contract-proof.md).
+
+UMS-04B-PG closed the disposable PostgreSQL test-authority prerequisite
+against synchronized `main` at
+`40e538cfd232bb30692dde1f9008e3fdeda3562b`. The existing canonical migration
+fixture completed two independent lifecycles with one passing test and zero
+skips per invocation; each teardown catalog query returned no
+`codexify_ums03d_%` database. The repository reported exactly one Alembic head,
+`f6b0d3e8c5a2`.
+
+PostgreSQL qualification ran from the ordinary macOS host shell because the
+managed Codex sandbox cannot open the required host-loopback TCP connection.
+This is a proof-environment boundary only. The dedicated PostgreSQL instance is
+proof infrastructure and does not alter Codexify runtime architecture. No
+production code, test, fixture, ORM model, migration, account-export,
+account-restore, or runtime/retrieval behavior changed. UMS-04 remains open;
+UMS-04B-PG is closed; UMS-04B canonical memory export serialization is
+authorized to resume; UMS-04C, UMS-04D, and UMS-05+ remain not authorized. The
+complete evidence is recorded in the
+[2026-09-10 UMS-04B-PG PostgreSQL test-authority proof](../../architecture/proofs/runtime/2026-09-10-ums04b-postgres-test-authority-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed
