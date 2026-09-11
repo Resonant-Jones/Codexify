@@ -185,12 +185,50 @@ test("search includes module names, responsibilities, dependency text, and ancho
 
 test("module and edge selection update the contextual inspector", () => {
   assert.match(html, /const nav = event\.target\.closest\("\[data-navigate\]"\)/);
-  assert.match(html, /navigateTo\(nav\.dataset\.navigate\)/);
+  assert.match(html, /navigateTo\(nav\.dataset\.navigate, Boolean\(nav\.closest\("#inspectorPanel"\)\)\)/);
   assert.match(html, /const edgeRow = event\.target\.closest\("\[data-edge-id\]"\)/);
-  assert.match(html, /selectEdge\(edgeRow\.dataset\.edgeId\)/);
+  assert.match(html, /selectEdge\(edgeRow\.dataset\.edgeId, Boolean\(edgeRow\.closest\("#inspectorPanel"\)\)\)/);
   assert.match(html, /function renderInspector\(\)/);
   assert.match(html, /<dt>Blast radius<\/dt>/);
   assert.match(html, /<dt>Source commit<\/dt>/);
+});
+
+test("mobile preview is a bounded orientation-only projection", () => {
+  const entity = M.mobilePreview("context-retrieval-broker", null);
+  assert.deepEqual(Object.keys(entity).sort(), ["descriptor", "eyebrow", "title"]);
+  assert.match(entity.eyebrow, /DOCUMENTATION SNAPSHOT/);
+  assert.equal(entity.title, "Context and retrieval broker");
+  assert.match(entity.descriptor, /message history/);
+  for (const forbidden of ["stableId", "commit", "source", "path", "blastRadius", "relationships", "dependencies"]) assert.equal(forbidden in entity, false);
+  const relationship = M.data.relationships[0];
+  const edge = M.mobilePreview("context-retrieval-broker", relationship.id);
+  assert.match(edge.eyebrow, /(?:DEPENDENCY|RUNTIME FLOW)/);
+  assert.match(edge.title, / → /);
+  assert.equal(edge.descriptor, relationship.explanation);
+  assert.match(html, /\.summary-mobile h3\s*\{[^}]*-webkit-line-clamp:\s*2/);
+  assert.match(html, /\.summary-mobile p\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/);
+});
+
+test("mobile inspector transitions between real peek and expanded disclosure states", () => {
+  assert.equal(M.nextMobileSheetState("peek", "expand", true), "expanded");
+  assert.equal(M.nextMobileSheetState("expanded", "collapse", true), "peek");
+  assert.equal(M.nextMobileSheetState("expanded", "select_new", true), "peek");
+  assert.equal(M.nextMobileSheetState("peek", "open_document", true), "expanded");
+  assert.equal(M.nextMobileSheetState("expanded", "reader_close", true), "peek");
+  assert.equal(M.nextMobileSheetState("expanded", "collapse", false), "expanded");
+  assert.equal(M.nextMobileSheetState("expanded", "select_new", false), "expanded");
+  assert.match(html, /id="mobileSheetToggle"[^>]*aria-controls="inspector"[^>]*aria-expanded="false"[^>]*aria-label="Expand details"/);
+  assert.match(html, /class="mobile-sheet-toggle"[^>]*>[\s\S]*?<svg[^>]+aria-hidden="true"/);
+  assert.match(html, /\.mobile-sheet-toggle\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px/);
+  assert.match(html, /--mobile-sheet-peek:\s*clamp\(150px, 21svh, 178px\)/);
+  assert.match(html, /--mobile-sheet-expanded:\s*min\(72svh, calc\(100dvh - 184px\)\)/);
+  assert.match(html, /data-mobile-sheet-state="peek"[^}]*\.inspector-inner\s*\{\s*display:\s*none/);
+  assert.match(html, /\.inspector\.document-mode \.reader\s*\{[^}]*height:\s*100%/);
+  assert.match(html, /els\.inspector\.inert = mobile && !expanded/);
+  assert.match(html, /function navigateTo\([^)]*\)[\s\S]*?if \(!preserveMobileSheet\) transitionMobileSheet\("select_new"\)/);
+  assert.match(html, /function selectEdge\([^)]*\)[\s\S]*?if \(!preserveMobileSheet\) transitionMobileSheet\("select_new"\)/);
+  assert.match(html, /function prepareReader\([^)]*\)[\s\S]*?transitionMobileSheet\("open_document"\)/);
+  assert.match(html, /mobileSheetToggle\.addEventListener\("click", \(\) => transitionMobileSheet\(state\.mobileSheetState === "expanded" \? "collapse" : "expand", true\)\)/);
 });
 
 test("compact Legend is optional, dismissible, and not a sidebar", () => {
@@ -419,16 +457,18 @@ test("inspector document history preserves projection state and restores its pri
       const body = { scrollTop: 0 };
       const scroller = { scrollTop: 240 };
       const controls = {};
-      const state = { view, query: 'docs', navigation: { selectedId: 'completion-assembly-execution', history: [] }, selectedEdgeId: originMode === 'relationship' ? 'edge-example' : null, viewport: { x: 70, y: -20, scale: .6 }, inspectorMode: originMode, documentHistory: [], readerLoadToken: 0 };
+      const state = { view, query: 'docs', navigation: { selectedId: 'completion-assembly-execution', history: [] }, selectedEdgeId: originMode === 'relationship' ? 'edge-example' : null, viewport: { x: 70, y: -20, scale: .6 }, inspectorMode: originMode, mobileSheetState: 'peek', documentHistory: [], readerLoadToken: 0 };
       const original = JSON.stringify([state.view, state.query, state.navigation, state.selectedEdgeId, state.viewport]);
       const env = { URL, location: { protocol: 'file:', href: 'file:///repo/projection-ui-map/rc-atlas-prototype.html' }, AtlasDocumentBundle: Promise.resolve(bundle),
         M, D: M.data, state, window: { scrollY: 0 }, document: { activeElement: {} },
         $: selector => controls[selector] ||= { focus: () => {} }, $$: () => [],
         esc: value => String(value), viewScroller: () => scroller, describeReaderFocus: () => ({id:'source'}), restoreReaderFocus: () => {}, renderInspector: () => {},
+        transitionMobileSheet: event => { state.mobileSheetState = M.nextMobileSheetState(state.mobileSheetState, event, true); },
         els: { inspector: { parentElement: { classList } }, reader: { classList }, readerLink: {}, readerTitle: {}, readerPath: {}, readerArticle: { parentElement: body, querySelector: () => null, innerHTML: '' } } };
       vm.createContext(env); vm.runInContext(functions, env);
       await env.openReader('source-adr-index');
       assert.equal(state.inspectorMode, 'document');
+      assert.equal(state.mobileSheetState, 'expanded');
       assert.ok(classes.has('document-mode'));
       assert.match(env.els.readerArticle.innerHTML, /<h1 id="adr-index">/);
       body.scrollTop = 519;
@@ -441,6 +481,7 @@ test("inspector document history preserves projection state and restores its pri
       assert.equal(state.inspectorMode, 'document');
       await env.closeReader();
       assert.equal(state.inspectorMode, originMode);
+      assert.equal(state.mobileSheetState, 'peek');
       assert.equal(scroller.scrollTop, 240);
       assert.equal(JSON.stringify([state.view, state.query, state.navigation, state.selectedEdgeId, state.viewport]), original);
       assert.ok(!classes.has('document-mode'));
