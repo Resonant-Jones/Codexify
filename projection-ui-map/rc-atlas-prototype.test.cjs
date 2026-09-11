@@ -282,7 +282,55 @@ test("Sources exposes the complete governing document set", () => {
   assert.deepEqual(plain(M.data.sources.map(item => item.path).sort()), expected);
   assert.match(html, /data-view="sources"/);
   assert.match(html, /id="sourcesView"/);
-  assert.match(html, /Open source/);
+  assert.match(html, /data-full-source-id/);
+  assert.match(html, /Read full document/);
+  assert.doesNotMatch(html, /<a class="button"[^>]+\.md/);
+});
+
+test("bounded Markdown rendering covers repository document syntax without raw HTML", () => {
+  const rendered = M.renderMarkdown(`---
+tags:
+* architecture
+aliases:
+* ADR Index
+---
+# ADR **Index**
+
+1. [[001-queue-model|ADR-001 Queue Model]]
+2. [Current state](../00-current-state.md)
+
+| Field | Meaning |
+| --- | --- |
+| Status | \`Accepted\` |
+
+> Evidence is not authority.
+
+\`\`\`js
+const safe = true;
+\`\`\`
+
+<script>alert("no")</script>
+[unsafe](javascript:alert(1))`);
+  assert.match(rendered, /class="markdown-frontmatter"/);
+  assert.match(rendered, /<dt>tags<\/dt><dd>architecture<\/dd>/);
+  assert.match(rendered, /<h1 id="adr-index">ADR <strong>Index<\/strong><\/h1>/);
+  assert.match(rendered, /<ol><li value="1"><a href="#" data-markdown-href="001-queue-model\.md">ADR-001 Queue Model<\/a><\/li>/);
+  assert.match(rendered, /data-markdown-href="\.\.\/00-current-state\.md"/);
+  assert.match(rendered, /class="markdown-table-wrap"/);
+  assert.match(rendered, /<blockquote>/);
+  assert.match(rendered, /<pre><code class="language-js">const safe = true;/);
+  assert.match(rendered, /&lt;script&gt;alert\(&quot;no&quot;\)&lt;\/script&gt;/);
+  assert.doesNotMatch(rendered, /<script>|javascript:/);
+});
+
+test("full-document loading is explicit, same-origin, and fails closed outside served mode", () => {
+  const loader = html.match(/function repositoryRootUrl\(\)[\s\S]*?function closeReader\(\)/)?.[0] || "";
+  assert.match(loader, /\^https\?:\$/);
+  assert.match(loader, /url\.origin !== root\.origin/);
+  assert.match(loader, /await fetch\(url\.href, \{ cache: "no-store" \}\)/);
+  assert.match(loader, /A browser-opened file cannot read sibling repository documents/);
+  assert.match(loader, /Atlas will not fall back to raw Markdown/);
+  assert.equal((html.match(/\bfetch\s*\(/g) || []).length, 1);
 });
 
 test("Codexify material, Galaxy transition, and reduced motion contracts remain intact", () => {
@@ -305,6 +353,6 @@ test("truthful boundary copy remains visible and the prototype makes no automati
   assert.doesNotMatch(html, /<script[^>]+src=/i);
   assert.doesNotMatch(html, /<link[^>]+rel=["']stylesheet/i);
   assert.doesNotMatch(html, /@import\s/i);
-  assert.doesNotMatch(html, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/);
+  assert.doesNotMatch(html, /\b(?:XMLHttpRequest|WebSocket|EventSource)\s*\(/);
   assert.doesNotMatch(html, /serviceWorker\.register/);
 });

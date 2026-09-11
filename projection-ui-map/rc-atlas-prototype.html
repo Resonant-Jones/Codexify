@@ -261,9 +261,31 @@
     .reader-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
     .reader-article h1 { margin: 0 0 15px; font: 680 34px/1.08 var(--font); letter-spacing: -.04em; }
     .reader-article h2 { margin: 26px 0 9px; font: 660 22px/1.15 var(--font); }
+    .reader-article h3, .reader-article h4, .reader-article h5, .reader-article h6 { margin: 22px 0 8px; line-height: 1.25; }
     .reader-article p, .reader-article li { color: var(--muted); font-size: 14px; line-height: 1.68; }
+    .reader-article ul, .reader-article ol { padding-left: 25px; }
+    .reader-article li + li { margin-top: 5px; }
     .reader-article code { border-radius: 4px; background: var(--chip-bg); padding: 1px 4px; font-family: var(--mono); font-size: .9em; }
-    .source-link { color: var(--accent); font-size: 11px; font-weight: 720; }
+    .reader-article pre { overflow: auto; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: #090d13; padding: 14px; }
+    .reader-article pre code { background: transparent; padding: 0; color: #d9e8f7; white-space: pre; }
+    .reader-article blockquote { margin: 18px 0; border-left: 3px solid var(--accent-strong); background: var(--surface-soft); padding: 4px 16px; }
+    .reader-article hr { height: 1px; margin: 28px 0; border: 0; background: var(--panel-border); }
+    .reader-article a { color: var(--accent); font-weight: 700; text-decoration: underline; text-decoration-color: rgba(142,197,255,.35); text-underline-offset: 3px; }
+    .markdown-table-wrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); }
+    .reader-article table { width: 100%; border-collapse: collapse; background: var(--surface-soft); }
+    .reader-article th, .reader-article td { min-width: 120px; border-bottom: 1px solid var(--panel-border); padding: 9px 11px; color: var(--muted); font-size: 12px; line-height: 1.45; text-align: left; vertical-align: top; }
+    .reader-article th { color: var(--text); background: rgba(255,255,255,.035); font-weight: 760; }
+    .reader-article tbody tr:last-child td { border-bottom: 0; }
+    .markdown-frontmatter { margin-bottom: 25px; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: var(--surface-soft); padding: 12px 14px; }
+    .markdown-frontmatter > strong { color: var(--text-subtle); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+    .markdown-frontmatter dl { display: grid; grid-template-columns: minmax(80px, auto) minmax(0, 1fr); gap: 7px 12px; margin: 11px 0 0; }
+    .markdown-frontmatter dt { color: var(--text-subtle); font: 10px var(--mono); }
+    .markdown-frontmatter dd { margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .reader-state { border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: var(--surface-soft); padding: 18px; }
+    .reader-state h1 { font-size: 24px; }
+    .reader-state code { display: block; margin-top: 12px; padding: 10px; overflow-wrap: anywhere; }
+    .source-link { appearance: none; border: 0; background: transparent; padding: 6px 0; color: var(--accent); font-size: 11px; font-weight: 720; cursor: pointer; }
+    .source-link:disabled { color: var(--text-subtle); cursor: wait; }
 
     .gate { position: fixed; z-index: 460; inset: 0; display: none; place-items: center; background: rgba(2,6,12,.66); backdrop-filter: blur(14px) saturate(120%); }
     .gate.open { display: grid; }
@@ -396,7 +418,7 @@
   </div>
 
   <section class="reader" id="reader" role="dialog" aria-modal="true" aria-labelledby="readerTitle">
-    <header class="reader-head"><button class="icon-button" id="closeReader" type="button" aria-label="Return from document"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span><a class="source-link" id="readerLink" href="#">Open repository source</a></header>
+    <header class="reader-head"><button class="icon-button" id="closeReader" type="button" aria-label="Return from document"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span><button class="source-link" id="readerLink" type="button">Read full document</button></header>
     <div class="reader-body"><article class="reader-article" id="readerArticle"></article></div>
   </section>
   <section class="gate" id="galaxyGate" role="dialog" aria-modal="true" aria-labelledby="galaxyGateTitle">
@@ -573,6 +595,135 @@
         pageScrollTop: Math.max(0, Number.isFinite(+pageScrollTop) ? +pageScrollTop : 0)
       };
     }
+    function escapeMarkdown(value) { return String(value == null ? "" : value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]); }
+    function safeMarkdownTarget(value) {
+      const target = String(value || "").trim();
+      return target && !/^(?:javascript|data|vbscript):/i.test(target) ? target : null;
+    }
+    function renderMarkdownInline(value) {
+      const held = [];
+      const hold = html => "\u0000" + (held.push(html) - 1) + "\u0000";
+      let text = String(value == null ? "" : value);
+      text = text.replace(/`([^`\n]+)`/g, (_, code) => hold("<code>" + escapeMarkdown(code) + "</code>"));
+      text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, rawTarget, rawLabel) => {
+        let target = safeMarkdownTarget(rawTarget);
+        if (target && !/\.md(?:[#?]|$)/i.test(target)) {
+          const suffix = target.search(/[?#]/);
+          target = suffix < 0 ? target + ".md" : target.slice(0, suffix) + ".md" + target.slice(suffix);
+        }
+        const label = escapeMarkdown(rawLabel || rawTarget);
+        return target ? hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '">' + label + "</a>") : label;
+      });
+      text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+["']([^"']+)["'])?\)/g, (_, rawLabel, rawTarget, rawTitle) => {
+        const target = safeMarkdownTarget(rawTarget), label = escapeMarkdown(rawLabel);
+        const title = rawTitle ? ' title="' + escapeMarkdown(rawTitle) + '"' : "";
+        return target ? hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '"' + title + ">" + label + "</a>") : label;
+      });
+      text = escapeMarkdown(text)
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+        .replace(/~~([^~]+)~~/g, "<del>$1</del>")
+        .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+        .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
+      return text.replace(/\u0000(\d+)\u0000/g, (_, index) => held[+index] || "");
+    }
+    function renderFrontmatter(lines) {
+      const fields = [];
+      let current = null;
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        const field = trimmed.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
+        if (field) { current = { key: field[1], values: field[2] ? [field[2]] : [] }; fields.push(current); return; }
+        const item = trimmed.match(/^[-*]\s+(.+)$/);
+        if (item && current) current.values.push(item[1]);
+      });
+      if (!fields.length) return "";
+      return '<aside class="markdown-frontmatter"><strong>Document metadata</strong><dl>' + fields.map(field => '<dt>' + escapeMarkdown(field.key) + '</dt><dd>' + (field.values.length ? field.values.map(renderMarkdownInline).join('<span aria-hidden="true"> · </span>') : "—") + "</dd>").join("") + "</dl></aside>";
+    }
+    function splitMarkdownTableRow(line) {
+      const cells = [];
+      let cell = "", wikiDepth = 0, code = false, escaped = false;
+      const input = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+      for (let index = 0; index < input.length; index += 1) {
+        const char = input[index], next = input[index + 1];
+        if (escaped) { cell += char; escaped = false; continue; }
+        if (char === "\\") { cell += char; escaped = true; continue; }
+        if (char === "`") { code = !code; cell += char; continue; }
+        if (!code && char === "[" && next === "[") { wikiDepth += 1; cell += "[["; index += 1; continue; }
+        if (!code && wikiDepth && char === "]" && next === "]") { wikiDepth -= 1; cell += "]]"; index += 1; continue; }
+        if (!code && !wikiDepth && char === "|") { cells.push(cell.trim()); cell = ""; continue; }
+        cell += char;
+      }
+      cells.push(cell.trim());
+      return cells;
+    }
+    function tableDivider(line) {
+      const cells = splitMarkdownTableRow(line);
+      return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+    }
+    function markdownBlockStart(lines, index) {
+      const line = lines[index] || "";
+      return !line.trim() || /^\s*```/.test(line) || /^#{1,6}\s+/.test(line) || /^\s*>/.test(line) || /^\s*(?:[-+*]|\d+\.)\s+/.test(line) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) || (index + 1 < lines.length && line.includes("|") && tableDivider(lines[index + 1]));
+    }
+    function renderMarkdown(markdown) {
+      const lines = String(markdown == null ? "" : markdown).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+      const output = [];
+      let index = 0;
+      if (lines[0] && lines[0].trim() === "---") {
+        const end = lines.findIndex((line, lineIndex) => lineIndex > 0 && line.trim() === "---");
+        if (end > 0) { output.push(renderFrontmatter(lines.slice(1, end))); index = end + 1; }
+      }
+      while (index < lines.length) {
+        const line = lines[index];
+        if (!line.trim()) { index += 1; continue; }
+        const fence = line.match(/^\s*```\s*([^\s`]*)/);
+        if (fence) {
+          const code = []; index += 1;
+          while (index < lines.length && !/^\s*```/.test(lines[index])) { code.push(lines[index]); index += 1; }
+          if (index < lines.length) index += 1;
+          const language = fence[1] && /^[\w-]+$/.test(fence[1]) ? ' class="language-' + escapeMarkdown(fence[1]) + '"' : "";
+          output.push("<pre><code" + language + ">" + escapeMarkdown(code.join("\n")) + "</code></pre>");
+          continue;
+        }
+        const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+        if (heading) {
+          const level = heading[1].length;
+          const id = heading[2].toLowerCase().replace(/<[^>]*>/g, "").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-") || "section-" + index;
+          output.push("<h" + level + ' id="' + escapeMarkdown(id) + '">' + renderMarkdownInline(heading[2]) + "</h" + level + ">"); index += 1; continue;
+        }
+        if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { output.push("<hr>"); index += 1; continue; }
+        if (line.includes("|") && index + 1 < lines.length && tableDivider(lines[index + 1])) {
+          const headings = splitMarkdownTableRow(line); index += 2;
+          const rows = [];
+          while (index < lines.length && lines[index].includes("|") && lines[index].trim()) { rows.push(splitMarkdownTableRow(lines[index])); index += 1; }
+          output.push('<div class="markdown-table-wrap"><table><thead><tr>' + headings.map(cell => "<th>" + renderMarkdownInline(cell) + "</th>").join("") + "</tr></thead><tbody>" + rows.map(row => "<tr>" + headings.map((_, cellIndex) => "<td>" + renderMarkdownInline(row[cellIndex] || "") + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>");
+          continue;
+        }
+        if (/^\s*>/.test(line)) {
+          const quote = [];
+          while (index < lines.length && /^\s*>/.test(lines[index])) { quote.push(lines[index].replace(/^\s*>\s?/, "")); index += 1; }
+          output.push("<blockquote>" + renderMarkdown(quote.join("\n")) + "</blockquote>"); continue;
+        }
+        const list = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+        if (list) {
+          const ordered = Boolean(list[2]), items = [], start = ordered ? Math.max(1, +list[2]) : 1;
+          while (index < lines.length) {
+            const item = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+            if (!item || Boolean(item[2]) !== ordered) break;
+            let content = item[3]; index += 1;
+            while (index < lines.length && /^\s{2,}\S/.test(lines[index]) && !/^\s*(?:[-+*]|\d+\.)\s+/.test(lines[index])) { content += " " + lines[index].trim(); index += 1; }
+            const task = content.match(/^\[([ xX])\]\s+(.+)$/);
+            items.push({ value: ordered ? Math.max(1, +item[2]) : null, html: task ? '<input type="checkbox" disabled' + (task[1].toLowerCase() === "x" ? " checked" : "") + "> " + renderMarkdownInline(task[2]) : renderMarkdownInline(content) });
+          }
+          const tag = ordered ? "ol" : "ul", startAttribute = ordered && start !== 1 ? ' start="' + start + '"' : "";
+          output.push("<" + tag + startAttribute + ">" + items.map(item => "<li" + (ordered ? ' value="' + item.value + '"' : "") + ">" + item.html + "</li>").join("") + "</" + tag + ">"); continue;
+        }
+        const paragraph = [line.trim()]; index += 1;
+        while (index < lines.length && !markdownBlockStart(lines, index)) { paragraph.push(lines[index].trim()); index += 1; }
+        output.push("<p>" + renderMarkdownInline(paragraph.join(" ")) + "</p>");
+      }
+      return output.filter(Boolean).join("\n");
+    }
     function validate(input) {
       const model = input || data, errors = [], seen = new Set(), ids = new Set(model.entities.map(item => item.id));
       model.entities.forEach(item => {
@@ -591,7 +742,7 @@
       if (JSON.stringify(graphIds(model.entities)) !== JSON.stringify(listIds(model.entities))) errors.push("graph-list-parity");
       return errors;
     }
-    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, loadPresentation, createNavigation, navigate, back, createReaderReturn, validate });
+    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, loadPresentation, createNavigation, navigate, back, createReaderReturn, renderMarkdown, validate });
   })(typeof globalThis !== "undefined" ? globalThis : this);
   </script>
 
@@ -612,7 +763,7 @@
       app: $("#app"), galaxyGate: $("#galaxyGate"), galaxy: $("#galaxy"), legendPanel: $("#legendPanel"), legendButton: $("#legendButton")
     };
     const presentation = M.loadPresentation(window.localStorage, els.canvas.clientWidth, els.canvas.clientHeight);
-    const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, readerReturn: null, readerFocus: null, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
+    const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, readerReturn: null, readerFocus: null, readerMode: "snapshot", readerDocumentUrl: null, readerLoadToken: 0, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
     const entity = id => M.byId(id);
     const selected = () => entity(state.navigation.selectedId) || entity("completion-assembly-execution");
     const relationshipsFor = id => D.relationships.filter(rel => rel.from === id || rel.to === id);
@@ -689,7 +840,7 @@
     }
     function renderSources() {
       const rows = D.sources.filter(matches);
-      els.sourcesShell.innerHTML = '<div class="view-intro"><h2>Architecture source path</h2><p>Atlas is a read-only snapshot over these maintained sources at commit ' + esc(D.inspectedCommit) + '. Open the canonical repository document for full context.</p></div>' + (rows.length ? '<div class="source-grid">' + rows.map(item => '<article class="source-card"><div><h3>' + esc(item.title) + '</h3><div class="source-path">' + esc(item.path) + '</div></div><div class="source-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">runtime: ' + esc(item.runtimeEvidence) + '</span></div><p>' + esc(item.summary) + '</p><div class="source-actions"><button class="button primary" type="button" data-source-id="' + esc(item.id) + '">Read snapshot note</button><a class="button" href="' + esc(item.href) + '">Open source</a></div></article>').join("") + '</div>' : '<div class="empty-state">No source documents match “' + esc(state.query) + '”. Clear the search to return to the governing set.</div>');
+      els.sourcesShell.innerHTML = '<div class="view-intro"><h2>Architecture source path</h2><p>Atlas is a read-only snapshot over these maintained sources at commit ' + esc(D.inspectedCommit) + '. Read the canonical repository Markdown through the local rendered document view for full context.</p></div>' + (rows.length ? '<div class="source-grid">' + rows.map(item => '<article class="source-card"><div><h3>' + esc(item.title) + '</h3><div class="source-path">' + esc(item.path) + '</div></div><div class="source-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">runtime: ' + esc(item.runtimeEvidence) + '</span></div><p>' + esc(item.summary) + '</p><div class="source-actions"><button class="button primary" type="button" data-source-id="' + esc(item.id) + '">Read snapshot note</button><button class="button" type="button" data-full-source-id="' + esc(item.id) + '">Read full document</button></div></article>').join("") + '</div>' : '<div class="empty-state">No source documents match “' + esc(state.query) + '”. Clear the search to return to the governing set.</div>');
     }
     function renderAll() { renderGraph(); renderSummary(); renderInspector(); renderDirectory(); renderSources(); renderTitle(); }
     function navigateTo(id) {
@@ -705,31 +856,84 @@
     function describeReaderFocus(element) {
       if (!element || element === document.body) return null;
       if (element.id) return { id: element.id };
-      const sourceControl = element.closest && element.closest("[data-source-id]");
-      return sourceControl ? { sourceId: sourceControl.dataset.sourceId } : null;
+      const sourceControl = element.closest && element.closest("[data-source-id], [data-full-source-id]");
+      return sourceControl ? { sourceId: sourceControl.dataset.sourceId || sourceControl.dataset.fullSourceId, full: Boolean(sourceControl.dataset.fullSourceId) } : null;
     }
     function restoreReaderFocus(descriptor, view) {
       let target = descriptor && descriptor.id ? document.getElementById(descriptor.id) : null;
       if (!target && descriptor && descriptor.sourceId) {
         const scope = view === "sources" ? els.sourcesShell : els.inspector;
-        target = [...scope.querySelectorAll("[data-source-id]")].find(control => control.dataset.sourceId === descriptor.sourceId) || null;
+        const selector = descriptor.full ? "[data-full-source-id]" : "[data-source-id]";
+        target = [...scope.querySelectorAll(selector)].find(control => (control.dataset.sourceId || control.dataset.fullSourceId) === descriptor.sourceId) || null;
       }
       if (!target) target = $(".tab[data-view=\"" + view + "\"]");
       if (target) target.focus({ preventScroll: true });
     }
+    function prepareReader(item) {
+      if (!els.reader.classList.contains("open")) {
+        const scroller = viewScroller(state.view);
+        state.readerReturn = M.createReaderReturn(state, scroller ? scroller.scrollTop : 0, window.scrollY);
+        state.readerFocus = describeReaderFocus(document.activeElement);
+      }
+      state.readerSourceId = item.id; els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path;
+      els.reader.classList.add("open");
+    }
+    function setReaderMode(mode) {
+      state.readerMode = mode; els.readerLink.disabled = mode === "loading";
+      els.readerLink.textContent = mode === "snapshot" ? "Read full document" : mode === "loading" ? "Loading document…" : "Snapshot note";
+    }
+    function repositoryRootUrl() {
+      try { return /^https?:$/.test(location.protocol) ? new URL("../", location.href) : null; } catch (_) { return null; }
+    }
+    function markdownSourceUrl(target, baseUrl) {
+      const root = repositoryRootUrl(); if (!root) return null;
+      try {
+        const raw = String(target || "").trim(); if (!raw || /^(?:javascript|data|vbscript):/i.test(raw)) return null;
+        const base = baseUrl && !raw.startsWith("/") && !raw.startsWith("docs/") ? new URL(baseUrl) : root;
+        const url = new URL(raw, base);
+        if (url.origin !== root.origin || !url.pathname.startsWith(root.pathname)) return null;
+        if (!/\.md$/i.test(url.pathname)) url.pathname += ".md";
+        return url;
+      } catch (_) { return null; }
+    }
+    function repositoryPath(url) {
+      const root = repositoryRootUrl();
+      return root && url.pathname.startsWith(root.pathname) ? decodeURIComponent(url.pathname.slice(root.pathname.length)) : decodeURIComponent(url.pathname);
+    }
+    function renderReaderError(item, detail) {
+      els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path; setReaderMode("markdown");
+      els.readerArticle.innerHTML = '<div class="reader-state"><h1>Rendered document unavailable</h1><p>' + esc(detail) + '</p><p>From the repository root, start the local preview and open the Atlas URL:</p><code>python3 -m http.server 8765 --bind 127.0.0.1 --directory .</code><code>http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html</code></div>';
+    }
     function openReader(sourceId) {
       const item = D.sources.find(row => row.id === sourceId); if (!item) return;
-      const scroller = viewScroller(state.view);
-      state.readerReturn = M.createReaderReturn(state, scroller ? scroller.scrollTop : 0, window.scrollY);
-      state.readerFocus = describeReaderFocus(document.activeElement);
-      state.readerSourceId = sourceId; els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path; els.readerLink.href = item.href;
+      prepareReader(item); state.readerDocumentUrl = null; state.readerLoadToken += 1; setReaderMode("snapshot");
       els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">' + esc(item.representation) + '</span><span class="meta-chip">commit ' + esc(D.inspectedCommit.slice(0, 12)) + '</span><span class="meta-chip">runtime evidence: ' + esc(item.runtimeEvidence) + '</span></div>' + item.content + '<h2>Provenance</h2><p><strong>Repository path:</strong> <code>' + esc(item.path) + '</code></p><p><strong>Inspected commit:</strong> <code>' + esc(D.inspectedCommit) + '</code></p><p>This bounded rendering is a ' + esc(item.representation) + '. It does not supersede the repository document or prove runtime behavior.</p>';
-      els.reader.classList.add("open"); $("#closeReader").focus();
+      els.readerArticle.parentElement.scrollTop = 0; $("#closeReader").focus();
+    }
+    async function openMarkdownReader(sourceId, target, baseUrl) {
+      const item = D.sources.find(row => row.id === sourceId); if (!item) return;
+      prepareReader(item); setReaderMode("loading"); els.readerArticle.parentElement.scrollTop = 0;
+      els.readerArticle.innerHTML = '<div class="reader-state" role="status"><h1>Loading document…</h1><p>Reading the canonical local Markdown source.</p></div>';
+      const url = markdownSourceUrl(target || item.path, baseUrl || state.readerDocumentUrl);
+      if (!url) { renderReaderError(item, "A browser-opened file cannot read sibling repository documents. Atlas will not fall back to raw Markdown."); return; }
+      const loadToken = ++state.readerLoadToken; state.readerDocumentUrl = url.href; els.readerPath.textContent = repositoryPath(url);
+      try {
+        const response = await fetch(url.href, { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const markdown = await response.text();
+        if (loadToken !== state.readerLoadToken || !els.reader.classList.contains("open")) return;
+        els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">canonical local source</span><span class="meta-chip">rendered Markdown</span><span class="meta-chip">runtime evidence: not evaluated by Atlas</span></div>' + M.renderMarkdown(markdown);
+        const heading = els.readerArticle.querySelector("h1"); if (heading) els.readerTitle.textContent = heading.textContent;
+        setReaderMode("markdown");
+      } catch (error) {
+        if (loadToken !== state.readerLoadToken) return;
+        renderReaderError(item, "Atlas could not read " + repositoryPath(url) + " (" + (error && error.message ? error.message : "unknown error") + "). The preview server must be started from the repository root.");
+      }
     }
     function closeReader() {
       const prior = state.readerReturn ? M.createReaderReturn(state.readerReturn, state.readerReturn.scrollTop, state.readerReturn.pageScrollTop) : M.createReaderReturn(null, 0, 0);
       const focusReturn = state.readerFocus;
-      els.reader.classList.remove("open"); state.readerSourceId = null; state.readerReturn = null; state.readerFocus = null;
+      els.reader.classList.remove("open"); state.readerSourceId = null; state.readerReturn = null; state.readerFocus = null; state.readerDocumentUrl = null; state.readerLoadToken += 1;
       state.navigation = { selectedId: prior.navigation.selectedId, history: prior.navigation.history.slice() };
       state.query = prior.query; state.selectedEdgeId = prior.selectedEdgeId;
       if (prior.viewport) state.viewport = prior.viewport;
@@ -795,6 +999,7 @@
 
     document.addEventListener("click", event => {
       const nav = event.target.closest("[data-navigate]"); if (nav) { navigateTo(nav.dataset.navigate); return; }
+      const fullSource = event.target.closest("[data-full-source-id]"); if (fullSource) { openMarkdownReader(fullSource.dataset.fullSourceId); return; }
       const sourceRow = event.target.closest("[data-source-id]"); if (sourceRow) { openReader(sourceRow.dataset.sourceId); return; }
       const edgeRow = event.target.closest("[data-edge-id]"); if (edgeRow) { selectEdge(edgeRow.dataset.edgeId); }
     });
@@ -802,6 +1007,13 @@
     els.searchInput.addEventListener("input", event => { state.query = event.target.value; renderGraph(); renderDirectory(); renderSources(); });
     els.backButton.addEventListener("click", goBack);
     $("#closeReader").addEventListener("click", closeReader);
+    els.readerLink.addEventListener("click", () => { if (state.readerMode === "snapshot") openMarkdownReader(state.readerSourceId); else if (state.readerMode === "markdown") openReader(state.readerSourceId); });
+    els.readerArticle.addEventListener("click", event => {
+      const link = event.target.closest("[data-markdown-href]"); if (!link) return;
+      event.preventDefault(); const target = link.dataset.markdownHref;
+      if (target.startsWith("#")) { const id = decodeURIComponent(target.slice(1)); const heading = [...els.readerArticle.querySelectorAll("[id]")].find(node => node.id === id); if (heading) heading.scrollIntoView(); return; }
+      const url = markdownSourceUrl(target, state.readerDocumentUrl); if (url) openMarkdownReader(state.readerSourceId, url.href, state.readerDocumentUrl);
+    });
     $("#aboutButton").addEventListener("click", () => openReader("source-atlas"));
     els.legendButton.addEventListener("click", () => toggleLegend());
     $("#closeLegend").addEventListener("click", () => toggleLegend(false));

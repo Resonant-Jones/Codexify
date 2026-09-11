@@ -26,7 +26,7 @@ The required documents were read from the inspected commit in this order:
 8. `docs/architecture/flows.md` — runtime-flow evidence.
 9. `docs/architecture/data-and-storage.md` — persistence and storage clarification.
 
-The prototype's Sources mode exposes these nine documents as provenance links and bounded summaries. It does not copy them into a second editable truth surface.
+The prototype's Sources mode exposes these nine documents as bounded summaries and, on explicit request, fetches their canonical repository Markdown into the existing reader. The renderer presents frontmatter, headings, lists, tables, blockquotes, code, standard links, and Obsidian wiki links without copying the corpus into a second editable truth surface. Repository-document links remain inside the reader.
 
 The KB validity rules excluded `supplementary_verify_against_code`, `design_canon_not_runtime_truth`, `historical_archive`, and `misleading_identity_drift` material from topology extraction. In particular, legacy GuardianOS, Threadspace, `guardian-backend_v2`, obsolete installer, future federation, and historical audit documents were not used as present subsystem evidence. Visual material continues to follow the already accepted Codexify prototype treatment; design canon is not used as runtime topology evidence.
 
@@ -84,12 +84,13 @@ No maintained sources produced a contradictory named subsystem boundary in the s
 - Search over module names, responsibilities, dependency text, and key code anchors.
 - Module and relationship selection with contextual inspector updates and back history.
 - Reversible source-reader detail state that restores the originating Atlas, Directory, or Sources projection, its search and selection context, Atlas viewport, local list scroll, and opening control focus. Missing or invalid reader origins fail safely to Atlas.
+- Explicit full-document rendering for same-origin, repository-root Markdown only. Raw HTML is escaped, unsafe link schemes are rejected, and a failed or unsupported document read does not fall back to raw Markdown navigation.
 - Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
 - Namespaced local presentation storage limited to card positions and viewport, with safe fallback for missing, blocked, or malformed storage.
 - Reduced-motion handling and a 390px single-surface layout without page-level horizontal overflow.
 - A non-scrolling canvas clip boundary so keyboard focus cannot create a hidden horizontal scroll offset on narrow screens.
 - Persistent `Architecture document snapshot · design prototype · no live connections` disclosure.
-- No automatic external network requests.
+- No automatic or external network requests. Opening a full source document makes one explicit same-origin local Markdown request.
 
 The persistent hierarchy rail, tree rendering, hierarchy-only controls, and synthetic local hierarchy model remain absent. No replacement tree, file explorer, drawer, permanent list, or permanent legend was added.
 
@@ -101,20 +102,31 @@ Codexify's constitutional distinctions remain explicit: documentation is evidenc
 
 ## Validation and browser proof
 
+### Local rendered-document preview
+
+Browsers do not reliably permit a `file://` page to read sibling repository files. To use the full-document reader, serve the repository root locally and open the prototype through HTTP:
+
+```sh
+python3 -m http.server 8765 --bind 127.0.0.1 --directory .
+```
+
+Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. Direct-file mode keeps the bounded snapshot notes available and presents this served-mode instruction instead of navigating to raw Markdown.
+
 Validation recorded on 2026-09-11:
 
-- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 24 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, synthetic separation, selection/inspector behavior, useful fit, storage fallback, source-reader origin and local-context restoration, Galaxy state, reduced motion, and absence of hierarchy UI.
+- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 26 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, bounded Markdown rendering and escaping, same-origin document loading, synthetic separation, selection/inspector behavior, useful fit, storage fallback, source-reader origin and local-context restoration, Galaxy state, reduced motion, and absence of hierarchy UI.
 - `python3 scripts/validate_docs.py` — passed.
 - `git diff --check` — passed.
 - 1680×1050 wide desktop — passed: 20 graph cards, zero hierarchy/tree elements, canvas expanded to 1310px beside the 350px inspector, geometry-derived 70% fit, and no horizontal overflow.
 - 1440×1000 desktop — passed: geometry-derived 65% first-load fit, module and edge selection, Key code anchors, solid dependency edge, dashed runtime-flow edge, Legend open/close, Directory, all nine Sources cards, keyboard mode switching, and empty-search recovery.
 - Source reader at 1440×1000 — passed: Sources returned to Sources with the `docs` query and opening-card focus intact; Directory returned to Directory with inspector selection intact; Atlas returned to Atlas with the exact selected module and `translate(-127.275px, 71.5274px) scale(0.5)` viewport intact. Reader close passed with click, `Enter`, and `Escape` activation, and the URL did not change.
+- Rendered ADR reader — passed: the ADR Index presented frontmatter, headings, 77 ordered entries with source numbering, and formatted body content rather than raw Markdown. Its first Obsidian wiki link rendered ADR-001 inside the same reader while the Atlas URL remained unchanged.
 - Search — passed for module name (`Sync API`), responsibility (`collaboration permissions`), and anchor (`guardian/vector/store.py`), each returning the intended module.
 - Canvas — passed: a wheel gesture changed the fitted view from 65% to 73%; empty-canvas drag changed the viewport translation; Reset view restored the geometry-derived fit.
 - Galaxy — passed under normal and reduced motion. The confirmation gate remained mandatory; return restored the exact selected module, query, and viewport. Reduced-motion transition duration computed to `1e-05s` and entry/return completed without the animated delay.
-- 390×844 narrow viewport — passed: `scrollWidth === innerWidth === 390`, 20 Atlas cards, 20 Directory rows, nine Sources cards, keyboard module selection, and no hierarchy/tree surface. Focusing a spatially off-screen module left canvas `scrollLeft === 0`, preserving the contextual summary. The Sources reader round trip preserved the `docs` query, exact page scroll position (`988px`), source-card focus, and Sources projection under keyboard-only `Enter` / `Space` activation.
+- 390×844 narrow viewport — passed: `scrollWidth === innerWidth === 390`, 20 Atlas cards, 20 Directory rows, nine Sources cards, keyboard module selection, rendered ADR content without reader or page overflow, and no hierarchy/tree surface. Focusing a spatially off-screen module left canvas `scrollLeft === 0`, preserving the contextual summary. The Sources reader round trip preserved the `docs` query, exact page scroll position (`988px`), source-card focus, and Sources projection under keyboard-only `Enter` / `Space` activation.
 - Console — passed with 0 errors and 0 warnings.
-- Network — the clean reader-regression session recorded one `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request or browser-history navigation occurred.
+- Network — the clean reader-regression session recorded the prototype request plus explicit same-origin Markdown document requests; no external request or browser-history navigation occurred.
 
 Captured browser review images:
 
