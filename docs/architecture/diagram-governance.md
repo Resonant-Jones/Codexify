@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-02 (DLG numbering reconciliation only; no runtime topology change; no release-claim widening)
+Diagram Review Marker: 2026-09-11 (Private Preview database migration/bootstrap recovery reviewed; no runtime-topology change; application runtime and release readiness remain unproven)
 
 ## Scope
 
