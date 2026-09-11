@@ -447,7 +447,12 @@ def _insert_provenance(
 def test_fresh_replay_creates_canonical_tables_with_frozen_constraints(
     temporary_postgres,
 ) -> None:
+    from alembic.script import ScriptDirectory
+
     config, database_url = temporary_postgres
+    heads = ScriptDirectory.from_config(config).get_heads()
+    assert len(heads) == 1, f"expected exactly one configured Alembic head: {heads}"
+    expected_head = heads[0]
     _upgrade(config, "head")
     engine = sa.create_engine(database_url, future=True)
     try:
@@ -459,7 +464,7 @@ def test_fresh_replay_creates_canonical_tables_with_frozen_constraints(
                 connection.execute(
                     sa.text("SELECT version_num FROM alembic_version")
                 ).scalar_one()
-                == UMS_03D_REVISION
+                == expected_head
             )
 
             # UMS-03C-B: the enabling Project relational target must exist
