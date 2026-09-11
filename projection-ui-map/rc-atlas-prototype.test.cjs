@@ -232,6 +232,27 @@ test("inspector resize handle supports bounded pointer, keyboard, cancellation, 
   assert.doesNotMatch(html.match(/function resizeInspector\(requested, persist\)[\s\S]*?(?=    function finishInspectorResize)/)[0], /viewport|navigation|query|selectedEdgeId|documentHistory/);
 });
 
+test("inspector separator keeps its hit strip transparent and renders only a complete neutral grabber", () => {
+  const handleCss = html.match(/\.inspector-resize-handle\s*\{[\s\S]*?\n\s*\}/)[0];
+  const grabberCss = html.match(/\.inspector-resize-handle::after\s*\{[\s\S]*?\n\s*\}/)[0];
+  assert.match(handleCss, /inset:\s*18px auto 18px 0/);
+  assert.match(handleCss, /width:\s*18px/);
+  assert.match(handleCss, /border-radius:\s*0/);
+  assert.match(handleCss, /outline:\s*none/);
+  assert.match(handleCss, /background:\s*transparent/);
+  assert.doesNotMatch(handleCss, /(?:left|inset):[^;]*-\d/);
+  assert.match(grabberCss, /left:\s*2px/);
+  assert.match(grabberCss, /top:\s*50%/);
+  assert.match(grabberCss, /width:\s*3px/);
+  assert.match(grabberCss, /height:\s*48px/);
+  assert.match(grabberCss, /border-radius:\s*999px/);
+  assert.match(grabberCss, /transform:\s*translateY\(-50%\)/);
+  assert.doesNotMatch(grabberCss, /\bbottom\s*:/);
+  assert.match(html, /\.inspector-resize-handle:hover::after\s*\{/);
+  assert.match(html, /\.inspector-resize-handle:focus-visible::after\s*\{/);
+  assert.match(html, /\.inspector-resize-handle\.resizing::after\s*\{/);
+});
+
 test("the clipped graph canvas cannot become a hidden keyboard scroll container", () => {
   assert.match(html, /\.canvas\s*\{[\s\S]*overflow:\s*hidden;\s*overflow:\s*clip;/);
 });
