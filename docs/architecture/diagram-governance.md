@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-11 (Private Preview database migration/bootstrap recovery reviewed; no runtime-topology change; application runtime and release readiness remain unproven)
+Diagram Review Marker: 2026-09-11 (ADR-067 Private Preview Chroma named-volume live recovery reviewed; logical runtime topology unchanged; worker safe-start and full application recovery remain unproven)
 
 ## Scope
 
