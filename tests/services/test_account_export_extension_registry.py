@@ -9,10 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from guardian.services.account_export import build_account_export_zip
-from guardian.services.account_restore import (
-    RESTORE_ORDER,
-    AccountRestoreService,
-)
+from guardian.services.account_restore import RESTORE_ORDER, AccountRestoreService
 
 USER_ID = "user-123"
 
@@ -189,8 +186,8 @@ class FakeAccountRestoreDB:
             raise AttributeError(name)
         family = name.removeprefix("restore_account_export_")
 
-        def _restore(rows, *, conn=None):
-            _ = conn
+        def _restore(rows, *, conn=None, target_user_id=None):
+            _ = conn, target_user_id
             self.calls.append(family)
             self.tables.setdefault(family, {})
             if not rows:
@@ -250,31 +247,22 @@ def test_account_export_and_restore_include_registry_entities(
 
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
             assert manifest["entity_counts"]["extension_proposals"] == 1
-            assert (
-                manifest["entity_counts"]["extension_install_gate_decisions"]
-                == 1
-            )
+            assert manifest["entity_counts"]["extension_install_gate_decisions"] == 1
             assert manifest["entity_counts"]["extension_registry_entries"] == 1
 
             proposal_payload = json.loads(
-                archive.read("entities/extension_proposals.json").decode(
-                    "utf-8"
-                )
+                archive.read("entities/extension_proposals.json").decode("utf-8")
             )
             decision_payload = json.loads(
-                archive.read(
-                    "entities/extension_install_gate_decisions.json"
-                ).decode("utf-8")
-            )
-            registry_payload = json.loads(
-                archive.read("entities/extension_registry_entries.json").decode(
+                archive.read("entities/extension_install_gate_decisions.json").decode(
                     "utf-8"
                 )
             )
+            registry_payload = json.loads(
+                archive.read("entities/extension_registry_entries.json").decode("utf-8")
+            )
 
-            assert proposal_payload == [
-                _normalize(rows["extension_proposals"][0])
-            ]
+            assert proposal_payload == [_normalize(rows["extension_proposals"][0])]
             assert decision_payload == [
                 _normalize(rows["extension_install_gate_decisions"][0])
             ]
@@ -282,8 +270,7 @@ def test_account_export_and_restore_include_registry_entities(
                 _normalize(rows["extension_registry_entries"][0])
             ]
             assert (
-                proposal_payload[0]["manifest_json"]["target_surface"]
-                == "command_bus"
+                proposal_payload[0]["manifest_json"]["target_surface"] == "command_bus"
             )
             assert decision_payload[0]["proposal_id"] == "proposal-1"
             assert registry_payload[0]["decision_id"] == "decision-1"
@@ -300,9 +287,9 @@ def test_account_export_and_restore_include_registry_entities(
         assert restore_db.calls == list(RESTORE_ORDER)
         assert report["ok"] is True
         assert (
-            restore_db.tables["extension_proposals"]["proposal-1"][
-                "manifest_json"
-            ]["profile_id"]
+            restore_db.tables["extension_proposals"]["proposal-1"]["manifest_json"][
+                "profile_id"
+            ]
             == "profile-alpha"
         )
         assert (
@@ -312,9 +299,7 @@ def test_account_export_and_restore_include_registry_entities(
             == "proposal-1"
         )
         assert (
-            restore_db.tables["extension_registry_entries"]["registry-1"][
-                "decision_id"
-            ]
+            restore_db.tables["extension_registry_entries"]["registry-1"]["decision_id"]
             == "decision-1"
         )
         assert (

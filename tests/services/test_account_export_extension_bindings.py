@@ -19,10 +19,7 @@ from guardian.extensions.tokens import (
     InstallGateDecisionToken,
 )
 from guardian.services.account_export import build_account_export_zip
-from guardian.services.account_restore import (
-    RESTORE_ORDER,
-    AccountRestoreService,
-)
+from guardian.services.account_restore import RESTORE_ORDER, AccountRestoreService
 
 USER_ID = "user-123"
 
@@ -221,8 +218,8 @@ class FakeAccountRestoreDB:
             raise AttributeError(name)
         family = name.removeprefix("restore_account_export_")
 
-        def _restore(rows, *, conn=None):
-            _ = conn
+        def _restore(rows, *, conn=None, target_user_id=None):
+            _ = conn, target_user_id
             self.calls.append(family)
             self.tables.setdefault(family, {})
             if not rows:
@@ -283,17 +280,12 @@ def test_account_export_and_restore_include_install_bindings(
 
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
             assert manifest["entity_counts"]["extension_proposals"] == 1
-            assert (
-                manifest["entity_counts"]["extension_install_gate_decisions"]
-                == 1
-            )
+            assert manifest["entity_counts"]["extension_install_gate_decisions"] == 1
             assert manifest["entity_counts"]["extension_registry_entries"] == 1
             assert manifest["entity_counts"]["extension_install_bindings"] == 1
 
             binding_payload = json.loads(
-                archive.read("entities/extension_install_bindings.json").decode(
-                    "utf-8"
-                )
+                archive.read("entities/extension_install_bindings.json").decode("utf-8")
             )
             assert binding_payload == [
                 _normalize(rows["extension_install_bindings"][0])
