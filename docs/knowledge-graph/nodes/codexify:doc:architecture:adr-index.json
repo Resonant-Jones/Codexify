@@ -8,7 +8,7 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "9db8212d12a577d828601bc44c722917ad8ad2c8c3c78535af12f00d1025ee72",
+  "content_hash": "0bf79a15cc858928ca9a2b3ff9c8cc4aaa32af9c23543aa87cbaa4cf3d54ce99",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
@@ -20,8 +20,8 @@
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "verified_at": "2026-09-08T23:46:14Z",
-    "verified_commit": "8e03b1266f83e75985f6cb86cdbe193bd2967c64"
+    "verified_at": "2026-09-10T14:05:00Z",
+    "verified_commit": "136142a1a74595d46fa2ac047d1743f4654f7357"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
