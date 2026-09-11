@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-10
+2026-09-11
 
 ## Interpretation rule
 
@@ -18,25 +18,14 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. Recent commits added bounded Chroma topology governance, provider-free Pi required-tool/compaction proof, and a read-only legacy-General partition preflight. None establishes a new release-ready runtime path or widens the Beta support boundary.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Recent mainline work clarified legacy Project ownership and added repository seams for account-scoped Project state, but no new release-ready runtime path or Beta support claim was established.
 
 ## What changed recently
 
-- Corrected a surviving single-user Project schema invariant in the repository:
-  display-name uniqueness is now scoped to canonical ownership through
-  `UNIQUE (user_id, name)` rather than global `UNIQUE (name)`. PostgreSQL
-  migration proof covers cross-account reuse, same-account rejection,
-  multi-account `General`, preservation, and downgrade behavior. Repository
-  Alembic head is `7e5a5fccf253`. This did not migrate Private Preview, repair
-  Project `1`, or implement account-owned General provisioning; the live
-  preview database remains at its separately proven blocked revision
-  `d4e0f2a5b7c9`.
-- Frozen private-preview Chroma handling under ADR-067: one Docker-managed named volume is the approved derived-store topology; the diagnosed host bind remains rejected. Implementation, fresh initialization, retirement/recovery, and authenticated deployment proof are pending.
-- Added focused proof that Guardian required-tool selection is applied once and compaction continuation is suppressed for the required-tool turn. This remains internal/provider-free evidence; CE-L1 live execution and readback remain open.
-- Added a read-only Project `1` partition preflight and [account-census correction](./proofs/runtime/2026-09-09-legacy-shared-general-partition-preflight.md#account-census-correction--2026-09-10). The complete persisted `users` population is six rows: five email-identified accounts plus the legacy `local` registry row. Only Jones, Maatariki, and Krista own the eight Project-1 threads; `annieizor@gmail.com` and `joselyn.torres70@gmail.com` are additional accounts, outside that repair subset. All five email accounts lack an account-owned General; the sole General is legacy Project `1`, owned by `local`, and cannot be assigned to one account. No mutation or General creation occurred; unrelated accounts are not automatically repair participants.
-- Defined the ADR-081 legacy shared-General partition and retirement doctrine: canonical thread ownership routes each thread into one account-owned General, never assigns the legacy source Project, never permits loose-thread persistence, and fails closed on ambiguous Project-only dependencies. This is documentation-only; Project `1` remains unrepaired, and restored-copy rehearsal, preview repair, migration completion, retirement readiness, and post-repair account-isolation proof remain open.
-- Landed the unified legacy-memory compatibility read surface and the UMS-04A export/restore contract. The former is read-only; the latter has no export/restore implementation or round-trip qualification.
-- Persona Studio and ADR canonicalization work is present on `main`; it does not prove deployed private-preview Persona runtime or authenticated browser save/readback.
+- Defined ADR-081 legacy shared-General partition and retirement doctrine. The read-only Project `1` preflight confirms eight threads across three account owners, with no authority to assign the legacy `local` General to one account; no data was mutated.
+- Added repository migration and PostgreSQL proof for account-scoped Project display-name uniqueness: `UNIQUE (user_id, name)` replaces global name uniqueness. Static Alembic head is `7e5a5fccf253`; the live preview database remains at blocked revision `d4e0f2a5b7c9`.
+- Added a tested account-owned `General` provisioning helper that requires an explicit canonical `user_id`, reuses or creates one structural General, fails closed on missing/duplicate state, and leaves commit control to the caller. It is not integrated into Private Preview repair or startup.
+- The 2026-09-11 mainline log records no additional implementation or runtime qualification. Chroma topology and provider-free Pi required-tool/compaction evidence remain bounded.
 
 ## Current supported reality
 
@@ -51,30 +40,25 @@ This file is authoritative for:
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not assume a fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
 - Do not assume private-preview Chroma startup/retrieval, matching application deployment, provider execution, persistence, observability, account isolation, or non-admin canary readiness.
-- Do not assign Project `1` by majority thread ownership, chronology, display name, operator identity, or the legacy `local` value; ADR-081 requires exact owner evidence and the preflight found none.
-- Do not treat the new ADR-081 partition doctrine as repair, restored-copy rehearsal, migration completion, retirement readiness, or post-repair account-isolation proof. Account-specific General creation and Project `1` remapping remain unimplemented and separately authorized.
-- Do not treat repository-scoped Project-name uniqueness as Private Preview
-  migration progress or startup proof. The live preview database remains at
-  its separately proven blocked revision, and the account-owned General
-  provisioning primitive remains unimplemented.
+- Do not treat the ADR-081 partition doctrine, Project `1` preflight, repository migration, or provisioning helper as Private Preview repair, migration completion, retirement readiness, or post-repair isolation proof.
 - Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
 ## Active blockers
 
-- Fresh supported-Compose closure is missing at the current `main` tip: startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
+- Current-tip supported-Compose closure is missing: startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
+- Local `main` is 8 commits ahead and 4 commits behind `origin/main`; no remote reconciliation or publication proof exists for this audit baseline.
 - Tester worker bind-readiness repair and fresh isolated runtime proof remain open.
 - Private-preview Chroma topology implementation/qualification and matching application deployment remain blocked; provider, persistence, isolation, observability, and approved canary gates remain open.
 - Project `1` legacy-General ownership is unresolved; any partition, General creation, thread remap, or dependent-row treatment requires separate repair authorization and proof.
-- CE-L1 live provider execution, durable result, source-thread readback, and private-preview DeepSeek rotation/requalification remain open.
-- Authenticated browser/Safari import, trusted connector live proof, Watchdog policy/model, immutable image retention, and hosted-sandbox qualification remain unclosed.
+- The repository Project migration/helper are not applied to Private Preview; CE-L1 live provider execution/readback, browser/import, trusted connector, Watchdog, immutable image retention, and hosted-sandbox qualification remain unclosed.
 
 ## This week’s priorities
 
-1. Land the fail-closed Tester bind-readiness predicate and run fresh isolated proof.
-2. Re-run current-tip supported-Compose health, chat, persistence, retrieval, queue/worker, lock, and event proof.
+1. Reconcile the local-main publication baseline before using remote state for release accounting.
+2. Run fresh current-tip supported-Compose and isolated Tester proof across health, chat, persistence, retrieval, queue/worker, locks, and events.
 3. Implement and qualify the ADR-067 named-volume Chroma path before any private-preview application restart.
-4. Resolve Project `1` ownership through accepted evidence, then separately rehearse and authorize the partition repair.
+4. Resolve Project `1` ownership through accepted evidence, then separately rehearse and authorize partition repair using the new provisioning seam.
 5. Requalify CE-L1/provider readback and close the canary, browser/import, connector, Watchdog, retention, and hosted-sandbox gates.
 
 ## Release definition right now
