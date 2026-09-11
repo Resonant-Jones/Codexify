@@ -5,7 +5,9 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 
 const htmlPath = path.join(__dirname, "rc-atlas-prototype.html");
+const modulesPath = path.join(__dirname, "..", "docs", "architecture", "modules-and-ownership.md");
 const html = fs.readFileSync(htmlPath, "utf8");
+const modulesSource = fs.readFileSync(modulesPath, "utf8");
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
 const modelMatch = html.match(/<script\s+data-atlas-model>([\s\S]*?)<\/script>/i);
 
@@ -15,180 +17,266 @@ context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(modelMatch[1], context, { filename: "rc-atlas-model.js" });
 const M = context.AtlasModel;
+const plain = value => JSON.parse(JSON.stringify(value));
+
+function parseSubsystemMatrix(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex(line => line.trim() === "## Subsystem Matrix");
+  assert.notEqual(start, -1, "maintained source contains Subsystem Matrix");
+  const rows = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s/.test(line)) break;
+    if (!line.startsWith("|") || /^\|[-\s|]+\|$/.test(line)) continue;
+    const cells = line.split("|").slice(1, -1).map(cell => cell.trim());
+    if (cells[0] === "Subsystem") continue;
+    const anchors = [...cells[3].matchAll(new RegExp("\\x60([^\\x60]+)\\x60", "g"))].map(match => match[1]);
+    rows.push({
+      name: cells[0],
+      moduleClass: cells[1],
+      responsibilities: cells[2],
+      anchors,
+      dependsOn: cells[4],
+      dependedOnBy: cells[5],
+      blastRadius: cells[6],
+    });
+  }
+  return rows;
+}
+
+const matrixRows = parseSubsystemMatrix(modulesSource);
+const matrixByName = new Map(matrixRows.map(row => [row.name, row]));
 
 test("all executable inline JavaScript has valid syntax", () => {
   assert.ok(scripts.length >= 2);
-  scripts.forEach((source, index) => assert.doesNotThrow(() => new vm.Script(source, { filename: `inline-${index}.js` })));
+  scripts.forEach((source, index) => assert.doesNotThrow(() => new vm.Script(source, { filename: "inline-" + index + ".js" })));
 });
 
-test("prototype-local Codexify material tokens preserve the canonical geometry contract", () => {
-  const expectedTokens = {
-    "--radius-micro": "12px",
-    "--radius-tile": "19px",
-    "--card-radius": "19px",
-    "--edge-chrome": "6px",
-    "--frame": "1.5px",
-    "--bezel": "6px",
-    "--rim": "1.5px",
-    "--card-pad": "12px",
-  };
-  for (const [token, value] of Object.entries(expectedTokens)) {
-    assert.match(html, new RegExp(`${token}:\\s*${value.replace(".", "\\.")}`));
-  }
-  for (const token of ["--panel-bg", "--panel-border", "--panel-bezel", "--panel-sheet", "--panel-sheet-border", "--chip-bg", "--chip-border", "--text", "--muted", "--text-subtle", "--surface-hover", "--surface-soft", "--accent", "--accent-strong"]) {
-    assert.match(html, new RegExp(`${token}:`), `${token} is defined locally`);
-  }
-  assert.match(html, /\.entity-card\s*\{[\s\S]*border-radius:\s*var\(--card-radius\)/);
-  assert.match(html, /\.entity-card::before,[\s\S]*clip-path:\s*inset\(0 round var\(--card-radius\)\)/);
-  assert.match(html, /\.entity-card\.active\s*\{[\s\S]*var\(--accent-strong\)/);
+test("source projection represents every Subsystem Matrix row exactly once", () => {
+  assert.equal(matrixRows.length, 20);
+  assert.equal(M.data.entities.length, matrixRows.length);
+  const sourceNames = matrixRows.map(row => row.name).sort();
+  const atlasNames = M.data.entities.map(item => item.name).sort();
+  assert.deepEqual(plain(atlasNames), sourceNames);
+  assert.equal(new Set(atlasNames).size, atlasNames.length);
 });
 
-test("persistent hierarchy rail and hierarchy-only controls are removed", () => {
+test("projected classes, responsibilities, dependency text, and blast radius match the maintained matrix", () => {
+  for (const item of M.data.entities) {
+    const row = matrixByName.get(item.name);
+    assert.ok(row, "source row exists for " + item.name);
+    assert.equal(item.moduleClass, row.moduleClass);
+    assert.equal(item.responsibilities, row.responsibilities);
+    assert.equal(item.dependsOn, row.dependsOn);
+    assert.equal(item.dependedOnBy, row.dependedOnBy);
+    assert.equal(item.blastRadius, row.blastRadius);
+  }
+});
+
+test("every Key code anchor originates from its documented subsystem row", () => {
+  for (const item of M.data.entities) {
+    const row = matrixByName.get(item.name);
+    assert.deepEqual(plain(item.anchors), row.anchors, "anchors match " + item.name);
+  }
+  assert.match(html, />Key code anchors</);
+  assert.doesNotMatch(html, /Files contained in this module/i);
+  assert.doesNotMatch(html, /exhaustive module membership/i);
+});
+
+test("documentation-backed modules carry bounded real-source provenance", () => {
+  assert.equal(M.data.inspectedCommit, "cb551de1866715ef421026203ffe2a87cec8aaca");
+  for (const item of M.data.entities) {
+    assert.equal(item.kind, "module");
+    assert.equal(item.source.path, "docs/architecture/modules-and-ownership.md");
+    assert.equal(item.source.classification, "authoritative_now");
+    assert.equal(item.source.section, "Subsystem Matrix");
+    assert.equal(item.source.authority, "documentation_snapshot");
+    assert.equal(item.source.commit, M.data.inspectedCommit);
+    assert.equal("synthetic" in item, false);
+  }
+});
+
+test("module category vocabulary comes directly from the source and is written on cards", () => {
+  const sourceClasses = [...new Set(matrixRows.map(row => row.moduleClass))].sort();
+  assert.deepEqual(plain([...M.data.moduleClasses].sort()), sourceClasses);
+  assert.deepEqual(sourceClasses, ["core loop", "experimental", "retired", "supporting"]);
+  const graphRenderer = html.match(/function renderGraph\(\)[\s\S]*?function renderRoutes\(\)/)?.[0] || "";
+  assert.match(graphRenderer, /class="module-category"/);
+  assert.match(graphRenderer, /classLabel\(item\.moduleClass\)/);
+  assert.match(html, /\.entity-card\.category-core-loop/);
+  assert.match(html, /\.entity-card\.category-retired/);
+});
+
+test("relationships resolve to valid modules and use the bounded registry", () => {
+  assert.deepEqual(plain(M.data.relationshipTypes), ["dependency", "runtime_flow"]);
+  const ids = new Set(M.data.entities.map(item => item.id));
+  for (const rel of M.data.relationships) {
+    assert.ok(ids.has(rel.from), "valid source for " + rel.id);
+    assert.ok(ids.has(rel.to), "valid target for " + rel.id);
+    assert.ok(M.data.relationshipTypes.includes(rel.kind));
+  }
+  assert.deepEqual(plain(M.validate()), []);
+});
+
+test("every relationship carries source metadata and normalization posture", () => {
+  for (const rel of M.data.relationships) {
+    assert.ok(rel.explanation);
+    assert.ok(rel.source.path.startsWith("docs/architecture/"));
+    assert.equal(rel.source.classification, "authoritative_now");
+    assert.equal(rel.source.commit, M.data.inspectedCommit);
+    assert.ok(rel.source.section);
+    assert.ok(["direct_documented", "bounded_normalization"].includes(rel.source.evidenceType));
+    assert.ok(rel.source.normalization);
+    assert.ok(rel.caution);
+  }
+  const runtimeEdges = M.data.relationships.filter(rel => rel.kind === "runtime_flow");
+  assert.ok(runtimeEdges.length >= 2);
+  assert.ok(runtimeEdges.every(rel => rel.source.path === "docs/architecture/flows.md"));
+});
+
+test("node and edge meaning is not encoded by color alone", () => {
+  assert.match(html, /Core loop/);
+  assert.match(html, /Dependency — A depends on B/);
+  assert.match(html, /Runtime flow — documented transition/);
+  assert.match(html, /rel\.label/);
+  assert.match(html, /marker-end/);
+  assert.match(html, /\.routes path\.dependency\s*\{[^}]*stroke:/);
+  assert.match(html, /\.routes path\.runtime_flow\s*\{[^}]*stroke:[^}]*stroke-dasharray:/);
+  assert.match(html, /<dt>Type<\/dt>/);
+  assert.match(html, /<dt>Source module<\/dt>/);
+  assert.match(html, /<dt>Target module<\/dt>/);
+});
+
+test("external dependencies remain inspector details rather than invented module nodes", () => {
+  const names = new Set(M.data.entities.map(item => item.name.toLowerCase()));
+  for (const external of ["redis", "postgres", "browser storage", "provider credentials", "external network", "environment configuration"]) {
+    assert.equal(names.has(external), false, external + " is not a module node");
+  }
+  assert.ok(M.data.entities.some(item => item.dependsOn.includes("Redis")));
+  assert.ok(M.data.entities.some(item => item.dependsOn.includes("Postgres")));
+  assert.match(html, /<dt>Depends on<\/dt>/);
+});
+
+test("synthetic Galaxy remains clearly outside the documentation-backed local dataset", () => {
+  assert.ok(M.data.entities.every(item => item.source.authority === "documentation_snapshot"));
+  assert.match(html, /optional synthetic discovery sketch/);
+  assert.match(html, /synthetic federation context/);
+  assert.match(html, /Illustrative discovery · synthetic sectors · no live availability/);
+  assert.doesNotMatch(modelMatch[1], /Open-source makers|Creative technology guild/);
+});
+
+test("Directory is flat, searchable, and exactly mirrors graph modules", () => {
+  assert.deepEqual(plain(M.graphIds()), plain(M.listIds()));
+  assert.equal(M.graphIds().length, 20);
+  const renderer = html.match(/function renderDirectory\(\)[\s\S]*?function renderSources\(\)/)?.[0] || "";
+  assert.match(renderer, /D\.entities\.filter\(matches\)/);
+  assert.match(renderer, /class="directory-list"/);
+  assert.match(renderer, /Key code anchors/);
+  assert.doesNotMatch(renderer, /parentId|childrenOf|tree-level|--depth/);
+});
+
+test("search includes module names, responsibilities, dependency text, and anchors", () => {
+  const searchFunction = html.match(/function searchableText\(item\)[\s\S]*?function matches\(item\)/)?.[0] || "";
+  assert.match(searchFunction, /item\.name/);
+  assert.match(searchFunction, /item\.responsibilities/);
+  assert.match(searchFunction, /item\.dependsOn/);
+  assert.match(searchFunction, /item\.anchors/);
+  assert.match(html, /No modules match/);
+});
+
+test("module and edge selection update the contextual inspector", () => {
+  assert.match(html, /const nav = event\.target\.closest\("\[data-navigate\]"\)/);
+  assert.match(html, /navigateTo\(nav\.dataset\.navigate\)/);
+  assert.match(html, /const edgeRow = event\.target\.closest\("\[data-edge-id\]"\)/);
+  assert.match(html, /selectEdge\(edgeRow\.dataset\.edgeId\)/);
+  assert.match(html, /function renderInspector\(\)/);
+  assert.match(html, /<dt>Blast radius<\/dt>/);
+  assert.match(html, /<dt>Source commit<\/dt>/);
+});
+
+test("compact Legend is optional, dismissible, and not a sidebar", () => {
+  assert.match(html, /id="legendPanel"[^>]*hidden/);
+  assert.match(html, /id="legendButton"[^>]*aria-controls="legendPanel"/);
+  assert.match(html, /id="closeLegend"/);
+  assert.match(html, /function toggleLegend\(force\)/);
+  assert.doesNotMatch(html, /legend-sidebar|permanent-legend/i);
+});
+
+test("persistent hierarchy rail and hierarchy-only controls remain absent", () => {
   assert.doesNotMatch(html, /<aside[^>]+class=["'][^"']*sidebar/i);
-  assert.doesNotMatch(html, /\b(?:sidebarTree|sidebarSources|renderSidebar|side-scroll|section-title|tree-level|tree-row|mini-glyph)\b/);
-  assert.doesNotMatch(html, /--depth\s*:/);
+  assert.doesNotMatch(html, /\b(?:sidebarTree|renderSidebar|tree-level|tree-row|mini-hierarchy|hamburger|drawer)\b/i);
+  assert.doesNotMatch(html, /parentId|childrenOf|ancestorsOf|projectedResourceIds/);
   assert.match(html, /\.app\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 350px/);
-  assert.match(html, /<header class="topbar">[\s\S]*<div class="product-identity"[^>]*>[\s\S]*RC Atlas/);
 });
 
-test("Directory is flat and Sources owns source discovery", () => {
-  const directoryRenderer = html.match(/function renderDirectory\(\)[\s\S]*?function renderSources\(\)/)?.[0] || "";
-  assert.match(directoryRenderer, /D\.entities\.filter\(item => item\.graph !== false/);
-  assert.match(directoryRenderer, /class="directory-list"/);
-  assert.match(directoryRenderer, /class="directory-row/);
-  assert.doesNotMatch(directoryRenderer, /hierarchyRows|tree-level|--depth/);
+test("the clipped graph canvas cannot become a hidden keyboard scroll container", () => {
+  assert.match(html, /\.canvas\s*\{[\s\S]*overflow:\s*hidden;\s*overflow:\s*clip;/);
+});
+
+test("initial and reset view use geometry-derived useful fit", () => {
+  const positions = Object.fromEntries(M.data.entities.map(item => [item.id, { x: item.x, y: item.y }]));
+  const desktop = M.fitViewport(1070, 860, positions);
+  const wide = M.fitViewport(1600, 1000, positions);
+  assert.ok(desktop.scale >= .4 && desktop.scale <= 1);
+  assert.ok(wide.scale >= desktop.scale);
+  assert.notDeepEqual(plain(desktop), plain(wide));
+  assert.match(html, /M\.defaultPresentation\(els\.canvas\.clientWidth, els\.canvas\.clientHeight\)/);
+});
+
+test("presentation storage is bounded and malformed storage falls back safely", () => {
+  const fallback = M.defaultPresentation(1070, 860);
+  assert.deepEqual(plain(M.loadPresentation({ getItem() { return "{broken"; } }, 1070, 860)), plain(fallback));
+  assert.deepEqual(plain(M.loadPresentation({ getItem() { throw new Error("blocked"); } }, 1070, 860)), plain(fallback));
+  const stored = M.loadPresentation({ getItem() { return JSON.stringify({ viewport: { x: 12, y: 18, scale: 99 }, positions: { "completion-assembly-execution": { x: 77, y: 88 } }, authority: "ignored" }); } }, 1070, 860);
+  assert.equal(stored.viewport.scale, 1.35);
+  assert.deepEqual(plain(stored.positions["completion-assembly-execution"]), { x: 77, y: 88 });
+  assert.equal("authority" in stored, false);
+});
+
+test("navigation preserves history and invalid selections recover safely", () => {
+  let nav = M.createNavigation("completion-assembly-execution");
+  nav = M.navigate(nav, "context-retrieval-broker");
+  nav = M.navigate(nav, "embedding-vector-indexing");
+  assert.equal(nav.selectedId, "embedding-vector-indexing");
+  nav = M.back(nav);
+  assert.equal(nav.selectedId, "context-retrieval-broker");
+  assert.equal(M.navigate(nav, "missing-module").selectedId, "completion-assembly-execution");
+});
+
+test("Sources exposes the complete governing document set", () => {
+  const expected = [
+    "docs/architecture/00-current-state.md",
+    "docs/architecture/adr/adr-index.md",
+    "docs/architecture/README.md",
+    "docs/architecture/kb-validity-matrix.md",
+    "docs/architecture/architecture-atlas.md",
+    "docs/architecture/modules-and-ownership.md",
+    "docs/architecture/system-overview.md",
+    "docs/architecture/flows.md",
+    "docs/architecture/data-and-storage.md",
+  ].sort();
+  assert.deepEqual(plain(M.data.sources.map(item => item.path).sort()), expected);
   assert.match(html, /data-view="sources"/);
   assert.match(html, /id="sourcesView"/);
-  assert.match(html, /Reviewed architecture reading path/);
+  assert.match(html, /Open source/);
 });
 
-test("graph cards use progressive disclosure instead of exposed taxonomy", () => {
-  const graphRenderer = html.match(/function renderGraph\(\)[\s\S]*?function renderRoutes\(\)/)?.[0] || "";
-  assert.match(graphRenderer, /entity-descriptor/);
-  assert.match(graphRenderer, /selection-state/);
-  assert.doesNotMatch(graphRenderer, /entity-kind/);
-  assert.doesNotMatch(graphRenderer, /entity-id/);
-  assert.match(graphRenderer, /title="\$\{esc\(classification\)\}/);
-  assert.match(html, /<dt>Stable ID<\/dt>/, "stable IDs remain available in the inspector");
-  assert.match(html, /<dt>Runtime evidence<\/dt>/, "runtime evidence remains available in the inspector");
-});
-
-test("Galaxy remains explicit, spatial, reversible, and reduced-motion aware", () => {
+test("Codexify material, Galaxy transition, and reduced motion contracts remain intact", () => {
+  for (const [token, value] of Object.entries({
+    "--radius-micro": "12px", "--radius-tile": "19px", "--card-radius": "19px", "--edge-chrome": "6px", "--frame": "1.5px", "--bezel": "6px", "--rim": "1.5px", "--card-pad": "12px",
+  })) assert.match(html, new RegExp(token + ":\\s*" + value.replace(".", "\\.")));
+  assert.match(html, /\.entity-card\.active\s*\{[\s\S]*var\(--accent-strong\)/);
   assert.match(html, /id="galaxyGate"/);
-  assert.match(html, /#confirmGalaxy"\)\.addEventListener\("click", enterGalaxy\)/);
   assert.match(html, /galaxy-departing/);
   assert.match(html, /galaxy-returning/);
-  assert.match(html, /transform:\s*scale\(\.68\)/);
   assert.match(html, /state\.navigation = \{ selectedId: prior\.navigation\.selectedId, history: prior\.navigation\.history\.slice\(\) \}/);
   assert.match(html, /prefers-reduced-motion:\s*reduce/);
   assert.match(html, /reducedMotion\(\) \? 0 : 540/);
 });
 
-test("fixture IDs are unique and every reference is valid", () => {
-  assert.deepEqual(Array.from(M.validate()), []);
-  const ids = M.data.entities.map(entity => entity.id);
-  assert.equal(new Set(ids).size, ids.length);
-});
-
-test("hierarchy relationships use legal parent-child kinds", () => {
-  for (const entity of M.data.entities.filter(entity => entity.parentId)) {
-    const parent = M.byId(entity.parentId);
-    assert.ok(parent, `parent exists for ${entity.id}`);
-    assert.ok(M.data.hierarchy[parent.kind].includes(entity.kind), `${parent.kind} may contain ${entity.kind}`);
-  }
-  assert.equal(M.byId("home-rc").kind, "homebase");
-  assert.equal(M.byId("space-contributor").parentId, "home-rc");
-  assert.equal(M.byId("room-orientation").parentId, "space-contributor");
-});
-
-test("Threads remain separate from Rooms and Messages remain separate from Threads", () => {
-  const roomThreads = M.childrenOf("room-orientation").filter(entity => entity.kind === "thread");
-  assert.deepEqual(Array.from(roomThreads, entity => entity.id).sort(), ["thread-boundaries", "thread-welcome"]);
-  assert.notDeepEqual(M.data.messages["thread-welcome"], M.data.messages["thread-boundaries"]);
-  for (const [threadId, messages] of Object.entries(M.data.messages)) {
-    assert.equal(M.byId(threadId).kind, "thread");
-    for (const message of messages) {
-      assert.equal(M.byId(message.id).kind, "message");
-      assert.equal(M.byId(message.id).parentId, threadId);
-    }
-  }
-});
-
-test("display names are independent of identity, routing, and hierarchy", () => {
-  const renamed = M.data.entities.map(entity => ({ ...entity, name: `Renamed ${entity.kind}` }));
-  assert.equal(M.byId("home-rc", renamed).kind, "homebase");
-  assert.deepEqual(Array.from(M.childrenOf("home-rc", renamed), entity => entity.id).sort(), ["space-contributor", "space-public"]);
-  assert.deepEqual(Array.from(M.ancestorsOf("thread-welcome", renamed), entity => entity.id), ["org-rc", "home-rc", "space-contributor", "room-orientation", "thread-welcome"]);
-});
-
-test("graph and non-spatial directory expose the same destinations", () => {
-  assert.deepEqual(M.graphIds(), M.listIds());
-  assert.ok(M.graphIds().includes("home-collab"));
-  assert.ok(M.graphIds().includes("node-vault"));
-  assert.ok(!M.graphIds().includes("message-welcome-1"));
-});
-
-test("entity selection still drives navigation and contextual inspection", () => {
-  assert.match(html, /const nav = event\.target\.closest\("\[data-navigate\]"\)/);
-  assert.match(html, /navigateTo\(nav\.dataset\.navigate/);
-  assert.match(html, /function renderInspector\(\)/);
-  assert.match(html, /<dt>Stable ID<\/dt>/);
-  assert.match(html, /<dt>Parent\/context<\/dt>/);
-});
-
-test("Project projection exposes only the selected sample resources", () => {
-  assert.deepEqual(Array.from(M.projectedResourceIds("room-orientation")), ["artifact-framework", "artifact-atlas-contract"]);
-  assert.deepEqual(Array.from(M.projectedResourceIds("room-design")), []);
-  const projection = M.data.relationships.find(edge => edge.kind === "projection");
-  assert.equal(M.byId(projection.from).kind, "project");
-  assert.equal(M.byId(projection.to).kind, "room");
-});
-
-test("source snapshots and synthetic fixtures carry explicit truth labels", () => {
-  for (const source of M.data.sources) {
-    assert.ok(source.path.startsWith("docs/architecture/"));
-    assert.match(source.status, /proposed|contract|guide/);
-    assert.equal(source.origin, "repository snapshot");
-    assert.match(source.representation, /excerpt|summary/);
-    assert.equal(source.runtimeEvidence, "not evaluated");
-  }
-  assert.equal(M.byId("home-collab").synthetic, true);
-  assert.ok(M.data.relationships.every(edge => edge.evidence && edge.explanation));
-});
-
-test("navigation preserves history and invalid selections recover safely", () => {
-  let nav = M.createNavigation("home-rc");
-  nav = M.navigate(nav, "space-contributor");
-  nav = M.navigate(nav, "room-orientation");
-  nav = M.navigate(nav, "thread-welcome");
-  assert.equal(nav.selectedId, "thread-welcome");
-  nav = M.back(nav);
-  assert.equal(nav.selectedId, "room-orientation");
-  const recovered = M.navigate(nav, "missing-entity");
-  assert.equal(recovered.selectedId, "home-rc");
-});
-
-test("presentation storage accepts only bounded view state and falls back on failure", () => {
-  const fallback = M.defaultPresentation();
-  const malformed = M.loadPresentation({ getItem() { return "{broken"; } });
-  assert.deepEqual(malformed, fallback);
-  const blocked = M.loadPresentation({ getItem() { throw new Error("blocked"); } });
-  assert.deepEqual(blocked, fallback);
-  const stored = M.loadPresentation({ getItem() { return JSON.stringify({ viewport: { x: 12, y: 18, scale: 99 }, positions: { "home-rc": { x: 77, y: 88 } }, memberships: ["ignored"] }); } });
-  assert.equal(stored.viewport.scale, 1.35);
-  assert.deepEqual(JSON.parse(JSON.stringify(stored.positions["home-rc"])), { x: 77, y: 88 });
-  assert.equal("memberships" in stored, false);
-});
-
-test("persistent simulation boundary and unavailable Send state are present", () => {
-  assert.match(html, /Interactive design prototype · sample topology · no live connections/);
-  assert.match(html, /Send unavailable/);
-  assert.match(html, /Illustrative discovery · synthetic sectors · no live availability/);
-  assert.doesNotMatch(html, />\s*Repo implemented\s*</);
-  assert.doesNotMatch(html, />\s*logged in\s*</i);
-});
-
-test("prototype is self-contained and initiates no external service path", () => {
+test("truthful boundary copy remains visible and the prototype makes no automatic external request", () => {
+  assert.match(html, /Architecture document snapshot · design prototype · no live connections/);
+  assert.match(html, /not live federation/);
+  assert.match(html, /does not supersede the repository document or prove runtime behavior/);
   assert.doesNotMatch(html, /<script[^>]+src=/i);
   assert.doesNotMatch(html, /<link[^>]+rel=["']stylesheet/i);
   assert.doesNotMatch(html, /@import\s/i);

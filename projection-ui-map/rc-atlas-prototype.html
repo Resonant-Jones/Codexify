@@ -3,10 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Resonant Constructs Atlas — Contributor Prototype</title>
+  <title>RC Atlas — Codexify Architecture Snapshot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23080d15'/%3E%3Cpath d='M32 9l6 17 17 6-17 6-6 17-6-17-17-6 17-6z' fill='none' stroke='%238ec5ff' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%235ab7ff'/%3E%3C/svg%3E">
   <style>
-    /* Prototype-local translation of the current Codexify AppShell token contract. */
     :root {
       --radius-micro: 12px;
       --radius-tile: 19px;
@@ -30,25 +29,23 @@
       --surface-soft: rgba(255, 255, 255, .04);
       --accent: #8ec5ff;
       --accent-strong: #5ab7ff;
-
       --scene: #080d15;
       --scene-deep: #05080d;
       --canvas: rgba(8, 14, 24, .82);
-      --line: var(--panel-border);
-      --blue: #79bfff;
-      --green: #7fc99a;
-      --amber: #e3ad59;
-      --violet: #b397dc;
-      --red: #dc827b;
-      --slate: #9caec4;
+      --category-core: #79bfff;
+      --category-supporting: #7fc99a;
+      --category-experimental: #e3ad59;
+      --category-retired: #a7adba;
+      --edge-dependency: #65b5ff;
+      --edge-runtime: #c4a2ff;
       --shadow: 0 24px 54px rgba(0, 0, 0, .34), 0 7px 18px rgba(0, 0, 0, .24);
       --tiny-shadow: 0 12px 26px rgba(0, 0, 0, .24), inset 0 1px rgba(255, 255, 255, .055);
       --font: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --serif: var(--font);
       --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body { height: 100%; margin: 0; }
     body {
       overflow: hidden;
@@ -73,7 +70,6 @@
       color: var(--text-subtle); padding: 6px 11px; font-size: 11px; font-weight: 720;
       pointer-events: none; backdrop-filter: blur(14px) saturate(135%);
     }
-
     .app {
       height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 350px;
       gap: var(--edge-chrome); padding: var(--edge-chrome); transform-origin: 50% 50%;
@@ -88,14 +84,12 @@
       border-radius: var(--card-radius); background: var(--panel-bg); box-shadow: var(--shadow);
       backdrop-filter: blur(22px) saturate(138%); overflow: hidden; isolation: isolate;
     }
-    .inspector::before, .main::before, .reader::before, .gate-card::before {
+    .inspector::before, .main::before, .reader::before, .gate-card::before, .legend-panel::before {
       content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
-      border: var(--rim) solid var(--panel-bezel); overflow: clip;
-      clip-path: inset(0 round var(--card-radius));
+      border: var(--rim) solid var(--panel-bezel); clip-path: inset(0 round var(--card-radius));
       box-shadow: inset 0 var(--bezel) rgba(255,255,255,.045), inset 0 calc(-1 * var(--bezel)) rgba(0,0,0,.19);
     }
     .inspector { position: relative; overflow: auto; }
-
     .main { position: relative; display: grid; grid-template-rows: 76px 53px minmax(0, 1fr); }
     .topbar { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: var(--frame) solid var(--panel-border); background: linear-gradient(180deg, rgba(255,255,255,.065), var(--surface-soft)); }
     .product-identity { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding-right: 14px; border-right: 1px solid var(--panel-border); }
@@ -111,13 +105,11 @@
     .tab { min-height: 36px; border: 1px solid transparent; border-radius: var(--radius-micro); background: transparent; color: var(--text-subtle); display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; font-size: 12px; font-weight: 620; cursor: pointer; transition: color 150ms ease, background 180ms ease, border-color 180ms ease, transform 120ms ease; }
     .tab svg { width: 15px; height: 15px; }
     .tab:hover { color: var(--text); background: var(--surface-hover); }
-    .tab:active { transform: translateY(1px); }
     .tab.active { color: var(--text); border-color: color-mix(in srgb, var(--accent-strong) 52%, transparent); background: color-mix(in srgb, var(--accent-strong) 17%, var(--panel-sheet)); box-shadow: 0 8px 20px rgba(90,183,255,.12), inset 0 1px rgba(255,255,255,.12); }
     .search { position: relative; margin-left: auto; }
     .search svg { position: absolute; top: 10px; left: 11px; width: 14px; height: 14px; color: var(--text-subtle); pointer-events: none; }
-    .search input { width: min(290px, 28vw); height: 35px; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: color-mix(in srgb, var(--panel-sheet) 76%, transparent); color: var(--text); padding: 0 11px 0 32px; font-size: 12px; box-shadow: inset 0 1px rgba(255,255,255,.04); }
+    .search input { width: min(310px, 29vw); height: 35px; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: color-mix(in srgb, var(--panel-sheet) 76%, transparent); color: var(--text); padding: 0 11px 0 32px; font-size: 12px; box-shadow: inset 0 1px rgba(255,255,255,.04); }
     .search input::placeholder { color: var(--text-subtle); }
-    .search input:hover { border-color: var(--chip-border); background: color-mix(in srgb, var(--panel-sheet) 88%, transparent); }
 
     .icon-button, .button {
       min-height: 34px; border: 1px solid var(--chip-border); border-radius: var(--radius-micro);
@@ -129,7 +121,6 @@
     .icon-button { width: 35px; padding: 0; }
     .icon-button svg, .button svg { width: 15px; height: 15px; }
     .button:hover, .icon-button:hover { transform: translateY(-1px); border-color: var(--panel-sheet-border); background: color-mix(in srgb, var(--chip-bg) 70%, white 8%); box-shadow: var(--tiny-shadow); }
-    .button:active, .icon-button:active { transform: translateY(1px); }
     .button.primary { border-color: color-mix(in srgb, var(--accent-strong) 74%, white 10%); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 8%), var(--accent-strong)); color: #07111c; box-shadow: 0 10px 24px rgba(90,183,255,.22), inset 0 1px rgba(255,255,255,.42); }
     .button.dark { border-color: var(--chip-border); background: var(--surface-hover); color: var(--text); }
     .button:disabled { cursor: not-allowed; opacity: .44; box-shadow: none; transform: none; }
@@ -137,9 +128,8 @@
     .view-shell { min-width: 0; min-height: 0; position: relative; background: color-mix(in srgb, var(--scene) 86%, transparent); }
     .view { display: none; width: 100%; height: 100%; min-width: 0; min-height: 0; }
     .view.active { display: block; }
-
     .canvas {
-      position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
+      position: relative; width: 100%; height: 100%; overflow: hidden; overflow: clip; cursor: grab; touch-action: none; user-select: none;
       background:
         linear-gradient(rgba(142,197,255,.055) 1px, transparent 1px),
         linear-gradient(90deg, rgba(142,197,255,.055) 1px, transparent 1px),
@@ -152,140 +142,101 @@
     .canvas.panning { cursor: grabbing; }
     .canvas-toolbar { position: absolute; z-index: 70; left: 17px; bottom: 17px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--panel-sheet-border); border-radius: var(--radius-tile); background: color-mix(in srgb, var(--panel-bg) 92%, transparent); padding: var(--bezel); box-shadow: var(--shadow); backdrop-filter: blur(18px) saturate(135%); }
     .zoom-readout { min-width: 48px; color: var(--text-subtle); text-align: center; font: 11px var(--mono); }
-    .world { position: absolute; left: 0; top: 0; width: 1800px; height: 1120px; transform-origin: 0 0; }
-    .routes { position: absolute; inset: 0; width: 1800px; height: 1120px; overflow: visible; pointer-events: none; filter: drop-shadow(0 0 5px rgba(142,197,255,.08)); }
-    .routes line { vector-effect: non-scaling-stroke; stroke-width: 1.7; opacity: .72; }
-    .routes line.containment { stroke: var(--blue); }
-    .routes line.ownership { stroke: var(--violet); stroke-dasharray: 3 4; }
-    .routes line.hosting { stroke: var(--slate); stroke-dasharray: 9 6; }
-    .routes line.projection { stroke: var(--amber); stroke-dasharray: 12 5 2 5; }
-    .routes line.artifact { stroke: var(--green); stroke-dasharray: 4 4; }
-    .routes line.publication { stroke: var(--red); stroke-dasharray: 10 4; }
-    .routes line.collaboration { stroke: var(--violet); stroke-dasharray: 2 7; }
+    .world { position: absolute; left: 0; top: 0; width: 1750px; height: 1190px; transform-origin: 0 0; }
+    .routes { position: absolute; inset: 0; width: 1750px; height: 1190px; overflow: visible; pointer-events: none; filter: drop-shadow(0 0 5px rgba(142,197,255,.08)); }
+    .routes path { fill: none; vector-effect: non-scaling-stroke; stroke-width: 1.7; opacity: .68; }
+    .routes path.dependency { stroke: var(--edge-dependency); }
+    .routes path.runtime_flow { stroke: var(--edge-runtime); stroke-dasharray: 9 7; }
     .edge-label { position: absolute; z-index: 3; width: 10px; min-width: 10px; height: 10px; overflow: hidden; transform: translate(-50%, -50%); border: 1px solid var(--chip-border); border-radius: 999px; background: var(--chip-bg); color: transparent; padding: 0; font-size: 0; font-weight: 760; box-shadow: 0 0 0 3px rgba(8,13,21,.72); cursor: pointer; white-space: nowrap; transition: width 160ms ease, padding 160ms ease, color 160ms ease, background 160ms ease; }
     .edge-label:hover, .edge-label:focus-visible, .edge-label.active { width: auto; max-width: 210px; height: auto; padding: 4px 8px; color: var(--text); font-size: 9px; background: color-mix(in srgb, var(--panel-sheet) 94%, transparent); border-color: var(--accent-strong); box-shadow: 0 8px 22px rgba(0,0,0,.32), 0 0 0 2px rgba(90,183,255,.12); }
 
     .entity-card {
-      --kind-color: var(--blue); position: absolute; z-index: 5; width: 206px; min-height: 112px;
+      --kind-color: var(--category-supporting); position: absolute; z-index: 5; width: 206px; min-height: 124px;
       border: var(--frame) solid var(--panel-border); border-radius: var(--card-radius);
       background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.025));
       box-shadow: var(--shadow); color: var(--kind-color); padding: var(--rim); cursor: grab;
       isolation: isolate; overflow: hidden; clip-path: inset(0 round var(--card-radius));
       transition: transform 160ms ease, box-shadow 180ms ease, border-color 180ms ease, opacity 180ms ease;
     }
-    .entity-card::before, .entity-card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; overflow: clip; clip-path: inset(0 round var(--card-radius)); }
+    .entity-card::before, .entity-card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; clip-path: inset(0 round var(--card-radius)); }
     .entity-card::before { z-index: -1; border: var(--bezel) solid var(--panel-bezel); opacity: .58; box-shadow: inset 0 5px rgba(255,255,255,.08), inset 0 -6px rgba(0,0,0,.24); }
     .entity-card::after { z-index: 2; background: linear-gradient(118deg, rgba(255,255,255,.10), transparent 34%, transparent 70%, color-mix(in srgb, var(--kind-color) 11%, transparent)); mix-blend-mode: screen; }
-    .entity-face { position: relative; z-index: 1; min-height: 106px; border: 1px solid var(--panel-border); border-radius: calc(var(--card-radius) - 3px); background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.008)), color-mix(in srgb, var(--panel-sheet) 94%, var(--kind-color) 6%); box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0 -16px 30px rgba(0,0,0,.18); padding: var(--card-pad); overflow: hidden; }
+    .entity-face { position: relative; z-index: 1; min-height: 118px; border: 1px solid var(--panel-border); border-radius: calc(var(--card-radius) - 3px); background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.008)), color-mix(in srgb, var(--panel-sheet) 94%, var(--kind-color) 6%); box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0 -16px 30px rgba(0,0,0,.18); padding: var(--card-pad); overflow: hidden; }
     .entity-card:hover, .entity-card:focus-visible { z-index: 24; transform: translateY(-3px) scale(1.012); border-color: color-mix(in srgb, var(--kind-color) 54%, var(--panel-border)); box-shadow: 0 30px 64px rgba(0,0,0,.42), 0 10px 22px rgba(0,0,0,.28); }
     .entity-card.dragging { z-index: 50; cursor: grabbing; transform: scale(1.018); box-shadow: 0 32px 72px rgba(0,0,0,.48), 0 0 34px rgba(90,183,255,.16); }
     .entity-card.active { border-color: var(--accent-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-strong) 68%, transparent), 0 0 30px rgba(90,183,255,.22), var(--shadow); }
     .entity-card.active::before { border-color: color-mix(in srgb, var(--accent-strong) 55%, transparent); opacity: 1; }
-    .entity-card.hidden-by-search { opacity: .12; filter: grayscale(.72); }
-    .entity-card.kind-space { --kind-color: var(--green); }
-    .entity-card.kind-room { --kind-color: var(--amber); }
-    .entity-card.kind-thread { --kind-color: var(--violet); }
-    .entity-card.kind-project { --kind-color: var(--red); }
-    .entity-card.kind-node { --kind-color: var(--slate); }
-    .entity-card.kind-artifact { --kind-color: #83bba7; }
-    .entity-card.kind-homebase { --kind-color: var(--blue); }
-    .entity-card.kind-organization { --kind-color: #85c8d8; }
+    .entity-card.hidden-by-search { opacity: .10; filter: grayscale(.72); }
+    .entity-card.category-core-loop { --kind-color: var(--category-core); }
+    .entity-card.category-supporting { --kind-color: var(--category-supporting); }
+    .entity-card.category-experimental { --kind-color: var(--category-experimental); }
+    .entity-card.category-retired { --kind-color: var(--category-retired); }
     .entity-head { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; align-items: center; }
     .entity-glyph { width: 34px; height: 34px; border: 1px solid color-mix(in srgb, var(--kind-color) 66%, transparent); border-radius: var(--radius-micro); display: grid; place-items: center; background: color-mix(in srgb, var(--kind-color) 16%, var(--chip-bg)); color: var(--kind-color); box-shadow: inset 0 1px rgba(255,255,255,.09); font-size: 9px; font-weight: 850; letter-spacing: .03em; }
-    .entity-head h3 { overflow: hidden; margin: 0; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .entity-head h3 { overflow: hidden; margin: 0; color: var(--text); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+    .module-category { display: block; margin-top: 4px; color: var(--kind-color); font-size: 8px; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
     .entity-descriptor { display: -webkit-box; min-height: 28px; margin: 9px 0 8px; overflow: hidden; color: var(--text-subtle); font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .entity-foot { display: flex; align-items: center; gap: 6px; }
     .selection-state { color: var(--text-subtle); font-size: 9px; font-weight: 690; }
     .entity-card.active .selection-state { color: var(--accent); }
     .open-entity { margin-left: auto; width: 26px; min-height: 26px; border: 1px solid var(--chip-border); border-radius: var(--radius-micro); background: var(--surface-soft); padding: 0; color: var(--text); display: grid; place-items: center; cursor: pointer; }
     .open-entity svg { width: 11px; height: 11px; }
-    .open-entity:hover { border-color: var(--accent-strong); background: var(--surface-hover); }
 
-    .level-summary, .paper-panel, .source-card, .workspace-header, .workspace-column, .thread-header, .message-card, .composer-unavailable {
+    .level-summary, .paper-panel, .source-card {
       border: 1px solid var(--panel-border); border-radius: var(--card-radius);
       background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.012)), color-mix(in srgb, var(--panel-bg) 90%, transparent);
       box-shadow: var(--tiny-shadow); backdrop-filter: blur(18px) saturate(132%);
     }
-    .level-summary { position: absolute; z-index: 65; top: 16px; left: 16px; width: min(430px, calc(100% - 32px)); padding: var(--card-pad) 14px; }
-    .breadcrumbs { display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: none; }
-    .breadcrumbs button { border: 0; border-radius: 6px; background: none; padding: 3px 2px; color: var(--accent); font-size: 10px; font-weight: 720; cursor: pointer; white-space: nowrap; }
-    .breadcrumbs button:hover { background: var(--surface-hover); }
-    .breadcrumbs svg { width: 10px; height: 10px; color: var(--text-subtle); flex: 0 0 auto; }
-    .summary-line { display: flex; align-items: flex-start; gap: 10px; margin-top: 8px; }
+    .level-summary { position: absolute; z-index: 65; top: 16px; left: 16px; width: min(470px, calc(100% - 32px)); padding: var(--card-pad) 14px; pointer-events: none; }
+    .snapshot-kicker { color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    .summary-line { display: flex; align-items: flex-start; gap: 10px; margin-top: 7px; }
     .summary-line h3 { margin: 0; font: 650 20px/1.1 var(--font); letter-spacing: -.03em; }
     .summary-line p { margin: 5px 0 0; color: var(--text-subtle); font-size: 11px; line-height: 1.45; }
-    .type-chip, .kind-tag, .meta-chip, .provenance { border: 1px solid var(--chip-border); border-radius: 999px; background: var(--chip-bg); color: var(--text-subtle); }
-    .type-chip { padding: 4px 7px; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
-    .destinations { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
-    .destination { border: 1px solid var(--chip-border); border-radius: 999px; background: var(--surface-soft); color: var(--muted); padding: 4px 8px; font-size: 9px; cursor: pointer; }
-    .destination:hover { border-color: color-mix(in srgb, var(--accent-strong) 46%, transparent); background: var(--surface-hover); }
+    .type-chip, .kind-tag, .meta-chip { border: 1px solid var(--chip-border); border-radius: 999px; background: var(--chip-bg); color: var(--text-subtle); }
+    .type-chip { margin-left: auto; padding: 4px 7px; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+    .kind-tag { padding: 2px 6px; font-size: 8px; font-weight: 760; text-transform: uppercase; white-space: nowrap; }
+    .meta-chip { padding: 3px 6px; font-size: 8px; font-weight: 760; }
 
-    .directory-shell, .sources-shell, .workspace, .thread-detail { background: linear-gradient(rgba(142,197,255,.042) 1px, transparent 1px), linear-gradient(90deg, rgba(142,197,255,.042) 1px, transparent 1px), radial-gradient(circle at 50% 0, rgba(90,183,255,.09), transparent 42%); background-size: 28px 28px, 28px 28px, auto; }
-    .directory-shell, .sources-shell { height: 100%; overflow: auto; padding: 24px 28px 48px; }
+    .legend-panel { position: absolute; z-index: 90; right: 16px; top: 16px; width: min(310px, calc(100% - 32px)); border: 1px solid var(--panel-sheet-border); border-radius: var(--card-radius); background: color-mix(in srgb, var(--panel-sheet) 94%, transparent); box-shadow: var(--shadow); padding: 14px; backdrop-filter: blur(20px) saturate(135%); isolation: isolate; }
+    .legend-head { display: flex; align-items: center; gap: 10px; }
+    .legend-head h2 { margin: 0; font-size: 14px; }
+    .legend-head button { margin-left: auto; }
+    .legend-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--panel-border); }
+    .legend-section h3 { margin: 0 0 8px; color: var(--text-subtle); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+    .legend-row { display: flex; align-items: center; gap: 9px; min-height: 25px; font-size: 10px; }
+    .legend-dot { width: 12px; height: 12px; border: 1px solid currentColor; border-radius: 4px; background: color-mix(in srgb, currentColor 18%, var(--chip-bg)); }
+    .legend-core { color: var(--category-core); } .legend-supporting { color: var(--category-supporting); } .legend-experimental { color: var(--category-experimental); } .legend-retired { color: var(--category-retired); }
+    .legend-stroke { width: 38px; border-top: 2px solid var(--edge-dependency); }
+    .legend-stroke.runtime { border-color: var(--edge-runtime); border-top-style: dashed; }
+    .legend-note { margin: 9px 0 0; color: var(--text-subtle); font-size: 9px; line-height: 1.45; }
+
+    .directory-shell, .sources-shell { height: 100%; overflow: auto; padding: 24px 28px 48px; background: linear-gradient(rgba(142,197,255,.042) 1px, transparent 1px), linear-gradient(90deg, rgba(142,197,255,.042) 1px, transparent 1px), radial-gradient(circle at 50% 0, rgba(90,183,255,.09), transparent 42%); background-size: 28px 28px, 28px 28px, auto; }
     .view-intro { max-width: 920px; margin-bottom: 18px; }
     .view-intro h2 { margin: 0; font: 670 30px/1.05 var(--font); letter-spacing: -.04em; }
-    .view-intro p { max-width: 760px; margin: 8px 0 0; color: var(--text-subtle); font-size: 13px; line-height: 1.5; }
-    .directory-grid { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(320px, 1.15fr); gap: 16px; }
+    .view-intro p { max-width: 790px; margin: 8px 0 0; color: var(--text-subtle); font-size: 13px; line-height: 1.5; }
+    .directory-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(330px, 1.1fr); gap: 16px; }
     .paper-panel { padding: 15px; }
     .paper-panel h3 { margin: 0 0 11px; font-size: 13px; }
-    .directory-list { display: grid; gap: 5px; }
-    .directory-row { width: 100%; min-height: 44px; border: 1px solid transparent; border-radius: var(--radius-micro); background: transparent; display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 6px 7px; text-align: left; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, transform 120ms ease; }
+    .directory-list, .relationship-list { display: grid; gap: 6px; }
+    .directory-row { width: 100%; min-height: 50px; border: 1px solid transparent; border-radius: var(--radius-micro); background: transparent; display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 7px; text-align: left; cursor: pointer; }
     .directory-row:hover { border-color: var(--panel-border); background: var(--surface-hover); }
     .directory-row.active { border-color: color-mix(in srgb, var(--accent-strong) 48%, transparent); background: color-mix(in srgb, var(--accent-strong) 13%, var(--surface-soft)); box-shadow: 0 8px 22px rgba(0,0,0,.18); }
     .directory-glyph { width: 29px; height: 29px; border: 1px solid var(--chip-border); border-radius: var(--radius-micro); display: grid; place-items: center; background: var(--surface-soft); color: var(--accent); font-size: 9px; font-weight: 850; }
     .directory-row strong { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-    .directory-row small { display: block; margin-top: 2px; color: var(--text-subtle); font-size: 9px; line-height: 1.35; }
-    .kind-tag { padding: 2px 6px; font-size: 8px; font-weight: 760; text-transform: uppercase; }
-    .empty-state { border: 1px dashed var(--chip-border); border-radius: var(--card-radius); background: var(--surface-soft); padding: 24px; color: var(--text-subtle); text-align: center; font-size: 12px; }
-    .relationship-list { display: grid; gap: 7px; }
+    .directory-row small { display: block; margin-top: 3px; color: var(--text-subtle); font-size: 9px; line-height: 1.35; }
     .relationship-row { border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: var(--surface-soft); padding: 10px; color: var(--text); text-align: left; cursor: pointer; }
     .relationship-row:hover { border-color: var(--accent-strong); background: var(--surface-hover); }
     .relationship-row strong { display: block; font-size: 11px; }
     .relationship-row span { display: block; margin-top: 4px; color: var(--text-subtle); font-size: 10px; line-height: 1.4; }
+    .empty-state { border: 1px dashed var(--chip-border); border-radius: var(--card-radius); background: var(--surface-soft); padding: 24px; color: var(--text-subtle); text-align: center; font-size: 12px; }
 
     .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 13px; }
     .source-card { padding: 14px; display: grid; gap: 10px; }
     .source-card h3 { margin: 0; font: 650 18px/1.15 var(--font); }
     .source-path { color: var(--text-subtle); font: 9px/1.4 var(--mono); overflow-wrap: anywhere; }
     .source-meta { display: flex; flex-wrap: wrap; gap: 5px; }
-    .meta-chip { padding: 3px 6px; font-size: 8px; font-weight: 760; }
     .source-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     .source-actions { display: flex; gap: 7px; margin-top: auto; }
-
-    .workspace { height: 100%; overflow: auto; padding: 19px 23px 34px; }
-    .workspace-header { padding: 14px 16px; }
-    .workspace-header .breadcrumbs { margin-bottom: 9px; }
-    .workspace-title { display: flex; align-items: flex-start; gap: 10px; }
-    .workspace-title h2 { margin: 0; font: 670 25px/1.1 var(--font); letter-spacing: -.035em; }
-    .workspace-title p { margin: 5px 0 0; color: var(--text-subtle); font-size: 12px; }
-    .workspace-grid { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(300px, 1.1fr) minmax(220px, .78fr); gap: 13px; margin-top: 13px; }
-    .workspace-column { min-width: 0; overflow: hidden; }
-    .column-head { padding: 12px 13px; border-bottom: 1px solid var(--panel-border); background: var(--surface-soft); }
-    .column-head h3 { margin: 0; font-size: 12px; }
-    .column-head p { margin: 4px 0 0; color: var(--text-subtle); font-size: 9px; line-height: 1.4; }
-    .column-body { padding: 10px; display: grid; gap: 7px; }
-    .workspace-item { border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: var(--surface-soft); color: var(--text); padding: 10px; text-align: left; cursor: pointer; }
-    .workspace-item:hover, .workspace-item.active { border-color: var(--accent-strong); background: var(--surface-hover); box-shadow: var(--tiny-shadow); }
-    .workspace-item strong { display: block; font-size: 11px; }
-    .workspace-item small { display: block; margin-top: 4px; color: var(--text-subtle); font-size: 9px; line-height: 1.4; }
-    .project-boundary { border-color: color-mix(in srgb, var(--amber) 50%, transparent); background: color-mix(in srgb, var(--amber) 10%, var(--surface-soft)); }
-    .boundary-note { border: 1px dashed color-mix(in srgb, var(--amber) 66%, transparent); border-radius: var(--radius-micro); background: color-mix(in srgb, var(--amber) 10%, var(--surface-soft)); color: color-mix(in srgb, var(--amber) 78%, white); padding: 10px; font-size: 10px; line-height: 1.45; }
-
-    .thread-detail { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
-    .thread-header { margin: 17px 22px 10px; padding: 13px 15px; }
-    .thread-header h2 { margin: 7px 0 0; font: 670 24px/1.1 var(--font); }
-    .thread-header p { margin: 5px 0 0; color: var(--text-subtle); font-size: 11px; }
-    .messages { min-height: 0; overflow: auto; padding: 5px 22px 17px; display: grid; align-content: start; gap: 11px; }
-    .message { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; max-width: 820px; }
-    .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent-strong), var(--violet)); color: #07111c; font-size: 10px; font-weight: 850; box-shadow: var(--tiny-shadow); }
-    .message-card { padding: 11px 12px; }
-    .message-head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-    .message-head strong { font-size: 11px; }
-    .message-head time { color: var(--text-subtle); font-size: 9px; }
-    .provenance { padding: 2px 6px; color: color-mix(in srgb, var(--green) 82%, white); font-size: 8px; font-weight: 720; }
-    .message-card p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-    .composer-unavailable { margin: 0 22px 18px; padding: 10px 11px; display: flex; align-items: center; gap: 9px; color: var(--text-subtle); font-size: 10px; }
-    .composer-unavailable .button { margin-left: auto; }
 
     .inspector-inner { padding: 94px 17px 30px; }
     .inspector-kicker { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
@@ -297,6 +248,8 @@
     .inspector-section { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--panel-border); }
     .inspector-section h3 { margin: 0 0 9px; font-size: 11px; }
     .inspector-copy { margin: 0; color: var(--text-subtle); font-size: 10px; line-height: 1.5; }
+    .anchor-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .anchor-list code { display: block; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--surface-soft); padding: 6px 7px; color: var(--muted); font: 9px/1.4 var(--mono); overflow-wrap: anywhere; }
 
     .reader { position: fixed; z-index: 320; inset: 16px; display: none; grid-template-rows: auto minmax(0,1fr); border: 1px solid var(--panel-sheet-border); border-radius: var(--card-radius); background: color-mix(in srgb, var(--panel-sheet) 96%, transparent); box-shadow: 0 34px 100px rgba(0,0,0,.58); overflow: hidden; isolation: isolate; }
     .reader.open { display: grid; }
@@ -309,9 +262,7 @@
     .reader-article h1 { margin: 0 0 15px; font: 680 34px/1.08 var(--font); letter-spacing: -.04em; }
     .reader-article h2 { margin: 26px 0 9px; font: 660 22px/1.15 var(--font); }
     .reader-article p, .reader-article li { color: var(--muted); font-size: 14px; line-height: 1.68; }
-    .reader-article pre { overflow: auto; border: 1px solid var(--panel-border); border-radius: var(--radius-micro); background: #090d14; color: var(--text); padding: 15px; font: 12px/1.55 var(--mono); white-space: pre; box-shadow: inset 0 1px rgba(255,255,255,.04); }
     .reader-article code { border-radius: 4px; background: var(--chip-bg); padding: 1px 4px; font-family: var(--mono); font-size: .9em; }
-    .reader-article pre code { background: none; padding: 0; }
     .source-link { color: var(--accent); font-size: 11px; font-weight: 720; }
 
     .gate { position: fixed; z-index: 460; inset: 0; display: none; place-items: center; background: rgba(2,6,12,.66); backdrop-filter: blur(14px) saturate(120%); }
@@ -320,7 +271,6 @@
     .gate-card h2 { margin: 0; font: 680 28px/1.1 var(--font); letter-spacing: -.04em; }
     .gate-card p { margin: 10px 0 18px; color: var(--text-subtle); font-size: 12px; line-height: 1.55; }
     .gate-actions { display: flex; justify-content: flex-end; gap: 8px; }
-
     .galaxy {
       position: fixed; z-index: 400; inset: 0; visibility: hidden; overflow: hidden; pointer-events: none;
       color: var(--text); opacity: 0; transform: scale(.68); transform-origin: center;
@@ -340,23 +290,17 @@
     .galaxy-stage { position: relative; z-index: 2; height: calc(100% - 72px); }
     .galaxy-core { position: absolute; left: 50%; top: 49%; width: 230px; height: 230px; transform: translate(-50%, -50%); border: 1px solid color-mix(in srgb, var(--accent-strong) 58%, transparent); border-radius: 50%; background: radial-gradient(circle, rgba(90,183,255,.31), rgba(90,183,255,.08) 52%, transparent 72%); box-shadow: 0 0 100px rgba(90,183,255,.25), inset 0 0 42px rgba(255,255,255,.08); display: grid; place-items: center; text-align: center; }
     .galaxy-core::before, .galaxy-core::after { content: ""; position: absolute; border: 1px solid rgba(142,197,255,.18); border-radius: 50%; }
-    .galaxy-core::before { inset: -42px; }
-    .galaxy-core::after { inset: -92px; border-style: dashed; }
+    .galaxy-core::before { inset: -42px; } .galaxy-core::after { inset: -92px; border-style: dashed; }
     .galaxy-core strong { font: 670 21px var(--font); }
     .galaxy-core span { display: block; margin-top: 5px; color: var(--text-subtle); font-size: 10px; }
-    .galaxy-card { position: absolute; width: 220px; border: 1px solid var(--panel-sheet-border); border-radius: var(--card-radius); background: linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.025)), rgba(17,24,39,.52); box-shadow: var(--shadow); padding: 14px; color: var(--text); backdrop-filter: blur(16px) saturate(136%); overflow: hidden; }
+    .galaxy-card { position: absolute; width: 220px; border: 1px solid var(--panel-sheet-border); border-radius: var(--card-radius); background: linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.025)), rgba(17,24,39,.52); box-shadow: var(--shadow); padding: 14px; color: var(--text); backdrop-filter: blur(16px) saturate(136%); }
     .galaxy-card h3 { margin: 0; font-size: 12px; }
     .galaxy-card p { margin: 6px 0 0; color: var(--text-subtle); font-size: 9px; line-height: 1.45; }
-    .galaxy-card.one { left: 9%; top: 16%; }
-    .galaxy-card.two { right: 8%; top: 18%; }
-    .galaxy-card.three { left: 14%; bottom: 13%; }
-    .galaxy-card.four { right: 13%; bottom: 12%; }
+    .galaxy-card.one { left: 9%; top: 16%; } .galaxy-card.two { right: 8%; top: 18%; } .galaxy-card.three { left: 14%; bottom: 13%; } .galaxy-card.four { right: 13%; bottom: 12%; }
     .galaxy-caption { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); color: var(--text-subtle); font-size: 10px; text-align: center; }
 
     @media (max-width: 1120px) {
       .app { grid-template-columns: minmax(0, 1fr) 294px; }
-      .workspace-grid { grid-template-columns: minmax(210px, .8fr) minmax(300px, 1.2fr); }
-      .workspace-column:last-child { grid-column: 1 / -1; }
       .source-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 820px) {
@@ -369,25 +313,22 @@
       .product-identity { padding-right: 10px; }
       .product-copy { display: none; }
       .top-actions { margin-left: auto; }
-      .top-actions #galaxyButton span { display: none; }
+      .top-actions #galaxyButton span, .top-actions #aboutButton span { display: none; }
       .navtabs { min-height: 88px; padding: 7px 10px 9px; flex-wrap: wrap; gap: 4px; }
       .search { width: 100%; order: 5; }
       .search input { width: 100%; }
-      .canvas { min-height: 760px; }
+      .canvas { min-height: 740px; }
       .level-summary { top: 10px; left: 10px; width: calc(100% - 20px); }
       .canvas-toolbar { bottom: 10px; left: 10px; }
+      .legend-panel { top: 144px; right: 10px; width: calc(100% - 20px); }
       .directory-shell, .sources-shell { padding: 20px 14px 40px; }
-      .directory-grid, .workspace-grid { grid-template-columns: 1fr; }
-      .workspace-column:last-child { grid-column: auto; }
+      .directory-grid { grid-template-columns: 1fr; }
       .reader { inset: 7px; }
       .reader-head { flex-wrap: wrap; }
       .reader-head .source-path { width: calc(100% - 48px); order: 4; }
       .reader-body { padding: 24px 17px 54px; }
       .galaxy-card { width: 170px; }
-      .galaxy-card.one { left: 3%; top: 12%; }
-      .galaxy-card.two { right: 3%; top: 17%; }
-      .galaxy-card.three { left: 4%; bottom: 12%; }
-      .galaxy-card.four { right: 4%; bottom: 10%; }
+      .galaxy-card.one { left: 3%; top: 12%; } .galaxy-card.two { right: 3%; top: 17%; } .galaxy-card.three { left: 4%; bottom: 12%; } .galaxy-card.four { right: 4%; bottom: 10%; }
       .galaxy-core { width: 170px; height: 170px; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -398,82 +339,73 @@
   </style>
 </head>
 <body>
-  <div class="prototype-banner" role="status">Interactive design prototype · sample topology · no live connections</div>
-
+  <div class="prototype-banner" role="status">Architecture document snapshot · design prototype · no live connections</div>
   <div class="app" id="app">
     <main class="main">
       <header class="topbar">
         <div class="product-identity" aria-label="RC Atlas contributor orientation">
-          <div class="compass" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 14.8 9l6.6 3-6.6 3L12 21.4 9.2 15 2.6 12l6.6-3L12 2.6Z" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/></svg>
-          </div>
-          <div class="product-copy"><strong>RC Atlas</strong><span>Contributor orientation</span></div>
+          <div class="compass" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 14.8 9l6.6 3-6.6 3L12 21.4 9.2 15 2.6 12l6.6-3L12 2.6Z" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/></svg></div>
+          <div class="product-copy"><strong>RC Atlas</strong><span>Codexify architecture</span></div>
         </div>
-        <div class="title"><h2 id="mainTitle">Atlas</h2><p id="mainSubtitle">Spatial contributor orientation</p></div>
+        <div class="title"><h2 id="mainTitle">Atlas</h2><p id="mainSubtitle">Documentation-backed subsystem projection</p></div>
         <div class="top-actions">
-          <button class="icon-button" id="backButton" type="button" aria-label="Go back" title="Back">
-            <svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <button class="button" id="aboutButton" type="button"><span>About</span></button>
-          <button class="button primary" id="galaxyButton" type="button" aria-label="Enter Galaxy">
-            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 13.5c4-5 10.8-7.8 15-4.2M7 18c3-3.8 8.7-5.8 13-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-            <span>Enter Galaxy</span>
-          </button>
+          <button class="icon-button" id="backButton" type="button" aria-label="Go back" title="Back"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="button" id="aboutButton" type="button" aria-label="About this architecture snapshot"><span>About</span></button>
+          <button class="button primary" id="galaxyButton" type="button" aria-label="Enter Galaxy"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 13.5c4-5 10.8-7.8 15-4.2M7 18c3-3.8 8.7-5.8 13-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>Enter Galaxy</span></button>
         </div>
       </header>
       <nav class="navtabs" aria-label="Atlas views">
-        <button class="tab active" type="button" data-view="atlas">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="2.3" stroke="currentColor"/><circle cx="18" cy="6" r="2.3" stroke="currentColor"/><circle cx="18" cy="18" r="2.3" stroke="currentColor"/><path d="m8 11 7.7-4M8 13l7.7 4" stroke="currentColor"/></svg>Atlas
-        </button>
-        <button class="tab" type="button" data-view="directory">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM5 10h14M10 5v14" stroke="currentColor" stroke-width="1.4"/></svg>Directory
-        </button>
-        <button class="tab" type="button" data-view="sources">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20H7zM15 3.5V7h3M10 11h5M10 14h5M10 17h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Sources
-        </button>
-        <label class="search"><span class="sr-only">Search Atlas</span><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input id="searchInput" type="search" placeholder="Search entities, paths, purposes…" autocomplete="off"></label>
+        <button class="tab active" type="button" data-view="atlas"><svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="2.3" stroke="currentColor"/><circle cx="18" cy="6" r="2.3" stroke="currentColor"/><circle cx="18" cy="18" r="2.3" stroke="currentColor"/><path d="m8 11 7.7-4M8 13l7.7 4" stroke="currentColor"/></svg>Atlas</button>
+        <button class="tab" type="button" data-view="directory"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM5 10h14M10 5v14" stroke="currentColor" stroke-width="1.4"/></svg>Directory</button>
+        <button class="tab" type="button" data-view="sources"><svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20H7zM15 3.5V7h3M10 11h5M10 14h5M10 17h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Sources</button>
+        <label class="search"><span class="sr-only">Search Atlas modules, responsibilities, and key code anchors</span><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input id="searchInput" type="search" placeholder="Search modules, responsibilities, anchors…" autocomplete="off"></label>
       </nav>
-
       <div class="view-shell">
         <section class="view active" id="atlasView" aria-label="Spatial Atlas">
           <div class="canvas" id="canvas">
-            <div class="world" id="world"><svg class="routes" id="routes" aria-label="Atlas relationships"></svg><div id="edgeLabels"></div><div id="cards"></div></div>
+            <div class="world" id="world"><svg class="routes" id="routes" aria-label="Documented Atlas relationships"></svg><div id="edgeLabels"></div><div id="cards"></div></div>
             <div class="level-summary" id="levelSummary"></div>
+            <section class="legend-panel" id="legendPanel" role="dialog" aria-modal="false" aria-labelledby="legendTitle" hidden>
+              <div class="legend-head"><h2 id="legendTitle">Legend</h2><button class="icon-button" id="closeLegend" type="button" aria-label="Close legend">×</button></div>
+              <div class="legend-section"><h3>Module classes</h3>
+                <div class="legend-row legend-core"><span class="legend-dot"></span><span>Core loop</span></div>
+                <div class="legend-row legend-supporting"><span class="legend-dot"></span><span>Supporting</span></div>
+                <div class="legend-row legend-experimental"><span class="legend-dot"></span><span>Experimental</span></div>
+                <div class="legend-row legend-retired"><span class="legend-dot"></span><span>Retired</span></div>
+              </div>
+              <div class="legend-section"><h3>Relationships</h3>
+                <div class="legend-row"><span class="legend-stroke"></span><span>Dependency — A depends on B</span></div>
+                <div class="legend-row"><span class="legend-stroke runtime"></span><span>Runtime flow — documented transition</span></div>
+              </div>
+              <p class="legend-note">Labels and inspector detail carry meaning; color is only a shortcut.</p>
+            </section>
             <div class="canvas-toolbar" aria-label="Canvas controls">
               <button class="icon-button" id="zoomOut" type="button" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M6 12h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
-              <span class="zoom-readout" id="zoomReadout">70%</span>
+              <span class="zoom-readout" id="zoomReadout">Fit</span>
               <button class="icon-button" id="zoomIn" type="button" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M6 12h12M12 6v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
               <button class="button" id="resetView" type="button">Reset view</button>
+              <button class="button" id="legendButton" type="button" aria-controls="legendPanel" aria-expanded="false">Legend</button>
             </div>
           </div>
         </section>
-        <section class="view" id="directoryView" aria-label="Searchable Atlas directory"><div class="directory-shell" id="directoryShell"></div></section>
+        <section class="view" id="directoryView" aria-label="Searchable module directory"><div class="directory-shell" id="directoryShell"></div></section>
         <section class="view" id="sourcesView" aria-label="Architecture source documents"><div class="sources-shell" id="sourcesShell"></div></section>
-        <section class="view" id="workspaceView" aria-label="Room workspace"></section>
-        <section class="view" id="threadView" aria-label="Thread detail"></section>
       </div>
     </main>
-
     <aside class="inspector" aria-label="Selection inspector"><div class="inspector-inner" id="inspector"></div></aside>
   </div>
 
   <section class="reader" id="reader" role="dialog" aria-modal="true" aria-labelledby="readerTitle">
-    <header class="reader-head">
-      <button class="icon-button" id="closeReader" type="button" aria-label="Return from document"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span>
-      <a class="source-link" id="readerLink" href="#">Open repository source</a>
-    </header>
+    <header class="reader-head"><button class="icon-button" id="closeReader" type="button" aria-label="Return from document"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span><a class="source-link" id="readerLink" href="#">Open repository source</a></header>
     <div class="reader-body"><article class="reader-article" id="readerArticle"></article></div>
   </section>
-
   <section class="gate" id="galaxyGate" role="dialog" aria-modal="true" aria-labelledby="galaxyGateTitle">
-    <div class="gate-card"><h2 id="galaxyGateTitle">Enter illustrative Galaxy?</h2><p>Galaxy is an optional discovery sketch. It is not live federation, a customer directory, or evidence that any remote HomeBase is available.</p><div class="gate-actions"><button class="button" id="stayLocal" type="button">Stay local</button><button class="button primary" id="confirmGalaxy" type="button">Enter Galaxy</button></div></div>
+    <div class="gate-card"><h2 id="galaxyGateTitle">Enter illustrative Galaxy?</h2><p>Galaxy is an optional synthetic discovery sketch outside the documentation-backed Codexify module snapshot. It is not live federation, a customer directory, or evidence that any remote HomeBase is available.</p><div class="gate-actions"><button class="button" id="stayLocal" type="button">Stay local</button><button class="button primary" id="confirmGalaxy" type="button">Enter Galaxy</button></div></div>
   </section>
-
   <section class="galaxy" id="galaxy" aria-label="Illustrative discovery Galaxy">
     <header class="galaxy-head"><div><h2>Federation Galaxy</h2><p>Illustrative discovery · synthetic sectors · no live availability</p></div><button class="button dark" id="exitGalaxy" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Return to local Atlas</button></header>
     <div class="galaxy-stage">
-      <div class="galaxy-core"><div><strong>Resonant Constructs</strong><span>sample local federation</span></div></div>
+      <div class="galaxy-core"><div><strong>Resonant Constructs</strong><span>synthetic federation context</span></div></div>
       <article class="galaxy-card one"><h3>Open-source makers</h3><p>Synthetic discovery archetype for shared build notes and public demonstrations.</p></article>
       <article class="galaxy-card two"><h3>Local research commons</h3><p>Synthetic archetype for bounded source review and publication receipts.</p></article>
       <article class="galaxy-card three"><h3>Creative technology guild</h3><p>Illustrative only. No partnership, endpoint, or current availability is claimed.</p></article>
@@ -485,181 +417,161 @@
   <script data-atlas-model>
   (function (root) {
     "use strict";
-    const INSPECTED_COMMIT = "40e538cfd232bb30692dde1f9008e3fdeda3562b";
-    const STORAGE_KEY = "cfy.rcAtlas.presentation.v1";
-    const ENTITY_KINDS = ["organization", "homebase", "space", "room", "thread", "message", "project", "node", "artifact"];
-    const HIERARCHY = {
-      organization: ["homebase"], homebase: ["space"], space: ["room"], room: ["thread"], thread: ["message"]
-    };
+    const INSPECTED_COMMIT = "cb551de1866715ef421026203ffe2a87cec8aaca";
+    const STORAGE_KEY = "cfy.rcAtlas.architecture.presentation.v1";
+    const MODULE_CLASSES = ["core loop", "supporting", "experimental", "retired"];
+    const RELATIONSHIP_TYPES = ["dependency", "runtime_flow"];
+    const MODULE_SOURCE = "docs/architecture/modules-and-ownership.md";
+    const sourceMeta = (section, evidenceType) => ({ path: MODULE_SOURCE, classification: "authoritative_now", section, evidenceLabel: "maintained architecture-document snapshot", evidenceType: evidenceType || "direct_documented", commit: INSPECTED_COMMIT });
+    const module = (id, name, moduleClass, responsibilities, anchors, dependsOn, dependedOnBy, blastRadius, x, y) => ({
+      id, kind: "module", name, moduleClass, responsibilities, anchors, dependsOn, dependedOnBy, blastRadius, x, y,
+      source: { ...sourceMeta("Subsystem Matrix"), authority: "documentation_snapshot" }
+    });
     const entities = [
-      { id: "org-rc", kind: "organization", name: "Resonant Constructs", purpose: "Organization identity that owns the sample HomeBase.", parentId: null, x: 650, y: 110 },
-      { id: "home-rc", kind: "homebase", name: "Resonant Constructs HomeBase", purpose: "Sample sovereign publication and administration root.", parentId: "org-rc", x: 650, y: 285 },
-      { id: "space-contributor", kind: "space", name: "Contributor Portal", purpose: "Interactive orientation experience for collaborators.", parentId: "home-rc", x: 380, y: 475 },
-      { id: "space-public", kind: "space", name: "Public Pavilion", purpose: "Illustrative public-facing experience with curated material only.", parentId: "home-rc", x: 910, y: 475 },
-      { id: "room-orientation", kind: "room", name: "Atlas Orientation Room", purpose: "Proposed shared context for learning the hierarchy and source boundaries.", parentId: "space-contributor", x: 210, y: 675, proposed: true },
-      { id: "room-design", kind: "room", name: "Design Translation Room", purpose: "Proposed review context for mapping Zac’s interaction model into architecture.", parentId: "space-contributor", x: 475, y: 760, proposed: true },
-      { id: "room-pavilion", kind: "room", name: "Published Notes Room", purpose: "Illustrative read-only destination for selected public notes.", parentId: "space-public", x: 970, y: 700, proposed: true },
-      { id: "thread-welcome", kind: "thread", name: "Contributor welcome", purpose: "Fixture conversation introducing the Atlas journey.", parentId: "room-orientation", x: 85, y: 900, proposed: true },
-      { id: "thread-boundaries", kind: "thread", name: "Authority boundaries", purpose: "Fixture conversation distinguishing containment, ownership, and hosting.", parentId: "room-orientation", x: 315, y: 935, proposed: true },
-      { id: "thread-lineage", kind: "thread", name: "Design lineage review", purpose: "Fixture conversation preserving source attribution and translation decisions.", parentId: "room-design", x: 540, y: 965, proposed: true },
-      { id: "project-atlas", kind: "project", name: "Atlas Contributor Prototype", purpose: "Illustrative authoritative Project supplying selected resources to one Room.", parentId: null, x: 1150, y: 215 },
-      { id: "node-vault", kind: "node", name: "VaultNode Sample Host", purpose: "Separately represented hosting compute; it does not own the HomeBase.", parentId: null, x: 1200, y: 430 },
-      { id: "artifact-framework", kind: "artifact", name: "Hierarchy framework excerpt", purpose: "Repository snapshot selected into the orientation Room.", parentId: null, sourceId: "source-framework", x: 1280, y: 685 },
-      { id: "artifact-atlas-contract", kind: "artifact", name: "Atlas V0.1 contract excerpt", purpose: "Repository snapshot selected into the orientation Room.", parentId: null, sourceId: "source-atlas-v01", x: 1260, y: 885 },
-      { id: "home-collab", kind: "homebase", name: "Northstar Collaborator HomeBase", purpose: "Clearly synthetic collaborator authority demonstrating reuse across organizations.", parentId: null, synthetic: true, x: 80, y: 270 },
-      { id: "space-collab", kind: "space", name: "Northstar Workshop", purpose: "Synthetic collaborator-published experience.", parentId: "home-collab", synthetic: true, x: 70, y: 475 },
-      { id: "message-welcome-1", kind: "message", name: "Welcome message one", purpose: "Fixture authored turn.", parentId: "thread-welcome", graph: false },
-      { id: "message-welcome-2", kind: "message", name: "Welcome message two", purpose: "Fixture authored turn.", parentId: "thread-welcome", graph: false },
-      { id: "message-boundary-1", kind: "message", name: "Boundary message one", purpose: "Fixture authored turn.", parentId: "thread-boundaries", graph: false },
-      { id: "message-boundary-2", kind: "message", name: "Boundary message two", purpose: "Fixture authored turn.", parentId: "thread-boundaries", graph: false },
-      { id: "message-lineage-1", kind: "message", name: "Lineage message one", purpose: "Fixture authored turn.", parentId: "thread-lineage", graph: false }
+      module("api-bootstrap-middleware", "API bootstrap and middleware", "supporting", "app creation, startup order, middleware, router inclusion, SSE endpoints, metrics", ["guardian/guardian_api.py"], "config, dependencies, all routers", "every HTTP and SSE client", "high", 70, 100),
+      module("auth-exposure-boundary", "Auth and exposure boundary", "supporting", "API key/session auth, current-user derivation, public exposure controls, CORS", ["guardian/core/dependencies.py", "guardian/core/public_exposure.py"], "env, settings, crypto/session helpers", "almost every protected route", "high", 70, 310),
+      module("chat-routes-thread-lifecycle", "Chat routes and thread lifecycle", "core loop", "thread creation, message persistence, completion enqueue, depth gating, debug traces", ["guardian/routes/chat.py", "guardian/routes/threads.py"], "DB, Redis, depth rules", "frontend chat UX, chat worker", "high", 400, 100),
+      module("completion-assembly-execution", "Completion assembly and execution", "core loop", "prompt assembly, provider selection, output persistence, embeddings handoff", ["guardian/core/chat_completion_service.py", "guardian/workers/chat_worker.py"], "context broker, provider router, DB, Redis", "core assistant behavior", "high", 730, 100),
+      module("context-retrieval-broker", "Context and retrieval broker", "core loop", "message history, semantic retrieval, doc scope, memory, graph, federated context", ["guardian/context/broker.py", "guardian/memoryos/retriever.py"], "vector store, memory store, optional graph/federation", "completion service", "high", 730, 310),
+      module("prompt-profile-system", "Prompt and profile system", "core loop", "system prompt layering, persona/profile resolution, system doc attachment", ["guardian/cognition/system_prompt_builder.py", "guardian/cognition/system_profiles/"], "DB-backed docs/personas, thread/profile metadata", "completion service, profile-switch flows", "medium", 730, 520),
+      module("provider-routing-catalog", "Provider routing and catalog", "core loop", "provider health, request formatting, timeouts, model catalog, runtime provider sync", ["guardian/core/ai_router.py", "guardian/core/llm_catalog.py", "guardian/core/provider_state.py"], "settings, network, provider credentials", "completion service, docs generation, frontend provider selection", "high", 730, 730),
+      module("media-document-ingestion", "Media and document ingestion", "core loop", "upload validation, asset dedupe, parsing, storage, document/thread/project links", ["guardian/routes/media.py", "guardian/routes/documents.py", "guardian/services/document_parsers/"], "storage, DB, queues", "RAG corpus, document UI", "high", 400, 520),
+      module("embedding-vector-indexing", "Embedding and vector indexing", "core loop", "document/chat embedding, chunking, vector writes, semantic search", ["guardian/workers/document_embed_worker.py", "guardian/workers/chat_embedding_worker.py", "guardian/vector/store.py"], "embed models, vector backend, queues", "context broker, ingestion UX", "high", 1060, 520),
+      module("queue-task-transport", "Queue and task transport", "supporting", "Redis queue access, cancellation, turn locks, task event streams, worker heartbeats", ["guardian/queue/redis_queue.py", "guardian/queue/task_events.py"], "Redis", "chat, ingestion, cron, health endpoints", "high", 400, 310),
+      module("durable-events-audit", "Durable events and audit", "supporting", "domain outbox, audit rows, event streaming, event graph lineage", ["guardian/core/event_bus.py", "guardian/core/outbox.py", "guardian/db/models.py"], "Postgres", "live UI updates, debugging, downstream consumers", "medium", 1060, 310),
+      module("command-bus", "Command bus", "supporting", "manifest derivation, invoke validation, idempotency, policy, loopback execution, run/event persistence", ["guardian/routes/command_bus.py", "guardian/command_bus/"], "auth, OpenAPI, DB, HTTP loopback", "tools shim, future agent/tool callers", "high", 1060, 100),
+      module("legacy-tools-shim", "Legacy tools shim", "retired", "runtime shim removed; historical removal record only", ["guardian/routes/tools.py"], "command bus", "none", "none", 1060, 940),
+      module("cron-scheduled-automation", "Cron and scheduled automation", "supporting", "job CRUD, due-job scanning, queued execution, run history", ["guardian/routes/cron.py", "guardian/cron/", "guardian/workers/cron_worker.py"], "DB, Redis, egress policy", "automation features and ops tasks", "medium", 400, 730),
+      module("collaboration-websocket-rpc", "Collaboration and WebSocket RPC", "supporting", "doc collaboration permissions, websocket sessions, RPC rate limiting, audit logging", ["guardian/realtime/collaboration.py", "guardian/ws/", "guardian/routes/websocket.py"], "auth, DB", "realtime clients, shared-doc flows", "medium", 70, 940),
+      module("federation-peer-context", "Federation and peer context", "experimental", "node trust, relay sessions, diff sync, peer context search, graph updates", ["guardian/routes/federation.py", "guardian/routes/federation_context.py"], "trust policy, egress, optional graph", "cross-node features", "high", 1060, 730),
+      module("sync-api", "Sync API", "experimental", "idempotent event ingest plus process-local SSE subscription bus", ["guardian/sync/api.py", "guardian/sync/bus.py"], "in-memory bus, sync models", "light sync consumers", "medium", 400, 940),
+      module("persistence-layer", "Persistence layer", "supporting", "SQLAlchemy models, DB adapter methods, migrations, provider/runtime tables", ["guardian/db/models.py", "guardian/core/db.py", "guardian/db/migrations/"], "Postgres", "almost every backend subsystem", "high", 1390, 415),
+      module("frontend-shell-session-spine", "Frontend shell and session spine", "supporting", "view routing, chat/doc/gallery/settings shell, persisted session state, local orchestration events", ["frontend/src/App.tsx", "frontend/src/components/persona/layout/AppShell.tsx", "frontend/src/state/session/SessionSpine.ts"], "browser storage, backend APIs", "end-user workflows", "high", 70, 520),
+      module("frontend-transport-auth-client", "Frontend transport and auth client", "supporting", "backend URL resolution, auth header injection, live event transport, outage gating", ["frontend/src/lib/runtimeConfig.ts", "frontend/src/lib/api.ts", "frontend/src/hooks/useLiveEvents.ts"], "browser storage, backend endpoints", "every frontend request path", "high", 70, 730)
     ];
+    const edge = (id, kind, from, to, explanation, sourcePath, section, evidenceType, normalization, caution) => ({
+      id, kind, from, to, label: kind === "dependency" ? "depends on" : "runtime flow", explanation,
+      source: { path: sourcePath, classification: "authoritative_now", section, evidenceLabel: kind === "dependency" ? "Subsystem Matrix: Depends on" : "maintained runtime flow sequence", evidenceType, normalization, commit: INSPECTED_COMMIT },
+      caution: caution || "This documentation-backed relationship does not grant authority or prove a live runtime."
+    });
+    const dep = (id, from, to, explanation, evidenceType, normalization) => edge(id, "dependency", from, to, explanation, MODULE_SOURCE, "Subsystem Matrix", evidenceType || "bounded_normalization", normalization || "Human-readable dependency phrase normalized to a named subsystem row.");
+    const flow = (id, from, to, explanation, section, normalization) => edge(id, "runtime_flow", from, to, explanation, "docs/architecture/flows.md", section, "bounded_normalization", normalization || "Documented route, queue, worker, or persistence step normalized to subsystem resolution.");
     const relationships = [
-      { id: "edge-own-rc", kind: "ownership", from: "org-rc", to: "home-rc", label: "owns authority boundary", evidence: "source-backed design", explanation: "The organization is the sample owner. Ownership is not inferred from display name or location." },
-      { id: "edge-home-space-contributor", kind: "containment", from: "home-rc", to: "space-contributor", label: "contains experience", evidence: "source-backed design", explanation: "The HomeBase publishes a Space; the Space remains an interactive experience, not a folder." },
-      { id: "edge-home-space-public", kind: "containment", from: "home-rc", to: "space-public", label: "contains experience", evidence: "source-backed design", explanation: "The HomeBase may publish multiple Spaces under the proposed hierarchy." },
-      { id: "edge-space-room-orientation", kind: "containment", from: "space-contributor", to: "room-orientation", label: "contains Room", evidence: "source-backed design", explanation: "This proposed Space contains a bounded shared Room context." },
-      { id: "edge-space-room-design", kind: "containment", from: "space-contributor", to: "room-design", label: "contains Room", evidence: "source-backed design", explanation: "A Space may contain more than one Room in the proposed v2 model." },
-      { id: "edge-space-room-pavilion", kind: "containment", from: "space-public", to: "room-pavilion", label: "contains Room", evidence: "source-backed design", explanation: "The Public Pavilion Space contains an illustrative read-only Room." },
-      { id: "edge-room-thread-welcome", kind: "containment", from: "room-orientation", to: "thread-welcome", label: "proposed Thread", evidence: "illustrative fixture data", explanation: "This is a proposed multi-thread Room illustration, not current Hosted Room behavior." },
-      { id: "edge-room-thread-boundaries", kind: "containment", from: "room-orientation", to: "thread-boundaries", label: "proposed Thread", evidence: "illustrative fixture data", explanation: "The second selectable Thread demonstrates the proposed hierarchy without claiming runtime support." },
-      { id: "edge-room-thread-lineage", kind: "containment", from: "room-design", to: "thread-lineage", label: "proposed Thread", evidence: "illustrative fixture data", explanation: "This fixture Thread remains separate from its Room and from Messages." },
-      { id: "edge-project-room", kind: "projection", from: "project-atlas", to: "room-orientation", label: "selected-resource projection", evidence: "source-backed design + illustrative fixture", resourceIds: ["artifact-framework", "artifact-atlas-contract"], explanation: "The Project supplies only two selected sample resources. It is not the Room, and no whole-Project disclosure is implied." },
-      { id: "edge-project-artifact-framework", kind: "artifact", from: "project-atlas", to: "artifact-framework", label: "selected artifact", evidence: "illustrative fixture data", explanation: "This artifact is explicitly selected from the sample Project projection." },
-      { id: "edge-project-artifact-contract", kind: "artifact", from: "project-atlas", to: "artifact-atlas-contract", label: "selected artifact", evidence: "illustrative fixture data", explanation: "This artifact is explicitly selected from the sample Project projection." },
-      { id: "edge-node-host", kind: "hosting", from: "node-vault", to: "home-rc", label: "hosts presentation", evidence: "illustrative fixture data", explanation: "The Node hosts sample presentation state. Hosting never transfers HomeBase ownership." },
-      { id: "edge-artifact-room-framework", kind: "artifact", from: "artifact-framework", to: "room-orientation", label: "linked resource", evidence: "illustrative fixture data", explanation: "The Room links to the selected artifact without becoming its canonical source." },
-      { id: "edge-artifact-room-contract", kind: "artifact", from: "artifact-atlas-contract", to: "room-orientation", label: "linked resource", evidence: "illustrative fixture data", explanation: "The Room links to the selected artifact without becoming its canonical source." },
-      { id: "edge-publish", kind: "publication", from: "space-public", to: "artifact-atlas-contract", label: "illustrative publication", evidence: "illustrative fixture data", explanation: "This synthetic edge demonstrates curated publication. It is not a live publication receipt." },
-      { id: "edge-collab", kind: "collaboration", from: "home-collab", to: "home-rc", label: "illustrative trust", evidence: "illustrative fixture data", explanation: "The two synthetic authorities collaborate without merging identity, ownership, or permissions." },
-      { id: "edge-collab-space", kind: "containment", from: "home-collab", to: "space-collab", label: "contains experience", evidence: "illustrative fixture data", explanation: "The synthetic collaborator HomeBase independently publishes its own Space." }
+      dep("dep-chat-persistence", "chat-routes-thread-lifecycle", "persistence-layer", "Chat routes persist threads and messages through the documented DB boundary."),
+      dep("dep-completion-context", "completion-assembly-execution", "context-retrieval-broker", "Completion assembly depends on the documented context broker."),
+      dep("dep-completion-provider", "completion-assembly-execution", "provider-routing-catalog", "Completion execution depends on the documented provider router."),
+      dep("dep-completion-persistence", "completion-assembly-execution", "persistence-layer", "Completion execution persists assistant output through the DB boundary."),
+      dep("dep-context-embedding", "context-retrieval-broker", "embedding-vector-indexing", "The context broker depends on the documented vector-store capability represented by embedding and vector indexing."),
+      dep("dep-context-federation", "context-retrieval-broker", "federation-peer-context", "The context broker may depend on optional graph or federated context.", "bounded_normalization", "The source says optional graph/federation; only the named Federation subsystem is projected."),
+      dep("dep-prompt-persistence", "prompt-profile-system", "persistence-layer", "Prompt and profile resolution depends on DB-backed documents, personas, and metadata."),
+      dep("dep-media-persistence", "media-document-ingestion", "persistence-layer", "Media ingestion depends on documented storage and DB state; this edge represents the named persistence subsystem only."),
+      dep("dep-media-queue", "media-document-ingestion", "queue-task-transport", "Media ingestion depends on queues for downstream embedding work."),
+      dep("dep-embedding-queue", "embedding-vector-indexing", "queue-task-transport", "Embedding and vector indexing depends on documented queues."),
+      dep("dep-events-persistence", "durable-events-audit", "persistence-layer", "Durable events and audit depends on Postgres through the named persistence subsystem."),
+      dep("dep-command-auth", "command-bus", "auth-exposure-boundary", "Command-bus invocation depends on the documented authentication boundary."),
+      dep("dep-command-persistence", "command-bus", "persistence-layer", "Command-bus run and event persistence depends on the DB boundary."),
+      dep("dep-legacy-command", "legacy-tools-shim", "command-bus", "The retired legacy tools shim is documented as depending on the command bus.", "direct_documented", "The source names the Command bus subsystem directly."),
+      dep("dep-cron-persistence", "cron-scheduled-automation", "persistence-layer", "Scheduled jobs and run history depend on the documented DB boundary."),
+      dep("dep-cron-queue", "cron-scheduled-automation", "queue-task-transport", "Scheduled automation uses Redis-backed queued execution represented by the queue subsystem."),
+      dep("dep-collaboration-auth", "collaboration-websocket-rpc", "auth-exposure-boundary", "Collaboration and WebSocket RPC depends on the documented auth boundary."),
+      dep("dep-collaboration-persistence", "collaboration-websocket-rpc", "persistence-layer", "Collaboration permissions and audit logging depend on the DB boundary."),
+      dep("dep-frontend-shell-transport", "frontend-shell-session-spine", "frontend-transport-auth-client", "The frontend shell depends on backend APIs through the documented frontend transport client.", "bounded_normalization", "Backend APIs are accessed through the named transport and auth client subsystem."),
+      dep("dep-frontend-transport-api", "frontend-transport-auth-client", "api-bootstrap-middleware", "Frontend transport depends on backend endpoints composed by the FastAPI application.", "bounded_normalization", "Backend endpoints are normalized to the API bootstrap and middleware composition root."),
+      flow("flow-frontend-chat", "frontend-shell-session-spine", "chat-routes-thread-lifecycle", "The frontend creates and writes a thread before requesting completion.", "1) Chat Completion Flow"),
+      flow("flow-chat-queue", "chat-routes-thread-lifecycle", "queue-task-transport", "The chat route acquires a turn lock and enqueues a chat completion task.", "1) Chat Completion Flow"),
+      flow("flow-queue-completion", "queue-task-transport", "completion-assembly-execution", "The chat worker dequeues the accepted task and invokes completion assembly.", "1) Chat Completion Flow"),
+      flow("flow-completion-events", "completion-assembly-execution", "durable-events-audit", "After persistence, completion emits task and domain event evidence.", "1) Chat Completion Flow"),
+      flow("flow-frontend-media", "frontend-shell-session-spine", "media-document-ingestion", "A client upload or document-generation gesture enters the media and document ingestion surface.", "3) Ingestion Flow"),
+      flow("flow-queue-embedding", "queue-task-transport", "embedding-vector-indexing", "The document embedding worker dequeues embed work, chunks content, and writes vectors.", "3) Ingestion Flow"),
+      flow("flow-command-loopback", "command-bus", "api-bootstrap-middleware", "Allowed command-bus operations execute through loopback HTTP into the same backend route surface.", "4) Tool Execution and Job Flow", "The loopback backend transition is normalized to the API composition root.")
     ];
+    const source = (id, title, path, classification, role, summary, content) => ({ id, title, path, href: "../" + path, classification, role, origin: "repository snapshot", representation: "bounded explanatory summary", runtimeEvidence: "not evaluated by Atlas", summary, content });
     const sources = [
-      {
-        id: "source-framework", title: "HomeBase, Space, Room, Thread, and World Packet Framework",
-        path: "docs/architecture/home-room-thread-world-packet-framework.md", href: "../docs/architecture/home-room-thread-world-packet-framework.md",
-        status: "proposed living framework", origin: "repository snapshot", representation: "reviewed excerpt", runtimeEvidence: "not evaluated",
-        summary: "Defines the proposed hierarchy, distinct entity responsibilities, Project-to-Room projection, Node hosting boundary, and Atlas renderer role.",
-        content: `<h1>Canonical hierarchy</h1><p>This reviewed excerpt records the proposed contributor-facing hierarchy at the inspected commit.</p><pre><code>User or Organization\n└── HomeBase\n    └── Spaces\n        └── Rooms\n            └── Threads\n                └── Messages</code></pre><h2>Distinct responsibilities</h2><ul><li><strong>HomeBase</strong> is the sovereign ownership and administration root.</li><li><strong>Space</strong> is the website-like interactive experience.</li><li><strong>Room</strong> is a bounded shared context.</li><li><strong>Thread</strong> is the durable conversation container.</li><li><strong>Node</strong> may host execution without silently acquiring identity ownership.</li></ul><p>A Room is initially described as a governed projection of selected Project state. It must not expose the whole Project by implication.</p>`
-      },
-      {
-        id: "source-space-runtime", title: "Space Runtime and Federated Experience Architecture",
-        path: "docs/architecture/space-runtime-and-federated-experience-architecture.md", href: "../docs/architecture/space-runtime-and-federated-experience-architecture.md",
-        status: "proposed living architecture", origin: "repository snapshot", representation: "reviewed excerpt", runtimeEvidence: "not evaluated",
-        summary: "Explains Space as an application container, Room as shared context, Atlas as renderer, and federation as optional future architecture.",
-        content: `<h1>Space and Room boundary</h1><p>A Space owns the experience shell, navigation, Room discovery, and Space-wide posture. A Room owns bounded shared context, Threads, Messages, selected resources, and Room-scoped collaboration policy.</p><h2>Atlas as renderer</h2><p>Atlas renders reduced topology and content state. It is not a database and cannot be the only usable interface.</p><h2>Current truth</h2><p>HomeBase, Space, World Packet synchronization, remote mounting, public discovery, and Atlas federation are not established as implemented release behavior by this document.</p>`
-      },
-      {
-        id: "source-atlas-v01", title: "Room-First Atlas V0.1 Interaction Contract",
-        path: "docs/architecture/atlas-v0-1-interaction-contract.md", href: "../docs/architecture/atlas-v0-1-interaction-contract.md",
-        status: "governing V0.1 planning contract", origin: "repository snapshot", representation: "reviewed excerpt", runtimeEvidence: "not evaluated",
-        summary: "Preserves the current compatibility boundary: one Hosted Room has one canonical backing Thread; multi-thread Rooms remain future work.",
-        content: `<h1>Compatibility boundary</h1><p>The current V0.1 product model preserves one canonical backing <code>ChatThread</code> per Hosted Room, with <code>ChatMessage</code> as canonical transcript storage.</p><pre><code>HostedRoom.id\n  └── backing_thread_id → ChatThread.id\n                           └── ChatMessage.id</code></pre><h2>Future direction, not runtime truth</h2><p>The intended Room-with-many-Threads model shown by this prototype requires separate persistence, API, authorization, portability, and proof work. Atlas remains optional navigation and owns no Room or message state.</p>`
-      },
-      {
-        id: "source-atlas-reading", title: "Codexify Architecture Atlas",
-        path: "docs/architecture/architecture-atlas.md", href: "../docs/architecture/architecture-atlas.md",
-        status: "authoritative KB reading guide", origin: "repository snapshot", representation: "explanatory summary", runtimeEvidence: "not evaluated",
-        summary: "Routes contributors through current truth, runtime topology, storage, flows, and validity classifications without treating diagrams as release proof.",
-        content: `<h1>Architecture reading path</h1><p>The Architecture Atlas is a navigation guide. It starts with <code>00-current-state.md</code> for release truth, then routes readers to runtime topology, flows, storage, ownership, operational configuration, risks, and governing ADRs.</p><h2>Two-view model</h2><p>Current runtime diagrams and UI design diagrams use different source sets. A useful visual map must preserve that distinction and avoid promoting design canon into runtime fact.</p>`
-      },
-      {
-        id: "source-adr055", title: "ADR-055: ThreadSpace ↔ WhisperMesh Managed-Service Boundary",
-        path: "docs/architecture/adr/055-threadspace-whispermesh-managed-service-boundary.md", href: "../docs/architecture/adr/055-threadspace-whispermesh-managed-service-boundary.md",
-        status: "proposed ADR", origin: "repository snapshot", representation: "reviewed excerpt", runtimeEvidence: "not evaluated",
-        summary: "Separates collaboration authority from optional connectivity services. Reachability and service leases do not create Room authority.",
-        content: `<h1>Transport is not collaboration authority</h1><p>Codexify and ThreadSpace retain identity, Room policy, capabilities, private context, and durable collaboration authority. Optional Network Assist may provide narrower connectivity services only after grant verification.</p><h2>Node boundary</h2><p>A participant or hosting Node protects its own keys, tools, and private context. Attachment, network reachability, or execution location never grants HomeBase ownership or Room membership.</p><p>This ADR is proposed and does not authorize a deployed protocol, hosted service, or release claim.</p>`
-      }
+      source("source-current-state", "Current State", "docs/architecture/00-current-state.md", "authoritative_now", "short-horizon release truth", "Release and operational truth that overrides broader documentation when current support is the question.", "<h1>Short-horizon truth</h1><p>This document remains the release and operational authority. Atlas does not convert architecture documentation into runtime proof or supported-release posture.</p>"),
+      source("source-adr-index", "ADR Index", "docs/architecture/adr/adr-index.md", "validated decision lane", "architectural rationale", "Reading index for accepted and proposed architectural decisions; not the module dataset.", "<h1>Decision context</h1><p>The ADR lane explains why major boundaries exist. This projection does not alter or supersede any ADR.</p>"),
+      source("source-readme", "Architecture KB", "docs/architecture/README.md", "authoritative_now", "KB routing", "Current entrypoint for locating structural architecture, runtime truth, and supporting contracts.", "<h1>KB routing</h1><p>The architecture KB routes readers to current truth, subsystem maps, flows, persistence, and decision records.</p>"),
+      source("source-validity", "KB Validity Matrix", "docs/architecture/kb-validity-matrix.md", "authoritative_now", "source eligibility", "Classifies which documents are safe for current runtime diagrams and which are supplementary or quarantined.", "<h1>Source eligibility</h1><p>The module map, system overview, flows, and data/storage documents are classified as authoritative_now within their stated scopes. Historical and misleading-identity-drift documents are excluded.</p>"),
+      source("source-atlas", "Codexify Architecture Atlas", "docs/architecture/architecture-atlas.md", "authoritative_now", "peer reading guide", "Peer-facing guide that keeps runtime, UI, source validity, and release truth distinct.", "<h1>Atlas reading guide</h1><p>This document is a navigation surface over validated architecture sources, not an independent architecture authority.</p>"),
+      source("source-modules", "Modules and Ownership", MODULE_SOURCE, "authoritative_now", "primary module topology", "Primary source for the 20 subsystem rows, responsibilities, key anchors, dependency descriptions, dependents, and blast radius.", "<h1>Subsystem Matrix</h1><p>The local Atlas creates exactly one module node per current Subsystem Matrix row. Human-readable dependency phrases are normalized conservatively; ambiguous and external dependencies remain inspector detail.</p>"),
+      source("source-system", "System Overview", "docs/architecture/system-overview.md", "authoritative_now", "coarse runtime topology", "Clarifies runtime components, trust boundaries, and critical paths without replacing the subsystem matrix.", "<h1>Coarse runtime topology</h1><p>This source supports component and boundary interpretation. It does not make every documented component a separate Atlas module.</p>"),
+      source("source-flows", "Critical Flows", "docs/architecture/flows.md", "authoritative_now", "runtime-flow evidence", "Primary source for explicit trigger-to-output runtime transitions rendered as dashed edges.", "<h1>Runtime flows</h1><p>Only explicit chat, ingestion, and command-bus transitions are projected. Atlas omits visually tempting relationships that the maintained flow document does not support.</p>"),
+      source("source-storage", "Data and Storage", "docs/architecture/data-and-storage.md", "authoritative_now", "persistence clarification", "Clarifies canonical stores, derived stores, persistence invariants, and non-module external dependencies.", "<h1>Persistence context</h1><p>Postgres is canonical application authority while vector indexes are derived. External storage systems remain module inspector detail rather than invented graph nodes.</p>")
     ];
-    const messages = {
-      "thread-welcome": [
-        { id: "message-welcome-1", author: "Mara (sample contributor)", initials: "MC", provenance: "synthetic fixture · human-authored example", time: "09:12", text: "I can see the hierarchy without treating every card as the same kind of object. The Room is the shared context; this Thread is one conversation inside it." },
-        { id: "message-welcome-2", author: "Atlas guide (fixture)", initials: "AG", provenance: "synthetic fixture · explanatory copy", time: "09:16", text: "Exactly. The graph and directory are two projections of the same sample topology. Neither grants access, membership, or runtime authority." }
-      ],
-      "thread-boundaries": [
-        { id: "message-boundary-1", author: "Mara (sample contributor)", initials: "MC", provenance: "synthetic fixture · human-authored example", time: "10:03", text: "VaultNode is drawn near the HomeBase, but the hosting edge says it does not own the HomeBase." },
-        { id: "message-boundary-2", author: "Atlas guide (fixture)", initials: "AG", provenance: "synthetic fixture · explanatory copy", time: "10:08", text: "Correct. The Project also remains distinct from the Room and exposes only the two resources named by the sample projection edge." }
-      ],
-      "thread-lineage": [
-        { id: "message-lineage-1", author: "Design reviewer (fixture)", initials: "DR", provenance: "synthetic fixture · review example", time: "11:24", text: "Zac’s spatial interaction language remains visible, while the production translation uses stable entity kinds and IDs instead of person-named structural categories." }
-      ]
-    };
-
-    const data = { inspectedCommit: INSPECTED_COMMIT, storageKey: STORAGE_KEY, entityKinds: ENTITY_KINDS, hierarchy: HIERARCHY, entities, relationships, sources, messages };
+    const data = { inspectedCommit: INSPECTED_COMMIT, storageKey: STORAGE_KEY, moduleClasses: MODULE_CLASSES, relationshipTypes: RELATIONSHIP_TYPES, entities, relationships, sources };
     function byId(id, set) { return (set || entities).find(item => item.id === id) || null; }
-    function childrenOf(id, set) { return (set || entities).filter(item => item.parentId === id); }
-    function graphIds(set) { return (set || entities).filter(item => item.graph !== false).map(item => item.id); }
+    function graphIds(set) { return (set || entities).map(item => item.id); }
     function listIds(set) { return graphIds(set); }
-    function ancestorsOf(id, set) {
-      const all = set || entities, path = []; let current = byId(id, all), guard = 0;
-      while (current && guard++ < all.length) { path.unshift(current); current = current.parentId ? byId(current.parentId, all) : null; }
-      return path;
+    function categorySlug(value) { return String(value).toLowerCase().replace(/\s+/g, "-"); }
+    function fitViewport(width, height, positions) {
+      const points = Object.values(positions || {});
+      if (!points.length) return { x: 0, y: 0, scale: 1 };
+      const minX = Math.min(...points.map(point => point.x));
+      const minY = Math.min(...points.map(point => point.y));
+      const maxX = Math.max(...points.map(point => point.x + 206));
+      const maxY = Math.max(...points.map(point => point.y + 124));
+      const w = Math.max(320, Number(width) || 1100);
+      const h = Math.max(520, Number(height) || 800);
+      const topInset = 150, sidePad = 64, bottomPad = 82;
+      const scale = Math.min(1, Math.max(.4, Math.min((w - sidePad) / (maxX - minX), (h - topInset - bottomPad) / (maxY - minY))));
+      return {
+        x: Math.round((w - (maxX - minX) * scale) / 2 - minX * scale),
+        y: Math.round(topInset + Math.max(0, (h - topInset - bottomPad - (maxY - minY) * scale) / 2) - minY * scale),
+        scale: +scale.toFixed(4)
+      };
     }
-    function projectedResourceIds(roomId, rels) {
-      const edge = (rels || relationships).find(rel => rel.kind === "projection" && rel.to === roomId);
-      return edge && Array.isArray(edge.resourceIds) ? edge.resourceIds.slice() : [];
+    function defaultPresentation(width, height) {
+      const positions = Object.fromEntries(entities.map(item => [item.id, { x: item.x, y: item.y }]));
+      return { viewport: fitViewport(width, height, positions), positions, restored: false };
     }
-    function validate(input) {
-      const model = input || data, errors = [], seen = new Set(), ids = new Set(model.entities.map(e => e.id));
-      model.entities.forEach(entity => {
-        if (!entity.id || seen.has(entity.id)) errors.push(`duplicate-or-missing-id:${entity.id || "empty"}`);
-        seen.add(entity.id);
-        if (!model.entityKinds.includes(entity.kind)) errors.push(`unknown-kind:${entity.id}`);
-        if (entity.parentId && !ids.has(entity.parentId)) errors.push(`missing-parent:${entity.id}`);
-        if (entity.parentId) {
-          const parent = model.entities.find(e => e.id === entity.parentId);
-          if (!parent || !(model.hierarchy[parent.kind] || []).includes(entity.kind)) errors.push(`illegal-hierarchy:${entity.id}`);
-        }
-      });
-      model.relationships.forEach(rel => {
-        if (!rel.id || !ids.has(rel.from) || !ids.has(rel.to)) errors.push(`invalid-relationship:${rel.id || "empty"}`);
-        if (!rel.evidence || !rel.explanation) errors.push(`unlabeled-relationship:${rel.id}`);
-      });
-      Object.entries(model.messages).forEach(([threadId, rows]) => {
-        const thread = model.entities.find(e => e.id === threadId);
-        if (!thread || thread.kind !== "thread") errors.push(`messages-without-thread:${threadId}`);
-        rows.forEach(row => {
-          const message = model.entities.find(e => e.id === row.id);
-          if (!message || message.kind !== "message" || message.parentId !== threadId) errors.push(`invalid-message:${row.id}`);
-        });
-      });
-      if (JSON.stringify(graphIds(model.entities)) !== JSON.stringify(listIds(model.entities))) errors.push("graph-list-parity");
-      model.sources.forEach(source => {
-        if (!source.path || !source.status || !source.origin || !source.representation || source.runtimeEvidence !== "not evaluated") errors.push(`invalid-source-labels:${source.id}`);
-      });
-      return errors;
-    }
-    function defaultPresentation() {
-      return { viewport: { x: 35, y: 12, scale: .7 }, positions: Object.fromEntries(graphIds().map(id => { const e = byId(id); return [id, { x: e.x, y: e.y }]; })) };
-    }
-    function loadPresentation(storage) {
-      const fallback = defaultPresentation();
+    function loadPresentation(storage, width, height) {
+      const fallback = defaultPresentation(width, height);
       try {
         if (!storage || typeof storage.getItem !== "function") return fallback;
         const raw = storage.getItem(STORAGE_KEY);
         if (!raw) return fallback;
-        const parsed = JSON.parse(raw), result = defaultPresentation();
+        const parsed = JSON.parse(raw), result = defaultPresentation(width, height);
         if (parsed && parsed.viewport && Number.isFinite(+parsed.viewport.x) && Number.isFinite(+parsed.viewport.y) && Number.isFinite(+parsed.viewport.scale)) {
           result.viewport = { x: +parsed.viewport.x, y: +parsed.viewport.y, scale: Math.min(1.35, Math.max(.4, +parsed.viewport.scale)) };
         }
         if (parsed && parsed.positions && typeof parsed.positions === "object") {
-          graphIds().forEach(id => { const point = parsed.positions[id]; if (point && Number.isFinite(+point.x) && Number.isFinite(+point.y)) result.positions[id] = { x: +point.x, y: +point.y }; });
+          graphIds().forEach(id => {
+            const point = parsed.positions[id];
+            if (point && Number.isFinite(+point.x) && Number.isFinite(+point.y)) result.positions[id] = { x: +point.x, y: +point.y };
+          });
         }
+        result.restored = true;
         return result;
       } catch (_) { return fallback; }
     }
-    function createNavigation(selectedId) { return { selectedId: byId(selectedId) && byId(selectedId).graph !== false ? selectedId : "home-rc", history: [] }; }
+    function createNavigation(selectedId) { return { selectedId: byId(selectedId) ? selectedId : "completion-assembly-execution", history: [] }; }
     function navigate(state, targetId) {
-      const target = byId(targetId);
-      if (!target || target.graph === false) return { selectedId: "home-rc", history: (state && state.history ? state.history : []).slice() };
+      if (!byId(targetId)) return { selectedId: "completion-assembly-execution", history: (state && state.history ? state.history : []).slice() };
       if (!state || state.selectedId === targetId) return { selectedId: targetId, history: state && state.history ? state.history.slice() : [] };
       return { selectedId: targetId, history: [...(state.history || []), state.selectedId].filter(Boolean) };
     }
     function back(state) {
-      const history = (state && state.history ? state.history : []).slice(), selectedId = history.pop() || "home-rc";
-      return { selectedId, history };
+      const history = (state && state.history ? state.history : []).slice();
+      return { selectedId: history.pop() || "completion-assembly-execution", history };
     }
-    root.AtlasModel = Object.freeze({ data, byId, childrenOf, ancestorsOf, graphIds, listIds, projectedResourceIds, validate, defaultPresentation, loadPresentation, createNavigation, navigate, back });
+    function validate(input) {
+      const model = input || data, errors = [], seen = new Set(), ids = new Set(model.entities.map(item => item.id));
+      model.entities.forEach(item => {
+        if (!item.id || seen.has(item.id)) errors.push("duplicate-or-missing-id:" + (item.id || "empty"));
+        seen.add(item.id);
+        if (item.kind !== "module") errors.push("unknown-kind:" + item.id);
+        if (!model.moduleClasses.includes(item.moduleClass)) errors.push("unknown-module-class:" + item.id);
+        if (!item.source || item.source.path !== MODULE_SOURCE || item.source.commit !== model.inspectedCommit || item.source.classification !== "authoritative_now") errors.push("invalid-module-source:" + item.id);
+        if (!Array.isArray(item.anchors) || !item.anchors.length) errors.push("missing-key-anchors:" + item.id);
+      });
+      model.relationships.forEach(rel => {
+        if (!rel.id || !ids.has(rel.from) || !ids.has(rel.to)) errors.push("invalid-relationship:" + (rel.id || "empty"));
+        if (!model.relationshipTypes.includes(rel.kind)) errors.push("unknown-relationship-type:" + rel.id);
+        if (!rel.label || !rel.explanation || !rel.source || !rel.source.path || !rel.source.commit || !rel.source.classification || !rel.source.section || !rel.source.evidenceType) errors.push("unattributed-relationship:" + rel.id);
+      });
+      if (JSON.stringify(graphIds(model.entities)) !== JSON.stringify(listIds(model.entities))) errors.push("graph-list-parity");
+      return errors;
+    }
+    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, loadPresentation, createNavigation, navigate, back, validate });
   })(typeof globalThis !== "undefined" ? globalThis : this);
   </script>
 
@@ -670,229 +582,198 @@
     const $ = selector => document.querySelector(selector);
     const $$ = selector => [...document.querySelectorAll(selector)];
     const esc = value => String(value == null ? "" : value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
-    const kindLabel = kind => ({ organization: "User / Organization", homebase: "HomeBase", space: "Space", room: "Room", thread: "Thread", message: "Message", project: "Project", node: "Hosting Node", artifact: "Artifact / document" })[kind] || kind;
-    const glyph = kind => ({ organization: "ORG", homebase: "HB", space: "SP", room: "RM", thread: "TH", project: "PR", node: "ND", artifact: "DOC" })[kind] || "·";
-    const canvasDescriptor = item => ({
-      organization: "Shared identity root",
-      homebase: item.synthetic ? "Independent sample authority" : "Sovereign local home",
-      space: item.synthetic ? "Collaborator-published experience" : item.id === "space-public" ? "Curated public experience" : "Contributor experience",
-      room: "Bounded shared context",
-      thread: "One fixture conversation",
-      project: "Selected source projection",
-      node: "Presentation host",
-      artifact: "Linked source excerpt"
-    })[item.kind] || item.purpose;
-    const chevron = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    const presentation = M.loadPresentation(window.localStorage);
-    const state = {
-      navigation: M.createNavigation("home-rc"),
-      view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null,
-      viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, galaxyReturn: null
-    };
+    const classLabel = value => value.toUpperCase();
+    const glyph = value => ({ "core loop": "CORE", supporting: "SUP", experimental: "EXP", retired: "RET" })[value] || "MOD";
+    const chevron = '<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const els = {
-      canvas: $("#canvas"), world: $("#world"), cards: $("#cards"), routes: $("#routes"), edgeLabels: $("#edgeLabels"),
-      levelSummary: $("#levelSummary"), inspector: $("#inspector"),
-      directoryShell: $("#directoryShell"), sourcesShell: $("#sourcesShell"), workspaceView: $("#workspaceView"), threadView: $("#threadView"),
-      searchInput: $("#searchInput"), mainTitle: $("#mainTitle"), mainSubtitle: $("#mainSubtitle"), backButton: $("#backButton"), zoomReadout: $("#zoomReadout"),
+      canvas: $("#canvas"), world: $("#world"), cards: $("#cards"), routes: $("#routes"), edgeLabels: $("#edgeLabels"), levelSummary: $("#levelSummary"), inspector: $("#inspector"),
+      directoryShell: $("#directoryShell"), sourcesShell: $("#sourcesShell"), searchInput: $("#searchInput"), mainTitle: $("#mainTitle"), mainSubtitle: $("#mainSubtitle"), backButton: $("#backButton"), zoomReadout: $("#zoomReadout"),
       reader: $("#reader"), readerTitle: $("#readerTitle"), readerPath: $("#readerPath"), readerLink: $("#readerLink"), readerArticle: $("#readerArticle"),
-      app: $("#app"), galaxyGate: $("#galaxyGate"), galaxy: $("#galaxy")
+      app: $("#app"), galaxyGate: $("#galaxyGate"), galaxy: $("#galaxy"), legendPanel: $("#legendPanel"), legendButton: $("#legendButton")
     };
+    const presentation = M.loadPresentation(window.localStorage, els.canvas.clientWidth, els.canvas.clientHeight);
+    const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
     const entity = id => M.byId(id);
-    const selected = () => entity(state.navigation.selectedId) || entity("home-rc");
-    const children = id => M.childrenOf(id).filter(item => item.graph !== false);
+    const selected = () => entity(state.navigation.selectedId) || entity("completion-assembly-execution");
     const relationshipsFor = id => D.relationships.filter(rel => rel.from === id || rel.to === id);
-    function savePresentation() {
-      try { window.localStorage.setItem(D.storageKey, JSON.stringify({ viewport: state.viewport, positions: state.positions })); } catch (_) {}
-    }
-    function matches(item) {
-      const q = state.query.trim().toLowerCase();
-      if (!q) return true;
-      return [item.name, item.kind, item.purpose, item.id, item.path, item.status].filter(Boolean).join(" ").toLowerCase().includes(q);
-    }
+    function savePresentation() { try { window.localStorage.setItem(D.storageKey, JSON.stringify({ viewport: state.viewport, positions: state.positions })); } catch (_) {} }
+    function searchableText(item) { return [item.name, item.id, item.moduleClass, item.responsibilities, item.dependsOn, item.dependedOnBy, item.blastRadius, ...(item.anchors || []), item.path, item.title, item.summary, item.role].filter(Boolean).join(" ").toLowerCase(); }
+    function matches(item) { const q = state.query.trim().toLowerCase(); return !q || searchableText(item).includes(q); }
     function setActiveView(name) {
       state.view = name;
       $$(".view").forEach(view => view.classList.remove("active"));
       $$(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.view === name));
-      const target = $(`#${name}View`);
-      if (target) target.classList.add("active");
+      const target = $("#" + name + "View"); if (target) target.classList.add("active");
       renderTitle();
     }
     function renderTitle() {
-      const current = selected();
       const map = {
-        atlas: ["Atlas", "Spatial projection · select a card or relationship"],
-        directory: ["Directory", "Keyboard-accessible projection of the same sample topology"],
-        sources: ["Source library", "Reviewed repository snapshots and explicit provenance"],
-        workspace: [current.name, "Room workspace · proposed hierarchy illustration"],
-        thread: [current.name, "Fixture Messages · no provider or live chat"]
+        atlas: ["Atlas", "20 documented Codexify subsystems · select a module or relationship"],
+        directory: ["Directory", "Flat keyboard-accessible access to every projected module"],
+        sources: ["Sources", "Canonical documents behind this architecture snapshot"]
       };
       const pair = map[state.view] || map.atlas;
       els.mainTitle.textContent = pair[0]; els.mainSubtitle.textContent = pair[1];
-      els.backButton.disabled = state.navigation.history.length === 0 && !["workspace", "thread"].includes(state.view);
-    }
-    function breadcrumbHtml(item) {
-      return `<div class="breadcrumbs">${M.ancestorsOf(item.id).map((node, index, path) => `<button type="button" data-navigate="${esc(node.id)}">${esc(node.name)}</button>${index < path.length - 1 ? chevron : ""}`).join("")}</div>`;
+      els.backButton.disabled = state.navigation.history.length === 0;
     }
     function renderSummary() {
-      const current = selected(), parent = current.parentId ? entity(current.parentId) : null, destinations = children(current.id);
-      els.levelSummary.innerHTML = `${breadcrumbHtml(current)}<div class="summary-line"><div><h3>${esc(current.name)}</h3><p>${esc(current.purpose)}${parent ? ` Parent/context: ${esc(parent.name)}.` : ""}</p></div><span class="type-chip">${esc(kindLabel(current.kind))}${current.proposed ? " · proposed" : ""}</span></div><div class="destinations">${destinations.length ? destinations.map(item => `<button class="destination" type="button" data-navigate="${esc(item.id)}">${esc(kindLabel(item.kind))}: ${esc(item.name)}</button>`).join("") : `<span class="destination">No contained destinations</span>`}${current.kind === "room" ? `<button class="destination" type="button" data-open-workspace="${esc(current.id)}">Open Room workspace</button>` : ""}</div>`;
+      const current = selected();
+      els.levelSummary.innerHTML = '<div class="snapshot-kicker">Codexify architecture · commit ' + esc(D.inspectedCommit.slice(0, 12)) + '</div><div class="summary-line"><div><h3>' + esc(current.name) + '</h3><p>' + esc(current.responsibilities) + '</p></div><span class="type-chip">' + esc(classLabel(current.moduleClass)) + '</span></div>';
     }
     function applyViewport() {
-      els.world.style.transform = `translate(${state.viewport.x}px, ${state.viewport.y}px) scale(${state.viewport.scale})`;
-      els.zoomReadout.textContent = `${Math.round(state.viewport.scale * 100)}%`;
+      els.world.style.transform = "translate(" + state.viewport.x + "px, " + state.viewport.y + "px) scale(" + state.viewport.scale + ")";
+      els.zoomReadout.textContent = Math.round(state.viewport.scale * 100) + "%";
     }
     function renderGraph() {
-      els.cards.innerHTML = D.entities.filter(item => item.graph !== false).map(item => {
-        const point = state.positions[item.id] || { x: item.x, y: item.y }, hidden = matches(item) ? "" : " hidden-by-search", active = item.id === state.navigation.selectedId ? " active" : "";
-        const classification = `${kindLabel(item.kind)}${item.synthetic ? ", synthetic" : ""}${item.proposed ? ", proposed" : ""}`;
-        return `<article class="entity-card kind-${esc(item.kind)}${hidden}${active}" style="left:${point.x}px;top:${point.y}px" data-card-id="${esc(item.id)}" data-selected="${active ? "true" : "false"}" tabindex="0" aria-current="${active ? "true" : "false"}" aria-label="${esc(classification)}: ${esc(item.name)}. ${esc(item.purpose)}" title="${esc(classification)} · ${esc(item.id)} · ${esc(item.purpose)}"><div class="entity-face"><div class="entity-head"><div class="entity-glyph" aria-hidden="true">${glyph(item.kind)}</div><div><h3>${esc(item.name)}</h3></div></div><p class="entity-descriptor">${esc(canvasDescriptor(item))}</p><div class="entity-foot"><span class="selection-state">${active ? "Selected" : "Explore"}</span><button class="open-entity" type="button" data-navigate="${esc(item.id)}" aria-label="Open ${esc(item.name)}">${chevron}</button></div></div></article>`;
+      els.cards.innerHTML = D.entities.map(item => {
+        const point = state.positions[item.id] || { x: item.x, y: item.y };
+        const hidden = matches(item) ? "" : " hidden-by-search";
+        const active = item.id === state.navigation.selectedId ? " active" : "";
+        const category = classLabel(item.moduleClass);
+        return '<article class="entity-card category-' + esc(M.categorySlug(item.moduleClass)) + hidden + active + '" style="left:' + point.x + 'px;top:' + point.y + 'px" data-card-id="' + esc(item.id) + '" data-selected="' + (active ? "true" : "false") + '" tabindex="0" aria-current="' + (active ? "true" : "false") + '" aria-label="' + esc(category + " module: " + item.name + ". " + item.responsibilities) + '" title="' + esc(category + " · " + item.name + " · " + item.responsibilities) + '"><div class="entity-face"><div class="entity-head"><div class="entity-glyph" aria-hidden="true">' + glyph(item.moduleClass) + '</div><div><h3>' + esc(item.name) + '</h3><span class="module-category">' + esc(category) + '</span></div></div><p class="entity-descriptor">' + esc(item.responsibilities) + '</p><div class="entity-foot"><span class="selection-state">' + (active ? "Selected" : "Explore") + '</span><button class="open-entity" type="button" data-navigate="' + esc(item.id) + '" aria-label="Inspect ' + esc(item.name) + '">' + chevron + '</button></div></div></article>';
       }).join("");
       renderRoutes(); applyViewport(); bindCardDragging();
     }
     function renderRoutes() {
-      els.routes.innerHTML = ""; els.edgeLabels.innerHTML = "";
+      els.routes.innerHTML = '<defs><marker id="arrow-dependency" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L7,3 z" fill="#65b5ff"></path></marker><marker id="arrow-runtime" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L7,3 z" fill="#c4a2ff"></path></marker></defs>';
+      els.edgeLabels.innerHTML = "";
       D.relationships.forEach(rel => {
         const from = state.positions[rel.from], to = state.positions[rel.to]; if (!from || !to) return;
-        const x1 = from.x + 103, y1 = from.y + 56, x2 = to.x + 103, y2 = to.y + 56;
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", x1); line.setAttribute("y1", y1); line.setAttribute("x2", x2); line.setAttribute("y2", y2); line.setAttribute("class", rel.kind); els.routes.appendChild(line);
-        const label = document.createElement("button"); label.type = "button"; label.className = `edge-label${state.selectedEdgeId === rel.id ? " active" : ""}`; label.dataset.edgeId = rel.id; label.textContent = rel.label; label.style.left = `${(x1+x2)/2}px`; label.style.top = `${(y1+y2)/2}px`; els.edgeLabels.appendChild(label);
+        const x1 = from.x + 103, y1 = from.y + 62, x2 = to.x + 103, y2 = to.y + 62;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
+        path.setAttribute("class", rel.kind);
+        path.setAttribute("marker-end", rel.kind === "dependency" ? "url(#arrow-dependency)" : "url(#arrow-runtime)");
+        els.routes.appendChild(path);
+        const label = document.createElement("button");
+        label.type = "button"; label.className = "edge-label" + (state.selectedEdgeId === rel.id ? " active" : ""); label.dataset.edgeId = rel.id;
+        label.textContent = rel.label; label.setAttribute("aria-label", rel.label + ": " + entity(rel.from).name + " to " + entity(rel.to).name);
+        label.title = rel.label + " · " + entity(rel.from).name + " → " + entity(rel.to).name;
+        label.style.left = ((x1 + x2) / 2) + "px"; label.style.top = ((y1 + y2) / 2) + "px"; els.edgeLabels.appendChild(label);
       });
     }
     function renderInspector() {
-      const edge = D.relationships.find(rel => rel.id === state.selectedEdgeId), current = selected();
-      if (edge) {
-        const from = entity(edge.from), to = entity(edge.to);
-        els.inspector.innerHTML = `<div class="inspector-kicker">${esc(edge.kind)} relationship</div><h2>${esc(edge.label)}</h2><p class="inspector-purpose">${esc(edge.explanation)}</p><dl class="facts"><dt>From</dt><dd>${esc(from.name)} <span class="kind-tag">${esc(kindLabel(from.kind))}</span></dd><dt>To</dt><dd>${esc(to.name)} <span class="kind-tag">${esc(kindLabel(to.kind))}</span></dd><dt>Evidence</dt><dd>${esc(edge.evidence)}</dd><dt>Authority</dt><dd>Not granted by this edge</dd></dl><div class="inspector-section"><h3>Relationship boundary</h3><p class="inspector-copy">Visual containment, network reachability, hosting, and collaboration remain distinct. Selecting this edge changes only the local presentation.</p></div>`;
+      const rel = D.relationships.find(item => item.id === state.selectedEdgeId);
+      if (rel) {
+        const from = entity(rel.from), to = entity(rel.to);
+        els.inspector.innerHTML = '<div class="inspector-kicker">' + esc(rel.kind === "dependency" ? "Dependency" : "Runtime flow") + ' relationship</div><h2>' + esc(from.name) + ' → ' + esc(to.name) + '</h2><p class="inspector-purpose">' + esc(rel.explanation) + '</p><dl class="facts"><dt>Type</dt><dd>' + esc(rel.kind === "dependency" ? "Dependency" : "Runtime flow") + '</dd><dt>Source module</dt><dd>' + esc(from.name) + '</dd><dt>Target module</dt><dd>' + esc(to.name) + '</dd><dt>Evidence</dt><dd>' + esc(rel.source.evidenceType.replaceAll("_", " ")) + '</dd><dt>Source</dt><dd>' + esc(rel.source.path) + '</dd><dt>Section</dt><dd>' + esc(rel.source.section) + '</dd><dt>Source class</dt><dd>' + esc(rel.source.classification) + '</dd><dt>Commit</dt><dd>' + esc(rel.source.commit) + '</dd></dl><div class="inspector-section"><h3>Normalization</h3><p class="inspector-copy">' + esc(rel.source.normalization) + '</p></div><div class="inspector-section"><h3>Architectural caution</h3><p class="inspector-copy">' + esc(rel.caution) + '</p></div>';
         return;
       }
-      const parent = current.parentId ? entity(current.parentId) : null, rels = relationshipsFor(current.id), source = current.sourceId ? D.sources.find(s => s.id === current.sourceId) : null;
-      els.inspector.innerHTML = `<div class="inspector-kicker">${esc(kindLabel(current.kind))}${current.proposed ? " · proposed" : ""}</div><h2>${esc(current.name)}</h2><p class="inspector-purpose">${esc(current.purpose)}</p><dl class="facts"><dt>Stable ID</dt><dd>${esc(current.id)}</dd><dt>Parent/context</dt><dd>${parent ? esc(parent.name) : "None in sample hierarchy"}</dd><dt>Content origin</dt><dd>${current.synthetic || ["room","thread"].includes(current.kind) ? "synthetic example" : current.kind === "artifact" ? "repository snapshot reference" : "illustrative topology"}</dd><dt>Runtime evidence</dt><dd>Not evaluated</dd></dl>${source ? `<button class="button" type="button" data-source-id="${esc(source.id)}">Read source excerpt</button>` : ""}<div class="inspector-section"><h3>Available relationships</h3><div class="relationship-list">${rels.length ? rels.map(rel => `<button class="relationship-row" type="button" data-edge-id="${esc(rel.id)}"><strong>${esc(rel.label)}</strong><span>${esc(rel.kind)} · ${esc(rel.evidence)}</span></button>`).join("") : `<p class="inspector-copy">No sample relationships.</p>`}</div></div>`;
+      const current = selected(), rels = relationshipsFor(current.id);
+      els.inspector.innerHTML = '<div class="inspector-kicker">' + esc(classLabel(current.moduleClass)) + ' · documentation snapshot</div><h2>' + esc(current.name) + '</h2><p class="inspector-purpose">' + esc(current.responsibilities) + '</p><dl class="facts"><dt>Stable ID</dt><dd>' + esc(current.id) + '</dd><dt>Class</dt><dd>' + esc(current.moduleClass) + '</dd><dt>Depends on</dt><dd>' + esc(current.dependsOn) + '</dd><dt>Depended on by</dt><dd>' + esc(current.dependedOnBy) + '</dd><dt>Blast radius</dt><dd>' + esc(current.blastRadius) + '</dd><dt>Source</dt><dd>' + esc(current.source.path) + '</dd><dt>Source class</dt><dd>' + esc(current.source.classification) + '</dd><dt>Section</dt><dd>' + esc(current.source.section) + '</dd><dt>Source commit</dt><dd>' + esc(current.source.commit) + '</dd></dl><button class="button" type="button" data-source-id="source-modules">Open source note</button><div class="inspector-section"><h3>Key code anchors</h3><ul class="anchor-list">' + current.anchors.map(anchor => '<li><code>' + esc(anchor) + '</code></li>').join("") + '</ul></div><div class="inspector-section"><h3>Documented relationships</h3><div class="relationship-list">' + (rels.length ? rels.map(edgeRow => '<button class="relationship-row" type="button" data-edge-id="' + esc(edgeRow.id) + '"><strong>' + esc(entity(edgeRow.from).name) + ' → ' + esc(entity(edgeRow.to).name) + '</strong><span>' + esc(edgeRow.label) + ' · ' + esc(edgeRow.source.evidenceType.replaceAll("_", " ")) + '</span></button>').join("") : '<p class="inspector-copy">No confidently normalized module-to-module relationship is projected. External and ambiguous dependencies remain in the fields above.</p>') + '</div></div>';
     }
     function renderDirectory() {
-      const rows = D.entities.filter(item => item.graph !== false && matches(item));
-      const relations = D.relationships.filter(rel => !state.query || matches(entity(rel.from)) || matches(entity(rel.to)) || rel.label.toLowerCase().includes(state.query.toLowerCase()));
-      els.directoryShell.innerHTML = `<div class="view-intro"><h2>One topology, without dragging</h2><p>This flat, searchable entity and relationship directory reaches every destination rendered on the graph. Display names are labels only; stable IDs and explicit kinds drive navigation.</p></div><div class="directory-grid"><section class="paper-panel"><h3>Entities</h3><div class="directory-list">${rows.length ? rows.map(item => `<button class="directory-row${item.id === state.navigation.selectedId ? " active" : ""}" type="button" data-navigate="${esc(item.id)}"><span class="directory-glyph">${glyph(item.kind)}</span><span><strong>${esc(item.name)}</strong><small>${esc(item.id)} · ${esc(item.purpose)}</small></span><span class="kind-tag">${esc(kindLabel(item.kind))}</span></button>`).join("") : `<div class="empty-state">No entities match “${esc(state.query)}”. Clear the search to recover the full topology.</div>`}</div></section><section class="paper-panel"><h3>Explainable relationships</h3><div class="relationship-list">${relations.length ? relations.map(rel => `<button class="relationship-row" type="button" data-edge-id="${esc(rel.id)}"><strong>${esc(entity(rel.from).name)} → ${esc(entity(rel.to).name)}</strong><span>${esc(rel.label)} · ${esc(rel.kind)} · ${esc(rel.evidence)}</span></button>`).join("") : `<div class="empty-state">No relationships match this search.</div>`}</div></section></div>`;
+      const rows = D.entities.filter(matches);
+      const relations = D.relationships.filter(rel => !state.query || matches(entity(rel.from)) || matches(entity(rel.to)) || searchableText(rel.source).includes(state.query.toLowerCase()) || rel.explanation.toLowerCase().includes(state.query.toLowerCase()));
+      els.directoryShell.innerHTML = '<div class="view-intro"><h2>Module directory</h2><p>A flat, searchable route to every subsystem on the graph. Search includes module names, responsibilities, documented dependency text, and Key code anchors.</p></div><div class="directory-grid"><section class="paper-panel"><h3>Modules · ' + rows.length + ' of ' + D.entities.length + '</h3><div class="directory-list">' + (rows.length ? rows.map(item => '<button class="directory-row' + (item.id === state.navigation.selectedId ? " active" : "") + '" type="button" data-navigate="' + esc(item.id) + '"><span class="directory-glyph">' + glyph(item.moduleClass) + '</span><span><strong>' + esc(item.name) + '</strong><small>' + esc(item.responsibilities) + '</small></span><span class="kind-tag">' + esc(classLabel(item.moduleClass)) + '</span></button>').join("") : '<div class="empty-state">No modules match “' + esc(state.query) + '”. Clear the search to recover all 20 documented modules.</div>') + '</div></section><section class="paper-panel"><h3>Documented relationships · ' + relations.length + '</h3><div class="relationship-list">' + (relations.length ? relations.map(rel => '<button class="relationship-row" type="button" data-edge-id="' + esc(rel.id) + '"><strong>' + esc(entity(rel.from).name) + ' → ' + esc(entity(rel.to).name) + '</strong><span>' + esc(rel.label) + ' · ' + esc(rel.source.path) + ' · ' + esc(rel.source.section) + '</span></button>').join("") : '<div class="empty-state">No relationships match this search.</div>') + '</div></section></div>';
     }
     function renderSources() {
       const rows = D.sources.filter(matches);
-      els.sourcesShell.innerHTML = `<div class="view-intro"><h2>Reviewed architecture reading path</h2><p>Each item identifies source status, content origin, representation, inspected commit, and runtime-evidence boundary. Repository links open only when clicked.</p></div>${rows.length ? `<div class="source-grid">${rows.map(source => `<article class="source-card"><div><h3>${esc(source.title)}</h3><div class="source-path">${esc(source.path)}</div></div><div class="source-meta"><span class="meta-chip">${esc(source.status)}</span><span class="meta-chip">${esc(source.origin)}</span><span class="meta-chip">${esc(source.representation)}</span><span class="meta-chip">runtime: ${esc(source.runtimeEvidence)}</span></div><p>${esc(source.summary)}</p><div class="source-actions"><button class="button primary" type="button" data-source-id="${esc(source.id)}">Read full-width</button><a class="button" href="${esc(source.href)}">Open source</a></div></article>`).join("")}</div>` : `<div class="empty-state">No source documents match “${esc(state.query)}”. Clear the search to return to the reviewed set.</div>`}`;
-    }
-    function renderWorkspace(roomId) {
-      const room = entity(roomId); if (!room || room.kind !== "room") return recoverInvalidSelection();
-      const threads = children(room.id).filter(item => item.kind === "thread"), resourceIds = M.projectedResourceIds(room.id), resources = resourceIds.map(entity).filter(Boolean), projectEdge = D.relationships.find(rel => rel.kind === "projection" && rel.to === room.id), project = projectEdge ? entity(projectEdge.from) : null;
-      els.workspaceView.innerHTML = `<div class="workspace"><header class="workspace-header">${breadcrumbHtml(room)}<div class="workspace-title"><div><h2>${esc(room.name)}</h2><p>${esc(room.purpose)} Parent/context: ${esc(entity(room.parentId).name)}.</p></div><span class="type-chip">Room · proposed multi-thread model</span></div></header><div class="workspace-grid"><section class="workspace-column"><div class="column-head"><h3>Threads</h3><p>Distinct fixture conversations inside this proposed Room.</p></div><div class="column-body">${threads.length ? threads.map(thread => `<button class="workspace-item" type="button" data-navigate="${esc(thread.id)}"><strong>${esc(thread.name)}</strong><small>${esc(thread.purpose)} · ${(D.messages[thread.id] || []).length} Messages</small></button>`).join("") : `<div class="empty-state">No sample Threads in this Room.</div>`}</div></section><section class="workspace-column"><div class="column-head"><h3>Documents and artifacts</h3><p>Selected resources remain separate from Threads and Messages.</p></div><div class="column-body">${resources.length ? resources.map(resource => `<button class="workspace-item" type="button" data-source-id="${esc(resource.sourceId)}"><strong>${esc(resource.name)}</strong><small>${esc(resource.purpose)}</small></button>`).join("") : `<div class="empty-state">No projected resources for this sample Room.</div>`}<div class="boundary-note">A Room link is a presentation projection. It does not copy repository authority or create a Room-owned document store.</div></div></section><section class="workspace-column"><div class="column-head"><h3>Project source</h3><p>The Project is authoritative for selected sample resources; it is not the Room.</p></div><div class="column-body">${project ? `<button class="workspace-item project-boundary" type="button" data-navigate="${esc(project.id)}"><strong>${esc(project.name)}</strong><small>${esc(project.id)} · exposes ${resources.length} selected resources only</small></button>` : `<div class="empty-state">No Project projection configured.</div>`}<div class="boundary-note">The current Room-first V0.1 contract still preserves one canonical backing Thread. This workspace illustrates proposed v2 hierarchy only.</div></div></section></div></div>`;
-    }
-    function renderThread(threadId) {
-      const thread = entity(threadId); if (!thread || thread.kind !== "thread") return recoverInvalidSelection();
-      const rows = D.messages[thread.id] || [];
-      els.threadView.innerHTML = `<div class="thread-detail"><header class="thread-header">${breadcrumbHtml(thread)}<h2>${esc(thread.name)}</h2><p>${esc(thread.purpose)} · Parent/context: ${esc(entity(thread.parentId).name)} · ${rows.length} fixture Messages</p></header><div class="messages">${rows.length ? rows.map(row => `<article class="message"><div class="avatar" aria-hidden="true">${esc(row.initials)}</div><div class="message-card"><div class="message-head"><strong>${esc(row.author)}</strong><time>${esc(row.time)}</time><span class="provenance">${esc(row.provenance)}</span></div><p>${esc(row.text)}</p></div></article>`).join("") : `<div class="empty-state">No fixture Messages in this Thread.</div>`}</div><div class="composer-unavailable"><span>This prototype does not connect to a provider or live multi-user chat.</span><button class="button" type="button" disabled>Send unavailable</button></div></div>`;
+      els.sourcesShell.innerHTML = '<div class="view-intro"><h2>Architecture source path</h2><p>Atlas is a read-only snapshot over these maintained sources at commit ' + esc(D.inspectedCommit) + '. Open the canonical repository document for full context.</p></div>' + (rows.length ? '<div class="source-grid">' + rows.map(item => '<article class="source-card"><div><h3>' + esc(item.title) + '</h3><div class="source-path">' + esc(item.path) + '</div></div><div class="source-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">runtime: ' + esc(item.runtimeEvidence) + '</span></div><p>' + esc(item.summary) + '</p><div class="source-actions"><button class="button primary" type="button" data-source-id="' + esc(item.id) + '">Read snapshot note</button><a class="button" href="' + esc(item.href) + '">Open source</a></div></article>').join("") + '</div>' : '<div class="empty-state">No source documents match “' + esc(state.query) + '”. Clear the search to return to the governing set.</div>');
     }
     function renderAll() { renderGraph(); renderSummary(); renderInspector(); renderDirectory(); renderSources(); renderTitle(); }
-    function navigateTo(id, options) {
-      const target = entity(id);
-      if (!target || target.graph === false) return recoverInvalidSelection();
-      state.navigation = M.navigate(state.navigation, id); state.selectedEdgeId = null;
-      if (target.kind === "room" && options && options.workspace) { renderWorkspace(target.id); setActiveView("workspace"); }
-      else if (target.kind === "thread") { renderThread(target.id); setActiveView("thread"); }
-      else { if (["workspace","thread"].includes(state.view)) setActiveView("atlas"); }
-      renderAll();
+    function navigateTo(id) {
+      if (!entity(id)) return recoverInvalidSelection();
+      state.navigation = M.navigate(state.navigation, id); state.selectedEdgeId = null; renderAll();
     }
-    function recoverInvalidSelection() {
-      state.navigation = M.createNavigation("home-rc"); state.selectedEdgeId = null; setActiveView("atlas"); renderAll();
-    }
+    function recoverInvalidSelection() { state.navigation = M.createNavigation("completion-assembly-execution"); state.selectedEdgeId = null; setActiveView("atlas"); renderAll(); }
     function goBack() {
       if (els.reader.classList.contains("open")) return closeReader();
-      state.navigation = M.back(state.navigation); const target = selected(); state.selectedEdgeId = null;
-      if (target.kind === "room") { renderWorkspace(target.id); setActiveView("workspace"); }
-      else if (target.kind === "thread") { renderThread(target.id); setActiveView("thread"); }
-      else setActiveView("atlas"); renderAll();
+      state.navigation = M.back(state.navigation); state.selectedEdgeId = null; renderAll();
     }
     function openReader(sourceId) {
-      const source = D.sources.find(item => item.id === sourceId); if (!source) return;
-      state.readerSourceId = sourceId; els.readerTitle.textContent = source.title; els.readerPath.textContent = source.path; els.readerLink.href = source.href;
-      els.readerArticle.innerHTML = `<div class="reader-meta"><span class="meta-chip">${esc(source.status)}</span><span class="meta-chip">${esc(source.origin)}</span><span class="meta-chip">${esc(source.representation)}</span><span class="meta-chip">commit ${esc(D.inspectedCommit.slice(0,12))}</span><span class="meta-chip">runtime evidence: ${esc(source.runtimeEvidence)}</span></div>${source.content}<h2>Provenance</h2><p><strong>Repository path:</strong> <code>${esc(source.path)}</code></p><p><strong>Inspected commit:</strong> <code>${esc(D.inspectedCommit)}</code></p><p>This bounded rendering is a ${esc(source.representation)}. It does not supersede the repository document or prove implementation.</p>`;
+      const item = D.sources.find(row => row.id === sourceId); if (!item) return;
+      state.readerSourceId = sourceId; els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path; els.readerLink.href = item.href;
+      els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">' + esc(item.representation) + '</span><span class="meta-chip">commit ' + esc(D.inspectedCommit.slice(0, 12)) + '</span><span class="meta-chip">runtime evidence: ' + esc(item.runtimeEvidence) + '</span></div>' + item.content + '<h2>Provenance</h2><p><strong>Repository path:</strong> <code>' + esc(item.path) + '</code></p><p><strong>Inspected commit:</strong> <code>' + esc(D.inspectedCommit) + '</code></p><p>This bounded rendering is a ' + esc(item.representation) + '. It does not supersede the repository document or prove runtime behavior.</p>';
       els.reader.classList.add("open"); $("#closeReader").focus();
     }
-    function closeReader() { els.reader.classList.remove("open"); state.readerSourceId = null; const fallback = document.querySelector(`[data-source-id]`); if (fallback) fallback.focus(); }
+    function closeReader() { els.reader.classList.remove("open"); state.readerSourceId = null; $("#aboutButton").focus(); }
     function selectEdge(id) { if (!D.relationships.some(rel => rel.id === id)) return; state.selectedEdgeId = id; renderRoutes(); renderInspector(); }
+    function toggleLegend(force) {
+      const open = typeof force === "boolean" ? force : els.legendPanel.hidden;
+      els.legendPanel.hidden = !open; els.legendButton.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) $("#closeLegend").focus(); else els.legendButton.focus();
+    }
     function bindCardDragging() {
       $$(".entity-card").forEach(card => {
         card.addEventListener("pointerdown", event => {
           if (event.button !== 0 || event.target.closest("button")) return;
-          const id = card.dataset.cardId, point = state.positions[id], worldPoint = screenToWorld(event.clientX, event.clientY);
-          state.drag = { id, offsetX: worldPoint.x - point.x, offsetY: worldPoint.y - point.y, moved: false, card };
+          const point = state.positions[card.dataset.cardId], worldPoint = screenToWorld(event.clientX, event.clientY);
+          state.drag = { id: card.dataset.cardId, offsetX: worldPoint.x - point.x, offsetY: worldPoint.y - point.y, moved: false, card };
           card.classList.add("dragging"); card.setPointerCapture(event.pointerId); event.preventDefault();
         });
         card.addEventListener("pointermove", event => {
           if (!state.drag || state.drag.id !== card.dataset.cardId) return;
-          const p = screenToWorld(event.clientX, event.clientY); state.positions[state.drag.id] = { x: p.x - state.drag.offsetX, y: p.y - state.drag.offsetY }; state.drag.moved = true;
-          card.style.left = `${state.positions[state.drag.id].x}px`; card.style.top = `${state.positions[state.drag.id].y}px`; renderRoutes();
+          const p = screenToWorld(event.clientX, event.clientY);
+          state.positions[state.drag.id] = { x: p.x - state.drag.offsetX, y: p.y - state.drag.offsetY };
+          state.drag.moved = true; card.style.left = state.positions[state.drag.id].x + "px"; card.style.top = state.positions[state.drag.id].y + "px"; renderRoutes();
         });
-        card.addEventListener("pointerup", () => { if (!state.drag) return; state.drag.card.classList.remove("dragging"); state.drag = null; savePresentation(); });
+        card.addEventListener("pointerup", () => {
+          if (!state.drag) return;
+          state.justDragged = state.drag.moved; state.drag.card.classList.remove("dragging"); state.drag = null; savePresentation();
+          if (state.justDragged) window.setTimeout(() => { state.justDragged = false; }, 0);
+        });
         card.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigateTo(card.dataset.cardId); } });
-        card.addEventListener("click", event => { if (!event.target.closest("button") && !state.drag) navigateTo(card.dataset.cardId); });
+        card.addEventListener("click", event => { if (!event.target.closest("button") && !state.justDragged) navigateTo(card.dataset.cardId); });
       });
     }
     function screenToWorld(clientX, clientY) { const rect = els.canvas.getBoundingClientRect(); return { x: (clientX - rect.left - state.viewport.x) / state.viewport.scale, y: (clientY - rect.top - state.viewport.y) / state.viewport.scale }; }
-    function zoom(delta) { state.viewport.scale = Math.min(1.35, Math.max(.4, state.viewport.scale + delta)); applyViewport(); savePresentation(); }
-    function resetView() { const defaults = M.defaultPresentation(); state.viewport = defaults.viewport; state.positions = defaults.positions; renderGraph(); savePresentation(); }
+    function zoom(delta, clientX, clientY) {
+      const rect = els.canvas.getBoundingClientRect(), anchorX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2, anchorY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+      const oldScale = state.viewport.scale, nextScale = Math.min(1.35, Math.max(.4, oldScale + delta));
+      const worldX = (anchorX - state.viewport.x) / oldScale, worldY = (anchorY - state.viewport.y) / oldScale;
+      state.viewport.scale = nextScale; state.viewport.x = anchorX - worldX * nextScale; state.viewport.y = anchorY - worldY * nextScale; applyViewport(); savePresentation();
+    }
+    function resetView() { const defaults = M.defaultPresentation(els.canvas.clientWidth, els.canvas.clientHeight); state.viewport = defaults.viewport; state.positions = defaults.positions; renderGraph(); savePresentation(); }
     const reducedMotion = () => Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const afterGalaxyMotion = callback => window.setTimeout(callback, reducedMotion() ? 0 : 540);
     function enterGalaxy() {
       if (state.galaxyReturn) return;
       state.galaxyReturn = { navigation: { selectedId: state.navigation.selectedId, history: state.navigation.history.slice() }, view: state.view, query: state.query, viewport: {...state.viewport}, selectedEdgeId: state.selectedEdgeId };
-      els.galaxyGate.classList.remove("open");
-      els.galaxy.classList.add("preparing");
-      els.app.classList.add("galaxy-departing");
-      window.requestAnimationFrame(() => {
-        els.galaxy.classList.add("open");
-        afterGalaxyMotion(() => { els.galaxy.classList.remove("preparing"); els.app.classList.remove("galaxy-departing"); $("#exitGalaxy").focus(); });
-      });
+      els.galaxyGate.classList.remove("open"); els.galaxy.classList.add("preparing"); els.app.classList.add("galaxy-departing");
+      window.requestAnimationFrame(() => { els.galaxy.classList.add("open"); afterGalaxyMotion(() => { els.galaxy.classList.remove("preparing"); els.app.classList.remove("galaxy-departing"); $("#exitGalaxy").focus(); }); });
     }
     function exitGalaxy() {
       if (!state.galaxyReturn || els.galaxy.classList.contains("returning")) return;
-      const prior = state.galaxyReturn;
-      els.galaxy.classList.add("returning");
-      els.app.classList.add("galaxy-returning");
+      const prior = state.galaxyReturn; els.galaxy.classList.add("returning"); els.app.classList.add("galaxy-returning");
       afterGalaxyMotion(() => {
-        els.galaxy.classList.remove("open", "preparing", "returning");
-        els.app.classList.remove("galaxy-returning");
-        state.navigation = { selectedId: prior.navigation.selectedId, history: prior.navigation.history.slice() };
-        state.query = prior.query; state.viewport = prior.viewport; state.selectedEdgeId = prior.selectedEdgeId;
+        els.galaxy.classList.remove("open", "preparing", "returning"); els.app.classList.remove("galaxy-returning");
+        state.navigation = { selectedId: prior.navigation.selectedId, history: prior.navigation.history.slice() }; state.query = prior.query; state.viewport = prior.viewport; state.selectedEdgeId = prior.selectedEdgeId;
         els.searchInput.value = state.query; setActiveView(prior.view); state.galaxyReturn = null; renderAll(); $("#galaxyButton").focus();
       });
     }
 
     document.addEventListener("click", event => {
-      const nav = event.target.closest("[data-navigate]"); if (nav) { const item = entity(nav.dataset.navigate); navigateTo(nav.dataset.navigate, { workspace: item && item.kind === "room" }); return; }
-      const source = event.target.closest("[data-source-id]"); if (source) { openReader(source.dataset.sourceId); return; }
-      const edge = event.target.closest("[data-edge-id]"); if (edge) { selectEdge(edge.dataset.edgeId); return; }
-      const workspace = event.target.closest("[data-open-workspace]"); if (workspace) navigateTo(workspace.dataset.openWorkspace, { workspace: true });
+      const nav = event.target.closest("[data-navigate]"); if (nav) { navigateTo(nav.dataset.navigate); return; }
+      const sourceRow = event.target.closest("[data-source-id]"); if (sourceRow) { openReader(sourceRow.dataset.sourceId); return; }
+      const edgeRow = event.target.closest("[data-edge-id]"); if (edgeRow) { selectEdge(edgeRow.dataset.edgeId); }
     });
-    $$(".tab").forEach(tab => tab.addEventListener("click", () => { if (["atlas","directory","sources"].includes(tab.dataset.view)) setActiveView(tab.dataset.view); }));
+    $$(".tab").forEach(tab => tab.addEventListener("click", () => setActiveView(tab.dataset.view)));
     els.searchInput.addEventListener("input", event => { state.query = event.target.value; renderGraph(); renderDirectory(); renderSources(); });
     els.backButton.addEventListener("click", goBack);
     $("#closeReader").addEventListener("click", closeReader);
-    $("#aboutButton").addEventListener("click", () => openReader("source-framework"));
+    $("#aboutButton").addEventListener("click", () => openReader("source-atlas"));
+    els.legendButton.addEventListener("click", () => toggleLegend());
+    $("#closeLegend").addEventListener("click", () => toggleLegend(false));
     $("#galaxyButton").addEventListener("click", () => { els.galaxyGate.classList.add("open"); $("#stayLocal").focus(); });
     $("#stayLocal").addEventListener("click", () => { els.galaxyGate.classList.remove("open"); $("#galaxyButton").focus(); });
     $("#confirmGalaxy").addEventListener("click", enterGalaxy);
     $("#exitGalaxy").addEventListener("click", exitGalaxy);
     $("#zoomIn").addEventListener("click", () => zoom(.1)); $("#zoomOut").addEventListener("click", () => zoom(-.1)); $("#resetView").addEventListener("click", resetView);
-    els.canvas.addEventListener("pointerdown", event => { if (event.button !== 0 || event.target.closest(".entity-card,.edge-label,.level-summary,.canvas-toolbar")) return; state.pan = { x: event.clientX, y: event.clientY, startX: state.viewport.x, startY: state.viewport.y }; els.canvas.classList.add("panning"); els.canvas.setPointerCapture(event.pointerId); });
+    els.canvas.addEventListener("pointerdown", event => { if (event.button !== 0 || event.target.closest(".entity-card,.edge-label,.level-summary,.canvas-toolbar,.legend-panel")) return; state.pan = { x: event.clientX, y: event.clientY, startX: state.viewport.x, startY: state.viewport.y }; els.canvas.classList.add("panning"); els.canvas.setPointerCapture(event.pointerId); });
     els.canvas.addEventListener("pointermove", event => { if (!state.pan) return; state.viewport.x = state.pan.startX + event.clientX - state.pan.x; state.viewport.y = state.pan.startY + event.clientY - state.pan.y; applyViewport(); });
     els.canvas.addEventListener("pointerup", () => { if (!state.pan) return; state.pan = null; els.canvas.classList.remove("panning"); savePresentation(); });
-    els.canvas.addEventListener("wheel", event => { event.preventDefault(); zoom(event.deltaY < 0 ? .08 : -.08); }, { passive: false });
+    els.canvas.addEventListener("wheel", event => { event.preventDefault(); zoom(event.deltaY < 0 ? .08 : -.08, event.clientX, event.clientY); }, { passive: false });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         if (els.galaxyGate.classList.contains("open")) { els.galaxyGate.classList.remove("open"); $("#galaxyButton").focus(); }
         else if (els.galaxy.classList.contains("open") || els.galaxy.classList.contains("preparing")) exitGalaxy();
         else if (els.reader.classList.contains("open")) closeReader();
+        else if (!els.legendPanel.hidden) toggleLegend(false);
       }
     });
     window.addEventListener("hashchange", () => { const id = decodeURIComponent(location.hash.slice(1)); if (id && !entity(id)) recoverInvalidSelection(); });
-    if (M.validate().length) console.warn("Atlas fixture validation issues", M.validate());
+    const issues = M.validate(); if (issues.length) console.warn("Atlas architecture projection issues", issues);
     renderAll(); setActiveView("atlas");
   })();
   </script>

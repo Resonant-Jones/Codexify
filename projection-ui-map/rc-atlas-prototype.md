@@ -1,118 +1,131 @@
-# Resonant Constructs Atlas contributor prototype
+# RC Atlas — Codexify architecture projection
 
 ## Purpose and evidence posture
 
-This isolated HTML prototype lets a contributor explore the proposed hierarchy:
+This standalone contributor prototype projects Codexify's maintained architecture documentation at subsystem resolution. It is a read-only design artifact, not canonical architecture storage, exhaustive source indexing, live-runtime proof, or a production Atlas integration.
 
-```text
-User or Organization
-└── HomeBase
-    └── Space
-        └── Room
-            └── Thread
-                └── Message
-```
+The projection was extracted from canonical `origin/main` commit:
 
-It is an interactive design artifact, not a production Codexify integration. The topology, conversations, collaborators, Node availability, Project projection, publication, trust, and Galaxy discovery cards are synthetic examples. Runtime behavior, authorization, persistence, provider execution, synchronization, federation, and deployment were not evaluated.
+`cb551de1866715ef421026203ffe2a87cec8aaca`
 
-## Source and design lineage
+Work began after the hierarchy-rail removal was validated and committed at branch HEAD `1e8799099be3f3d06621e25740ada93f2c29dde4`. The topology-bearing source files were byte-identical between that branch state and the inspected `origin/main` snapshot; the ADR index differed but supplies decision context rather than projected node or edge data.
 
-- Source artifact: `projection-ui-map/codexify_space_nz_florida_no_autoboot (1).html`
-- Source artifact SHA-256: `0f5cc1be4614e9c3b9a24b03b2b741c0c714c058f2e2219156767756d7e06ee4`
-- Inspected repository commit: `40e538cfd232bb30692dde1f9008e3fdeda3562b`
-- Architecture handoff: `projection-ui-map/Codexify_Federation_Galaxy_Integration_Handoff.md`
-- Originating design: Zac’s spatial Home / Room / Chat / World Spine interaction model, including draggable spatial cards, contextual inspection, document browsing, and an explicitly entered full-screen Galaxy. The original warm-paper palette remains comparison evidence rather than the current material treatment.
-- Architecture translation: Resonant Jones’s HomeBase terminology and the proposed `User or Organization → HomeBase → Space → Room → Thread → Message` hierarchy.
+`docs/architecture/00-current-state.md` remains short-horizon release and operational truth. The browser rendering does not prove supported release posture, live connectivity, current process state, provider execution, persistence, authorization, synchronization, or federation.
 
-The task text said a separately supplied `codexify_space_nz_florida_no_autoboot.html` should be compared with the repository reference. No separate HTML attachment was available in the supplied attachment directory, so no byte or material-difference comparison could be performed. The unchanged repository artifact above was used as the sole visual and interaction baseline.
+## Source set and eligibility
 
-## Codexify material translation
+The required documents were read from the inspected commit in this order:
 
-The standalone prototype defines a bounded local copy of the current Codexify material vocabulary. It imports no React, TypeScript, Tailwind, runtime stylesheet, production font, or dependency.
+1. `docs/architecture/00-current-state.md` — short-horizon release truth.
+2. `docs/architecture/adr/adr-index.md` — decision context; no ADR was changed.
+3. `docs/architecture/README.md` — architecture KB routing.
+4. `docs/architecture/kb-validity-matrix.md` — source eligibility.
+5. `docs/architecture/architecture-atlas.md` — peer reading guide.
+6. `docs/architecture/modules-and-ownership.md` — primary subsystem dataset.
+7. `docs/architecture/system-overview.md` — coarse runtime topology clarification.
+8. `docs/architecture/flows.md` — runtime-flow evidence.
+9. `docs/architecture/data-and-storage.md` — persistence and storage clarification.
 
-- Canonical geometry from `frontend/src/theme/index.ts` and the UI Token Constitution: `--radius-micro: 12px`, `--radius-tile: 19px`, `--card-radius: 19px`, `--edge-chrome: 6px`, `--frame: 1.5px`, `--bezel: 6px`, `--rim: 1.5px`, and `--card-pad: 12px`.
-- Material and text vocabulary: translucent `--panel-bg`, `--panel-sheet: #1f1f22`, `--panel-border`, `--panel-bezel`, `--panel-sheet-border`, `--chip-bg: #262629`, `--chip-border`, `--text`, `--muted`, `--text-subtle`, `--surface-hover`, and `--surface-soft`.
-- Accent vocabulary: `--accent: #8ec5ff` and `--accent-strong: #5ab7ff` drive selected cards, active controls, focus, and restrained glow.
-- FrameCard visual contract, re-created rather than copied: one shared major radius, clipped decorative layers, translucent bezel, inset content face, depth shadow, selected accent rim, and a small hover lift.
+The prototype's Sources mode exposes these nine documents as provenance links and bounded summaries. It does not copy them into a second editable truth surface.
 
-Entity hues remain as secondary wayfinding on glyphs, route lines, and subtle card tint. Entity kind, stable ID, synthetic/proposed state, authority details, runtime evidence, and relationship evidence remain in accessible labels, native hover titles, the Directory, or the inspector instead of being printed across every default graph card.
+The KB validity rules excluded `supplementary_verify_against_code`, `design_canon_not_runtime_truth`, `historical_archive`, and `misleading_identity_drift` material from topology extraction. In particular, legacy GuardianOS, Threadspace, `guardian-backend_v2`, obsolete installer, future federation, and historical audit documents were not used as present subsystem evidence. Visual material continues to follow the already accepted Codexify prototype treatment; design canon is not used as runtime topology evidence.
 
-## Reviewed repository sources
+## Module projection rules
 
-The prototype contains bounded excerpts or explanatory summaries from:
+- Exactly one primary graph node is created for each current row in the maintained `Subsystem Matrix`.
+- The projection contains 20 subsystem nodes: 7 `core loop`, 10 `supporting`, 2 `experimental`, and 1 `retired`.
+- Every node preserves the source row's subsystem name, class, responsibilities, key code anchors, human-readable dependency fields, downstream dependents, and blast radius.
+- Every node carries the repository-relative source path, source section, `authoritative_now` classification, inspected commit, and `documentation_snapshot` authority marker.
+- Stable prototype IDs normalize subsystem names for interaction only. They do not redefine subsystem identity or architecture ownership.
+- Source files, routes, functions, classes, tests, migrations, and arbitrary directories are not graph nodes.
+- The UI uses the label `Key code anchors`. These paths are the source document's inspection starting points, not an exhaustive claim about every file contained by a module.
+- Documentation-backed modules are the default local Atlas. The prior synthetic HomeBase/Space/Room fixture is no longer current topology data. Galaxy remains an explicitly entered synthetic illustration and is visually and textually separated from the architecture snapshot.
 
-- `docs/architecture/home-room-thread-world-packet-framework.md` — proposed living framework; reviewed excerpt.
-- `docs/architecture/space-runtime-and-federated-experience-architecture.md` — proposed living architecture; reviewed excerpt.
-- `docs/architecture/atlas-v0-1-interaction-contract.md` — governing V0.1 planning contract; reviewed excerpt.
-- `docs/architecture/architecture-atlas.md` — authoritative KB reading guide; explanatory summary.
-- `docs/architecture/adr/055-threadspace-whispermesh-managed-service-boundary.md` — proposed ADR; reviewed excerpt.
+## Visual and relationship vocabulary
 
-Every source panel records its repository path, inspected commit, source status, content origin, representation class, and `runtime evidence: not evaluated`. The embedded material is a reading aid and does not replace the source documents.
+Node classes use the exact broad source vocabulary:
 
-## Interactive behavior
+- `CORE LOOP` — blue glyph and rim accent.
+- `SUPPORTING` — green glyph and rim accent.
+- `EXPERIMENTAL` — amber glyph and rim accent.
+- `RETIRED` — gray glyph and rim accent.
 
-- Spatial Atlas with compact glyph/name/descriptor cards, discoverable relationship detail nodes, drag, pan, zoom, and Reset view.
-- Searchable flat entity and relationship Directory equivalent to the graph destinations, with no hierarchy indentation or connector treatment.
-- Breadcrumb and Back navigation through HomeBase, Space, Room workspace, and Thread detail.
-- A Room workspace that keeps Threads, documents/artifacts, and the source Project visibly separate.
-- Two independently selectable fixture Threads in the Atlas Orientation Room, each with distinct fixture Messages and provenance labels.
-- Full-width source-document reading that returns to the prior navigation, selection, search, and viewport state.
-- Explicit Galaxy confirmation, a local-only pull-back transition into the larger field, and return to the exact previous local navigation, selection, search, and viewport state.
-- Namespaced local presentation storage for viewport and card positions only, with fail-open fallback for missing, blocked, or malformed storage.
-- Keyboard-operable controls, visible focus, reduced-motion handling, and a narrow-screen single-surface fallback.
+Cards retain one shared Codexify material shell. Category color is subordinate to the written class label, consistent glyph, compact name and responsibility preview, and selected-state treatment.
 
-## Intentional departures from the source artifact
+The bounded edge registry contains:
 
-- Person-named Homes and mixed Home/node categories were replaced by stable prototype IDs and explicit entity kinds.
-- Private-vault/archive fixture material was not carried forward.
-- Misleading `Repo implemented`, `logged in`, `online`, and live-connection language was replaced by snapshot or simulation labels.
-- The Room is no longer presented as one flattened conversation. Proposed Threads, fixture Messages, documents, and Project source are distinct.
-- The active composer was replaced by an explicit unavailable state because this artifact has no provider or live collaboration path.
-- Galaxy content was reduced to clearly synthetic archetypes and retains manual entry.
-- Warm documentation-diagram surfaces were replaced by the current Codexify glass, bezel, inset-face, depth, chip, and accent grammar without changing the Atlas composition.
-- Default graph taxonomy was reduced to a glyph, name, short descriptor, and selected/explore state. Architectural precision remains in the inspector, Directory, Sources, accessible labels, and hover detail.
-- The persistent hierarchy/source rail was removed. Atlas now expands to the left frame edge, source discovery remains in Sources, entity lookup remains in the flat Directory, and boundary detail remains in the fixed prototype disclaimer and contextual inspector.
+- `dependency` — 20 solid blue directional relationships labeled `depends on`, sourced from confidently mapped `Subsystem Matrix` dependency text.
+- `runtime_flow` — 7 dashed violet directional relationships labeled `runtime flow`, sourced only from explicit sequences in `docs/architecture/flows.md`.
 
-## Architecture boundary and ADR impact
+Each relationship resolves two valid module IDs and carries an evidence path, section, source classification, inspected commit, evidence type, normalization note, explanation, and caution. Selecting an edge expands those details in the inspector. Arrow direction, readable labels, stroke pattern, and inspector copy carry meaning; color is never the only carrier.
 
-No ADR impact. This standalone prototype illustrates a proposed v2 hierarchy without accepting it as runtime architecture or superseding the Room-first V0.1 compatibility contract. The current contract still preserves one canonical backing Thread per Hosted Room. ADR-055 remains proposed and supplies a design constraint—connectivity is not collaboration authority—not implementation evidence.
+The optional Legend is a dismissible overlay rather than a persistent sidebar. Directory remains the flat searchable route to every module, and Sources remains the documentation-reading route.
 
-## Validation and proof
+## Conservative normalization and omissions
 
-Validation results recorded on 2026-09-10:
+Human-readable dependency phrases were converted into module-to-module edges only when a named subsystem row could be identified confidently. `direct_documented` marks an explicit named subsystem relationship. `bounded_normalization` marks a documented phrase or flow step normalized to the maintained subsystem resolution; it is not inferred architectural similarity.
 
-- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 18 tests, including rail removal, absence of hierarchy-only controls, flat Directory/source ownership, model hierarchy parity, selection/inspector wiring, local token geometry, progressive disclosure, and Galaxy transition contracts.
+The following were intentionally left as inspector text rather than invented nodes or speculative edges:
+
+- external Redis, Postgres, browser storage, provider credentials, external network, environment configuration, and model-server dependencies;
+- generic API-bootstrap references to configuration, dependencies, middleware, or “all routers”;
+- context-broker references to memory stores or optional graph adapters that do not name another current subsystem row;
+- provider-setting, credential, and network requirements;
+- Sync API references to process-local buses and models;
+- broad `Depended on by` prose when mapping it would duplicate or over-interpret a more precise forward dependency;
+- any plausible runtime transition not explicitly present in the maintained flow source.
+
+No maintained sources produced a contradictory named subsystem boundary in the selected projection. Ambiguous prose was omitted rather than adjudicated in prototype data.
+
+## Preserved interaction and boundary behavior
+
+- Spatial pan, pointer-centered wheel zoom, draggable cards, geometry-derived useful fit, and Reset view.
+- Keyboard-operable graph cards, edge labels, tabs, search, Directory, Sources, Legend, source reader, and Galaxy gate.
+- Search over module names, responsibilities, dependency text, and key code anchors.
+- Module and relationship selection with contextual inspector updates and back history.
+- Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
+- Namespaced local presentation storage limited to card positions and viewport, with safe fallback for missing, blocked, or malformed storage.
+- Reduced-motion handling and a 390px single-surface layout without page-level horizontal overflow.
+- A non-scrolling canvas clip boundary so keyboard focus cannot create a hidden horizontal scroll offset on narrow screens.
+- Persistent `Architecture document snapshot · design prototype · no live connections` disclosure.
+- No automatic external network requests.
+
+The persistent hierarchy rail, tree rendering, hierarchy-only controls, and synthetic local hierarchy model remain absent. No replacement tree, file explorer, drawer, permanent list, or permanent legend was added.
+
+## Architecture and ADR impact
+
+No ADR impact. This change derives a visualization from accepted maintained sources. It changes no subsystem seam, authority boundary, runtime behavior, persistence rule, release claim, or architecture contract.
+
+Codexify's constitutional distinctions remain explicit: documentation is evidence rather than runtime proof; a dependency is not authority; a key anchor is not exhaustive ownership; experimental does not mean production-ready; selection does not change runtime state; and Galaxy proximity grants no access.
+
+## Validation and browser proof
+
+Validation recorded on 2026-09-11:
+
+- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 23 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, synthetic separation, selection/inspector behavior, useful fit, storage fallback, Galaxy state, reduced motion, and absence of hierarchy UI.
 - `python3 scripts/validate_docs.py` — passed.
-- `git diff --check` — passed before final staging.
-- Desktop visual inspection — passed at 1440×1000. Before/after captures used material-pass commit `0fea8dd5875e182709d9ca90eb67d385694eb5ff` as the visual baseline. The main surface expanded from 780px to 1072px and the visible Atlas canvas from 778px to 1070px; the current DOM contains zero sidebar, sidebar-ID, or hierarchy-indent elements.
-- Current Codexify comparison — current `theme/index.ts`, `AppShell.tsx`, `FrameCard.tsx`, `index.css`, and the UI Token Constitution supplied the geometry and material rules. Representative repository AppShell Guardian and dark Settings reference images were also inspected. This is material-family comparison, not a claim that a production AppShell runtime was exercised.
-- Narrow viewport — passed at 390×844. The primary surface starts at the left frame edge with `scrollWidth === clientWidth === 390`; search remained visible, the contextual inspector remained intentionally hidden at this breakpoint, and the icon-only Galaxy control retained `aria-label="Enter Galaxy"`.
-- Card material — passed at default and 130% graph zoom. The card computed to a 19px outer radius with hidden overflow, a 16px inset face, intact hard clipping, readable text, selected accent rim, and restrained hover lift.
-- Entity navigation — passed. The flat Directory exposed all 16 graph destinations. Atlas Orientation Room opened as a Room workspace with two distinct Threads, separate documents/artifacts, and separate Project source. The second Thread opened with two fixture Messages, the `thread-boundaries` inspector ID, and disabled Send. Keyboard-only navigation selected `space-contributor` through Directory and updated the contextual inspector state.
-- Empty search — passed. An unmatched query showed explicit entity and relationship recovery states; clearing the field restored the complete directory.
-- Document expansion and return — passed. The hierarchy-framework source opened in a full-width material reader with path, status, snapshot representation, inspected commit, runtime-evidence boundary, readable hierarchy block, explicit source link, and Return control.
-- Galaxy explicit entry and return — passed under normal motion. The initial page stayed local, the confirmation gate remained mandatory, and the Galaxy retained the illustrative/synthetic disclaimer. Return reproduced the recorded Atlas selection and reset `70%` viewport.
-- Reduced motion — passed with Playwright media emulation. The media query matched, App/Galaxy transition durations computed to `1e-05s`, and the Galaxy transform computed to `none`.
-- Storage failure and invalid-selection recovery — passed in the pure model suite; the storage format and recovery code were not changed by this visual slice.
-- Console inspection — passed in a fresh final browser session with 0 errors and 0 warnings. A self-contained data-URL favicon prevents a browser-generated `/favicon.ico` 404.
-- Network inspection — passed. The fresh final session recorded one static request, `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request was made.
-- Direct `file://` browser opening — unchanged from the semantic baseline and not re-run. The prior in-app-browser URL safety policy rejected local-file navigation and was not bypassed; self-containment remains covered by static tests and localhost behavior.
+- `git diff --check` — passed.
+- 1680×1050 wide desktop — passed: 20 graph cards, zero hierarchy/tree elements, canvas expanded to 1310px beside the 350px inspector, geometry-derived 70% fit, and no horizontal overflow.
+- 1440×1000 desktop — passed: geometry-derived 65% first-load fit, module and edge selection, Key code anchors, solid dependency edge, dashed runtime-flow edge, Legend open/close, Directory, all nine Sources cards, keyboard mode switching, and empty-search recovery.
+- Search — passed for module name (`Sync API`), responsibility (`collaboration permissions`), and anchor (`guardian/vector/store.py`), each returning the intended module.
+- Canvas — passed: a wheel gesture changed the fitted view from 65% to 73%; empty-canvas drag changed the viewport translation; Reset view restored the geometry-derived fit.
+- Galaxy — passed under normal and reduced motion. The confirmation gate remained mandatory; return restored the exact selected module, query, and viewport. Reduced-motion transition duration computed to `1e-05s` and entry/return completed without the animated delay.
+- 390×844 narrow viewport — passed: `scrollWidth === innerWidth === 390`, 20 Atlas cards, 20 Directory rows, nine Sources cards, keyboard module selection, and no hierarchy/tree surface. Focusing a spatially off-screen module left canvas `scrollLeft === 0`, preserving the contextual summary.
+- Console — passed with 0 errors and 0 warnings.
+- Network — five deliberate localhost page reloads were recorded, all `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request occurred.
 
-### Fidelity ledger
+Captured browser review images:
 
-| Comparison point | Source evidence | Implementation evidence | Result |
-|---|---|---|---|
-| Palette | Cream paper with muted entity hues | Dark Codexify panel/sheet/chip vocabulary with sky accent; entity hues remain subordinate | Intentional material translation |
-| Shell | Material-pass baseline had a persistent 286px hierarchy/source rail, spatial center, and contextual right inspector | Two clipped 19px frames: expanded primary surface and contextual right inspector; compact RC Atlas identity moved into the existing top chrome | Intentional hierarchy-rail removal |
-| Canvas | Fine 28px grid, draggable cards, labeled dashed/solid edges | Same grid and routes; labels collapse to detail nodes until hover/focus/selection | Matched with progressive disclosure |
-| Typography | System UI chrome with serif reading/inspection hierarchy | Codexify system UI hierarchy with monospace retained for IDs and paths | Intentional material translation |
-| Card treatment | Thin colored borders, gentle radii, compact metadata | 19px bezel/rim shell, 16px inset face, depth shadow, accent selection, hover lift, clipped layers | Re-skinned, semantics preserved |
-| Galaxy | Explicitly entered dark full-screen context | Explicit confirmation plus pull-back/expansion transition, synthetic disclaimer, exact local-state return, reduced-motion simplification | Extended within local simulation boundary |
-| Responsive behavior | Source is primarily desktop-oriented | Single primary surface at 390×844 with no rail, empty gutter, or document overflow | Intentional extension |
-| Source reading | Existing inspector/document browsing | Full-width, provenance-labeled reviewed excerpts with readable code/paths | Intentional extension |
+- `/tmp/atlas-codexify-default-1440.png` — default real Codexify module graph.
+- `/tmp/atlas-codexify-module-selected.png` — selected core-loop module with documented inspector detail.
+- `/tmp/atlas-codexify-edge-selected.png` — selected dependency with provenance and normalization.
+- `/tmp/atlas-codexify-legend.png` — optional node/edge legend.
+- `/tmp/atlas-codexify-mobile.png` — narrow Atlas with contained contextual summary.
 
-This presentation change removes redundant hierarchy navigation without changing the model hierarchy or graph semantics. No product, authority, availability, or runtime claim was added. The hierarchy remains in the model; the Atlas now owns the screen.
+These captures are human product-review evidence only, not live-runtime proof.
 
 ## Deferred work
 
-Production HomeBase/Space/Room hierarchy, multi-thread Room persistence, Room publication, authorization, World Packet synchronization, federation, Work Graph, contributor task claiming, Linear/GitHub synchronization, intranet hosting, and deployment all require separate architecture-impact work and proof. This prototype changes none of those surfaces.
+Exhaustive module-to-file membership, AST/import/call-graph indexing, automatic code scanning, code-derived topology reconciliation, Neo4j ingestion, live telemetry, production Atlas integration, Work Graph, contributor task claiming, GitHub/Linear work synchronization, Galaxy federation, and deployment remain separate future slices. No production frontend or architecture source document was changed.
+
+Modules are places on the map. Files are details about the place.
