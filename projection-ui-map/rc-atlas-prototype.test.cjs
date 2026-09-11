@@ -205,7 +205,31 @@ test("persistent hierarchy rail and hierarchy-only controls remain absent", () =
   assert.doesNotMatch(html, /<aside[^>]+class=["'][^"']*sidebar/i);
   assert.doesNotMatch(html, /\b(?:sidebarTree|renderSidebar|tree-level|tree-row|mini-hierarchy|hamburger|drawer)\b/i);
   assert.doesNotMatch(html, /parentId|childrenOf|ancestorsOf|projectedResourceIds/);
-  assert.match(html, /\.app\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 350px/);
+  assert.match(html, /\.app\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--inspector-width\)/);
+});
+
+test("desktop inspector width preserves the former 350px column and a usable Atlas floor", () => {
+  assert.equal(M.defaultPresentation(1070, 860).inspectorWidth, 350);
+  assert.deepEqual(plain(M.inspectorBounds(1680)), { min: 350, max: 960 });
+  assert.deepEqual(plain(M.inspectorBounds(1440)), { min: 350, max: 742 });
+  assert.equal(M.clampInspectorWidth(120, 1440), 350);
+  assert.equal(M.clampInspectorWidth(600, 1440), 600);
+  assert.equal(M.clampInspectorWidth(1200, 1440), 742);
+  assert.equal(M.clampInspectorWidth("malformed", 1680), 350);
+  assert.match(html, /--inspector-min-width:\s*350px/);
+  assert.match(html, /@media \(max-width: 1120px\)[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 294px/);
+});
+
+test("inspector resize handle supports bounded pointer, keyboard, cancellation, and reset", () => {
+  assert.match(html, /id="inspectorResizeHandle"[^>]*role="separator"[^>]*aria-orientation="vertical"[^>]*tabindex="0"/);
+  assert.match(html, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(html, /"pointercancel", finishInspectorResize/);
+  assert.match(html, /"lostpointercapture", finishInspectorResize/);
+  assert.match(html, /event\.key === "ArrowLeft"/);
+  assert.match(html, /event\.key === "ArrowRight"/);
+  assert.match(html, /event\.key === "Home"/);
+  assert.match(html, /"dblclick"/);
+  assert.doesNotMatch(html.match(/function resizeInspector\(requested, persist\)[\s\S]*?(?=    function finishInspectorResize)/)[0], /viewport|navigation|query|selectedEdgeId|documentHistory/);
 });
 
 test("the clipped graph canvas cannot become a hidden keyboard scroll container", () => {
@@ -224,12 +248,15 @@ test("initial and reset view use geometry-derived useful fit", () => {
 
 test("presentation storage is bounded and malformed storage falls back safely", () => {
   const fallback = M.defaultPresentation(1070, 860);
-  assert.deepEqual(plain(M.loadPresentation({ getItem() { return "{broken"; } }, 1070, 860)), plain(fallback));
-  assert.deepEqual(plain(M.loadPresentation({ getItem() { throw new Error("blocked"); } }, 1070, 860)), plain(fallback));
-  const stored = M.loadPresentation({ getItem() { return JSON.stringify({ viewport: { x: 12, y: 18, scale: 99 }, positions: { "completion-assembly-execution": { x: 77, y: 88 } }, authority: "ignored" }); } }, 1070, 860);
+  assert.deepEqual(plain(M.loadPresentation({ getItem() { return "{broken"; } }, 1070, 860, 1440)), plain(fallback));
+  assert.deepEqual(plain(M.loadPresentation({ getItem() { throw new Error("blocked"); } }, 1070, 860, 1440)), plain(fallback));
+  const stored = M.loadPresentation({ getItem() { return JSON.stringify({ viewport: { x: 12, y: 18, scale: 99 }, positions: { "completion-assembly-execution": { x: 77, y: 88 } }, inspectorWidth: 9999, authority: "ignored" }); } }, 1070, 860, 1440);
   assert.equal(stored.viewport.scale, 1.35);
+  assert.equal(stored.inspectorWidth, 742);
   assert.deepEqual(plain(stored.positions["completion-assembly-execution"]), { x: 77, y: 88 });
   assert.equal("authority" in stored, false);
+  const malformedWidth = M.loadPresentation({ getItem() { return JSON.stringify({ inspectorWidth: "wide" }); } }, 1070, 860, 1680);
+  assert.equal(malformedWidth.inspectorWidth, 350);
 });
 
 test("navigation preserves history and invalid selections recover safely", () => {
@@ -404,6 +431,20 @@ test("inspector document history preserves projection state and restores its pri
   const readerTag = html.match(/<section class="reader"[^>]*>/)[0];
   assert.doesNotMatch(readerTag, /dialog|aria-modal/);
   assert.match(html, /function openReader\(sourceId\) \{ return openMarkdownReader\(sourceId\); \}/);
+});
+
+test("full-screen reading reuses the current reader and keeps modal Close separate from reader Back", () => {
+  assert.match(html, /id="openFullscreenReader"[^>]*aria-haspopup="dialog"[^>]*>Full screen</);
+  assert.match(html, /id="readerFullscreen"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*hidden/);
+  assert.match(html, /id="closeFullscreenReader"[^>]*>Close full screen</);
+  const fullscreen = html.match(/function setFullscreenReader\(open, restoreFocus = true\)[\s\S]*?(?=    function searchableText)/)[0];
+  assert.match(fullscreen, /readerFullscreenMount\.appendChild\(els\.reader\)/);
+  assert.match(fullscreen, /inspectorPanel\.appendChild\(els\.reader\)/);
+  assert.match(fullscreen, /const scroller = els\.readerArticle\.parentElement, scrollTop = scroller\.scrollTop/);
+  assert.doesNotMatch(fullscreen, /renderMarkdown|documentHistory\s*=|readerDocumentUrl\s*=/);
+  assert.match(html, /if \(state\.fullscreenReader\) setFullscreenReader\(false\)/);
+  assert.equal((html.match(/class="reader"/g) || []).length, 1);
+  assert.match(html, /\.reader-fullscreen\s*\{[\s\S]*background:\s*#080d15/);
 });
 
 test("Codexify material, Galaxy transition, and reduced motion contracts remain intact", () => {

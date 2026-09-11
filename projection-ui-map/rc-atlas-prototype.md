@@ -84,9 +84,12 @@ No maintained sources produced a contradictory named subsystem boundary in the s
 - Search over module names, responsibilities, dependency text, and key code anchors.
 - Module and relationship selection with contextual inspector updates and back history.
 - Inspector modes are `entity`, `relationship`, and `document`. Source actions load full Markdown in one click; the projection, search, selection, viewport, and list scroll remain in place. Root Back restores the prior entity/relationship inspector and opening-control focus.
+- On desktop, the inspector opens at its pre-change `350px` width and exposes a focusable left-edge separator. Pointer dragging, Left/Right Arrow keys in `32px` increments, Home, and double-click resizing clamp between `350px` and `min(960px, viewport - 680px Atlas floor - 18px shell chrome)` without refitting or resetting the graph.
+- The chosen inspector width is presentation-only state in the existing namespaced local-storage record. It survives entity, relationship, document, view, and reload transitions; blocked, missing, malformed, or out-of-range values fall back or clamp safely. The existing `294px` responsive column and stacked narrow layout remain authoritative below the desktop resize breakpoint.
 - Explicit full-document rendering for same-origin, repository-root Markdown only. Raw HTML is escaped, unsafe link schemes are rejected, and a failed or unsupported document read does not fall back to raw Markdown navigation.
+- Document mode adds an explicit **Full screen** action. It moves the same live reader between the inspector and an opaque full-viewport modal, so rendered content, internal links, source provenance, reader-local history, and scroll position remain one stateful reading path. Modal Close returns to the inspector; reader Back remains document-history navigation.
 - Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
-- Namespaced local presentation storage limited to card positions and viewport, with safe fallback for missing, blocked, or malformed storage.
+- Namespaced local presentation storage limited to card positions, viewport, and inspector width, with safe fallback for missing, blocked, malformed, or out-of-range storage.
 - Reduced-motion handling and a 390px stacked projection/inspector layout without page-level horizontal overflow.
 - A non-scrolling canvas clip boundary so keyboard focus cannot create a hidden horizontal scroll offset on narrow screens.
 - Persistent `Architecture document snapshot · design prototype · no live connections` disclosure.
@@ -108,7 +111,15 @@ The former source action → summary overlay → full-document sequence is repla
 
 Document mode has one independently scrolling body and a compact header with Back, title, path, source status, and original-Markdown link. A local stack stores document URL, source ID, and document scroll position. Back traverses linked documents first, then restores the metadata inspector. Selecting another object intentionally returns to entity/relationship mode. No browser-history navigation is used.
 
-Current verification: all 28 focused Node tests pass, including executable loader/history round trips for Atlas, Directory, and Sources with both entity and relationship origins, scroll restoration, unchanged search/selection/viewport, offline reads, and unsafe/out-of-repository link rejection. Documentation validation, diff checks, and the 90-document offline freshness check pass. The refresh helper and embedded corpus were not changed.
+Prior inspector-reader verification: all 28 focused Node tests passed, including executable loader/history round trips for Atlas, Directory, and Sources with both entity and relationship origins, scroll restoration, unchanged search/selection/viewport, offline reads, and unsafe/out-of-repository link rejection. Documentation validation, diff checks, and the 90-document offline freshness check passed. The refresh helper and embedded corpus were not changed.
+
+### Expandable inspector and full-screen reader
+
+The pre-change CSS and browser-computed desktop inspector width were both exactly `350px`. That remains the default and minimum. The desktop maximum is `min(960px, viewport width - 680px minimum Atlas width - 18px shell padding/gap)`: this yields `742px` at 1440px and `960px` at 1680px, leaving 680px and 702px primary surfaces respectively after shell geometry.
+
+The document article now gives prose a comfortable `72ch` maximum while letting table wrappers and code blocks consume the wider reader surface. Full-screen presentation is opaque `#080d15`/`#111827`, makes the underlying application inert, and reuses the exact reader DOM rather than introducing another parser, store, router, or history.
+
+Current verification: 31 focused Node tests cover width bounds, malformed persistence, pointer/keyboard/cancellation/reset contracts, state-isolated resize behavior, the single-reader modal contract, existing Markdown safety, offline freshness parity, reader history, Galaxy, and prior Atlas semantics. Browser checks at 1680×1050 and 1440×1000 verified exact default/minimum width, intermediate pointer width (`748px`), maximum width (`960px` with a `702px` main surface), keyboard increments and Home reset, width persistence across reload and module-to-module Directory review, unchanged graph transform during resize, a real wide Markdown table, and full-screen scroll preservation at `650px`. In full-screen mode, ADR Index → ADR-001 → reader Back returned to ADR Index while the modal remained open; modal Close separately returned the same document, inspector width, selection, and graph transform. At 390×844 the handle was absent, the stacked inspector used the available `378px`, and page horizontal overflow was zero. A clean reduced-motion session computed the transition duration to `1e-05s`, reported zero console errors or warnings, and made only local prototype requests.
 
 Served browser checks at 1440×1000 and 390×844 verified module and relationship source reading, Sources and Directory remaining visible, rendered tables, and keyboard Back. Desktop retained a 1070px canvas alongside a 348px reader. Document keyboard scrolling reached 1706px while page scroll stayed zero and graph transform remained `translate(64px, 86px) scale(0.6421)`. Narrow mode had zero horizontal overflow and a 298px document body. ADR-001 → Back returned to ADR Index at 519px document scroll within Sources. Console inspection reported zero errors/warnings. HTTP requests remained local; direct-file visual verification remains unavailable under the browser tool's file-URL policy, with offline behavior covered by executable tests.
 
@@ -156,7 +167,7 @@ These captures are human product-review evidence only, not live-runtime proof.
 
 ## Deferred work
 
-Inspector resizing, dismissal/collapse, media previews, and subsequent Sources-density refinement remain deferred.
+Inspector dismissal/collapse, media previews, and subsequent Sources-density refinement remain deferred.
 
 Exhaustive module-to-file membership, AST/import/call-graph indexing, automatic code scanning, code-derived topology reconciliation, Neo4j ingestion, live telemetry, production Atlas integration, Work Graph, contributor task claiming, GitHub/Linear work synchronization, Galaxy federation, and deployment remain separate future slices. No production frontend or architecture source document was changed.
 
