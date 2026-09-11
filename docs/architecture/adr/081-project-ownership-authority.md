@@ -285,10 +285,18 @@ These are separate milestones:
 - `RETIREMENT_READY` additionally requires the zero-reference census above
   and no unresolved dependency.
 
-Partition completion does not imply deletion. Any archive or delete
-disposition remains subject to ADR-076, including its built-in Project
-lifecycle rules. This section introduces no physical deletion behavior and a
-zero-reference census is not, by itself, permission to bypass those rules.
+Partition completion does not imply deletion. Ordinary archive/delete
+behavior remains subject to ADR-076, including canonical built-in
+immutability. For a separately proven obsolete legacy shared built-in source,
+[ADR-085](./085-legacy-shared-built-in-project-retirement-exception.md)
+governs the narrow operator retirement exception: an explicitly authorized
+preservation repair may physically retire the source after deterministic
+partition, preservation, and zero-reference proof, without assigning a
+synthetic or inherited owner, clearing its role, or archiving it. This does
+not make canonical account-owned built-ins deletable. Partition completion
+and retirement eligibility remain separate proof states; a zero-reference
+census alone grants no execution authority. This section implements no
+physical deletion behavior.
 
 The existing `d4e8f1a2b6c9_reconcile_legacy_local_project_owners.py` migration
 must remain fail-closed for a legacy Project whose canonical threads have
@@ -438,7 +446,10 @@ release truth.
   Project-specific owner representation. ADR-005 is not superseded.
 - Preserves [[076-archive-before-delete-and-built-in-project-roles|ADR-076
   Archive Before Delete and Built-In Project Roles]], including account-scoped
-  built-in role uniqueness, lifecycle rules, and stable Project IDs.
+  built-in role uniqueness, ordinary lifecycle rules, and stable canonical
+  account-owned Project IDs. [ADR-085](./085-legacy-shared-built-in-project-retirement-exception.md)
+  governs only the exceptional operator retirement of an obsolete legacy
+  shared built-in source after preservation and zero-reference proof.
 - Aligns with [[../data-and-storage|Data and Storage]] and
   [[../remote-account-access-and-user-profile-contract|Remote Account Access
   and User Profile Contract]] on schema-backed account identity and

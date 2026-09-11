@@ -23,6 +23,7 @@ This file is authoritative for:
 ## What changed recently
 
 - Defined ADR-081 legacy shared-General partition and retirement doctrine. The read-only Project `1` preflight confirms eight threads across three account owners, with no authority to assign the legacy `local` General to one account; no data was mutated.
+- Accepted [ADR-085](./adr/085-legacy-shared-built-in-project-retirement-exception.md) after recovery pre-read exposed a contradiction: ADR-076/ADR-081 prohibited built-in retirement while migration rejects an empty `local` source. The architecture gate is resolved only for a separately proven obsolete legacy shared source after preservation and zero-reference proof; canonical built-ins remain immutable. Project `1` is untouched; live repair, Alembic traversal, startup, account-isolation proof, and Chroma qualification remain unperformed/open. No live inspection occurred in this architecture task.
 - Added repository migration and PostgreSQL proof for account-scoped Project display-name uniqueness: `UNIQUE (user_id, name)` replaces global name uniqueness. Static Alembic head is `7e5a5fccf253`; the live preview database remains at blocked revision `d4e0f2a5b7c9`.
 - Added a tested account-owned `General` provisioning helper that requires an explicit canonical `user_id`, reuses or creates one structural General, fails closed on missing/duplicate state, and leaves commit control to the caller. It is not integrated into Private Preview repair or startup.
 - The 2026-09-11 mainline log records no additional implementation or runtime qualification. Chroma topology and provider-free Pi required-tool/compaction evidence remain bounded.
@@ -40,7 +41,7 @@ This file is authoritative for:
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not assume a fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
 - Do not assume private-preview Chroma startup/retrieval, matching application deployment, provider execution, persistence, observability, account isolation, or non-admin canary readiness.
-- Do not treat the ADR-081 partition doctrine, Project `1` preflight, repository migration, or provisioning helper as Private Preview repair, migration completion, retirement readiness, or post-repair isolation proof.
+- Do not treat the ADR-081 partition doctrine, ADR-085 retirement exception, Project `1` preflight, repository migration, or provisioning helper as Private Preview repair, migration completion, retirement readiness, or post-repair isolation proof.
 - Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
@@ -50,7 +51,7 @@ This file is authoritative for:
 - Local `main` is 8 commits ahead and 4 commits behind `origin/main`; no remote reconciliation or publication proof exists for this audit baseline.
 - Tester worker bind-readiness repair and fresh isolated runtime proof remain open.
 - Private-preview Chroma topology implementation/qualification and matching application deployment remain blocked; provider, persistence, isolation, observability, and approved canary gates remain open.
-- Project `1` legacy-General ownership is unresolved; any partition, General creation, thread remap, or dependent-row treatment requires separate repair authorization and proof.
+- Project `1` remains an owner-unresolved, unpartitioned, unretired legacy source. ADR-085 resolves the retirement architecture contradiction; partition, General creation, dependency relocation, retirement, and live migration/startup still require a separately authorized and proven repair.
 - The repository Project migration/helper are not applied to Private Preview; CE-L1 live provider execution/readback, browser/import, trusted connector, Watchdog, immutable image retention, and hosted-sandbox qualification remain unclosed.
 
 ## This week’s priorities
@@ -58,7 +59,7 @@ This file is authoritative for:
 1. Reconcile the local-main publication baseline before using remote state for release accounting.
 2. Run fresh current-tip supported-Compose and isolated Tester proof across health, chat, persistence, retrieval, queue/worker, locks, and events.
 3. Implement and qualify the ADR-067 named-volume Chroma path before any private-preview application restart.
-4. Resolve Project `1` ownership through accepted evidence, then separately rehearse and authorize partition repair using the new provisioning seam.
+4. Rehearse the Project `1` preservation partition and exceptional source retirement under ADR-081/ADR-085, then apply only through an explicitly authorized repair with live revalidation and normal Alembic/startup proof. Do not assign the source an inferred owner.
 5. Requalify CE-L1/provider readback and close the canary, browser/import, connector, Watchdog, retention, and hosted-sandbox gates.
 
 ## Release definition right now

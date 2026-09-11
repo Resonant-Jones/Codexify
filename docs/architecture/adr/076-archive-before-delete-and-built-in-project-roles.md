@@ -56,6 +56,18 @@ remain visible. If the selected Project is archived, the UI returns to the
 canonical General Project while preserving the archived row for later restore
 or deletion.
 
+## Legacy shared-source retirement exception (2026-09-11)
+
+[ADR-085](./085-legacy-shared-built-in-project-retirement-exception.md)
+partially supersedes the absolute built-in deletion prohibition only for a
+separately proven obsolete legacy shared built-in source undergoing an
+explicitly authorized preservation repair. After partition, preservation,
+and zero-reference proof, that dedicated operator repair may retire the
+source directly without archival or conversion to an ordinary Project.
+Canonical account-owned built-in Projects remain immutable; ordinary
+lifecycle behavior and its API, UI, and core enforcement remain unchanged.
+The exception does not itself authorize implementation or live mutation.
+
 ## Consequences
 
 Project structural identity is no longer coupled to a mutable label. Archive
