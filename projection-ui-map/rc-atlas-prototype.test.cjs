@@ -242,6 +242,31 @@ test("navigation preserves history and invalid selections recover safely", () =>
   assert.equal(M.navigate(nav, "missing-module").selectedId, "completion-assembly-execution");
 });
 
+test("source reader return snapshots preserve valid origins and local context", () => {
+  const navigation = { selectedId: "context-retrieval-broker", history: ["completion-assembly-execution"] };
+  const viewport = { x: 47, y: -31, scale: .82 };
+  for (const view of ["sources", "directory", "atlas"]) {
+    const captured = M.createReaderReturn({ view, query: "provider", navigation, selectedEdgeId: "dep-completion-provider", viewport }, 318, 144);
+    assert.equal(captured.view, view);
+    assert.equal(captured.query, "provider");
+    assert.deepEqual(plain(captured.navigation), navigation);
+    assert.equal(captured.selectedEdgeId, "dep-completion-provider");
+    assert.deepEqual(plain(captured.viewport), viewport);
+    assert.equal(captured.scrollTop, 318);
+    assert.equal(captured.pageScrollTop, 144);
+  }
+
+  const invalid = M.createReaderReturn({ view: "reader", query: "kept", navigation, viewport }, -12, -19);
+  assert.equal(invalid.view, "atlas");
+  assert.equal(invalid.query, "kept");
+  assert.equal(invalid.scrollTop, 0);
+  assert.equal(invalid.pageScrollTop, 0);
+  assert.deepEqual(plain(M.createReaderReturn(null, 0, 0).navigation), plain(M.createNavigation()));
+  assert.match(html, /state\.readerReturn = M\.createReaderReturn\(state, scroller \? scroller\.scrollTop : 0, window\.scrollY\)/);
+  assert.match(html, /setActiveView\(prior\.view\); renderAll\(\)/);
+  assert.doesNotMatch(html, /history\.back\s*\(/);
+});
+
 test("Sources exposes the complete governing document set", () => {
   const expected = [
     "docs/architecture/00-current-state.md",

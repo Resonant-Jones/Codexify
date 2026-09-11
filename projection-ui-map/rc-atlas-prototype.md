@@ -83,6 +83,7 @@ No maintained sources produced a contradictory named subsystem boundary in the s
 - Keyboard-operable graph cards, edge labels, tabs, search, Directory, Sources, Legend, source reader, and Galaxy gate.
 - Search over module names, responsibilities, dependency text, and key code anchors.
 - Module and relationship selection with contextual inspector updates and back history.
+- Reversible source-reader detail state that restores the originating Atlas, Directory, or Sources projection, its search and selection context, Atlas viewport, local list scroll, and opening control focus. Missing or invalid reader origins fail safely to Atlas.
 - Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
 - Namespaced local presentation storage limited to card positions and viewport, with safe fallback for missing, blocked, or malformed storage.
 - Reduced-motion handling and a 390px single-surface layout without page-level horizontal overflow.
@@ -102,17 +103,18 @@ Codexify's constitutional distinctions remain explicit: documentation is evidenc
 
 Validation recorded on 2026-09-11:
 
-- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 23 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, synthetic separation, selection/inspector behavior, useful fit, storage fallback, Galaxy state, reduced motion, and absence of hierarchy UI.
+- `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 24 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, synthetic separation, selection/inspector behavior, useful fit, storage fallback, source-reader origin and local-context restoration, Galaxy state, reduced motion, and absence of hierarchy UI.
 - `python3 scripts/validate_docs.py` — passed.
 - `git diff --check` — passed.
 - 1680×1050 wide desktop — passed: 20 graph cards, zero hierarchy/tree elements, canvas expanded to 1310px beside the 350px inspector, geometry-derived 70% fit, and no horizontal overflow.
 - 1440×1000 desktop — passed: geometry-derived 65% first-load fit, module and edge selection, Key code anchors, solid dependency edge, dashed runtime-flow edge, Legend open/close, Directory, all nine Sources cards, keyboard mode switching, and empty-search recovery.
+- Source reader at 1440×1000 — passed: Sources returned to Sources with the `docs` query and opening-card focus intact; Directory returned to Directory with inspector selection intact; Atlas returned to Atlas with the exact selected module and `translate(-127.275px, 71.5274px) scale(0.5)` viewport intact. Reader close passed with click, `Enter`, and `Escape` activation, and the URL did not change.
 - Search — passed for module name (`Sync API`), responsibility (`collaboration permissions`), and anchor (`guardian/vector/store.py`), each returning the intended module.
 - Canvas — passed: a wheel gesture changed the fitted view from 65% to 73%; empty-canvas drag changed the viewport translation; Reset view restored the geometry-derived fit.
 - Galaxy — passed under normal and reduced motion. The confirmation gate remained mandatory; return restored the exact selected module, query, and viewport. Reduced-motion transition duration computed to `1e-05s` and entry/return completed without the animated delay.
-- 390×844 narrow viewport — passed: `scrollWidth === innerWidth === 390`, 20 Atlas cards, 20 Directory rows, nine Sources cards, keyboard module selection, and no hierarchy/tree surface. Focusing a spatially off-screen module left canvas `scrollLeft === 0`, preserving the contextual summary.
+- 390×844 narrow viewport — passed: `scrollWidth === innerWidth === 390`, 20 Atlas cards, 20 Directory rows, nine Sources cards, keyboard module selection, and no hierarchy/tree surface. Focusing a spatially off-screen module left canvas `scrollLeft === 0`, preserving the contextual summary. The Sources reader round trip preserved the `docs` query, exact page scroll position (`988px`), source-card focus, and Sources projection under keyboard-only `Enter` / `Space` activation.
 - Console — passed with 0 errors and 0 warnings.
-- Network — five deliberate localhost page reloads were recorded, all `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request occurred.
+- Network — the clean reader-regression session recorded one `GET http://127.0.0.1:8765/rc-atlas-prototype.html` → `200`; no external request or browser-history navigation occurred.
 
 Captured browser review images:
 

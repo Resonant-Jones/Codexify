@@ -553,6 +553,26 @@
       const history = (state && state.history ? state.history : []).slice();
       return { selectedId: history.pop() || "completion-assembly-execution", history };
     }
+    const PRIMARY_VIEWS = Object.freeze(["atlas", "directory", "sources"]);
+    function createReaderReturn(state, scrollTop, pageScrollTop) {
+      const input = state && typeof state === "object" ? state : {};
+      const navigation = input.navigation && typeof input.navigation === "object" ? input.navigation : {};
+      const viewport = input.viewport && Number.isFinite(+input.viewport.x) && Number.isFinite(+input.viewport.y) && Number.isFinite(+input.viewport.scale)
+        ? { x: +input.viewport.x, y: +input.viewport.y, scale: +input.viewport.scale }
+        : null;
+      return {
+        view: PRIMARY_VIEWS.includes(input.view) ? input.view : "atlas",
+        query: typeof input.query === "string" ? input.query : "",
+        navigation: {
+          selectedId: byId(navigation.selectedId) ? navigation.selectedId : "completion-assembly-execution",
+          history: Array.isArray(navigation.history) ? navigation.history.filter(id => byId(id)) : []
+        },
+        selectedEdgeId: relationships.some(rel => rel.id === input.selectedEdgeId) ? input.selectedEdgeId : null,
+        viewport,
+        scrollTop: Math.max(0, Number.isFinite(+scrollTop) ? +scrollTop : 0),
+        pageScrollTop: Math.max(0, Number.isFinite(+pageScrollTop) ? +pageScrollTop : 0)
+      };
+    }
     function validate(input) {
       const model = input || data, errors = [], seen = new Set(), ids = new Set(model.entities.map(item => item.id));
       model.entities.forEach(item => {
@@ -571,7 +591,7 @@
       if (JSON.stringify(graphIds(model.entities)) !== JSON.stringify(listIds(model.entities))) errors.push("graph-list-parity");
       return errors;
     }
-    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, loadPresentation, createNavigation, navigate, back, validate });
+    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, loadPresentation, createNavigation, navigate, back, createReaderReturn, validate });
   })(typeof globalThis !== "undefined" ? globalThis : this);
   </script>
 
@@ -592,7 +612,7 @@
       app: $("#app"), galaxyGate: $("#galaxyGate"), galaxy: $("#galaxy"), legendPanel: $("#legendPanel"), legendButton: $("#legendButton")
     };
     const presentation = M.loadPresentation(window.localStorage, els.canvas.clientWidth, els.canvas.clientHeight);
-    const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
+    const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, readerReturn: null, readerFocus: null, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
     const entity = id => M.byId(id);
     const selected = () => entity(state.navigation.selectedId) || entity("completion-assembly-execution");
     const relationshipsFor = id => D.relationships.filter(rel => rel.from === id || rel.to === id);
@@ -681,13 +701,43 @@
       if (els.reader.classList.contains("open")) return closeReader();
       state.navigation = M.back(state.navigation); state.selectedEdgeId = null; renderAll();
     }
+    function viewScroller(name) { return name === "sources" ? els.sourcesShell : name === "directory" ? els.directoryShell : null; }
+    function describeReaderFocus(element) {
+      if (!element || element === document.body) return null;
+      if (element.id) return { id: element.id };
+      const sourceControl = element.closest && element.closest("[data-source-id]");
+      return sourceControl ? { sourceId: sourceControl.dataset.sourceId } : null;
+    }
+    function restoreReaderFocus(descriptor, view) {
+      let target = descriptor && descriptor.id ? document.getElementById(descriptor.id) : null;
+      if (!target && descriptor && descriptor.sourceId) {
+        const scope = view === "sources" ? els.sourcesShell : els.inspector;
+        target = [...scope.querySelectorAll("[data-source-id]")].find(control => control.dataset.sourceId === descriptor.sourceId) || null;
+      }
+      if (!target) target = $(".tab[data-view=\"" + view + "\"]");
+      if (target) target.focus({ preventScroll: true });
+    }
     function openReader(sourceId) {
       const item = D.sources.find(row => row.id === sourceId); if (!item) return;
+      const scroller = viewScroller(state.view);
+      state.readerReturn = M.createReaderReturn(state, scroller ? scroller.scrollTop : 0, window.scrollY);
+      state.readerFocus = describeReaderFocus(document.activeElement);
       state.readerSourceId = sourceId; els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path; els.readerLink.href = item.href;
       els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">' + esc(item.representation) + '</span><span class="meta-chip">commit ' + esc(D.inspectedCommit.slice(0, 12)) + '</span><span class="meta-chip">runtime evidence: ' + esc(item.runtimeEvidence) + '</span></div>' + item.content + '<h2>Provenance</h2><p><strong>Repository path:</strong> <code>' + esc(item.path) + '</code></p><p><strong>Inspected commit:</strong> <code>' + esc(D.inspectedCommit) + '</code></p><p>This bounded rendering is a ' + esc(item.representation) + '. It does not supersede the repository document or prove runtime behavior.</p>';
       els.reader.classList.add("open"); $("#closeReader").focus();
     }
-    function closeReader() { els.reader.classList.remove("open"); state.readerSourceId = null; $("#aboutButton").focus(); }
+    function closeReader() {
+      const prior = state.readerReturn ? M.createReaderReturn(state.readerReturn, state.readerReturn.scrollTop, state.readerReturn.pageScrollTop) : M.createReaderReturn(null, 0, 0);
+      const focusReturn = state.readerFocus;
+      els.reader.classList.remove("open"); state.readerSourceId = null; state.readerReturn = null; state.readerFocus = null;
+      state.navigation = { selectedId: prior.navigation.selectedId, history: prior.navigation.history.slice() };
+      state.query = prior.query; state.selectedEdgeId = prior.selectedEdgeId;
+      if (prior.viewport) state.viewport = prior.viewport;
+      els.searchInput.value = state.query; setActiveView(prior.view); renderAll();
+      const scroller = viewScroller(prior.view); if (scroller) scroller.scrollTop = prior.scrollTop;
+      window.scrollTo(0, prior.pageScrollTop);
+      restoreReaderFocus(focusReturn, prior.view);
+    }
     function selectEdge(id) { if (!D.relationships.some(rel => rel.id === id)) return; state.selectedEdgeId = id; renderRoutes(); renderInspector(); }
     function toggleLegend(force) {
       const open = typeof force === "boolean" ? force : els.legendPanel.hidden;
