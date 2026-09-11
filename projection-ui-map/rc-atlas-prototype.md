@@ -83,11 +83,11 @@ No maintained sources produced a contradictory named subsystem boundary in the s
 - Keyboard-operable graph cards, edge labels, tabs, search, Directory, Sources, Legend, source reader, and Galaxy gate.
 - Search over module names, responsibilities, dependency text, and key code anchors.
 - Module and relationship selection with contextual inspector updates and back history.
-- Reversible source-reader detail state that restores the originating Atlas, Directory, or Sources projection, its search and selection context, Atlas viewport, local list scroll, and opening control focus. Missing or invalid reader origins fail safely to Atlas.
+- Inspector modes are `entity`, `relationship`, and `document`. Source actions load full Markdown in one click; the projection, search, selection, viewport, and list scroll remain in place. Root Back restores the prior entity/relationship inspector and opening-control focus.
 - Explicit full-document rendering for same-origin, repository-root Markdown only. Raw HTML is escaped, unsafe link schemes are rejected, and a failed or unsupported document read does not fall back to raw Markdown navigation.
 - Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
 - Namespaced local presentation storage limited to card positions and viewport, with safe fallback for missing, blocked, or malformed storage.
-- Reduced-motion handling and a 390px single-surface layout without page-level horizontal overflow.
+- Reduced-motion handling and a 390px stacked projection/inspector layout without page-level horizontal overflow.
 - A non-scrolling canvas clip boundary so keyboard focus cannot create a hidden horizontal scroll offset on narrow screens.
 - Persistent `Architecture document snapshot · design prototype · no live connections` disclosure.
 - No automatic or external network requests. Opening a full source document makes one explicit same-origin local Markdown request.
@@ -101,6 +101,18 @@ No ADR impact. This change derives a visualization from accepted maintained sour
 Codexify's constitutional distinctions remain explicit: documentation is evidence rather than runtime proof; a dependency is not authority; a key anchor is not exhaustive ownership; experimental does not mean production-ready; selection does not change runtime state; and Galaxy proximity grants no access.
 
 ## Validation and browser proof
+
+### Inspector reading flow
+
+The former source action → summary overlay → full-document sequence is replaced by source action → full document in the existing inspector. Sources has one `Read source document` action. Modules and relationships use `Open source note`. The modal positioning, dialog semantics, summary rendering, and second-step toggle were removed; the same reader markup and Markdown renderer now live inside the inspector.
+
+Document mode has one independently scrolling body and a compact header with Back, title, path, source status, and original-Markdown link. A local stack stores document URL, source ID, and document scroll position. Back traverses linked documents first, then restores the metadata inspector. Selecting another object intentionally returns to entity/relationship mode. No browser-history navigation is used.
+
+Current verification: all 28 focused Node tests pass, including executable loader/history round trips for Atlas, Directory, and Sources with both entity and relationship origins, scroll restoration, unchanged search/selection/viewport, offline reads, and unsafe/out-of-repository link rejection. Documentation validation, diff checks, and the 90-document offline freshness check pass. The refresh helper and embedded corpus were not changed.
+
+Served browser checks at 1440×1000 and 390×844 verified module and relationship source reading, Sources and Directory remaining visible, rendered tables, and keyboard Back. Desktop retained a 1070px canvas alongside a 348px reader. Document keyboard scrolling reached 1706px while page scroll stayed zero and graph transform remained `translate(64px, 86px) scale(0.6421)`. Narrow mode had zero horizontal overflow and a 298px document body. ADR-001 → Back returned to ADR Index at 519px document scroll within Sources. Console inspection reported zero errors/warnings. HTTP requests remained local; direct-file visual verification remains unavailable under the browser tool's file-URL policy, with offline behavior covered by executable tests.
+
+Pi delegation was attempted through the catalog preflight only: zero available model rows, no selected provider/model, and no inference.
 
 ### Local rendered-document preview
 
@@ -116,7 +128,7 @@ Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. No 
 
 Correction validation: 27 Node tests cover the actual asynchronous file-mode loader, all nine Sources documents, ADR-001 navigation, original-source fallback, decompression, and bundle parity with canonical files. `node projection-ui-map/refresh-atlas-documents.cjs --check` validates all 90 embedded documents. The browser automation URL policy blocks attaching to `file://` tabs, so direct-file visual verification could not be completed through that tool; earlier HTTP browser proof below does not establish file-mode visual proof.
 
-Validation recorded on 2026-09-11:
+Historical pre-inspector validation recorded on 2026-09-11 (superseded for reader layout by the inspector checks above):
 
 - `node --test projection-ui-map/rc-atlas-prototype.test.cjs` — passed, 26 tests. The suite parses the maintained Subsystem Matrix directly and proves exact name/class parity, exact row-field and key-anchor provenance, non-duplication, valid attributable edges, bounded relationship types, text-plus-color meaning, Directory parity, source reachability, bounded Markdown rendering and escaping, same-origin document loading, synthetic separation, selection/inspector behavior, useful fit, storage fallback, source-reader origin and local-context restoration, Galaxy state, reduced motion, and absence of hierarchy UI.
 - `python3 scripts/validate_docs.py` — passed.
@@ -143,6 +155,8 @@ Captured browser review images:
 These captures are human product-review evidence only, not live-runtime proof.
 
 ## Deferred work
+
+Inspector resizing, dismissal/collapse, media previews, and subsequent Sources-density refinement remain deferred.
 
 Exhaustive module-to-file membership, AST/import/call-graph indexing, automatic code scanning, code-derived topology reconciliation, Neo4j ingestion, live telemetry, production Atlas integration, Work Graph, contributor task claiming, GitHub/Linear work synchronization, Galaxy federation, and deployment remain separate future slices. No production frontend or architecture source document was changed.
 

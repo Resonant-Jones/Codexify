@@ -251,12 +251,16 @@
     .anchor-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
     .anchor-list code { display: block; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--surface-soft); padding: 6px 7px; color: var(--muted); font: 9px/1.4 var(--mono); overflow-wrap: anywhere; }
 
-    .reader { position: fixed; z-index: 320; inset: 16px; display: none; grid-template-rows: auto minmax(0,1fr); border: 1px solid var(--panel-sheet-border); border-radius: var(--card-radius); background: color-mix(in srgb, var(--panel-sheet) 96%, transparent); box-shadow: 0 34px 100px rgba(0,0,0,.58); overflow: hidden; isolation: isolate; }
+    .inspector.document-mode { overflow: hidden; }
+    .inspector.document-mode .inspector-inner { display: none; }
+    .source-card:has([aria-pressed="true"]) { outline: 1px solid var(--accent-strong); }
+    .reader { height: 100%; min-height: 0; display: none; grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
     .reader.open { display: grid; }
-    .reader-head { display: flex; align-items: center; gap: 11px; padding: 13px 15px; border-bottom: var(--frame) solid var(--panel-border); background: linear-gradient(180deg, rgba(255,255,255,.07), var(--surface-soft)); backdrop-filter: blur(18px); }
+    .reader-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-bottom: var(--frame) solid var(--panel-border); background: var(--panel-bg); }
     .reader-head h2 { overflow: hidden; margin: 0; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-    .reader-head .source-path { margin-right: auto; }
-    .reader-body { overflow: auto; padding: 32px clamp(20px, 8vw, 120px) 70px; background: radial-gradient(circle at 50% 0, rgba(90,183,255,.07), transparent 38%); }
+    .reader-head .source-path { width: 100%; overflow-wrap: anywhere; }
+    .reader-head h2 { flex: 1; min-width: 0; }
+    .reader-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px 14px 40px; }
     .reader-article { max-width: 920px; margin: 0 auto; }
     .reader-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
     .reader-article h1 { margin: 0 0 15px; font: 680 34px/1.08 var(--font); letter-spacing: -.04em; }
@@ -345,7 +349,10 @@
       .legend-panel { top: 144px; right: 10px; width: calc(100% - 20px); }
       .directory-shell, .sources-shell { padding: 20px 14px 40px; }
       .directory-grid { grid-template-columns: 1fr; }
-      .reader { inset: 7px; }
+      .app { height: 100dvh; min-height: 0; grid-template-rows: minmax(240px, 1fr) minmax(0, 1fr); }
+      .main { min-height: 0; }
+      .canvas { min-height: 0; }
+      .inspector { display: block; min-height: 0; }
       .reader-head { flex-wrap: wrap; }
       .reader-head .source-path { width: calc(100% - 48px); order: 4; }
       .reader-body { padding: 24px 17px 54px; }
@@ -414,13 +421,13 @@
         <section class="view" id="sourcesView" aria-label="Architecture source documents"><div class="sources-shell" id="sourcesShell"></div></section>
       </div>
     </main>
-    <aside class="inspector" aria-label="Selection inspector"><div class="inspector-inner" id="inspector"></div></aside>
+    <aside class="inspector" aria-label="Selection inspector"><div class="inspector-inner" id="inspector"></div>
+      <section class="reader" id="reader" aria-labelledby="readerTitle">
+        <header class="reader-head"><button class="icon-button" id="closeReader" type="button" aria-label="Back from document">←</button><h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span><a class="source-link" id="readerLink" target="_blank" rel="noopener">Open original Markdown</a><span id="readerStatus" class="source-path"></span></header>
+        <div class="reader-body" tabindex="0" aria-label="Document content"><article class="reader-article" id="readerArticle"></article></div>
+      </section>
+    </aside>
   </div>
-
-  <section class="reader" id="reader" role="dialog" aria-modal="true" aria-labelledby="readerTitle">
-    <header class="reader-head"><button class="icon-button" id="closeReader" type="button" aria-label="Return from document"><svg viewBox="0 0 24 24" fill="none"><path d="m14.5 5-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h2 id="readerTitle">Source document</h2><span class="source-path" id="readerPath"></span><button class="source-link" id="readerLink" type="button">Read full document</button></header>
-    <div class="reader-body"><article class="reader-article" id="readerArticle"></article></div>
-  </section>
   <section class="gate" id="galaxyGate" role="dialog" aria-modal="true" aria-labelledby="galaxyGateTitle">
     <div class="gate-card"><h2 id="galaxyGateTitle">Enter illustrative Galaxy?</h2><p>Galaxy is an optional synthetic discovery sketch outside the documentation-backed Codexify module snapshot. It is not live federation, a customer directory, or evidence that any remote HomeBase is available.</p><div class="gate-actions"><button class="button" id="stayLocal" type="button">Stay local</button><button class="button primary" id="confirmGalaxy" type="button">Enter Galaxy</button></div></div>
   </section>
@@ -768,6 +775,8 @@
     const presentation = M.loadPresentation(window.localStorage, els.canvas.clientWidth, els.canvas.clientHeight);
     const state = { navigation: M.createNavigation("completion-assembly-execution"), view: "atlas", query: "", selectedEdgeId: null, readerSourceId: null, readerReturn: null, readerFocus: null, readerMode: "snapshot", readerDocumentUrl: null, readerLoadToken: 0, viewport: presentation.viewport, positions: presentation.positions, drag: null, pan: null, justDragged: false, galaxyReturn: null };
     const entity = id => M.byId(id);
+    state.inspectorMode = "entity";
+    state.documentHistory = [];
     const selected = () => entity(state.navigation.selectedId) || entity("completion-assembly-execution");
     const relationshipsFor = id => D.relationships.filter(rel => rel.from === id || rel.to === id);
     function savePresentation() { try { window.localStorage.setItem(D.storageKey, JSON.stringify({ viewport: state.viewport, positions: state.positions })); } catch (_) {} }
@@ -827,10 +836,14 @@
       });
     }
     function renderInspector() {
+      if (state.inspectorMode === "document") return;
       const rel = D.relationships.find(item => item.id === state.selectedEdgeId);
+      state.inspectorMode = rel ? "relationship" : "entity";
       if (rel) {
         const from = entity(rel.from), to = entity(rel.to);
         els.inspector.innerHTML = '<div class="inspector-kicker">' + esc(rel.kind === "dependency" ? "Dependency" : "Runtime flow") + ' relationship</div><h2>' + esc(from.name) + ' → ' + esc(to.name) + '</h2><p class="inspector-purpose">' + esc(rel.explanation) + '</p><dl class="facts"><dt>Type</dt><dd>' + esc(rel.kind === "dependency" ? "Dependency" : "Runtime flow") + '</dd><dt>Source module</dt><dd>' + esc(from.name) + '</dd><dt>Target module</dt><dd>' + esc(to.name) + '</dd><dt>Evidence</dt><dd>' + esc(rel.source.evidenceType.replaceAll("_", " ")) + '</dd><dt>Source</dt><dd>' + esc(rel.source.path) + '</dd><dt>Section</dt><dd>' + esc(rel.source.section) + '</dd><dt>Source class</dt><dd>' + esc(rel.source.classification) + '</dd><dt>Commit</dt><dd>' + esc(rel.source.commit) + '</dd></dl><div class="inspector-section"><h3>Normalization</h3><p class="inspector-copy">' + esc(rel.source.normalization) + '</p></div><div class="inspector-section"><h3>Architectural caution</h3><p class="inspector-copy">' + esc(rel.caution) + '</p></div>';
+        const source = D.sources.find(item => item.path === rel.source.path);
+        if (source) els.inspector.insertAdjacentHTML("beforeend", '<button class="button" type="button" data-source-id="' + esc(source.id) + '">Open source note</button>');
         return;
       }
       const current = selected(), rels = relationshipsFor(current.id);
@@ -843,10 +856,11 @@
     }
     function renderSources() {
       const rows = D.sources.filter(matches);
-      els.sourcesShell.innerHTML = '<div class="view-intro"><h2>Architecture source path</h2><p>Atlas is a read-only snapshot over these maintained sources at commit ' + esc(D.inspectedCommit) + '. Read the canonical repository Markdown through the local rendered document view for full context.</p></div>' + (rows.length ? '<div class="source-grid">' + rows.map(item => '<article class="source-card"><div><h3>' + esc(item.title) + '</h3><div class="source-path">' + esc(item.path) + '</div></div><div class="source-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">runtime: ' + esc(item.runtimeEvidence) + '</span></div><p>' + esc(item.summary) + '</p><div class="source-actions"><button class="button primary" type="button" data-source-id="' + esc(item.id) + '">Read snapshot note</button><button class="button" type="button" data-full-source-id="' + esc(item.id) + '">Read full document</button></div></article>').join("") + '</div>' : '<div class="empty-state">No source documents match “' + esc(state.query) + '”. Clear the search to return to the governing set.</div>');
+      els.sourcesShell.innerHTML = '<div class="view-intro"><h2>Architecture source path</h2><p>Atlas is a read-only snapshot over these maintained sources at commit ' + esc(D.inspectedCommit) + '. Read the canonical repository Markdown through the local rendered document view for full context.</p></div>' + (rows.length ? '<div class="source-grid">' + rows.map(item => '<article class="source-card"><div><h3>' + esc(item.title) + '</h3><div class="source-path">' + esc(item.path) + '</div></div><div class="source-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">runtime: ' + esc(item.runtimeEvidence) + '</span></div><p>' + esc(item.summary) + '</p><div class="source-actions"><button class="button primary" type="button" data-full-source-id="' + esc(item.id) + '">Read source document</button></div></article>').join("") + '</div>' : '<div class="empty-state">No source documents match “' + esc(state.query) + '”. Clear the search to return to the governing set.</div>');
     }
     function renderAll() { renderGraph(); renderSummary(); renderInspector(); renderDirectory(); renderSources(); renderTitle(); }
     function navigateTo(id) {
+      if (state.inspectorMode === "document") { state.documentHistory = []; closeReader(); }
       if (!entity(id)) return recoverInvalidSelection();
       state.navigation = M.navigate(state.navigation, id); state.selectedEdgeId = null; renderAll();
     }
@@ -879,11 +893,14 @@
         state.readerFocus = describeReaderFocus(document.activeElement);
       }
       state.readerSourceId = item.id; els.readerTitle.textContent = item.title; els.readerPath.textContent = item.path;
+      state.inspectorMode = "document";
+      els.inspector.parentElement.classList.add("document-mode");
       els.reader.classList.add("open");
+      $$('[data-full-source-id], [data-source-id]').forEach(control => control.setAttribute("aria-pressed", String((control.dataset.fullSourceId || control.dataset.sourceId) === item.id)));
     }
     function setReaderMode(mode) {
-      state.readerMode = mode; els.readerLink.disabled = mode === "loading";
-      els.readerLink.textContent = mode === "snapshot" ? "Read full document" : mode === "loading" ? "Loading document…" : "Snapshot note";
+      state.readerMode = mode;
+      $("#readerStatus").textContent = mode === "loading" ? "Loading…" : location.protocol === "file:" ? "Offline document snapshot" : "Canonical local source";
     }
     function repositoryRootUrl() {
       try { return /^(?:https?|file):$/.test(location.protocol) ? new URL("../", location.href) : null; } catch (_) { return null; }
@@ -908,19 +925,17 @@
       const rawUrl = markdownSourceUrl(state.readerDocumentUrl || item.path);
       els.readerArticle.innerHTML = '<div class="reader-state"><h1>Document preview unavailable</h1><p>' + esc(detail) + '</p>' + (rawUrl ? '<p><a href="' + esc(rawUrl.href) + '" target="_blank" rel="noopener">Open original Markdown</a></p>' : '') + '</div>';
     }
-    function openReader(sourceId) {
+    function openReader(sourceId) { return openMarkdownReader(sourceId); }
+    async function openMarkdownReader(sourceId, target, baseUrl, restoreScroll = 0) {
       const item = D.sources.find(row => row.id === sourceId); if (!item) return;
-      prepareReader(item); state.readerDocumentUrl = null; state.readerLoadToken += 1; setReaderMode("snapshot");
-      els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">' + esc(item.classification) + '</span><span class="meta-chip">' + esc(item.role) + '</span><span class="meta-chip">' + esc(item.representation) + '</span><span class="meta-chip">commit ' + esc(D.inspectedCommit.slice(0, 12)) + '</span><span class="meta-chip">runtime evidence: ' + esc(item.runtimeEvidence) + '</span></div>' + item.content + '<h2>Provenance</h2><p><strong>Repository path:</strong> <code>' + esc(item.path) + '</code></p><p><strong>Inspected commit:</strong> <code>' + esc(D.inspectedCommit) + '</code></p><p>This bounded rendering is a ' + esc(item.representation) + '. It does not supersede the repository document or prove runtime behavior.</p>';
-      els.readerArticle.parentElement.scrollTop = 0; $("#closeReader").focus();
-    }
-    async function openMarkdownReader(sourceId, target, baseUrl) {
-      const item = D.sources.find(row => row.id === sourceId); if (!item) return;
+      if (!target) { state.documentHistory = []; state.readerDocumentUrl = null; }
       prepareReader(item); setReaderMode("loading"); els.readerArticle.parentElement.scrollTop = 0;
       els.readerArticle.innerHTML = '<div class="reader-state" role="status"><h1>Loading document…</h1><p>Reading the canonical local Markdown source.</p></div>';
       const url = markdownSourceUrl(target || item.path, baseUrl || state.readerDocumentUrl);
       if (!url) { renderReaderError(item, "This document is outside the repository preview."); return; }
       const loadToken = ++state.readerLoadToken; state.readerDocumentUrl = url.href; els.readerPath.textContent = repositoryPath(url);
+      els.readerLink.href = url.href;
+      $("#closeReader").focus({ preventScroll: true });
       try {
         let markdown;
         if (location.protocol === "file:") {
@@ -932,27 +947,34 @@
           markdown = await response.text();
         }
         if (loadToken !== state.readerLoadToken || !els.reader.classList.contains("open")) return;
-        els.readerArticle.innerHTML = '<div class="reader-meta"><span class="meta-chip">' + (location.protocol === "file:" ? 'offline document snapshot' : 'canonical local source') + '</span><span class="meta-chip">rendered Markdown</span><a href="' + esc(url.href) + '" target="_blank" rel="noopener">Open original Markdown</a></div>' + M.renderMarkdown(markdown);
+        els.readerArticle.innerHTML = M.renderMarkdown(markdown);
         const heading = els.readerArticle.querySelector("h1"); if (heading) els.readerTitle.textContent = heading.textContent;
         setReaderMode("markdown");
+        els.readerArticle.parentElement.scrollTop = restoreScroll;
       } catch (error) {
         if (loadToken !== state.readerLoadToken) return;
         renderReaderError(item, "Atlas could not preview " + repositoryPath(url) + " (" + (error && error.message ? error.message : "unknown error") + "). You can still open the original document below.");
       }
     }
     function closeReader() {
-      const prior = state.readerReturn ? M.createReaderReturn(state.readerReturn, state.readerReturn.scrollTop, state.readerReturn.pageScrollTop) : M.createReaderReturn(null, 0, 0);
+      if (state.documentHistory.length) {
+        const previous = state.documentHistory.pop();
+        return openMarkdownReader(previous.sourceId, previous.url, previous.url, previous.scrollTop);
+      }
       const focusReturn = state.readerFocus;
       els.reader.classList.remove("open"); state.readerSourceId = null; state.readerReturn = null; state.readerFocus = null; state.readerDocumentUrl = null; state.readerLoadToken += 1;
-      state.navigation = { selectedId: prior.navigation.selectedId, history: prior.navigation.history.slice() };
-      state.query = prior.query; state.selectedEdgeId = prior.selectedEdgeId;
-      if (prior.viewport) state.viewport = prior.viewport;
-      els.searchInput.value = state.query; setActiveView(prior.view); renderAll();
-      const scroller = viewScroller(prior.view); if (scroller) scroller.scrollTop = prior.scrollTop;
-      window.scrollTo(0, prior.pageScrollTop);
-      restoreReaderFocus(focusReturn, prior.view);
+      state.inspectorMode = state.selectedEdgeId ? "relationship" : "entity";
+      els.inspector.parentElement.classList.remove("document-mode");
+      renderInspector();
+      $$('[aria-pressed="true"]').forEach(control => control.setAttribute("aria-pressed", "false"));
+      restoreReaderFocus(focusReturn, state.view);
     }
-    function selectEdge(id) { if (!D.relationships.some(rel => rel.id === id)) return; state.selectedEdgeId = id; renderRoutes(); renderInspector(); }
+    function followDocumentLink(target) {
+      const url = markdownSourceUrl(target, state.readerDocumentUrl); if (!url) return;
+      state.documentHistory.push({ sourceId: state.readerSourceId, url: state.readerDocumentUrl, scrollTop: els.readerArticle.parentElement.scrollTop });
+      return openMarkdownReader(state.readerSourceId, url.href, state.readerDocumentUrl);
+    }
+    function selectEdge(id) { if (!D.relationships.some(rel => rel.id === id)) return; if (state.inspectorMode === "document") { state.documentHistory = []; closeReader(); } state.selectedEdgeId = id; renderRoutes(); renderInspector(); }
     function toggleLegend(force) {
       const open = typeof force === "boolean" ? force : els.legendPanel.hidden;
       els.legendPanel.hidden = !open; els.legendButton.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1017,12 +1039,11 @@
     els.searchInput.addEventListener("input", event => { state.query = event.target.value; renderGraph(); renderDirectory(); renderSources(); });
     els.backButton.addEventListener("click", goBack);
     $("#closeReader").addEventListener("click", closeReader);
-    els.readerLink.addEventListener("click", () => { if (state.readerMode === "snapshot") openMarkdownReader(state.readerSourceId); else if (state.readerMode === "markdown") openReader(state.readerSourceId); });
     els.readerArticle.addEventListener("click", event => {
       const link = event.target.closest("[data-markdown-href]"); if (!link) return;
       event.preventDefault(); const target = link.dataset.markdownHref;
       if (target.startsWith("#")) { const id = decodeURIComponent(target.slice(1)); const heading = [...els.readerArticle.querySelectorAll("[id]")].find(node => node.id === id); if (heading) heading.scrollIntoView(); return; }
-      const url = markdownSourceUrl(target, state.readerDocumentUrl); if (url) openMarkdownReader(state.readerSourceId, url.href, state.readerDocumentUrl);
+      followDocumentLink(target);
     });
     $("#aboutButton").addEventListener("click", () => openReader("source-atlas"));
     els.legendButton.addEventListener("click", () => toggleLegend());

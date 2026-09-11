@@ -263,7 +263,8 @@ test("source reader return snapshots preserve valid origins and local context", 
   assert.equal(invalid.pageScrollTop, 0);
   assert.deepEqual(plain(M.createReaderReturn(null, 0, 0).navigation), plain(M.createNavigation()));
   assert.match(html, /state\.readerReturn = M\.createReaderReturn\(state, scroller \? scroller\.scrollTop : 0, window\.scrollY\)/);
-  assert.match(html, /setActiveView\(prior\.view\); renderAll\(\)/);
+  const close = html.match(/function closeReader\(\)[\s\S]*?(?=    function selectEdge)/)[0];
+  assert.doesNotMatch(close, /setActiveView|renderAll|state\.viewport\s*=/);
   assert.doesNotMatch(html, /history\.back\s*\(/);
 });
 
@@ -283,7 +284,8 @@ test("Sources exposes the complete governing document set", () => {
   assert.match(html, /data-view="sources"/);
   assert.match(html, /id="sourcesView"/);
   assert.match(html, /data-full-source-id/);
-  assert.match(html, /Read full document/);
+  assert.match(html, /Read source document/);
+  assert.doesNotMatch(html, /Read full document|Read snapshot note/);
   assert.doesNotMatch(html, /<a class="button"[^>]+\.md/);
 });
 
@@ -341,21 +343,67 @@ test("direct-file reader renders bundled sources without fetch and retains raw l
   const offline = { URL, location: { protocol: 'file:', href: 'file:///repo/projection-ui-map/rc-atlas-prototype.html' },
     Response, Blob, Uint8Array, atob, DecompressionStream,
     D: M.data, M, esc: value => String(value), prepareReader: () => {}, setReaderMode: () => {},
-    state: { readerLoadToken: 0 }, els: { readerArticle: article, readerTitle: {}, readerPath: {}, reader: { classList: { contains: () => true } } },
+    $: () => ({ focus: () => {} }),
+    state: { readerLoadToken: 0 }, els: { readerLink: {}, readerArticle: article, readerTitle: {}, readerPath: {}, reader: { classList: { contains: () => true } } },
     fetch: () => { throw new Error('file mode must not fetch'); } };
   vm.createContext(offline);
   vm.runInContext(html.match(/<script data-atlas-offline-documents>([\s\S]*?)<\/script>/)[1], offline);
   vm.runInContext(html.match(/function repositoryRootUrl\(\)[\s\S]*?(?=    function closeReader\(\))/)[0], offline);
   for (const source of M.data.sources) {
     await offline.openMarkdownReader(source.id, source.path);
-    assert.match(article.innerHTML, /offline document snapshot/);
-    assert.match(article.innerHTML, /Open original Markdown/);
+    assert.match(offline.els.readerLink.href, /^file:\/\/\/repo\/docs\/architecture\//);
     assert.match(article.innerHTML, /<h[1-6]/);
   }
   await offline.openMarkdownReader('source-adr-index', '001-Queue-Based-Completion-Acceptance-Model.md', 'file:///repo/docs/architecture/adr/adr-index.md');
   assert.match(article.innerHTML, /Queue-Based Completion/);
   await offline.openMarkdownReader('source-adr-index', 'docs/architecture/missing.md');
   assert.match(article.innerHTML, /Open original Markdown/);
+});
+
+test("inspector document history preserves projection state and restores its prior content mode", async () => {
+  const encoded = html.match(/atob\("([A-Za-z0-9+/=]+)"\)/)[1];
+  const bundle = JSON.parse(require("node:zlib").gunzipSync(Buffer.from(encoded, "base64")));
+  const functions = html.match(/function prepareReader\(item\)[\s\S]*?(?=    function selectEdge)/)[0];
+  for (const view of ['atlas', 'directory', 'sources']) {
+    for (const originMode of ['entity', 'relationship']) {
+      const classes = new Set();
+      const classList = { add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name) };
+      const body = { scrollTop: 0 };
+      const scroller = { scrollTop: 240 };
+      const controls = {};
+      const state = { view, query: 'docs', navigation: { selectedId: 'completion-assembly-execution', history: [] }, selectedEdgeId: originMode === 'relationship' ? 'edge-example' : null, viewport: { x: 70, y: -20, scale: .6 }, inspectorMode: originMode, documentHistory: [], readerLoadToken: 0 };
+      const original = JSON.stringify([state.view, state.query, state.navigation, state.selectedEdgeId, state.viewport]);
+      const env = { URL, location: { protocol: 'file:', href: 'file:///repo/projection-ui-map/rc-atlas-prototype.html' }, AtlasDocumentBundle: Promise.resolve(bundle),
+        M, D: M.data, state, window: { scrollY: 0 }, document: { activeElement: {} },
+        $: selector => controls[selector] ||= { focus: () => {} }, $$: () => [],
+        esc: value => String(value), viewScroller: () => scroller, describeReaderFocus: () => ({id:'source'}), restoreReaderFocus: () => {}, renderInspector: () => {},
+        els: { inspector: { parentElement: { classList } }, reader: { classList }, readerLink: {}, readerTitle: {}, readerPath: {}, readerArticle: { parentElement: body, querySelector: () => null, innerHTML: '' } } };
+      vm.createContext(env); vm.runInContext(functions, env);
+      await env.openReader('source-adr-index');
+      assert.equal(state.inspectorMode, 'document');
+      assert.ok(classes.has('document-mode'));
+      assert.match(env.els.readerArticle.innerHTML, /<h1 id="adr-index">/);
+      body.scrollTop = 519;
+      await env.followDocumentLink('001-Queue-Based-Completion-Acceptance-Model.md');
+      assert.equal(state.documentHistory.length, 1);
+      assert.match(env.els.readerArticle.innerHTML, /Queue-Based Completion/);
+      await env.closeReader();
+      assert.match(state.readerDocumentUrl, /adr-index\.md$/);
+      assert.equal(body.scrollTop, 519);
+      assert.equal(state.inspectorMode, 'document');
+      await env.closeReader();
+      assert.equal(state.inspectorMode, originMode);
+      assert.equal(scroller.scrollTop, 240);
+      assert.equal(JSON.stringify([state.view, state.query, state.navigation, state.selectedEdgeId, state.viewport]), original);
+      assert.ok(!classes.has('document-mode'));
+      assert.equal(env.markdownSourceUrl('https://outside.example/document.md'), null);
+      assert.equal(env.markdownSourceUrl('../../outside.md'), null);
+      assert.equal(env.markdownSourceUrl('javascript:alert(1)'), null);
+    }
+  }
+  const readerTag = html.match(/<section class="reader"[^>]*>/)[0];
+  assert.doesNotMatch(readerTag, /dialog|aria-modal/);
+  assert.match(html, /function openReader\(sourceId\) \{ return openMarkdownReader\(sourceId\); \}/);
 });
 
 test("Codexify material, Galaxy transition, and reduced motion contracts remain intact", () => {
@@ -374,7 +422,7 @@ test("Codexify material, Galaxy transition, and reduced motion contracts remain 
 test("truthful boundary copy remains visible and the prototype makes no automatic external request", () => {
   assert.match(html, /Architecture document snapshot · design prototype · no live connections/);
   assert.match(html, /not live federation/);
-  assert.match(html, /does not supersede the repository document or prove runtime behavior/);
+  assert.match(html, /Offline document snapshot/);
   assert.doesNotMatch(html, /<script[^>]+src=/i);
   assert.doesNotMatch(html, /<link[^>]+rel=["']stylesheet/i);
   assert.doesNotMatch(html, /@import\s/i);
