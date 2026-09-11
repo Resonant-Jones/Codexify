@@ -323,14 +323,39 @@ const safe = true;
   assert.doesNotMatch(rendered, /<script>|javascript:/);
 });
 
-test("full-document loading is explicit, same-origin, and fails closed outside served mode", () => {
+test("full-document loading supports offline sources and preserves original access", () => {
   const loader = html.match(/function repositoryRootUrl\(\)[\s\S]*?function closeReader\(\)/)?.[0] || "";
-  assert.match(loader, /\^https\?:\$/);
+  assert.match(loader, /https\?\|file/);
   assert.match(loader, /url\.origin !== root\.origin/);
   assert.match(loader, /await fetch\(url\.href, \{ cache: "no-store" \}\)/);
-  assert.match(loader, /A browser-opened file cannot read sibling repository documents/);
-  assert.match(loader, /Atlas will not fall back to raw Markdown/);
+  assert.match(loader, /Open original Markdown/);
+  const encoded = html.match(/atob\("([A-Za-z0-9+/=]+)"\)/)[1];
+  const bundle = JSON.parse(require("node:zlib").gunzipSync(Buffer.from(encoded, "base64")));
+  for (const source of M.data.sources) assert.equal(bundle[source.path.toLowerCase()], fs.readFileSync(path.join(__dirname, "..", source.path), "utf8"));
+  assert.match(bundle["docs/architecture/adr/001-queue-based-completion-acceptance-model.md"], /Queue-Based/);
   assert.equal((html.match(/\bfetch\s*\(/g) || []).length, 1);
+});
+
+test("direct-file reader renders bundled sources without fetch and retains raw links", async () => {
+  const article = { innerHTML: '', parentElement: { scrollTop: 0 }, querySelector: () => null };
+  const offline = { URL, location: { protocol: 'file:', href: 'file:///repo/projection-ui-map/rc-atlas-prototype.html' },
+    Response, Blob, Uint8Array, atob, DecompressionStream,
+    D: M.data, M, esc: value => String(value), prepareReader: () => {}, setReaderMode: () => {},
+    state: { readerLoadToken: 0 }, els: { readerArticle: article, readerTitle: {}, readerPath: {}, reader: { classList: { contains: () => true } } },
+    fetch: () => { throw new Error('file mode must not fetch'); } };
+  vm.createContext(offline);
+  vm.runInContext(html.match(/<script data-atlas-offline-documents>([\s\S]*?)<\/script>/)[1], offline);
+  vm.runInContext(html.match(/function repositoryRootUrl\(\)[\s\S]*?(?=    function closeReader\(\))/)[0], offline);
+  for (const source of M.data.sources) {
+    await offline.openMarkdownReader(source.id, source.path);
+    assert.match(article.innerHTML, /offline document snapshot/);
+    assert.match(article.innerHTML, /Open original Markdown/);
+    assert.match(article.innerHTML, /<h[1-6]/);
+  }
+  await offline.openMarkdownReader('source-adr-index', '001-Queue-Based-Completion-Acceptance-Model.md', 'file:///repo/docs/architecture/adr/adr-index.md');
+  assert.match(article.innerHTML, /Queue-Based Completion/);
+  await offline.openMarkdownReader('source-adr-index', 'docs/architecture/missing.md');
+  assert.match(article.innerHTML, /Open original Markdown/);
 });
 
 test("Codexify material, Galaxy transition, and reduced motion contracts remain intact", () => {

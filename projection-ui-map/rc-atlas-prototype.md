@@ -104,13 +104,17 @@ Codexify's constitutional distinctions remain explicit: documentation is evidenc
 
 ### Local rendered-document preview
 
-Browsers do not reliably permit a `file://` page to read sibling repository files. To use the full-document reader, serve the repository root locally and open the prototype through HTTP:
+Direct-file opening now renders a compressed, embedded snapshot of all nine Sources documents and the ADR directory (90 documents). The reader labels this as an offline document snapshot and always offers **Open original Markdown**. Missing previews also retain that original-source link. Refresh the derived bundle after documentation changes with `node projection-ui-map/refresh-atlas-documents.cjs`; use `--check` to verify freshness. It is not an editable source of truth.
+
+To read current repository content instead of the embedded snapshot, optionally serve the repository root:
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1 --directory .
 ```
 
-Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. Direct-file mode keeps the bounded snapshot notes available and presents this served-mode instruction instead of navigating to raw Markdown.
+Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. No server is required for the offline reader.
+
+Correction validation: 27 Node tests cover the actual asynchronous file-mode loader, all nine Sources documents, ADR-001 navigation, original-source fallback, decompression, and bundle parity with canonical files. `node projection-ui-map/refresh-atlas-documents.cjs --check` validates all 90 embedded documents. The browser automation URL policy blocks attaching to `file://` tabs, so direct-file visual verification could not be completed through that tool; earlier HTTP browser proof below does not establish file-mode visual proof.
 
 Validation recorded on 2026-09-11:
 
