@@ -143,7 +143,11 @@ Pi delegation was attempted through the catalog preflight only: zero available m
 
 ### Local rendered-document preview
 
-Direct-file opening now renders a compressed, embedded snapshot of all nine Sources documents and the ADR directory (90 documents). The reader labels this as an offline document snapshot and always offers **Open original Markdown**. Missing previews also retain that original-source link. Refresh the derived bundle after documentation changes with `node projection-ui-map/refresh-atlas-documents.cjs`; use `--check` to verify freshness. It is not an editable source of truth.
+Atlas carries a compressed, generated embedded snapshot of all nine Sources documents and the ADR directory (90 documents). The reader resolves a known bundled document from that snapshot first under `file:`, `http:`, and `https:`; it does not require `/docs/**` to be served over HTTP. The reader labels the result as an embedded document snapshot, because canonical repository Markdown remains authoritative.
+
+**Open original Markdown** remains a secondary escape hatch. It can reach current repository Markdown when the repository root is deliberately served, but a host that serves only the Atlas artifact may return a safe 404 for that secondary link. Primary reading and linked-document navigation must never depend on that route. Unbundled, unsafe, external, or out-of-repository document requests fail closed in the reader.
+
+Refresh the derived bundle after canonical bundled-document changes with `node projection-ui-map/refresh-atlas-documents.cjs`; use `--check` as the freshness gate. The refresh helper is deterministic and does not make the snapshot an editable source of truth. Direct canonical Markdown serving remains a possible later architecture, not current prototype truth. Atlas is not yet deployed through private preview.
 
 To read current repository content instead of the embedded snapshot, optionally serve the repository root:
 
@@ -151,9 +155,9 @@ To read current repository content instead of the embedded snapshot, optionally 
 python3 -m http.server 8765 --bind 127.0.0.1 --directory .
 ```
 
-Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. No server is required for the offline reader.
+Then open `http://127.0.0.1:8765/projection-ui-map/rc-atlas-prototype.html`. The reader still renders bundled documents first; the server only makes the optional original-Markdown links reachable. No server is required for the embedded reader.
 
-Correction validation: 27 Node tests cover the actual asynchronous file-mode loader, all nine Sources documents, ADR-001 navigation, original-source fallback, decompression, and bundle parity with canonical files. `node projection-ui-map/refresh-atlas-documents.cjs --check` validates all 90 embedded documents. The browser automation URL policy blocks attaching to `file://` tabs, so direct-file visual verification could not be completed through that tool; earlier HTTP browser proof below does not establish file-mode visual proof.
+Correction validation: the focused Node suite exercises the actual asynchronous reader for bundled sources under `file:`, `http:`, and `https:`, including ADR navigation, reader Back, fail-closed paths, decompression, and bundle parity with canonical files. `node projection-ui-map/refresh-atlas-documents.cjs --check` validates all 90 embedded documents. The browser automation URL policy blocks attaching to `file://` tabs, so direct-file visual verification could not be completed through that tool; HTTP proof does not establish file-mode visual proof.
 
 Historical pre-inspector validation recorded on 2026-09-11 (superseded for reader layout by the inspector checks above):
 
