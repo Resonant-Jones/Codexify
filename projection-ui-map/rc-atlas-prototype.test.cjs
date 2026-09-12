@@ -12,7 +12,7 @@ const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
 const modelMatch = html.match(/<script\s+data-atlas-model>([\s\S]*?)<\/script>/i);
 
 assert.ok(modelMatch, "prototype exposes the pure Atlas model script");
-const context = { console };
+const context = { console, URL };
 context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(modelMatch[1], context, { filename: "rc-atlas-model.js" });
@@ -411,6 +411,16 @@ const safe = true;
   assert.doesNotMatch(rendered, /<script>|javascript:/);
 });
 
+test("repository links to non-Markdown files bypass the document reader", () => {
+  const rendered = M.renderMarkdown(
+    "[Protocol tokens](../../guardian/protocol_tokens.py) and [ADR index](adr/adr-index.md)",
+    "file:///repo/docs/architecture/00-current-state.md"
+  );
+  assert.match(rendered, /href="file:\/\/\/repo\/guardian\/protocol_tokens\.py"/);
+  assert.doesNotMatch(rendered, /data-markdown-href="\.\.\/\.\.\/guardian\/protocol_tokens\.py"/);
+  assert.match(rendered, /data-markdown-href="adr\/adr-index\.md"/);
+});
+
 test("full-document loading supports offline sources and preserves original access", () => {
   const loader = html.match(/function repositoryRootUrl\(\)[\s\S]*?function closeReader\(\)/)?.[0] || "";
   assert.match(loader, /https\?\|file/);
@@ -487,6 +497,7 @@ test("inspector document history preserves projection state and restores its pri
       assert.ok(!classes.has('document-mode'));
       assert.equal(env.markdownSourceUrl('https://outside.example/document.md'), null);
       assert.equal(env.markdownSourceUrl('../../outside.md'), null);
+      assert.equal(env.markdownSourceUrl('../../guardian/protocol_tokens.py'), null);
       assert.equal(env.markdownSourceUrl('javascript:alert(1)'), null);
     }
   }

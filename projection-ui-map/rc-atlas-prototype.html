@@ -691,7 +691,7 @@
       const target = String(value || "").trim();
       return target && !/^(?:javascript|data|vbscript):/i.test(target) ? target : null;
     }
-    function renderMarkdownInline(value) {
+    function renderMarkdownInline(value, baseUrl) {
       const held = [];
       const hold = html => "\u0000" + (held.push(html) - 1) + "\u0000";
       let text = String(value == null ? "" : value);
@@ -708,7 +708,11 @@
       text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+["']([^"']+)["'])?\)/g, (_, rawLabel, rawTarget, rawTitle) => {
         const target = safeMarkdownTarget(rawTarget), label = escapeMarkdown(rawLabel);
         const title = rawTitle ? ' title="' + escapeMarkdown(rawTitle) + '"' : "";
-        return target ? hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '"' + title + ">" + label + "</a>") : label;
+        if (!target) return label;
+        if (/\.md(?:[#?]|$)/i.test(target)) return hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '"' + title + ">" + label + "</a>");
+        let href = target;
+        try { if (baseUrl && !/^[a-z][a-z\d+.-]*:/i.test(target)) href = new URL(target, baseUrl).href; } catch (_) { return label; }
+        return hold('<a href="' + escapeMarkdown(href) + '"' + title + ">" + label + "</a>");
       });
       text = escapeMarkdown(text)
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -718,7 +722,7 @@
         .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
       return text.replace(/\u0000(\d+)\u0000/g, (_, index) => held[+index] || "");
     }
-    function renderFrontmatter(lines) {
+    function renderFrontmatter(lines, baseUrl) {
       const fields = [];
       let current = null;
       lines.forEach(line => {
@@ -729,7 +733,7 @@
         if (item && current) current.values.push(item[1]);
       });
       if (!fields.length) return "";
-      return '<aside class="markdown-frontmatter"><strong>Document metadata</strong><dl>' + fields.map(field => '<dt>' + escapeMarkdown(field.key) + '</dt><dd>' + (field.values.length ? field.values.map(renderMarkdownInline).join('<span aria-hidden="true"> · </span>') : "—") + "</dd>").join("") + "</dl></aside>";
+      return '<aside class="markdown-frontmatter"><strong>Document metadata</strong><dl>' + fields.map(field => '<dt>' + escapeMarkdown(field.key) + '</dt><dd>' + (field.values.length ? field.values.map(value => renderMarkdownInline(value, baseUrl)).join('<span aria-hidden="true"> · </span>') : "—") + "</dd>").join("") + "</dl></aside>";
     }
     function splitMarkdownTableRow(line) {
       const cells = [];
@@ -756,13 +760,14 @@
       const line = lines[index] || "";
       return !line.trim() || /^\s*```/.test(line) || /^#{1,6}\s+/.test(line) || /^\s*>/.test(line) || /^\s*(?:[-+*]|\d+\.)\s+/.test(line) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) || (index + 1 < lines.length && line.includes("|") && tableDivider(lines[index + 1]));
     }
-    function renderMarkdown(markdown) {
+    function renderMarkdown(markdown, baseUrl) {
+      const renderInline = value => renderMarkdownInline(value, baseUrl);
       const lines = String(markdown == null ? "" : markdown).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
       const output = [];
       let index = 0;
       if (lines[0] && lines[0].trim() === "---") {
         const end = lines.findIndex((line, lineIndex) => lineIndex > 0 && line.trim() === "---");
-        if (end > 0) { output.push(renderFrontmatter(lines.slice(1, end))); index = end + 1; }
+        if (end > 0) { output.push(renderFrontmatter(lines.slice(1, end), baseUrl)); index = end + 1; }
       }
       while (index < lines.length) {
         const line = lines[index];
@@ -780,20 +785,20 @@
         if (heading) {
           const level = heading[1].length;
           const id = heading[2].toLowerCase().replace(/<[^>]*>/g, "").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-") || "section-" + index;
-          output.push("<h" + level + ' id="' + escapeMarkdown(id) + '">' + renderMarkdownInline(heading[2]) + "</h" + level + ">"); index += 1; continue;
+          output.push("<h" + level + ' id="' + escapeMarkdown(id) + '">' + renderInline(heading[2]) + "</h" + level + ">"); index += 1; continue;
         }
         if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { output.push("<hr>"); index += 1; continue; }
         if (line.includes("|") && index + 1 < lines.length && tableDivider(lines[index + 1])) {
           const headings = splitMarkdownTableRow(line); index += 2;
           const rows = [];
           while (index < lines.length && lines[index].includes("|") && lines[index].trim()) { rows.push(splitMarkdownTableRow(lines[index])); index += 1; }
-          output.push('<div class="markdown-table-wrap"><table><thead><tr>' + headings.map(cell => "<th>" + renderMarkdownInline(cell) + "</th>").join("") + "</tr></thead><tbody>" + rows.map(row => "<tr>" + headings.map((_, cellIndex) => "<td>" + renderMarkdownInline(row[cellIndex] || "") + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>");
+          output.push('<div class="markdown-table-wrap"><table><thead><tr>' + headings.map(cell => "<th>" + renderInline(cell) + "</th>").join("") + "</tr></thead><tbody>" + rows.map(row => "<tr>" + headings.map((_, cellIndex) => "<td>" + renderInline(row[cellIndex] || "") + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>");
           continue;
         }
         if (/^\s*>/.test(line)) {
           const quote = [];
           while (index < lines.length && /^\s*>/.test(lines[index])) { quote.push(lines[index].replace(/^\s*>\s?/, "")); index += 1; }
-          output.push("<blockquote>" + renderMarkdown(quote.join("\n")) + "</blockquote>"); continue;
+          output.push("<blockquote>" + renderMarkdown(quote.join("\n"), baseUrl) + "</blockquote>"); continue;
         }
         const list = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
         if (list) {
@@ -804,14 +809,14 @@
             let content = item[3]; index += 1;
             while (index < lines.length && /^\s{2,}\S/.test(lines[index]) && !/^\s*(?:[-+*]|\d+\.)\s+/.test(lines[index])) { content += " " + lines[index].trim(); index += 1; }
             const task = content.match(/^\[([ xX])\]\s+(.+)$/);
-            items.push({ value: ordered ? Math.max(1, +item[2]) : null, html: task ? '<input type="checkbox" disabled' + (task[1].toLowerCase() === "x" ? " checked" : "") + "> " + renderMarkdownInline(task[2]) : renderMarkdownInline(content) });
+            items.push({ value: ordered ? Math.max(1, +item[2]) : null, html: task ? '<input type="checkbox" disabled' + (task[1].toLowerCase() === "x" ? " checked" : "") + "> " + renderInline(task[2]) : renderInline(content) });
           }
           const tag = ordered ? "ol" : "ul", startAttribute = ordered && start !== 1 ? ' start="' + start + '"' : "";
           output.push("<" + tag + startAttribute + ">" + items.map(item => "<li" + (ordered ? ' value="' + item.value + '"' : "") + ">" + item.html + "</li>").join("") + "</" + tag + ">"); continue;
         }
         const paragraph = [line.trim()]; index += 1;
         while (index < lines.length && !markdownBlockStart(lines, index)) { paragraph.push(lines[index].trim()); index += 1; }
-        output.push("<p>" + renderMarkdownInline(paragraph.join(" ")) + "</p>");
+        output.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
       }
       return output.filter(Boolean).join("\n");
     }
@@ -1073,7 +1078,7 @@
         const base = baseUrl && !raw.startsWith("/") && !raw.startsWith("docs/") ? new URL(baseUrl) : root;
         const url = new URL(raw, base);
         if (url.origin !== root.origin || !url.pathname.startsWith(root.pathname)) return null;
-        if (!/\.md$/i.test(url.pathname)) url.pathname += ".md";
+        if (!/\.md$/i.test(url.pathname)) return null;
         return url;
       } catch (_) { return null; }
     }
@@ -1108,7 +1113,7 @@
           markdown = await response.text();
         }
         if (loadToken !== state.readerLoadToken || !els.reader.classList.contains("open")) return;
-        els.readerArticle.innerHTML = M.renderMarkdown(markdown);
+        els.readerArticle.innerHTML = M.renderMarkdown(markdown, url.href);
         const heading = els.readerArticle.querySelector("h1"); if (heading) els.readerTitle.textContent = heading.textContent;
         setReaderMode("markdown");
         els.readerArticle.parentElement.scrollTop = restoreScroll;
