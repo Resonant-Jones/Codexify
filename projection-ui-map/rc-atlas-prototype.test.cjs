@@ -146,6 +146,16 @@ test("node and edge meaning is not encoded by color alone", () => {
   assert.match(html, /<dt>Target module<\/dt>/);
 });
 
+test("relationship arrows stop outside target cards so their markers remain visible", () => {
+  assert.deepEqual(plain(M.routeEndpoint({ x: 0, y: 0 }, { x: 300, y: 0 })), { x: 187, y: 0 });
+  assert.deepEqual(plain(M.routeEndpoint({ x: 300, y: 0 }, { x: 0, y: 0 })), { x: 113, y: 0 });
+  assert.deepEqual(plain(M.routeEndpoint({ x: 0, y: 0 }, { x: 0, y: 300 })), { x: 0, y: 228 });
+
+  const diagonal = M.routeEndpoint({ x: 0, y: 0 }, { x: 300, y: 300 });
+  assert.ok(diagonal.x < 238 && diagonal.y < 238, "marker tip remains beyond the top-left card boundary");
+  assert.match(html, /M\.routeEndpoint\(\{ x: x1, y: y1 \}, \{ x: to\.x \+ 103, y: to\.y \+ 62 \}\)/);
+});
+
 test("external dependencies remain inspector details rather than invented module nodes", () => {
   const names = new Set(M.data.entities.map(item => item.name.toLowerCase()));
   for (const external of ["redis", "postgres", "browser storage", "provider credentials", "external network", "environment configuration"]) {

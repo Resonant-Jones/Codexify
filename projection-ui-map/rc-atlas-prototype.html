@@ -666,6 +666,17 @@
       const history = (state && state.history ? state.history : []).slice();
       return { selectedId: history.pop() || "completion-assembly-execution", history };
     }
+    function routeEndpoint(from, to, halfWidth = 103, halfHeight = 62, markerLength = 10) {
+      const dx = to.x - from.x, dy = to.y - from.y;
+      const distance = Math.hypot(dx, dy);
+      if (!distance) return { x: to.x, y: to.y };
+      const boundaryDistance = Math.min(
+        dx ? halfWidth * distance / Math.abs(dx) : Infinity,
+        dy ? halfHeight * distance / Math.abs(dy) : Infinity
+      );
+      const visibleDistance = boundaryDistance + markerLength;
+      return { x: to.x - dx * visibleDistance / distance, y: to.y - dy * visibleDistance / distance };
+    }
     const PRIMARY_VIEWS = Object.freeze(["atlas", "directory", "sources"]);
     function createReaderReturn(state, scrollTop, pageScrollTop) {
       const input = state && typeof state === "object" ? state : {};
@@ -859,7 +870,7 @@
       if (JSON.stringify(graphIds(model.entities)) !== JSON.stringify(listIds(model.entities))) errors.push("graph-list-parity");
       return errors;
     }
-    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, inspectorBounds, clampInspectorWidth, loadPresentation, createNavigation, navigate, back, createReaderReturn, mobilePreview, nextMobileSheetState, renderMarkdown, validate });
+    root.AtlasModel = Object.freeze({ data, byId, graphIds, listIds, categorySlug, fitViewport, defaultPresentation, inspectorBounds, clampInspectorWidth, loadPresentation, createNavigation, navigate, back, routeEndpoint, createReaderReturn, mobilePreview, nextMobileSheetState, renderMarkdown, validate });
   })(typeof globalThis !== "undefined" ? globalThis : this);
   </script>
 
@@ -980,7 +991,9 @@
       els.edgeLabels.innerHTML = "";
       D.relationships.forEach(rel => {
         const from = state.positions[rel.from], to = state.positions[rel.to]; if (!from || !to) return;
-        const x1 = from.x + 103, y1 = from.y + 62, x2 = to.x + 103, y2 = to.y + 62;
+        const x1 = from.x + 103, y1 = from.y + 62;
+        const endpoint = M.routeEndpoint({ x: x1, y: y1 }, { x: to.x + 103, y: to.y + 62 });
+        const x2 = endpoint.x, y2 = endpoint.y;
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("d", "M " + x1 + " " + y1 + " L " + x2 + " " + y2);
         path.setAttribute("class", rel.kind);
