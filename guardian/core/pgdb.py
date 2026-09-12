@@ -35,13 +35,10 @@ from guardian.db.models import (
     PersonalFactEvidence,
     PersonalFactRevision,
 )
+from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
-from .default_project import (
-    canonicalize_default_project,
-    resolve_project_id_or_default,
-)
-from guardian.services.openai_account_import import AccountImportError
+from .default_project import canonicalize_default_project, resolve_project_id_or_default
 
 _DEFAULT_USER_ID = "local"
 
@@ -166,15 +163,13 @@ class PgDB(ChatDB):
         try:
             with self._connect() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
+                    cur.execute("""
                         SELECT 1
                         FROM information_schema.columns
                         WHERE table_schema = 'public'
                           AND table_name = 'chat_messages'
                           AND column_name = 'kind'
-                        """
-                    )
+                        """)
                     self._chat_messages_has_kind = cur.fetchone() is not None
         except Exception as exc:
             logging.warning(
@@ -189,15 +184,13 @@ class PgDB(ChatDB):
         try:
             with self._connect() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
+                    cur.execute("""
                         SELECT 1
                         FROM information_schema.columns
                         WHERE table_schema = 'public'
                           AND table_name = 'chat_threads'
                           AND column_name = 'last_interaction_at'
-                        """
-                    )
+                        """)
                     self._chat_threads_has_last_interaction_at = (
                         cur.fetchone() is not None
                     )
@@ -215,9 +208,7 @@ class PgDB(ChatDB):
         if self._sync_jobs_ready:
             return
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT to_regclass(%s) AS relname", ("public.sync_jobs",)
-            )
+            cur.execute("SELECT to_regclass(%s) AS relname", ("public.sync_jobs",))
             result = cur.fetchone() or {}
             table_exists = result.get("relname") is not None
             if not table_exists:
@@ -250,9 +241,7 @@ class PgDB(ChatDB):
             )
             missing_tables: list[str] = []
             for table in required_tables:
-                cur.execute(
-                    "SELECT to_regclass(%s) AS relname", (f"public.{table}",)
-                )
+                cur.execute("SELECT to_regclass(%s) AS relname", (f"public.{table}",))
                 result = cur.fetchone() or {}
                 if result.get("relname") is None:
                     missing_tables.append(table)
@@ -355,9 +344,7 @@ class PgDB(ChatDB):
             )
             missing_tables = []
             for table in required_tables:
-                cur.execute(
-                    "SELECT to_regclass(%s) AS relname", (f"public.{table}",)
-                )
+                cur.execute("SELECT to_regclass(%s) AS relname", (f"public.{table}",))
                 result = cur.fetchone() or {}
                 if result.get("relname") is None:
                     missing_tables.append(table)
@@ -382,13 +369,11 @@ class PgDB(ChatDB):
 
             # Introspect connector_configs columns once to see if the
             # optional schedule column is available.
-            cur.execute(
-                """
+            cur.execute("""
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = 'connector_configs'
-                """
-            )
+                """)
             columns = {row["column_name"] for row in cur.fetchall()}
             self._connector_has_schedule = "schedule" in columns
             if not self._connector_has_schedule:
@@ -509,9 +494,7 @@ class PgDB(ChatDB):
         metadata = metadata or {}
         diary_flag = bool(is_diary if diary_mode is None else diary_mode)
         modeling_flag = bool(
-            exclude_from_identity
-            if modeling_excluded is None
-            else modeling_excluded
+            exclude_from_identity if modeling_excluded is None else modeling_excluded
         )
         # Validate the canonical origin token before any DB write so unsupported
         # values cannot reach the persistence layer.
@@ -608,9 +591,7 @@ class PgDB(ChatDB):
         metadata = metadata or {}
         diary_flag = bool(is_diary if diary_mode is None else diary_mode)
         modeling_flag = bool(
-            exclude_from_identity
-            if modeling_excluded is None
-            else modeling_excluded
+            exclude_from_identity if modeling_excluded is None else modeling_excluded
         )
         from guardian.conversation_origin import resolve_canonical_origin
 
@@ -830,9 +811,9 @@ class PgDB(ChatDB):
         )
         if clauses:
             query += " WHERE " + " AND ".join(
-                clause.replace("project_id", "ct.project_id").replace(
-                    "user_id", "ct.user_id"
-                ).replace("origin_system", "ct.origin_system")
+                clause.replace("project_id", "ct.project_id")
+                .replace("user_id", "ct.user_id")
+                .replace("origin_system", "ct.origin_system")
                 for clause in clauses
             )
         query += (
@@ -932,7 +913,11 @@ class PgDB(ChatDB):
         return updated
 
     def set_thread_active_profile_id(
-        self, thread_id: int, profile_id: str | None, *, profile_revision: int | None = None
+        self,
+        thread_id: int,
+        profile_id: str | None,
+        *,
+        profile_revision: int | None = None,
     ) -> bool:
         """Atomically set ID and revision; revisionless callers clear any pin."""
         now = datetime.now(timezone.utc)
@@ -953,9 +938,7 @@ class PgDB(ChatDB):
                 conn.rollback()
                 return False
 
-    def update_thread_metadata(
-        self, thread_id: int, metadata: dict[str, Any]
-    ) -> bool:
+    def update_thread_metadata(self, thread_id: int, metadata: dict[str, Any]) -> bool:
         """Replace thread metadata payload."""
         now = datetime.now(timezone.utc)
         with self._connect() as conn:
@@ -987,9 +970,7 @@ class PgDB(ChatDB):
         metadata["profile_overrides"] = dict(overrides or {})
         return self.update_thread_metadata(thread_id, metadata)
 
-    def _model_override_to_dict(
-        self, row: InferenceModelOverride
-    ) -> dict[str, Any]:
+    def _model_override_to_dict(self, row: InferenceModelOverride) -> dict[str, Any]:
         return {
             "provider_id": row.provider_id,
             "model_id": row.model_id,
@@ -1067,17 +1048,11 @@ class PgDB(ChatDB):
                 session.add(row)
 
             if "display_label" in overrides:
-                row.display_label = _clean_optional_text(
-                    overrides.get("display_label")
-                )
+                row.display_label = _clean_optional_text(overrides.get("display_label"))
             if "picker_label" in overrides:
-                row.picker_label = _clean_optional_text(
-                    overrides.get("picker_label")
-                )
+                row.picker_label = _clean_optional_text(overrides.get("picker_label"))
             if "supports_chat" in overrides:
-                row.supports_chat = _clean_optional_bool(
-                    overrides.get("supports_chat")
-                )
+                row.supports_chat = _clean_optional_bool(overrides.get("supports_chat"))
             if "supports_vision" in overrides:
                 row.supports_vision = _clean_optional_bool(
                     overrides.get("supports_vision")
@@ -1087,9 +1062,7 @@ class PgDB(ChatDB):
                     overrides.get("supports_text_input")
                 )
             if "model_kind" in overrides:
-                row.model_kind = _clean_optional_model_kind(
-                    overrides.get("model_kind")
-                )
+                row.model_kind = _clean_optional_model_kind(overrides.get("model_kind"))
             if "notes" in overrides:
                 row.notes = _clean_optional_text(overrides.get("notes"))
 
@@ -1105,9 +1078,7 @@ class PgDB(ChatDB):
 
         return payload
 
-    def delete_inference_model_override(
-        self, provider_id: str, model_id: str
-    ) -> bool:
+    def delete_inference_model_override(self, provider_id: str, model_id: str) -> bool:
         provider_key = _clean_optional_text(provider_id)
         model_key = _clean_optional_text(model_id)
         if not provider_key or not model_key:
@@ -1128,9 +1099,7 @@ class PgDB(ChatDB):
 
         if deleted:
             try:
-                from backend.model_overrides import (
-                    invalidate_model_overrides_cache,
-                )
+                from backend.model_overrides import invalidate_model_overrides_cache
 
                 invalidate_model_overrides_cache()
             except Exception:
@@ -1171,9 +1140,7 @@ class PgDB(ChatDB):
         if not row:
             return None
         thread = self.get_chat_thread(thread_id)
-        return (
-            thread if thread is not None else self._normalize_thread(dict(row))
-        )
+        return thread if thread is not None else self._normalize_thread(dict(row))
 
     def unarchive_thread(self, thread_id: int) -> dict[str, Any] | None:
         """Clear `archived_at` and update `updated_at` for a chat thread.
@@ -1213,9 +1180,7 @@ class PgDB(ChatDB):
         if not row:
             return None
         thread = self.get_chat_thread(thread_id)
-        return (
-            thread if thread is not None else self._normalize_thread(dict(row))
-        )
+        return thread if thread is not None else self._normalize_thread(dict(row))
 
     def delete_thread(self, thread_id: int, force: bool = False) -> bool:
         """Irrevocably delete a chat thread, ignoring archived state.
@@ -1501,9 +1466,7 @@ class PgDB(ChatDB):
         now = datetime.now(timezone.utc)
         thread = self.get_chat_thread(thread_id)
         resolved_user_id = (
-            str(
-                user_id or (thread or {}).get("user_id") or _default_user_id()
-            ).strip()
+            str(user_id or (thread or {}).get("user_id") or _default_user_id()).strip()
             or _default_user_id()
         )
         with self._connect() as conn:
@@ -1634,9 +1597,7 @@ class PgDB(ChatDB):
                 if exclude_kinds and has_kind:
                     # Postgres does not allow `NOT IN %s` with a single bound parameter.
                     # Use array membership instead.
-                    query.append(
-                        "AND (kind IS NULL OR NOT (kind = ANY(%s::text[])))"
-                    )
+                    query.append("AND (kind IS NULL OR NOT (kind = ANY(%s::text[])))")
                     params.append(list(exclude_kinds))
                 query.append("ORDER BY created_at ASC, id ASC")
                 query.append("LIMIT %s OFFSET %s")
@@ -1645,9 +1606,7 @@ class PgDB(ChatDB):
                 rows = cur.fetchall()
                 messages = [dict(row) for row in rows]
         if exclude_kinds and not has_kind:
-            messages = [
-                row for row in messages if row.get("kind") not in exclude_kinds
-            ]
+            messages = [row for row in messages if row.get("kind") not in exclude_kinds]
         return messages
 
     def count_messages(self, thread_id: int):
@@ -1817,9 +1776,7 @@ class PgDB(ChatDB):
     def delete_memory(self, entry_id: int):
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM memory_entries WHERE id = %s", (entry_id,)
-                )
+                cur.execute("DELETE FROM memory_entries WHERE id = %s", (entry_id,))
 
     def prune_midterm(self, older_than_iso: str) -> int:
         with self._connect() as conn:
@@ -1965,22 +1922,14 @@ class PgDB(ChatDB):
             "confidence": fact.confidence,
             "is_active": fact.is_active,
             "last_confirmed_at": (
-                fact.last_confirmed_at.isoformat()
-                if fact.last_confirmed_at
-                else None
+                fact.last_confirmed_at.isoformat() if fact.last_confirmed_at else None
             ),
-            "created_at": (
-                fact.created_at.isoformat() if fact.created_at else None
-            ),
-            "updated_at": (
-                fact.updated_at.isoformat() if fact.updated_at else None
-            ),
+            "created_at": (fact.created_at.isoformat() if fact.created_at else None),
+            "updated_at": (fact.updated_at.isoformat() if fact.updated_at else None),
             "guardrail_metadata": fact.guardrail_metadata,
         }
 
-    def _evidence_to_dict(
-        self, evidence: PersonalFactEvidence
-    ) -> dict[str, Any]:
+    def _evidence_to_dict(self, evidence: PersonalFactEvidence) -> dict[str, Any]:
         return {
             "id": evidence.id,
             "fact_id": evidence.fact_id,
@@ -1995,9 +1944,7 @@ class PgDB(ChatDB):
             ),
         }
 
-    def _revision_to_dict(
-        self, revision: PersonalFactRevision
-    ) -> dict[str, Any]:
+    def _revision_to_dict(self, revision: PersonalFactRevision) -> dict[str, Any]:
         return {
             "id": revision.id,
             "fact_id": revision.fact_id,
@@ -2025,11 +1972,7 @@ class PgDB(ChatDB):
                 query = query.filter_by(status=status)
             if active_only:
                 query = query.filter_by(is_active=True)
-            facts = (
-                query.order_by(PersonalFact.updated_at.desc())
-                .limit(limit)
-                .all()
-            )
+            facts = query.order_by(PersonalFact.updated_at.desc()).limit(limit).all()
             return [self._fact_to_dict(fact) for fact in facts]
 
     def create_fact(
@@ -2601,8 +2544,7 @@ class PgDB(ChatDB):
                         continue
                     payload = _to_json(doc.get("payload") or {})
                     fetched_at = (
-                        doc.get("fetched_at")
-                        or datetime.now(timezone.utc).isoformat()
+                        doc.get("fetched_at") or datetime.now(timezone.utc).isoformat()
                     )
                     cur.execute(
                         """
@@ -2684,9 +2626,7 @@ class PgDB(ChatDB):
                 )
             return events
 
-    def delete_events_through(
-        self, last_id: int, tenant_id: str | None = None
-    ) -> None:
+    def delete_events_through(self, last_id: int, tenant_id: str | None = None) -> None:
         if last_id <= 0:
             return
         self._ensure_events_outbox_table()
@@ -2746,9 +2686,7 @@ class PgDB(ChatDB):
                 return {
                     "agent_id": agent_id,
                     "profile": profile_dict,
-                    "summarization_frequency": row.get(
-                        "summarization_frequency"
-                    ),
+                    "summarization_frequency": row.get("summarization_frequency"),
                     "last_summarized_at": last_summarized_val,
                 }
 
@@ -2777,9 +2715,7 @@ class PgDB(ChatDB):
             columns.append("last_summarized_at")
             placeholders.append("%s")
             values.append(fields["last_summarized_at"])
-            updates_clause.append(
-                "last_summarized_at = EXCLUDED.last_summarized_at"
-            )
+            updates_clause.append("last_summarized_at = EXCLUDED.last_summarized_at")
 
         if len(columns) == 1:
             # Nothing to update besides agent_id
@@ -2819,9 +2755,7 @@ class PgDB(ChatDB):
         else:
             return True, ""
 
-        delta_minutes = (
-            datetime.now(timezone.utc) - last_dt
-        ).total_seconds() / 60
+        delta_minutes = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
         if delta_minutes >= freq:
             return True, ""
         remaining = max(int(freq - delta_minutes), 0)
@@ -2890,16 +2824,14 @@ class PgDB(ChatDB):
                     )
 
                 for unique_columns in unique_key_columns:
-                    conflict = (
-                        self._restore_account_export_fetch_unique_conflict(
-                            cur,
-                            table_name=table_name,
-                            columns=columns,
-                            pk_column=pk_column,
-                            pk_value=pk_value,
-                            unique_columns=unique_columns,
-                            row=normalized_row,
-                        )
+                    conflict = self._restore_account_export_fetch_unique_conflict(
+                        cur,
+                        table_name=table_name,
+                        columns=columns,
+                        pk_column=pk_column,
+                        pk_value=pk_value,
+                        unique_columns=unique_columns,
+                        row=normalized_row,
                     )
                     if conflict is not None:
                         raise ValueError(
@@ -2962,9 +2894,7 @@ class PgDB(ChatDB):
     ) -> dict[str, Any]:
         missing = [column for column in columns if column not in row]
         if missing:
-            raise ValueError(
-                f"{table_name} row is missing required columns: {missing}"
-            )
+            raise ValueError(f"{table_name} row is missing required columns: {missing}")
         normalized: dict[str, Any] = {}
         for column in columns:
             normalized[column] = _normalize_export_value(row.get(column))
@@ -2991,10 +2921,7 @@ class PgDB(ChatDB):
         row = cur.fetchone()
         if not row:
             return None
-        return {
-            column: _normalize_export_value(row.get(column))
-            for column in columns
-        }
+        return {column: _normalize_export_value(row.get(column)) for column in columns}
 
     def _restore_account_export_fetch_unique_conflict(
         self,
@@ -3009,9 +2936,7 @@ class PgDB(ChatDB):
     ) -> dict[str, Any] | None:
         if not unique_columns:
             return None
-        where_clause = " AND ".join(
-            f"{column} = %s" for column in unique_columns
-        )
+        where_clause = " AND ".join(f"{column} = %s" for column in unique_columns)
         params = [row.get(column) for column in unique_columns]
         params.append(pk_value)
         cur.execute(
@@ -3028,8 +2953,7 @@ class PgDB(ChatDB):
         if not found:
             return None
         return {
-            column: _normalize_export_value(found.get(column))
-            for column in columns
+            column: _normalize_export_value(found.get(column)) for column in columns
         }
 
     def _restore_account_export_insert_row(
@@ -3088,8 +3012,7 @@ class PgDB(ChatDB):
 
         sequence_identifier = sql.Identifier(*sequence_name.split("."))
         cur.execute(
-            sql.SQL("SELECT last_value, is_called FROM {}")
-            .format(sequence_identifier)
+            sql.SQL("SELECT last_value, is_called FROM {}").format(sequence_identifier)
         )
         sequence_row = cur.fetchone() or {}
         sequence_value = int(sequence_row.get("last_value") or 0)
@@ -3098,9 +3021,7 @@ class PgDB(ChatDB):
         if sequence_value < max_value or (
             sequence_value == max_value and not sequence_called
         ):
-            cur.execute(
-                "SELECT setval(%s, %s, true)", (sequence_name, max_value)
-            )
+            cur.execute("SELECT setval(%s, %s, true)", (sequence_name, max_value))
 
     def restore_account_export_projects(
         self,
@@ -3150,9 +3071,9 @@ class PgDB(ChatDB):
         for row in rows:
             data = dict(row)
             if "origin_system" not in data or data["origin_system"] is None:
-                legacy_import_source = (
-                    data.get("metadata", {}) or {}
-                ).get("import_source")
+                legacy_import_source = (data.get("metadata", {}) or {}).get(
+                    "import_source"
+                )
                 legacy = normalize_legacy_import_source(legacy_import_source)
                 canonical = (
                     legacy
@@ -3432,9 +3353,7 @@ class PgDB(ChatDB):
             ),
             rows=rows,
             conn=conn,
-            unique_key_columns=(
-                ("project_id", "document_id", "document_type"),
-            ),
+            unique_key_columns=(("project_id", "document_id", "document_type"),),
             sequence_column="id",
         )
 
@@ -3811,9 +3730,7 @@ def fetch_threads_for_user(
         try:
             cur.close()
         except Exception as close_err:
-            logger.debug(
-                "Failed to close export cursor: %s", close_err, exc_info=True
-            )
+            logger.debug("Failed to close export cursor: %s", close_err, exc_info=True)
         try:
             conn.close()
         except Exception as conn_err:
@@ -3836,9 +3753,7 @@ def _normalize_export_json_field(value: Any) -> dict[str, Any]:
 
 def _normalize_export_thread_row(row: dict[str, Any]) -> dict[str, Any]:
     normalized = PgDB._normalize_thread(dict(row))
-    normalized["metadata"] = _normalize_export_json_field(
-        normalized.get("metadata")
-    )
+    normalized["metadata"] = _normalize_export_json_field(normalized.get("metadata"))
     project_name = normalized.get("project_name")
     if project_name is None:
         normalized["project_name"] = None
@@ -3865,9 +3780,7 @@ def _normalize_export_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, dict):
-        return {
-            key: _normalize_export_value(item) for key, item in value.items()
-        }
+        return {key: _normalize_export_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_normalize_export_value(item) for item in value]
     if isinstance(value, tuple):
@@ -3876,9 +3789,7 @@ def _normalize_export_value(value: Any) -> Any:
 
 
 def _normalize_export_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: _normalize_export_value(value) for key, value in dict(row).items()
-    }
+    return {key: _normalize_export_value(value) for key, value in dict(row).items()}
 
 
 @dataclass(frozen=True)
@@ -4187,9 +4098,7 @@ def iter_account_export_payloads_for_user(
     with _account_export_connection() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute(
-                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
-                )
+                cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             for family, path, reader_name in PAYLOAD_ORDER:
                 reader = globals()[reader_name]
                 rows = reader(user_id, conn=conn)
@@ -4259,8 +4168,7 @@ def fetch_account_export_chat_threads_for_user(
             )
             rows = cur.fetchall()
             return [
-                _normalize_export_row(PgDB._normalize_thread(dict(row)))
-                for row in rows
+                _normalize_export_row(PgDB._normalize_thread(dict(row))) for row in rows
             ]
 
 
@@ -4821,6 +4729,14 @@ ACCOUNT_EXPORT_PAYLOAD_ORDER = (
     "persona_profile_bindings",
 )
 
+ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
+    "persona_subjects",
+    "persona_subject_bindings",
+    "memory_records",
+    "memory_persona_links",
+    "memory_provenance",
+)
+
 
 def _normalize_export_value(value: Any) -> Any:
     if isinstance(value, dict):
@@ -4839,9 +4755,7 @@ def _normalize_export_value(value: Any) -> Any:
 
 
 def _normalize_export_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: _normalize_export_value(value) for key, value in dict(row).items()
-    }
+    return {key: _normalize_export_value(value) for key, value in dict(row).items()}
 
 
 def _export_rows(
@@ -4853,9 +4767,7 @@ def _export_rows(
     return [_normalize_export_row(dict(row)) for row in cur.fetchall()]
 
 
-def _export_scope_clause(
-    *clauses: tuple[str, Any | None]
-) -> tuple[str, list[Any]]:
+def _export_scope_clause(*clauses: tuple[str, Any | None]) -> tuple[str, list[Any]]:
     active_clauses: list[str] = []
     params: list[Any] = []
     for clause, value in clauses:
@@ -4882,21 +4794,26 @@ def _append_unique(values: list[Any], row_values: list[Any]) -> list[Any]:
 
 def fetch_account_export_bundle_for_user(
     user_id: str,
+    *,
+    include_unified_memory: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Return the complete canonical account export payload bundle for a user.
 
     The bundle is keyed by logical family name and keeps user scoping explicit.
     """
+    payload_order = ACCOUNT_EXPORT_PAYLOAD_ORDER
+    if include_unified_memory:
+        payload_order += ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER
     if not user_id:
-        return {family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER}
+        return {family: [] for family in payload_order}
 
     dsn = _resolve_dsn()
     conn = psycopg.connect(dsn, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
             bundles: dict[str, list[dict[str, Any]]] = {
-                family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER
+                family: [] for family in payload_order
             }
 
             bundles["chat_threads"] = _export_rows(
@@ -4935,13 +4852,7 @@ def fetch_account_export_bundle_for_user(
                     WHERE thread_id = ANY(%s)
                     ORDER BY COALESCE(event_at, created_at) ASC, id ASC
                     """,
-                    (
-                        [
-                            thread_id
-                            for thread_id in thread_ids
-                            if thread_id is not None
-                        ],
-                    ),
+                    ([thread_id for thread_id in thread_ids if thread_id is not None],),
                 )
                 if thread_ids
                 else []
@@ -5088,13 +4999,7 @@ def fetch_account_export_bundle_for_user(
                     WHERE asset_id = ANY(%s)
                     ORDER BY created_at ASC, id ASC
                     """,
-                    (
-                        [
-                            asset_id
-                            for asset_id in asset_ids
-                            if asset_id is not None
-                        ],
-                    ),
+                    ([asset_id for asset_id in asset_ids if asset_id is not None],),
                 )
                 if asset_ids
                 else []
@@ -5109,13 +5014,7 @@ def fetch_account_export_bundle_for_user(
                     WHERE thread_id = ANY(%s)
                     ORDER BY created_at ASC, id ASC
                     """,
-                    (
-                        [
-                            thread_id
-                            for thread_id in thread_ids
-                            if thread_id is not None
-                        ],
-                    ),
+                    ([thread_id for thread_id in thread_ids if thread_id is not None],),
                 )
                 if thread_ids
                 else []
@@ -5247,23 +5146,137 @@ def fetch_account_export_bundle_for_user(
                 (user_id,),
             )
 
-            bundles["projects"] = (
-                _export_rows(
+            if include_unified_memory:
+                bundles["persona_subjects"] = _export_rows(
                     cur,
                     """
                     SELECT
-                        id, name, description, icon,
-                        identity_depth, created_at, updated_at
-                    FROM projects
-                    WHERE id = ANY(%s)
-                    ORDER BY id ASC
+                        persona_subject_id, user_id, display_name_snapshot,
+                        lifecycle, created_at, updated_at
+                    FROM persona_subjects
+                    WHERE user_id = %s
+                    ORDER BY persona_subject_id ASC
                     """,
+                    (user_id,),
+                )
+                bundles["persona_subject_bindings"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        b.binding_id, b.persona_subject_id,
+                        b.subject_user_id, b.source_account_id,
+                        b.ref_kind, b.ref_id, b.valid_from,
+                        b.valid_until, b.created_at
+                    FROM persona_subject_bindings AS b
+                    JOIN persona_subjects AS s
+                      ON s.persona_subject_id = b.persona_subject_id
+                     AND s.user_id = b.subject_user_id
+                    WHERE b.subject_user_id = %s
+                      AND b.source_account_id = %s
+                      AND s.user_id = %s
+                    ORDER BY
+                        b.persona_subject_id ASC,
+                        b.valid_from ASC,
+                        b.binding_id ASC
+                    """,
+                    (user_id, user_id, user_id),
+                )
+                bundles["memory_records"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        memory_id, user_id, project_id, semantic_species,
+                        text_content, fact_key, fact_value, fact_confidence,
+                        reviewed_at, activated_at, pinned, held, extensions,
+                        created_at, updated_at
+                    FROM memory_records
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC
+                    """,
+                    (user_id,),
+                )
+                bundles["memory_persona_links"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        link_id, memory_id, user_id, persona_subject_id,
+                        persona_user_id, link_kind, created_at
+                    FROM memory_persona_links
+                    WHERE user_id = %s
+                      AND persona_user_id = %s
+                    ORDER BY
+                        memory_id ASC,
+                        persona_subject_id ASC,
+                        link_kind ASC,
+                        link_id ASC
+                    """,
+                    (user_id, user_id),
+                )
+                bundles["memory_provenance"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        provenance_id, memory_id, user_id, source_system,
+                        source_record_id, source_thread_id,
+                        source_message_id, source_import_job_id,
+                        source_export_fingerprint, source_subject_kind,
+                        source_subject_id, is_imported, extensions, created_at
+                    FROM memory_provenance
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, provenance_id ASC
+                    """,
+                    (user_id,),
+                )
+
+                project_ids = _append_unique(
+                    project_ids,
+                    [
+                        row.get("project_id")
+                        for row in bundles["memory_records"]
+                        if row.get("project_id") is not None
+                    ],
+                )
+
+            bundles["projects"] = (
+                _export_rows(
+                    cur,
                     (
-                        [
-                            project_id
-                            for project_id in project_ids
-                            if project_id is not None
-                        ],
+                        """
+                        SELECT
+                            id, user_id, name, description, icon,
+                            identity_depth, created_at, updated_at
+                        FROM projects
+                        WHERE user_id = %s
+                          AND id = ANY(%s)
+                        ORDER BY id ASC
+                        """
+                        if include_unified_memory
+                        else """
+                        SELECT
+                            id, name, description, icon,
+                            identity_depth, created_at, updated_at
+                        FROM projects
+                        WHERE id = ANY(%s)
+                        ORDER BY id ASC
+                        """
+                    ),
+                    (
+                        (
+                            user_id,
+                            [
+                                project_id
+                                for project_id in project_ids
+                                if project_id is not None
+                            ],
+                        )
+                        if include_unified_memory
+                        else (
+                            [
+                                project_id
+                                for project_id in project_ids
+                                if project_id is not None
+                            ],
+                        )
                     ),
                 )
                 if project_ids
@@ -5395,11 +5408,56 @@ def fetch_account_export_persona_profile_bindings_for_user(
     return _bundle_family_rows(user_id, "persona_profile_bindings")
 
 
+def _unified_memory_bundle_family_rows(
+    user_id: str, family: str
+) -> list[dict[str, Any]]:
+    bundle = fetch_account_export_bundle_for_user(
+        user_id,
+        include_unified_memory=True,
+    )
+    return bundle.get(family, [])
+
+
+def fetch_account_export_persona_subjects_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "persona_subjects")
+
+
+def fetch_account_export_persona_subject_bindings_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "persona_subject_bindings")
+
+
+def fetch_account_export_memory_records_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "memory_records")
+
+
+def fetch_account_export_memory_persona_links_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "memory_persona_links")
+
+
+def fetch_account_export_memory_provenance_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "memory_provenance")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
+    *,
+    include_unified_memory: bool = False,
 ):
-    bundle = fetch_account_export_bundle_for_user(user_id)
-    for family, path, _reader_name in (
+    bundle = fetch_account_export_bundle_for_user(
+        user_id,
+        include_unified_memory=include_unified_memory,
+    )
+    payload_order = (
         (
             "projects",
             "entities/projects.json",
@@ -5490,5 +5548,34 @@ def iter_account_export_payloads_for_user(
             "entities/persona_profile_bindings.json",
             "fetch_account_export_persona_profile_bindings_for_user",
         ),
-    ):
+    )
+    if include_unified_memory:
+        payload_order += (
+            (
+                "persona_subjects",
+                "entities/persona_subjects.json",
+                "fetch_account_export_persona_subjects_for_user",
+            ),
+            (
+                "persona_subject_bindings",
+                "entities/persona_subject_bindings.json",
+                "fetch_account_export_persona_subject_bindings_for_user",
+            ),
+            (
+                "memory_records",
+                "entities/memory_records.json",
+                "fetch_account_export_memory_records_for_user",
+            ),
+            (
+                "memory_persona_links",
+                "entities/memory_persona_links.json",
+                "fetch_account_export_memory_persona_links_for_user",
+            ),
+            (
+                "memory_provenance",
+                "entities/memory_provenance.json",
+                "fetch_account_export_memory_provenance_for_user",
+            ),
+        )
+    for family, path, _reader_name in payload_order:
         yield family, path, bundle.get(family, [])

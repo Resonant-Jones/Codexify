@@ -125,8 +125,8 @@ UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
 UMS-04: OPEN
 UMS-04A: CLOSED
 UMS-04B-PG DISPOSABLE POSTGRESQL TEST AUTHORITY: CLOSED
-UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO RESUME
-UMS-04C: NOT AUTHORIZED
+UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: CLOSED
+UMS-04C CANONICAL MEMORY RESTORE RECONSTRUCTION: AUTHORIZED TO START
 UMS-04D: NOT AUTHORIZED
 
 UMS-05+: NOT AUTHORIZED
@@ -702,6 +702,53 @@ UMS-04B-PG is closed; UMS-04B canonical memory export serialization is
 authorized to resume; UMS-04C, UMS-04D, and UMS-05+ remain not authorized. The
 complete evidence is recorded in the
 [2026-09-10 UMS-04B-PG PostgreSQL test-authority proof](../../architecture/proofs/runtime/2026-09-10-ums04b-postgres-test-authority-proof.md).
+
+UMS-04B closed canonical-memory account-export serialization against
+`main` at
+`7cf0439dab03f17f2a13a3d04ac587be2961e837`. The internal/non-public
+`account-export.v4` stage is implemented, normalized through the
+repository's commit-authoritative pre-commit formatter chain
+(`psf/black@26.5.1`, `pycqa/isort@5.12.0`; Black → isort), requalified
+against the dedicated PostgreSQL 17 cluster through its local Unix
+socket under trust authentication as `codexify_test_runner / postgres`
+(LOGIN, NOSUPERUSER, CREATEDB), and re-run through the focused
+UMS-04B module with `21 passed, 0 skipped, 0 failed` plus the
+isolated account-isolation seam at `1 passed, 0 skipped, 0 failed`.
+Pre-test and post-test SHA-256 values were identical:
+
+```text
+guardian/core/pgdb.py
+9ef26df76342197dc1d58a45a66756e6a0e177ec4ffced7fae4a4bf2002bf7e9
+
+guardian/services/account_export.py
+c85fd95fbfe39d584607d37c400bde4ed9bb623b14758d90f0e22f9b3014a137
+
+tests/services/test_account_export_unified_memory.py
+eb0d33344e5eaf6f628c3c8cbca7fd13b9b58d5462bcf969285576a11185f460
+```
+
+The default/ordinary account export remains `account-export.v3`;
+no public HTTP v4 selector exists; production v4 restore is not
+implemented; unsupported v4 restore remains fail-closed. The v4
+stage adds exactly these five canonical/supporting families:
+
+- `persona_subjects`
+- `persona_subject_bindings`
+- `memory_records`
+- `memory_persona_links`
+- `memory_provenance`
+
+The post-format qualification transport was the dedicated local Unix
+socket under trust authentication, not TCP/SCRAM. No password was
+recorded. The account-export regression gate passed `31 passed, 2
+skipped, 0 failed`; the account-restore regression gate passed `11
+passed, 0 failed`; `py_compile` PASS; Alembic reports exactly one head
+`f6b0d3e8c5a2`; Black and isort hooks PASS without mutation. The
+unrelated Pi fixture and the unrelated `guardian/watchdog/contracts.py`
+mypy baseline defect remain untouched. UMS-04 remains OPEN;
+UMS-04C is now AUTHORIZED TO START; UMS-04D and UMS-05+ remain NOT
+AUTHORIZED. The complete closeout evidence is recorded in the
+[2026-09-12 UMS-04B canonical-memory export serialization proof](../../architecture/proofs/runtime/2026-09-12-ums04b-canonical-memory-export-serialization-proof.md).
 
 UMS-01A removes description-envelope authority from the covered Project and
 Media runtime paths, stops new envelope writes, and adds a fail-closed

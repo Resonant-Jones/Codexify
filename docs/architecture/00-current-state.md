@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-08
+2026-09-12
 
 ## Interpretation rule
 
@@ -103,8 +103,8 @@ This file is authoritative for:
 
   UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
   UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
-  UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: AUTHORIZED TO START
-  UMS-04C: NOT AUTHORIZED
+  UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: CLOSED
+  UMS-04C CANONICAL MEMORY RESTORE RECONSTRUCTION: AUTHORIZED TO START
   UMS-04D: NOT AUTHORIZED
 
   UMS-05+: NOT AUTHORIZED
@@ -613,6 +613,40 @@ This file is authoritative for:
   UMS-04C and UMS-04D remain NOT AUTHORIZED; UMS-05+
   remain NOT AUTHORIZED. See the
   [UMS-04A canonical memory export / restore contract proof](./proofs/runtime/2026-09-08-ums04a-canonical-memory-export-restore-contract-proof.md).
+
+- **UMS-04B (canonical memory export serialization, just closed)**:
+  internal/non-public `account-export.v4` canonical-memory export
+  serialization is implemented in `guardian/services/account_export.py`
+  and `guardian/core/pgdb.py`, normalized through the repository's
+  commit-authoritative pre-commit formatter chain (`psf/black@26.5.1`
+  then `pycqa/isort@5.12.0`, with `--profile=black --line-length=88`),
+  and requalified against the dedicated PostgreSQL 17 cluster through
+  its local Unix socket under trust authentication as
+  `codexify_test_runner / postgres` (LOGIN, NOSUPERUSER, CREATEDB).
+  The focused UMS-04B module passed `21 passed, 0 skipped, 0 failed`;
+  the isolated account-isolation seam passed `1 passed, 0 skipped,
+  0 failed`. The default/ordinary account export remains
+  `account-export.v3`; no public HTTP v4 selector exists; production
+  v4 restore is not implemented; unsupported v4 restore remains
+  fail-closed. The v4 stage adds exactly these five
+  canonical/supporting families: `persona_subjects`,
+  `persona_subject_bindings`, `memory_records`,
+  `memory_persona_links`, `memory_provenance`. Deterministic
+  serialization, manifest entity counts and integrity coverage,
+  pre-ZIP ownership and referential closure validation, and account-
+  filtered PostgreSQL reads remain bounded to that internal
+  posture. The account-export regression gate passed
+  `31 passed, 2 skipped, 0 failed`; the account-restore regression
+  gate passed `11 passed, 0 failed`. `py_compile` PASS; Alembic
+  reports exactly one head `f6b0d3e8c5a2`; the actual pre-commit
+  Black and isort hooks PASS without mutation. The unrelated Pi
+  fixture and the unrelated `guardian/watchdog/contracts.py` mypy
+  baseline defect remain untouched. UMS-04 remains OPEN; UMS-04C is
+  now AUTHORIZED TO START; UMS-04D and UMS-05+ remain NOT
+  AUTHORIZED. No broader Beta/release qualification follows from
+  UMS-04B; the full export → restore round-trip qualification
+  remains incomplete. See the
+  [UMS-04B canonical memory export serialization proof](./proofs/runtime/2026-09-12-ums04b-canonical-memory-export-serialization-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
