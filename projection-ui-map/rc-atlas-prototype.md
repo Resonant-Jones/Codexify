@@ -26,7 +26,7 @@ The required documents were read from the inspected commit in this order:
 8. `docs/architecture/flows.md` — runtime-flow evidence.
 9. `docs/architecture/data-and-storage.md` — persistence and storage clarification.
 
-The prototype's Sources mode exposes these nine documents as bounded summaries and, on explicit request, fetches their canonical repository Markdown into the existing reader. The renderer presents frontmatter, headings, lists, tables, blockquotes, code, standard links, and Obsidian wiki links without copying the corpus into a second editable truth surface. Repository-document links remain inside the reader.
+The prototype's Sources mode exposes these nine documents as bounded summaries and, on explicit request, renders their embedded derived snapshots in the existing reader. The renderer presents frontmatter, headings, lists, tables, blockquotes, code, standard links, and Obsidian wiki links without copying the corpus into a second editable truth surface. Repository-document links remain inside the reader.
 
 The KB validity rules excluded `supplementary_verify_against_code`, `design_canon_not_runtime_truth`, `historical_archive`, and `misleading_identity_drift` material from topology extraction. In particular, legacy GuardianOS, Threadspace, `guardian-backend_v2`, obsolete installer, future federation, and historical audit documents were not used as present subsystem evidence. Visual material continues to follow the already accepted Codexify prototype treatment; design canon is not used as runtime topology evidence.
 
@@ -86,14 +86,14 @@ No maintained sources produced a contradictory named subsystem boundary in the s
 - Inspector modes are `entity`, `relationship`, and `document`. Source actions load full Markdown in one click; the projection, search, selection, viewport, and list scroll remain in place. Root Back restores the prior entity/relationship inspector and opening-control focus.
 - On desktop, the inspector opens at its pre-change `350px` width and exposes a focusable left-edge separator. Pointer dragging, Left/Right Arrow keys in `32px` increments, Home, and double-click resizing clamp between `350px` and `min(960px, viewport - 680px Atlas floor - 18px shell chrome)` without refitting or resetting the graph.
 - The chosen inspector width is presentation-only state in the existing namespaced local-storage record. It survives entity, relationship, document, view, and reload transitions; blocked, missing, malformed, or out-of-range values fall back or clamp safely. The existing `294px` responsive column and stacked narrow layout remain authoritative below the desktop resize breakpoint.
-- Explicit full-document rendering for same-origin, repository-root Markdown only. Raw HTML is escaped, unsafe link schemes are rejected, and a failed or unsupported document read does not fall back to raw Markdown navigation.
+- Explicit full-document rendering for approved repository-relative paths from the embedded snapshot bundle. Raw HTML is escaped, unsafe link schemes are rejected, and a failed or unsupported document read does not fall back to raw Markdown navigation.
 - Document mode adds an explicit **Full screen** action. It moves the same live reader between the inspector and an opaque full-viewport modal, so rendered content, internal links, source provenance, reader-local history, and scroll position remain one stateful reading path. Modal Close returns to the inspector; reader Back remains document-history navigation.
 - Exact local selection, search, view, edge, and viewport restoration after Galaxy return.
 - Namespaced local presentation storage limited to card positions, viewport, and inspector width, with safe fallback for missing, blocked, malformed, or out-of-range storage.
 - Reduced-motion handling and a 390px stacked projection/inspector layout without page-level horizontal overflow.
 - A non-scrolling canvas clip boundary so keyboard focus cannot create a hidden horizontal scroll offset on narrow screens.
 - Persistent `Architecture document snapshot · design prototype · no live connections` disclosure.
-- No automatic or external network requests. Opening a full source document makes one explicit same-origin local Markdown request.
+- No automatic or external network requests. Opening a full source document resolves from the embedded derived snapshot bundle.
 
 The persistent hierarchy rail, tree rendering, hierarchy-only controls, and synthetic local hierarchy model remain absent. No replacement tree, file explorer, drawer, permanent list, or permanent legend was added.
 
@@ -147,7 +147,9 @@ Atlas carries a compressed, generated embedded snapshot of all nine Sources docu
 
 **Open original Markdown** remains a secondary escape hatch. It can reach current repository Markdown when the repository root is deliberately served, but a host that serves only the Atlas artifact may return a safe 404 for that secondary link. Primary reading and linked-document navigation must never depend on that route. Unbundled, unsafe, external, or out-of-repository document requests fail closed in the reader.
 
-Refresh the derived bundle after canonical bundled-document changes with `node projection-ui-map/refresh-atlas-documents.cjs`; use `--check` as the freshness gate. The refresh helper is deterministic and does not make the snapshot an editable source of truth. Direct canonical Markdown serving remains a possible later architecture, not current prototype truth. Atlas is not yet deployed through private preview.
+Refresh the derived bundle after canonical bundled-document changes with `node projection-ui-map/refresh-atlas-documents.cjs`; use `--check` as the freshness gate. The refresh helper is deterministic and does not make the snapshot an editable source of truth. Direct canonical Markdown serving remains a possible later architecture, not current prototype truth.
+
+The standalone/local artifact remains `projection-ui-map/rc-atlas-prototype.html`. Private-preview repository wiring mounts that exact file read-only at the intended `/atlas/` route; no copied hosted edition exists. That static configuration proof is separate from runtime and external qualification, so `/atlas/` is not claimed live while the private-preview Chroma recovery/deployment lane remains blocked.
 
 To read current repository content instead of the embedded snapshot, optionally serve the repository root:
 

@@ -58,6 +58,8 @@ private-preview Nginx origin. The origin classifies requests as follows:
 | `/api/...` ending in `.ts`, `.tsx`, `.js`, or `.jsx` | Vite source-module traffic at `frontend:5173` |
 | Every other `/api/...` request | Guardian at the dynamic `backend:8888` upstream |
 | `/health` and `/health/*` | Guardian |
+| `/atlas` | Nginx exact `308` canonicalization to `/atlas/` |
+| `/atlas/` | Nginx exact static response from the read-only contributor Atlas artifact |
 
 The bounded `/api/` source-module exception mirrors Vite's existing
 development proxy behavior. It preserves the complete request URI and query
@@ -66,6 +68,25 @@ transfer semantic API authority to Vite, does not make a Guardian `404` fall
 through to the frontend, and does not describe a general production-web
 architecture. Cloudflare still terminates only at `127.0.0.1:8081`; Vite and
 Guardian remain unpublished.
+
+### Private contributor Atlas
+
+`/atlas/` is the intended private contributor/review architecture Atlas route.
+`private-preview-origin` serves the exact standalone repository artifact
+`projection-ui-map/rc-atlas-prototype.html` through a single read-only file
+mount; there is no copied hosted edition, Atlas service, additional port, or
+additional hostname. Its primary reader uses embedded derived documentation
+snapshots, so the repository's `/docs/**` tree is not exposed.
+
+Atlas gains no Guardian API/session authority, credentials, or mutation path by
+sharing the origin. Cloudflare Access remains the intended outer admission
+boundary. The response is privately bounded with `Cache-Control: no-store` and
+`X-Robots-Tag: noindex, nofollow` only for `/atlas/`.
+
+This repository wiring does not establish live availability at
+`https://preview.codexify.space/atlas/`. External qualification remains
+deferred behind the current private-preview Chroma recovery and deployment
+lane; Atlas is not a supported public Beta surface.
 
 The UI persists provider and model choice in the thread configuration through
 `PATCH /api/chat/threads/{thread_id}/config` using `providerId` and `modelId`.

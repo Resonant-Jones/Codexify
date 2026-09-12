@@ -126,6 +126,41 @@ def test_private_preview_compose_publishes_only_loopback_8081() -> None:
     assert _published_ports(config) == [("127.0.0.1", 8081, 8080)]
 
 
+def test_private_preview_compose_mounts_only_the_canonical_atlas_artifact() -> None:
+    config = _render_compose()
+    services = config["services"]
+    origin_mounts = services["private-preview-origin"].get("volumes") or []
+    atlas_source = ROOT / "projection-ui-map/rc-atlas-prototype.html"
+    compose_text = COMPOSE_FILES[1].read_text(encoding="utf-8")
+
+    assert (
+        "./projection-ui-map/rc-atlas-prototype.html:"
+        "/usr/share/nginx/html/codexify-atlas.html:ro" in compose_text
+    )
+    atlas_mounts = [
+        mount
+        for mount in origin_mounts
+        if Path(mount["source"]).resolve() == atlas_source.resolve()
+    ]
+    assert atlas_source.is_file()
+    assert len(atlas_mounts) == 1
+    atlas_mount = atlas_mounts[0]
+    assert atlas_mount["target"] == "/usr/share/nginx/html/codexify-atlas.html"
+    assert atlas_mount["read_only"] is True
+    assert Path(atlas_mount["source"]).resolve().is_file()
+    assert Path(atlas_mount["source"]).resolve().parent == ROOT / "projection-ui-map"
+    assert all(
+        Path(mount["source"]).resolve()
+        not in {
+            ROOT.resolve(),
+            (ROOT / "docs").resolve(),
+            (ROOT / "projection-ui-map").resolve(),
+        }
+        for mount in origin_mounts
+    )
+    assert not any("atlas" in service_name for service_name in services)
+
+
 def test_private_preview_compose_keeps_browser_secrets_empty() -> None:
     config = _render_compose()
     frontend = config["services"]["frontend"]["environment"]
@@ -275,6 +310,33 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert nginx.count("client_max_body_size 25m;") == 1
     assert nginx.count("client_max_body_size 0;") == 1
 
+    atlas_redirect = re.search(
+        r"location\s+=\s+/atlas\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert atlas_redirect is not None
+    assert "return 308 /atlas/;" in atlas_redirect.group("body")
+    assert "proxy_pass" not in atlas_redirect.group("body")
+
+    atlas_location = re.search(
+        r"location\s+=\s+/atlas/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert atlas_location is not None
+    atlas_body = atlas_location.group("body")
+    assert "default_type text/html;" in atlas_body
+    assert "alias /usr/share/nginx/html/codexify-atlas.html;" in atlas_body
+    assert 'add_header Cache-Control "no-store" always;' in atlas_body
+    assert 'add_header X-Robots-Tag "noindex, nofollow" always;' in atlas_body
+    assert "proxy_pass" not in atlas_body
+    assert "proxy_set_header" not in atlas_body
+    assert "guardian_backend" not in atlas_body
+    assert "frontend:5173" not in atlas_body
+    assert not re.search(r"location\s+/atlas/\s*\{", nginx)
+    assert not re.search(r"location\s+(?:=\s+)?/docs(?:/|\s|\{)", nginx)
+
     guardian_location = re.search(
         r"location\s+(?P<modifier>\^~\s+)?/api/\s*\{(?P<body>.*?)\n\s*\}",
         nginx,
@@ -298,7 +360,30 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert "proxy_pass http://guardian_backend/health;" in health_location.group(
         "body"
     )
-    assert "location /health/" in nginx
-    assert "proxy_pass http://backend:8888;" in nginx
+    health_children_location = re.search(
+        r"location\s+/health/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert health_children_location is not None
+    assert "proxy_pass http://guardian_backend;" in health_children_location.group(
+        "body"
+    )
+    websocket_location = re.search(
+        r"location\s+/ws/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert websocket_location is not None
+    assert "proxy_pass http://guardian_backend/api/ws/;" in websocket_location.group(
+        "body"
+    )
+    root_location = re.search(
+        r"location\s+/\s*\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert root_location is not None
+    assert "proxy_pass http://frontend:5173;" in root_location.group("body")
     assert "service: http://127.0.0.1:8081" in cloudflared
     assert "host.docker.internal:8000" not in nginx
