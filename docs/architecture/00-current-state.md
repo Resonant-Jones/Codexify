@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-11
+2026-09-12
 
 ## Interpretation rule
 
@@ -22,6 +22,7 @@ This file is authoritative for:
 
 ## What changed recently
 
+- **Accepted chat-task finite execution envelope: architecture accepted under ADR-087; implementation not yet present.** The decision fixes a server-owned 720-second work budget plus a 60-second terminal reserve, counts queue wait, requires non-sliding child deadlines and finite provider/tool/PostgreSQL participation, and keeps observer `timed_out` distinct from authoritative `task.failed` / `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED` / `failed_retryable` terminal truth.
 - Completed Project `1` partition/retirement under ADR-081/ADR-085 and profiles `profile-1`, `profile-2`, `profile-3` retirement under ADR-086. Project `1`, retired profiles, and retired-profile bindings/subjects remain absent after migration.
 - Implemented and proved account-scoped default Project seeding. The live canonical migrator completed Alembic traversal from `d4e0f2a5b7c9` to `7e5a5fccf253` and post-Alembic seeding with exit zero. A second complete run exited zero with all 119 table manifests identical. General Project IDs are `6,7,8,9,10`; ownerless Projects and `local` Generals are zero.
 - Preserved 72 threads, 805 messages, all eight repaired thread placements, all 20 affected messages, canonical account ownership, and replacement Project ownership. Normal traversal performed the disclosed single legacy Project-3 owner reconciliation and Project-2 description normalization; unexpected owner changes were zero. All 17 Project FK checks found zero orphans. A verified read-only post-migration backup is retained.
@@ -42,13 +43,14 @@ This file is authoritative for:
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or application runtime recovery closure.
 - Do not assume a fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
 - Do not infer semantic retrieval, multiprocess Chroma concurrency, queue/worker safe-start, matching application deployment, provider execution, application persistence, observability, account isolation, or non-admin canary readiness from the bounded named-volume backend recovery.
-- The retained proof boundary is explicit: `QUEUE_WORKER_SAFE_START_PROVEN=false`, `MULTIPROCESS_CHROMA_CONCURRENCY_PROVEN=false`, `AUTHENTICATED_PERSONA_ROUTE_PROVEN=false`, `AUTHENTICATED_BROWSER_SAVE_READBACK_PROVEN=false`, `PERIODIC_RECONCILIATION_RESTORED=false`, `PROVIDER_BACKED_CHAT_COMPLETION_PROVEN=false`, `APPLICATION_RUNTIME_RECOVERY_PROVEN=false`, and `PRIVATE_PREVIEW_RELEASE_READY=false`.
+- The retained proof boundary is explicit: `ACCEPTED_TASK_EXECUTION_ENVELOPE_IMPLEMENTED=false`, `FINITE_ACCEPTED_TASK_DRAIN_BUDGET_PROVEN=false`, `SAFE_OPERATOR_STOP_PROVEN=false`, `QUEUE_WORKER_SAFE_START_PROVEN=false`, `MULTIPROCESS_CHROMA_CONCURRENCY_PROVEN=false`, `AUTHENTICATED_PERSONA_ROUTE_PROVEN=false`, `AUTHENTICATED_BROWSER_SAVE_READBACK_PROVEN=false`, `PERIODIC_RECONCILIATION_RESTORED=false`, `PROVIDER_BACKED_CHAT_COMPLETION_PROVEN=false`, `APPLICATION_RUNTIME_RECOVERY_PROVEN=false`, and `PRIVATE_PREVIEW_RELEASE_READY=false`.
 - Do not treat completed database migration/bootstrap recovery as backend health, authenticated route availability, worker health, chat completion, Chroma/provider integration, post-repair authenticated account-isolation proof, or release readiness.
 - Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
 ## Active blockers
 
+- Chat-worker graceful operator shutdown remains blocked until ADR-087 is implemented across provider streaming, child execution, PostgreSQL persistence/cleanup, turn-lock lifetime, and worker lifecycle. The accepted decision is not finite-drain or safe-stop runtime proof.
 - Current-tip supported-Compose closure is missing: startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
 - At recovery documentation start `0cdf7618cabd1cc07f976ff188fc19a6db322e6d`, local `main` was 15 commits ahead and 4 behind fetched `origin/main` (`cb551de1866715ef421026203ffe2a87cec8aaca`). Remote reconciliation and publication remain open.
 - Tester worker bind-readiness repair and fresh isolated runtime proof remain open.

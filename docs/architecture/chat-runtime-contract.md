@@ -327,7 +327,7 @@ export function canTransitionRequestState(
   to: ChatRequestState
 ): boolean {
   const allowed: Record<ChatRequestState, ChatRequestState[]> = {
-    queued: ["dispatching", "cancelled"],
+    queued: ["dispatching", "failed_retryable", "cancelled"],
     dispatching: [
       "awaiting_ack",
       "failed_retryable",
@@ -344,10 +344,17 @@ export function canTransitionRequestState(
     awaiting_model: [
       "awaiting_first_token",
       "timed_out",
+      "failed_retryable",
       "cancelled",
       "orphaned",
     ],
-    awaiting_first_token: ["streaming", "timed_out", "cancelled", "orphaned"],
+    awaiting_first_token: [
+      "streaming",
+      "timed_out",
+      "failed_retryable",
+      "cancelled",
+      "orphaned",
+    ],
     streaming: [
       "completed",
       "cancelled",
@@ -357,10 +364,10 @@ export function canTransitionRequestState(
     ],
     completed: [],
     cancelled: [],
-    timed_out: ["replayed", "completed", "orphaned"],
+    timed_out: ["replayed", "completed", "failed_retryable", "orphaned"],
     failed_retryable: ["replayed"],
     failed_fatal: [],
-    orphaned: ["replayed", "completed"],
+    orphaned: ["replayed", "completed", "failed_retryable"],
     replayed: [],
   };
 
@@ -380,8 +387,12 @@ export function canTransitionRequestState(
    A stalled, recovering, or recovered visible stream does not by itself prove that the provider is offline or that the request failed.
 1. Never let recovery mint a duplicate turn.
    Recovery may re-establish observation of the original attempt, but it must not create a second assistant message for the same message/request pair.
-1. Keep timing policy out of the contract.
-   Model/profile-specific TTFT windows, stall thresholds, and reconnect heuristics are future implementation concerns and belong in separate follow-up specs.
+1. Keep presentation timing policy out of the contract.
+   Model/profile-specific TTFT windows, stall thresholds, and reconnect heuristics are future implementation concerns and belong in separate follow-up specs. The server-owned accepted-task execution envelope is not presentation policy; [ADR-087](./adr/087-accepted-chat-task-execution-deadline.md) governs it.
+1. Keep observation timeout distinct from authoritative deadline failure.
+   `timed_out` means an observer crossed a policy or UI threshold while the backend terminal outcome remains unknown. `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED` means the server authoritatively exhausted the immutable accepted-task deadline and terminated the attempt; it emits `task.failed` and maps that attempt to `failed_retryable`. A prior `timed_out` or `orphaned` observation may reconcile to that authoritative state.
+1. Preserve deadline failure finality for the same attempt.
+   Durable completion already established inside the server envelope wins over an earlier observer timeout. Without durable completion, authoritative deadline exhaustion wins, and that same failed attempt must not later transition to `completed`. Partial streamed output is not durable completion, and replay requires a new request identity.
 
 ## What To Implement First
 

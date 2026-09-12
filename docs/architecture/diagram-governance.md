@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-11 (ADR-067 Private Preview Chroma named-volume live recovery reviewed; logical runtime topology unchanged; worker safe-start and full application recovery remain unproven)
+Diagram Review Marker: 2026-09-12 (ADR-087 accepted-task execution-deadline decision reviewed; logical runtime topology unchanged; implementation and runtime proof remain pending)
 
 ## Scope
 
