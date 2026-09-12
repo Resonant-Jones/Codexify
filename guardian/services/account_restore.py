@@ -68,9 +68,7 @@ RESTORE_METHODS = {
 }
 
 PAYLOAD_PATHS = {family: path for family, path, _ in PAYLOAD_ORDER}
-REQUIRED_PAYLOAD_PATHS = tuple(
-    PAYLOAD_PATHS[family] for family in PAYLOAD_FAMILIES
-)
+REQUIRED_PAYLOAD_PATHS = tuple(PAYLOAD_PATHS[family] for family in PAYLOAD_FAMILIES)
 
 
 def _zero_counts() -> dict[str, int]:
@@ -256,12 +254,8 @@ class AccountRestoreService:
     def __init__(self, db: Any):
         self.db = db
 
-    def restore_from_zip(
-        self, archive_bytes: bytes, *, user_id: str
-    ) -> dict[str, Any]:
-        parsed = self._parse_and_validate_archive(
-            archive_bytes, user_id=user_id
-        )
+    def restore_from_zip(self, archive_bytes: bytes, *, user_id: str) -> dict[str, Any]:
+        parsed = self._parse_and_validate_archive(archive_bytes, user_id=user_id)
         families, counts = self._rehydrate(parsed)
         return self._build_success_report(parsed, families, counts)
 
@@ -271,14 +265,10 @@ class AccountRestoreService:
         try:
             with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as archive:
                 archive_names = tuple(
-                    info.filename
-                    for info in archive.infolist()
-                    if not info.is_dir()
+                    info.filename for info in archive.infolist() if not info.is_dir()
                 )
                 duplicate_names = sorted(
-                    name
-                    for name, count in Counter(archive_names).items()
-                    if count > 1
+                    name for name, count in Counter(archive_names).items() if count > 1
                 )
                 if duplicate_names:
                     raise self._validation_error(
@@ -294,12 +284,8 @@ class AccountRestoreService:
                     )
 
                 try:
-                    manifest = json.loads(
-                        archive.read("manifest.json").decode("utf-8")
-                    )
-                except (
-                    Exception
-                ) as exc:  # pragma: no cover - defensive decode guard
+                    manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                except Exception as exc:  # pragma: no cover - defensive decode guard
                     raise self._validation_error(
                         "manifest_invalid",
                         "manifest.json is not valid JSON",
@@ -312,9 +298,7 @@ class AccountRestoreService:
                         "manifest.json must decode to a JSON object",
                     )
 
-                schema_version = str(
-                    manifest.get("schema_version") or ""
-                ).strip()
+                schema_version = str(manifest.get("schema_version") or "").strip()
                 export_kind = str(manifest.get("export_kind") or "").strip()
                 manifest_user_id = str(manifest.get("user_id") or "").strip()
 
@@ -374,18 +358,17 @@ class AccountRestoreService:
                     )
 
                 included_families = manifest.get("included_families")
-                if not isinstance(included_families, list) or {
-                    str(item) for item in included_families
-                } != set(schema_payload_families) or len(
-                    included_families
-                ) != len(schema_payload_families):
+                if (
+                    not isinstance(included_families, list)
+                    or {str(item) for item in included_families}
+                    != set(schema_payload_families)
+                    or len(included_families) != len(schema_payload_families)
+                ):
                     raise self._validation_error(
                         "manifest_invalid",
                         "manifest.json must enumerate the canonical payload families",
                         manifest=manifest,
-                        details={
-                            "expected_families": list(schema_payload_families)
-                        },
+                        details={"expected_families": list(schema_payload_families)},
                     )
 
                 integrity = manifest.get("integrity")
@@ -396,10 +379,7 @@ class AccountRestoreService:
                         manifest=manifest,
                     )
 
-                if (
-                    str(integrity.get("algorithm") or "").strip().lower()
-                    != "sha256"
-                ):
+                if str(integrity.get("algorithm") or "").strip().lower() != "sha256":
                     raise self._validation_error(
                         "integrity_algorithm_unsupported",
                         "Only sha256 integrity digests are supported",
@@ -591,15 +571,9 @@ class AccountRestoreService:
     ) -> None:
         projects = self._index_rows(payload_rows["projects"], "id", manifest)
         threads = self._index_rows(payload_rows["chat_threads"], "id", manifest)
-        messages = self._index_rows(
-            payload_rows["chat_messages"], "id", manifest
-        )
-        media_assets = self._index_rows(
-            payload_rows["media_assets"], "id", manifest
-        )
-        media_aliases = self._index_rows(
-            payload_rows["media_aliases"], "id", manifest
-        )
+        messages = self._index_rows(payload_rows["chat_messages"], "id", manifest)
+        media_assets = self._index_rows(payload_rows["media_assets"], "id", manifest)
+        media_aliases = self._index_rows(payload_rows["media_aliases"], "id", manifest)
         uploaded_documents = self._index_rows(
             payload_rows["uploaded_documents"], "id", manifest
         )
@@ -1051,10 +1025,7 @@ class AccountRestoreService:
                         "document_type": document_type,
                     },
                 )
-            if (
-                document_type == "uploaded"
-                and document_id not in document_ids_uploaded
-            ):
+            if document_type == "uploaded" and document_id not in document_ids_uploaded:
                 raise self._validation_error(
                     "relationship_missing",
                     "project_document_links.document_id does not match an uploaded document",
@@ -1185,15 +1156,8 @@ class AccountRestoreService:
             approved_permissions = row.get("approved_permissions_json")
             registration_metadata = row.get("registration_metadata_json")
             provenance_json = row.get("provenance_json")
-            provenance_class = str(
-                row.get("provenance_class_token") or ""
-            ).strip()
-            if (
-                not registry_id
-                or not proposal_id
-                or not decision_id
-                or not account_id
-            ):
+            provenance_class = str(row.get("provenance_class_token") or "").strip()
+            if not registry_id or not proposal_id or not decision_id or not account_id:
                 raise self._validation_error(
                     "payload_invalid",
                     "extension_registry_entries rows require registry_id, proposal_id, decision_id, and account_id",
@@ -1270,9 +1234,7 @@ class AccountRestoreService:
                         "proposal_id": proposal_id,
                     },
                 )
-            if manifest_snapshot is None or not isinstance(
-                manifest_snapshot, dict
-            ):
+            if manifest_snapshot is None or not isinstance(manifest_snapshot, dict):
                 raise self._validation_error(
                     "payload_invalid",
                     "extension_registry_entries.manifest_snapshot_json must be an object",
@@ -1318,12 +1280,7 @@ class AccountRestoreService:
             bind_notes = row.get("bind_notes_json")
             bind_metadata = row.get("bind_metadata_json")
             unbind_metadata = row.get("unbind_metadata_json")
-            if (
-                not binding_id
-                or not registry_id
-                or not proposal_id
-                or not account_id
-            ):
+            if not binding_id or not registry_id or not proposal_id or not account_id:
                 raise self._validation_error(
                     "payload_invalid",
                     "extension_install_bindings rows require binding_id, registry_entry_id, proposal_id, and account_id",
@@ -1469,20 +1426,14 @@ class AccountRestoreService:
                     manifest=manifest,
                     details={"binding_id": binding_id},
                 )
-            if (
-                registry_rows[registry_id].get("source_thread_id")
-                != source_thread_id
-            ):
+            if registry_rows[registry_id].get("source_thread_id") != source_thread_id:
                 raise self._validation_error(
                     "relationship_missing",
                     "extension_install_bindings.source_thread_id does not match the registry entry lineage",
                     manifest=manifest,
                     details={"binding_id": binding_id},
                 )
-            if (
-                registry_rows[registry_id].get("source_message_id")
-                != source_message_id
-            ):
+            if registry_rows[registry_id].get("source_message_id") != source_message_id:
                 raise self._validation_error(
                     "relationship_missing",
                     "extension_install_bindings.source_message_id does not match the registry entry lineage",
@@ -1594,8 +1545,7 @@ class AccountRestoreService:
                     details={"profile_id": profile_id},
                 ) from exc
             if current_revision <= 0 or any(
-                row.get(field) is None
-                for field in ("created_at", "updated_at")
+                row.get(field) is None for field in ("created_at", "updated_at")
             ):
                 raise self._validation_error(
                     "payload_invalid",
@@ -1669,10 +1619,7 @@ class AccountRestoreService:
                         "row_account_id": owner_account_id,
                     },
                 )
-            if any(
-                row.get(field) is None
-                for field in ("created_at", "updated_at")
-            ):
+            if any(row.get(field) is None for field in ("created_at", "updated_at")):
                 raise self._validation_error(
                     "payload_invalid",
                     "persona_profile_bindings rows require timestamps",
@@ -1727,9 +1674,7 @@ class AccountRestoreService:
         if isinstance(parsed.blob_coverage, dict):
             maybe_rows = parsed.blob_coverage.get("unresolved_rows") or []
             if isinstance(maybe_rows, list):
-                unresolved_rows = [
-                    row for row in maybe_rows if isinstance(row, dict)
-                ]
+                unresolved_rows = [row for row in maybe_rows if isinstance(row, dict)]
         unresolved_by_family = Counter(
             family
             for family in (
@@ -1821,9 +1766,7 @@ class AccountRestoreService:
         restore_order = _restore_order_for_schema(parsed.schema_version)
         ordered_rows = {
             "projects": self._sort_projects(parsed.payload_rows["projects"]),
-            "chat_threads": self._sort_threads(
-                parsed.payload_rows["chat_threads"]
-            ),
+            "chat_threads": self._sort_threads(parsed.payload_rows["chat_threads"]),
             "chat_messages": self._sort_chat_messages(
                 parsed.payload_rows["chat_messages"]
             ),
@@ -1881,9 +1824,7 @@ class AccountRestoreService:
             )
 
         try:
-            if hasattr(self.db, "_connect") and callable(
-                getattr(self.db, "_connect")
-            ):
+            if hasattr(self.db, "_connect") and callable(getattr(self.db, "_connect")):
                 with self.db._connect() as conn:  # type: ignore[attr-defined]
                     for family in restore_order:
                         rows = ordered_rows[family]
@@ -1895,9 +1836,7 @@ class AccountRestoreService:
                                 target_user_id=parsed.user_id,
                             )
                         else:
-                            result = _call_restore(
-                                RESTORE_METHODS[family], rows, conn
-                            )
+                            result = _call_restore(RESTORE_METHODS[family], rows, conn)
                         _record_family(family, rows, result)
             else:
                 for family in restore_order:
@@ -1910,9 +1849,7 @@ class AccountRestoreService:
                             target_user_id=parsed.user_id,
                         )
                     else:
-                        result = _call_restore(
-                            RESTORE_METHODS[family], rows, None
-                        )
+                        result = _call_restore(RESTORE_METHODS[family], rows, None)
                     _record_family(family, rows, result)
         except AccountRestoreError:
             raise
@@ -1978,9 +1915,7 @@ class AccountRestoreService:
             archive_includes_blob_coverage=parsed.archive_includes_blob_coverage,
             blob_coverage=parsed.blob_coverage,
             families=[
-                report.to_dict()
-                if isinstance(report, FamilyRestoreReport)
-                else report
+                report.to_dict() if isinstance(report, FamilyRestoreReport) else report
                 for report in family_reports
             ],
             counts=counts,
@@ -2026,15 +1961,11 @@ class AccountRestoreService:
             "notes": notes,
         }
 
-    def _sort_projects(
-        self, rows: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _sort_projects(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(rows, key=lambda row: (_sort_text(row.get("id")),))
 
     def _sort_threads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        indexed: dict[Any, dict[str, Any]] = {
-            row.get("id"): row for row in rows
-        }
+        indexed: dict[Any, dict[str, Any]] = {row.get("id"): row for row in rows}
         order: list[dict[str, Any]] = []
         visiting: set[Any] = set()
         visited: set[Any] = set()
@@ -2065,9 +1996,7 @@ class AccountRestoreService:
             visit(thread_id)
         return order
 
-    def _sort_chat_messages(
-        self, rows: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _sort_chat_messages(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             rows,
             key=lambda row: (
@@ -2077,9 +2006,7 @@ class AccountRestoreService:
             ),
         )
 
-    def _sort_media_assets(
-        self, rows: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _sort_media_assets(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             rows,
             key=lambda row: (
@@ -2088,9 +2015,7 @@ class AccountRestoreService:
             ),
         )
 
-    def _sort_media_aliases(
-        self, rows: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _sort_media_aliases(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             rows,
             key=lambda row: (
@@ -2100,9 +2025,7 @@ class AccountRestoreService:
             ),
         )
 
-    def _sort_documents(
-        self, rows: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _sort_documents(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             rows,
             key=lambda row: (
@@ -2185,8 +2108,7 @@ class AccountRestoreService:
         revisions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         revisions_by_key = {
-            (str(row["profile_id"]), int(row["revision"])): row
-            for row in revisions
+            (str(row["profile_id"]), int(row["revision"])): row for row in revisions
         }
         prepared: list[dict[str, Any]] = []
         for profile in profiles:
@@ -2258,9 +2180,7 @@ class AccountRestoreService:
             export_kind=export_kind,
             archive_includes_blob_coverage=archive_includes_blob_coverage,
             blob_coverage=blob_coverage,
-            families=_empty_family_reports(
-                _restore_order_for_schema(schema_version)
-            ),
+            families=_empty_family_reports(_restore_order_for_schema(schema_version)),
             notes=[
                 "No database writes were performed.",
             ],
@@ -2272,3 +2192,883 @@ def _restore_connection(conn: Any | None, db: Any):
     if conn is not None:
         return conn
     return db._connect()
+
+
+# =============================================================================
+# UMS-04C-A: canonical-memory restore preflight
+# =============================================================================
+#
+# This preflight consumes an already-parsed v4 canonical-memory payload and the
+# explicit identity maps produced by the existing restore process, and returns
+# a deterministic reconstruction plan. It performs all structural and authority
+# checks that can be proven before any database write. It does NOT persist.
+#
+# Production v4 restore remains unsupported. ``SUPPORTED_SCHEMA_VERSIONS`` does
+# not include ``"account-export.v4"``. This preflight is intended for a later
+# persistence slice; it is not wired into
+# ``AccountRestoreService.restore_from_zip``.
+
+UNIFIED_MEMORY_RESTORE_LINK_KINDS: frozenset[str] = frozenset(
+    {"captured_under", "suggested_by", "associated_with"}
+)
+UNIFIED_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
+    "persona_subjects",
+    "persona_subject_bindings",
+    "memory_records",
+    "memory_persona_links",
+    "memory_provenance",
+)
+_UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "persona_subjects": (
+        "persona_subject_id",
+        "user_id",
+        "display_name_snapshot",
+        "lifecycle",
+        "created_at",
+        "updated_at",
+    ),
+    "persona_subject_bindings": (
+        "binding_id",
+        "persona_subject_id",
+        "subject_user_id",
+        "source_account_id",
+        "ref_kind",
+        "ref_id",
+        "valid_from",
+        "valid_until",
+        "created_at",
+    ),
+    "memory_records": (
+        "memory_id",
+        "user_id",
+        "project_id",
+        "semantic_species",
+        "text_content",
+        "fact_key",
+        "fact_value",
+        "fact_confidence",
+        "reviewed_at",
+        "activated_at",
+        "pinned",
+        "held",
+        "extensions",
+        "created_at",
+        "updated_at",
+    ),
+    "memory_persona_links": (
+        "link_id",
+        "memory_id",
+        "user_id",
+        "persona_subject_id",
+        "persona_user_id",
+        "link_kind",
+        "created_at",
+    ),
+    "memory_provenance": (
+        "provenance_id",
+        "memory_id",
+        "user_id",
+        "source_system",
+        "source_record_id",
+        "source_thread_id",
+        "source_message_id",
+        "source_import_job_id",
+        "source_export_fingerprint",
+        "source_subject_kind",
+        "source_subject_id",
+        "is_imported",
+        "extensions",
+        "created_at",
+    ),
+}
+_UNIFIED_MEMORY_SORT_KEYS: dict[str, tuple[str, ...]] = {
+    "persona_subjects": ("persona_subject_id",),
+    "persona_subject_bindings": (
+        "persona_subject_id",
+        "valid_from",
+        "binding_id",
+    ),
+    "memory_records": ("memory_id",),
+    "memory_persona_links": (
+        "memory_id",
+        "persona_subject_id",
+        "link_kind",
+        "link_id",
+    ),
+    "memory_provenance": ("memory_id", "provenance_id"),
+}
+
+
+class UnifiedMemoryRestorePreflightError(AccountRestoreValidationError):
+    code = "unified_memory_restore_preflight_failed"
+    validated = False
+
+
+def _preflight_error(
+    code: str,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> UnifiedMemoryRestorePreflightError:
+    return UnifiedMemoryRestorePreflightError(
+        message,
+        code=code,
+        details=details or {},
+    )
+
+
+@dataclass(slots=True)
+class PlannedPersonaSubject:
+    source_persona_subject_id: str
+    target_persona_subject_id: str
+    target_account_id: str
+    display_name_snapshot: str
+    lifecycle: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class PlannedPersonaSubjectBinding:
+    source_binding_id: str
+    target_binding_id: str
+    target_persona_subject_id: str
+    target_account_id: str
+    ref_kind: str
+    ref_id: str
+    valid_from: str | None
+    valid_until: str | None
+    created_at: str
+
+
+@dataclass(slots=True)
+class PlannedMemoryRecord:
+    source_memory_id: str
+    target_memory_id: str
+    target_account_id: str
+    target_project_id: int | None
+    semantic_species: str
+    text_content: str | None
+    fact_key: str | None
+    fact_value: str | None
+    fact_confidence: float | None
+    reviewed_at: str | None
+    activated_at: str | None
+    pinned: bool
+    held: bool
+    extensions: dict[str, Any]
+
+
+@dataclass(slots=True)
+class PlannedPersonaLink:
+    source_link_id: str
+    target_link_id: str
+    target_memory_id: str
+    target_persona_subject_id: str
+    target_account_id: str
+    link_kind: str
+    created_at: str
+
+
+@dataclass(slots=True)
+class PlannedMemoryProvenance:
+    source_provenance_id: str
+    target_provenance_id: str
+    target_memory_id: str
+    target_account_id: str
+    source_system: str
+    source_record_id: str
+    target_source_thread_id: int | None
+    target_source_message_id: int | None
+    source_import_job_id: str | None
+    source_export_fingerprint: str | None
+    source_subject_kind: str | None
+    source_subject_id: str | None
+    is_imported: bool
+    extensions: dict[str, Any]
+    created_at: str
+
+
+@dataclass(slots=True)
+class CanonicalMemoryRestorePlan:
+    """Mutation-free canonical-memory reconstruction plan for ``account-export.v4``.
+
+    Contains all validated, classified, and deterministically ordered information
+    needed by a later persistence slice to execute canonical writes in
+    dependency order without reinterpreting the archive. ``account-export.v4``
+    production restore remains unsupported at this point; this plan is the
+    pre-mutation boundary that a later UMS-04C persistence slice must consume.
+    """
+
+    target_account_id: str
+    source_account_id: str
+    persona_subjects: tuple[PlannedPersonaSubject, ...]
+    persona_subject_bindings: tuple[PlannedPersonaSubjectBinding, ...]
+    memory_records: tuple[PlannedMemoryRecord, ...]
+    memory_persona_links: tuple[PlannedPersonaLink, ...]
+    memory_provenance: tuple[PlannedMemoryProvenance, ...]
+
+
+def _preflight_identity_str(value: Any, *, field: str) -> str:
+    text = str(value or "").strip() if value is not None else ""
+    if not text:
+        raise _preflight_error(
+            "payload_invalid_required_field",
+            f"{field} is required and must be non-empty",
+            details={"field": field},
+        )
+    return text
+
+
+def _preflight_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _preflight_optional_int(value: Any, *, field: str) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise _preflight_error(
+            "payload_invalid_required_field",
+            f"{field} must be an integer when present",
+            details={"field": field, "value": value},
+        ) from exc
+
+
+def _preflight_extensions(value: Any, *, field: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise _preflight_error(
+            "payload_invalid_required_field",
+            f"{field} must be a JSON object when present",
+            details={"field": field},
+        )
+    return dict(value)
+
+
+def _preflight_dict_copy(value: dict[str, Any]) -> dict[str, Any]:
+    return dict(value)
+
+
+def _preflight_required_fields_present(row: dict[str, Any], family: str) -> None:
+    required = _UNIFIED_MEMORY_REQUIRED_FIELDS[family]
+    for field in required:
+        if field not in row:
+            raise _preflight_error(
+                "payload_invalid_required_field",
+                f"{family} row is missing required field {field!r}",
+                details={"family": family, "field": field},
+            )
+
+
+def _preflight_stable_subject_id(row: dict[str, Any], *, family: str) -> str:
+    value = _preflight_identity_str(
+        row.get("persona_subject_id"), field=f"{family}.persona_subject_id"
+    )
+    return value
+
+
+def _preflight_memory_id(row: dict[str, Any], *, family: str) -> str:
+    value = _preflight_identity_str(row.get("memory_id"), field=f"{family}.memory_id")
+    return value
+
+
+def _preflight_binding_id(row: dict[str, Any]) -> str:
+    return _preflight_identity_str(
+        row.get("binding_id"), field="persona_subject_bindings.binding_id"
+    )
+
+
+def _preflight_link_id(row: dict[str, Any]) -> str:
+    return _preflight_identity_str(
+        row.get("link_id"), field="memory_persona_links.link_id"
+    )
+
+
+def _preflight_provenance_id(row: dict[str, Any]) -> str:
+    return _preflight_identity_str(
+        row.get("provenance_id"), field="memory_provenance.provenance_id"
+    )
+
+
+def _preflight_owner_matches(
+    row: dict[str, Any],
+    *,
+    family: str,
+    expected_owner: str,
+) -> None:
+    actual = _preflight_identity_str(row.get("user_id"), field=f"{family}.user_id")
+    if actual != expected_owner:
+        raise _preflight_error(
+            "memory_account_mismatch",
+            f"{family} row targets account {actual!r}; expected {expected_owner!r}",
+            details={
+                "family": family,
+                "actual": actual,
+                "expected": expected_owner,
+            },
+        )
+
+
+def _preflight_binding_subject_and_source_match(
+    row: dict[str, Any],
+    *,
+    expected_account: str,
+) -> None:
+    subject_user = _preflight_identity_str(
+        row.get("subject_user_id"), field="persona_subject_bindings.subject_user_id"
+    )
+    if subject_user != expected_account:
+        raise _preflight_error(
+            "persona_binding_account_mismatch",
+            "persona_subject_bindings.subject_user_id must match the source account",
+            details={
+                "binding_id": row.get("binding_id"),
+                "actual": subject_user,
+                "expected": expected_account,
+            },
+        )
+    source_account = _preflight_identity_str(
+        row.get("source_account_id"), field="persona_subject_bindings.source_account_id"
+    )
+    if source_account != expected_account:
+        raise _preflight_error(
+            "persona_binding_account_mismatch",
+            "persona_subject_bindings.source_account_id must match the source account",
+            details={
+                "binding_id": row.get("binding_id"),
+                "actual": source_account,
+                "expected": expected_account,
+            },
+        )
+
+
+def _preflight_memory_link_owner_matches(
+    row: dict[str, Any], *, expected_account: str
+) -> None:
+    user_id = _preflight_identity_str(
+        row.get("user_id"), field="memory_persona_links.user_id"
+    )
+    persona_user_id = _preflight_identity_str(
+        row.get("persona_user_id"), field="memory_persona_links.persona_user_id"
+    )
+    if user_id != expected_account or persona_user_id != expected_account:
+        raise _preflight_error(
+            "memory_persona_link_account_mismatch",
+            "memory_persona_links row references an account outside the restored account",
+            details={
+                "link_id": row.get("link_id"),
+                "user_id": user_id,
+                "persona_user_id": persona_user_id,
+                "expected": expected_account,
+            },
+        )
+
+
+def _preflight_memory_provenance_owner_matches(
+    row: dict[str, Any], *, expected_account: str
+) -> None:
+    user_id = _preflight_identity_str(
+        row.get("user_id"), field="memory_provenance.user_id"
+    )
+    if user_id != expected_account:
+        raise _preflight_error(
+            "memory_provenance_account_mismatch",
+            "memory_provenance row references an account outside the restored account",
+            details={
+                "provenance_id": row.get("provenance_id"),
+                "actual": user_id,
+                "expected": expected_account,
+            },
+        )
+
+
+def _preflight_link_kind(row: dict[str, Any]) -> str:
+    kind = _preflight_identity_str(
+        row.get("link_kind"), field="memory_persona_links.link_kind"
+    )
+    if kind not in UNIFIED_MEMORY_RESTORE_LINK_KINDS:
+        raise _preflight_error(
+            "memory_persona_link_invalid_kind",
+            f"memory_persona_links.link_kind {kind!r} is not a canonical link kind",
+            details={
+                "link_id": row.get("link_id"),
+                "link_kind": kind,
+                "allowed": sorted(UNIFIED_MEMORY_RESTORE_LINK_KINDS),
+            },
+        )
+    return kind
+
+
+class UnifiedMemoryRestorePreflight:
+    """Mutation-free canonical-memory preflight for ``account-export.v4``.
+
+    Consumes:
+
+      - parsed canonical-memory payload rows;
+      - explicit source→target identity maps for Projects, threads, and
+        messages.
+
+    Produces:
+
+      - a deterministic :class:`CanonicalMemoryRestorePlan` containing the
+        classified reconstruction targets.
+
+    Does NOT persist.
+
+    Failure modes (each raises ``UnifiedMemoryRestorePreflightError``):
+
+      - missing required field;
+      - cross-account reference;
+      - missing Project map for Project-scoped memory;
+      - missing local thread/message map for provenance with local lineage;
+      - invalid ``link_kind`` / ``semantic_species`` / lifecycle token;
+      - orphan Persona binding / Persona link / provenance row;
+      - cross-account relationship.
+    """
+
+    def __init__(
+        self,
+        *,
+        target_account_id: str,
+        source_account_id: str,
+        project_map: dict[int, int] | None = None,
+        thread_map: dict[int, int] | None = None,
+        message_map: dict[int, int] | None = None,
+    ) -> None:
+        target = _preflight_identity_str(target_account_id, field="target_account_id")
+        source = _preflight_identity_str(source_account_id, field="source_account_id")
+        if not target:
+            raise _preflight_error(
+                "preflight_target_account_missing",
+                "target_account_id is required for the canonical-memory restore preflight",
+            )
+        if not source:
+            raise _preflight_error(
+                "preflight_source_account_missing",
+                "source_account_id is required for the canonical-memory restore preflight",
+            )
+        self._target_account_id = target
+        self._source_account_id = source
+        self._project_map: dict[int, int] = dict(project_map or {})
+        self._thread_map: dict[int, int] = dict(thread_map or {})
+        self._message_map: dict[int, int] = dict(message_map or {})
+
+    @property
+    def target_account_id(self) -> str:
+        return self._target_account_id
+
+    @property
+    def source_account_id(self) -> str:
+        return self._source_account_id
+
+    def plan(
+        self,
+        payload_rows: dict[str, list[dict[str, Any]]],
+    ) -> CanonicalMemoryRestorePlan:
+        for family in UNIFIED_MEMORY_RESTORE_PLAN_FAMILIES:
+            if family not in payload_rows:
+                raise _preflight_error(
+                    "payload_family_missing",
+                    f"canonical-memory payload is missing family {family!r}",
+                    details={"family": family},
+                )
+
+        # Phase 1: validate subject row set and build planned subjects.
+        subjects_by_id: dict[str, PlannedPersonaSubject] = {}
+        for raw_row in payload_rows["persona_subjects"]:
+            row = _preflight_dict_copy(raw_row)
+            _preflight_required_fields_present(row, "persona_subjects")
+            subject_id = _preflight_stable_subject_id(row, family="persona_subjects")
+            _preflight_owner_matches(
+                row, family="persona_subjects", expected_owner=self._source_account_id
+            )
+            if subject_id in subjects_by_id:
+                raise _preflight_error(
+                    "persona_subject_duplicate",
+                    "persona_subjects row is duplicated by persona_subject_id",
+                    details={"persona_subject_id": subject_id},
+                )
+            subjects_by_id[subject_id] = PlannedPersonaSubject(
+                source_persona_subject_id=subject_id,
+                target_persona_subject_id=subject_id,
+                target_account_id=self._target_account_id,
+                display_name_snapshot=_preflight_identity_str(
+                    row.get("display_name_snapshot"),
+                    field="persona_subjects.display_name_snapshot",
+                ),
+                lifecycle=_preflight_identity_str(
+                    row.get("lifecycle"),
+                    field="persona_subjects.lifecycle",
+                ),
+                created_at=_preflight_identity_str(
+                    row.get("created_at"),
+                    field="persona_subjects.created_at",
+                ),
+                updated_at=_preflight_identity_str(
+                    row.get("updated_at"),
+                    field="persona_subjects.updated_at",
+                ),
+            )
+
+        # Phase 2: validate bindings and plan them.
+        planned_bindings: list[PlannedPersonaSubjectBinding] = []
+        seen_binding_ids: set[str] = set()
+        for raw_row in payload_rows["persona_subject_bindings"]:
+            row = _preflight_dict_copy(raw_row)
+            _preflight_required_fields_present(row, "persona_subject_bindings")
+            binding_id = _preflight_binding_id(row)
+            if binding_id in seen_binding_ids:
+                raise _preflight_error(
+                    "persona_binding_duplicate",
+                    "persona_subject_bindings row is duplicated by binding_id",
+                    details={"binding_id": binding_id},
+                )
+            seen_binding_ids.add(binding_id)
+            subject_id = _preflight_stable_subject_id(
+                row, family="persona_subject_bindings"
+            )
+            if subject_id not in subjects_by_id:
+                raise _preflight_error(
+                    "persona_binding_orphan",
+                    "persona_subject_bindings references a persona_subject_id that is not in the planned subject set",
+                    details={
+                        "binding_id": binding_id,
+                        "persona_subject_id": subject_id,
+                    },
+                )
+            _preflight_binding_subject_and_source_match(
+                row, expected_account=self._source_account_id
+            )
+            planned_bindings.append(
+                PlannedPersonaSubjectBinding(
+                    source_binding_id=binding_id,
+                    target_binding_id=binding_id,
+                    target_persona_subject_id=subject_id,
+                    target_account_id=self._target_account_id,
+                    ref_kind=_preflight_identity_str(
+                        row.get("ref_kind"),
+                        field="persona_subject_bindings.ref_kind",
+                    ),
+                    ref_id=_preflight_identity_str(
+                        row.get("ref_id"),
+                        field="persona_subject_bindings.ref_id",
+                    ),
+                    valid_from=_preflight_optional_str(row.get("valid_from")),
+                    valid_until=_preflight_optional_str(row.get("valid_until")),
+                    created_at=_preflight_identity_str(
+                        row.get("created_at"),
+                        field="persona_subject_bindings.created_at",
+                    ),
+                )
+            )
+
+        # Phase 3: validate memory records and plan them. This phase also
+        # resolves Project mapping for Project-scoped records.
+        planned_memories: dict[str, PlannedMemoryRecord] = {}
+        memory_provenance_required: set[str] = set()
+        for raw_row in payload_rows["memory_records"]:
+            row = _preflight_dict_copy(raw_row)
+            _preflight_required_fields_present(row, "memory_records")
+            memory_id = _preflight_memory_id(row, family="memory_records")
+            if memory_id in planned_memories:
+                raise _preflight_error(
+                    "memory_record_duplicate",
+                    "memory_records row is duplicated by memory_id",
+                    details={"memory_id": memory_id},
+                )
+            _preflight_owner_matches(
+                row, family="memory_records", expected_owner=self._source_account_id
+            )
+            source_project_id = _preflight_optional_int(
+                row.get("project_id"), field="memory_records.project_id"
+            )
+            if source_project_id is None:
+                target_project_id: int | None = None
+            else:
+                if source_project_id not in self._project_map:
+                    raise _preflight_error(
+                        "memory_project_mapping_missing",
+                        "memory_records row references a project_id that is not in the explicit restore Project map; refusing to widen scope to account-owned",
+                        details={
+                            "memory_id": memory_id,
+                            "project_id": source_project_id,
+                        },
+                    )
+                target_project_id = self._project_map[source_project_id]
+                if target_project_id is None:
+                    raise _preflight_error(
+                        "memory_project_mapping_null",
+                        "explicit Project map may not map a Project to NULL target",
+                        details={
+                            "memory_id": memory_id,
+                            "project_id": source_project_id,
+                        },
+                    )
+            species = row.get("semantic_species")
+            if species is None or not str(species).strip():
+                raise _preflight_error(
+                    "memory_species_missing",
+                    "memory_records row is missing semantic_species",
+                    details={"memory_id": memory_id},
+                )
+            species = str(species).strip()
+            reviewed_at = _preflight_optional_str(row.get("reviewed_at"))
+            activated_at = _preflight_optional_str(row.get("activated_at"))
+            pinned = row.get("pinned")
+            held = row.get("held")
+            if not isinstance(pinned, bool):
+                raise _preflight_error(
+                    "memory_governance_state_invalid",
+                    "memory_records.pinned must be a boolean",
+                    details={"memory_id": memory_id, "pinned": pinned},
+                )
+            if not isinstance(held, bool):
+                raise _preflight_error(
+                    "memory_governance_state_invalid",
+                    "memory_records.held must be a boolean",
+                    details={"memory_id": memory_id, "held": held},
+                )
+            planned_memories[memory_id] = PlannedMemoryRecord(
+                source_memory_id=memory_id,
+                target_memory_id=memory_id,
+                target_account_id=self._target_account_id,
+                target_project_id=target_project_id,
+                semantic_species=species,
+                text_content=_preflight_optional_str(row.get("text_content")),
+                fact_key=_preflight_optional_str(row.get("fact_key")),
+                fact_value=_preflight_optional_str(row.get("fact_value")),
+                fact_confidence=(
+                    float(row["fact_confidence"])
+                    if row.get("fact_confidence") is not None
+                    else None
+                ),
+                reviewed_at=reviewed_at,
+                activated_at=activated_at,
+                pinned=pinned,
+                held=held,
+                extensions=_preflight_extensions(
+                    row.get("extensions"), field="memory_records.extensions"
+                ),
+            )
+            # Every canonical memory requires at least one provenance row,
+            # which is the closure rule mirrored from the export side.
+            memory_provenance_required.add(memory_id)
+
+        # Phase 4: validate Persona links.
+        planned_links: list[PlannedPersonaLink] = []
+        seen_link_ids: set[str] = set()
+        for raw_row in payload_rows["memory_persona_links"]:
+            row = _preflight_dict_copy(raw_row)
+            _preflight_required_fields_present(row, "memory_persona_links")
+            link_id = _preflight_link_id(row)
+            if link_id in seen_link_ids:
+                raise _preflight_error(
+                    "memory_persona_link_duplicate",
+                    "memory_persona_links row is duplicated by link_id",
+                    details={"link_id": link_id},
+                )
+            seen_link_ids.add(link_id)
+            memory_id = _preflight_memory_id(row, family="memory_persona_links")
+            if memory_id not in planned_memories:
+                raise _preflight_error(
+                    "memory_persona_link_orphan",
+                    "memory_persona_links row references a memory_id that is not in the planned memory set",
+                    details={"link_id": link_id, "memory_id": memory_id},
+                )
+            subject_id = _preflight_stable_subject_id(
+                row, family="memory_persona_links"
+            )
+            if subject_id not in subjects_by_id:
+                raise _preflight_error(
+                    "memory_persona_link_orphan",
+                    "memory_persona_links row references a persona_subject_id that is not in the planned subject set",
+                    details={
+                        "link_id": link_id,
+                        "persona_subject_id": subject_id,
+                    },
+                )
+            _preflight_memory_link_owner_matches(
+                row, expected_account=self._source_account_id
+            )
+            kind = _preflight_link_kind(row)
+            planned_links.append(
+                PlannedPersonaLink(
+                    source_link_id=link_id,
+                    target_link_id=link_id,
+                    target_memory_id=memory_id,
+                    target_persona_subject_id=subject_id,
+                    target_account_id=self._target_account_id,
+                    link_kind=kind,
+                    created_at=_preflight_identity_str(
+                        row.get("created_at"),
+                        field="memory_persona_links.created_at",
+                    ),
+                )
+            )
+
+        # Phase 5: validate provenance rows. Local thread/message references
+        # must resolve through the explicit restore maps; opaque external
+        # identifiers are preserved verbatim and never treated as local.
+        planned_provenance: list[PlannedMemoryProvenance] = []
+        seen_provenance_ids: set[str] = set()
+        for raw_row in payload_rows["memory_provenance"]:
+            row = _preflight_dict_copy(raw_row)
+            _preflight_required_fields_present(row, "memory_provenance")
+            provenance_id = _preflight_provenance_id(row)
+            if provenance_id in seen_provenance_ids:
+                raise _preflight_error(
+                    "memory_provenance_duplicate",
+                    "memory_provenance row is duplicated by provenance_id",
+                    details={"provenance_id": provenance_id},
+                )
+            seen_provenance_ids.add(provenance_id)
+            memory_id = _preflight_memory_id(row, family="memory_provenance")
+            if memory_id not in planned_memories:
+                raise _preflight_error(
+                    "memory_provenance_orphan",
+                    "memory_provenance row references a memory_id that is not in the planned memory set",
+                    details={
+                        "provenance_id": provenance_id,
+                        "memory_id": memory_id,
+                    },
+                )
+            _preflight_memory_provenance_owner_matches(
+                row, expected_account=self._source_account_id
+            )
+            source_thread_id = _preflight_optional_int(
+                row.get("source_thread_id"),
+                field="memory_provenance.source_thread_id",
+            )
+            source_message_id = _preflight_optional_int(
+                row.get("source_message_id"),
+                field="memory_provenance.source_message_id",
+            )
+            target_source_thread_id: int | None = None
+            target_source_message_id: int | None = None
+            if source_thread_id is not None:
+                if source_thread_id not in self._thread_map:
+                    raise _preflight_error(
+                        "memory_provenance_thread_mapping_missing",
+                        "memory_provenance.source_thread_id is not in the explicit restore thread map",
+                        details={
+                            "provenance_id": provenance_id,
+                            "source_thread_id": source_thread_id,
+                        },
+                    )
+                target_source_thread_id = self._thread_map[source_thread_id]
+            if source_message_id is not None:
+                if source_message_id not in self._message_map:
+                    raise _preflight_error(
+                        "memory_provenance_message_mapping_missing",
+                        "memory_provenance.source_message_id is not in the explicit restore message map",
+                        details={
+                            "provenance_id": provenance_id,
+                            "source_message_id": source_message_id,
+                        },
+                    )
+                target_source_message_id = self._message_map[source_message_id]
+            planned_provenance.append(
+                PlannedMemoryProvenance(
+                    source_provenance_id=provenance_id,
+                    target_provenance_id=provenance_id,
+                    target_memory_id=memory_id,
+                    target_account_id=self._target_account_id,
+                    source_system=_preflight_identity_str(
+                        row.get("source_system"),
+                        field="memory_provenance.source_system",
+                    ),
+                    source_record_id=_preflight_identity_str(
+                        row.get("source_record_id"),
+                        field="memory_provenance.source_record_id",
+                    ),
+                    target_source_thread_id=target_source_thread_id,
+                    target_source_message_id=target_source_message_id,
+                    source_import_job_id=_preflight_optional_str(
+                        row.get("source_import_job_id")
+                    ),
+                    source_export_fingerprint=_preflight_optional_str(
+                        row.get("source_export_fingerprint")
+                    ),
+                    source_subject_kind=_preflight_optional_str(
+                        row.get("source_subject_kind")
+                    ),
+                    source_subject_id=_preflight_optional_str(
+                        row.get("source_subject_id")
+                    ),
+                    is_imported=bool(row.get("is_imported")),
+                    extensions=_preflight_extensions(
+                        row.get("extensions"),
+                        field="memory_provenance.extensions",
+                    ),
+                    created_at=_preflight_identity_str(
+                        row.get("created_at"),
+                        field="memory_provenance.created_at",
+                    ),
+                )
+            )
+
+        # Phase 6: archive closure. Every planned memory must have at least
+        # one provenance row, mirroring the export-side closure rule.
+        provenance_memory_ids = {row.target_memory_id for row in planned_provenance}
+        missing = memory_provenance_required - provenance_memory_ids
+        if missing:
+            raise _preflight_error(
+                "memory_provenance_missing",
+                "one or more memory_records rows lack a memory_provenance row",
+                details={"memory_ids": sorted(missing)},
+            )
+
+        # Phase 7: deterministic ordering.
+        return CanonicalMemoryRestorePlan(
+            target_account_id=self._target_account_id,
+            source_account_id=self._source_account_id,
+            persona_subjects=tuple(
+                sorted(
+                    subjects_by_id.values(),
+                    key=lambda plan: _sort_text(plan.source_persona_subject_id),
+                )
+            ),
+            persona_subject_bindings=tuple(
+                sorted(
+                    planned_bindings,
+                    key=lambda plan: (
+                        _sort_text(plan.target_persona_subject_id),
+                        _sort_text(plan.valid_from),
+                        _sort_text(plan.source_binding_id),
+                    ),
+                )
+            ),
+            memory_records=tuple(
+                sorted(
+                    planned_memories.values(),
+                    key=lambda plan: _sort_text(plan.source_memory_id),
+                )
+            ),
+            memory_persona_links=tuple(
+                sorted(
+                    planned_links,
+                    key=lambda plan: (
+                        _sort_text(plan.target_memory_id),
+                        _sort_text(plan.target_persona_subject_id),
+                        _sort_text(plan.link_kind),
+                        _sort_text(plan.source_link_id),
+                    ),
+                )
+            ),
+            memory_provenance=tuple(
+                sorted(
+                    planned_provenance,
+                    key=lambda plan: (
+                        _sort_text(plan.target_memory_id),
+                        _sort_text(plan.source_provenance_id),
+                    ),
+                )
+            ),
+        )
