@@ -522,6 +522,17 @@ test("Codexify material, Galaxy transition, and reduced motion contracts remain 
   assert.match(html, /reducedMotion\(\) \? 0 : 540/);
 });
 
+test("Galaxy gate isolates Atlas focus and restores it on every close path", () => {
+  const gate = html.match(/function setGalaxyGate\(open, restoreFocus = true\)[\s\S]*?(?=    function enterGalaxy)/)[0];
+  const enterGalaxy = html.match(/function enterGalaxy\(\)[\s\S]*?(?=    function exitGalaxy)/)[0];
+  assert.match(gate, /els\.app\.inert = open/);
+  assert.match(gate, /if \(open\) \$\("#stayLocal"\)\.focus\(\)/);
+  assert.match(gate, /else if \(restoreFocus\) \$\("#galaxyButton"\)\.focus\(\)/);
+  assert.match(enterGalaxy, /setGalaxyGate\(false, false\)/);
+  assert.match(html, /#stayLocal"\)\.addEventListener\("click", \(\) => setGalaxyGate\(false\)\)/);
+  assert.match(html, /galaxyGate\.classList\.contains\("open"\)\) setGalaxyGate\(false\)/);
+});
+
 test("truthful boundary copy remains visible and the prototype makes no automatic external request", () => {
   assert.match(html, /Architecture document snapshot · design prototype · no live connections/);
   assert.match(html, /not live federation/);

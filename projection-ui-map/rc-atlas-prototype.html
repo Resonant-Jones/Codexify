@@ -1176,10 +1176,14 @@
     function resetView() { const defaults = M.defaultPresentation(els.canvas.clientWidth, els.canvas.clientHeight); state.viewport = defaults.viewport; state.positions = defaults.positions; renderGraph(); savePresentation(); }
     const reducedMotion = () => Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const afterGalaxyMotion = callback => window.setTimeout(callback, reducedMotion() ? 0 : 540);
+    function setGalaxyGate(open, restoreFocus = true) {
+      els.galaxyGate.classList.toggle("open", open); els.app.inert = open;
+      if (open) $("#stayLocal").focus(); else if (restoreFocus) $("#galaxyButton").focus();
+    }
     function enterGalaxy() {
       if (state.galaxyReturn) return;
       state.galaxyReturn = { navigation: { selectedId: state.navigation.selectedId, history: state.navigation.history.slice() }, view: state.view, query: state.query, viewport: {...state.viewport}, selectedEdgeId: state.selectedEdgeId };
-      els.galaxyGate.classList.remove("open"); els.galaxy.classList.add("preparing"); els.app.classList.add("galaxy-departing");
+      setGalaxyGate(false, false); els.galaxy.classList.add("preparing"); els.app.classList.add("galaxy-departing");
       window.requestAnimationFrame(() => { els.galaxy.classList.add("open"); afterGalaxyMotion(() => { els.galaxy.classList.remove("preparing"); els.app.classList.remove("galaxy-departing"); $("#exitGalaxy").focus(); }); });
     }
     function exitGalaxy() {
@@ -1233,8 +1237,8 @@
     $("#aboutButton").addEventListener("click", () => openReader("source-atlas"));
     els.legendButton.addEventListener("click", () => toggleLegend());
     $("#closeLegend").addEventListener("click", () => toggleLegend(false));
-    $("#galaxyButton").addEventListener("click", () => { els.galaxyGate.classList.add("open"); $("#stayLocal").focus(); });
-    $("#stayLocal").addEventListener("click", () => { els.galaxyGate.classList.remove("open"); $("#galaxyButton").focus(); });
+    $("#galaxyButton").addEventListener("click", () => setGalaxyGate(true));
+    $("#stayLocal").addEventListener("click", () => setGalaxyGate(false));
     $("#confirmGalaxy").addEventListener("click", enterGalaxy);
     $("#exitGalaxy").addEventListener("click", exitGalaxy);
     $("#zoomIn").addEventListener("click", () => zoom(.1)); $("#zoomOut").addEventListener("click", () => zoom(-.1)); $("#resetView").addEventListener("click", resetView);
@@ -1245,7 +1249,7 @@
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         if (state.fullscreenReader) setFullscreenReader(false);
-        else if (els.galaxyGate.classList.contains("open")) { els.galaxyGate.classList.remove("open"); $("#galaxyButton").focus(); }
+        else if (els.galaxyGate.classList.contains("open")) setGalaxyGate(false);
         else if (els.galaxy.classList.contains("open") || els.galaxy.classList.contains("preparing")) exitGalaxy();
         else if (els.reader.classList.contains("open")) closeReader();
         else if (!els.legendPanel.hidden) toggleLegend(false);
