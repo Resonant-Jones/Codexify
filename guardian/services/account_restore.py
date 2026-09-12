@@ -2357,6 +2357,8 @@ class PlannedMemoryRecord:
     pinned: bool
     held: bool
     extensions: dict[str, Any]
+    created_at: str
+    updated_at: str
 
 
 @dataclass(slots=True)
@@ -2856,6 +2858,14 @@ class UnifiedMemoryRestorePreflight:
                 extensions=_preflight_extensions(
                     row.get("extensions"), field="memory_records.extensions"
                 ),
+                created_at=_preflight_identity_str(
+                    row.get("created_at"),
+                    field="memory_records.created_at",
+                ),
+                updated_at=_preflight_identity_str(
+                    row.get("updated_at"),
+                    field="memory_records.updated_at",
+                ),
             )
             # Every canonical memory requires at least one provenance row,
             # which is the closure rule mirrored from the export side.
@@ -3072,3 +3082,827 @@ class UnifiedMemoryRestorePreflight:
                 )
             ),
         )
+
+
+# =============================================================================
+# UMS-04C-B: canonical-memory restore persistence executor
+# =============================================================================
+#
+# Accepts an already-validated CanonicalMemoryRestorePlan from the UMS-04C-A
+# preflight and an open database connection already inside a transaction.
+# Performs a complete classify-before-mutate classification pass (no DML),
+# then applies CREATE entities in dependency order inside the caller's
+# transaction. IDENTICAL entities perform no write. Any CONFLICT or any
+# mutation failure aborts the entire canonical restore unit; the caller
+# owns rollback semantics (the executor never commits independently).
+#
+# This executor does NOT change ``SUPPORTED_SCHEMA_VERSIONS``; production v4
+# dispatch remains fail-closed. It is the executor consumed by the
+# future UMS-04C-C production-integration slice.
+
+UNIFIED_MEMORY_RESTORE_TABLE_NAMES: dict[str, str] = {
+    "persona_subjects": "persona_subjects",
+    "persona_subject_bindings": "persona_subject_bindings",
+    "memory_records": "memory_records",
+    "memory_persona_links": "memory_persona_links",
+    "memory_provenance": "memory_provenance",
+}
+
+_UNIFIED_MEMORY_SUBJECT_FIELDS: tuple[str, ...] = (
+    "persona_subject_id",
+    "user_id",
+    "display_name_snapshot",
+    "lifecycle",
+    "created_at",
+    "updated_at",
+)
+
+_UNIFIED_MEMORY_BINDING_FIELDS: tuple[str, ...] = (
+    "binding_id",
+    "persona_subject_id",
+    "subject_user_id",
+    "source_account_id",
+    "ref_kind",
+    "ref_id",
+    "valid_from",
+    "valid_until",
+    "created_at",
+)
+
+_UNIFIED_MEMORY_MEMORY_FIELDS: tuple[str, ...] = (
+    "memory_id",
+    "user_id",
+    "project_id",
+    "semantic_species",
+    "text_content",
+    "fact_key",
+    "fact_value",
+    "fact_confidence",
+    "reviewed_at",
+    "activated_at",
+    "pinned",
+    "held",
+    "extensions",
+    "created_at",
+    "updated_at",
+)
+
+_UNIFIED_MEMORY_LINK_FIELDS: tuple[str, ...] = (
+    "link_id",
+    "memory_id",
+    "user_id",
+    "persona_subject_id",
+    "persona_user_id",
+    "link_kind",
+    "created_at",
+)
+
+_UNIFIED_MEMORY_PROVENANCE_FIELDS: tuple[str, ...] = (
+    "provenance_id",
+    "memory_id",
+    "user_id",
+    "source_system",
+    "source_record_id",
+    "source_thread_id",
+    "source_message_id",
+    "source_import_job_id",
+    "source_export_fingerprint",
+    "source_subject_kind",
+    "source_subject_id",
+    "is_imported",
+    "extensions",
+    "created_at",
+)
+
+
+class UnifiedMemoryRestoreConflictError(AccountRestoreConflictError):
+    code = "unified_memory_restore_conflict"
+
+
+class UnifiedMemoryRestorePersistenceError(AccountRestoreError):
+    code = "unified_memory_restore_persistence_failed"
+    validated = False
+
+
+@dataclass(slots=True)
+class CanonicalMemoryRestoreClassification:
+    """Phase 1 classification result; consumed by ``execute()`` to drive Phase 2.
+
+    Identical entities perform no write in Phase 2. CREATE entities are
+    inserted in dependency order inside the caller's transaction.
+    """
+
+    target_account_id: str
+    source_account_id: str
+
+    subject_create_ids: tuple[str, ...]
+    subject_identical_ids: tuple[str, ...]
+    binding_create_ids: tuple[str, ...]
+    binding_identical_ids: tuple[str, ...]
+    memory_create_ids: tuple[str, ...]
+    memory_identical_ids: tuple[str, ...]
+    link_create_ids: tuple[str, ...]
+    link_identical_ids: tuple[str, ...]
+    provenance_create_ids: tuple[str, ...]
+    provenance_identical_ids: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class CanonicalMemoryRestoreResult:
+    """Phase 2 receipt returned to the caller.
+
+    Per-family counts are observational evidence only. They are not authority.
+    An idempotent replay must return ``created == 0`` for every family.
+    """
+
+    target_account_id: str
+    source_account_id: str
+
+    subject_created_count: int
+    subject_identical_count: int
+    binding_created_count: int
+    binding_identical_count: int
+    memory_created_count: int
+    memory_identical_count: int
+    link_created_count: int
+    link_identical_count: int
+    provenance_created_count: int
+    provenance_identical_count: int
+
+
+def _executor_iso(value: Any) -> str | None:
+    """Normalize timestamp-like values to UTC ISO 8601 strings for comparison.
+
+    PostgreSQL TIMESTAMPTZ is read back in the connection's session timezone,
+    which differs from the UTC offset carried in the export-side plan
+    strings. To compare apples-to-apples, both sides are normalized to UTC.
+    """
+    if value is None:
+        return None
+    from datetime import datetime, timezone
+
+    if hasattr(value, "isoformat"):
+        try:
+            dt = value
+            if getattr(dt, "tzinfo", None) is not None:
+                dt = dt.astimezone(timezone.utc)
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+        except Exception:  # pragma: no cover - defensive guard
+            return str(value)
+    text = str(value)
+    try:
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    except Exception:
+        return text
+
+
+def _executor_json_equal(a: Any, b: Any) -> bool:
+    """Semantic JSON equality for extensions fields.
+
+    Both sides must already be deserialized into Python primitives
+    (``dict``/``list``/``str``/``int``/``float``/``bool``/``None``). This is
+    the case for psycopg's JSONB deserializer and for the dataclass field
+    type ``dict[str, Any]`` carried by every plan dataclass.
+    """
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return a == b
+
+
+def _executor_row_equals(
+    *,
+    existing: dict[str, Any],
+    fields: tuple[str, ...],
+    plan_values: dict[str, Any],
+) -> bool:
+    """Compare an existing persisted row to a plan's projected values.
+
+    Every authoritative field listed in ``fields`` must match exactly.
+    Timestamps are normalized to ISO 8601 strings on both sides. JSONB
+    fields are compared semantically via :func:`_executor_json_equal`.
+    """
+    for field in fields:
+        existing_value = existing.get(field)
+        plan_value = plan_values.get(field)
+        if field in {
+            "created_at",
+            "updated_at",
+            "reviewed_at",
+            "activated_at",
+            "valid_from",
+            "valid_until",
+        }:
+            if _executor_iso(existing_value) != _executor_iso(plan_value):
+                return False
+            continue
+        if field == "extensions":
+            if not _executor_json_equal(existing_value, plan_value):
+                return False
+            continue
+        if existing_value != plan_value:
+            return False
+    return True
+
+
+def _executor_select_by_ids(
+    conn: Any,
+    *,
+    table: str,
+    id_column: str,
+    ids: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    """Select existing rows by primary-key id set; return ``{id: row}``.
+
+    Uses a single parameterized ``WHERE ... = ANY(%s)`` query. psycopg
+    adapts a Python list/tuple to the PG array literal. Rows are returned as
+    ``dict_row`` so callers can address columns by name.
+    """
+    if not ids:
+        return {}
+    from psycopg.rows import dict_row as _dict_row
+
+    rows: dict[str, dict[str, Any]] = {}
+    with conn.cursor(row_factory=_dict_row) as cur:
+        cur.execute(
+            f'SELECT * FROM "{table}" WHERE "{id_column}" = ANY(%s)',
+            (list(ids),),
+        )
+        for row in cur.fetchall():
+            desc = row.get(id_column)
+            if desc is None:
+                continue
+            rows[str(desc)] = row
+    return rows
+
+
+class CanonicalMemoryRestoreExecutor:
+    """Two-phase executor for an already-validated ``CanonicalMemoryRestorePlan``.
+
+    Phase 1 — ``_classify`` — reads existing target state and classifies every
+    planned entity as ``CREATE`` or ``IDENTICAL``. Any ``CONFLICT`` aborts the
+    entire classification; the caller is responsible for transaction
+    rollback. No canonical DML is performed in Phase 1.
+
+    Phase 2 — ``_mutate`` — inserts CREATE entities in dependency order
+    inside the caller's open transaction. IDENTICAL entities perform no write.
+
+    The executor does NOT commit, rollback, or open its own transaction.
+    """
+
+    def __init__(self, plan: CanonicalMemoryRestorePlan) -> None:
+        self._plan = plan
+
+    @property
+    def plan(self) -> CanonicalMemoryRestorePlan:
+        return self._plan
+
+    def execute(self, conn: Any) -> CanonicalMemoryRestoreResult:
+        classification = self._classify(conn)
+        return self._mutate(conn, classification)
+
+    # ------------------------------------------------------------------
+    # Phase 1 — classification
+    # ------------------------------------------------------------------
+
+    def _classify(self, conn: Any) -> CanonicalMemoryRestoreClassification:
+        plan = self._plan
+
+        # Subjects
+        subject_ids = tuple(s.target_persona_subject_id for s in plan.persona_subjects)
+        existing_subjects = _executor_select_by_ids(
+            conn,
+            table="persona_subjects",
+            id_column="persona_subject_id",
+            ids=subject_ids,
+        )
+        subject_create: list[str] = []
+        subject_identical: list[str] = []
+        for planned in plan.persona_subjects:
+            subject_id = planned.target_persona_subject_id
+            existing = existing_subjects.get(subject_id)
+            plan_values = {
+                "persona_subject_id": planned.target_persona_subject_id,
+                "user_id": planned.target_account_id,
+                "display_name_snapshot": planned.display_name_snapshot,
+                "lifecycle": planned.lifecycle,
+                "created_at": planned.created_at,
+                "updated_at": planned.updated_at,
+            }
+            if existing is None:
+                subject_create.append(subject_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_SUBJECT_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="persona_subject_conflict",
+                    code="persona_subject_conflict",
+                    details={
+                        "persona_subject_id": subject_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_SUBJECT_FIELDS
+                        },
+                    },
+                )
+            subject_identical.append(subject_id)
+
+        # Bindings
+        binding_ids = tuple(b.target_binding_id for b in plan.persona_subject_bindings)
+        existing_bindings = _executor_select_by_ids(
+            conn,
+            table="persona_subject_bindings",
+            id_column="binding_id",
+            ids=binding_ids,
+        )
+        binding_create: list[str] = []
+        binding_identical: list[str] = []
+        for planned in plan.persona_subject_bindings:
+            binding_id = planned.target_binding_id
+            existing = existing_bindings.get(binding_id)
+            plan_values = {
+                "binding_id": planned.target_binding_id,
+                "persona_subject_id": planned.target_persona_subject_id,
+                "subject_user_id": planned.target_account_id,
+                "source_account_id": planned.target_account_id,
+                "ref_kind": planned.ref_kind,
+                "ref_id": planned.ref_id,
+                "valid_from": planned.valid_from,
+                "valid_until": planned.valid_until,
+                "created_at": planned.created_at,
+            }
+            if existing is None:
+                binding_create.append(binding_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_BINDING_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="persona_binding_conflict",
+                    code="persona_binding_conflict",
+                    details={
+                        "binding_id": binding_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_BINDING_FIELDS
+                        },
+                    },
+                )
+            binding_identical.append(binding_id)
+
+        # Memory records
+        memory_ids = tuple(m.target_memory_id for m in plan.memory_records)
+        existing_memories = _executor_select_by_ids(
+            conn,
+            table="memory_records",
+            id_column="memory_id",
+            ids=memory_ids,
+        )
+        memory_create: list[str] = []
+        memory_identical: list[str] = []
+        for planned in plan.memory_records:
+            memory_id = planned.target_memory_id
+            existing = existing_memories.get(memory_id)
+            plan_values = {
+                "memory_id": planned.target_memory_id,
+                "user_id": planned.target_account_id,
+                "project_id": planned.target_project_id,
+                "semantic_species": planned.semantic_species,
+                "text_content": planned.text_content,
+                "fact_key": planned.fact_key,
+                "fact_value": planned.fact_value,
+                "fact_confidence": planned.fact_confidence,
+                "reviewed_at": planned.reviewed_at,
+                "activated_at": planned.activated_at,
+                "pinned": planned.pinned,
+                "held": planned.held,
+                "extensions": planned.extensions,
+                "created_at": planned.created_at,
+                "updated_at": planned.updated_at,
+            }
+            if existing is None:
+                memory_create.append(memory_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_MEMORY_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_record_conflict",
+                    code="memory_record_conflict",
+                    details={
+                        "memory_id": memory_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_MEMORY_FIELDS
+                        },
+                    },
+                )
+            memory_identical.append(memory_id)
+
+        # Persona links
+        link_ids = tuple(l.target_link_id for l in plan.memory_persona_links)
+        existing_links = _executor_select_by_ids(
+            conn,
+            table="memory_persona_links",
+            id_column="link_id",
+            ids=link_ids,
+        )
+        link_create: list[str] = []
+        link_identical: list[str] = []
+        for planned in plan.memory_persona_links:
+            link_id = planned.target_link_id
+            existing = existing_links.get(link_id)
+            plan_values = {
+                "link_id": planned.target_link_id,
+                "memory_id": planned.target_memory_id,
+                "user_id": planned.target_account_id,
+                "persona_subject_id": planned.target_persona_subject_id,
+                "persona_user_id": planned.target_account_id,
+                "link_kind": planned.link_kind,
+                "created_at": planned.created_at,
+            }
+            if existing is None:
+                link_create.append(link_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_LINK_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_persona_link_conflict",
+                    code="memory_persona_link_conflict",
+                    details={
+                        "link_id": link_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_LINK_FIELDS
+                        },
+                    },
+                )
+            link_identical.append(link_id)
+
+        # Provenance
+        provenance_ids = tuple(p.target_provenance_id for p in plan.memory_provenance)
+        existing_provenance = _executor_select_by_ids(
+            conn,
+            table="memory_provenance",
+            id_column="provenance_id",
+            ids=provenance_ids,
+        )
+        provenance_create: list[str] = []
+        provenance_identical: list[str] = []
+        for planned in plan.memory_provenance:
+            provenance_id = planned.target_provenance_id
+            existing = existing_provenance.get(provenance_id)
+            plan_values = {
+                "provenance_id": planned.target_provenance_id,
+                "memory_id": planned.target_memory_id,
+                "user_id": planned.target_account_id,
+                "source_system": planned.source_system,
+                "source_record_id": planned.source_record_id,
+                "source_thread_id": planned.target_source_thread_id,
+                "source_message_id": planned.target_source_message_id,
+                "source_import_job_id": planned.source_import_job_id,
+                "source_export_fingerprint": planned.source_export_fingerprint,
+                "source_subject_kind": planned.source_subject_kind,
+                "source_subject_id": planned.source_subject_id,
+                "is_imported": planned.is_imported,
+                "extensions": planned.extensions,
+                "created_at": planned.created_at,
+            }
+            if existing is None:
+                provenance_create.append(provenance_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_PROVENANCE_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_provenance_conflict",
+                    code="memory_provenance_conflict",
+                    details={
+                        "provenance_id": provenance_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_PROVENANCE_FIELDS
+                        },
+                    },
+                )
+            provenance_identical.append(provenance_id)
+
+        return CanonicalMemoryRestoreClassification(
+            target_account_id=plan.target_account_id,
+            source_account_id=plan.source_account_id,
+            subject_create_ids=tuple(subject_create),
+            subject_identical_ids=tuple(subject_identical),
+            binding_create_ids=tuple(binding_create),
+            binding_identical_ids=tuple(binding_identical),
+            memory_create_ids=tuple(memory_create),
+            memory_identical_ids=tuple(memory_identical),
+            link_create_ids=tuple(link_create),
+            link_identical_ids=tuple(link_identical),
+            provenance_create_ids=tuple(provenance_create),
+            provenance_identical_ids=tuple(provenance_identical),
+        )
+
+    # ------------------------------------------------------------------
+    # Phase 2 — mutation
+    # ------------------------------------------------------------------
+
+    def _mutate(
+        self,
+        conn: Any,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> CanonicalMemoryRestoreResult:
+        plan = self._plan
+
+        # Insert in exact dependency order.
+        self._insert_subjects(conn, plan, classification)
+        self._insert_bindings(conn, plan, classification)
+        self._insert_memories(conn, plan, classification)
+        self._insert_links(conn, plan, classification)
+        self._insert_provenance(conn, plan, classification)
+
+        return CanonicalMemoryRestoreResult(
+            target_account_id=plan.target_account_id,
+            source_account_id=plan.source_account_id,
+            subject_created_count=len(classification.subject_create_ids),
+            subject_identical_count=len(classification.subject_identical_ids),
+            binding_created_count=len(classification.binding_create_ids),
+            binding_identical_count=len(classification.binding_identical_ids),
+            memory_created_count=len(classification.memory_create_ids),
+            memory_identical_count=len(classification.memory_identical_ids),
+            link_created_count=len(classification.link_create_ids),
+            link_identical_count=len(classification.link_identical_ids),
+            provenance_created_count=len(classification.provenance_create_ids),
+            provenance_identical_count=len(classification.provenance_identical_ids),
+        )
+
+    def _insert_subjects(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        if not classification.subject_create_ids:
+            return
+        create_ids = set(classification.subject_create_ids)
+        rows = [
+            s
+            for s in plan.persona_subjects
+            if s.target_persona_subject_id in create_ids
+        ]
+        rows.sort(key=lambda s: s.target_persona_subject_id)
+        try:
+            with conn.cursor() as cur:
+                for s in rows:
+                    cur.execute(
+                        'INSERT INTO "persona_subjects" '
+                        "(persona_subject_id, user_id, display_name_snapshot, "
+                        "lifecycle, created_at, updated_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (
+                            s.target_persona_subject_id,
+                            s.target_account_id,
+                            s.display_name_snapshot,
+                            s.lifecycle,
+                            s.created_at,
+                            s.updated_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="persona_subject_insert_failed",
+                code="persona_subject_insert_failed",
+                details={
+                    "subject_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_bindings(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        if not classification.binding_create_ids:
+            return
+        create_ids = set(classification.binding_create_ids)
+        rows = [
+            b
+            for b in plan.persona_subject_bindings
+            if b.target_binding_id in create_ids
+        ]
+        rows.sort(
+            key=lambda b: (
+                b.target_persona_subject_id,
+                b.valid_from,
+                b.target_binding_id,
+            )
+        )
+        try:
+            with conn.cursor() as cur:
+                for b in rows:
+                    cur.execute(
+                        'INSERT INTO "persona_subject_bindings" '
+                        "(binding_id, persona_subject_id, subject_user_id, "
+                        "source_account_id, ref_kind, ref_id, "
+                        "valid_from, valid_until, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            b.target_binding_id,
+                            b.target_persona_subject_id,
+                            b.target_account_id,
+                            b.target_account_id,
+                            b.ref_kind,
+                            b.ref_id,
+                            b.valid_from,
+                            b.valid_until,
+                            b.created_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="persona_binding_insert_failed",
+                code="persona_binding_insert_failed",
+                details={
+                    "binding_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_memories(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        if not classification.memory_create_ids:
+            return
+        create_ids = set(classification.memory_create_ids)
+        rows = [m for m in plan.memory_records if m.target_memory_id in create_ids]
+        rows.sort(key=lambda m: m.target_memory_id)
+        try:
+            from psycopg.types.json import Json  # type: ignore
+
+            with conn.cursor() as cur:
+                for m in rows:
+                    cur.execute(
+                        'INSERT INTO "memory_records" '
+                        "(memory_id, user_id, project_id, semantic_species, "
+                        "text_content, fact_key, fact_value, fact_confidence, "
+                        "reviewed_at, activated_at, pinned, held, extensions, "
+                        "created_at, updated_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+                        "%s, %s, %s, %s, %s)",
+                        (
+                            m.target_memory_id,
+                            m.target_account_id,
+                            m.target_project_id,
+                            m.semantic_species,
+                            m.text_content,
+                            m.fact_key,
+                            m.fact_value,
+                            m.fact_confidence,
+                            m.reviewed_at,
+                            m.activated_at,
+                            m.pinned,
+                            m.held,
+                            Json(m.extensions),
+                            m.created_at,
+                            m.updated_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="memory_record_insert_failed",
+                code="memory_record_insert_failed",
+                details={
+                    "memory_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_links(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        if not classification.link_create_ids:
+            return
+        create_ids = set(classification.link_create_ids)
+        rows = [l for l in plan.memory_persona_links if l.target_link_id in create_ids]
+        rows.sort(
+            key=lambda l: (
+                l.target_memory_id,
+                l.target_persona_subject_id,
+                l.link_kind,
+                l.target_link_id,
+            )
+        )
+        try:
+            with conn.cursor() as cur:
+                for l in rows:
+                    cur.execute(
+                        'INSERT INTO "memory_persona_links" '
+                        "(link_id, memory_id, user_id, persona_subject_id, "
+                        "persona_user_id, link_kind, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            l.target_link_id,
+                            l.target_memory_id,
+                            l.target_account_id,
+                            l.target_persona_subject_id,
+                            l.target_account_id,
+                            l.link_kind,
+                            l.created_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="memory_persona_link_insert_failed",
+                code="memory_persona_link_insert_failed",
+                details={
+                    "link_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_provenance(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        if not classification.provenance_create_ids:
+            return
+        create_ids = set(classification.provenance_create_ids)
+        rows = [
+            p for p in plan.memory_provenance if p.target_provenance_id in create_ids
+        ]
+        rows.sort(
+            key=lambda p: (
+                p.target_memory_id,
+                p.target_provenance_id,
+            )
+        )
+        try:
+            from psycopg.types.json import Json  # type: ignore
+
+            with conn.cursor() as cur:
+                for p in rows:
+                    cur.execute(
+                        'INSERT INTO "memory_provenance" '
+                        "(provenance_id, memory_id, user_id, source_system, "
+                        "source_record_id, source_thread_id, source_message_id, "
+                        "source_import_job_id, source_export_fingerprint, "
+                        "source_subject_kind, source_subject_id, is_imported, "
+                        "extensions, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+                        "%s, %s, %s, %s)",
+                        (
+                            p.target_provenance_id,
+                            p.target_memory_id,
+                            p.target_account_id,
+                            p.source_system,
+                            p.source_record_id,
+                            p.target_source_thread_id,
+                            p.target_source_message_id,
+                            p.source_import_job_id,
+                            p.source_export_fingerprint,
+                            p.source_subject_kind,
+                            p.source_subject_id,
+                            p.is_imported,
+                            Json(p.extensions),
+                            p.created_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="memory_provenance_insert_failed",
+                code="memory_provenance_insert_failed",
+                details={
+                    "provenance_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc

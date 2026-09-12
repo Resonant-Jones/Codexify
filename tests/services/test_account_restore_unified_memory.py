@@ -12,9 +12,15 @@ from guardian.services.account_export import (
 from guardian.services.account_restore import (
     AccountRestoreService,
     AccountRestoreValidationError,
+    CanonicalMemoryRestoreExecutor,
     CanonicalMemoryRestorePlan,
+    UnifiedMemoryRestoreConflictError,
     UnifiedMemoryRestorePreflight,
     UnifiedMemoryRestorePreflightError,
+)
+from tests.migration.test_canonical_memory_persistence_migration import _upgrade
+from tests.migration.test_canonical_memory_persistence_migration import (  # noqa: PLC0414
+    temporary_postgres as temporary_postgres,
 )
 
 ACCOUNT_A = "account-a"
@@ -29,9 +35,10 @@ THREAD_A_TARGET = 11001
 MESSAGE_A = 2001
 MESSAGE_A_TARGET = 12001
 
+# Preflight-only synthetic IDs (used by the UMS-04C-A preflight tests
+# against the in-memory payload rows that the preflight tests construct).
 SUBJECT_A = "11111111-1111-1111-1111-111111111111"
 SUBJECT_B = "22222222-2222-2222-2222-222222222222"
-SUBJECT_A_TARGET = "33333333-3333-3333-3333-333333333333"
 
 BINDING_A = "44444444-4444-4444-4444-444444444444"
 BINDING_B = "55555555-5555-5555-5555-555555555555"
@@ -743,3 +750,832 @@ def test_production_dispatch_still_accepts_v3_archive(tmp_path):
 
     manifest, _payloads, _archive_names = _read_archive(archive_bytes)
     assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION
+
+
+# =============================================================================
+# UMS-04C-B: PostgreSQL persistence tests
+# =============================================================================
+#
+# These tests prove that CanonicalMemoryRestoreExecutor:
+#   - classifies every planned entity before any canonical DML;
+#   - inserts CREATE entities in dependency order inside one transaction;
+#   - treats identical replay as an idempotent no-op;
+#   - fails closed on canonical conflicts (no mutation);
+#   - fails closed on late-family conflicts (zero mutation);
+#   - rolls back partial mutation when a later family fails;
+#   - preserves all authoritative fields exactly across restore.
+#
+# Authority: dedicated PostgreSQL 17 cluster through local Unix socket.
+# Transport: postgresql://codexify_test_runner@/postgres?host=/tmp&port=55432
+
+
+# =============================================================================
+# UMS-04C-B: PostgreSQL persistence tests
+# =============================================================================
+#
+# These tests prove that CanonicalMemoryRestoreExecutor:
+#   - classifies every planned entity before any canonical DML;
+#   - inserts CREATE entities in dependency order inside one transaction;
+#   - treats identical replay as an idempotent no-op;
+#   - fails closed on canonical conflicts (no mutation);
+#   - fails closed on late-family conflicts (zero mutation);
+#   - rolls back partial mutation when a later family fails;
+#   - preserves all authoritative fields exactly across restore.
+#
+# Authority: dedicated PostgreSQL 17 cluster through local Unix socket.
+# Transport: postgresql://codexify_test_runner@/postgres?host=/tmp&port=55432
+
+
+def _build_plan_for_account_a(
+    *,
+    source_account_id: str = ACCOUNT_A,
+    target_account_id: str = ACCOUNT_A,
+    project_map: dict[int, int] | None = None,
+    thread_map: dict[int, int] | None = None,
+    message_map: dict[int, int] | None = None,
+) -> tuple[UnifiedMemoryRestorePreflight, CanonicalMemoryRestorePlan]:
+    """Build a preflight + plan from the canonical ``_unified_memory_bundle``.
+
+    Returns ``(preflight, plan)`` so callers can mutate one or both before
+    classification. Default maps cover the IDs the bundle uses.
+    """
+    from tests.services.test_account_export_unified_memory import (
+        MESSAGE_A as BUNDLE_MESSAGE_A,
+    )
+    from tests.services.test_account_export_unified_memory import (
+        PROJECT_A as BUNDLE_PROJECT_A,
+    )
+    from tests.services.test_account_export_unified_memory import (
+        THREAD_A as BUNDLE_THREAD_A,
+    )
+    from tests.services.test_account_export_unified_memory import (  # noqa: PLC0415
+        _unified_memory_bundle as _unified_memory_bundle,
+    )
+
+    bundle = _unified_memory_bundle()
+    payload = {
+        "persona_subjects": bundle["persona_subjects"],
+        "persona_subject_bindings": bundle["persona_subject_bindings"],
+        "memory_records": bundle["memory_records"],
+        "memory_persona_links": bundle["memory_persona_links"],
+        "memory_provenance": bundle["memory_provenance"],
+    }
+    preflight = UnifiedMemoryRestorePreflight(
+        target_account_id=target_account_id,
+        source_account_id=source_account_id,
+        project_map=project_map or {BUNDLE_PROJECT_A: PROJECT_A_TARGET},
+        thread_map=thread_map or {BUNDLE_THREAD_A: THREAD_A_TARGET},
+        message_map=message_map or {BUNDLE_MESSAGE_A: MESSAGE_A_TARGET},
+    )
+    return preflight, preflight.plan(payload)
+
+
+def _seed_account_a(database_url: str) -> None:
+    """Seed ``users``, ``projects``, ``chat_threads``, ``chat_messages``
+    for the ``ACCOUNT_A`` target so canonical restore FKs resolve.
+    """
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES (%s, %s, 'test', 'guest')",
+                (ACCOUNT_A, ACCOUNT_A),
+            )
+            cur.execute(
+                "INSERT INTO projects (id, user_id, name) VALUES (%s, %s, %s)",
+                (PROJECT_A_TARGET, ACCOUNT_A, "Account A Memory Project"),
+            )
+            cur.execute(
+                "INSERT INTO chat_threads (id, user_id, title, project_id) "
+                "VALUES (%s, %s, %s, %s)",
+                (THREAD_A_TARGET, ACCOUNT_A, "Source thread", PROJECT_A_TARGET),
+            )
+            cur.execute(
+                "INSERT INTO chat_messages (id, thread_id, user_id, role, content) "
+                "VALUES (%s, %s, %s, 'user', %s)",
+                (
+                    MESSAGE_A_TARGET,
+                    THREAD_A_TARGET,
+                    ACCOUNT_A,
+                    "Remember this exactly.",
+                ),
+            )
+        conn.commit()
+
+
+def _row_count(database_url: str, table: str) -> int:
+    """Count canonical restore rows owned by ``ACCOUNT_A`` for the given table.
+
+    ``persona_subject_bindings`` carries the owner in ``subject_user_id``;
+    all other canonical tables carry it in ``user_id``.
+    """
+    import sqlalchemy as sa
+
+    owner_column = (
+        "subject_user_id" if table == "persona_subject_bindings" else "user_id"
+    )
+    engine = sa.create_engine(database_url, future=True)
+    with engine.connect() as conn:
+        return conn.execute(
+            sa.text(f"SELECT COUNT(*) FROM {table} WHERE {owner_column} = :u"),
+            {"u": ACCOUNT_A},
+        ).scalar_one()
+
+
+def _table_count_all(database_url: str, table: str) -> int:
+    import sqlalchemy as sa
+
+    engine = sa.create_engine(database_url, future=True)
+    with engine.connect() as conn:
+        return conn.execute(sa.text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+
+
+@pytest.mark.integration
+def test_clean_persistence_creates_all_five_families(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    assert len(plan.memory_records) == 2
+    assert len(plan.memory_provenance) == 3
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        result = CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.commit()
+
+    assert result.subject_created_count == 1
+    assert result.binding_created_count == 2
+    assert result.memory_created_count == 2
+    assert result.link_created_count == 2
+    assert result.provenance_created_count == 3
+    assert result.subject_identical_count == 0
+    assert result.binding_identical_count == 0
+    assert result.memory_identical_count == 0
+    assert result.link_identical_count == 0
+    assert result.provenance_identical_count == 0
+
+    assert _row_count(database_url, "persona_subjects") == 1
+    assert _row_count(database_url, "persona_subject_bindings") == 2
+    assert _row_count(database_url, "memory_records") == 2
+    assert _row_count(database_url, "memory_persona_links") == 2
+    assert _row_count(database_url, "memory_provenance") == 3
+
+    # Verify ownership and identity preservation by reading the rows back.
+    import sqlalchemy as sa
+
+    engine = sa.create_engine(database_url, future=True)
+    with engine.connect() as conn:
+        # All memory_records carry the exact target account.
+        distinct_owners = (
+            conn.execute(sa.text("SELECT DISTINCT user_id FROM memory_records"))
+            .scalars()
+            .all()
+        )
+        assert distinct_owners == [ACCOUNT_A]
+
+        # Project scope preserved (Project-scoped memory stays Project-scoped).
+        episodic_memory_id = next(
+            m.target_memory_id
+            for m in plan.memory_records
+            if m.semantic_species == "episodic_semantic_memory"
+        )
+        fact_memory_id = next(
+            m.target_memory_id
+            for m in plan.memory_records
+            if m.semantic_species == "verified_personal_fact"
+        )
+        scope = {
+            row["memory_id"]: {"project_id": row["project_id"]}
+            for row in conn.execute(
+                sa.text(
+                    "SELECT memory_id, project_id FROM memory_records "
+                    "WHERE memory_id = ANY(:ids)"
+                ),
+                {"ids": [episodic_memory_id, fact_memory_id]},
+            )
+            .mappings()
+            .all()
+        }
+        assert scope[episodic_memory_id]["project_id"] == PROJECT_A_TARGET
+        assert scope[fact_memory_id]["project_id"] is None
+
+        # Pin/hold/species all preserved.
+        governance = {
+            row["memory_id"]: {
+                "pinned": row["pinned"],
+                "held": row["held"],
+                "semantic_species": row["semantic_species"],
+            }
+            for row in conn.execute(
+                sa.text(
+                    "SELECT memory_id, pinned, held, semantic_species "
+                    "FROM memory_records"
+                )
+            ).mappings()
+        }
+        assert governance[episodic_memory_id]["pinned"] is True
+        assert governance[episodic_memory_id]["held"] is False
+        assert governance[fact_memory_id]["pinned"] is False
+        assert governance[fact_memory_id]["held"] is True
+
+        # Multiplicity preserved: episodic memory has two provenance rows.
+        episodic_provenance_count = conn.execute(
+            sa.text("SELECT COUNT(*) FROM memory_provenance WHERE memory_id = :m"),
+            {"m": episodic_memory_id},
+        ).scalar_one()
+        assert episodic_provenance_count == 2
+        fact_provenance_count = conn.execute(
+            sa.text("SELECT COUNT(*) FROM memory_provenance WHERE memory_id = :m"),
+            {"m": fact_memory_id},
+        ).scalar_one()
+        assert fact_provenance_count == 1
+
+
+@pytest.mark.integration
+def test_identical_replay_creates_zero_rows(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        first = CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.commit()
+    assert first.subject_created_count == 1
+    assert first.memory_created_count == 2
+
+    first_counts = {
+        "persona_subjects": _row_count(database_url, "persona_subjects"),
+        "persona_subject_bindings": _row_count(
+            database_url, "persona_subject_bindings"
+        ),
+        "memory_records": _row_count(database_url, "memory_records"),
+        "memory_persona_links": _row_count(database_url, "memory_persona_links"),
+        "memory_provenance": _row_count(database_url, "memory_provenance"),
+    }
+
+    with psycopg.connect(database_url) as conn:
+        second = CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.commit()
+
+    assert second.subject_created_count == 0
+    assert second.binding_created_count == 0
+    assert second.memory_created_count == 0
+    assert second.link_created_count == 0
+    assert second.provenance_created_count == 0
+    assert second.subject_identical_count == 1
+    assert second.binding_identical_count == 2
+    assert second.memory_identical_count == 2
+    assert second.link_identical_count == 2
+    assert second.provenance_identical_count == 3
+
+    second_counts = {
+        "persona_subjects": _row_count(database_url, "persona_subjects"),
+        "persona_subject_bindings": _row_count(
+            database_url, "persona_subject_bindings"
+        ),
+        "memory_records": _row_count(database_url, "memory_records"),
+        "memory_persona_links": _row_count(database_url, "memory_persona_links"),
+        "memory_provenance": _row_count(database_url, "memory_provenance"),
+    }
+    assert first_counts == second_counts
+
+
+@pytest.mark.integration
+def test_subject_conflict_fails_closed(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    subject_id = plan.persona_subjects[0].target_persona_subject_id
+
+    # Seed same subject identity but different lifecycle.
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                (subject_id, ACCOUNT_A, "Axis", "retired", NOW, NOW),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "persona_subject_conflict"
+
+
+@pytest.mark.integration
+def test_memory_conflict_fails_closed(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    target_memory_id = plan.memory_records[0].target_memory_id
+
+    # Seed subject IDENTICALLY to plan so subject classifies as IDENTICAL.
+    # Then seed a conflicting memory with the same memory_id.
+    import psycopg
+
+    planned_subject = plan.persona_subjects[0]
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    planned_subject.target_persona_subject_id,
+                    planned_subject.target_account_id,
+                    planned_subject.display_name_snapshot,
+                    planned_subject.lifecycle,
+                    planned_subject.created_at,
+                    planned_subject.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_records "
+                "(memory_id, user_id, project_id, semantic_species, "
+                "text_content, fact_key, fact_value, fact_confidence, "
+                "reviewed_at, activated_at, pinned, held, extensions, "
+                "created_at, updated_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)",
+                (
+                    target_memory_id,
+                    ACCOUNT_A,
+                    PROJECT_A_TARGET,
+                    "verified_personal_fact",  # different from plan
+                    None,
+                    "k",
+                    "v",
+                    0.5,
+                    NOW,
+                    NOW,
+                    False,
+                    False,
+                    "{}",
+                    NOW,
+                    NOW,
+                ),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "memory_record_conflict"
+
+
+@pytest.mark.integration
+def test_binding_conflict_fails_closed(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    planned_subject = plan.persona_subjects[0]
+    target_binding_id = plan.persona_subject_bindings[0].target_binding_id
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (persona_subject_id) DO NOTHING",
+                (
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    planned_subject.display_name_snapshot,
+                    planned_subject.lifecycle,
+                    planned_subject.created_at,
+                    planned_subject.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO persona_subject_bindings "
+                "(binding_id, persona_subject_id, subject_user_id, "
+                "source_account_id, ref_kind, ref_id, valid_from, valid_until, "
+                "created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    target_binding_id,
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    ACCOUNT_A,
+                    "persona_profile",
+                    "different-ref-id",  # different from plan
+                    NOW,
+                    None,
+                    NOW,
+                ),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "persona_binding_conflict"
+
+
+@pytest.mark.integration
+def test_link_conflict_fails_closed(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    planned_subject = plan.persona_subjects[0]
+    planned_memory = plan.memory_records[0]
+    target_link_id = plan.memory_persona_links[0].target_link_id
+    target_memory_id = plan.memory_persona_links[0].target_memory_id
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (persona_subject_id) DO NOTHING",
+                (
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    planned_subject.display_name_snapshot,
+                    planned_subject.lifecycle,
+                    planned_subject.created_at,
+                    planned_subject.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_records "
+                "(memory_id, user_id, project_id, semantic_species, "
+                "text_content, fact_key, fact_value, fact_confidence, "
+                "reviewed_at, activated_at, pinned, held, extensions, "
+                "created_at, updated_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "ON CONFLICT (memory_id) DO NOTHING",
+                (
+                    target_memory_id,
+                    planned_memory.target_account_id,
+                    planned_memory.target_project_id,
+                    planned_memory.semantic_species,
+                    planned_memory.text_content,
+                    planned_memory.fact_key,
+                    planned_memory.fact_value,
+                    planned_memory.fact_confidence,
+                    planned_memory.reviewed_at,
+                    planned_memory.activated_at,
+                    planned_memory.pinned,
+                    planned_memory.held,
+                    __import__("json").dumps(planned_memory.extensions),
+                    planned_memory.created_at,
+                    planned_memory.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_persona_links "
+                "(link_id, memory_id, user_id, persona_subject_id, "
+                "persona_user_id, link_kind, created_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s)",
+                (
+                    target_link_id,
+                    target_memory_id,
+                    ACCOUNT_A,
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    "suggested_by",  # different from plan
+                    NOW,
+                ),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "memory_persona_link_conflict"
+
+
+@pytest.mark.integration
+def test_provenance_conflict_fails_closed(temporary_postgres, tmp_path):
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    planned_subject = plan.persona_subjects[0]
+    planned_memory = plan.memory_records[0]
+    target_provenance_id = plan.memory_provenance[0].target_provenance_id
+    target_memory_id = plan.memory_provenance[0].target_memory_id
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (persona_subject_id) DO NOTHING",
+                (
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    planned_subject.display_name_snapshot,
+                    planned_subject.lifecycle,
+                    planned_subject.created_at,
+                    planned_subject.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_records "
+                "(memory_id, user_id, project_id, semantic_species, "
+                "text_content, fact_key, fact_value, fact_confidence, "
+                "reviewed_at, activated_at, pinned, held, extensions, "
+                "created_at, updated_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "ON CONFLICT (memory_id) DO NOTHING",
+                (
+                    target_memory_id,
+                    planned_memory.target_account_id,
+                    planned_memory.target_project_id,
+                    planned_memory.semantic_species,
+                    planned_memory.text_content,
+                    planned_memory.fact_key,
+                    planned_memory.fact_value,
+                    planned_memory.fact_confidence,
+                    planned_memory.reviewed_at,
+                    planned_memory.activated_at,
+                    planned_memory.pinned,
+                    planned_memory.held,
+                    __import__("json").dumps(planned_memory.extensions),
+                    planned_memory.created_at,
+                    planned_memory.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_provenance "
+                "(provenance_id, memory_id, user_id, source_system, "
+                "source_record_id, source_thread_id, source_message_id, "
+                "source_import_job_id, source_export_fingerprint, "
+                "source_subject_kind, source_subject_id, is_imported, "
+                "extensions, created_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)",
+                (
+                    target_provenance_id,
+                    target_memory_id,
+                    ACCOUNT_A,
+                    "openai",
+                    "different-source-record-id",  # different from plan
+                    None,
+                    None,
+                    "import-job-1",
+                    "sha256:source-export",
+                    "importer",
+                    "importer-1",
+                    True,
+                    "{}",
+                    NOW,
+                ),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "memory_provenance_conflict"
+
+
+@pytest.mark.integration
+def test_late_family_conflict_proves_classify_before_mutate(
+    temporary_postgres, tmp_path
+):
+    """Subjects/bindings/memories/links classify as CREATE; provenance CONFLICTs.
+
+    Executor must raise on Phase 1 classification, before any INSERT runs.
+    Read-back must show zero rows in any of the five families.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+    planned_subject = plan.persona_subjects[0]
+    planned_memory = plan.memory_records[0]
+    target_provenance_id = plan.memory_provenance[0].target_provenance_id
+    target_memory_id = plan.memory_provenance[0].target_memory_id
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persona_subjects "
+                "(persona_subject_id, user_id, display_name_snapshot, lifecycle, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (persona_subject_id) DO NOTHING",
+                (
+                    plan.persona_subjects[0].target_persona_subject_id,
+                    ACCOUNT_A,
+                    planned_subject.display_name_snapshot,
+                    planned_subject.lifecycle,
+                    planned_subject.created_at,
+                    planned_subject.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_records "
+                "(memory_id, user_id, project_id, semantic_species, "
+                "text_content, fact_key, fact_value, fact_confidence, "
+                "reviewed_at, activated_at, pinned, held, extensions, "
+                "created_at, updated_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "ON CONFLICT (memory_id) DO NOTHING",
+                (
+                    target_memory_id,
+                    planned_memory.target_account_id,
+                    planned_memory.target_project_id,
+                    planned_memory.semantic_species,
+                    planned_memory.text_content,
+                    planned_memory.fact_key,
+                    planned_memory.fact_value,
+                    planned_memory.fact_confidence,
+                    planned_memory.reviewed_at,
+                    planned_memory.activated_at,
+                    planned_memory.pinned,
+                    planned_memory.held,
+                    __import__("json").dumps(planned_memory.extensions),
+                    planned_memory.created_at,
+                    planned_memory.updated_at,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO memory_provenance "
+                "(provenance_id, memory_id, user_id, source_system, "
+                "source_record_id, source_thread_id, source_message_id, "
+                "source_import_job_id, source_export_fingerprint, "
+                "source_subject_kind, source_subject_id, is_imported, "
+                "extensions, created_at) VALUES "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)",
+                (
+                    target_provenance_id,
+                    target_memory_id,
+                    ACCOUNT_A,
+                    "openai",
+                    "different-source-record-id",
+                    None,
+                    None,
+                    "import-job-1",
+                    "sha256:source-export",
+                    "importer",
+                    "importer-1",
+                    True,
+                    "{}",
+                    NOW,
+                ),
+            )
+        conn.commit()
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(UnifiedMemoryRestoreConflictError) as exc_info:
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    assert exc_info.value.code == "memory_provenance_conflict"
+
+    # Row counts must equal the seeded set exactly. The executor's
+    # Phase 2 never started because Phase 1 raised CONFLICT on provenance,
+    # so no executor-side INSERTs occurred.
+    # Seeded: 1 subject, 0 bindings, 1 memory, 0 links, 1 provenance.
+    expected_counts = {
+        "persona_subjects": 1,
+        "persona_subject_bindings": 0,
+        "memory_records": 1,
+        "memory_persona_links": 0,
+        "memory_provenance": 1,
+    }
+    for table, expected in expected_counts.items():
+        actual = _row_count(database_url, table)
+        assert actual == expected, (
+            f"expected {expected} seeded rows in {table}, got {actual}; "
+            f"any difference proves Phase 2 mutated before the CONFLICT raised."
+        )
+
+
+@pytest.mark.integration
+def test_late_dml_failure_rolls_back_partial_canonical_inserts(
+    temporary_postgres, tmp_path, monkeypatch
+):
+    """Subjects/bindings succeed; memory insert FAILS via monkeypatched primitive.
+
+    Phase 1 classification succeeds (subjects/bindings/memories/links/
+    provenance all CREATE). Phase 2 begins mutation. We narrowly
+    monkeypatch ``CanonicalMemoryRestoreExecutor._insert_memories`` to
+    raise after subjects and bindings have already been INSERTed. The
+    caller rolls back the open transaction; zero canonical rows persist.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+
+    def _raise_after_subject_binding_insert(
+        self,
+        conn,
+        plan,
+        classification,
+    ) -> None:  # pragma: no cover - monkeypatched
+        raise RuntimeError("simulated late-family persistence failure")
+
+    monkeypatch.setattr(
+        CanonicalMemoryRestoreExecutor,
+        "_insert_memories",
+        _raise_after_subject_binding_insert,
+    )
+
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        with pytest.raises(RuntimeError):
+            CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.rollback()
+
+    for table in (
+        "persona_subjects",
+        "persona_subject_bindings",
+        "memory_records",
+        "memory_persona_links",
+        "memory_provenance",
+    ):
+        assert _row_count(database_url, table) == 0, (
+            f"expected rollback to zero rows in {table}, got "
+            f"{_row_count(database_url, table)}"
+        )
+
+
+@pytest.mark.integration
+def test_provenance_multiplicity_preserved_across_replays(temporary_postgres, tmp_path):
+    """Two distinct provenance entities for one memory remain distinct after
+    first + second identical restore.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_account_a(database_url)
+
+    _preflight, plan = _build_plan_for_account_a()
+
+    import psycopg
+    import sqlalchemy as sa
+
+    with psycopg.connect(database_url) as conn:
+        CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.commit()
+
+    engine = sa.create_engine(database_url, future=True)
+
+    def _provenance_count_for_memory(memory_id: str) -> int:
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.text("SELECT COUNT(*) FROM memory_provenance WHERE memory_id = :m"),
+                {"m": memory_id},
+            ).scalar_one()
+
+    episodic_memory_id = next(
+        m.target_memory_id
+        for m in plan.memory_records
+        if m.semantic_species == "episodic_semantic_memory"
+    )
+    first_count = _provenance_count_for_memory(episodic_memory_id)
+    assert first_count == 2
+
+    with psycopg.connect(database_url) as conn:
+        CanonicalMemoryRestoreExecutor(plan).execute(conn)
+        conn.commit()
+
+    second_count = _provenance_count_for_memory(episodic_memory_id)
+    assert second_count == 2
