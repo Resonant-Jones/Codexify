@@ -25,6 +25,9 @@ from guardian.services.account_export import (
     PAYLOAD_FAMILIES,
     PAYLOAD_ORDER,
     PAYLOAD_ORDER_BY_SCHEMA,
+    STAGED_MANIFEST_SCHEMA_VERSION,
+    STAGED_PAYLOAD_FAMILIES,
+    UNIFIED_MEMORY_PAYLOAD_FAMILIES,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,7 @@ SUPPORTED_SCHEMA_VERSIONS = {
     "account-export.v1",
     "account-export.v2",
     MANIFEST_SCHEMA_VERSION,
+    STAGED_MANIFEST_SCHEMA_VERSION,
 }
 
 # Restore order is dependency-safe for the current schema. It differs from the
@@ -93,7 +97,75 @@ def _empty_blob_coverage() -> dict[str, Any]:
 def _restore_order_for_schema(schema_version: str | None) -> tuple[str, ...]:
     if schema_version == MANIFEST_SCHEMA_VERSION:
         return RESTORE_ORDER
+    if schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+        return RESTORE_ORDER
     return HISTORICAL_RESTORE_ORDER
+
+
+def _build_identity_pk_map(rows: list[dict[str, Any]], *, pk: str) -> dict[int, int]:
+    """Identity map ``{pk_value: pk_value}`` for every row.
+
+    The existing regular restore helpers preserve primary keys via
+    ``INSERT ... ON CONFLICT (pk) DO NOTHING``. Therefore source-to-target
+    identity is the only correct map for v4 canonical restore.
+    """
+    mapping: dict[int, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = row.get(pk)
+        if value is None:
+            continue
+        try:
+            int_value = int(value)
+        except (TypeError, ValueError):
+            continue
+        mapping[int_value] = int_value
+    return mapping
+
+
+def _canonical_family_counts(
+    family: str, result: CanonicalMemoryRestoreResult
+) -> tuple[int, int, int, int]:
+    """Translate canonical restore result counts to the existing
+    FamilyRestoreReport counts schema (imported, skipped, failed, unresolved).
+    """
+    if family == "persona_subjects":
+        return (
+            result.subject_created_count,
+            result.subject_identical_count,
+            0,
+            0,
+        )
+    if family == "persona_subject_bindings":
+        return (
+            result.binding_created_count,
+            result.binding_identical_count,
+            0,
+            0,
+        )
+    if family == "memory_records":
+        return (
+            result.memory_created_count,
+            result.memory_identical_count,
+            0,
+            0,
+        )
+    if family == "memory_persona_links":
+        return (
+            result.link_created_count,
+            result.link_identical_count,
+            0,
+            0,
+        )
+    if family == "memory_provenance":
+        return (
+            result.provenance_created_count,
+            result.provenance_identical_count,
+            0,
+            0,
+        )
+    return (0, 0, 0, 0)
 
 
 def _empty_family_reports(
@@ -1807,7 +1879,10 @@ class AccountRestoreService:
                 parsed.payload_rows["extension_install_bindings"]
             ),
         }
-        if parsed.schema_version == MANIFEST_SCHEMA_VERSION:
+        if parsed.schema_version in (
+            MANIFEST_SCHEMA_VERSION,
+            STAGED_MANIFEST_SCHEMA_VERSION,
+        ):
             ordered_rows.update(
                 {
                     "persona_profiles": self._prepare_persona_profiles(
@@ -1838,6 +1913,13 @@ class AccountRestoreService:
                         else:
                             result = _call_restore(RESTORE_METHODS[family], rows, conn)
                         _record_family(family, rows, result)
+                    if parsed.schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+                        self._restore_unified_memory(
+                            parsed=parsed,
+                            conn=conn,
+                            family_reports=family_reports,
+                            counts=counts,
+                        )
             else:
                 for family in restore_order:
                     rows = ordered_rows[family]
@@ -1851,8 +1933,73 @@ class AccountRestoreService:
                     else:
                         result = _call_restore(RESTORE_METHODS[family], rows, None)
                     _record_family(family, rows, result)
+                if parsed.schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+                    raise self._v4_connection_required_error(
+                        parsed=parsed,
+                        family_reports=family_reports,
+                        counts=counts,
+                    )
         except AccountRestoreError:
             raise
+        except UnifiedMemoryRestoreConflictError as exc:
+            raise self._restore_conflict(
+                parsed=parsed,
+                family_reports=family_reports,
+                counts=counts,
+                message=str(exc) or "Canonical memory restore conflict",
+                details={
+                    "code": getattr(exc, "code", None),
+                    "canonical_payload": {
+                        family: list(getattr(exc, "details", {}).get(family, []) or [])
+                        for family in UNIFIED_MEMORY_PAYLOAD_FAMILIES
+                    },
+                    **(
+                        {"details": exc.details}
+                        if hasattr(exc, "details") and exc.details
+                        else {}
+                    ),
+                },
+            ) from exc
+        except UnifiedMemoryRestorePreflightError as exc:
+            raise self._restore_conflict(
+                parsed=parsed,
+                family_reports=family_reports,
+                counts=counts,
+                message=str(exc) or "Canonical memory preflight failed",
+                details={
+                    "code": getattr(exc, "code", None),
+                    **(
+                        {"details": exc.details}
+                        if hasattr(exc, "details") and exc.details
+                        else {}
+                    ),
+                },
+            ) from exc
+        except UnifiedMemoryRestorePersistenceError as exc:
+            raise AccountRestoreError(
+                str(exc) or "Canonical memory persistence failed",
+                code="unified_memory_restore_persistence_failed",
+                status_code=500,
+                validated=True,
+                schema_version=parsed.schema_version,
+                export_kind=parsed.export_kind,
+                archive_includes_blob_coverage=parsed.archive_includes_blob_coverage,
+                blob_coverage=parsed.blob_coverage,
+                families=[report.to_dict() for report in family_reports],
+                counts=dict(counts),
+                notes=[
+                    "Archive validation succeeded before restore began.",
+                    "Canonical memory persistence failed; the entire transaction was rolled back.",
+                ],
+                details={
+                    "code": getattr(exc, "code", None),
+                    **(
+                        {"details": exc.details}
+                        if hasattr(exc, "details") and exc.details
+                        else {}
+                    ),
+                },
+            ) from exc
         except ValueError as exc:
             raise self._restore_conflict(
                 parsed=parsed,
@@ -1924,6 +2071,110 @@ class AccountRestoreService:
                 "The archive conflicts with pre-existing rows and was not merged.",
             ],
             details=details,
+        )
+
+    def _restore_unified_memory(
+        self,
+        *,
+        parsed: ParsedArchive,
+        conn: Any,
+        family_reports: list[FamilyRestoreReport],
+        counts: dict[str, int],
+    ) -> CanonicalMemoryRestoreResult:
+        """Restore the v4 unified-memory canonical payload within the open
+        production transaction.
+
+        Reuses the existing UMS-04C-A preflight and UMS-04C-B persistence
+        executor. Source-to-target identity maps are identity maps because
+        the existing regular restore helpers preserve primary keys via
+        ``INSERT ... ON CONFLICT DO NOTHING RETURNING pk``. Project/thread/
+        message mapping therefore reduces to ``{id: id}`` for every row
+        restored in the regular pass above.
+        """
+        canonical_payload: dict[str, list[dict[str, Any]]] = {}
+        for family in UNIFIED_MEMORY_PAYLOAD_FAMILIES:
+            canonical_payload[family] = list(parsed.payload_rows.get(family, []))
+
+        project_map = _build_identity_pk_map(
+            parsed.payload_rows.get("projects", []), pk="id"
+        )
+        thread_map = _build_identity_pk_map(
+            parsed.payload_rows.get("chat_threads", []), pk="id"
+        )
+        message_map = _build_identity_pk_map(
+            parsed.payload_rows.get("chat_messages", []), pk="id"
+        )
+
+        preflight = UnifiedMemoryRestorePreflight(
+            target_account_id=str(parsed.user_id),
+            source_account_id=str(parsed.user_id),
+            project_map=project_map,
+            thread_map=thread_map,
+            message_map=message_map,
+        )
+        plan = preflight.plan(canonical_payload)
+        executor = CanonicalMemoryRestoreExecutor(plan)
+        result = executor.execute(conn)
+
+        for family in UNIFIED_MEMORY_PAYLOAD_FAMILIES:
+            imported, skipped, failed, unresolved = _canonical_family_counts(
+                family, result
+            )
+            payload_rows = len(canonical_payload.get(family, []))
+            if failed:
+                status = "failed"
+            elif payload_rows == 0:
+                status = "empty"
+            elif imported and skipped:
+                status = "partial"
+            elif imported:
+                status = "imported"
+            elif skipped:
+                status = "already_present"
+            else:
+                status = "empty"
+            family_reports.append(
+                FamilyRestoreReport(
+                    family=family,
+                    status=status,
+                    payload_rows=payload_rows,
+                    imported=imported,
+                    skipped=skipped,
+                    failed=failed,
+                    unresolved=unresolved,
+                )
+            )
+            counts["imported"] += imported
+            counts["skipped"] += skipped
+            counts["failed"] += failed
+            counts["unresolved"] += unresolved
+
+        return result
+
+    def _v4_connection_required_error(
+        self,
+        *,
+        parsed: ParsedArchive,
+        family_reports: list[FamilyRestoreReport],
+        counts: dict[str, int],
+    ) -> AccountRestoreError:
+        return AccountRestoreError(
+            "v4 canonical memory restore requires a database connection",
+            code="v4_database_connection_required",
+            status_code=500,
+            validated=True,
+            schema_version=parsed.schema_version,
+            export_kind=parsed.export_kind,
+            archive_includes_blob_coverage=parsed.archive_includes_blob_coverage,
+            blob_coverage=parsed.blob_coverage,
+            families=[report.to_dict() for report in family_reports],
+            counts=dict(counts),
+            notes=[
+                "Archive validation succeeded before restore began.",
+                "v4 unified-memory canonical restore requires a database "
+                "connection because it executes in the same transaction as "
+                "the regular restore.",
+            ],
         )
 
     def _build_success_report(
@@ -2203,10 +2454,11 @@ def _restore_connection(conn: Any | None, db: Any):
 # a deterministic reconstruction plan. It performs all structural and authority
 # checks that can be proven before any database write. It does NOT persist.
 #
-# Production v4 restore remains unsupported. ``SUPPORTED_SCHEMA_VERSIONS`` does
-# not include ``"account-export.v4"``. This preflight is intended for a later
-# persistence slice; it is not wired into
-# ``AccountRestoreService.restore_from_zip``.
+# Production v4 restore is now wired through
+# ``AccountRestoreService._rehydrate``. ``SUPPORTED_SCHEMA_VERSIONS`` accepts
+# ``STAGED_MANIFEST_SCHEMA_VERSION`` (``"account-export.v4"``) and the
+# canonical-memory preflight + executor defined below run inside the same
+# production transaction that restores the regular v3-style families.
 
 UNIFIED_MEMORY_RESTORE_LINK_KINDS: frozenset[str] = frozenset(
     {"captured_under", "suggested_by", "associated_with"}
@@ -3096,9 +3348,9 @@ class UnifiedMemoryRestorePreflight:
 # mutation failure aborts the entire canonical restore unit; the caller
 # owns rollback semantics (the executor never commits independently).
 #
-# This executor does NOT change ``SUPPORTED_SCHEMA_VERSIONS``; production v4
-# dispatch remains fail-closed. It is the executor consumed by the
-# future UMS-04C-C production-integration slice.
+# This executor is now wired into
+# ``AccountRestoreService._restore_unified_memory`` for ``account-export.v4``
+# archives. It executes inside the caller's open transaction.
 
 UNIFIED_MEMORY_RESTORE_TABLE_NAMES: dict[str, str] = {
     "persona_subjects": "persona_subjects",

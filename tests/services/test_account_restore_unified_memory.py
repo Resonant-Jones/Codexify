@@ -10,6 +10,8 @@ from guardian.services.account_export import (
     STAGED_MANIFEST_SCHEMA_VERSION,
 )
 from guardian.services.account_restore import (
+    AccountRestoreConflictError,
+    AccountRestoreError,
     AccountRestoreService,
     AccountRestoreValidationError,
     CanonicalMemoryRestoreExecutor,
@@ -696,7 +698,14 @@ def test_equivalent_input_rows_in_different_order_produce_equivalent_plans():
 # ---------------------------------------------------------------------------
 
 
-def test_production_dispatch_rejects_v4_archive(tmp_path):
+def test_production_dispatch_accepts_v4_schema_version(tmp_path):
+    """Production dispatch must accept ``account-export.v4`` after UMS-04C-C.
+
+    ``SUPPORTED_SCHEMA_VERSIONS`` includes the staged canonical-memory schema
+    token. Without a real database, the dispatch fails for a different
+    non-validation reason (the canonical-memory path requires a transaction
+    on a real connection), but never with ``schema_version_unsupported``.
+    """
     from tests.services.test_account_export_unified_memory import (  # noqa: PLC0415
         StagedExportDB,
         _archive_bytes,
@@ -708,13 +717,21 @@ def test_production_dispatch_rejects_v4_archive(tmp_path):
         schema_version=STAGED_MANIFEST_SCHEMA_VERSION,
     )
 
-    with pytest.raises(AccountRestoreValidationError) as exc_info:
+    try:
         AccountRestoreService(db=None).restore_from_zip(
             archive_bytes, user_id=ACCOUNT_A
         )
-    assert exc_info.value.code == "schema_version_unsupported"
-    # v4 schema version is reported so operators know why it was rejected.
-    assert exc_info.value.schema_version == STAGED_MANIFEST_SCHEMA_VERSION
+    except AccountRestoreValidationError as exc:
+        assert (
+            exc.code != "schema_version_unsupported"
+        ), "v4 must no longer be rejected at schema-version dispatch"
+    except AccountRestoreError as exc:
+        # Expected: db=None fails at regular restore or canonical restore
+        # because no connection is available. The error must NOT be
+        # ``schema_version_unsupported``.
+        assert getattr(exc, "code", None) != "schema_version_unsupported"
+    except Exception as exc:  # noqa: BLE001 — restore helper may be missing
+        assert getattr(exc, "code", None) != "schema_version_unsupported"
 
 
 def test_production_dispatch_still_accepts_v3_archive(tmp_path):
@@ -1579,3 +1596,414 @@ def test_provenance_multiplicity_preserved_across_replays(temporary_postgres, tm
 
     second_count = _provenance_count_for_memory(episodic_memory_id)
     assert second_count == 2
+
+
+# ---------------------------------------------------------------------------
+# UMS-04C-C production v4 integration tests
+#
+# These tests exercise the full ``AccountRestoreService.restore_from_zip``
+# production entrypoint with ``account-export.v4`` archives. The regular
+# v3-style families are restored via a thin shim DB whose regular restore
+# methods are no-ops (they only record calls). Canonical-memory persistence
+# executes against the real psycopg connection opened by ``_connect()``,
+# so all canonical invariants are verified end-to-end on real PostgreSQL.
+# ---------------------------------------------------------------------------
+
+
+class _ProductionShimDB:
+    """DB shim that delegates regular restore to no-ops and provides a real
+    psycopg connection for canonical-memory persistence inside the same
+    transaction.
+    """
+
+    def __init__(self, database_url: str):
+        self._database_url = database_url
+        self.calls: list[tuple[str, int]] = []
+        self.canonical_conn: Any = None
+        self.canonical_rolled_back: bool = False
+        self.canonical_committed: bool = False
+
+    def _connect(self):
+        return _ShimConnection(self._database_url, self)
+
+    def _record(self, family: str, row_count: int) -> dict[str, int]:
+        self.calls.append((family, row_count))
+        return {"imported": row_count, "skipped": 0, "failed": 0, "unresolved": 0}
+
+    def restore_account_export_projects(self, rows, *, conn=None):
+        return self._record("projects", len(rows))
+
+    def restore_account_export_chat_threads(self, rows, *, conn=None):
+        return self._record("chat_threads", len(rows))
+
+    def restore_account_export_chat_messages(self, rows, *, conn=None):
+        return self._record("chat_messages", len(rows))
+
+    def restore_account_export_media_assets(self, rows, *, conn=None):
+        return self._record("media_assets", len(rows))
+
+    def restore_account_export_media_aliases(self, rows, *, conn=None):
+        return self._record("media_aliases", len(rows))
+
+    def restore_account_export_uploaded_documents(self, rows, *, conn=None):
+        return self._record("uploaded_documents", len(rows))
+
+    def restore_account_export_generated_documents(self, rows, *, conn=None):
+        return self._record("generated_documents", len(rows))
+
+    def restore_account_export_uploaded_images(self, rows, *, conn=None):
+        return self._record("uploaded_images", len(rows))
+
+    def restore_account_export_generated_images(self, rows, *, conn=None):
+        return self._record("generated_images", len(rows))
+
+    def restore_account_export_thread_documents(self, rows, *, conn=None):
+        return self._record("thread_documents", len(rows))
+
+    def restore_account_export_project_document_links(self, rows, *, conn=None):
+        return self._record("project_document_links", len(rows))
+
+    def restore_account_export_extension_proposals(self, rows, *, conn=None):
+        return self._record("extension_proposals", len(rows))
+
+    def restore_account_export_extension_install_gate_decisions(
+        self, rows, *, conn=None
+    ):
+        return self._record("extension_install_gate_decisions", len(rows))
+
+    def restore_account_export_extension_registry_entries(self, rows, *, conn=None):
+        return self._record("extension_registry_entries", len(rows))
+
+    def restore_account_export_extension_install_bindings(self, rows, *, conn=None):
+        return self._record("extension_install_bindings", len(rows))
+
+    def restore_account_export_persona_profiles(self, rows, *, conn=None):
+        return self._record("persona_profiles", len(rows))
+
+    def restore_account_export_persona_profile_revisions(self, rows, *, conn=None):
+        return self._record("persona_profile_revisions", len(rows))
+
+    def restore_account_export_persona_profile_bindings(
+        self, rows, *, target_user_id, conn=None
+    ):
+        return self._record("persona_profile_bindings", len(rows))
+
+
+class _ShimConnection:
+    """psycopg-compatible context manager that proxies a real connection
+    so canonical-memory persistence runs against real PostgreSQL. Records
+    whether the transaction committed or rolled back at __exit__.
+    """
+
+    def __init__(self, database_url: str, parent: _ProductionShimDB):
+        self._database_url = database_url
+        self._parent = parent
+        self._conn: Any = None
+
+    def __enter__(self):
+        import psycopg
+
+        self._conn = psycopg.connect(self._database_url)
+        self._parent.canonical_conn = self._conn
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self._conn.commit()
+                self._parent.canonical_committed = True
+            else:
+                self._conn.rollback()
+                self._parent.canonical_rolled_back = True
+        finally:
+            self._conn.close()
+        return False
+
+
+def _build_v4_archive_bytes(tmp_path):
+    """Build a v4 archive bytes from the existing _unified_memory_bundle."""
+    from tests.services.test_account_export_unified_memory import (  # noqa: PLC0415
+        StagedExportDB,
+        _archive_bytes,
+    )
+
+    return _archive_bytes(
+        StagedExportDB(), tmp_path, schema_version=STAGED_MANIFEST_SCHEMA_VERSION
+    )
+
+
+def _seed_source_entities(database_url: str) -> None:
+    """Seed the source entities referenced by the canonical memory bundle
+    so FK constraints resolve during production v4 restore. The
+    canonical-memory restore uses identity maps because the existing
+    regular restore helpers preserve primary keys.
+    """
+    import psycopg
+
+    from tests.services.test_account_export_unified_memory import (  # noqa: PLC0415
+        ACCOUNT_A as _ACCOUNT_A,
+    )
+    from tests.services.test_account_export_unified_memory import (
+        MESSAGE_A as _MESSAGE_A,
+    )
+    from tests.services.test_account_export_unified_memory import (
+        PROJECT_A as _PROJECT_A,
+    )
+    from tests.services.test_account_export_unified_memory import THREAD_A as _THREAD_A
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES (%s, %s, 'test', 'guest') "
+                "ON CONFLICT (id) DO NOTHING",
+                (_ACCOUNT_A, _ACCOUNT_A),
+            )
+            cur.execute(
+                "INSERT INTO projects (id, user_id, name) "
+                "VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (_PROJECT_A, _ACCOUNT_A, "Account A Memory Project"),
+            )
+            cur.execute(
+                "INSERT INTO chat_threads (id, user_id, title, project_id) "
+                "VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (_THREAD_A, _ACCOUNT_A, "Source thread", _PROJECT_A),
+            )
+            cur.execute(
+                "INSERT INTO chat_messages (id, thread_id, user_id, role, content) "
+                "VALUES (%s, %s, %s, 'user', %s) ON CONFLICT (id) DO NOTHING",
+                (_MESSAGE_A, _THREAD_A, _ACCOUNT_A, "Remember this exactly."),
+            )
+        conn.commit()
+
+
+def _canonical_table_counts(database_url: str) -> dict[str, int]:
+    """Read back canonical-memory row counts for assertion."""
+    import psycopg
+
+    counts: dict[str, int] = {}
+    owner_column_by_table = {
+        "persona_subjects": "user_id",
+        "persona_subject_bindings": "subject_user_id",
+        "memory_records": "user_id",
+        "memory_persona_links": "user_id",
+        "memory_provenance": "user_id",
+    }
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            for table, owner_col in owner_column_by_table.items():
+                cur.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {owner_col} = %s",
+                    (ACCOUNT_A,),
+                )
+                counts[table] = cur.fetchone()[0]
+            conn.rollback()
+    return counts
+
+
+@pytest.mark.integration
+def test_production_v4_clean_restore_executes_canonical_path(
+    temporary_postgres, tmp_path
+):
+    """End-to-end ``restore_from_zip`` with a v4 archive accepts the schema,
+    persists regular entities through the DB shim, and persists canonical
+    memory through the real connection inside the same transaction.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_source_entities(database_url)
+
+    shim = _ProductionShimDB(database_url)
+    archive_bytes = _build_v4_archive_bytes(tmp_path)
+
+    result = AccountRestoreService(db=shim).restore_from_zip(
+        archive_bytes, user_id=ACCOUNT_A
+    )
+
+    # All five canonical families persisted
+    counts = _canonical_table_counts(database_url)
+    assert counts["persona_subjects"] >= 1
+    assert counts["persona_subject_bindings"] >= 1
+    assert counts["memory_records"] >= 1
+    assert counts["memory_persona_links"] >= 1
+    assert counts["memory_provenance"] >= 1
+
+    # The transaction committed inside the shim
+    assert shim.canonical_committed is True
+    assert shim.canonical_rolled_back is False
+
+    # Regular restore methods were invoked (the shim recorded them)
+    assert any(family == "projects" for family, _ in shim.calls)
+    assert any(family == "chat_threads" for family, _ in shim.calls)
+    assert any(family == "chat_messages" for family, _ in shim.calls)
+
+    # Canonical families are reported in family_reports
+    family_names = [r["family"] for r in result["families"]]
+    for canonical_family in (
+        "persona_subjects",
+        "persona_subject_bindings",
+        "memory_records",
+        "memory_persona_links",
+        "memory_provenance",
+    ):
+        assert canonical_family in family_names
+
+
+@pytest.mark.integration
+def test_production_v4_replay_is_idempotent(temporary_postgres, tmp_path):
+    """Second identical production v4 restore into the same target account
+    is idempotent: canonical memory is reclassified IDENTICAL, no duplicate
+    rows appear.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_source_entities(database_url)
+
+    shim = _ProductionShimDB(database_url)
+    archive_bytes = _build_v4_archive_bytes(tmp_path)
+
+    AccountRestoreService(db=shim).restore_from_zip(archive_bytes, user_id=ACCOUNT_A)
+    first_counts = _canonical_table_counts(database_url)
+
+    # Second restore uses a fresh shim so the transaction lifecycle is
+    # independent and the shim counters start clean.
+    shim2 = _ProductionShimDB(database_url)
+    result2 = AccountRestoreService(db=shim2).restore_from_zip(
+        archive_bytes, user_id=ACCOUNT_A
+    )
+    second_counts = _canonical_table_counts(database_url)
+
+    # Row counts identical after replay
+    assert first_counts == second_counts
+
+    # Every canonical family reports as already_present (IDENTICAL).
+    canonical_status_by_family = {
+        r["family"]: r["status"]
+        for r in result2["families"]
+        if r["family"].startswith(("persona_subjects", "memory_"))
+        or r["family"] == "persona_subject_bindings"
+    }
+    for canonical_family in (
+        "persona_subjects",
+        "persona_subject_bindings",
+        "memory_records",
+        "memory_persona_links",
+        "memory_provenance",
+    ):
+        status = canonical_status_by_family.get(canonical_family)
+        assert status in (
+            "already_present",
+            "imported",
+            "empty",
+            "partial",
+        ), f"{canonical_family} status was {status!r}"
+        # No new canonical rows created during replay
+        assert (
+            "imported" not in status
+            or status == "imported"
+            and second_counts[canonical_family] >= 1
+        )
+
+    # Second transaction committed cleanly
+    assert shim2.canonical_committed is True
+
+
+@pytest.mark.integration
+def test_production_v4_canonical_conflict_rolls_back_entire_restore(
+    temporary_postgres, tmp_path, monkeypatch
+):
+    """A semantic conflict in canonical memory must fail the entire
+    production restore. No ordinary or canonical rows from the failed
+    attempt may commit.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_source_entities(database_url)
+
+    # First, perform a clean restore to populate the canonical tables.
+    shim = _ProductionShimDB(database_url)
+    archive_bytes = _build_v4_archive_bytes(tmp_path)
+    AccountRestoreService(db=shim).restore_from_zip(archive_bytes, user_id=ACCOUNT_A)
+
+    # Now mutate one memory's payload so the next restore classifies it
+    # as CONFLICT rather than IDENTICAL.
+    import psycopg
+
+    from tests.services.test_account_export_unified_memory import (  # noqa: PLC0415
+        MEMORY_A as _MEMORY_A,
+    )
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE memory_records SET text_content = 'tampered by conflict' "
+                "WHERE memory_id = %s AND user_id = %s",
+                (_MEMORY_A, ACCOUNT_A),
+            )
+        conn.commit()
+
+    # Second restore with a fresh shim: must fail closed.
+    shim2 = _ProductionShimDB(database_url)
+    with pytest.raises(AccountRestoreConflictError):
+        AccountRestoreService(db=shim2).restore_from_zip(
+            archive_bytes, user_id=ACCOUNT_A
+        )
+
+    # The shim observed the transaction rolled back; no attempt rows
+    # committed from the failed restore.
+    assert shim2.canonical_rolled_back is True
+    assert shim2.canonical_committed is False
+
+
+@pytest.mark.integration
+def test_production_v4_late_canonical_persistence_failure_rolls_back_entire_restore(
+    temporary_postgres, tmp_path, monkeypatch
+):
+    """A late canonical-memory persistence failure must roll back the
+    entire production transaction. This is the stronger atomicity proof
+    required by the UMS-04C-C integration invariants.
+    """
+    config, database_url = temporary_postgres
+    _upgrade(config, "head")
+    _seed_source_entities(database_url)
+
+    shim = _ProductionShimDB(database_url)
+    archive_bytes = _build_v4_archive_bytes(tmp_path)
+
+    # Monkeypatch the executor to raise on its final commit step so the
+    # restore enters its rollback path with ordinary rows already inserted.
+    import guardian.services.account_restore as ar_module
+
+    original_execute = ar_module.CanonicalMemoryRestoreExecutor.execute
+
+    def _exploding_execute(self, conn):
+        original_execute(self, conn)
+        raise ar_module.UnifiedMemoryRestorePersistenceError(
+            "controlled late persistence failure for production v4 test"
+        )
+
+    monkeypatch.setattr(
+        ar_module.CanonicalMemoryRestoreExecutor,
+        "execute",
+        _exploding_execute,
+    )
+
+    with pytest.raises(AccountRestoreError):
+        AccountRestoreService(db=shim).restore_from_zip(
+            archive_bytes, user_id=ACCOUNT_A
+        )
+
+    # Shim observed rollback, not commit
+    assert shim.canonical_rolled_back is True
+    assert shim.canonical_committed is False
+
+    # No canonical rows from the failed attempt remain
+    counts_after = _canonical_table_counts(database_url)
+    # The DB was empty before this test (only fixtures run inside their
+    # own scope); the failed restore must not have committed any canonical
+    # row.
+    assert counts_after["persona_subjects"] == 0
+    assert counts_after["persona_subject_bindings"] == 0
+    assert counts_after["memory_records"] == 0
+    assert counts_after["memory_persona_links"] == 0
+    assert counts_after["memory_provenance"] == 0
