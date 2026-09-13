@@ -5579,3 +5579,52 @@ def iter_account_export_payloads_for_user(
         )
     for family, path, _reader_name in payload_order:
         yield family, path, bundle.get(family, [])
+
+
+# ---- Bind account-export reader entrypoints as PgDB instance methods ----
+#
+# The production account exporter (``guardian.services.account_export``)
+# discovers its per-user reader functions via ``getattr(db, ...)`` on whatever
+# object the production route hands it. The historical module-level readers
+# resolve their connection through ``_resolve_dsn()``, which only reads from
+# the environment and is unaware of a ``PgDB`` instance's bound DSN.
+#
+# To let production routes pass a ``PgDB`` instance (so the exporter reads
+# through that instance's DSN/connection authority), the reader entrypoints
+# are mirrored as instance methods on ``PgDB``. The wrappers preserve the
+# existing module-level fetchers verbatim; they only re-route the connection
+# source through ``self.dsn`` for the duration of the call by temporarily
+# overriding ``_resolve_dsn``.
+def _pgdb_account_export_dsn_override(self, module_fn, /, *args, **kwargs):
+    """Run ``module_fn`` with ``_resolve_dsn`` temporarily returning ``self.dsn``."""
+    original = _resolve_dsn
+    globals()["_resolve_dsn"] = lambda: self.dsn
+    try:
+        return module_fn(*args, **kwargs)
+    finally:
+        globals()["_resolve_dsn"] = original
+
+
+def _make_pgdb_account_export_instance_method(name):
+    module_fn = globals()[name]
+
+    def wrapper(self, *args, **kwargs):
+        return _pgdb_account_export_dsn_override(self, module_fn, *args, **kwargs)
+
+    wrapper.__name__ = name
+    wrapper.__qualname__ = f"PgDB.{name}"
+    wrapper.__doc__ = module_fn.__doc__
+    return wrapper
+
+
+for _pgdb_account_export_fetcher_name in (
+    "fetch_account_export_bundle_for_user",
+    "iter_account_export_payloads_for_user",
+):
+    setattr(
+        PgDB,
+        _pgdb_account_export_fetcher_name,
+        _make_pgdb_account_export_instance_method(_pgdb_account_export_fetcher_name),
+    )
+
+del _pgdb_account_export_fetcher_name

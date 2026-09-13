@@ -15,10 +15,8 @@ from starlette.background import BackgroundTask
 
 from guardian.core import db
 from guardian.core.auth import AuthenticatedUser, require_user
-from guardian.services.account_export import (
-    ZIP_FILENAME,
-    build_account_export_zip,
-)
+from guardian.core.pgdb import PgDB
+from guardian.services.account_export import ZIP_FILENAME, build_account_export_zip
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +39,7 @@ def _serialize_chunk(row: Any) -> bytes:
     return orjson.dumps(row) + b"\n"
 
 
-def _safe_slug(
-    value: Any, *, default: str = "untitled", max_length: int = 72
-) -> str:
+def _safe_slug(value: Any, *, default: str = "untitled", max_length: int = 72) -> str:
     text = str(value or "").strip().lower()
     if not text:
         return default
@@ -79,13 +75,9 @@ def _cleanup_export_file(path: str) -> None:
         return
 
 
-def _source_thread_short(
-    thread: dict[str, Any], messages: list[dict[str, Any]]
-) -> str:
+def _source_thread_short(thread: dict[str, Any], messages: list[dict[str, Any]]) -> str:
     metadata = (
-        thread.get("metadata")
-        if isinstance(thread.get("metadata"), dict)
-        else {}
+        thread.get("metadata") if isinstance(thread.get("metadata"), dict) else {}
     )
     source_thread_id = metadata.get("source_thread_id")
     if not source_thread_id and messages:
@@ -136,9 +128,7 @@ def _canonical_message_timestamp(message: dict[str, Any]) -> Optional[str]:
 
 def _build_export_message_payload(message: dict[str, Any]) -> dict[str, Any]:
     extra_meta = (
-        message.get("extra_meta")
-        if isinstance(message.get("extra_meta"), dict)
-        else {}
+        message.get("extra_meta") if isinstance(message.get("extra_meta"), dict) else {}
     )
     payload = {
         "id": message.get("id"),
@@ -178,13 +168,9 @@ def _build_thread_json_payload(
     messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     metadata = (
-        thread.get("metadata")
-        if isinstance(thread.get("metadata"), dict)
-        else {}
+        thread.get("metadata") if isinstance(thread.get("metadata"), dict) else {}
     )
-    clean_messages = [
-        _build_export_message_payload(message) for message in messages
-    ]
+    clean_messages = [_build_export_message_payload(message) for message in messages]
     return {
         "id": thread.get("id"),
         "title": thread.get("title"),
@@ -223,9 +209,7 @@ def _render_markdown(
         f"title: {json.dumps(str(thread_payload.get('title') or 'Imported Chat'))}"
     )
     lines.append(f"project_id: {thread.get('project_id')}")
-    lines.append(
-        f"project_name: {json.dumps(str(thread.get('project_name') or ''))}"
-    )
+    lines.append(f"project_name: {json.dumps(str(thread.get('project_name') or ''))}")
     for key in (
         "import_source",
         "import_profile",
@@ -266,9 +250,7 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
             "Active DB backend %s lacks fetch_threads_for_user; cannot export threads",
             type(db),
         )
-        raise HTTPException(
-            status_code=500, detail="Thread export not available"
-        )
+        raise HTTPException(status_code=500, detail="Thread export not available")
 
     def generate() -> Iterable[bytes]:
         try:
@@ -294,19 +276,13 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
         return StreamingResponse(
             generate(),
             media_type="application/x-ndjson",
-            headers={
-                "Content-Disposition": 'attachment; filename="threads.ndjson"'
-            },
+            headers={"Content-Disposition": 'attachment; filename="threads.ndjson"'},
         )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(
-            "Failed to start thread export for user %s: %s", user.id, exc
-        )
-        raise HTTPException(
-            status_code=500, detail="Failed to start export"
-        ) from exc
+        logger.exception("Failed to start thread export for user %s: %s", user.id, exc)
+        raise HTTPException(status_code=500, detail="Failed to start export") from exc
 
 
 @router.get(
@@ -314,8 +290,13 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
     summary="Download the authenticated user's canonical account export ZIP",
 )
 def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
+    from guardian.core.dependencies import chatlog_db
+
+    pgdb_instance = (
+        chatlog_db if isinstance(chatlog_db, PgDB) else _resolve_account_export_pgdb()
+    )
     try:
-        zip_path = build_account_export_zip(db, user)
+        zip_path = build_account_export_zip(pgdb_instance, user)
     except Exception as exc:
         logger.exception(
             "Failed to build account export zip for user %s: %s",
@@ -335,6 +316,27 @@ def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
     )
 
 
+def _resolve_account_export_pgdb() -> PgDB:
+    """Resolve a ``PgDB`` instance bound to the runtime PostgreSQL DSN.
+
+    Production ``account-export.v4`` reading requires the ``PgDB`` instance
+    methods that bind the canonical readers (``fetch_account_export_bundle_for_user``
+    and ``iter_account_export_payloads_for_user``) to a concrete DSN. The
+    shared ``chatlog_db`` is the preferred authority; a freshly-bound
+    ``PgDB`` from the environment DSN is the fallback so the route remains
+    functional even when ``init_database()`` has not yet been called.
+    """
+    dsn = (
+        os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
+    ).strip()
+    if not dsn:
+        raise HTTPException(
+            status_code=500,
+            detail="DATABASE_URL is not configured",
+        )
+    return PgDB(dsn)
+
+
 @router.get(
     "/chatgpt.zip",
     summary="Download imported ChatGPT conversations as a project-aware ZIP bundle",
@@ -344,9 +346,7 @@ def export_chatgpt_zip(
     format: Literal["both", "json", "markdown"] = Query(default="both"),
     user: AuthenticatedUser = Depends(require_user),
 ):
-    fetch_threads_fn = getattr(
-        db, "fetch_imported_chatgpt_threads_for_user", None
-    )
+    fetch_threads_fn = getattr(db, "fetch_imported_chatgpt_threads_for_user", None)
     fetch_messages_fn = getattr(
         db,
         "fetch_imported_chatgpt_messages_for_thread",
