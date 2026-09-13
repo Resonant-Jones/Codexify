@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-12
+2026-09-13
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. Recent local-main work completed the legacy Project and Persona retirements, proved Private Preview database migration/bootstrap recovery at `7e5a5fccf253`, and qualified the ADR-067 named-volume Chroma storage cutover. Private Preview application runtime recovery is not yet proven. No new release-ready runtime path or Beta support claim was established.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Since the prior refresh, mainline added only the 2026-09-13 accounting log; no new implementation, release-ready runtime path, or Beta support claim was established. Private Preview application runtime recovery is not yet proven.
 
 ## What changed recently
 
@@ -30,6 +30,7 @@ This file is authoritative for:
 - **Private Preview named-volume Chroma storage recovery: proven.** The historical host-bound active store was independently preserved and retired. The empty external `codexify_private_preview_chroma` volume was created, initialized by the supported backend with Chroma `1.0.15`, passed SQLite integrity, and reopened once without reproducing the historical Chroma panic or `SQLITE_READONLY_DBMOVED`. See the [named-volume live recovery proof](./proofs/runtime/2026-09-11-private-preview-chroma-named-volume-live-recovery-proof.md).
 - **Private Preview chat-worker shutdown: classified, not repaired.** The bounded stop reproduced SIGTERM followed by SIGKILL and exit 137 after the grace timeout; no accepted chat task was placed in flight, and no clean-shutdown or data-loss claim follows. See the [shutdown classification proof](./proofs/runtime/2026-09-11-private-preview-chat-worker-shutdown-classification.md).
 - **Private Preview database migration/bootstrap recovery: proven. Private Preview application runtime recovery: not yet proven.** Application writers remain quiesced at the retained proof boundary; no startup or release qualification is inferred.
+- The 2026-09-13 mainline record is a no-change accounting entry. Active-checkout edits, staged deletions, and unmerged ADR-087 implementation work are excluded from release accounting.
 
 ## Current supported reality
 
@@ -53,7 +54,7 @@ This file is authoritative for:
 
 - Chat-worker graceful operator shutdown remains blocked until ADR-087 is implemented across provider streaming, child execution, PostgreSQL persistence/cleanup, turn-lock lifetime, and worker lifecycle. The accepted decision is not finite-drain or safe-stop runtime proof.
 - Current-tip supported-Compose closure is missing: startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
-- The checked-out `main` is 21 commits ahead and 4 commits behind the local `origin/main` ref; remote reconciliation and publication remain open.
+- The checked-out `main` is 23 commits ahead and 23 commits behind the local `origin/main` ref; remote reconciliation and publication remain open.
 - Tester worker bind-readiness repair and fresh isolated runtime proof remain open.
 - Private-preview Chroma topology implementation and bounded single-backend named-volume recovery are proven. Queue/worker safe-start, multiprocess use of the shared Chroma store, semantic retrieval, and matching application deployment remain unproven; provider, persistence, isolation, observability, and approved canary gates remain open.
 - Private Preview application writers remain quiesced at the retained recovery boundary, with live Alembic revision `7e5a5fccf253`, complete database/bootstrap recovery, and bounded Chroma storage recovery proven. Application startup, authenticated account-isolation proof, worker coherence, CE-L1 provider readback, browser/import, trusted connector, Watchdog, immutable image retention, and hosted-sandbox qualification remain unclosed.
