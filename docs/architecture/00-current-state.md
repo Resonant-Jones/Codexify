@@ -104,8 +104,9 @@ This file is authoritative for:
   UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
   UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
   UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: CLOSED
-  UMS-04C CANONICAL MEMORY RESTORE RECONSTRUCTION: AUTHORIZED TO START
-  UMS-04D: NOT AUTHORIZED
+  UMS-04C CANONICAL MEMORY RESTORE RECONSTRUCTION: CLOSED
+  UMS-04D FULL EXPORT → CLEAN RESTORE → SECOND-RESTORE QUALIFICATION:
+    AUTHORIZED
 
   UMS-05+: NOT AUTHORIZED
   ```
@@ -647,6 +648,51 @@ This file is authoritative for:
   UMS-04B; the full export → restore round-trip qualification
   remains incomplete. See the
   [UMS-04B canonical memory export serialization proof](./proofs/runtime/2026-09-12-ums04b-canonical-memory-export-serialization-proof.md).
+
+- **UMS-04C (canonical memory restore reconstruction, just closed)**:
+  internal/non-public production `account-export.v4` account-restore
+  dispatch is implemented in `guardian/services/account_restore.py`
+  and reuses the already-qualified UMS-04C-A preflight and UMS-04C-B
+  transactional persistence executor. The production restore flow
+  (`AccountRestoreService.restore_from_zip`) consumes the v4
+  canonical payload (`persona_subjects`,
+  `persona_subject_bindings`, `memory_records`,
+  `memory_persona_links`, `memory_provenance`), builds identity
+  maps from the regular restore's preserved primary keys, invokes
+  `UnifiedMemoryRestorePreflight.plan()` and
+  `CanonicalMemoryRestoreExecutor.execute(conn)` inside the same
+  production `self.db._connect()` transaction that owns the
+  ordinary restore, and either commits the whole restore or rolls
+  it back atomically on canonical preflight, conflict, or
+  persistence failure. Real PostgreSQL 17.6 qualification
+  (`codexify_test_runner / postgres` via dedicated Unix socket
+  `/tmp/.s.PGSQL.55432`) proved: clean v4 restore populates all
+  five canonical families; identical second v4 restore is
+  idempotent (no duplicate canonical rows); semantic canonical
+  conflict fails closed with the entire transaction rolled back;
+  late canonical persistence failure rolls back the entire
+  transaction. The focused UMS restore suite passed
+  `48 passed, 0 skipped, 0 failed`; the account-restore route
+  regression passed `11 passed, 0 failed`. The account-export
+  v4 payload-order authority was extended by exactly one line in
+  `guardian/services/account_export.py` (reusing the pre-existing
+  `STAGED_MANIFEST_SCHEMA_VERSION` token) — no parallel v4
+  authority was introduced, no export serialization semantics
+  changed; this is recorded as a procedural execution-boundary
+  deviation in the UMS-04C proof receipt. `py_compile` PASS;
+  Alembic remains exactly one head `f6b0d3e8c5a2`; no migration
+  or ORM change. v3 behavior is preserved (`account-export.v3`
+  remains the production default and the supported-schema
+  authority is unchanged for it). The unrelated Pi fixture and the
+  unrelated `guardian/watchdog/contracts.py` mypy baseline defect
+  remain untouched. UMS-04C is now CLOSED; UMS-04D — Full Export →
+  Clean Restore → Second-Restore Qualification — is now
+  AUTHORIZED; UMS-04 remains OPEN; UMS-05+ remain NOT AUTHORIZED.
+  The full export → restore round-trip qualification remains
+  incomplete and belongs to UMS-04D. No broader Beta/release
+  qualification follows from UMS-04C; no public release or
+  general-availability claim widened. See the
+  [UMS-04C production v4 account restore proof](./proofs/runtime/2026-09-13-ums04c-production-v4-account-restore-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
