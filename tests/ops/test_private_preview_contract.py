@@ -30,6 +30,19 @@ EXPECTED_ENV = {
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
+CHROMA_CONSUMERS = (
+    "backend",
+    "worker-chat",
+    "worker-chat-embed",
+    "worker-document-embed",
+    "embedding-backfill",
+    "obsidian-ingest",
+)
+EXPECTED_CHROMA_ENV = {
+    "CODEXIFY_VECTOR_STORE": "chroma",
+    "CODEXIFY_CHROMA_PATH": "/app/.chroma",
+    "CODEXIFY_COLLECTION": "codexify_vault_supported",
+}
 
 SENTINEL_ENV_CONTENT = """\
 DEEPSEEK_API_KEY=inert-deepseek-key
@@ -41,6 +54,8 @@ GUARDIAN_JWT_SECRET=inert-jwt-secret
 
 def _render_compose(
     runtime_env_file: str | None = None,
+    *,
+    profiles: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     environment: dict[str, str] = {
         **os.environ,
@@ -53,17 +68,20 @@ def _render_compose(
         "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
         "NEO4J_PASS": "inert-neo4j-password",
     }
-    command = [
-        "docker",
-        "compose",
-        "-f",
-        str(COMPOSE_FILES[0]),
-        "-f",
-        str(COMPOSE_FILES[1]),
-        "config",
-        "--format",
-        "json",
-    ]
+    command = ["docker", "compose"]
+    for profile in profiles:
+        command.extend(("--profile", profile))
+    command.extend(
+        [
+            "-f",
+            str(COMPOSE_FILES[0]),
+            "-f",
+            str(COMPOSE_FILES[1]),
+            "config",
+            "--format",
+            "json",
+        ]
+    )
     temporary_env_file: str | None = None
     try:
         if runtime_env_file is None:
@@ -118,6 +136,41 @@ def test_private_preview_compose_selects_dual_provider_contract() -> None:
     assert config["services"]["worker-chat"]["environment"][
         "CHAT_WORKER_CONCURRENCY"
     ] == "1"
+
+
+def test_private_preview_compose_uses_one_external_chroma_volume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEXIFY_VECTOR_STORE", "redirected-store")
+    monkeypatch.setenv("CODEXIFY_CHROMA_PATH", "/redirected/chroma")
+    monkeypatch.setenv("CODEXIFY_COLLECTION", "redirected-collection")
+
+    config = _render_compose(profiles=("cli", "backfill"))
+
+    volume = config["volumes"]["private_preview_chroma"]
+    assert volume["external"] is True
+    assert volume["name"] == "codexify_private_preview_chroma"
+    assert "driver_opts" not in volume
+
+    for service_name in CHROMA_CONSUMERS:
+        service = config["services"][service_name]
+        chroma_mounts = [
+            mount
+            for mount in service.get("volumes") or []
+            if mount.get("target") == "/app/.chroma"
+        ]
+        assert chroma_mounts == [
+            {
+                "type": "volume",
+                "source": "private_preview_chroma",
+                "target": "/app/.chroma",
+                "volume": {"nocopy": True},
+            }
+        ]
+
+        environment = service["environment"]
+        for key, expected in EXPECTED_CHROMA_ENV.items():
+            assert environment[key] == expected
 
 
 def test_private_preview_compose_publishes_only_loopback_8081() -> None:
