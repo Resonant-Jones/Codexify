@@ -26,6 +26,7 @@ from guardian.core.storage import StorageError, create_storage_from_env
 logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "account-export.v3"
+STAGED_MANIFEST_SCHEMA_VERSION = "account-export.v4"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -122,14 +123,49 @@ PAYLOAD_ORDER = (
 )
 
 PAYLOAD_FAMILIES = tuple(entry[0] for entry in PAYLOAD_ORDER)
-HISTORICAL_PAYLOAD_ORDER = PAYLOAD_ORDER[:-3]
-HISTORICAL_PAYLOAD_FAMILIES = tuple(
-    entry[0] for entry in HISTORICAL_PAYLOAD_ORDER
+UNIFIED_MEMORY_PAYLOAD_ORDER = (
+    (
+        "persona_subjects",
+        "entities/persona_subjects.json",
+        "fetch_account_export_persona_subjects_for_user",
+    ),
+    (
+        "persona_subject_bindings",
+        "entities/persona_subject_bindings.json",
+        "fetch_account_export_persona_subject_bindings_for_user",
+    ),
+    (
+        "memory_records",
+        "entities/memory_records.json",
+        "fetch_account_export_memory_records_for_user",
+    ),
+    (
+        "memory_persona_links",
+        "entities/memory_persona_links.json",
+        "fetch_account_export_memory_persona_links_for_user",
+    ),
+    (
+        "memory_provenance",
+        "entities/memory_provenance.json",
+        "fetch_account_export_memory_provenance_for_user",
+    ),
 )
+STAGED_PAYLOAD_ORDER = PAYLOAD_ORDER + UNIFIED_MEMORY_PAYLOAD_ORDER
+STAGED_PAYLOAD_FAMILIES = tuple(entry[0] for entry in STAGED_PAYLOAD_ORDER)
+UNIFIED_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in UNIFIED_MEMORY_PAYLOAD_ORDER
+)
+HISTORICAL_PAYLOAD_ORDER = PAYLOAD_ORDER[:-3]
+HISTORICAL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in HISTORICAL_PAYLOAD_ORDER)
 PAYLOAD_ORDER_BY_SCHEMA = {
     "account-export.v1": HISTORICAL_PAYLOAD_ORDER,
     "account-export.v2": HISTORICAL_PAYLOAD_ORDER,
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
+    STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
+}
+EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
+    MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
+    STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
 }
 BINARY_FAMILIES = {
     "uploaded_documents",
@@ -225,9 +261,7 @@ def _resolve_app_version() -> str:
         return "0.1.0"
 
 
-def _reader_rows(
-    db: Any, method_name: str, user_id: str
-) -> list[dict[str, Any]]:
+def _reader_rows(db: Any, method_name: str, user_id: str) -> list[dict[str, Any]]:
     reader = getattr(db, method_name, None)
     if not callable(reader):
         raise RuntimeError(
@@ -240,31 +274,50 @@ def _reader_rows(
 
 
 def _load_rows_by_family(
-    db: Any, user: AuthenticatedUser
+    db: Any,
+    user: AuthenticatedUser,
+    *,
+    payload_order: tuple[tuple[str, str, str], ...],
+    include_unified_memory: bool,
 ) -> dict[str, list[dict[str, Any]]]:
+    payload_families = tuple(entry[0] for entry in payload_order)
     bundle_reader = getattr(db, "fetch_account_export_bundle_for_user", None)
     if callable(bundle_reader):
-        bundle = bundle_reader(user.id)
+        if include_unified_memory:
+            bundle = bundle_reader(user.id, include_unified_memory=True)
+        else:
+            bundle = bundle_reader(user.id)
         if not isinstance(bundle, Mapping):
             raise RuntimeError(
                 "fetch_account_export_bundle_for_user must return a mapping"
             )
         return {
             family: [dict(row) for row in bundle.get(family, []) or []]
-            for family in PAYLOAD_FAMILIES
+            for family in payload_families
         }
 
     iterator = getattr(db, "iter_account_export_payloads_for_user", None)
     if callable(iterator):
-        rows_by_family = {family: [] for family in PAYLOAD_FAMILIES}
-        for family, _path, rows in iterator(user.id):
+        rows_by_family = {family: [] for family in payload_families}
+        if include_unified_memory:
+            payload_iterator = iterator(user.id, include_unified_memory=True)
+        else:
+            payload_iterator = iterator(user.id)
+        for family, _path, rows in payload_iterator:
             rows_by_family[family] = [dict(row) for row in rows or []]
         return rows_by_family
 
     rows_by_family: dict[str, list[dict[str, Any]]] = {}
-    for family, _path, reader_name in PAYLOAD_ORDER:
+    for family, _path, reader_name in payload_order:
         rows_by_family[family] = _reader_rows(db, reader_name, user.id)
     return rows_by_family
+
+
+def _resolve_export_schema_version(schema_version: str | None) -> str:
+    resolved = schema_version or MANIFEST_SCHEMA_VERSION
+    if resolved not in EXPORT_PAYLOAD_ORDER_BY_SCHEMA:
+        raise RuntimeError(f"unsupported_account_export_schema_version:{resolved}")
+    return resolved
 
 
 def _validate_persona_profile_export(
@@ -301,9 +354,7 @@ def _validate_persona_profile_export(
         profile_id = str(row.get("profile_id") or "").strip()
         try:
             revision_number = int(row.get("revision"))
-            manifest = PersonaProfileManifest.model_validate(
-                row.get("manifest_json")
-            )
+            manifest = PersonaProfileManifest.model_validate(row.get("manifest_json"))
         except Exception as exc:
             raise RuntimeError("persona_profile_export_invalid_manifest") from exc
         api_version = str(row.get("api_version") or "").strip()
@@ -341,11 +392,221 @@ def _validate_persona_profile_export(
             raise RuntimeError("persona_profile_export_current_revision_missing")
 
 
+_UNIFIED_MEMORY_REQUIRED_FIELDS = {
+    "persona_subjects": {
+        "persona_subject_id",
+        "user_id",
+        "display_name_snapshot",
+        "lifecycle",
+        "created_at",
+        "updated_at",
+    },
+    "persona_subject_bindings": {
+        "binding_id",
+        "persona_subject_id",
+        "subject_user_id",
+        "source_account_id",
+        "ref_kind",
+        "ref_id",
+        "valid_from",
+        "valid_until",
+        "created_at",
+    },
+    "memory_records": {
+        "memory_id",
+        "user_id",
+        "project_id",
+        "semantic_species",
+        "text_content",
+        "fact_key",
+        "fact_value",
+        "fact_confidence",
+        "reviewed_at",
+        "activated_at",
+        "pinned",
+        "held",
+        "extensions",
+        "created_at",
+        "updated_at",
+    },
+    "memory_persona_links": {
+        "link_id",
+        "memory_id",
+        "user_id",
+        "persona_subject_id",
+        "persona_user_id",
+        "link_kind",
+        "created_at",
+    },
+    "memory_provenance": {
+        "provenance_id",
+        "memory_id",
+        "user_id",
+        "source_system",
+        "source_record_id",
+        "source_thread_id",
+        "source_message_id",
+        "source_import_job_id",
+        "source_export_fingerprint",
+        "source_subject_kind",
+        "source_subject_id",
+        "is_imported",
+        "extensions",
+        "created_at",
+    },
+}
+
+_UNIFIED_MEMORY_ID_FIELDS = {
+    "persona_subjects": "persona_subject_id",
+    "persona_subject_bindings": "binding_id",
+    "memory_records": "memory_id",
+    "memory_persona_links": "link_id",
+    "memory_provenance": "provenance_id",
+}
+
+_UNIFIED_MEMORY_SORT_KEYS = {
+    "persona_subjects": ("persona_subject_id",),
+    "persona_subject_bindings": (
+        "persona_subject_id",
+        "valid_from",
+        "binding_id",
+    ),
+    "memory_records": ("memory_id",),
+    "memory_persona_links": (
+        "memory_id",
+        "persona_subject_id",
+        "link_kind",
+        "link_id",
+    ),
+    "memory_provenance": ("memory_id", "provenance_id"),
+}
+
+
+def _identity(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _validate_unified_memory_export(
+    rows_by_family: dict[str, list[dict[str, Any]]],
+    *,
+    user_id: str,
+) -> None:
+    """Fail closed unless the staged v4 graph is account-scoped and closed."""
+    for family, required_fields in _UNIFIED_MEMORY_REQUIRED_FIELDS.items():
+        seen: set[str] = set()
+        identity_field = _UNIFIED_MEMORY_ID_FIELDS[family]
+        for row in rows_by_family[family]:
+            if not required_fields.issubset(row):
+                raise RuntimeError(f"{family}_export_field_set_incomplete")
+            row_id = _identity(row.get(identity_field))
+            if not row_id or row_id in seen:
+                raise RuntimeError(f"{family}_export_identity_invalid")
+            seen.add(row_id)
+
+    projects_by_id: dict[Any, dict[str, Any]] = {}
+    for row in rows_by_family["projects"]:
+        project_id = row.get("id")
+        if (
+            project_id is None
+            or project_id in projects_by_id
+            or _identity(row.get("user_id")) != user_id
+        ):
+            raise RuntimeError("memory_export_project_scope_mismatch")
+        projects_by_id[project_id] = row
+
+    threads_by_id: dict[Any, dict[str, Any]] = {}
+    for row in rows_by_family["chat_threads"]:
+        thread_id = row.get("id")
+        if thread_id is not None:
+            threads_by_id[thread_id] = row
+
+    messages_by_id: dict[Any, dict[str, Any]] = {}
+    for row in rows_by_family["chat_messages"]:
+        message_id = row.get("id")
+        if message_id is not None:
+            messages_by_id[message_id] = row
+
+    subjects_by_id = {
+        _identity(row["persona_subject_id"]): row
+        for row in rows_by_family["persona_subjects"]
+    }
+    for row in subjects_by_id.values():
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("persona_subject_export_account_mismatch")
+
+    for row in rows_by_family["persona_subject_bindings"]:
+        if (
+            _identity(row.get("subject_user_id")) != user_id
+            or _identity(row.get("source_account_id")) != user_id
+            or _identity(row.get("persona_subject_id")) not in subjects_by_id
+        ):
+            raise RuntimeError("persona_subject_binding_export_graph_mismatch")
+
+    memories_by_id = {
+        _identity(row["memory_id"]): row for row in rows_by_family["memory_records"]
+    }
+    for row in memories_by_id.values():
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("memory_record_export_account_mismatch")
+        project_id = row.get("project_id")
+        if project_id is not None and project_id not in projects_by_id:
+            raise RuntimeError("memory_export_project_scope_mismatch")
+
+    for row in rows_by_family["memory_persona_links"]:
+        if (
+            _identity(row.get("user_id")) != user_id
+            or _identity(row.get("persona_user_id")) != user_id
+            or _identity(row.get("memory_id")) not in memories_by_id
+            or _identity(row.get("persona_subject_id")) not in subjects_by_id
+        ):
+            raise RuntimeError("memory_persona_link_export_graph_mismatch")
+
+    provenance_memory_ids: set[str] = set()
+    for row in rows_by_family["memory_provenance"]:
+        memory_id = _identity(row.get("memory_id"))
+        if _identity(row.get("user_id")) != user_id or memory_id not in memories_by_id:
+            raise RuntimeError("memory_provenance_export_graph_mismatch")
+        provenance_memory_ids.add(memory_id)
+
+        source_thread_id = row.get("source_thread_id")
+        source_message_id = row.get("source_message_id")
+        if source_thread_id is not None:
+            source_thread = threads_by_id.get(source_thread_id)
+            if (
+                source_thread is None
+                or _identity(source_thread.get("user_id")) != user_id
+            ):
+                raise RuntimeError("memory_provenance_export_source_mismatch")
+        if source_message_id is not None:
+            source_message = messages_by_id.get(source_message_id)
+            if source_message is None:
+                raise RuntimeError("memory_provenance_export_source_mismatch")
+            if source_message.get("thread_id") not in threads_by_id:
+                raise RuntimeError("memory_provenance_export_source_mismatch")
+            if (
+                source_thread_id is not None
+                and source_message.get("thread_id") != source_thread_id
+            ):
+                raise RuntimeError("memory_provenance_export_source_mismatch")
+
+    if set(memories_by_id) - provenance_memory_ids:
+        raise RuntimeError("memory_provenance_export_missing")
+
+    for family, sort_keys in _UNIFIED_MEMORY_SORT_KEYS.items():
+        rows_by_family[family].sort(
+            key=lambda row, keys=sort_keys: tuple(
+                _identity(row.get(key)) for key in keys
+            )
+        )
+
+
 def _family_rows(
-    rows_by_family: dict[str, list[dict[str, Any]]]
+    rows_by_family: dict[str, list[dict[str, Any]]],
+    *,
+    payload_families: tuple[str, ...],
 ) -> list[tuple[str, dict[str, Any]]]:
     ordered: list[tuple[str, dict[str, Any]]] = []
-    for family in PAYLOAD_FAMILIES:
+    for family in payload_families:
         for row in rows_by_family.get(family, []):
             ordered.append((family, row))
     return ordered
@@ -398,9 +659,7 @@ def _generated_document_extension(row: dict[str, Any]) -> str:
     return "txt"
 
 
-def _blob_extension(
-    family: str, row: dict[str, Any], mime_type: str | None
-) -> str:
+def _blob_extension(family: str, row: dict[str, Any], mime_type: str | None) -> str:
     if family == "generated_documents":
         return _generated_document_extension(row)
 
@@ -501,9 +760,14 @@ def _resolve_blob_candidate(
 def _build_blob_groups(
     rows_by_family: dict[str, list[dict[str, Any]]],
     storage: Any,
+    *,
+    payload_families: tuple[str, ...],
 ) -> dict[str, _BlobGroup]:
     groups: OrderedDict[str, _BlobGroup] = OrderedDict()
-    for family, row in _family_rows(rows_by_family):
+    for family, row in _family_rows(
+        rows_by_family,
+        payload_families=payload_families,
+    ):
         if family not in BINARY_FAMILIES:
             continue
         key = _canonical_blob_key(family, row)
@@ -532,9 +796,7 @@ def _build_blob_groups(
             break
 
         if group.status != "bundled":
-            group.missing_reason = (
-                "blob could not be resolved from current storage"
-            )
+            group.missing_reason = "blob could not be resolved from current storage"
 
     return dict(groups)
 
@@ -555,9 +817,7 @@ def _decorate_binary_row(
         "mime_type": group.mime_type or row.get("mime_type"),
         "content_hash": group.sha256 or row.get("content_hash"),
         "size_bytes": (
-            group.size_bytes
-            if group.size_bytes is not None
-            else row.get("filesize")
+            group.size_bytes if group.size_bytes is not None else row.get("filesize")
         ),
     }
 
@@ -584,10 +844,10 @@ def _build_manifest(
     rows_by_family: dict[str, list[dict[str, Any]]],
     decorated_binary_rows: dict[str, list[dict[str, Any]]],
     unresolved_rows: list[dict[str, Any]],
+    schema_version: str,
+    payload_families: tuple[str, ...],
 ) -> dict[str, Any]:
-    entity_counts = {
-        artifact.family: artifact.row_count for artifact in payload_files
-    }
+    entity_counts = {artifact.family: artifact.row_count for artifact in payload_files}
     payload_integrity = {
         artifact.path: {
             "sha256": artifact.sha256,
@@ -620,8 +880,7 @@ def _build_manifest(
             for family, rows in decorated_binary_rows.items()
             if rows
             and any(
-                row.get("export", {}).get("blob", {}).get("status")
-                == "unresolved"
+                row.get("export", {}).get("blob", {}).get("status") == "unresolved"
                 for row in rows
             )
         }
@@ -636,8 +895,38 @@ def _build_manifest(
         )
     )
 
+    if schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+        compatibility = {
+            "reader": "account_export.v4",
+            "restore_mode": "unsupported",
+            "restore_supported": False,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is a staged account-export.v4 serialization; v4 restore is not implemented or supported.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    else:
+        compatibility = {
+            "reader": "account_export.v3",
+            "restore_mode": "metadata_only",
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "Metadata restore is supported; bundled blob write-back remains deferred.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are exported by reachability from user-owned rows because project ownership is not stored directly on the projects table.",
+        ]
+
     return {
-        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "app_version": app_version,
         "export_kind": EXPORT_KIND,
         "created_at": created_at,
@@ -649,14 +938,9 @@ def _build_manifest(
             "blob_files": blob_integrity,
             "files": all_integrity,
         },
-        "compatibility": {
-            "reader": "account_export.v3",
-            "restore_mode": "metadata_only",
-            "binary_payloads_included": bool(blob_files),
-            "blob_layout": "canonical-content-hash-v1",
-        },
+        "compatibility": compatibility,
         "blob_mode": "canonical_bundled" if blob_files else "metadata_only",
-        "included_families": list(PAYLOAD_FAMILIES),
+        "included_families": list(payload_families),
         "binary_complete_families": binary_complete_families,
         "omitted_families": list(OMITTED_FAMILIES),
         "blob_coverage": {
@@ -665,13 +949,7 @@ def _build_manifest(
             "bundled_blob_paths": [artifact.path for artifact in blob_files],
             "unresolved_rows": unresolved_rows,
         },
-        "notes": [
-            "manifest.json is the source of truth for this archive.",
-            "Metadata restore is supported; bundled blob write-back remains deferred.",
-            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
-            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
-            "Projects are exported by reachability from user-owned rows because project ownership is not stored directly on the projects table.",
-        ],
+        "notes": notes,
     }
 
 
@@ -680,13 +958,29 @@ def build_account_export_zip(
     user: AuthenticatedUser,
     *,
     app_version: str | None = None,
+    schema_version: str | None = None,
 ) -> str:
     created_at = datetime.now(timezone.utc).isoformat()
     resolved_app_version = app_version or _resolve_app_version()
-    rows_by_family = _load_rows_by_family(db, user)
+    resolved_schema_version = _resolve_export_schema_version(schema_version)
+    payload_order = EXPORT_PAYLOAD_ORDER_BY_SCHEMA[resolved_schema_version]
+    payload_families = tuple(entry[0] for entry in payload_order)
+    include_unified_memory = resolved_schema_version == STAGED_MANIFEST_SCHEMA_VERSION
+    rows_by_family = _load_rows_by_family(
+        db,
+        user,
+        payload_order=payload_order,
+        include_unified_memory=include_unified_memory,
+    )
     _validate_persona_profile_export(rows_by_family, user_id=user.id)
+    if include_unified_memory:
+        _validate_unified_memory_export(rows_by_family, user_id=user.id)
     storage = create_storage_from_env()
-    blob_groups = _build_blob_groups(rows_by_family, storage)
+    blob_groups = _build_blob_groups(
+        rows_by_family,
+        storage,
+        payload_families=payload_families,
+    )
 
     payload_files: list[_PayloadArtifact] = []
     blob_files: list[_BlobArtifact] = []
@@ -708,14 +1002,12 @@ def build_account_export_zip(
             with zipfile.ZipFile(
                 temp_zip, mode="w", compression=zipfile.ZIP_DEFLATED
             ) as archive:
-                for family, path, _reader in PAYLOAD_ORDER:
+                for family, path, _reader in payload_order:
                     source_rows = rows_by_family.get(family, [])
                     payload_rows: list[dict[str, Any]] = []
                     for row in source_rows:
                         if family in BINARY_FAMILIES:
-                            group = blob_groups[
-                                _canonical_blob_key(family, row)
-                            ]
+                            group = blob_groups[_canonical_blob_key(family, row)]
                             decorated = _decorate_binary_row(family, row, group)
                             payload_rows.append(decorated)
                             decorated_binary_rows[family].append(decorated)
@@ -725,12 +1017,8 @@ def build_account_export_zip(
                                     {
                                         "family": family,
                                         "row_id": row.get("id"),
-                                        "canonical_blob_id": blob[
-                                            "canonical_blob_id"
-                                        ],
-                                        "source_locator": blob[
-                                            "source_locator"
-                                        ],
+                                        "canonical_blob_id": blob["canonical_blob_id"],
+                                        "source_locator": blob["source_locator"],
                                         "reason": blob["missing_reason"],
                                     }
                                 )
@@ -783,6 +1071,8 @@ def build_account_export_zip(
                     rows_by_family=rows_by_family,
                     decorated_binary_rows=decorated_binary_rows,
                     unresolved_rows=unresolved_rows,
+                    schema_version=resolved_schema_version,
+                    payload_families=payload_families,
                 )
                 archive.writestr("manifest.json", _dump_json(manifest))
         return temp_path
