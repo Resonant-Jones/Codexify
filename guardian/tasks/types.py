@@ -23,6 +23,11 @@ from guardian.core.request_correlation import (
 )
 from guardian.hosted_rooms.actor_tokens import GUARDIAN_REF, RESIDENT_SOURCE
 
+from guardian.tasks.chat_deadline import (
+    DEADLINE_FIELDS,
+    parse_accepted_chat_task_deadline,
+)
+
 GITHUB_WATCHDOG_REVIEW_TASK_TYPE = "github_watchdog_review"
 
 
@@ -832,6 +837,18 @@ class ChatCompletionTask(BaseTask):
     hosted_room_invocation: HostedRoomInvocationMetadata | None = None
     # None is reserved for historical tasks without an acceptance snapshot.
     persona_selection_snapshot: PersonaSelectionSnapshot | None = None
+    accepted_at: str | None = None
+    work_deadline_at: str | None = None
+    terminal_deadline_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        if all(payload[name] is None for name in DEADLINE_FIELDS):
+            for name in DEADLINE_FIELDS:
+                del payload[name]
+        else:
+            parse_accepted_chat_task_deadline(payload)
+        return payload
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -847,6 +864,7 @@ class ChatCompletionTask(BaseTask):
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
+        parse_accepted_chat_task_deadline(payload)
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
         user_id = _coerce_optional_text(
@@ -903,6 +921,7 @@ class ChatCompletionTask(BaseTask):
                 payload.get("hosted_room_invocation")
             ),
             persona_selection_snapshot=payload.get("persona_selection_snapshot"),
+            **{name: payload.get(name) for name in DEADLINE_FIELDS},
             **base,
         )
 

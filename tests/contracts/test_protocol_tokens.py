@@ -1021,6 +1021,7 @@ def test_error_code_tokens() -> None:
         == "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
     )
     assert ERROR_CODES == {
+        "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
@@ -1299,3 +1300,7 @@ def test_remote_recall_trace_event_tokens() -> None:
         "remote_recall.blocked",
         "remote_recall.completed",
     }
+
+
+def test_accepted_chat_deadline_error_token():
+    assert ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value == "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"

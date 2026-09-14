@@ -224,24 +224,43 @@ def renew_turn_lock(
     ttl_seconds: int | None = None,
     return_envelope: bool = False,
 ) -> bool | TurnLockEnvelope | None:
+    if lock.thread_id != int(thread_id):
+        return None if return_envelope else False
     ttl = _coerce_lock_ttl_seconds(ttl_seconds)
-    renewed = build_turn_lock_envelope(
-        thread_id,
-        lock.owner_task_id,
-        turn_id=lock.turn_id,
-        ttl_seconds=ttl,
-        source=lock.source,
-        acquired_at=lock.acquired_at,
-        renewed_at=_utc_now_iso(),
-        lease_token=lock.lease_token,
-    )
+    now = _utc_now()
     key = turn_lock_key(thread_id)
 
-    def _renew(client) -> bool:
-        return bool(client.set(key, _serialize_turn_lock(renewed), ex=ttl))
+    def _renew(client) -> TurnLockEnvelope | None:
+        # No GET/SET fallback: unsupported atomic execution must fail closed.
+        if not hasattr(client, "eval"):
+            return None
+        result = client.eval(
+            """
+            local value = redis.call('GET', KEYS[1])
+            if not value then return false end
+            local ok, payload = pcall(cjson.decode, value)
+            if not ok or type(payload) ~= 'table' then return false end
+            if payload.owner_task_id ~= ARGV[1]
+                or payload.lease_token ~= ARGV[2] then return false end
+            payload.renewed_at = ARGV[3]
+            payload.lease_expires_at = ARGV[4]
+            payload.lease_ttl_seconds = tonumber(ARGV[5])
+            local renewed = cjson.encode(payload)
+            redis.call('SET', KEYS[1], renewed, 'EX', ARGV[5])
+            return renewed
+            """,
+            1,
+            key,
+            lock.owner_task_id,
+            lock.lease_token,
+            now.isoformat(),
+            (now + timedelta(seconds=ttl)).isoformat(),
+            ttl,
+        )
+        return _decode_turn_lock_value(result) if result else None
 
-    updated = bool(_with_reconnect(_renew))
-    if not updated:
+    renewed = _with_reconnect(_renew)
+    if renewed is None:
         return None if return_envelope else False
     return renewed if return_envelope else True
 
