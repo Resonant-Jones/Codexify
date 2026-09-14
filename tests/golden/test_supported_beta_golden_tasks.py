@@ -347,6 +347,8 @@ def test_golden_completion_acceptance_contract(monkeypatch):
         "id": 1,
         "user_id": "test_user",
         "project_id": 1,
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock_db.list_messages.return_value = [
         {"id": 1, "role": "user", "content": "Hello there"}
