@@ -1114,6 +1114,45 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(window.location.pathname).toBe("/chat");
   });
 
+  it("keeps canonical /chat in prompt-first mode until the user selects a thread", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(11, "Prior Thread")], has_more: false },
+      },
+    });
+    sessionHooksState.railSlice = {
+      tabs: [
+        {
+          tabId: "tab-1",
+          threadId: "11",
+          pendingThread: false,
+          title: "Prior Thread",
+          modelId: "default",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      activeTabId: "tab-1",
+    };
+    sessionHooksState.activeTab = sessionHooksState.railSlice.tabs[0];
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-11");
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id")).toHaveTextContent("temp");
+    });
+    expect(window.location.pathname).toBe("/chat");
+
+    await user.click(screen.getByTestId("thread-11"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id")).toHaveTextContent("11");
+    });
+    expect(window.location.pathname).toBe("/chat/11");
+  });
+
   it("clears stale session tab thread ids that are missing from loaded threads", async () => {
     setupThreadApi({
       all: {
@@ -1280,6 +1319,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
   });
 
   it("persists a created thread back to its originating tab only", async () => {
+    window.history.pushState({}, "", "/chat/2");
     setupThreadApi({
       all: {
         0: { threads: [t(1, "Thread 1"), t(2, "Thread 2")], has_more: false },

@@ -2064,6 +2064,7 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  const isPromptFirstStart = effectiveThreadId == null;
   const {
     dispatchErrors: codingLoopDispatchErrors,
     registerAcceptedRun: registerCodingLoopRun,
@@ -4388,7 +4389,13 @@ export function GuardianChat({
       />
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div
+        className={
+          isPromptFirstStart
+            ? "relative flex min-h-[min(38vh,24rem)] shrink-0 flex-col items-center justify-end overflow-hidden"
+            : "relative flex flex-1 min-h-0 flex-col overflow-hidden"
+        }
+      >
         {effectiveThreadId != null ? (
           <div
             data-testid="chat-message-region"
@@ -4432,29 +4439,36 @@ export function GuardianChat({
           </div>
         ) : (
           <div
-            className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
+            data-testid="guardian-prompt-first-surface"
+            className={`flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
             style={{ color: "var(--muted)" }}
           >
-            {preferredName
-              ? `Welcome back, ${preferredName}. Let’s get started.`
-              : "New thread ready. Start typing below."}
+            <h1 className="text-lg font-medium text-[color:var(--text)]">
+              What should we work on?
+            </h1>
           </div>
         )}
       </div>
 
       <div
         data-testid="composer-shell-positioner"
-        className="z-20 mt-2 flex w-full shrink-0 justify-center"
+        className={
+          isPromptFirstStart
+            ? "z-20 mt-[var(--shell-gap)] flex w-full shrink-0 justify-center pb-[var(--card-pad)]"
+            : "z-20 mt-2 flex w-full shrink-0 justify-center"
+        }
       >
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
-          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden`}
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border ${isPromptFirstStart ? "shadow-xl" : "shadow-2xl"} backdrop-blur-xl flex flex-col overflow-hidden`}
           style={{
             ...mobileComposerShellMotionStyle,
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
-            background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+            background: isPromptFirstStart
+              ? "color-mix(in oklab, var(--panel-bg) 72%, transparent)"
+              : "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
             minHeight: compactMobile

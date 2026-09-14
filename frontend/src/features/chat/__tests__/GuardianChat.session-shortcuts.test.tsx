@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,10 +13,20 @@ vi.mock("@/lib/api", () => ({
     delete: vi.fn(),
   },
   buildLlmCatalogPath: () => "/llm/catalog",
-  buildChatCompletePath: () => "/chat/complete",
+  buildChatThreadsPath: () => "/api/chat/threads",
+  buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+  hasRequestAuthCredential: vi.fn(() => true),
+}));
+
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => ({
+    ready: true,
+    status: "authenticated",
+    token: "test-token",
+  }),
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -38,11 +48,14 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 }));
 
 vi.mock("@/features/guardian/components/Composer", () => ({
-  Composer: () => (
+  Composer: ({ onSend }: { onSend?: (text: string) => Promise<void> }) => (
     <div data-testid="composer-stub">
       <textarea data-testid="composer-textarea" placeholder="Write a message…" />
       <input data-testid="composer-input" />
       <div data-testid="composer-contenteditable" contentEditable suppressContentEditableWarning />
+      <button type="button" data-testid="composer-send" onClick={() => void onSend?.("First prompt")}>
+        Send
+      </button>
     </div>
   ),
 }));
@@ -125,6 +138,7 @@ vi.mock("@/imprint/api", () => ({
 
 const mockApi = api as unknown as {
   get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
 };
 
 const BASE_TABS = [
@@ -367,5 +381,59 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
 
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(1, "tab-2");
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(2, "tab-2");
+  });
+
+  it("renders the prompt-first state with the shared Composer and no transcript", () => {
+    renderShortcutChat();
+
+    expect(screen.getByTestId("guardian-prompt-first-surface")).toHaveTextContent(
+      "What should we work on?"
+    );
+    expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
+  });
+
+  it("retains the active-thread transcript layout", () => {
+    renderShortcutChat({ activeThread: { id: "42", title: "Active" } as any });
+
+    expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-prompt-first-surface")).not.toBeInTheDocument();
+  });
+
+  it("creates a durable thread only after the first prompt is submitted", async () => {
+    const user = userEvent.setup();
+    const onThreadPersisted = vi.fn();
+    mockApi.post.mockImplementation(async (url: string) => {
+      if (url === "/api/chat/threads") {
+        return { data: { id: 77 } };
+      }
+      if (url === "/chat/77/complete") {
+        return { data: { task_id: "task-77" } };
+      }
+      return { data: {} };
+    });
+
+    renderShortcutChat({ onThreadPersisted });
+
+    expect(mockApi.post).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith(
+        "/api/chat/threads",
+        expect.objectContaining({ title: "First prompt" })
+      );
+    });
+    expect(mockApi.post).toHaveBeenCalledWith("/chat/77/messages", {
+      role: "user",
+      content: "First prompt",
+      project_id: undefined,
+    });
+    expect(onThreadPersisted).toHaveBeenCalledWith(
+      77,
+      "First prompt",
+      expect.objectContaining({ tabId: "tab-1" })
+    );
+    expect(window.location.pathname).toBe("/chat/77");
   });
 });

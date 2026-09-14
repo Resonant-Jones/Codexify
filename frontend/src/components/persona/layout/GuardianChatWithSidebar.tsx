@@ -88,14 +88,30 @@ type PanelShellProps = React.PropsWithChildren<{
   className?: string;
   surfaceStyle?: React.CSSProperties;
   disabled?: boolean;
+  transparent?: boolean;
 }>;
 
-function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellProps) {
+function PanelShell({
+  className,
+  surfaceStyle,
+  disabled,
+  transparent = false,
+  children,
+}: PanelShellProps) {
   const panelStyle: React.CSSProperties = {
     opacity: disabled ? 0.35 : 1,
     pointerEvents: disabled ? "none" : undefined,
     ...(surfaceStyle ?? {}),
   };
+
+  if (transparent) {
+    return (
+      <div className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)} style={panelStyle}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <FrameCard
       fill
@@ -128,6 +144,11 @@ function formatDesktopAuthDiagnostics(): string[] {
     `runtimeRoot=${snapshot.runtimeRoot ?? "<unavailable>"}`,
     snapshot.failureKind ? `failureKind=${snapshot.failureKind}` : null,
   ].filter((line): line is string => Boolean(line));
+}
+
+function isCanonicalGuardianStartRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/" || window.location.pathname === "/chat";
 }
 
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
@@ -654,6 +675,14 @@ export default function GuardianChatWithSidebar({
   // Guard against stale session thread ids that no longer exist in the loaded list.
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
+
+    if (isCanonicalGuardianStartRoute()) {
+      if (activeId !== null) {
+        setActiveId(null);
+      }
+      return;
+    }
+
     const targetThreadId = activeSessionTab.threadId ?? null;
     const currentRouteThreadId = resolveRouteThreadId();
     const targetMissingFromThreads =
@@ -732,6 +761,7 @@ export default function GuardianChatWithSidebar({
   ]);
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
+  const isPromptFirstStart = activeId === null && isCanonicalGuardianStartRoute();
   const guardianLayoutMode = mobileShellProfile.guardian.singleLane
     ? "single_lane"
     : isDesktopLayout
@@ -1768,10 +1798,8 @@ export default function GuardianChatWithSidebar({
     []
   );
   const chatSurfaceStyle = useMemo(
-    () => ({
-      background: "var(--panel-bg)",
-    }),
-    []
+    () => (isPromptFirstStart ? {} : { background: "var(--panel-bg)" }),
+    [isPromptFirstStart]
   );
 
   const providerStateToken = useMemo(() => {
@@ -1930,6 +1958,7 @@ export default function GuardianChatWithSidebar({
             className="h-full w-full min-h-0 overflow-hidden box-border rounded-[var(--card-radius)]"
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
+            transparent={isPromptFirstStart}
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
               {frameFirstMobile && (

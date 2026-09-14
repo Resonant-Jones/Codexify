@@ -516,7 +516,7 @@ function setRoutePath(pathname: string) {
 }
 
 function setRouteThread(threadId: number | null) {
-  setRoutePath(threadId == null ? "/" : `/chat/${threadId}`);
+  setRoutePath(threadId == null ? "/chat" : `/chat/${threadId}`);
 }
 
 function notifyRouteChange() {
@@ -966,6 +966,47 @@ describe("AppShell Guardian mobile navigation seam", () => {
   });
 });
 
+describe("AppShell prompt-first entry", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setAuthenticatedAuthState();
+    setRoutePath("/");
+    guardianShellPropsSpy.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("opens bare root in Guardian instead of restoring cfy.lastView", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-view-mock")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/chat");
+  });
+
+  it("keeps explicit deep links authoritative over prompt-first entry", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRoutePath("/documents");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/documents");
+
+    cleanup();
+    setRoutePath("/chat/123");
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/chat/123");
+  });
+});
+
 describe("AppShell settings utility trigger", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1175,7 +1216,7 @@ describe("AppShell dashboard create project flow", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
-    setRouteThread(null);
+    setRoutePath("/dashboard");
     localStorage.setItem("cfy.lastView", "dashboard");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
@@ -1223,7 +1264,7 @@ describe("AppShell dashboard create project flow", () => {
     setUnauthenticatedAuthState();
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
-    setRoutePath("/");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
     await act(async () => {
@@ -1242,14 +1283,14 @@ describe("AppShell dashboard create project flow", () => {
     authRouteCapabilityState.state = "unavailable";
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
-    setRoutePath("/");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New Thread" }));
     });
 
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/dashboard");
     expect(draftListener).not.toHaveBeenCalled();
     expect(mockApi.post).not.toHaveBeenCalled();
     window.removeEventListener("cfy:chat:new-draft", draftListener);
@@ -1257,7 +1298,7 @@ describe("AppShell dashboard create project flow", () => {
 
   it("opens an authenticated dashboard New Thread draft in Guardian", async () => {
     setAuthenticatedAuthState();
-    setRoutePath("/");
+    setRoutePath("/dashboard");
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
 
@@ -1295,6 +1336,7 @@ describe("AppShell shared gallery persistence truth", () => {
 
   it("renders only persisted gallery items on the dashboard when transient failed uploads are cached", async () => {
     localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/dashboard");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1323,6 +1365,7 @@ describe("AppShell shared gallery persistence truth", () => {
 
   it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem("cfy.gallery", JSON.stringify([]));
 
     render(<AppShell />);
@@ -1396,6 +1439,7 @@ describe("AppShell gallery demo content", () => {
 
   it("replaces an all-mock cached gallery with the seeded AppShell defaults", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1421,6 +1465,7 @@ describe("AppShell gallery demo content", () => {
 
   it("auto-hides gallery demo items once real gallery items exist", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1472,6 +1517,7 @@ describe("AppShell workspace drawer shell", () => {
     "renders the shared workspace drawer from the shell for %s and keeps open/close behavior intact",
     async (initialView) => {
       localStorage.setItem("cfy.lastView", initialView);
+      setRoutePath(initialView === "guardian" ? "/chat" : "/documents");
 
       render(<AppShell />);
 
@@ -1491,6 +1537,7 @@ describe("AppShell workspace drawer shell", () => {
 
   it("does not render workspace controls on dashboard", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
 
@@ -1501,6 +1548,7 @@ describe("AppShell workspace drawer shell", () => {
   it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1537,6 +1585,7 @@ describe("AppShell workspace drawer shell", () => {
 
   it("gives Documents the same shared sidebar, center lane, and right workspace shell as Guardian", async () => {
     localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1580,6 +1629,7 @@ describe("AppShell workspace drawer shell", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1926,6 +1976,7 @@ describe("AppShell workspace drawer shell", () => {
   it("does not render the workspace drawer for unsupported views", () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRouteThread(null);
+    setRoutePath("/gallery");
 
     render(<AppShell />);
 
@@ -1940,7 +1991,7 @@ describe("AppShell documents sidebar posture", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
-    setRouteThread(null);
+    setRoutePath("/documents");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -2093,6 +2144,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -2131,6 +2183,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -2179,6 +2232,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(1024);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
