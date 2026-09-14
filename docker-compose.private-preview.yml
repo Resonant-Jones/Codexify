@@ -27,6 +27,9 @@ services:
       retries: 30
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
@@ -47,10 +50,19 @@ services:
       CODEXIFY_PREVIEW_ADMIN_EMAILS: "${CODEXIFY_PREVIEW_ADMIN_EMAILS:?set preview admin emails}"
       # Same-origin traffic has no browser CORS dependency.
       GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-}"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
 
   worker-chat:
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
       LLM_PROVIDER: "local"
       # The installed MLX-VLM runtime has one execution slot. Keep burst
       # absorption in the durable Redis chat queue instead of accepting a
@@ -66,6 +78,60 @@ services:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
+
+  worker-chat-embed:
+    environment:
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
+
+  worker-document-embed:
+    environment:
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
+
+  embedding-backfill:
+    environment:
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
+
+  obsidian-ingest:
+    environment:
+      CODEXIFY_VECTOR_STORE: "chroma"
+      CODEXIFY_CHROMA_PATH: "/app/.chroma"
+      CODEXIFY_COLLECTION: "codexify_vault_supported"
+    volumes:
+      - type: volume
+        source: private_preview_chroma
+        target: /app/.chroma
+        volume:
+          nocopy: true
 
   frontend:
     ports: !reset []
@@ -90,3 +156,8 @@ services:
       frontend:
         condition: service_started
     restart: unless-stopped
+
+volumes:
+  private_preview_chroma:
+    external: true
+    name: codexify_private_preview_chroma

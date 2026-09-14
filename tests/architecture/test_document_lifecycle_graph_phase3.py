@@ -341,6 +341,21 @@ def test_unknown_and_invalid_verified_git_commit_fail(tmp_path: Path, monkeypatc
     assert "verified_commit_invalid" in validation_codes(result)
 
 
+def test_verified_git_commit_must_be_in_repository_revision_ancestry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = node()
+    root = write_synthetic_repository(tmp_path, [source])
+    result = validate_synthetic(root)
+
+    monkeypatch.setattr(dlg, "_git_commit_exists", lambda _root, _revision: True)
+    monkeypatch.setattr(dlg, "_git_is_ancestor", lambda _root, _base, _tip: False)
+
+    dlg._validate_git_revision_integrity(result, check_git=True)
+
+    assert "verified_commit_not_ancestor" in validation_codes(result)
+
+
 def test_lfs_pointer_node_content_fails(tmp_path: Path) -> None:
     root = write_synthetic_repository(tmp_path, [])
     lfs_file = root / "docs/knowledge-graph/nodes/codexify:doc:architecture:lfs.json"
