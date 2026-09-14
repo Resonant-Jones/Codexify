@@ -757,6 +757,90 @@ def test_list_default_limit_bounded_and_max_limit_enforced(seeded_database):
     assert len(huge) <= MAX_LIST_LIMIT
 
 
+def test_offset_zero_matches_default(seeded_database):
+    """offset=0 preserves the previously qualified default list behavior."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        default_items = svc.list_items()
+        offset_zero = svc.list_items(offset=0)
+    assert [it.identity for it in offset_zero] == [it.identity for it in default_items]
+
+
+def test_global_logical_offset_spans_canonical_and_compatibility(seeded_database):
+    """Offset applies to the combined canonical + compatibility ordering,
+    not separately per source family."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        full = svc.list_items(limit=MAX_LIST_LIMIT)
+        page = svc.list_items(limit=2, offset=1)
+    kinds = {it.identity.kind for it in full}
+    assert kinds == {"canonical", "compatibility"}
+    assert [it.identity for it in page] == [it.identity for it in full[1:3]]
+
+
+def test_filter_applies_before_offset(seeded_database):
+    """A filter narrows the logical list before offset is applied."""
+    ctx = seeded_database
+    species = MemorySemanticSpecies.EPISODIC_SEMANTIC_MEMORY.value
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        full = svc.list_items(
+            limit=MAX_LIST_LIMIT,
+            filter=VaultListFilter(semantic_species=species),
+        )
+        page = svc.list_items(
+            limit=2,
+            offset=1,
+            filter=VaultListFilter(semantic_species=species),
+        )
+    assert all(it.semantic_species == species for it in full)
+    assert [it.identity for it in page] == [it.identity for it in full[1:3]]
+
+
+def test_limit_100_with_nonzero_offset_is_valid(seeded_database):
+    """100 is a page-size bound, not an absolute list position; a request
+    where offset + limit exceeds 100 remains valid at the contract boundary."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        page = svc.list_items(limit=100, offset=10)
+    assert isinstance(page, list)
+    assert len(page) <= MAX_LIST_LIMIT
+
+
+def test_large_offset_returns_empty(seeded_database):
+    """An offset beyond the result set returns an empty list, not an error."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        page = svc.list_items(limit=10, offset=10_000)
+    assert page == []
+
+
+def test_negative_offset_fails(seeded_database):
+    """Negative service-level offset fails through the existing convention."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        with pytest.raises(MemoryVaultReadError):
+            svc.list_items(limit=10, offset=-1)
+
+
+def test_account_isolation_holds_with_offset(seeded_database):
+    """Account B items remain absent regardless of offset."""
+    ctx = seeded_database
+    with ctx["session_factory"]() as session:
+        svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+        page = svc.list_items(limit=MAX_LIST_LIMIT, offset=0)
+        offset_page = svc.list_items(limit=MAX_LIST_LIMIT, offset=1)
+    for items in (page, offset_page):
+        blob = json.dumps([json.loads(_item_to_json(it)) for it in items])
+        assert ACCOUNT_B not in blob
+        assert ctx["account_b"]["canonical_id"] not in blob
+
+
 def test_read_path_is_mutation_free(seeded_database):
     """Snapshot persistent state before and after a full read surface
     exercise; require exact equality."""
@@ -769,6 +853,8 @@ def test_read_path_is_mutation_free(seeded_database):
         svc = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
         # Exercise the full read surface
         all_items = svc.list_items(limit=MAX_LIST_LIMIT)
+        # Non-zero-offset pagination read.
+        svc.list_items(limit=10, offset=2)
         # Filtered lists
         svc.list_items(
             filter=VaultListFilter(

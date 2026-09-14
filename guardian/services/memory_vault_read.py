@@ -318,17 +318,23 @@ class MemoryVaultReadService:
     def list_items(
         self,
         *,
+        limit: int | None = None,
+        offset: int = 0,
         filter: VaultListFilter | None = None,
-        limit: int = DEFAULT_LIST_LIMIT,
     ) -> list[VaultItem]:
         """Return an account-owned bounded list of Vault items.
 
-        Items are presented in stable presentation order (newest
-        ``created_at`` first; stable identity tie-breaker). This is
-        PRESENTATION ORDERING ONLY; the Vault does not sort by
-        priority, relevance, heat, or recall rank.
+        Canonical and compatibility items participate in one combined
+        deterministic presentation order (newest ``created_at`` first;
+        stable identity tie-breaker). The final logical list is then
+        sliced by ``offset`` and ``limit``. This is PRESENTATION
+        ORDERING ONLY; the Vault does not sort by priority, relevance,
+        heat, or recall rank.
         """
-        effective_limit = self._normalize_limit(limit)
+        effective_limit = self._normalize_limit(
+            DEFAULT_LIST_LIMIT if limit is None else limit
+        )
+        effective_offset = self._normalize_offset(offset)
         effective_filter = filter or VaultListFilter()
 
         items: list[VaultItem] = []
@@ -349,7 +355,7 @@ class MemoryVaultReadService:
             )
         )
 
-        return items[:effective_limit]
+        return items[effective_offset : effective_offset + effective_limit]
 
     def get_item(
         self,
@@ -784,6 +790,14 @@ class MemoryVaultReadService:
         if limit > MAX_LIST_LIMIT:
             return MAX_LIST_LIMIT
         return limit
+
+    @staticmethod
+    def _normalize_offset(offset: int) -> int:
+        if not isinstance(offset, int):
+            raise MemoryVaultReadError("offset must be an integer")
+        if offset < 0:
+            raise MemoryVaultReadError("offset must be non-negative")
+        return offset
 
 
 def _stable_identity_key(item: VaultItem) -> str:

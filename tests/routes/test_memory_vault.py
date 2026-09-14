@@ -61,8 +61,9 @@ class FakeVaultService:
         *,
         filter: VaultListFilter | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
     ) -> list[VaultItem]:
-        self.list_calls.append({"filter": filter, "limit": limit})
+        self.list_calls.append({"filter": filter, "limit": limit, "offset": offset})
         if self.list_error is not None:
             raise self.list_error
         return list(self.list_result)
@@ -268,6 +269,7 @@ def test_list_default_limit_is_50(
     assert body["returned_count"] == 1
     assert len(fake_service.list_calls) == 1
     assert fake_service.list_calls[0]["limit"] == DEFAULT_LIST_LIMIT
+    assert fake_service.list_calls[0]["offset"] == 0
 
 
 def test_list_max_limit_is_100(
@@ -279,19 +281,35 @@ def test_list_max_limit_is_100(
     assert fake_service.list_calls[0]["limit"] == 100
 
 
-def test_list_offset_mapping(
+def test_list_exact_delegation_limit_offset(
     fake_service: FakeVaultService, client: TestClient
 ) -> None:
-    fake_service.list_result = [_canonical_item(f"m{i}") for i in range(10)]
-    response = client.get("/api/memory-vault/items", params={"offset": 4})
+    """HTTP limit and offset reach the service exactly, never widened."""
+    fake_service.list_result = [_canonical_item("a")]
+    response = client.get(
+        "/api/memory-vault/items", params={"limit": 100, "offset": 50}
+    )
+    assert response.status_code == 200
+    assert len(fake_service.list_calls) == 1
+    assert fake_service.list_calls[0]["limit"] == 100
+    assert fake_service.list_calls[0]["offset"] == 50
+
+
+def test_list_does_not_slice_service_result(
+    fake_service: FakeVaultService, client: TestClient
+) -> None:
+    """The route serializes the service's already-paginated sequence
+    unchanged; it performs no second slice."""
+    fake_service.list_result = [_canonical_item(f"m{i}") for i in range(5)]
+    response = client.get("/api/memory-vault/items", params={"limit": 2, "offset": 3})
     assert response.status_code == 200
     body = response.json()
-    assert body["offset"] == 4
-    # The adapter requests a window wide enough to honor the offset.
-    assert fake_service.list_calls[0]["limit"] == DEFAULT_LIST_LIMIT + 4
     ids = [it["identity"]["canonical_memory_id"] for it in body["items"]]
-    assert ids == [f"m{i}" for i in range(4, 10)]
-    assert body["returned_count"] == 6
+    assert ids == [f"m{i}" for i in range(5)]
+    assert body["returned_count"] == 5
+    # The service received the exact (unwidened) page request.
+    assert fake_service.list_calls[0]["limit"] == 2
+    assert fake_service.list_calls[0]["offset"] == 3
 
 
 def test_list_maps_all_nine_filters_exactly(

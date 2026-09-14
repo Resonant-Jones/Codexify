@@ -310,11 +310,10 @@ def list_vault_items(
 ) -> VaultListResponse:
     """List the authenticated account's Vault items (bounded, read-only).
 
-    All semantic filtering is delegated to the B1 service. The B1
-    service has no offset parameter, so the adapter requests a window
-    wide enough to honor the requested offset within B1's bounded list
-    surface and then applies the presentation offset at the HTTP
-    boundary.
+    The route is a pure HTTP adapter. Both semantic filtering and
+    logical pagination (``offset`` + ``limit``) are delegated to the B1
+    service; the route performs no list slicing and never widens the
+    requested page size.
     """
     flt = VaultListFilter(
         semantic_species=(
@@ -331,19 +330,18 @@ def list_vault_items(
     )
 
     try:
-        window = service.list_items(filter=flt, limit=limit + offset)
+        items = service.list_items(filter=flt, limit=limit, offset=offset)
     except MemoryVaultReadError:
         raise HTTPException(
             status_code=409,
             detail=_PROJECTION_UNAVAILABLE_DETAIL,
         )
 
-    page = window[offset : offset + limit]
     return VaultListResponse(
-        items=[_item_response(item) for item in page],
+        items=[_item_response(item) for item in items],
         limit=limit,
         offset=offset,
-        returned_count=len(page),
+        returned_count=len(items),
     )
 
 
