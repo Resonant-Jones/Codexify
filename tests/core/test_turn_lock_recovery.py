@@ -38,6 +38,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "",
         "project_id": 1,
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock.write_audit_log.return_value = None
     return mock
