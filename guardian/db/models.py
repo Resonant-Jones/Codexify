@@ -887,7 +887,7 @@ class Project(Base):
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(String(16))
     identity_depth: Mapped[str] = mapped_column(
@@ -922,6 +922,11 @@ class Project(Base):
             "id",
             "user_id",
             name="uq_projects_id_user_id",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "name",
+            name="uq_projects_user_id_name",
         ),
         Index(
             "uq_projects_user_id_system_role",

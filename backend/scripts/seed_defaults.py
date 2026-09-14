@@ -26,27 +26,33 @@ from typing import Iterable
 from guardian.core.default_project import (
     DEFAULT_PROJECT_DESCRIPTION,
     DEFAULT_PROJECT_NAME,
+    LEGACY_DEFAULT_PROJECT_ALIASES,
 )
+from guardian.core.project_lifecycle import PROJECT_SYSTEM_ROLE_GENERAL
 
 logger = logging.getLogger("seed_defaults")
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-DEFAULT_PROJECT_NAME = "General"
-DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
 DEFAULT_PROJECT_ALIASES = (
     DEFAULT_PROJECT_NAME,
-    "Loose Threads",
+    *LEGACY_DEFAULT_PROJECT_ALIASES,
 )
+LEGACY_LOCAL_USER_ID = "local"
+
+# Reuse the accepted account-Project provisioning error vocabulary without
+# importing the ORM-backed provisioning module into this dependency-light
+# migrator helper.
+CANONICAL_USER_ID_REQUIRED = "canonical_user_id_required"
+ACCOUNT_GENERAL_PROJECT_DUPLICATE = "account_general_project_duplicate"
 
 # --- DB connect helpers ------------------------------------------------------
 
 
 def _is_pg(dsn: str | None) -> bool:
     return bool(
-        dsn
-        and (dsn.startswith("postgres://") or dsn.startswith("postgresql://"))
+        dsn and (dsn.startswith("postgres://") or dsn.startswith("postgresql://"))
     )
 
 
@@ -146,9 +152,7 @@ def _in_placeholders(count: int, is_pg: bool) -> str:
     return ", ".join([_param(is_pg)] * count)
 
 
-def _qualified_table_name(
-    table: str, *, schema: str | None = None, is_pg: bool
-) -> str:
+def _qualified_table_name(table: str, *, schema: str | None = None, is_pg: bool) -> str:
     def _quote(ident: str) -> str:
         return '"' + ident.replace('"', '""') + '"'
 
@@ -172,9 +176,7 @@ def _project_id_for_name(conn, name: str) -> int | None:
         return int(row[0])
 
 
-def _select_projects_by_names(
-    conn, names: Iterable[str]
-) -> list[tuple[int, str]]:
+def _select_projects_by_names(conn, names: Iterable[str]) -> list[tuple[int, str]]:
     """Fetch project rows for provided names."""
     name_list = [n for n in names if n]
     if not name_list:
@@ -194,6 +196,176 @@ def _select_projects_by_names(
         )
         rows = cur.fetchall()
         return [(int(row[0]), str(row[1])) for row in rows]
+
+
+def _canonical_account_ids(conn) -> list[str]:
+    """Return deterministic canonical account IDs, excluding legacy local."""
+    is_pg = _is_pg_conn(conn)
+    order = 'id COLLATE "C"' if is_pg else "id COLLATE BINARY"
+    with _cursor(conn) as cur:
+        cur.execute(
+            f"SELECT id FROM users WHERE id <> {_param(is_pg)} ORDER BY {order}",
+            (LEGACY_LOCAL_USER_ID,),
+        )
+        account_ids = [str(row[0]) for row in cur.fetchall()]
+
+    if any(not account_id.strip() for account_id in account_ids):
+        raise RuntimeError(
+            f"{CANONICAL_USER_ID_REQUIRED}: canonical users.id must be nonblank"
+        )
+    return account_ids
+
+
+def _lock_account(cur, *, user_id: str, is_pg: bool) -> None:
+    suffix = " FOR UPDATE" if is_pg else ""
+    cur.execute(
+        f"SELECT id FROM users WHERE id = {_param(is_pg)}{suffix}",
+        (user_id,),
+    )
+    if cur.fetchone() is None:
+        raise RuntimeError(f"canonical_user_not_found: {user_id!r}")
+
+
+def _account_general_rows(cur, *, user_id: str, is_pg: bool) -> list[tuple[int, str]]:
+    placeholder = _param(is_pg)
+    cur.execute(
+        f"""
+        SELECT id, name
+        FROM projects
+        WHERE user_id = {placeholder}
+          AND system_role = {placeholder}
+        ORDER BY id ASC
+        """,
+        (user_id, PROJECT_SYSTEM_ROLE_GENERAL),
+    )
+    return [(int(row[0]), str(row[1])) for row in cur.fetchall()]
+
+
+def _account_legacy_alias_rows(
+    cur,
+    *,
+    user_id: str,
+    is_pg: bool,
+) -> list[tuple[int, str]]:
+    placeholder = _param(is_pg)
+    aliases = tuple(dict.fromkeys(DEFAULT_PROJECT_ALIASES))
+    alias_placeholders = _in_placeholders(len(aliases), is_pg)
+    cur.execute(
+        f"""
+        SELECT id, name
+        FROM projects
+        WHERE user_id = {placeholder}
+          AND system_role IS NULL
+          AND name IN ({alias_placeholders})
+        ORDER BY id ASC
+        """,
+        (user_id, *aliases),
+    )
+    return [(int(row[0]), str(row[1])) for row in cur.fetchall()]
+
+
+def seed_account_default_projects(conn) -> dict[str, int]:
+    """Converge one structural General per canonical, non-local account.
+
+    The operation is one transaction. Existing structural Generals are left
+    byte-for-byte unchanged. A sole same-account legacy alias is promoted in
+    place, preserving its Project ID, description, and references. Multiple
+    same-account candidates fail closed. No Project reference is reassigned or
+    Project row deleted by this seeder.
+    """
+    if not table_exists(conn, "users"):
+        raise RuntimeError("canonical users table is required for default seeding")
+    if not _table_has_column(conn, "projects", "user_id") or not _table_has_column(
+        conn, "projects", "system_role"
+    ):
+        raise RuntimeError(
+            "account-scoped projects.user_id and projects.system_role are required"
+        )
+
+    account_ids = _canonical_account_ids(conn)
+    is_pg = _is_pg_conn(conn)
+    placeholder = _param(is_pg)
+    summary = {
+        "accounts": len(account_ids),
+        "existing": 0,
+        "promoted": 0,
+        "created": 0,
+    }
+    cur = conn.cursor()
+    try:
+        for user_id in account_ids:
+            _lock_account(cur, user_id=user_id, is_pg=is_pg)
+            generals = _account_general_rows(
+                cur,
+                user_id=user_id,
+                is_pg=is_pg,
+            )
+            if len(generals) > 1:
+                raise RuntimeError(
+                    f"{ACCOUNT_GENERAL_PROJECT_DUPLICATE}: canonical user "
+                    f"{user_id!r} has multiple structural General Projects"
+                )
+            if generals:
+                summary["existing"] += 1
+                continue
+
+            aliases = _account_legacy_alias_rows(
+                cur,
+                user_id=user_id,
+                is_pg=is_pg,
+            )
+            if len(aliases) > 1:
+                raise RuntimeError(
+                    f"{ACCOUNT_GENERAL_PROJECT_DUPLICATE}: canonical user "
+                    f"{user_id!r} has multiple legacy default candidates"
+                )
+
+            if aliases:
+                project_id, _ = aliases[0]
+                cur.execute(
+                    f"""
+                    UPDATE projects
+                    SET name = {placeholder}, system_role = {placeholder}
+                    WHERE id = {placeholder}
+                      AND user_id = {placeholder}
+                      AND system_role IS NULL
+                    """,
+                    (
+                        DEFAULT_PROJECT_NAME,
+                        PROJECT_SYSTEM_ROLE_GENERAL,
+                        project_id,
+                        user_id,
+                    ),
+                )
+                if cur.rowcount != 1:
+                    raise RuntimeError(
+                        "account default Project changed during seed convergence"
+                    )
+                summary["promoted"] += 1
+                continue
+
+            cur.execute(
+                f"""
+                INSERT INTO projects (user_id, name, description, system_role)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})
+                """,
+                (
+                    user_id,
+                    DEFAULT_PROJECT_NAME,
+                    DEFAULT_PROJECT_DESCRIPTION,
+                    PROJECT_SYSTEM_ROLE_GENERAL,
+                ),
+            )
+            summary["created"] += 1
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+    return summary
 
 
 def _table_has_column(
@@ -288,9 +460,7 @@ def _discover_project_fk_tables(conn) -> list[tuple[str | None, str]]:
     if table_exists(conn, "chat_threads") and _table_has_column(
         conn, "chat_threads", "project_id"
     ):
-        discovered.add(
-            ("public", "chat_threads") if is_pg else (None, "chat_threads")
-        )
+        discovered.add(("public", "chat_threads") if is_pg else (None, "chat_threads"))
 
     # Never mutate projects directly in reassignment loop.
     discovered.discard(("public", "projects"))
@@ -305,18 +475,25 @@ def dedupe_default_project_aliases(
     canonical_name: str = DEFAULT_PROJECT_NAME,
     aliases: Iterable[str] = DEFAULT_PROJECT_ALIASES,
 ) -> tuple[int, list[int], dict[str, int]]:
-    """
-    Reassign rows from legacy default-project aliases to canonical project.
+    """Support pre-account-schema alias tests without modern global mutation.
 
-    Returns tuple:
-      (keep_id, remove_ids, reassigned_counts_by_table)
+    Current account-scoped schemas must use ``seed_account_default_projects``;
+    that path promotes one same-account alias in place and never reassigns or
+    deletes Project-bound rows. This compatibility helper only applies to a
+    historical schema that has no ``projects.user_id`` column and therefore
+    cannot represent multiple account boundaries. It never creates a Project.
     """
+    if _table_has_column(conn, "projects", "user_id"):
+        raise RuntimeError(
+            "account-scoped default seeding does not deduplicate Project rows"
+        )
+
     alias_names = tuple(dict.fromkeys([canonical_name, *list(aliases)]))
-    ensure_project(conn, canonical_name, DEFAULT_PROJECT_DESCRIPTION)
     keep_id = _project_id_for_name(conn, canonical_name)
     if keep_id is None:
         raise RuntimeError(
-            f"Failed to resolve canonical project '{canonical_name}'"
+            "pre-account compatibility alias normalization requires an "
+            f"existing canonical project named {canonical_name!r}"
         )
 
     alias_rows = _select_projects_by_names(conn, alias_names)
@@ -367,38 +544,6 @@ def dedupe_default_project_aliases(
     return keep_id, remove_ids, update_counts
 
 
-def ensure_project(conn, name: str, description: str = "") -> None:
-    """Insert a project row if one with the same name isn't present."""
-    mod = conn.__class__.__module__
-    # Treat both psycopg v3 and psycopg2 connections as Postgres.
-    if "psycopg" in mod:
-        with _cursor(conn) as cur:
-            # Use INSERT ... WHERE NOT EXISTS for maximum compatibility (no need for unique index).
-            cur.execute(
-                """
-                INSERT INTO projects (name, description)
-                SELECT %s, %s
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM projects WHERE name = %s
-                )
-                """,
-                (name, description, name),
-            )
-    else:
-        # SQLite
-        with _cursor(conn) as cur:
-            cur.execute(
-                """
-                INSERT INTO projects (name, description)
-                SELECT ?, ?
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM projects WHERE name = ?
-                )
-                """,
-                (name, description, name),
-            )
-
-
 # --- Main --------------------------------------------------------------------
 
 
@@ -428,16 +573,16 @@ def main() -> int:
             )
             return 0
 
-        # Seed canonical default project (idempotent)
-        logger.info("[Seed] Ensuring default project exists...")
-        ensure_project(conn, DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION)
-        logger.info("[Seed] Default project ensured.")
-        dedupe_default_project_aliases(
-            conn,
-            canonical_name=DEFAULT_PROJECT_NAME,
-            aliases=DEFAULT_PROJECT_ALIASES,
+        logger.info("[Seed] Ensuring account-scoped default Projects exist...")
+        summary = seed_account_default_projects(conn)
+        logger.info(
+            "[Seed] Account-scoped defaults ensured: accounts=%s existing=%s "
+            "promoted=%s created=%s",
+            summary["accounts"],
+            summary["existing"],
+            summary["promoted"],
+            summary["created"],
         )
-        logger.info("[Seed] Default project aliases normalized.")
 
         # You can add more idempotent ensures here (e.g., initial connectors) as needed.
 

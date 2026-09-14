@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-12
+2026-09-14
 
 ## Interpretation rule
 
@@ -18,9 +18,13 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded `b2c8d0e3f5a7` live schema upgrade and scheduled reconciliation proved preservation, immediate reads, and coherent shared-image recovery without recreating healthy long-running containers or changing canonical database state. The private-preview database subsequently reached the Persona head `d4e0f2a5b7c9` with original-column preservation and canonical no-op proof, but the matching application deployment is blocked by Chroma initialization and remains stopped pending live named-volume adoption/recovery and deployment qualification. Recent mainline work also improved bounded Persona Profile, sharing, and worker-diagnosis seams. No new release-ready runtime path or wider Beta support boundary was established.
+`main` remains in local-first Beta hardening with a gated private-preview lane. A bounded `b2c8d0e3f5a7` live schema upgrade and scheduled reconciliation proved preservation, immediate reads, and coherent shared-image recovery without recreating healthy long-running containers or changing canonical database state. The private-preview database subsequently reached the Persona head `d4e0f2a5b7c9` with original-column preservation and canonical no-op proof, but the matching application deployment is blocked by Chroma initialization and remains stopped pending live named-volume adoption/recovery and deployment qualification. Recent mainline work also added bounded deadline/lock implementation (ADR-087), closed UMS-04 canonical memory export/restore, and improved bounded Persona Profile, sharing, and worker-diagnosis seams. No new release-ready runtime path or wider Beta support boundary was established; Private Preview application runtime recovery remains unproven.
 
 ## What changed recently
+
+- ADR-087 implementation landed on `main` for acceptance-time deadline snapshots and deadline-aware turn-lock renewal; provider/worker/tool/PostgreSQL enforcement, finite drain, and runtime proof remain open.
+- Persona/turn-lock recovery fixture alignment and DLG verification-ancestry checks landed; these are test/provenance maintenance and do not widen release support.
+- The Atlas architecture-map prototype landed on `main`; it remains a prototype surface, not a supported release path.
 
 - [ADR-067 private-preview Chroma topology](./adr/067-operator-approved-derived-chroma-retirement.md) is implemented and contract-test proven in the private-preview Compose overlay: one explicit Docker-managed local named volume, `codexify_private_preview_chroma`, external to Compose lifecycle and shared at `/app/.chroma` by the six accepted consumers with `nocopy`. The diagnosed host bind is absent from their rendered private-preview topology. Live volume creation/adoption, retirement/fresh initialization, retrieval/reindex proof, matching Persona deployment, authenticated route/browser save/readback, and reconciliation restoration remain pending. Historical preservation remains separate. This is repository/static proof only and changes no Beta/release claim.
 
@@ -801,6 +805,8 @@ This file is authoritative for:
 
 ## Not yet true / do not assume
 
+- Do not treat merged ADR-087 acceptance-time fields and lock renewal as end-to-end deadline enforcement, graceful stop, finite drain, or provider/tool cancellation proof.
+
 - Persona Profile deployed lineage is not yet proven, and authenticated Persona Studio browser save/backend readback is not yet proven. Repository/profile admission and focused tests do not establish that the running private-preview deployment contains this Persona branch/profile. Qualify the deployed lineage and `/api/persona-profiles` route before resuming live browser authority proof.
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
@@ -809,11 +815,13 @@ This file is authoritative for:
 - Do not treat private-preview admission serialization, migration/recovery, or health/read results as live provider, persistence, observability, isolation, or canary proof.
 - Do not treat repository and disposable-PostgreSQL Project-ownership qualification as live private-preview application of revisions `c3d9e4f6a8b1` and `d4e8f1a2b6c9`, or as supported browser proof.
 - Do not treat Persona Profile persistence, acceptance snapshots, ADR-082, or focused UI tests as broad configuration enforcement or browser proof.
-- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, source-vendor closure, Chroma state, hosted-sandbox partial conformance, or Watchdog contracts as live provider/model execution, coding-loop completion, persisted-result readback, or release-supported behavior.
+- Do not treat CE-L1 OAuth readiness, Pi telemetry, wrapper tests, source-vendor closure, Chroma state, Atlas prototype work, hosted-sandbox partial conformance, or Watchdog contracts as live provider/model execution, coding-loop completion, persisted-result readback, or release-supported behavior.
 - Do not treat Modal or E2B partial conformance as a qualified hosted sandbox, provider-enforced storage/read-only boundary, supported runtime path, or release support.
 - Do not infer shipped reality from mutable `latest`, another checkout, local-only artifacts, planning language, or docs alone; realtime delivery, attachments, federation, and cross-node People messaging remain deferred.
 
 ## Active blockers
+
+- ADR-087 graceful operator shutdown remains blocked pending end-to-end worker, provider streaming, child execution, PostgreSQL persistence/cleanup, turn-lock, and finite-drain enforcement plus runtime proof.
 
 - Fresh supported-Compose closure is missing at the current `main` tip, including health, chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
 - The Tester worker bind-readiness repair and fresh isolated runtime proof remain open; the historical diagnosis is applicable but static.
@@ -826,10 +834,10 @@ This file is authoritative for:
 ## This week’s priorities
 
 1. Land the bounded fail-closed Tester bind-readiness predicate, then run fresh isolated Tester proof.
-2. Rerun current-main supported-Compose closure with the canonical local profile.
-3. Prove health, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events on that profile; requalify Chroma.
-4. Requalify CE-L1 live execution/readback and rotate/requalify the private-preview DeepSeek credential before tester execution.
-5. Apply and qualify the outstanding Project-ownership revisions on private preview; close Safari upload-envelope, authenticated browser, Watchdog, retention, and hosted-sandbox gates.
+2. Rerun current-main supported-Compose closure with the canonical local profile across health, chat, persistence/readback, retrieval, queue/worker, locks, and events; requalify Chroma.
+3. Complete ADR-087 enforcement and qualify finite drain, graceful stop, late-result handling, and durable terminal truth.
+4. Resume Private Preview qualification at queue/worker safe-start and multiprocess named-volume Chroma use, then prove authenticated persistence and isolation.
+5. Requalify CE-L1/provider live execution/readback, browser/import, connector, Watchdog, retention, and hosted-sandbox gates; rotate/requalify the private-preview DeepSeek credential before tester execution.
 
 ## Release classes
 
@@ -985,7 +993,7 @@ intentionally out of scope:
 - [x] Internal, bounded/conditional, qualification-pending, and Out-of-Beta surfaces remain separate from Beta Supported claims.
 - [x] Private-preview migration preservation/readback and ingress proofs are bounded without guest admission or release widening.
 - [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker bind readiness, locks, migrations, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
+- [ ] Queue, worker, deadline, graceful-stop, lock, migration, configuration, recovery, browser, and account-import claimed-path evidence gates are green.
 - [ ] Every claimed preview/provider lane has current-main proof for live execution, durable readback, isolation, and scheduled recovery where applicable.
 
 ## How to read the rest of the KB

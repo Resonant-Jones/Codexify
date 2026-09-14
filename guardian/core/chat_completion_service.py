@@ -142,6 +142,10 @@ from guardian.protocol_tokens import (
     TraceSuppressionReason,
     TaskEventType,
 )
+from guardian.tasks.chat_deadline import (
+    ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+    build_accepted_chat_task_deadline,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
@@ -154,6 +158,7 @@ from guardian.queue.redis_queue import (
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
     acquire_turn_lock,
+    renew_turn_lock,
     build_turn_lock_envelope,
     clear_turn_lock,
     get_turn_lock,
@@ -692,14 +697,22 @@ def enqueue_chat_completion(
     task.turn_lock_owner = task_identity
 
     locked = _run_completion_redis_op(
-        lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
+        lambda: acquire_turn_lock(
+                    thread_id, task.turn_lock_owner, turn_id=turn_id,
+                    source="api:chat.complete", return_envelope=True,
+                    ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+                ),
         reason="turn_lock_unavailable",
         log_message="[chat.complete] turn lock unavailable: %s",
     )
     if not locked:
         if _recover_orphaned_turn_lock(thread_id):
             locked = _run_completion_redis_op(
-                lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
+                lambda: acquire_turn_lock(
+                    thread_id, task.turn_lock_owner, turn_id=turn_id,
+                    source="api:chat.complete", return_envelope=True,
+                    ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+                ),
                 reason="turn_lock_unavailable",
                 log_message="[chat.complete] turn lock unavailable after recovery: %s",
             )
@@ -721,7 +734,7 @@ def enqueue_chat_completion(
             profile_revision=thread["active_profile_revision"],
         )
     except Exception as exc:  # noqa: BLE001 - any read/validation failure blocks acceptance
-        _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+        _best_effort_release_turn_lock(thread_id, locked)
         raise ChatCompletionEnqueueError(
             "persona_selection_snapshot_unavailable",
             cause_class=type(exc).__name__,
@@ -766,7 +779,7 @@ def enqueue_chat_completion(
                 type(participant).__name__,
                 type(exc).__name__,
             )
-            _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+            _best_effort_release_turn_lock(thread_id, locked)
             raise ChatCompletionEnqueueError(
                 "acceptance_participant_prepare_failed",
                 cause_class=type(exc).__name__,
@@ -798,10 +811,38 @@ def enqueue_chat_completion(
                 task_id=task_identity,
                 turn_id=turn_id,
             )
-            _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+            _best_effort_release_turn_lock(thread_id, locked)
             raise ChatCompletionEnqueueError(
                 "acceptance_participant_authoritative_fields_mutated"
             )
+
+    try:
+        deadline = build_accepted_chat_task_deadline(datetime.now(UTC))
+        for name, value in deadline.to_dict().items():
+            setattr(task, name, value)
+        if not isinstance(locked, TurnLockEnvelope):
+            raise ChatCompletionEnqueueError("turn_lock_unavailable")
+        renewed = _run_completion_redis_op(
+            lambda: renew_turn_lock(
+                thread_id, locked,
+                ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+                return_envelope=True,
+            ),
+            reason="turn_lock_unavailable",
+            log_message="[chat.complete] turn lock renewal unavailable: %s",
+        )
+        if not isinstance(renewed, TurnLockEnvelope):
+            raise ChatCompletionEnqueueError("turn_lock_unavailable")
+        locked = renewed
+        task.turn_lock = renewed.as_dict()
+    except Exception:
+        if participant is not None and participant_prepared:
+            _rollback_acceptance_participant(
+                participant, thread_id=thread_id,
+                task_id=task_identity, turn_id=turn_id,
+            )
+        _best_effort_release_turn_lock(thread_id, locked)
+        raise
 
     try:
         run_with_redis_timeout(
@@ -815,7 +856,7 @@ def enqueue_chat_completion(
                 task_id=task_identity,
                 turn_id=turn_id,
             )
-        _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+        _best_effort_release_turn_lock(thread_id, locked)
         raise ChatCompletionEnqueueError(
             "queue_unavailable",
             error_code=CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
@@ -836,7 +877,7 @@ def enqueue_chat_completion(
                 task_id=task_identity,
                 turn_id=turn_id,
             )
-        _best_effort_release_turn_lock(thread_id, task.turn_lock_owner)
+        _best_effort_release_turn_lock(thread_id, locked)
         raise ChatCompletionEnqueueError(
             "queue_unavailable",
             cause_class=type(exc).__name__,

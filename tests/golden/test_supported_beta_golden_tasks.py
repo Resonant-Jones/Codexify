@@ -43,6 +43,19 @@ def _supported_help_startup_client(
     monkeypatch.setenv("ENABLE_OUTBOX", "0")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    for key, value in {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": "false",
+        "CODEXIFY_LOCAL_ONLY_MODE": "true",
+        "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_COMPAT_FIRST": "true",
+        "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
+        "LOCAL_PROVIDER_VENDOR": "whooshd",
+    }.items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
     monkeypatch.setenv("CODEXIFY_VECTOR_STORE", "chroma")
     monkeypatch.setenv("CODEXIFY_CHROMA_PATH", str(tmp_path / "chroma"))
@@ -227,6 +240,20 @@ def _supported_help_startup_client(
     import guardian.guardian_api as guardian_api
 
     guardian_api = importlib.reload(guardian_api)
+    settings = guardian_api.get_settings()
+    for field, value in {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": False,
+        "CODEXIFY_LOCAL_ONLY_MODE": True,
+        "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_COMPAT_FIRST": True,
+        "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
+        "LOCAL_PROVIDER_VENDOR": "whooshd",
+    }.items():
+        monkeypatch.setattr(settings, field, value)
     monkeypatch.setattr(
         guardian_api,
         "assert_config_coherence",
@@ -320,6 +347,8 @@ def test_golden_completion_acceptance_contract(monkeypatch):
         "id": 1,
         "user_id": "test_user",
         "project_id": 1,
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock_db.list_messages.return_value = [
         {"id": 1, "role": "user", "content": "Hello there"}

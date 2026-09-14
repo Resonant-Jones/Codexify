@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
@@ -10,6 +12,7 @@ from guardian.core import chat_completion_service as service
 from guardian.protocol_tokens import AcceptanceStatus
 from guardian.queue.redis_queue import QueueEnqueueError
 from guardian.queue.turn_lock import build_turn_lock_envelope
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import (
     ChatCompletionTask,
     PersonaSelectionSnapshot,
@@ -101,6 +104,25 @@ def _failed_event_result(task: ChatCompletionTask) -> dict[str, object]:
     }
 
 
+NOW = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
+
+
+class _FixedClock:
+    @staticmethod
+    def now(_zone):
+        return NOW
+
+
+def _renewed_lock(thread_id, lock, *, ttl_seconds, return_envelope):
+    assert ttl_seconds == 840
+    assert return_envelope is True
+    return replace(
+        lock, renewed_at=NOW.isoformat(),
+        lease_expires_at=(NOW + timedelta(seconds=ttl_seconds)).isoformat(),
+        lease_ttl_seconds=ttl_seconds,
+    )
+
+
 @pytest.fixture(autouse=True)
 def canonical_thread(monkeypatch):
     row = {"active_profile_id": None, "active_profile_revision": None}
@@ -114,6 +136,8 @@ def canonical_thread(monkeypatch):
 
 @pytest.fixture
 def immediate_redis(monkeypatch):
+    monkeypatch.setattr(service, "datetime", _FixedClock)
+    monkeypatch.setattr(service, "renew_turn_lock", _renewed_lock)
     monkeypatch.setattr(
         service,
         "run_with_redis_timeout",
@@ -128,6 +152,7 @@ def test_success_preserves_queue_event_and_serialization_contract(
     captured: dict[str, object] = {}
     lock = _lock(task, turn_id="turn-1")
     expected_payload = task.to_dict()
+    expected_payload.update(build_accepted_chat_task_deadline(NOW).to_dict())
     expected_payload["persona_selection_snapshot"] = {
         "profile_id": None,
         "profile_revision": None,
@@ -912,7 +937,7 @@ def test_queue_failure_releases_lock_and_returns_safe_typed_failure(
     assert exc.queue_name == "codexify:queue:chat"
     assert exc.cause_class == "RuntimeError"
     assert "redis down" not in str(exc)
-    assert released == [(1, task.task_id)]
+    assert released == [(1, _renewed_lock(1, lock, ttl_seconds=840, return_envelope=True))]
 
 
 @pytest.mark.parametrize(
@@ -927,7 +952,7 @@ def test_server_captures_after_lock_into_actual_queue_payload(
     task.persona_selection_snapshot = PersonaSelectionSnapshot("forged", 99)
     events = []
 
-    def acquire(*_args):
+    def acquire(*_args, **_kwargs):
         events.append("lock")
         canonical_thread.update(
             active_profile_id=profile_id, active_profile_revision=revision
@@ -979,7 +1004,7 @@ def test_unreadable_canonical_selection_fails_before_acceptance(
     )
     monkeypatch.setattr(service.dependencies.chatlog_db, "get_chat_thread", read)
     monkeypatch.setattr(
-        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+        service, "acquire_turn_lock", lambda *_a, **_k: _lock(task, turn_id="turn-1")
     )
     enqueue, release, publish = MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(service, "enqueue", enqueue)
@@ -992,7 +1017,8 @@ def test_unreadable_canonical_selection_fails_before_acceptance(
     assert exc.value.reason == "persona_selection_snapshot_unavailable"
     enqueue.assert_not_called()
     publish.assert_not_called()
-    release.assert_called_once_with(1, task.task_id)
+    assert release.call_args.args[0] == 1
+    assert release.call_args.args[1].owner_task_id == task.task_id
     assert participant.prepare_calls == 0
 
 
@@ -1012,7 +1038,7 @@ def test_participant_cannot_replace_server_snapshot(
 
     participant.prepare = prepare
     monkeypatch.setattr(
-        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+        service, "acquire_turn_lock", lambda *_a, **_k: _lock(task, turn_id="turn-1")
     )
     enqueue, release = MagicMock(), MagicMock()
     monkeypatch.setattr(service, "enqueue", enqueue)
@@ -1024,7 +1050,8 @@ def test_participant_cannot_replace_server_snapshot(
     assert exc.value.reason == "acceptance_participant_authoritative_fields_mutated"
     assert task.persona_selection_snapshot == PersonaSelectionSnapshot("axis", 2)
     enqueue.assert_not_called()
-    release.assert_called_once_with(1, task.task_id)
+    assert release.call_args.args[0] == 1
+    assert release.call_args.args[1].owner_task_id == task.task_id
     assert participant.rollback_calls == 1
     assert participant.commit_calls == 0
 
@@ -1041,7 +1068,7 @@ def test_participant_cannot_edit_snapshot_in_place(
 
     participant.prepare = prepare
     monkeypatch.setattr(
-        service, "acquire_turn_lock", lambda *_a: _lock(task, turn_id="turn-1")
+        service, "acquire_turn_lock", lambda *_a, **_k: _lock(task, turn_id="turn-1")
     )
     enqueue, release = MagicMock(), MagicMock()
     monkeypatch.setattr(service, "enqueue", enqueue)
@@ -1054,4 +1081,92 @@ def test_participant_cannot_edit_snapshot_in_place(
     assert exc.value.cause_class == "FrozenInstanceError"
     assert task.persona_selection_snapshot == PersonaSelectionSnapshot("axis", 2)
     enqueue.assert_not_called()
-    release.assert_called_once_with(1, task.task_id)
+    assert release.call_args.args[0] == 1
+    assert release.call_args.args[1].owner_task_id == task.task_id
+
+
+def test_deadline_is_server_owned_and_stamped_after_prepare(monkeypatch, immediate_redis):
+    task = _task()
+    forged = build_accepted_chat_task_deadline(NOW + timedelta(days=365)).to_dict()
+    for name, value in forged.items():
+        setattr(task, name, value)
+    lock = _lock(task, turn_id='turn-1')
+    events = []
+    participant = _FakeParticipant(events)
+    original_prepare = participant.prepare
+
+    def prepare(task):
+        assert task.accepted_at == forged['accepted_at']
+        original_prepare(task)
+
+    def renew(thread_id, owned, **kwargs):
+        assert events == ['prepare']
+        assert task.accepted_at == NOW.isoformat()
+        events.append('renew')
+        result = _renewed_lock(thread_id, owned, **kwargs)
+        assert datetime.fromisoformat(result.lease_expires_at) == (
+            datetime.fromisoformat(task.terminal_deadline_at) + timedelta(seconds=60)
+        )
+        return result
+
+    def enqueue(queued, _queue):
+        assert events == ['prepare', 'renew']
+        events.append('enqueue')
+        for name, value in build_accepted_chat_task_deadline(NOW).to_dict().items():
+            assert queued.to_dict()[name] == value
+        assert queued.turn_lock['lease_ttl_seconds'] == 840
+
+    participant.prepare = prepare
+    monkeypatch.setattr(service, 'acquire_turn_lock', lambda *_a, **_k: lock)
+    monkeypatch.setattr(service, 'renew_turn_lock', renew)
+    monkeypatch.setattr(service, 'enqueue', enqueue)
+    monkeypatch.setattr(service.task_events, 'publish_with_visibility', lambda *_a: _event_result(task))
+    assert service.enqueue_chat_completion(task, thread_id=1, turn_id='turn-1', participant=participant).queue_accepted
+    assert events == ['prepare', 'renew', 'enqueue', 'commit']
+
+
+def test_failed_enqueue_retry_gets_new_deadline(monkeypatch, immediate_redis):
+    task = _task()
+    snapshots = []
+    instants = iter([NOW, NOW + timedelta(minutes=5)])
+    monkeypatch.setattr(service, 'datetime', MagicMock(now=lambda *_a: next(instants)))
+    monkeypatch.setattr(service, 'acquire_turn_lock', lambda *_a, **_k: _lock(task, turn_id='turn-1'))
+    release = MagicMock()
+    monkeypatch.setattr(service, 'release_turn_lock', release)
+
+    def enqueue(queued, _queue):
+        snapshots.append(queued.to_dict())
+        if len(snapshots) == 1:
+            raise QueueEnqueueError('codexify:queue:chat', cause=RuntimeError())
+
+    monkeypatch.setattr(service, 'enqueue', enqueue)
+    monkeypatch.setattr(service.task_events, 'publish_with_visibility', lambda *_a: _event_result(task))
+    with pytest.raises(service.ChatCompletionEnqueueError):
+        service.enqueue_chat_completion(task, thread_id=1, turn_id='turn-1')
+    assert release.call_args.args[1].lease_ttl_seconds == 840
+    assert service.enqueue_chat_completion(task, thread_id=1, turn_id='turn-1').queue_accepted
+    assert snapshots[0]['accepted_at'] == NOW.isoformat()
+    assert snapshots[1]['accepted_at'] == (NOW + timedelta(minutes=5)).isoformat()
+
+
+@pytest.mark.parametrize('failure', [None, RuntimeError('renew unavailable')])
+def test_renewal_failure_rolls_back_and_prevents_enqueue(monkeypatch, immediate_redis, failure):
+    task = _task()
+    lock = _lock(task, turn_id='turn-1')
+    events = []
+    participant = _FakeParticipant(events)
+    monkeypatch.setattr(service, 'acquire_turn_lock', lambda *_a, **_k: lock)
+    renewal = MagicMock(side_effect=failure) if failure else MagicMock(return_value=None)
+    monkeypatch.setattr(service, 'renew_turn_lock', renewal)
+    enqueue, publish = MagicMock(), MagicMock()
+    released = []
+    monkeypatch.setattr(service, 'enqueue', enqueue)
+    monkeypatch.setattr(service.task_events, 'publish_with_visibility', publish)
+    monkeypatch.setattr(service, 'release_turn_lock', lambda thread, owned: released.append(owned))
+    with pytest.raises(service.ChatCompletionEnqueueError) as exc:
+        service.enqueue_chat_completion(task, thread_id=1, turn_id='turn-1', participant=participant)
+    assert exc.value.reason == 'turn_lock_unavailable'
+    assert events == ['prepare', 'rollback']
+    assert released == [lock]
+    enqueue.assert_not_called()
+    publish.assert_not_called()

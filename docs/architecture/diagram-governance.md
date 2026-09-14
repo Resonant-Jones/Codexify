@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-02 (DLG numbering reconciliation only; no runtime topology change; no release-claim widening)
+Diagram Review Marker: 2026-09-12 (ADR-087 accepted-task execution-deadline decision reviewed; logical runtime topology unchanged; implementation and runtime proof remain pending)
 
 ## Scope
 
