@@ -1,0 +1,417 @@
+"""Authenticated read-only Memory Vault HTTP adapter (UMS-05B2).
+
+This module exposes the already-qualified
+``guardian.services.memory_vault_read.MemoryVaultReadService`` read
+authority over FastAPI:
+
+    GET /api/memory-vault/items
+    GET /api/memory-vault/items/canonical/{memory_id}
+    GET /api/memory-vault/items/compatibility/{source_kind}/{source_id}
+
+It is an adapter only. It does not:
+
+- query canonical memory tables directly;
+- call the compatibility dispatcher directly;
+- derive Personal Facts posture;
+- resolve Persona authority independently;
+- mint route-local memory identities;
+- add any write endpoint;
+- register itself in ``guardian.guardian_api``.
+
+Runtime activation in the Guardian application (route registration,
+supported-profile posture, feature-flag posture) is owned by UMS-05B3.
+This module is qualified against a directly mounted FastAPI test app
+only.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Iterator, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_request_user_scope,
+    require_api_key,
+)
+from guardian.core.memory_compatibility import (
+    MemoryCompatibilitySourceKind,
+    MemoryCompatibilitySourceRef,
+)
+from guardian.protocol_tokens import MemorySemanticSpecies
+from guardian.services.memory_vault_read import (
+    DEFAULT_LIST_LIMIT,
+    LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_INACTIVE,
+    MAX_LIST_LIMIT,
+    REVIEW_POSTURE_APPROVED,
+    REVIEW_POSTURE_DISPUTED,
+    REVIEW_POSTURE_PENDING,
+    MemoryVaultReadError,
+    MemoryVaultReadService,
+    VaultIdentity,
+    VaultItem,
+    VaultListFilter,
+)
+
+router = APIRouter(
+    prefix="/api/memory-vault",
+    tags=["Memory Vault"],
+    dependencies=[Depends(require_api_key)],
+)
+
+#: Canonical review-posture vocabulary. Referenced from the B1 read
+#: service so the route never redefines the token set.
+ReviewPostureParam = Literal[
+    REVIEW_POSTURE_PENDING,
+    REVIEW_POSTURE_APPROVED,
+    REVIEW_POSTURE_DISPUTED,
+]
+
+#: Canonical lifecycle-posture vocabulary. Referenced from the B1 read
+#: service so the route never redefines the token set.
+LifecyclePostureParam = Literal[
+    LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_INACTIVE,
+]
+
+_GENERIC_UNAVAILABLE_DETAIL = "Memory item unavailable"
+_PROJECTION_UNAVAILABLE_DETAIL = "Memory projection unavailable"
+_STABLE_ACCOUNT_REQUIRED_DETAIL = "Stable account identity required"
+
+
+# ---------------------------------------------------------------------------
+# Response models.
+# ---------------------------------------------------------------------------
+
+
+class MemoryCompatibilitySourceRefResponse(BaseModel):
+    """Serialized compatibility source reference (typed, verbatim)."""
+
+    source_kind: MemoryCompatibilitySourceKind
+    source_id: int
+
+
+class VaultIdentityResponse(BaseModel):
+    """Serialized authoritative Vault identity.
+
+    Canonical identities carry ``canonical_memory_id`` with a null
+    ``compatibility_source``; compatibility identities carry the typed
+    ``compatibility_source`` with a null ``canonical_memory_id``.
+    """
+
+    kind: str
+    canonical_memory_id: str | None = None
+    compatibility_source: MemoryCompatibilitySourceRefResponse | None = None
+
+
+class VaultPersonaLinkResponse(BaseModel):
+    """Serialized stable-Persona attribution link."""
+
+    link_id: str
+    persona_subject_id: str
+    persona_user_id: str
+    link_kind: str
+    display_name_snapshot: str | None = None
+
+
+class VaultProvenanceResponse(BaseModel):
+    """Serialized provenance row (multiplicity preserved)."""
+
+    provenance_id: str
+    source_system: str
+    source_record_id: str | None = None
+    source_thread_id: int | None = None
+    source_message_id: int | None = None
+    source_import_job_id: str | None = None
+    source_export_fingerprint: str | None = None
+    source_subject_kind: str | None = None
+    source_subject_id: str | None = None
+    is_imported: bool = False
+
+
+class VaultItemResponse(BaseModel):
+    """Serialized operator-facing projection of one memory item."""
+
+    identity: VaultIdentityResponse
+    semantic_species: str
+    content: str | None = None
+    account_owner: str = ""
+    project_id: int | None = None
+    review_posture: str = REVIEW_POSTURE_PENDING
+    lifecycle_posture: str = LIFECYCLE_POSTURE_INACTIVE
+    pinned: bool = False
+    held: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    persona_links: list[VaultPersonaLinkResponse] = []
+    provenance: list[VaultProvenanceResponse] = []
+    extensions: dict[str, Any] | None = None
+    compatibility_legacy_source_family: str | None = None
+    compatibility_legacy_source_record_id: str | None = None
+    compatibility_semantic_species: str | None = None
+
+
+class VaultListResponse(BaseModel):
+    """Serialized bounded Vault list page."""
+
+    items: list[VaultItemResponse]
+    limit: int
+    offset: int
+    returned_count: int
+
+
+# ---------------------------------------------------------------------------
+# Account resolution and service dependency.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_vault_account(scope: RequestUserScope) -> str:
+    """Return the stable account id that owns Vault content authority.
+
+    The account comes exclusively from ``RequestUserScope.account_id``.
+    A blank/missing account id fails authentication (401); there is no
+    legacy ``user_id`` fallback and no single-user default for Vault
+    content access.
+    """
+    account_id = (scope.account_id or "").strip()
+    if not account_id:
+        raise HTTPException(
+            status_code=401,
+            detail=_STABLE_ACCOUNT_REQUIRED_DETAIL,
+        )
+    return account_id
+
+
+def _get_vault_db() -> Any:
+    """Return the repository-standard GuardianDB using the existing env authority."""
+    from guardian.core.db import load_guardian_db_from_env
+
+    db = load_guardian_db_from_env()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return db
+
+
+def get_memory_vault_read_service(
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Iterator[MemoryVaultReadService]:
+    """Bind a ``MemoryVaultReadService`` to the authenticated account.
+
+    This is the dependency-overridable service factory. The B1 service
+    remains the read authority; the route never queries canonical
+    memory tables or compatibility adapters directly.
+    """
+    account_id = _resolve_vault_account(scope)
+    db = _get_vault_db()
+    session = db.get_session()
+    try:
+        yield MemoryVaultReadService(
+            session,
+            authenticated_account_id=account_id,
+        )
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Serialization helpers.
+# ---------------------------------------------------------------------------
+
+
+def _source_ref_response(
+    ref: MemoryCompatibilitySourceRef | None,
+) -> MemoryCompatibilitySourceRefResponse | None:
+    if ref is None:
+        return None
+    return MemoryCompatibilitySourceRefResponse(
+        source_kind=ref.source_kind,
+        source_id=ref.source_id,
+    )
+
+
+def _identity_response(identity: VaultIdentity) -> VaultIdentityResponse:
+    return VaultIdentityResponse(
+        kind=identity.kind,
+        canonical_memory_id=identity.canonical_memory_id,
+        compatibility_source=_source_ref_response(identity.compatibility_source),
+    )
+
+
+def _item_response(item: VaultItem) -> VaultItemResponse:
+    return VaultItemResponse(
+        identity=_identity_response(item.identity),
+        semantic_species=item.semantic_species,
+        content=item.content,
+        account_owner=item.account_owner,
+        project_id=item.project_id,
+        review_posture=item.review_posture,
+        lifecycle_posture=item.lifecycle_posture,
+        pinned=item.pinned,
+        held=item.held,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        persona_links=[
+            VaultPersonaLinkResponse(
+                link_id=link.link_id,
+                persona_subject_id=link.persona_subject_id,
+                persona_user_id=link.persona_user_id,
+                link_kind=link.link_kind,
+                display_name_snapshot=link.display_name_snapshot,
+            )
+            for link in item.persona_links
+        ],
+        provenance=[
+            VaultProvenanceResponse(
+                provenance_id=prov.provenance_id,
+                source_system=prov.source_system,
+                source_record_id=prov.source_record_id,
+                source_thread_id=prov.source_thread_id,
+                source_message_id=prov.source_message_id,
+                source_import_job_id=prov.source_import_job_id,
+                source_export_fingerprint=prov.source_export_fingerprint,
+                source_subject_kind=prov.source_subject_kind,
+                source_subject_id=prov.source_subject_id,
+                is_imported=prov.is_imported,
+            )
+            for prov in item.provenance
+        ],
+        extensions=item.extensions,
+        compatibility_legacy_source_family=item.compatibility_legacy_source_family,
+        compatibility_legacy_source_record_id=(
+            item.compatibility_legacy_source_record_id
+        ),
+        compatibility_semantic_species=item.compatibility_semantic_species,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/items", response_model=VaultListResponse)
+def list_vault_items(
+    limit: int = Query(DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
+    offset: int = Query(0, ge=0),
+    semantic_species: MemorySemanticSpecies | None = Query(None),
+    project_id: int | None = Query(None),
+    account_scoped_only: bool = Query(False),
+    persona_subject_id: str | None = Query(None),
+    review_posture: ReviewPostureParam | None = Query(None),
+    lifecycle_posture: LifecyclePostureParam | None = Query(None),
+    source_system: str | None = Query(None),
+    pinned: bool | None = Query(None),
+    held: bool | None = Query(None),
+    service: MemoryVaultReadService = Depends(get_memory_vault_read_service),
+) -> VaultListResponse:
+    """List the authenticated account's Vault items (bounded, read-only).
+
+    All semantic filtering is delegated to the B1 service. The B1
+    service has no offset parameter, so the adapter requests a window
+    wide enough to honor the requested offset within B1's bounded list
+    surface and then applies the presentation offset at the HTTP
+    boundary.
+    """
+    flt = VaultListFilter(
+        semantic_species=(
+            semantic_species.value if semantic_species is not None else None
+        ),
+        project_id=project_id,
+        account_scoped_only=account_scoped_only,
+        persona_subject_id=persona_subject_id,
+        review_posture=review_posture,
+        lifecycle_posture=lifecycle_posture,
+        source_system=source_system,
+        pinned=pinned,
+        held=held,
+    )
+
+    try:
+        window = service.list_items(filter=flt, limit=limit + offset)
+    except MemoryVaultReadError:
+        raise HTTPException(
+            status_code=409,
+            detail=_PROJECTION_UNAVAILABLE_DETAIL,
+        )
+
+    page = window[offset : offset + limit]
+    return VaultListResponse(
+        items=[_item_response(item) for item in page],
+        limit=limit,
+        offset=offset,
+        returned_count=len(page),
+    )
+
+
+@router.get("/items/canonical/{memory_id}", response_model=VaultItemResponse)
+def get_canonical_vault_item(
+    memory_id: str,
+    service: MemoryVaultReadService = Depends(get_memory_vault_read_service),
+) -> VaultItemResponse:
+    """Return one canonical Vault item by its authoritative memory id."""
+    identity = VaultIdentity(
+        kind="canonical",
+        canonical_memory_id=memory_id,
+    )
+    try:
+        item = service.get_item(identity=identity)
+    except MemoryVaultReadError:
+        raise HTTPException(
+            status_code=409,
+            detail=_PROJECTION_UNAVAILABLE_DETAIL,
+        )
+
+    if item is None:
+        raise HTTPException(status_code=404, detail=_GENERIC_UNAVAILABLE_DETAIL)
+    return _item_response(item)
+
+
+@router.get(
+    "/items/compatibility/{source_kind}/{source_id}",
+    response_model=VaultItemResponse,
+)
+def get_compatibility_vault_item(
+    source_kind: MemoryCompatibilitySourceKind,
+    source_id: int,
+    service: MemoryVaultReadService = Depends(get_memory_vault_read_service),
+) -> VaultItemResponse:
+    """Return one compatibility Vault item by its typed source reference.
+
+    The source kind is validated against the existing
+    ``MemoryCompatibilitySourceKind`` authority; an invalid kind yields
+    HTTP 422 via FastAPI's path-parameter validation.
+    """
+    identity = VaultIdentity(
+        kind="compatibility",
+        compatibility_source=MemoryCompatibilitySourceRef(
+            source_kind=source_kind,
+            source_id=source_id,
+        ),
+    )
+    try:
+        item = service.get_item(identity=identity)
+    except MemoryVaultReadError:
+        raise HTTPException(
+            status_code=409,
+            detail=_PROJECTION_UNAVAILABLE_DETAIL,
+        )
+
+    if item is None:
+        raise HTTPException(status_code=404, detail=_GENERIC_UNAVAILABLE_DETAIL)
+    return _item_response(item)
+
+
+__all__ = [
+    "router",
+    "get_memory_vault_read_service",
+    "VaultIdentityResponse",
+    "VaultItemResponse",
+    "VaultListResponse",
+    "VaultPersonaLinkResponse",
+    "VaultProvenanceResponse",
+    "MemoryCompatibilitySourceRefResponse",
+]
