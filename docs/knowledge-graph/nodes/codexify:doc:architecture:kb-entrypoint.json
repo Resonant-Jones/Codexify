@@ -6,20 +6,20 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "d411409fbf9bdd8b26b730c45902fc2f37d5ff696a67cd88bb759c362a403ddb",
+  "content_hash": "a60104630870a849739638b96a8d8f7397bf5b4d0119b84cde3029a89ea87ea3",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Re-verified against 54a4e1932a8c after canonical-main DLG source canonicalization. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed; ADR-053 duplicate retirement and ADR-076 to ADR-083 renumbering are included. Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim widened.",
+    "reason": "Reverified the Architecture KB entrypoint at af8b7cc9 after the Memory Vault operator-contract, read-projection, and current-state posture updates. The KB remains structural/source-routing authority and continues to delegate release/current-state interpretation to 00-current-state.md; no runtime, release, provider, retrieval, persistence, or authority claim is widened.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "verified_at": "2026-09-08T21:16:54Z",
-    "verified_commit": "54a4e1932a8c239607d9f23e8a1d47ad0f61b195"
+    "verified_at": "2026-09-14T17:22:31Z",
+    "verified_commit": "af8b7cc9e1e7140374f5f0485a3da35d8c6cb34a"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
