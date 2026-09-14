@@ -101,14 +101,16 @@ This file is authoritative for:
 
   UMS-03 CANONICAL MEMORY STORAGE + COMPATIBILITY READS: CLOSED
 
-  UMS-04 EXPORT / RESTORE BEFORE INGESTION: OPEN
+  UMS-04 EXPORT / RESTORE BEFORE INGESTION: CLOSED
   UMS-04A CANONICAL MEMORY EXPORT / RESTORE CONTRACT: CLOSED
+  UMS-04B-PG DISPOSABLE POSTGRESQL TEST AUTHORITY: CLOSED
   UMS-04B CANONICAL MEMORY EXPORT SERIALIZATION: CLOSED
   UMS-04C CANONICAL MEMORY RESTORE RECONSTRUCTION: CLOSED
   UMS-04D FULL EXPORT → CLEAN RESTORE → SECOND-RESTORE QUALIFICATION:
-    AUTHORIZED
+    CLOSED
 
-  UMS-05+: NOT AUTHORIZED
+  UMS-05 MEMORY VAULT: AUTHORIZED
+  UMS-06+: NOT AUTHORIZED
   ```
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
@@ -693,6 +695,51 @@ This file is authoritative for:
   qualification follows from UMS-04C; no public release or
   general-availability claim widened. See the
   [UMS-04C production v4 account restore proof](./proofs/runtime/2026-09-13-ums04c-production-v4-account-restore-proof.md).
+
+- **UMS-04D (full export → clean restore → second-restore qualification,
+  just closed)**:
+  production canonical v4 export and restore are now qualified together
+  across two physically distinct disposable PostgreSQL databases on the
+  dedicated PostgreSQL 17.6 / `/tmp/.s.PGSQL.55432` authority. The
+  qualification proves:
+  clean-target restore populates all five canonical families from the
+  production source archive; an identical second restore of the original
+  archive is idempotent; the target's first and second v4 re-export
+  canonical payload semantics are equal to the source canonical
+  semantics for all five canonical families; stable IDs, account
+  ownership, Project scope, stable Persona attribution, Persona binding
+  semantics, review/activation/lifecycle, pin/hold, all three Persona
+  link kinds, provenance multiplicity (local thread + local message +
+  opaque external), and non-empty extension surfaces are preserved.
+  Two bounded runtime repairs were authorized by the user mid-task and
+  recorded transparently in the proof receipt:
+  (1) bind `fetch_account_export_*_for_user` and
+  `iter_account_export_payloads_for_user` as instance methods on `PgDB`
+  and update `routes/api_exports.py` to pass a `PgDB` instance;
+  (2) carry canonical `user_id` through the production `projects` and
+  `chat_messages` export SELECTs and restore write columns, with
+  per-row `target_user_id` validation that fails closed on ownership
+  mismatch before any DB write. `account_export.py` and
+  `account_restore.py` remained byte-identical throughout UMS-04D;
+  `pgdb.py` mutated under explicit user authorization only. The
+  focused UMS-04D qualification (`1 passed, 0 failed, 0 skipped`); the
+  UMS-04C regression surface (`48 passed` in
+  `test_account_restore_unified_memory.py` + `11 passed` in
+  `test_account_restore.py`); the canonical v4 export regression
+  (`20 passed` in `test_account_export_unified_memory.py`; one
+  pre-existing `test_v4_restore_remains_unsupported` failure is
+  orthogonal to UMS-04D and predates the UMS-04C production v4 restore
+  becoming supported); the new R2 owner-fidelity regression (`6
+  passed` in `test_pgdb_account_export_owner_columns.py`). `py_compile`
+  PASS; Alembic remains exactly one head `f6b0d3e8c5a2`; no migration
+  or ORM change; v3 behavior preserved. The unrelated Pi fixture and
+  the unrelated `guardian/watchdog/contracts.py` mypy baseline defect
+  remain untouched. UMS-04 is now CLOSED; UMS-05 Memory Vault is now
+  AUTHORIZED; UMS-06+ remain NOT AUTHORIZED. Same-account identity
+  restore was exercised; different-account-ID remapping is not claimed.
+  No broader Beta/release qualification follows from UMS-04D; no
+  public release or general-availability claim widened. See the
+  [UMS-04D canonical memory export restore round-trip proof](./proofs/runtime/2026-09-13-ums04d-canonical-memory-export-restore-roundtrip-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
