@@ -3028,12 +3028,41 @@ class PgDB(ChatDB):
         rows: list[dict[str, Any]],
         *,
         conn: psycopg.Connection | None = None,
+        target_user_id: str | None = None,
     ) -> dict[str, int]:
+        normalized_rows: list[dict[str, Any]] = []
+        expected_owner = (
+            str(target_user_id).strip() if target_user_id is not None else ""
+        )
+        for index, row in enumerate(rows):
+            data = dict(row or {})
+            row_owner = str(data.get("user_id") or "").strip()
+            if expected_owner:
+                if not row_owner:
+                    raise ValueError(
+                        "projects row {index} is missing user_id; "
+                        "v4 ownership must be explicit"
+                    )
+                if row_owner != expected_owner:
+                    raise ValueError(
+                        "projects row {index} user_id={owner!r} does not "
+                        "match the restore target account; ownership "
+                        "mismatch must fail closed"
+                    )
+            elif not row_owner:
+                # Without an explicit target, refuse to silently coerce
+                # required ownership state.
+                raise ValueError(
+                    "projects row {index} is missing user_id; "
+                    "projects.user_id is required persisted state"
+                )
+            normalized_rows.append(data)
         return self._restore_account_export_rows(
             table_name="projects",
             pk_column="id",
             columns=(
                 "id",
+                "user_id",
                 "name",
                 "description",
                 "icon",
@@ -3041,7 +3070,7 @@ class PgDB(ChatDB):
                 "created_at",
                 "updated_at",
             ),
-            rows=rows,
+            rows=normalized_rows,
             conn=conn,
             unique_key_columns=(("name",),),
             sequence_column="id",
@@ -3126,13 +3155,40 @@ class PgDB(ChatDB):
         rows: list[dict[str, Any]],
         *,
         conn: psycopg.Connection | None = None,
+        target_user_id: str | None = None,
     ) -> dict[str, int]:
+        normalized_rows: list[dict[str, Any]] = []
+        expected_owner = (
+            str(target_user_id).strip() if target_user_id is not None else ""
+        )
+        for index, row in enumerate(rows):
+            data = dict(row or {})
+            row_owner = str(data.get("user_id") or "").strip()
+            if expected_owner:
+                if not row_owner:
+                    raise ValueError(
+                        "chat_messages row {index} is missing user_id; "
+                        "v4 ownership must be explicit"
+                    )
+                if row_owner != expected_owner:
+                    raise ValueError(
+                        "chat_messages row {index} user_id={owner!r} does not "
+                        "match the restore target account; ownership "
+                        "mismatch must fail closed"
+                    )
+            elif not row_owner:
+                raise ValueError(
+                    "chat_messages row {index} is missing user_id; "
+                    "chat_messages.user_id is required persisted state"
+                )
+            normalized_rows.append(data)
         return self._restore_account_export_rows(
             table_name="chat_messages",
             pk_column="id",
             columns=(
                 "id",
                 "thread_id",
+                "user_id",
                 "role",
                 "content",
                 "event_at",
@@ -3140,7 +3196,7 @@ class PgDB(ChatDB):
                 "extra_meta",
                 "created_at",
             ),
-            rows=rows,
+            rows=normalized_rows,
             conn=conn,
             json_columns=("extra_meta",),
             sequence_column="id",
@@ -4120,7 +4176,7 @@ def fetch_account_export_projects_for_user(
                 return []
             cur.execute(
                 """
-                SELECT id, name, description, icon, identity_depth, created_at, updated_at
+                SELECT id, user_id, name, description, icon, identity_depth, created_at, updated_at
                 FROM projects
                 WHERE id = ANY(%s::int[])
                 ORDER BY id ASC
@@ -4190,6 +4246,7 @@ def fetch_account_export_chat_messages_for_user(
                 SELECT
                     id,
                     thread_id,
+                    user_id,
                     role,
                     content,
                     event_at,
@@ -4846,7 +4903,7 @@ def fetch_account_export_bundle_for_user(
                     cur,
                     """
                     SELECT
-                        id, thread_id, role, content, event_at,
+                        id, thread_id, user_id, role, content, event_at,
                         kind, extra_meta, created_at
                     FROM chat_messages
                     WHERE thread_id = ANY(%s)
@@ -5295,15 +5352,22 @@ def fetch_account_export_bundle_for_user(
             )
 
 
-def _bundle_family_rows(user_id: str, family: str) -> list[dict[str, Any]]:
-    bundle = fetch_account_export_bundle_for_user(user_id)
+def _bundle_family_rows(
+    user_id: str, family: str, *, include_unified_memory: bool = False
+) -> list[dict[str, Any]]:
+    bundle = fetch_account_export_bundle_for_user(
+        user_id, include_unified_memory=include_unified_memory
+    )
     return bundle.get(family, [])
 
 
 def fetch_account_export_projects_for_user(
     user_id: str,
 ) -> list[dict[str, Any]]:
-    return _bundle_family_rows(user_id, "projects")
+    # Force include_unified_memory=True so the bundle's projects SELECT
+    # carries the canonical owner column; projects.user_id is required
+    # persisted state and must survive the v4 round trip.
+    return _bundle_family_rows(user_id, "projects", include_unified_memory=True)
 
 
 def fetch_account_export_chat_threads_for_user(
@@ -5315,7 +5379,10 @@ def fetch_account_export_chat_threads_for_user(
 def fetch_account_export_chat_messages_for_user(
     user_id: str,
 ) -> list[dict[str, Any]]:
-    return _bundle_family_rows(user_id, "chat_messages")
+    # Force include_unified_memory=True so the bundle's chat_messages SELECT
+    # carries the canonical owner column; chat_messages.user_id is required
+    # persisted state and must survive the v4 round trip.
+    return _bundle_family_rows(user_id, "chat_messages", include_unified_memory=True)
 
 
 def fetch_account_export_uploaded_documents_for_user(
@@ -5620,6 +5687,9 @@ def _make_pgdb_account_export_instance_method(name):
 for _pgdb_account_export_fetcher_name in (
     "fetch_account_export_bundle_for_user",
     "iter_account_export_payloads_for_user",
+    "fetch_account_export_projects_for_user",
+    "fetch_account_export_chat_threads_for_user",
+    "fetch_account_export_chat_messages_for_user",
 ):
     setattr(
         PgDB,
