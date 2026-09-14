@@ -109,7 +109,11 @@ This file is authoritative for:
   UMS-04D FULL EXPORT → CLEAN RESTORE → SECOND-RESTORE QUALIFICATION:
     CLOSED
 
-  UMS-05 MEMORY VAULT: AUTHORIZED
+  UMS-05 MEMORY VAULT: OPEN
+  UMS-05A MEMORY VAULT OPERATOR CONTRACT: CLOSED
+  UMS-05B VAULT BACKEND READ PROJECTION: AUTHORIZED
+  UMS-05C+: NOT AUTHORIZED
+
   UMS-06+: NOT AUTHORIZED
   ```
 
@@ -740,6 +744,41 @@ This file is authoritative for:
   No broader Beta/release qualification follows from UMS-04D; no
   public release or general-availability claim widened. See the
   [UMS-04D canonical memory export restore round-trip proof](./proofs/runtime/2026-09-13-ums04d-canonical-memory-export-restore-roundtrip-proof.md).
+
+- **UMS-05A (Memory Vault operator contract, just closed)**:
+  the human operator surface over the canonical Unified Memory Store
+  is frozen as architecture-only doctrine at
+  [./memory-vault-contract.md](./memory-vault-contract.md). The
+  contract freezes: the logical item model (every Vault field
+  resolves to a named canonical authority); the list / detail
+  contract with canonical-only filters and sort; the direct human
+  Vault action boundary (create / approve / reject / dispute /
+  correct / scope change / Persona link / pin / hold / retire /
+  restore), each with a named authority owner and a durable receipt;
+  Personal Facts authority remains the sole owner of Personal Facts
+  review / activation transitions; the server-side mutation rule
+  (`Vault UI → Guardian service → authority validation → canonical
+  subtype service → transaction → receipt → readback`, never direct
+  UI persistence writes); the read model (canonical + admitted
+  compatibility projections, never compatibility→canonical promotion);
+  fail-closed cases (wrong account, Project owner mismatch,
+  unresolved Persona, missing canonical parent, unsupported subtype,
+  invalid lifecycle transition, stale version, Personal Facts
+  authority mismatch, deferred UMS-06+ capability); the audit /
+  receipt shape; and the capability matrix that names every
+  UMS-05 admitted action and every UMS-06+ deferred action. The
+  contract explicitly distinguishes the Memory Vault from the
+  unrelated `guardian/modules/memory_key_vault.py` / `MemoryKeyVault`
+  in-memory summary encryption helper and imposes no rename, removal,
+  or wiring of that helper. UMS-05A is docs-only; no Vault runtime,
+  API, service, route, repository, migration, or frontend component
+  is implemented by this task. UMS-05B (Vault backend read
+  projection — account-scoped list, detail, filters, provenance /
+  Persona readback; no writes) is now AUTHORIZED; UMS-05C/05D/05E
+  remain NOT AUTHORIZED; UMS-06+ remain NOT AUTHORIZED. No broader
+  Beta/release qualification follows from UMS-05A; no public
+  release or general-availability claim widened. See the
+  [Memory Vault operator contract](./memory-vault-contract.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
