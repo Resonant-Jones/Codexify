@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify’s current o
 
 ## Last updated
 
-2026-09-13
+2026-09-14
 
 ## Interpretation rule
 
@@ -18,61 +18,56 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a gated private-preview lane. Since the prior refresh, mainline added only the 2026-09-13 accounting log; no new implementation, release-ready runtime path, or Beta support claim was established. Private Preview application runtime recovery is not yet proven.
+`main` remains in local-first Beta hardening with a gated private-preview lane. Recent mainline work added bounded deadline/lock implementation and Chroma topology changes, but no release-ready runtime path or new Beta support claim was established. Private Preview application runtime recovery remains unproven.
 
 ## What changed recently
 
-- **Accepted chat-task finite execution envelope: architecture accepted under ADR-087; implementation not yet present.** The decision fixes a server-owned 720-second work budget plus a 60-second terminal reserve, counts queue wait, requires non-sliding child deadlines and finite provider/tool/PostgreSQL participation, and keeps observer `timed_out` distinct from authoritative `task.failed` / `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED` / `failed_retryable` terminal truth.
-- Completed Project `1` partition/retirement under ADR-081/ADR-085 and profiles `profile-1`, `profile-2`, `profile-3` retirement under ADR-086. Project `1`, retired profiles, and retired-profile bindings/subjects remain absent after migration.
-- Implemented and proved account-scoped default Project seeding. The live canonical migrator completed Alembic traversal from `d4e0f2a5b7c9` to `7e5a5fccf253` and post-Alembic seeding with exit zero. A second complete run exited zero with all 119 table manifests identical. General Project IDs are `6,7,8,9,10`; ownerless Projects and `local` Generals are zero.
-- Preserved 72 threads, 805 messages, all eight repaired thread placements, all 20 affected messages, canonical account ownership, and replacement Project ownership. Normal traversal performed the disclosed single legacy Project-3 owner reconciliation and Project-2 description normalization; unexpected owner changes were zero. All 17 Project FK checks found zero orphans. A verified read-only post-migration backup is retained.
-- The recovery regression gate is green after the separate stale-head test correction: 91 distinct tests passed, zero failed; targeted/full follow-through totals 109 successful executions. The test correction changes no runtime semantics. See the [live canonical migration/bootstrap recovery proof](./proofs/runtime/2026-09-11-private-preview-live-canonical-alembic-recovery-proof.md) for the artifact chain, backup metadata, preservation, and idempotence evidence.
-- **Private Preview named-volume Chroma storage recovery: proven.** The historical host-bound active store was independently preserved and retired. The empty external `codexify_private_preview_chroma` volume was created, initialized by the supported backend with Chroma `1.0.15`, passed SQLite integrity, and reopened once without reproducing the historical Chroma panic or `SQLITE_READONLY_DBMOVED`. See the [named-volume live recovery proof](./proofs/runtime/2026-09-11-private-preview-chroma-named-volume-live-recovery-proof.md).
-- **Private Preview chat-worker shutdown: classified, not repaired.** The bounded stop reproduced SIGTERM followed by SIGKILL and exit 137 after the grace timeout; no accepted chat task was placed in flight, and no clean-shutdown or data-loss claim follows. See the [shutdown classification proof](./proofs/runtime/2026-09-11-private-preview-chat-worker-shutdown-classification.md).
-- **Private Preview database migration/bootstrap recovery: proven. Private Preview application runtime recovery: not yet proven.** Application writers remain quiesced at the retained proof boundary; no startup or release qualification is inferred.
-- The 2026-09-13 mainline record is a no-change accounting entry. Active-checkout edits, staged deletions, and unmerged ADR-087 implementation work are excluded from release accounting.
+- ADR-087 implementation landed on `main` for acceptance-time deadline snapshots and deadline-aware turn-lock renewal; provider/worker/tool/PostgreSQL enforcement, finite drain, and runtime proof remain open.
+- Private Preview named-volume Chroma topology landed with contract coverage; bounded single-backend storage recovery remains distinct from queue/worker, multiprocess, retrieval, or application qualification.
+- Persona/turn-lock recovery fixture alignment and DLG verification-ancestry checks landed; these are test/provenance maintenance and do not widen release support.
+- The Atlas architecture-map prototype landed on `main`; it remains a prototype surface, not a supported release path.
+- The 2026-09-14 mainline accounting record reports no same-day implementation or proof work.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose using `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - `main` contains focused code and tests for ordinary chat, durable threads/messages/tasks, projects, document artifacts, account-import staging, Persona Profile authority, and same-node People/Share behavior.
-- Private-preview migration preservation/readback, scheduled reconciliation, Guardian secret rotation, and Cloudflare ingress have bounded evidence; they do not admit guests or widen Beta.
-- The UMS compatibility reader is explicitly read-only and fail-closed for unsupported source families; canonical memory export/restore is contract-only at UMS-04A.
+- Private-preview migration preservation/readback, scheduled reconciliation, Guardian secret rotation, Cloudflare ingress, and bounded named-volume Chroma storage recovery have evidence; they do not admit guests or widen Beta.
+- The UMS compatibility reader is read-only and fail-closed for unsupported source families; canonical memory export/restore remains contract-only at UMS-04A.
 - Pi 0.82.1 wrapper, identity, framing, telemetry, required-tool, and compaction work remains internal or qualification evidence, not a user-facing release promise.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or application runtime recovery closure.
-- Do not assume a fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
-- Do not infer semantic retrieval, multiprocess Chroma concurrency, queue/worker safe-start, matching application deployment, provider execution, application persistence, observability, account isolation, or non-admin canary readiness from the bounded named-volume backend recovery.
-- The retained proof boundary is explicit: `ACCEPTED_TASK_EXECUTION_ENVELOPE_IMPLEMENTED=false`, `FINITE_ACCEPTED_TASK_DRAIN_BUDGET_PROVEN=false`, `SAFE_OPERATOR_STOP_PROVEN=false`, `QUEUE_WORKER_SAFE_START_PROVEN=false`, `MULTIPROCESS_CHROMA_CONCURRENCY_PROVEN=false`, `AUTHENTICATED_PERSONA_ROUTE_PROVEN=false`, `AUTHENTICATED_BROWSER_SAVE_READBACK_PROVEN=false`, `PERIODIC_RECONCILIATION_RESTORED=false`, `PROVIDER_BACKED_CHAT_COMPLETION_PROVEN=false`, `APPLICATION_RUNTIME_RECOVERY_PROVEN=false`, and `PRIVATE_PREVIEW_RELEASE_READY=false`.
-- Do not treat completed database migration/bootstrap recovery as backend health, authenticated route availability, worker health, chat completion, Chroma/provider integration, post-repair authenticated account-isolation proof, or release readiness.
-- Do not treat Persona persistence, acceptance snapshots, focused UI tests, UMS contracts/readers, Pi proofs, CE-L1 wiring, hosted-sandbox partial conformance, Watchdog contracts, or connector consent code as live release qualification.
+- Do not treat merged ADR-087 acceptance-time fields and lock renewal as end-to-end deadline enforcement, graceful stop, finite drain, or provider/tool cancellation proof.
+- Do not assume fresh Tester bind-readiness repair or isolated runtime qualification; the historical diagnosis remains static.
+- Do not infer semantic retrieval, multiprocess Chroma concurrency, queue/worker safe-start, matching application deployment, provider execution, persistence, observability, account isolation, or approved canary readiness from bounded storage recovery.
+- Do not treat Persona persistence, acceptance snapshots, focused tests, Pi proofs, CE-L1 wiring, connector consent, Watchdog contracts, Atlas prototype work, or hosted-sandbox partial conformance as live release qualification.
 - Do not infer shipped reality from another checkout, local-only artifacts, mutable `latest`, planning language, or docs alone. Browser proof, Safari multipart repair, federation, attachments, and cross-node People messaging remain deferred or unproven.
 
 ## Active blockers
 
-- Chat-worker graceful operator shutdown remains blocked until ADR-087 is implemented across provider streaming, child execution, PostgreSQL persistence/cleanup, turn-lock lifetime, and worker lifecycle. The accepted decision is not finite-drain or safe-stop runtime proof.
-- Current-tip supported-Compose closure is missing: startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
-- The checked-out `main` is 23 commits ahead and 23 commits behind the local `origin/main` ref; remote reconciliation and publication remain open.
-- Tester worker bind-readiness repair and fresh isolated runtime proof remain open.
-- Private-preview Chroma topology implementation and bounded single-backend named-volume recovery are proven. Queue/worker safe-start, multiprocess use of the shared Chroma store, semantic retrieval, and matching application deployment remain unproven; provider, persistence, isolation, observability, and approved canary gates remain open.
-- Private Preview application writers remain quiesced at the retained recovery boundary, with live Alembic revision `7e5a5fccf253`, complete database/bootstrap recovery, and bounded Chroma storage recovery proven. Application startup, authenticated account-isolation proof, worker coherence, CE-L1 provider readback, browser/import, trusted connector, Watchdog, immutable image retention, and hosted-sandbox qualification remain unclosed.
+- ADR-087 graceful operator shutdown remains blocked pending end-to-end worker, provider streaming, child execution, PostgreSQL persistence/cleanup, turn-lock, and finite-drain enforcement plus runtime proof.
+- Current-tip supported-Compose closure is missing across startup, model inventory, terminal chat, persistence/readback, retrieval, queue/worker, locks, and terminal events.
+- Checked-out `main` is 27 commits ahead and 13 commits behind the local `origin/main` ref; publication and remote reconciliation remain open.
+- Tester worker bind-readiness and fresh isolated runtime proof remain open.
+- Private Preview still lacks queue/worker safe-start, multiprocess Chroma, semantic retrieval, matching application deployment, provider-backed chat, authenticated persistence/isolation, observability, and approved canary proof.
+- CE-L1/provider readback, browser/import, trusted connector, Watchdog, immutable Docker image retention, hosted sandbox, and private-preview application startup qualification remain unclosed.
 
 ## This week’s priorities
 
-1. Reconcile the local-main publication baseline before using remote state for release accounting.
+1. Reconcile the local-`main` publication baseline before using remote state for release accounting.
 2. Run fresh current-tip supported-Compose and isolated Tester proof across health, chat, persistence, retrieval, queue/worker, locks, and events.
-3. Resume Private Preview startup qualification at the next ADR-067 gate: queue/worker safe-start and multiprocess use of the retained named-volume Chroma store.
-4. Separately authorize broader **Start and qualify Private Preview after database recovery** work after worker safe-start: prove authenticated account-scoped reads, application persistence, and minimum deployed runtime behavior. Database and bounded Chroma recovery documentation do not authorize full startup.
-5. Requalify CE-L1/provider readback and close the canary, browser/import, connector, Watchdog, retention, and hosted-sandbox gates.
+3. Complete ADR-087 enforcement and qualify finite drain, graceful stop, late-result handling, and durable terminal truth.
+4. Resume Private Preview qualification at queue/worker safe-start and multiprocess named-volume Chroma use, then prove authenticated persistence and isolation.
+5. Requalify CE-L1/provider, browser/import, connector, Watchdog, retention, and hosted-sandbox gates separately.
 
 ## Release definition right now
 
 - [x] The local-only Compose path and present Beta boundary are defined on `main`.
 - [x] Internal, bounded, qualification-pending, and out-of-Beta surfaces remain separate from supported claims.
 - [ ] Current-tip Compose proves healthy startup, model inventory, terminal chat, persistence/readback, and retrieval.
-- [ ] Queue, worker readiness, locks, migrations, configuration, recovery, browser, and claimed import-path evidence gates are green.
+- [ ] Queue, worker, deadline, graceful-stop, lock, migration, configuration, recovery, browser, and claimed import-path evidence gates are green.
 - [ ] Every claimed preview/provider lane has current-main proof for execution, durable readback, isolation, and recovery where applicable.
 
 ## How to read the rest of the KB
