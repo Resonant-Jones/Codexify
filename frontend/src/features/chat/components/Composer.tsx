@@ -359,8 +359,12 @@ export function Composer({
   const [executionMode, setExecutionMode] =
     useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
-  const [landingControlsPinnedOpen, setLandingControlsPinnedOpen] =
-    useState(false);
+  const [landingControlsFocused, setLandingControlsFocused] = useState(false);
+  const [landingSelectorOpen, setLandingSelectorOpen] = useState(false);
+  const landingControlsRef = useRef<HTMLDivElement | null>(null);
+  const [landingFinePointer, setLandingFinePointer] = useState(() =>
+    window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false
+  );
   const [landingControlsHovered, setLandingControlsHovered] = useState(false);
   const landingControlsDismissTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -368,7 +372,8 @@ export function Composer({
   const isLandingPresentation = presentationMode === "landing";
   const isLandingControlsOpen =
     isLandingPresentation &&
-    (landingControlsPinnedOpen || landingControlsHovered);
+    (compactMobile || !landingFinePointer || landingControlsFocused ||
+      landingSelectorOpen || landingControlsHovered);
   const showComposerExpansionControl =
     !compactMobile && hasCollapsedOverflow;
   const isDesktopComposerExpanded =
@@ -416,12 +421,46 @@ export function Composer({
   }, [compactMobile, hasCollapsedOverflow, isComposerExpanded]);
 
   useEffect(() => {
+    if (!isLandingPresentation) return;
+    const media = window.matchMedia?.("(hover: hover) and (pointer: fine)");
+    if (!media) return;
+    const update = () => {
+      setLandingFinePointer(media.matches);
+      setLandingControlsHovered(false);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [isLandingPresentation]);
+
+  useEffect(() => {
+    const controls = landingControlsRef.current;
+    if (!isLandingPresentation || !controls) return;
+    // ComposerSelectMenu owns its open state. Observe its public trigger state
+    // so portaled menus retain disclosure, including programmatic provider opens.
+    const update = () => {
+      const open = Boolean(controls.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'));
+      setLandingSelectorOpen(open);
+      if (!open) {
+        setLandingControlsFocused(controls.contains(document.activeElement));
+        // A portal can unmount under the pointer without emitting pointerleave.
+        setLandingControlsHovered(controls.matches(":hover"));
+      }
+    };
+    const observer = new MutationObserver(update);
+    observer.observe(controls, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
+    update();
+    return () => observer.disconnect();
+  }, [isLandingPresentation, compactMobile]);
+
+  useEffect(() => {
     if (isLandingPresentation) return;
     if (landingControlsDismissTimerRef.current) {
       clearTimeout(landingControlsDismissTimerRef.current);
       landingControlsDismissTimerRef.current = null;
     }
-    setLandingControlsPinnedOpen(false);
+    setLandingControlsFocused(false);
+    setLandingSelectorOpen(false);
     setLandingControlsHovered(false);
   }, [isLandingPresentation]);
 
@@ -858,49 +897,18 @@ export function Composer({
     landingControlsDismissTimerRef.current = null;
   };
 
-  const supportsLandingPointerReveal = () => {
-    if (compactMobile || typeof window === "undefined") return false;
-    return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false;
-  };
-
-  const showLandingControlsForPointer = () => {
-    if (!supportsLandingPointerReveal()) return;
+  const showLandingControlsForPointer = (event: React.PointerEvent) => {
+    if (compactMobile || !landingFinePointer || event.pointerType === "touch") return;
     clearLandingControlsDismissTimer();
     setLandingControlsHovered(true);
   };
 
   const scheduleLandingControlsPointerDismiss = () => {
-    if (landingControlsPinnedOpen || !supportsLandingPointerReveal()) return;
     clearLandingControlsDismissTimer();
     landingControlsDismissTimerRef.current = setTimeout(() => {
       landingControlsDismissTimerRef.current = null;
       setLandingControlsHovered(false);
-    }, 180);
-  };
-
-  const toggleLandingControls = () => {
-    clearLandingControlsDismissTimer();
-    setLandingControlsPinnedOpen((open) => {
-      const next = !open;
-      if (!next) setLandingControlsHovered(false);
-      return next;
-    });
-  };
-
-  const handleLandingComposerKeyDownCapture = (
-    event: React.KeyboardEvent<HTMLDivElement>
-  ) => {
-    if (
-      !isLandingPresentation ||
-      !isLandingControlsOpen ||
-      event.key !== "Escape"
-    ) {
-      return;
-    }
-    clearLandingControlsDismissTimer();
-    setLandingControlsPinnedOpen(false);
-    setLandingControlsHovered(false);
-    event.preventDefault();
+    }, 120);
   };
 
   const selectedProviderLabel =
@@ -1249,83 +1257,32 @@ export function Composer({
     </Button>
   );
 
-  const renderLandingAccessoryTray = () => (
+  const renderLandingInferenceControls = () => (
     <div
-      id="composer-landing-accessory-tray"
-      data-testid="composer-landing-accessory-tray"
-      aria-label="Composer tools"
-      className="mb-2 overflow-x-auto rounded-[var(--tile-radius)] border px-2 py-2 shadow-sm"
-      style={{
-        borderColor: "color-mix(in oklab, var(--panel-border) 82%, transparent)",
-        background: "color-mix(in oklab, var(--panel-bg) 86%, transparent)",
-      }}
+      ref={landingControlsRef}
+      data-testid="composer-landing-hover-zone"
+      className="relative w-full"
+      style={{ minWidth: 0, height: compactMobile ? 44 : 32 }}
       onPointerEnter={showLandingControlsForPointer}
       onPointerLeave={scheduleLandingControlsPointerDismiss}
-      onFocusCapture={() => {
-        clearLandingControlsDismissTimer();
-        setLandingControlsPinnedOpen(true);
+      onFocusCapture={() => setLandingControlsFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setLandingControlsFocused(false);
+        }
       }}
     >
       <div
-        data-testid="composer-landing-accessory-controls"
-        className="flex min-w-max flex-wrap items-center gap-x-3 gap-y-1"
+        data-testid="composer-landing-inference-controls"
+        data-revealed={isLandingControlsOpen ? "true" : "false"}
+        style={{ inset: 0, minWidth: 0 }}
+        className={cn(
+          "absolute flex items-center justify-center gap-[12px] [&>[data-ddm-root]]:min-w-[0px] [&>[data-ddm-root]]:flex transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none motion-reduce:!transform-none",
+          isLandingControlsOpen
+            ? "[transform:translateY(0px)] opacity-100 pointer-events-auto"
+            : "[transform:translateY(8px)] opacity-0 pointer-events-none"
+        )}
       >
-        <Button
-          type="button"
-          data-testid="composer-coding-loop-toggle"
-          aria-pressed={executionMode === "coding"}
-          aria-label="Toggle Coding Loop mode"
-          disabled={draftControlsDisabled}
-          onClick={toggleExecutionMode}
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-8 shrink-0 rounded-none px-2 text-[11px]",
-            executionMode === "coding" ? "bg-[var(--chip-bg)]" : "opacity-75"
-          )}
-          style={{ color: "var(--text)" }}
-        >
-          Coding Loop
-        </Button>
-        {renderComposerActionMenu({ showModelMenu: false })}
-        {obsidianSlashActive ? (
-          <div
-            data-testid="composer-obsidian-action"
-            className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
-            style={{ color: "var(--text)" }}
-            title="Obsidian context will be queried for this turn"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span>Obsidian</span>
-          </div>
-        ) : null}
-        {onProjectChange && projectOptions.length > 0 ? (
-          <ComposerSelectMenu
-            ariaLabel="Select project"
-            menuLabel="Project"
-            valueLabel={
-              projectOptions.find((option) => option.value === String(projectId))
-                ?.label ?? "Project"
-            }
-            options={projectOptions}
-            selectedValue={projectId == null ? undefined : String(projectId)}
-            isPhoneShell={compactMobile}
-            disabled={draftControlsDisabled}
-            onSelect={onProjectChange}
-          />
-        ) : null}
-        {sourceOptions.length > 0 ? (
-          <ComposerSelectMenu
-            ariaLabel="Select retrieval source"
-            menuLabel="Source"
-            valueLabel={sourceLabel}
-            options={sourceOptions}
-            selectedValue={sourceMode}
-            isPhoneShell={compactMobile}
-            disabled={draftControlsDisabled}
-            onSelect={(value) => onSourceModeChange?.(value)}
-          />
-        ) : null}
         <ComposerSelectMenu
           ariaLabel="Select provider"
           menuLabel="Provider"
@@ -1367,7 +1324,7 @@ export function Composer({
 
   const renderLandingControlRow = () => (
     <>
-      {isLandingControlsOpen ? renderLandingAccessoryTray() : null}
+      {compactMobile ? renderLandingInferenceControls() : null}
       <div
         data-testid="composer-landing-control-row"
         className={cn(
@@ -1377,24 +1334,8 @@ export function Composer({
             : "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
         )}
       >
-        <Button
-          type="button"
-          data-testid="composer-landing-controls-toggle"
-          aria-label={
-            isLandingControlsOpen ? "Hide composer tools" : "Show composer tools"
-          }
-          aria-controls="composer-landing-accessory-tray"
-          aria-expanded={isLandingControlsOpen}
-          disabled={draftControlsDisabled}
-          onClick={toggleLandingControls}
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 rounded-none p-0 text-[22px] leading-none"
-          style={{ color: "var(--text)" }}
-        >
-          <span aria-hidden="true">+</span>
-        </Button>
-        {compactMobile ? renderComposerTextarea() : <span aria-hidden="true" />}
+        {renderComposerActionMenu({ showModelMenu: false })}
+        {compactMobile ? renderComposerTextarea() : renderLandingInferenceControls()}
         <div
           data-testid="composer-send-slot"
           className={cn(
@@ -1406,13 +1347,7 @@ export function Composer({
           {renderSendButton()}
         </div>
       </div>
-      <div
-        data-testid="composer-landing-hover-zone"
-        aria-hidden="true"
-        className="h-2 w-full shrink-0"
-        onPointerEnter={showLandingControlsForPointer}
-        onPointerLeave={scheduleLandingControlsPointerDismiss}
-      />
+      <div aria-hidden="true" className="h-2 w-full shrink-0" />
     </>
   );
 
@@ -1437,7 +1372,6 @@ export function Composer({
         )}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        onKeyDownCapture={handleLandingComposerKeyDownCapture}
       >
         <div
           data-testid="composer-content-plane"
