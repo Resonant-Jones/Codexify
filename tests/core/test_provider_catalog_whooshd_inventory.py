@@ -62,7 +62,7 @@ def _settings(**overrides) -> Settings:
         "MINIMAX_API_KEY": None,
     }
     defaults.update(overrides)
-    return Settings(**defaults)
+    return Settings(_env_file=None, **defaults)
 
 
 def _local_provider(payload: dict) -> dict:
@@ -112,10 +112,15 @@ def test_local_only_whooshd_mismatch_does_not_enable_cloud_fallback(
 ) -> None:
     monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
 
-    payload = build_llm_catalog(settings=_settings(), include_all=False)
+    payload = build_llm_catalog(settings=_settings(), include_all=True)
 
-    assert [provider["id"] for provider in payload["providers"]] == ["local"]
     local = _local_provider(payload)
+    assert local["enabled"] is False
+    assert not any(
+        provider["enabled"]
+        for provider in payload["providers"]
+        if provider["id"] != "local"
+    )
     assert local["truth"]["cloud_capable_configuration_present"] is False
     assert local["truth"]["egress_allowed"] is True
 

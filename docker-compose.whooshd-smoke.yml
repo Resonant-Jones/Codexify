@@ -46,12 +46,13 @@ x-whooshd-embed-provider: &whooshd_embed_provider
   CODEXIFY_LOCAL_ONLY_MODE: "true"
 
 x-whooshd-models: &whooshd_models
-  LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
-  LOCAL_LLM_MODEL: "gemma-4-12b-it-qat-4bit"
-  LLM_MODEL: "gemma-4-12b-it-qat-4bit"
-  DEFAULT_LOCAL_MODEL: "gemma-4-12b-it-qat-4bit"
-  LOCAL_VISION_MODEL: "gemma-vision-mlx"
-  LOCAL_GGUF_MODEL: "qwen3-coder-30b-gguf"
+  # Whoosh'd resolves the logical route to its operator-selected physical model.
+  LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+  LOCAL_LLM_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+  LLM_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+  DEFAULT_LOCAL_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+  LOCAL_VISION_MODEL: "${LOCAL_VISION_MODEL:-}"
+  LOCAL_GGUF_MODEL: "${LOCAL_GGUF_MODEL:-}"
   LLM_REQUEST_TIMEOUT_SECONDS: "600"
 
 services:

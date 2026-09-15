@@ -93,7 +93,7 @@ bash "$REPO_SCRIPT_DIR/whooshd_ensure.sh" || {
 echo ""
 echo "── Step 1b: Confirm Whoosh'd model inventory ──"
 WHOOSHD_HOST_BASE="${WHOOSHD_HOST_BASE:-http://127.0.0.1:8000}"
-SMOKE_MODEL="${LOCAL_CHAT_MODEL:-gemma-4-12b-it-qat-4bit}"
+SMOKE_MODEL="${LOCAL_CHAT_MODEL:-local-chat}"
 MODEL_PAYLOAD="$(curl -sf --max-time 5 "$WHOOSHD_HOST_BASE/v1/models" 2>/dev/null || curl -sf --max-time 5 "$WHOOSHD_HOST_BASE/api/tags" 2>/dev/null || true)"
 
 if [ -z "$MODEL_PAYLOAD" ]; then
