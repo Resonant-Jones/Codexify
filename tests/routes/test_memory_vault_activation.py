@@ -1,14 +1,17 @@
-"""Activation tests for the Memory Vault read surface (UMS-05B3).
+"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C2).
 
-Proves that the qualified GET-only Memory Vault router is registered
-through Guardian's canonical route control plane as ``internal_only`` on
-exactly the three intended web profiles, remains quarantined elsewhere, is
-hidden from public OpenAPI, and can be disabled by its feature flag.
+Proves that the qualified Memory Vault router (GET + PATCH pin/unpin) is
+registered through Guardian's canonical route control plane as
+``internal_only`` on exactly the three intended web profiles, remains
+quarantined elsewhere, is hidden from public OpenAPI, and can be disabled
+by its feature flag.
 
 This suite inspects route-control posture only. It does not reproduce the
 B1 persistence semantics (proven by
-``tests/services/test_memory_vault_read_projection.py``) or the B2 HTTP
-adapter semantics (proven by ``tests/routes/test_memory_vault.py``).
+``tests/services/test_memory_vault_read_projection.py``), the B2 HTTP
+adapter semantics (proven by ``tests/routes/test_memory_vault.py``), or
+the C1 mutation authority (proven by
+``tests/services/test_memory_vault_mutation.py``).
 """
 
 from __future__ import annotations
@@ -26,11 +29,13 @@ ADMITTED_PROFILES = {
     "v1-whooshd-deepseek-web",
 }
 
-VAULT_PATHS = {
+VAULT_GET_PATHS = {
     "/api/memory-vault/items",
     "/api/memory-vault/items/canonical/{memory_id}",
     "/api/memory-vault/items/compatibility/{source_kind}/{source_id}",
 }
+VAULT_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/pin"
+VAULT_PATHS = VAULT_GET_PATHS | {VAULT_PATCH_PATH}
 
 _PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "supported_profiles"
 
@@ -136,13 +141,16 @@ def test_quarantine_outranks_feature_flag(load_guardian_api) -> None:
     assert not (VAULT_PATHS & _mounted_paths(app))
 
 
-def test_vault_routes_are_get_only(load_guardian_api) -> None:
+def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
     guardian_api = load_guardian_api("v1-local-core-web-mcp")
     app = guardian_api.app
 
-    vault_routes = [
-        route for route in app.routes if getattr(route, "path", None) in VAULT_PATHS
-    ]
-    assert len(vault_routes) == len(VAULT_PATHS)
-    for route in vault_routes:
-        assert set(route.methods) == {"GET"}
+    routes_by_path = {
+        getattr(route, "path", None): route
+        for route in app.routes
+        if getattr(route, "path", None) in VAULT_PATHS
+    }
+    assert set(routes_by_path) == VAULT_PATHS
+    for path in VAULT_GET_PATHS:
+        assert set(routes_by_path[path].methods) == {"GET"}
+    assert set(routes_by_path[VAULT_PATCH_PATH].methods) == {"PATCH"}

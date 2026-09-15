@@ -118,8 +118,9 @@ This file is authoritative for:
   UMS-05B VAULT BACKEND READ PROJECTION: CLOSED
   UMS-05C VAULT DIRECT HUMAN MUTATION SERVICE: OPEN
   UMS-05C1 PIN/UNPIN MUTATION SPINE: CLOSED
-  UMS-05C2 VAULT PIN MUTATION API: AUTHORIZED
-  UMS-05C3+: NOT AUTHORIZED
+  UMS-05C2 VAULT PIN MUTATION API: CLOSED
+  UMS-05C3 VAULT HOLD/RELEASE-HOLD MUTATION: AUTHORIZED
+  UMS-05C4+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -823,6 +824,20 @@ This file is authoritative for:
   UMS-05C is now OPEN; UMS-05C1 is CLOSED; UMS-05C2 (Vault pin mutation
   API) alone is AUTHORIZED; UMS-05C3+ and UMS-05D+ remain NOT
   AUTHORIZED. See the [UMS-05C1 pin mutation proof](./proofs/runtime/2026-09-14-ums05c1-vault-pin-mutation-proof.md).
+
+- **UMS-05C2 (Vault pin mutation API, just closed)**: the qualified C1
+  pin/unpin mutation service is now exposed through one internal-only
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/pin` endpoint on
+  the existing `memory_vault` router. Stable account authority remains
+  `RequestUserScope.account_id`; the request requires a fresh timezone-aware
+  `expected_updated_at`; stale writes return an explicit conflict; missing
+  and cross-account memory remain opaque; and the C1 service remains the
+  mutation authority (no route-level SQL, CAS, receipt, or no-op logic).
+  No new persistence or migration was introduced; Memory Vault remains
+  internal-only and hidden from public OpenAPI; no frontend mutation
+  controls exist. UMS-05C2 is CLOSED; UMS-05C3 (Vault hold/release-hold
+  mutation) alone is AUTHORIZED; UMS-05C4+ and UMS-05D+ remain NOT
+  AUTHORIZED. See the [UMS-05C2 pin mutation API proof](./proofs/runtime/2026-09-15-ums05c2-vault-pin-mutation-api-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

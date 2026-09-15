@@ -1,15 +1,17 @@
-"""Focused route tests for the authenticated Memory Vault read API (UMS-05B2).
+"""Focused route tests for the authenticated Memory Vault API (UMS-05B2 / C2).
 
 These tests mount ``guardian.routes.memory_vault.router`` on a bare
 ``FastAPI`` application and use dependency overrides for:
 
 - API-key authority (``require_api_key``);
 - stable request-user scope (``get_request_user_scope``);
-- the Memory Vault service factory (``get_memory_vault_read_service``).
+- the Memory Vault read service factory (``get_memory_vault_read_service``);
+- the Memory Vault mutation service factory
+  (``get_memory_vault_mutation_service``).
 
-The service is faked with typed B1 DTO return values. No full Guardian
-application is imported or booted, and no supported-profile manifest is
-touched.
+Read/mutation services are faked with typed B1/C1 DTO return values. No
+full Guardian application is imported or booted, and no
+supported-profile manifest is touched.
 """
 
 from __future__ import annotations
@@ -28,6 +30,12 @@ from guardian.core.memory_compatibility import (
 )
 from guardian.protocol_tokens import MemorySemanticSpecies
 from guardian.routes import memory_vault
+from guardian.services.memory_vault_mutation import (
+    MemoryVaultMutationConflict,
+    MemoryVaultMutationError,
+    MemoryVaultMutationNotAvailable,
+    VaultMutationResult,
+)
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
@@ -43,6 +51,26 @@ ACCOUNT_A = "account-a"
 ACCOUNT_B = "account-b"
 
 GENERIC_UNAVAILABLE_DETAIL = "Memory item unavailable"
+
+T1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+T2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
+
+
+def _mutation_result(
+    *,
+    changed: bool,
+    item: VaultItem,
+    receipt_id: str | None = None,
+    previous_updated_at: datetime = T1,
+    resulting_updated_at: datetime = T2,
+) -> VaultMutationResult:
+    return VaultMutationResult(
+        changed=changed,
+        receipt_id=receipt_id,
+        previous_updated_at=previous_updated_at,
+        resulting_updated_at=resulting_updated_at,
+        item=item,
+    )
 
 
 class FakeVaultService:
@@ -73,6 +101,38 @@ class FakeVaultService:
         if self.get_error is not None:
             raise self.get_error
         return self.get_result
+
+
+class FakeVaultMutationService:
+    """Records calls and returns typed C1 mutation results."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.result: VaultMutationResult | None = None
+        self.error: Exception | None = None
+
+    def set_pinned(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        pinned: bool,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        self.calls.append(
+            {
+                "memory_id": memory_id,
+                "expected_updated_at": expected_updated_at,
+                "pinned": pinned,
+                "reason": reason,
+                "request_ref": request_ref,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None, "fake mutation result not configured"
+        return self.result
 
 
 def _canonical_item(memory_id: str = "mem-1", **overrides: Any) -> VaultItem:
@@ -140,6 +200,7 @@ def _build_client(
     api_key_override: bool = True,
     scope: RequestUserScope | None = None,
     service_factory: Any | None = None,
+    mutation_factory: Any | None = None,
 ) -> TestClient:
     app = FastAPI()
     app.include_router(memory_vault.router)
@@ -151,6 +212,10 @@ def _build_client(
         app.dependency_overrides[memory_vault.get_memory_vault_read_service] = (
             service_factory
         )
+    if mutation_factory is not None:
+        app.dependency_overrides[memory_vault.get_memory_vault_mutation_service] = (
+            mutation_factory
+        )
     return TestClient(app)
 
 
@@ -160,7 +225,15 @@ def fake_service() -> FakeVaultService:
 
 
 @pytest.fixture
-def client(fake_service: FakeVaultService) -> TestClient:
+def fake_mutation_service() -> FakeVaultMutationService:
+    return FakeVaultMutationService()
+
+
+@pytest.fixture
+def client(
+    fake_service: FakeVaultService,
+    fake_mutation_service: FakeVaultMutationService,
+) -> TestClient:
     captured: dict[str, Any] = {}
 
     def fake_factory(
@@ -170,13 +243,22 @@ def client(fake_service: FakeVaultService) -> TestClient:
         captured["user_id"] = scope.user_id
         return fake_service
 
+    def mutation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultMutationService:
+        return fake_mutation_service
+
     scope = RequestUserScope(
         user_id="legacy-a",
         subject_id="subject-a",
         account_id=ACCOUNT_A,
         multi_user_enabled=True,
     )
-    return _build_client(scope=scope, service_factory=fake_factory)
+    return _build_client(
+        scope=scope,
+        service_factory=fake_factory,
+        mutation_factory=mutation_factory,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -699,20 +781,227 @@ def test_compatibility_unavailable_fields_stay_none(
 
 
 # ---------------------------------------------------------------------------
+# Pin/unpin mutation API.
+# ---------------------------------------------------------------------------
+
+
+def _pin_url(memory_id: str) -> str:
+    return f"/api/memory-vault/items/canonical/{memory_id}/pin"
+
+
+def test_pin_mutation_delegates_exactly(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", pinned=True, updated_at=T2)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-1",
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={
+            "pinned": True,
+            "expected_updated_at": T1.isoformat(),
+            "reason": "operator pin",
+            "request_ref": "req-1",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is True
+    assert body["receipt_id"] == "receipt-1"
+    assert "2026-01-01T00:00:00" in body["previous_updated_at"]
+    assert "2026-01-02T00:00:00" in body["resulting_updated_at"]
+    assert body["item"]["pinned"] is True
+
+    assert len(fake_mutation_service.calls) == 1
+    call = fake_mutation_service.calls[0]
+    assert call["memory_id"] == "mem-1"
+    assert call["expected_updated_at"] == T1
+    assert call["pinned"] is True
+    assert call["reason"] == "operator pin"
+    assert call["request_ref"] == "req-1"
+
+
+def test_unpin_mutation_delegates(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", pinned=False, updated_at=T2)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-2",
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={"pinned": False, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert fake_mutation_service.calls[0]["pinned"] is False
+    assert response.json()["item"]["pinned"] is False
+
+
+def test_noop_mutation(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", pinned=False, updated_at=T1)
+    fake_mutation_service.result = _mutation_result(
+        changed=False,
+        receipt_id=None,
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T1,
+    )
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={"pinned": False, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is False
+    assert body["receipt_id"] is None
+    assert body["previous_updated_at"] == body["resulting_updated_at"]
+
+
+def test_stale_conflict_409(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.error = MemoryVaultMutationConflict("internal stale details")
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Memory changed since it was read"}
+    assert "internal stale details" not in response.text
+
+
+def test_missing_cross_account_404(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.error = MemoryVaultMutationNotAvailable(
+        "memory item is not available"
+    )
+    response = client.patch(
+        _pin_url("mem-missing"),
+        json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Memory not available"}
+
+
+def test_integrity_failure_409(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.error = MemoryVaultMutationError("internal boom")
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Memory mutation unavailable"}
+    assert "internal boom" not in response.text
+
+
+def test_malformed_naive_cas_422(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    # Missing expected_updated_at.
+    assert client.patch(_pin_url("mem-1"), json={"pinned": True}).status_code == 422
+    # Malformed timestamp.
+    assert (
+        client.patch(
+            _pin_url("mem-1"),
+            json={"pinned": True, "expected_updated_at": "not-a-date"},
+        ).status_code
+        == 422
+    )
+    # Naive timestamp (no timezone).
+    assert (
+        client.patch(
+            _pin_url("mem-1"),
+            json={
+                "pinned": True,
+                "expected_updated_at": "2026-01-01T00:00:00",
+            },
+        ).status_code
+        == 422
+    )
+    # The mutation service is never reached.
+    assert fake_mutation_service.calls == []
+
+
+def test_mutation_requires_stable_account() -> None:
+    blank = RequestUserScope(user_id="legacy-a", account_id="", multi_user_enabled=True)
+    client = _build_client(api_key_override=True, scope=blank)
+    response = client.patch(
+        _pin_url("mem-1"),
+        json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 401
+
+
+def test_caller_account_override_has_no_authority(
+    fake_mutation_service: FakeVaultMutationService,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def mutation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultMutationService:
+        captured["account_id"] = scope.account_id
+        return fake_mutation_service
+
+    scope = RequestUserScope(user_id="legacy-a", account_id=ACCOUNT_A)
+    client = _build_client(scope=scope, mutation_factory=mutation_factory)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="r",
+        item=_canonical_item("mem-1", pinned=True, updated_at=T2),
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _pin_url("mem-1"),
+        params={"user_id": ACCOUNT_B, "account_id": ACCOUNT_B},
+        json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert captured["account_id"] == ACCOUNT_A
+
+
+def test_no_compatibility_mutation_route() -> None:
+    app = FastAPI()
+    app.include_router(memory_vault.router)
+    schema = app.openapi()
+    for path in schema["paths"]:
+        if path.startswith("/api/memory-vault/items/compatibility"):
+            assert "patch" not in schema["paths"][path]
+
+
+# ---------------------------------------------------------------------------
 # Read-only HTTP surface.
 # ---------------------------------------------------------------------------
 
 
-def test_router_is_get_only() -> None:
+def test_router_method_surface() -> None:
     app = FastAPI()
     app.include_router(memory_vault.router)
     schema = app.openapi()
     for path in schema["paths"]:
         if path.startswith("/api/memory-vault"):
             methods = set(schema["paths"][path].keys())
-            assert methods == {"get"}, f"{path} has non-GET methods: {methods}"
-    # Explicitly assert no write methods exist under the Vault namespace.
+            assert methods <= {
+                "get",
+                "patch",
+            }, f"{path} has unexpected methods: {methods}"
+    # Explicitly assert no other write methods exist under the Vault namespace.
     for path, operations in schema["paths"].items():
         if path.startswith("/api/memory-vault"):
-            for forbidden in ("post", "put", "patch", "delete"):
+            for forbidden in ("post", "put", "delete"):
                 assert forbidden not in operations, f"{path} exposes {forbidden}"

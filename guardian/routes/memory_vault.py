@@ -1,12 +1,12 @@
-"""Authenticated read-only Memory Vault HTTP adapter (UMS-05B2).
+"""Authenticated Memory Vault HTTP adapter (UMS-05B2 / UMS-05C2).
 
-This module exposes the already-qualified
-``guardian.services.memory_vault_read.MemoryVaultReadService`` read
-authority over FastAPI:
+This module exposes the already-qualified Memory Vault read and
+pin/unpin mutation authorities over FastAPI:
 
-    GET /api/memory-vault/items
-    GET /api/memory-vault/items/canonical/{memory_id}
-    GET /api/memory-vault/items/compatibility/{source_kind}/{source_id}
+    GET   /api/memory-vault/items
+    GET   /api/memory-vault/items/canonical/{memory_id}
+    GET   /api/memory-vault/items/compatibility/{source_kind}/{source_id}
+    PATCH /api/memory-vault/items/canonical/{memory_id}/pin
 
 It is an adapter only. It does not:
 
@@ -15,7 +15,7 @@ It is an adapter only. It does not:
 - derive Personal Facts posture;
 - resolve Persona authority independently;
 - mint route-local memory identities;
-- add any write endpoint;
+- implement CAS, receipts, or no-op logic locally;
 - register itself in ``guardian.guardian_api``.
 
 Runtime activation in the Guardian application (route registration,
@@ -29,8 +29,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Iterator, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, field_validator
 
 from guardian.core.dependencies import (
     RequestUserScope,
@@ -42,6 +42,12 @@ from guardian.core.memory_compatibility import (
     MemoryCompatibilitySourceRef,
 )
 from guardian.protocol_tokens import MemorySemanticSpecies
+from guardian.services.memory_vault_mutation import (
+    MemoryVaultMutationConflict,
+    MemoryVaultMutationError,
+    MemoryVaultMutationNotAvailable,
+    MemoryVaultMutationService,
+)
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
     LIFECYCLE_POSTURE_ACTIVE,
@@ -81,6 +87,9 @@ LifecyclePostureParam = Literal[
 _GENERIC_UNAVAILABLE_DETAIL = "Memory item unavailable"
 _PROJECTION_UNAVAILABLE_DETAIL = "Memory projection unavailable"
 _STABLE_ACCOUNT_REQUIRED_DETAIL = "Stable account identity required"
+_MUTATION_UNAVAILABLE_DETAIL = "Memory not available"
+_STALE_WRITE_DETAIL = "Memory changed since it was read"
+_MUTATION_INTEGRITY_DETAIL = "Memory mutation unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +173,32 @@ class VaultListResponse(BaseModel):
     returned_count: int
 
 
+class VaultPinRequest(BaseModel):
+    """Request body for canonical pin/unpin mutation."""
+
+    pinned: bool
+    expected_updated_at: datetime
+    reason: str | None = None
+    request_ref: str | None = None
+
+    @field_validator("expected_updated_at")
+    @classmethod
+    def _require_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expected_updated_at must be timezone-aware")
+        return value
+
+
+class VaultMutationResponse(BaseModel):
+    """Serialized pin/unpin mutation result."""
+
+    changed: bool
+    receipt_id: str | None
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItemResponse
+
+
 # ---------------------------------------------------------------------------
 # Account resolution and service dependency.
 # ---------------------------------------------------------------------------
@@ -210,6 +245,26 @@ def get_memory_vault_read_service(
     session = db.get_session()
     try:
         yield MemoryVaultReadService(
+            session,
+            authenticated_account_id=account_id,
+        )
+    finally:
+        session.close()
+
+
+def get_memory_vault_mutation_service(
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Iterator[MemoryVaultMutationService]:
+    """Bind a ``MemoryVaultMutationService`` to the authenticated account.
+
+    Reuses the same repository database/session authority as the read
+    service; the C1 mutation service remains the mutation authority.
+    """
+    account_id = _resolve_vault_account(scope)
+    db = _get_vault_db()
+    session = db.get_session()
+    try:
+        yield MemoryVaultMutationService(
             session,
             authenticated_account_id=account_id,
         )
@@ -403,13 +458,62 @@ def get_compatibility_vault_item(
     return _item_response(item)
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/pin",
+    response_model=VaultMutationResponse,
+)
+def patch_canonical_vault_item_pin(
+    memory_id: str,
+    body: VaultPinRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultMutationResponse:
+    """Set the desired canonical pin state with an explicit CAS token.
+
+    All mutation semantics (CAS comparison, transaction, provenance
+    receipt, canonical readback, no-op calculation) are delegated to the
+    C1 mutation service. The route performs no SQL, no CAS comparison,
+    no receipt creation, and no read-before-write.
+    """
+    try:
+        result = service.set_pinned(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            pinned=body.pinned,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        raise HTTPException(
+            status_code=404,
+            detail=_MUTATION_UNAVAILABLE_DETAIL,
+        )
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except MemoryVaultMutationError:
+        raise HTTPException(
+            status_code=409,
+            detail=_MUTATION_INTEGRITY_DETAIL,
+        )
+
+    return VaultMutationResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
+    "get_memory_vault_mutation_service",
     "VaultIdentityResponse",
     "VaultItemResponse",
     "VaultListResponse",
     "VaultPersonaLinkResponse",
     "VaultProvenanceResponse",
+    "VaultPinRequest",
+    "VaultMutationResponse",
     "MemoryCompatibilitySourceRefResponse",
 ]
