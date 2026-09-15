@@ -115,8 +115,9 @@ This file is authoritative for:
 
   UMS-05 MEMORY VAULT: OPEN
   UMS-05A MEMORY VAULT OPERATOR CONTRACT: CLOSED
-  UMS-05B VAULT BACKEND READ PROJECTION: AUTHORIZED
-  UMS-05C+: NOT AUTHORIZED
+  UMS-05B VAULT BACKEND READ PROJECTION: CLOSED
+  UMS-05C VAULT DIRECT HUMAN MUTATION SERVICE: AUTHORIZED
+  UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
   ```
@@ -783,6 +784,25 @@ This file is authoritative for:
   Beta/release qualification follows from UMS-05A; no public
   release or general-availability claim widened. See the
   [Memory Vault operator contract](./memory-vault-contract.md).
+
+- **UMS-05B (Memory Vault backend read surface, just closed)**: the
+  qualified read chain — canonical + compatibility persistence →
+  `MemoryVaultReadService` (account-scoped list/detail, service-owned
+  offset pagination) → authenticated GET-only Memory Vault router — is
+  now registered in `guardian_api` through `_include_router` under the
+  new route-control label `memory_vault` (feature flag
+  `CODEXIFY_ENABLE_MEMORY_VAULT_ROUTES`, `default_enabled=True`,
+  `core_surface=False`). `memory_vault` is `internal_only` on
+  `v1-local-core-web-mcp`, `v1-friends-family-web`, and
+  `v1-whooshd-deepseek-web`; all other supported profiles remain
+  quarantined by omission. The three Vault paths are mounted at runtime
+  but hidden from public OpenAPI; the feature flag can disable them on
+  an admitted profile and cannot override quarantine on an unadmitted
+  profile. No Memory Vault frontend exists, no Memory Vault mutation
+  exists, no public route promotion occurred, and UMS-06+ remain NOT
+  AUTHORIZED. UMS-05B is CLOSED; UMS-05C (Vault direct human mutation
+  service) is now AUTHORIZED; UMS-05D+ remain NOT AUTHORIZED. See the
+  [UMS-05B read-surface activation proof](./proofs/runtime/2026-09-14-ums05b-memory-vault-read-surface-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
