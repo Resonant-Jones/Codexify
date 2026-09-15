@@ -34,8 +34,10 @@ VAULT_GET_PATHS = {
     "/api/memory-vault/items/canonical/{memory_id}",
     "/api/memory-vault/items/compatibility/{source_kind}/{source_id}",
 }
-VAULT_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/pin"
-VAULT_PATHS = VAULT_GET_PATHS | {VAULT_PATCH_PATH}
+VAULT_PIN_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/pin"
+VAULT_HOLD_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/hold"
+VAULT_PATCH_PATHS = {VAULT_PIN_PATCH_PATH, VAULT_HOLD_PATCH_PATH}
+VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
 
 _PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "supported_profiles"
 
@@ -153,4 +155,5 @@ def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
     assert set(routes_by_path) == VAULT_PATHS
     for path in VAULT_GET_PATHS:
         assert set(routes_by_path[path].methods) == {"GET"}
-    assert set(routes_by_path[VAULT_PATCH_PATH].methods) == {"PATCH"}
+    for path in VAULT_PATCH_PATHS:
+        assert set(routes_by_path[path].methods) == {"PATCH"}

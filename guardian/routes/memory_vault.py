@@ -173,10 +173,9 @@ class VaultListResponse(BaseModel):
     returned_count: int
 
 
-class VaultPinRequest(BaseModel):
-    """Request body for canonical pin/unpin mutation."""
+class _VaultMutationRequest(BaseModel):
+    """Shared request shape for canonical Vault governance mutations."""
 
-    pinned: bool
     expected_updated_at: datetime
     reason: str | None = None
     request_ref: str | None = None
@@ -189,8 +188,20 @@ class VaultPinRequest(BaseModel):
         return value
 
 
+class VaultPinRequest(_VaultMutationRequest):
+    """Request body for canonical pin/unpin mutation."""
+
+    pinned: bool
+
+
+class VaultHoldRequest(_VaultMutationRequest):
+    """Request body for canonical hold/release-hold mutation."""
+
+    held: bool
+
+
 class VaultMutationResponse(BaseModel):
-    """Serialized pin/unpin mutation result."""
+    """Serialized Vault governance mutation result."""
 
     changed: bool
     receipt_id: str | None
@@ -504,6 +515,52 @@ def patch_canonical_vault_item_pin(
     )
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/hold",
+    response_model=VaultMutationResponse,
+)
+def patch_canonical_vault_item_hold(
+    memory_id: str,
+    body: VaultHoldRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultMutationResponse:
+    """Set the desired canonical hold state with an explicit CAS token.
+
+    Holding suspends decay only; this route delegates all mutation
+    semantics (CAS, transaction, receipt, canonical readback, no-op) to the
+    C1/C3 mutation service. The route performs no SQL, no CAS comparison,
+    no receipt creation, no no-op calculation, and no decay behavior.
+    """
+    try:
+        result = service.set_held(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            held=body.held,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        raise HTTPException(
+            status_code=404,
+            detail=_MUTATION_UNAVAILABLE_DETAIL,
+        )
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except MemoryVaultMutationError:
+        raise HTTPException(
+            status_code=409,
+            detail=_MUTATION_INTEGRITY_DETAIL,
+        )
+
+    return VaultMutationResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -514,6 +571,7 @@ __all__ = [
     "VaultPersonaLinkResponse",
     "VaultProvenanceResponse",
     "VaultPinRequest",
+    "VaultHoldRequest",
     "VaultMutationResponse",
     "MemoryCompatibilitySourceRefResponse",
 ]

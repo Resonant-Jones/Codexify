@@ -28,7 +28,9 @@ from sqlalchemy.orm import sessionmaker
 from guardian.db.models import MemoryProvenance, MemoryRecord, Project, User
 from guardian.protocol_tokens import MemorySemanticSpecies
 from guardian.services.memory_vault_mutation import (
+    ACTION_HOLD,
     ACTION_PIN,
+    ACTION_RELEASE_HOLD,
     ACTION_UNPIN,
     RECEIPT_SCHEMA,
     MemoryVaultMutationConflict,
@@ -514,3 +516,253 @@ def test_naive_or_missing_token_rejected(seeded):
                 expected_updated_at=None,
                 pinned=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# Hold / release-hold.
+# ---------------------------------------------------------------------------
+
+
+def test_successful_hold_then_release(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        result = svc.set_held(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            held=True,
+            reason="operator hold",
+            request_ref="req-hold",
+        )
+
+    assert result.changed is True
+    assert result.receipt_id is not None
+    assert result.resulting_updated_at != t1
+    assert result.item.held is True
+    assert result.item.pinned is False
+    assert _current(factory, memory_id).held is True
+
+    t2 = result.resulting_updated_at
+    receipts = _receipts(factory, memory_id)
+    assert len(receipts) == 2
+    assert receipts[-1].extensions["action"] == ACTION_HOLD
+    assert receipts[-1].extensions["previous_values"] == {"held": False}
+    assert receipts[-1].extensions["new_values"] == {"held": True}
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        release = svc.set_held(
+            memory_id=memory_id,
+            expected_updated_at=t2,
+            held=False,
+        )
+
+    assert release.changed is True
+    assert release.resulting_updated_at != t2
+    assert release.item.held is False
+    assert _current(factory, memory_id).held is False
+    receipts = _receipts(factory, memory_id)
+    assert len(receipts) == 3
+    assert receipts[-1].extensions["action"] == ACTION_RELEASE_HOLD
+    assert receipts[-1].extensions["previous_values"] == {"held": True}
+    assert receipts[-1].extensions["new_values"] == {"held": False}
+
+
+def test_hold_fresh_noop(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        result = svc.set_held(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            held=False,  # already false
+        )
+
+    assert result.changed is False
+    assert result.receipt_id is None
+    assert result.resulting_updated_at == t1
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_hold_stale_noop_conflicts(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        svc.set_held(memory_id=memory_id, expected_updated_at=t1, held=True)
+
+    # held=true now; request held=true with stale T1.
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        with pytest.raises(MemoryVaultMutationConflict):
+            svc.set_held(memory_id=memory_id, expected_updated_at=t1, held=True)
+
+
+def test_hold_project_scoped(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["project_scoped_id"]
+    project_id_before = _current(factory, memory_id).project_id
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        result = svc.set_held(memory_id=memory_id, expected_updated_at=t1, held=True)
+
+    assert result.changed is True
+    assert _current(factory, memory_id).held is True
+    assert _current(factory, memory_id).project_id == project_id_before
+
+
+def test_hold_receipt_shape(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        result = svc.set_held(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            held=True,
+            reason="reason-hold",
+            request_ref="req-hold",
+        )
+
+    receipt = _receipts(factory, memory_id)[-1]
+    assert receipt.source_system == "codexify"
+    assert receipt.source_subject_kind == "vault"
+    ext = receipt.extensions
+    assert ext["receipt_schema"] == RECEIPT_SCHEMA
+    assert ext["mutation_source"] == "vault"
+    assert ext["action"] == ACTION_HOLD
+    assert ext["actor_account_id"] == ACCOUNT_A
+    assert ext["previous_values"] == {"held": False}
+    assert ext["new_values"] == {"held": True}
+    assert ext["expected_updated_at"] == t1.isoformat()
+    assert ext["resulting_updated_at"] == result.resulting_updated_at.isoformat()
+    assert ext["reason"] == "reason-hold"
+    assert ext["request_ref"] == "req-hold"
+    serialized = repr(ext)
+    assert "account-scoped text" not in serialized
+    assert "heat" not in serialized
+    assert "decay" not in serialized
+
+
+def test_hold_atomic_rollback(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+
+        def _fail_provenance_flush(session_, flush_context, instances):
+            if any(isinstance(obj, MemoryProvenance) for obj in session_.new):
+                raise RuntimeError("forced receipt persistence failure")
+
+        event.listen(session, "before_flush", _fail_provenance_flush)
+        try:
+            with pytest.raises(MemoryVaultMutationError):
+                svc.set_held(
+                    memory_id=memory_id,
+                    expected_updated_at=t1,
+                    held=True,
+                )
+        finally:
+            event.remove(session, "before_flush", _fail_provenance_flush)
+
+    assert _current(factory, memory_id).held is False
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_hold_preserves_pin_state(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    # Pin the record first.
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        pin_result = svc.set_pinned(
+            memory_id=memory_id, expected_updated_at=t1, pinned=True
+        )
+    assert _current(factory, memory_id).pinned is True
+
+    # Hold it; pin must remain true.
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        hold_result = svc.set_held(
+            memory_id=memory_id,
+            expected_updated_at=pin_result.resulting_updated_at,
+            held=True,
+        )
+    assert hold_result.changed is True
+    assert _current(factory, memory_id).pinned is True
+    assert _current(factory, memory_id).held is True
+
+
+def test_hold_invalidates_stale_pin_intent(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        hold_result = svc.set_held(
+            memory_id=memory_id, expected_updated_at=t1, held=True
+        )
+    assert hold_result.resulting_updated_at != t1
+
+    receipts_after_hold = _pin_count(factory, memory_id)
+    pinned_before = _current(factory, memory_id).pinned
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        with pytest.raises(MemoryVaultMutationConflict):
+            svc.set_pinned(memory_id=memory_id, expected_updated_at=t1, pinned=True)
+
+    assert _current(factory, memory_id).pinned is pinned_before
+    assert _pin_count(factory, memory_id) == receipts_after_hold
+
+
+def test_pin_invalidates_stale_hold_intent(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        hold_result = svc.set_held(
+            memory_id=memory_id, expected_updated_at=t1, held=True
+        )
+    t2 = hold_result.resulting_updated_at
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        pin_result = svc.set_pinned(
+            memory_id=memory_id, expected_updated_at=t2, pinned=True
+        )
+    assert pin_result.resulting_updated_at != t2
+
+    held_before = _current(factory, memory_id).held
+    receipts_after_pin = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        svc = MemoryVaultMutationService(session, authenticated_account_id=ACCOUNT_A)
+        with pytest.raises(MemoryVaultMutationConflict):
+            svc.set_held(memory_id=memory_id, expected_updated_at=t2, held=False)
+
+    assert _current(factory, memory_id).held is held_before
+    assert _pin_count(factory, memory_id) == receipts_after_pin

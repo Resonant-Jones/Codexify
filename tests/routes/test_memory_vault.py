@@ -134,6 +134,29 @@ class FakeVaultMutationService:
         assert self.result is not None, "fake mutation result not configured"
         return self.result
 
+    def set_held(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        held: bool,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        self.calls.append(
+            {
+                "memory_id": memory_id,
+                "expected_updated_at": expected_updated_at,
+                "held": held,
+                "reason": reason,
+                "request_ref": request_ref,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None, "fake mutation result not configured"
+        return self.result
+
 
 def _canonical_item(memory_id: str = "mem-1", **overrides: Any) -> VaultItem:
     kwargs: dict[str, Any] = dict(
@@ -970,6 +993,172 @@ def test_caller_account_override_has_no_authority(
         _pin_url("mem-1"),
         params={"user_id": ACCOUNT_B, "account_id": ACCOUNT_B},
         json={"pinned": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert captured["account_id"] == ACCOUNT_A
+
+
+def _hold_url(memory_id: str) -> str:
+    return f"/api/memory-vault/items/canonical/{memory_id}/hold"
+
+
+def test_hold_mutation_delegates_exactly(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", held=True, updated_at=T2)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-hold",
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _hold_url("mem-1"),
+        json={
+            "held": True,
+            "expected_updated_at": T1.isoformat(),
+            "reason": "operator hold",
+            "request_ref": "req-hold",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is True
+    assert body["receipt_id"] == "receipt-hold"
+    assert body["item"]["held"] is True
+
+    assert len(fake_mutation_service.calls) == 1
+    call = fake_mutation_service.calls[0]
+    assert call["memory_id"] == "mem-1"
+    assert call["expected_updated_at"] == T1
+    assert call["held"] is True
+    assert call["reason"] == "operator hold"
+    assert call["request_ref"] == "req-hold"
+
+
+def test_release_mutation_delegates(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", held=False, updated_at=T2)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-release",
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _hold_url("mem-1"),
+        json={"held": False, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert fake_mutation_service.calls[0]["held"] is False
+    assert response.json()["item"]["held"] is False
+
+
+def test_hold_noop(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    item = _canonical_item("mem-1", held=False, updated_at=T1)
+    fake_mutation_service.result = _mutation_result(
+        changed=False,
+        receipt_id=None,
+        item=item,
+        previous_updated_at=T1,
+        resulting_updated_at=T1,
+    )
+    response = client.patch(
+        _hold_url("mem-1"),
+        json={"held": False, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is False
+    assert body["receipt_id"] is None
+    assert body["previous_updated_at"] == body["resulting_updated_at"]
+
+
+def test_hold_stale_conflict_409(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.error = MemoryVaultMutationConflict("internal stale")
+    response = client.patch(
+        _hold_url("mem-1"),
+        json={"held": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Memory changed since it was read"}
+    assert "internal stale" not in response.text
+
+
+def test_hold_unavailable_404(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.error = MemoryVaultMutationNotAvailable("unavailable")
+    response = client.patch(
+        _hold_url("mem-missing"),
+        json={"held": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Memory not available"}
+
+
+def test_hold_malformed_naive_cas_422(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    assert client.patch(_hold_url("mem-1"), json={"held": True}).status_code == 422
+    assert (
+        client.patch(
+            _hold_url("mem-1"),
+            json={"held": True, "expected_updated_at": "not-a-date"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            _hold_url("mem-1"),
+            json={"held": True, "expected_updated_at": "2026-01-01T00:00:00"},
+        ).status_code
+        == 422
+    )
+    assert fake_mutation_service.calls == []
+
+
+def test_hold_requires_stable_account() -> None:
+    blank = RequestUserScope(user_id="legacy-a", account_id="", multi_user_enabled=True)
+    client = _build_client(api_key_override=True, scope=blank)
+    response = client.patch(
+        _hold_url("mem-1"),
+        json={"held": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 401
+
+
+def test_hold_caller_account_override_has_no_authority(
+    fake_mutation_service: FakeVaultMutationService,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def mutation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultMutationService:
+        captured["account_id"] = scope.account_id
+        return fake_mutation_service
+
+    scope = RequestUserScope(user_id="legacy-a", account_id=ACCOUNT_A)
+    client = _build_client(scope=scope, mutation_factory=mutation_factory)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="r",
+        item=_canonical_item("mem-1", held=True, updated_at=T2),
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+    )
+    response = client.patch(
+        _hold_url("mem-1"),
+        params={"user_id": ACCOUNT_B, "account_id": ACCOUNT_B},
+        json={"held": True, "expected_updated_at": T1.isoformat()},
     )
     assert response.status_code == 200
     assert captured["account_id"] == ACCOUNT_A
