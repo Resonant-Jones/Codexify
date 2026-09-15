@@ -260,6 +260,7 @@ export function Composer({
   projectId,
   projectOptions = [],
   onProjectChange,
+  presentationMode = "conversation",
   compactMobile = false,
   mobileModelId,
   mobileModelLabel,
@@ -310,6 +311,7 @@ export function Composer({
   projectId?: number | string | null;
   projectOptions?: ComposerSelectOption[];
   onProjectChange?: (projectId: string) => void;
+  presentationMode?: "landing" | "conversation";
   documentTiles?: unknown[];
   onDocumentTileRemove?: (tile: unknown) => void;
   currentRequestState?: unknown;
@@ -357,6 +359,16 @@ export function Composer({
   const [executionMode, setExecutionMode] =
     useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
+  const [landingControlsPinnedOpen, setLandingControlsPinnedOpen] =
+    useState(false);
+  const [landingControlsHovered, setLandingControlsHovered] = useState(false);
+  const landingControlsDismissTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const isLandingPresentation = presentationMode === "landing";
+  const isLandingControlsOpen =
+    isLandingPresentation &&
+    (landingControlsPinnedOpen || landingControlsHovered);
   const showComposerExpansionControl =
     !compactMobile && hasCollapsedOverflow;
   const isDesktopComposerExpanded =
@@ -402,6 +414,24 @@ export function Composer({
       }
     }
   }, [compactMobile, hasCollapsedOverflow, isComposerExpanded]);
+
+  useEffect(() => {
+    if (isLandingPresentation) return;
+    if (landingControlsDismissTimerRef.current) {
+      clearTimeout(landingControlsDismissTimerRef.current);
+      landingControlsDismissTimerRef.current = null;
+    }
+    setLandingControlsPinnedOpen(false);
+    setLandingControlsHovered(false);
+  }, [isLandingPresentation]);
+
+  useEffect(() => {
+    return () => {
+      if (landingControlsDismissTimerRef.current) {
+        clearTimeout(landingControlsDismissTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const surface = composerSurfaceRef.current;
@@ -822,6 +852,57 @@ export function Composer({
     e.preventDefault();
   };
 
+  const clearLandingControlsDismissTimer = () => {
+    if (!landingControlsDismissTimerRef.current) return;
+    clearTimeout(landingControlsDismissTimerRef.current);
+    landingControlsDismissTimerRef.current = null;
+  };
+
+  const supportsLandingPointerReveal = () => {
+    if (compactMobile || typeof window === "undefined") return false;
+    return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false;
+  };
+
+  const showLandingControlsForPointer = () => {
+    if (!supportsLandingPointerReveal()) return;
+    clearLandingControlsDismissTimer();
+    setLandingControlsHovered(true);
+  };
+
+  const scheduleLandingControlsPointerDismiss = () => {
+    if (landingControlsPinnedOpen || !supportsLandingPointerReveal()) return;
+    clearLandingControlsDismissTimer();
+    landingControlsDismissTimerRef.current = setTimeout(() => {
+      landingControlsDismissTimerRef.current = null;
+      setLandingControlsHovered(false);
+    }, 180);
+  };
+
+  const toggleLandingControls = () => {
+    clearLandingControlsDismissTimer();
+    setLandingControlsPinnedOpen((open) => {
+      const next = !open;
+      if (!next) setLandingControlsHovered(false);
+      return next;
+    });
+  };
+
+  const handleLandingComposerKeyDownCapture = (
+    event: React.KeyboardEvent<HTMLDivElement>
+  ) => {
+    if (
+      !isLandingPresentation ||
+      !isLandingControlsOpen ||
+      event.key !== "Escape"
+    ) {
+      return;
+    }
+    clearLandingControlsDismissTimer();
+    setLandingControlsPinnedOpen(false);
+    setLandingControlsHovered(false);
+    event.preventDefault();
+  };
+
   const selectedProviderLabel =
     providerOptions.find((option) => option.value === activeProviderId)?.label ??
     null;
@@ -1099,7 +1180,9 @@ export function Composer({
     </div>
   );
 
-  const renderComposerActionMenu = () => (
+  const renderComposerActionMenu = ({
+    showModelMenu = compactMobile,
+  }: { showModelMenu?: boolean } = {}) => (
     <ComposerActionMenu
       disabled={draftControlsDisabled}
       depthMode={depthMode}
@@ -1124,7 +1207,7 @@ export function Composer({
       onVoiceTurn={onVoiceTurn}
       voiceTurnDisabled={voiceTurnDisabled}
       voiceTurnLabel={voiceTurnLabel}
-      showModelMenu={compactMobile}
+      showModelMenu={showModelMenu}
       modelId={mobileModelId}
       modelLabel={mobileModelLabel}
       modelOptions={mobileModelOptions}
@@ -1166,6 +1249,173 @@ export function Composer({
     </Button>
   );
 
+  const renderLandingAccessoryTray = () => (
+    <div
+      id="composer-landing-accessory-tray"
+      data-testid="composer-landing-accessory-tray"
+      aria-label="Composer tools"
+      className="mb-2 overflow-x-auto rounded-[var(--tile-radius)] border px-2 py-2 shadow-sm"
+      style={{
+        borderColor: "color-mix(in oklab, var(--panel-border) 82%, transparent)",
+        background: "color-mix(in oklab, var(--panel-bg) 86%, transparent)",
+      }}
+      onPointerEnter={showLandingControlsForPointer}
+      onPointerLeave={scheduleLandingControlsPointerDismiss}
+      onFocusCapture={() => {
+        clearLandingControlsDismissTimer();
+        setLandingControlsPinnedOpen(true);
+      }}
+    >
+      <div
+        data-testid="composer-landing-accessory-controls"
+        className="flex min-w-max flex-wrap items-center gap-x-3 gap-y-1"
+      >
+        <Button
+          type="button"
+          data-testid="composer-coding-loop-toggle"
+          aria-pressed={executionMode === "coding"}
+          aria-label="Toggle Coding Loop mode"
+          disabled={draftControlsDisabled}
+          onClick={toggleExecutionMode}
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-8 shrink-0 rounded-none px-2 text-[11px]",
+            executionMode === "coding" ? "bg-[var(--chip-bg)]" : "opacity-75"
+          )}
+          style={{ color: "var(--text)" }}
+        >
+          Coding Loop
+        </Button>
+        {renderComposerActionMenu({ showModelMenu: false })}
+        {obsidianSlashActive ? (
+          <div
+            data-testid="composer-obsidian-action"
+            className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
+            style={{ color: "var(--text)" }}
+            title="Obsidian context will be queried for this turn"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            <span>Obsidian</span>
+          </div>
+        ) : null}
+        {onProjectChange && projectOptions.length > 0 ? (
+          <ComposerSelectMenu
+            ariaLabel="Select project"
+            menuLabel="Project"
+            valueLabel={
+              projectOptions.find((option) => option.value === String(projectId))
+                ?.label ?? "Project"
+            }
+            options={projectOptions}
+            selectedValue={projectId == null ? undefined : String(projectId)}
+            isPhoneShell={compactMobile}
+            disabled={draftControlsDisabled}
+            onSelect={onProjectChange}
+          />
+        ) : null}
+        {sourceOptions.length > 0 ? (
+          <ComposerSelectMenu
+            ariaLabel="Select retrieval source"
+            menuLabel="Source"
+            valueLabel={sourceLabel}
+            options={sourceOptions}
+            selectedValue={sourceMode}
+            isPhoneShell={compactMobile}
+            disabled={draftControlsDisabled}
+            onSelect={(value) => onSourceModeChange?.(value)}
+          />
+        ) : null}
+        <ComposerSelectMenu
+          ariaLabel="Select provider"
+          menuLabel="Provider"
+          valueLabel={providerLabel}
+          options={providerOptions}
+          selectedValue={activeProviderId}
+          openSignal={providerOpenSignal}
+          isPhoneShell={compactMobile}
+          disabled={draftControlsDisabled || providerOptions.length === 0}
+          onSelect={onProviderChange ?? (() => {})}
+        />
+        <ComposerSelectMenu
+          ariaLabel="Select model"
+          menuLabel="Model"
+          valueLabel={modelLabel}
+          options={modelOptions}
+          selectedValue={activeModelId}
+          isPhoneShell={compactMobile}
+          disabled={draftControlsDisabled || modelOptions.length === 0}
+          onSelect={onModelChange ?? (() => {})}
+        />
+        <ComposerSelectMenu
+          ariaLabel="Select inference mode"
+          menuLabel="Mode"
+          valueLabel={inferenceModeLabel}
+          options={inferenceModeOptions}
+          selectedValue={activeInferenceMode}
+          isPhoneShell={compactMobile}
+          disabled={
+            draftControlsDisabled || inferenceModeOptions.length === 0
+          }
+          onSelect={(nextMode) =>
+            onInferenceModeChange?.(nextMode as ComposerInferenceMode)
+          }
+        />
+      </div>
+    </div>
+  );
+
+  const renderLandingControlRow = () => (
+    <>
+      {isLandingControlsOpen ? renderLandingAccessoryTray() : null}
+      <div
+        data-testid="composer-landing-control-row"
+        className={cn(
+          CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+          compactMobile
+            ? "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
+            : "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+        )}
+      >
+        <Button
+          type="button"
+          data-testid="composer-landing-controls-toggle"
+          aria-label={
+            isLandingControlsOpen ? "Hide composer tools" : "Show composer tools"
+          }
+          aria-controls="composer-landing-accessory-tray"
+          aria-expanded={isLandingControlsOpen}
+          disabled={draftControlsDisabled}
+          onClick={toggleLandingControls}
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 rounded-none p-0 text-[22px] leading-none"
+          style={{ color: "var(--text)" }}
+        >
+          <span aria-hidden="true">+</span>
+        </Button>
+        {compactMobile ? renderComposerTextarea() : <span aria-hidden="true" />}
+        <div
+          data-testid="composer-send-slot"
+          className={cn(
+            "flex shrink-0 items-center justify-center justify-self-end",
+            compactMobile ? "mr-[var(--composer-text-pad-x,14px)]" : "",
+            CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+          )}
+        >
+          {renderSendButton()}
+        </div>
+      </div>
+      <div
+        data-testid="composer-landing-hover-zone"
+        aria-hidden="true"
+        className="h-2 w-full shrink-0"
+        onPointerEnter={showLandingControlsForPointer}
+        onPointerLeave={scheduleLandingControlsPointerDismiss}
+      />
+    </>
+  );
+
   return (
     <>
       {/* Status announcement */}
@@ -1178,6 +1428,7 @@ export function Composer({
         data-composer-root
         data-mobile-compact={compactMobile ? "true" : "false"}
         data-composer-expanded={isDesktopComposerExpanded ? "true" : "false"}
+        data-presentation-mode={presentationMode}
         className={cn(
           "flex w-full flex-col",
           compactMobile
@@ -1186,6 +1437,7 @@ export function Composer({
         )}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
+        onKeyDownCapture={handleLandingComposerKeyDownCapture}
       >
         <div
           data-testid="composer-content-plane"
@@ -1327,7 +1579,9 @@ export function Composer({
             }}
           />
 
-          {compactMobile ? (
+          {isLandingPresentation ? (
+            renderLandingControlRow()
+          ) : compactMobile ? (
             <div
               data-testid="composer-control-row"
               className={cn(

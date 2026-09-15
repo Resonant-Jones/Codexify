@@ -48,8 +48,14 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 }));
 
 vi.mock("@/features/guardian/components/Composer", () => ({
-  Composer: ({ onSend }: { onSend?: (text: string) => Promise<void> }) => (
-    <div data-testid="composer-stub">
+  Composer: ({
+    onSend,
+    presentationMode,
+  }: {
+    onSend?: (text: string) => Promise<void>;
+    presentationMode?: "landing" | "conversation";
+  }) => (
+    <div data-testid="composer-stub" data-presentation-mode={presentationMode}>
       <textarea data-testid="composer-textarea" placeholder="Write a message…" />
       <input data-testid="composer-input" />
       <div data-testid="composer-contenteditable" contentEditable suppressContentEditableWarning />
@@ -390,6 +396,10 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
       "What should we work on?"
     );
     expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-stub")).toHaveAttribute(
+      "data-presentation-mode",
+      "landing"
+    );
     expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
   });
 
@@ -398,6 +408,10 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
 
     expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
     expect(screen.queryByTestId("guardian-prompt-first-surface")).not.toBeInTheDocument();
+    expect(screen.getByTestId("composer-stub")).toHaveAttribute(
+      "data-presentation-mode",
+      "conversation"
+    );
   });
 
   it("creates a durable thread only after the first prompt is submitted", async () => {

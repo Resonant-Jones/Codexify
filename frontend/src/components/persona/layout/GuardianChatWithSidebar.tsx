@@ -378,6 +378,10 @@ export default function GuardianChatWithSidebar({
     const stored = localStorage.getItem("cfy.sidebarVisible");
     return stored === null ? true : stored === "true";
   });
+  // Landing starts quiet without rewriting the user's normal workspace choice.
+  // This is intentionally ephemeral: conversation mode immediately returns to
+  // the persisted sidebar preference above.
+  const [isLandingSidebarOpen, setIsLandingSidebarOpen] = React.useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -759,9 +763,16 @@ export default function GuardianChatWithSidebar({
     sessionSpine,
     threads,
   ]);
-  const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
-  const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
   const isPromptFirstStart = activeId === null && isCanonicalGuardianStartRoute();
+  const guardianPresentationMode = isPromptFirstStart
+    ? "landing"
+    : "conversation";
+  const isSidebarOpen = isDesktopLayout
+    ? guardianPresentationMode === "landing"
+      ? isLandingSidebarOpen
+      : isSidebarVisible
+    : isMobileSidebarOpen;
+  const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
   const guardianLayoutMode = mobileShellProfile.guardian.singleLane
     ? "single_lane"
     : isDesktopLayout
@@ -771,12 +782,16 @@ export default function GuardianChatWithSidebar({
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
       if (isDesktopLayout) {
-        setIsSidebarVisible(next);
+        if (guardianPresentationMode === "landing") {
+          setIsLandingSidebarOpen(next);
+        } else {
+          setIsSidebarVisible(next);
+        }
       } else {
         setIsMobileSidebarOpen(next);
       }
     },
-    [isDesktopLayout]
+    [guardianPresentationMode, isDesktopLayout]
   );
 
   const closeMobileToolsMenu = React.useCallback(() => {
@@ -1904,10 +1919,15 @@ export default function GuardianChatWithSidebar({
         )}
 
         {/* Sidebar */}
-        {isSidebarOpen && isDesktopLayout && (
+        {isDesktopLayout && (
           <div
-            className={clsx("h-full w-full min-h-0 overflow-hidden box-border", sidebarWrapperClass)}
+            className={clsx(
+              "h-full w-full min-h-0 overflow-hidden box-border",
+              sidebarWrapperClass,
+              !isSidebarOpen && "hidden"
+            )}
             style={{ gridColumn: "1", gridRow: "1" }}
+            aria-hidden={!isSidebarOpen || undefined}
           >
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
               <RefractiveGlassCard
@@ -2184,6 +2204,7 @@ export default function GuardianChatWithSidebar({
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
                   isSidebarVisible={isSidebarOpen}
+                  presentationMode={guardianPresentationMode}
                   sessionTabs={sessionRail.tabs}
                   activeSessionTabId={activeSessionTabId}
                   activeProviderId={activeSessionProviderId}
