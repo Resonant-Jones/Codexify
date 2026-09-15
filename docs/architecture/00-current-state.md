@@ -116,7 +116,10 @@ This file is authoritative for:
   UMS-05 MEMORY VAULT: OPEN
   UMS-05A MEMORY VAULT OPERATOR CONTRACT: CLOSED
   UMS-05B VAULT BACKEND READ PROJECTION: CLOSED
-  UMS-05C VAULT DIRECT HUMAN MUTATION SERVICE: AUTHORIZED
+  UMS-05C VAULT DIRECT HUMAN MUTATION SERVICE: OPEN
+  UMS-05C1 PIN/UNPIN MUTATION SPINE: CLOSED
+  UMS-05C2 VAULT PIN MUTATION API: AUTHORIZED
+  UMS-05C3+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -803,6 +806,23 @@ This file is authoritative for:
   AUTHORIZED. UMS-05B is CLOSED; UMS-05C (Vault direct human mutation
   service) is now AUTHORIZED; UMS-05D+ remain NOT AUTHORIZED. See the
   [UMS-05B read-surface activation proof](./proofs/runtime/2026-09-14-ums05b-memory-vault-read-surface-proof.md).
+
+- **UMS-05C1 (Vault pin/unpin mutation spine, just closed)**: the
+  first internal Vault mutation service,
+  `guardian/services/memory_vault_mutation.py`, proves account-owned
+  canonical pin/unpin through an explicit `memory_records.updated_at`
+  compare-and-swap token and one append-only `memory_provenance`
+  receipt per changed mutation. `updated_at` is the proven CAS token for
+  this seam; the receipt is audit/lineage only and never becomes pin
+  authority (`memory_records.pinned` remains the sole pin authority).
+  No migration, no revision column, and no mutation-receipt table were
+  introduced; existing v4 export/restore portability remains intact. The
+  service is not yet exposed by an HTTP mutation route, no frontend
+  mutation exists, pinning remains priority-only (no retrieval widening
+  or ambient-eligibility mutation), and UMS-06+ remain NOT AUTHORIZED.
+  UMS-05C is now OPEN; UMS-05C1 is CLOSED; UMS-05C2 (Vault pin mutation
+  API) alone is AUTHORIZED; UMS-05C3+ and UMS-05D+ remain NOT
+  AUTHORIZED. See the [UMS-05C1 pin mutation proof](./proofs/runtime/2026-09-14-ums05c1-vault-pin-mutation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
