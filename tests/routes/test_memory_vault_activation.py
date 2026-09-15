@@ -1,4 +1,4 @@
-"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C2).
+"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C4).
 
 Proves that the qualified Memory Vault router (GET + PATCH pin/unpin) is
 registered through Guardian's canonical route control plane as
@@ -36,7 +36,14 @@ VAULT_GET_PATHS = {
 }
 VAULT_PIN_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/pin"
 VAULT_HOLD_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/hold"
-VAULT_PATCH_PATHS = {VAULT_PIN_PATCH_PATH, VAULT_HOLD_PATCH_PATH}
+VAULT_PROJECT_SCOPE_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/project-scope"
+)
+VAULT_PATCH_PATHS = {
+    VAULT_PIN_PATCH_PATH,
+    VAULT_HOLD_PATCH_PATH,
+    VAULT_PROJECT_SCOPE_PATCH_PATH,
+}
 VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
 
 _PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "supported_profiles"

@@ -34,6 +34,8 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
+    MemoryVaultProjectAuthorityConflict,
+    MemoryVaultProjectNotAvailable,
     VaultMutationResult,
 )
 from guardian.services.memory_vault_read import (
@@ -148,6 +150,29 @@ class FakeVaultMutationService:
                 "memory_id": memory_id,
                 "expected_updated_at": expected_updated_at,
                 "held": held,
+                "reason": reason,
+                "request_ref": request_ref,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None, "fake mutation result not configured"
+        return self.result
+
+    def set_project_scope(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        project_id: int | None,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        self.calls.append(
+            {
+                "memory_id": memory_id,
+                "expected_updated_at": expected_updated_at,
+                "project_id": project_id,
                 "reason": reason,
                 "request_ref": request_ref,
             }
@@ -1159,6 +1184,195 @@ def test_hold_caller_account_override_has_no_authority(
         _hold_url("mem-1"),
         params={"user_id": ACCOUNT_B, "account_id": ACCOUNT_B},
         json={"held": True, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert captured["account_id"] == ACCOUNT_A
+
+
+# ---------------------------------------------------------------------------
+# Project-scope mutation API.
+# ---------------------------------------------------------------------------
+
+
+def _project_scope_url(memory_id: str) -> str:
+    return f"/api/memory-vault/items/canonical/{memory_id}/project-scope"
+
+
+@pytest.mark.parametrize("project_id", [42, 43])
+def test_project_scope_set_and_move_delegate_exactly(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+    project_id: int,
+) -> None:
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-scope",
+        item=_canonical_item("mem-1", project_id=project_id, updated_at=T2),
+    )
+    response = client.patch(
+        _project_scope_url("mem-1"),
+        json={
+            "project_id": project_id,
+            "expected_updated_at": T1.isoformat(),
+            "reason": "move scope",
+            "request_ref": "req-scope",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["item"]["project_id"] == project_id
+    assert fake_mutation_service.calls == [
+        {
+            "memory_id": "mem-1",
+            "expected_updated_at": T1,
+            "project_id": project_id,
+            "reason": "move scope",
+            "request_ref": "req-scope",
+        }
+    ]
+
+
+def test_project_scope_explicit_null_clears(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+) -> None:
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-clear",
+        item=_canonical_item("mem-1", project_id=None, updated_at=T2),
+    )
+    response = client.patch(
+        _project_scope_url("mem-1"),
+        json={"project_id": None, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["item"]["project_id"] is None
+    assert fake_mutation_service.calls[0]["project_id"] is None
+
+
+@pytest.mark.parametrize("project_id", [0, -1, True, "42", 1.5])
+def test_project_scope_missing_or_invalid_project_id_is_422(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+    project_id: Any,
+) -> None:
+    missing = client.patch(
+        _project_scope_url("mem-1"),
+        json={"expected_updated_at": T1.isoformat()},
+    )
+    invalid = client.patch(
+        _project_scope_url("mem-1"),
+        json={
+            "project_id": project_id,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert missing.status_code == 422
+    assert invalid.status_code == 422
+    assert fake_mutation_service.calls == []
+
+
+def test_project_scope_cas_validation_is_422(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+) -> None:
+    for payload in (
+        {"project_id": 42},
+        {"project_id": 42, "expected_updated_at": "not-a-date"},
+        {"project_id": 42, "expected_updated_at": "2026-01-01T00:00:00"},
+    ):
+        assert (
+            client.patch(_project_scope_url("mem-1"), json=payload).status_code == 422
+        )
+    assert fake_mutation_service.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "body"),
+    [
+        (
+            MemoryVaultMutationConflict("internal stale"),
+            409,
+            {"detail": "Memory changed since it was read"},
+        ),
+        (
+            MemoryVaultProjectNotAvailable("foreign or missing"),
+            404,
+            {"detail": "Project not available"},
+        ),
+        (
+            MemoryVaultProjectAuthorityConflict("legacy owner secret"),
+            409,
+            {
+                "detail": {
+                    "code": "project_ownership_authority_conflict",
+                    "message": (
+                        "Project ownership metadata conflicts with canonical "
+                        "authority."
+                    ),
+                }
+            },
+        ),
+        (
+            MemoryVaultMutationNotAvailable("memory secret"),
+            404,
+            {"detail": "Memory not available"},
+        ),
+        (
+            MemoryVaultMutationError("sql secret"),
+            409,
+            {"detail": "Memory mutation unavailable"},
+        ),
+    ],
+)
+def test_project_scope_error_mapping(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+    error: Exception,
+    status: int,
+    body: dict[str, Any],
+) -> None:
+    fake_mutation_service.error = error
+    response = client.patch(
+        _project_scope_url("mem-1"),
+        json={"project_id": 42, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == status
+    assert response.json() == body
+    assert str(error) not in response.text
+
+
+def test_project_scope_requires_stable_account() -> None:
+    blank = RequestUserScope(user_id="legacy-a", account_id="", multi_user_enabled=True)
+    client = _build_client(api_key_override=True, scope=blank)
+    response = client.patch(
+        _project_scope_url("mem-1"),
+        json={"project_id": None, "expected_updated_at": T1.isoformat()},
+    )
+    assert response.status_code == 401
+
+
+def test_project_scope_caller_account_override_has_no_authority(
+    fake_mutation_service: FakeVaultMutationService,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def mutation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultMutationService:
+        captured["account_id"] = scope.account_id
+        return fake_mutation_service
+
+    scope = RequestUserScope(user_id="legacy-a", account_id=ACCOUNT_A)
+    client = _build_client(scope=scope, mutation_factory=mutation_factory)
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="r",
+        item=_canonical_item("mem-1", project_id=42, updated_at=T2),
+    )
+    response = client.patch(
+        _project_scope_url("mem-1"),
+        params={"user_id": ACCOUNT_B, "account_id": ACCOUNT_B},
+        json={"project_id": 42, "expected_updated_at": T1.isoformat()},
     )
     assert response.status_code == 200
     assert captured["account_id"] == ACCOUNT_A

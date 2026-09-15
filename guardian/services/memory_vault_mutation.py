@@ -1,15 +1,15 @@
-"""Memory Vault mutation service (UMS-05C1 / UMS-05C3).
+"""Memory Vault mutation service (UMS-05C1 / UMS-05C3 / UMS-05C4).
 
-Implements account-owned canonical ``memory_records`` pin/unpin and
-hold/release-hold, each through an explicit ``updated_at`` compare-and-swap
-token and one append-only ``memory_provenance`` receipt per actual state
-change.
+Implements account-owned canonical ``memory_records`` pin/unpin,
+hold/release-hold, and Project-scope mutation through an explicit
+``updated_at`` compare-and-swap token and one append-only
+``memory_provenance`` receipt per actual state change.
 
-It writes only the canonical ``pinned`` and ``held`` booleans. It does not:
+It writes only canonical ``pinned``, ``held``, and ``project_id`` state. It does
+not:
 
 - expose an HTTP route;
-- mutate content, review, activation, Project scope, Persona links, or
-  ``extensions``;
+- mutate content, review, activation, Persona links, or ``extensions``;
 - mutate compatibility projections or Personal Facts;
 - introduce a revision column or a mutation-receipt table;
 - grant retrieval or ambient eligibility;
@@ -31,7 +31,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
-from guardian.db.models import MemoryProvenance, MemoryRecord
+from guardian.core.project_ownership import (
+    PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
+    classify_project_ownership,
+)
+from guardian.db.models import MemoryProvenance, MemoryRecord, Project
 from guardian.services.memory_vault_read import (
     MemoryVaultReadService,
     VaultIdentity,
@@ -44,6 +48,8 @@ ACTION_PIN = "pin"
 ACTION_UNPIN = "unpin"
 ACTION_HOLD = "hold"
 ACTION_RELEASE_HOLD = "release_hold"
+ACTION_SET_PROJECT_SCOPE = "set_project_scope"
+ACTION_CLEAR_PROJECT_SCOPE = "clear_project_scope"
 
 #: Stable receipt schema marker stored in provenance extensions.
 RECEIPT_SCHEMA = "memory-vault-mutation.v1"
@@ -73,6 +79,16 @@ class MemoryVaultMutationNotAvailable(MemoryVaultMutationError):
 
 class MemoryVaultMutationConflict(MemoryVaultMutationError):
     """The supplied ``expected_updated_at`` token is stale."""
+
+
+class MemoryVaultProjectNotAvailable(MemoryVaultMutationError):
+    """The requested Project is missing or belongs to another account."""
+
+
+class MemoryVaultProjectAuthorityConflict(MemoryVaultMutationError):
+    """A canonical Project carries conflicting ADR-081 compatibility data."""
+
+    code = PROJECT_OWNERSHIP_AUTHORITY_CONFLICT
 
 
 @dataclass(frozen=True)
@@ -158,6 +174,116 @@ class MemoryVaultMutationService:
             request_ref=request_ref,
         )
 
+    def set_project_scope(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        project_id: int | None,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        """Set or clear canonical Project scope through the record CAS.
+
+        ``projects.user_id`` is the only ownership authority. Legacy owner
+        envelopes are inspected only to fail closed on ADR-081 conflicts.
+        The operation never creates, edits, repairs, archives, or otherwise
+        mutates a Project.
+        """
+        self._validate_memory_id(memory_id)
+        self._validate_cas_token(expected_updated_at)
+        self._validate_project_id(project_id)
+
+        row = self._load_authorized_memory(memory_id)
+        self._require_fresh_token(row, expected_updated_at)
+
+        previous_project_id = row.project_id
+        previous_updated_at = row.updated_at
+        current_project = self._load_current_project(previous_project_id)
+        if current_project is not None:
+            self._require_conflict_free_project(current_project)
+
+        if project_id is not None and project_id != previous_project_id:
+            target_project = self._load_available_project(project_id)
+            self._require_conflict_free_project(target_project)
+
+        if previous_project_id == project_id:
+            item = self._readback(memory_id)
+            self._session.rollback()
+            return VaultMutationResult(
+                changed=False,
+                receipt_id=None,
+                previous_updated_at=previous_updated_at,
+                resulting_updated_at=previous_updated_at,
+                item=item,
+            )
+
+        try:
+            new_token = self._session.execute(
+                update(MemoryRecord)
+                .where(
+                    MemoryRecord.memory_id == memory_id,
+                    MemoryRecord.user_id == self._account,
+                    MemoryRecord.updated_at == expected_updated_at,
+                )
+                .values(
+                    project_id=project_id,
+                    updated_at=func.clock_timestamp(),
+                )
+                .returning(MemoryRecord.updated_at)
+            ).scalar_one()
+        except NoResultFound as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationConflict(
+                "memory item changed; expected_updated_at is stale"
+            ) from exc
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError("memory mutation failed") from exc
+
+        receipt = self._build_receipt(
+            memory_id=memory_id,
+            action=(
+                ACTION_SET_PROJECT_SCOPE
+                if project_id is not None
+                else ACTION_CLEAR_PROJECT_SCOPE
+            ),
+            field_name="project_id",
+            previous_value=previous_project_id,
+            new_value=project_id,
+            expected_updated_at=expected_updated_at,
+            resulting_updated_at=new_token,
+            reason=reason,
+            request_ref=request_ref,
+        )
+        self._session.add(receipt)
+
+        try:
+            self._session.flush()
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError(
+                "memory mutation transaction failed"
+            ) from exc
+
+        self._session.commit()
+
+        item = self._readback(memory_id)
+        if item.project_id != project_id:
+            raise MemoryVaultMutationError("canonical readback mismatch after mutation")
+        if item.updated_at != new_token:
+            raise MemoryVaultMutationError(
+                "canonical readback timestamp mismatch after mutation"
+            )
+
+        return VaultMutationResult(
+            changed=True,
+            receipt_id=receipt.provenance_id,
+            previous_updated_at=previous_updated_at,
+            resulting_updated_at=new_token,
+            item=item,
+        )
+
     # -- Shared mutation spine --------------------------------------------
 
     def _set_boolean_governance_state(
@@ -189,24 +315,8 @@ class MemoryVaultMutationService:
         self._validate_memory_id(memory_id)
         self._validate_cas_token(expected_updated_at)
 
-        row = self._session.execute(
-            select(MemoryRecord)
-            .where(
-                MemoryRecord.memory_id == memory_id,
-                MemoryRecord.user_id == self._account,
-            )
-            .with_for_update()
-        ).scalar_one_or_none()
-
-        if row is None:
-            self._session.rollback()
-            raise MemoryVaultMutationNotAvailable("memory item is not available")
-
-        if row.updated_at != expected_updated_at:
-            self._session.rollback()
-            raise MemoryVaultMutationConflict(
-                "memory item changed; expected_updated_at is stale"
-            )
+        row = self._load_authorized_memory(memory_id)
+        self._require_fresh_token(row, expected_updated_at)
 
         previous_value = bool(getattr(row, field_name))
         previous_updated_at = row.updated_at
@@ -312,8 +422,8 @@ class MemoryVaultMutationService:
         memory_id: str,
         action: str,
         field_name: str,
-        previous_value: bool,
-        new_value: bool,
+        previous_value: bool | int | None,
+        new_value: bool | int | None,
         expected_updated_at: datetime,
         resulting_updated_at: datetime,
         reason: str | None,
@@ -352,6 +462,68 @@ class MemoryVaultMutationService:
             },
         )
 
+    def _load_authorized_memory(self, memory_id: str) -> MemoryRecord:
+        row = self._session.execute(
+            select(MemoryRecord)
+            .where(
+                MemoryRecord.memory_id == memory_id,
+                MemoryRecord.user_id == self._account,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if row is None:
+            self._session.rollback()
+            raise MemoryVaultMutationNotAvailable("memory item is not available")
+        return row
+
+    def _require_fresh_token(
+        self,
+        row: MemoryRecord,
+        expected_updated_at: datetime,
+    ) -> None:
+        if row.updated_at != expected_updated_at:
+            self._session.rollback()
+            raise MemoryVaultMutationConflict(
+                "memory item changed; expected_updated_at is stale"
+            )
+
+    def _load_current_project(self, project_id: int | None) -> Project | None:
+        if project_id is None:
+            return None
+        project = self._session.execute(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.user_id == self._account,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if project is None:
+            self._session.rollback()
+            raise MemoryVaultMutationError("current Project authority is unavailable")
+        return project
+
+    def _load_available_project(self, project_id: int) -> Project:
+        project = self._session.execute(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.user_id == self._account,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if project is None:
+            self._session.rollback()
+            raise MemoryVaultProjectNotAvailable("Project is not available")
+        return project
+
+    def _require_conflict_free_project(self, project: Project) -> None:
+        if classify_project_ownership(project).has_authority_conflict:
+            self._session.rollback()
+            raise MemoryVaultProjectAuthorityConflict(
+                "Project ownership metadata conflicts with canonical authority."
+            )
+
     @staticmethod
     def _validate_memory_id(value: object) -> None:
         if not value or not isinstance(value, str) or not value.strip():
@@ -368,15 +540,28 @@ class MemoryVaultMutationService:
         if value.tzinfo is None or value.utcoffset() is None:
             raise MemoryVaultMutationError("expected_updated_at must be timezone-aware")
 
+    @staticmethod
+    def _validate_project_id(value: object) -> None:
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        ):
+            raise MemoryVaultMutationError(
+                "project_id must be a positive integer or null"
+            )
+
 
 __all__ = [
     "ACTION_PIN",
     "ACTION_UNPIN",
     "ACTION_HOLD",
     "ACTION_RELEASE_HOLD",
+    "ACTION_SET_PROJECT_SCOPE",
+    "ACTION_CLEAR_PROJECT_SCOPE",
     "MemoryVaultMutationConflict",
     "MemoryVaultMutationError",
     "MemoryVaultMutationNotAvailable",
+    "MemoryVaultProjectNotAvailable",
+    "MemoryVaultProjectAuthorityConflict",
     "MemoryVaultMutationService",
     "RECEIPT_SCHEMA",
     "VaultMutationResult",

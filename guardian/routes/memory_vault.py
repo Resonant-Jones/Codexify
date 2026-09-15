@@ -1,4 +1,4 @@
-"""Authenticated Memory Vault HTTP adapter (UMS-05B2 / UMS-05C2).
+"""Authenticated Memory Vault HTTP adapter (UMS-05B2 / UMS-05C2-C4).
 
 This module exposes the already-qualified Memory Vault read and
 pin/unpin mutation authorities over FastAPI:
@@ -7,6 +7,8 @@ pin/unpin mutation authorities over FastAPI:
     GET   /api/memory-vault/items/canonical/{memory_id}
     GET   /api/memory-vault/items/compatibility/{source_kind}/{source_id}
     PATCH /api/memory-vault/items/canonical/{memory_id}/pin
+    PATCH /api/memory-vault/items/canonical/{memory_id}/hold
+    PATCH /api/memory-vault/items/canonical/{memory_id}/project-scope
 
 It is an adapter only. It does not:
 
@@ -27,10 +29,10 @@ only.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Iterator, Literal
+from typing import Annotated, Any, Iterator, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from guardian.core.dependencies import (
     RequestUserScope,
@@ -47,6 +49,8 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
     MemoryVaultMutationService,
+    MemoryVaultProjectAuthorityConflict,
+    MemoryVaultProjectNotAvailable,
 )
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
@@ -90,6 +94,11 @@ _STABLE_ACCOUNT_REQUIRED_DETAIL = "Stable account identity required"
 _MUTATION_UNAVAILABLE_DETAIL = "Memory not available"
 _STALE_WRITE_DETAIL = "Memory changed since it was read"
 _MUTATION_INTEGRITY_DETAIL = "Memory mutation unavailable"
+_PROJECT_UNAVAILABLE_DETAIL = "Project not available"
+_PROJECT_AUTHORITY_CONFLICT_DETAIL = {
+    "code": MemoryVaultProjectAuthorityConflict.code,
+    "message": "Project ownership metadata conflicts with canonical authority.",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +207,12 @@ class VaultHoldRequest(_VaultMutationRequest):
     """Request body for canonical hold/release-hold mutation."""
 
     held: bool
+
+
+class VaultProjectScopeRequest(_VaultMutationRequest):
+    """Request body for explicit canonical Project-scope mutation."""
+
+    project_id: Annotated[int, Field(strict=True, gt=0)] | None
 
 
 class VaultMutationResponse(BaseModel):
@@ -561,6 +576,47 @@ def patch_canonical_vault_item_hold(
     )
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/project-scope",
+    response_model=VaultMutationResponse,
+)
+def patch_canonical_vault_item_project_scope(
+    memory_id: str,
+    body: VaultProjectScopeRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultMutationResponse:
+    """Set or explicitly clear canonical Project scope through the C4 service."""
+    try:
+        result = service.set_project_scope(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            project_id=body.project_id,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultProjectNotAvailable:
+        raise HTTPException(status_code=404, detail=_PROJECT_UNAVAILABLE_DETAIL)
+    except MemoryVaultProjectAuthorityConflict:
+        raise HTTPException(
+            status_code=409,
+            detail=_PROJECT_AUTHORITY_CONFLICT_DETAIL,
+        )
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except MemoryVaultMutationError:
+        raise HTTPException(status_code=409, detail=_MUTATION_INTEGRITY_DETAIL)
+
+    return VaultMutationResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -572,6 +628,7 @@ __all__ = [
     "VaultProvenanceResponse",
     "VaultPinRequest",
     "VaultHoldRequest",
+    "VaultProjectScopeRequest",
     "VaultMutationResponse",
     "MemoryCompatibilitySourceRefResponse",
 ]

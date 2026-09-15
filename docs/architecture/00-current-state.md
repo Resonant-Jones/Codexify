@@ -120,8 +120,9 @@ This file is authoritative for:
   UMS-05C1 PIN/UNPIN MUTATION SPINE: CLOSED
   UMS-05C2 VAULT PIN MUTATION API: CLOSED
   UMS-05C3 VAULT HOLD/RELEASE-HOLD MUTATION: CLOSED
-  UMS-05C4 PROJECT-SCOPE MUTATION: AUTHORIZED
-  UMS-05C5+: NOT AUTHORIZED
+  UMS-05C4 PROJECT-SCOPE MUTATION: CLOSED
+  UMS-05C5 PERSONA ATTRIBUTION MUTATION: AUTHORIZED
+  UMS-05C6+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -854,6 +855,34 @@ This file is authoritative for:
   UMS-05C3 is CLOSED; UMS-05C4 (Project-scope mutation) alone is
   AUTHORIZED; UMS-05C5+ and UMS-05D+ remain NOT AUTHORIZED. See the
   [UMS-05C3 hold mutation proof](./proofs/runtime/2026-09-15-ums05c3-vault-hold-mutation-proof.md).
+
+- **UMS-05C4 (Vault Project-scope mutation, just closed)**: the
+  qualified mutation spine now supports canonical
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/project-scope`,
+  exposing `MemoryVaultMutationService.set_project_scope`. Project scope
+  authority remains `memory_records.project_id`; canonical target Project
+  ownership is proven solely from `projects.user_id`; legacy description
+  ownership envelopes remain non-authoritative. Missing and foreign-account
+  target Projects share a single unavailable posture (404
+  `Project not available`); canonically account-owned Projects whose
+  legacy envelope conflicts with `projects.user_id` fail closed (409 with
+  the existing `project_ownership_authority_conflict` code). Project-scope
+  mutation shares the same record-level `memory_records.updated_at` CAS
+  with pin and hold; cross-action stale-write protection is proven in
+  both directions. Changed mutations append one existing non-authority
+  Vault provenance receipt using the frozen `set_project_scope` /
+  `clear_project_scope` action labels; receipt payloads carry only
+  authoritative Project ID transitions and never memory content, Project
+  description, or legacy owner metadata. `project_id=None` is an
+  explicit account-scope transition; missing `project_id` in the request
+  body is rejected with 422 and is not interpreted as a clear. No
+  Project row is mutated, repaired, archived, or restored; no retrieval,
+  recall, ambient eligibility, pin, hold, Persona attribution, review, or
+  activation side effect is created. Memory Vault remains internal-only
+  and hidden from public OpenAPI; no frontend control exists. UMS-05C4
+  is CLOSED; UMS-05C5 (Persona attribution mutation) alone is
+  AUTHORIZED; UMS-05C6+, UMS-05D+, and UMS-06+ remain NOT AUTHORIZED.
+  See the [UMS-05C4 Project-scope mutation proof](./proofs/runtime/2026-09-15-ums05c4-vault-project-scope-mutation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
