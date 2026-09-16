@@ -490,7 +490,7 @@ describe("Guardian mobile composer single surface", () => {
     ).toBeNull();
   });
 
-  it("keeps landing Composer controls quiet until explicit disclosure and preserves that disclosure on pointer leave", () => {
+  it("keeps landing inference controls mounted but quiet until lower-edge hover", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn((query: string) => ({
@@ -520,33 +520,22 @@ describe("Guardian mobile composer single surface", () => {
 
     expect(screen.getByTestId("composer-textarea")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
-    expect(screen.queryByTestId("composer-landing-accessory-tray")).toBeNull();
+    const controls = screen.getByTestId("composer-landing-inference-controls");
+    expect(controls).toHaveAttribute("data-revealed", "false");
+    expect(controls).toHaveClass("opacity-0", "pointer-events-none");
     expect(screen.queryByTestId("composer-coding-loop-toggle")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
-
-    const toggle = screen.getByTestId("composer-landing-controls-toggle");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByTestId("composer-landing-accessory-tray")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-coding-loop-toggle")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open composer actions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Select project" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select project" })).toBeNull();
     expect(screen.getByRole("button", { name: "Select provider" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select model" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select inference mode" })).toBeInTheDocument();
 
-    fireEvent.pointerLeave(screen.getByTestId("composer-landing-hover-zone"));
-    expect(screen.getByTestId("composer-landing-accessory-tray")).toBeInTheDocument();
-
-    fireEvent.keyDown(screen.getByTestId("composer-landing-accessory-tray"), {
-      key: "Escape",
-    });
-    expect(screen.queryByTestId("composer-landing-accessory-tray")).toBeNull();
+    fireEvent.pointerEnter(screen.getByTestId("composer-landing-hover-zone"));
+    expect(controls).toHaveAttribute("data-revealed", "true");
+    expect(controls).toHaveClass("opacity-100", "pointer-events-auto");
   });
 
-  it("uses the bounded lower edge for desktop reveal while touch stays explicit", () => {
+  it("uses the bounded lower edge for desktop reveal while touch stays available", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn((query: string) => ({
@@ -560,9 +549,26 @@ describe("Guardian mobile composer single surface", () => {
     const desktop = render(
       <Composer onSend={vi.fn()} draftValue="" presentationMode="landing" />
     );
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "false"
+    );
     fireEvent.pointerEnter(screen.getByTestId("composer-landing-hover-zone"));
-    expect(screen.getByTestId("composer-landing-accessory-tray")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "true"
+    );
     desktop.unmount();
+
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
 
     render(
       <Composer
@@ -572,10 +578,10 @@ describe("Guardian mobile composer single surface", () => {
         compactMobile
       />
     );
-    fireEvent.pointerEnter(screen.getByTestId("composer-landing-hover-zone"));
-    expect(screen.queryByTestId("composer-landing-accessory-tray")).toBeNull();
-    fireEvent.click(screen.getByTestId("composer-landing-controls-toggle"));
-    expect(screen.getByTestId("composer-landing-accessory-tray")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "true"
+    );
     expect(document.querySelectorAll("[data-composer-root]")).toHaveLength(1);
   });
 
