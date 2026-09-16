@@ -29,3 +29,14 @@ measurement.
 - Secrets stay in the operator-selected env file.
 - The profile is candidate/load-observation infrastructure and does not widen
   `docs/architecture/00-current-state.md` release claims.
+
+## Amendment — live DeepSeek model roster (2026-09-15)
+
+The approved DeepSeek cloud lane remains unchanged, including the exact
+`deepseek` egress allowlist, per-thread selection boundary, and configured
+`deepseek-v4-flash` compatibility default. The model selector now discovers
+the authenticated DeepSeek `/models` inventory and exposes its chat-capable
+entries. If discovery is degraded, routing retains only the configured default
+as a bounded compatibility fallback. This amendment changes catalog/model
+selection authority only; it does not admit another provider or establish live
+provider execution or release support.

@@ -90,8 +90,9 @@ provider_contract:
   CODEXIFY_EGRESS_ALLOWLIST: deepseek
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
-  # DeepSeek model exposure is restricted by the static provider catalog to
-  # the configured DEEPSEEK_CHAT_MODEL, which defaults to deepseek-v4-flash.
+  # DeepSeek model exposure follows the authenticated provider /models
+  # inventory, with DEEPSEEK_CHAT_MODEL retained as a degraded-discovery
+  # compatibility fallback.
 criticality:
   tier0:
     services:

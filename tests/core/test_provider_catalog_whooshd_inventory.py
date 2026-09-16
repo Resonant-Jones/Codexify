@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import requests
+
 from guardian.core import llm_catalog
 from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
@@ -36,6 +38,30 @@ def _whooshd_inventory(url: str, *args, **kwargs) -> _Response:
             }
         )
     return _Response({}, status_code=404)
+
+
+def _deepseek_model_index(url: str, *args, **kwargs) -> _Response:
+    _ = args
+    assert url == "https://api.deepseek.com/v1/models"
+    assert (kwargs.get("headers") or {}).get("Authorization") == (
+        "Bearer test-deepseek-key"
+    )
+    assert kwargs.get("timeout") == 3.0
+    return _Response(
+        {
+            "object": "list",
+            "data": [
+                {"id": "deepseek-flash", "owned_by": "deepseek"},
+                {"id": "deepseek-v4-pro", "owned_by": "deepseek"},
+                {"id": "deepseek-chat", "owned_by": "deepseek"},
+            ],
+        }
+    )
+
+
+def _deepseek_model_index_timeout(url: str, *args, **kwargs) -> _Response:
+    _ = (url, args, kwargs)
+    raise requests.exceptions.Timeout("timed out")
 
 
 def _settings(**overrides) -> Settings:
@@ -125,10 +151,13 @@ def test_local_only_whooshd_mismatch_does_not_enable_cloud_fallback(
     assert local["truth"]["egress_allowed"] is True
 
 
-def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
+def test_deepseek_catalog_discovers_full_model_roster_when_cloud_policy_allows(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -148,15 +177,27 @@ def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
     assert deepseek["available"] is True
     assert deepseek["authorized"] is True
     assert [model["id"] for model in deepseek["models"]] == [
-        "deepseek-v4-flash"
+        "deepseek-flash",
+        "deepseek-v4-pro",
+        "deepseek-chat",
     ]
-    assert deepseek["models"][0]["displayName"] == "DeepSeek V4 Flash"
+    assert deepseek["model_index"] == {
+        "source": "live",
+        "state": "available",
+        "endpoint": "https://api.deepseek.com/v1/models",
+        "model_count": 3,
+        "utility_model_count": 0,
+        "total_model_count": 3,
+    }
     assert deepseek["truth"]["selectable"] is True
     assert deepseek["truth"]["egress_allowed"] is True
 
 
-def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
+def test_deepseek_catalog_rejects_model_outside_live_roster(monkeypatch) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -167,18 +208,21 @@ def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
 
     allowed, reason = validate_provider_model_selection(
         provider_id="deepseek",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-unknown",
         settings=settings,
     )
 
     assert allowed is False
     assert reason == (
-        "Requested model 'deepseek-v4-pro' is not available for provider 'deepseek'"
+        "Requested model 'deepseek-v4-unknown' is not available for provider 'deepseek'"
     )
 
 
-def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
+def test_deepseek_catalog_accepts_every_provider_advertised_model(monkeypatch) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -193,10 +237,37 @@ def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
         settings=settings,
     )
 
-    assert allowed is False
-    assert reason == (
-        "Requested model 'deepseek-chat' is not available for provider 'deepseek'"
+    assert reason is None
+    assert allowed is True
+
+
+def test_deepseek_catalog_keeps_configured_default_on_discovery_failure(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _deepseek_model_index_timeout,
     )
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    payload = build_llm_catalog(settings=settings, include_all=False)
+    deepseek = next(
+        provider
+        for provider in payload["providers"]
+        if provider["id"] == "deepseek"
+    )
+
+    assert deepseek["enabled"] is True
+    assert deepseek["models"][0]["id"] == "deepseek-v4-flash"
+    assert deepseek["model_index"]["source"] == "fallback"
+    assert deepseek["model_index"]["state"] == "degraded"
 
 
 def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(

@@ -231,6 +231,8 @@ def _provider_by_id(payload: dict, provider_id: str) -> dict:
 
 
 def _clear_extra_cloud_keys(monkeypatch) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_MODEL_DISCOVERY_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
@@ -268,6 +270,7 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "DEEPSEEK_API_KEY": settings.DEEPSEEK_API_KEY,
         "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
         "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
         "ALIBABA_MODEL": settings.ALIBABA_MODEL,
@@ -280,6 +283,7 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.OPENAI_API_KEY = None
         settings.GROQ_API_KEY = None
+        settings.DEEPSEEK_API_KEY = None
         settings.ALIBABA_API_KEY = None
         settings.ALIBABA_API_BASE = (
             "https://dashscope-us.aliyuncs.com/compatible-mode/v1"

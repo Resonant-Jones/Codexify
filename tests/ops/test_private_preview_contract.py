@@ -28,6 +28,8 @@ EXPECTED_ENV = {
     "LOCAL_PROVIDER_VENDOR": "whooshd",
     "LOCAL_CHAT_MODEL": "local-chat",
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+    "DEEPSEEK_MODEL_DISCOVERY_URL": "",
+    "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS": "3",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
 CHROMA_CONSUMERS = (

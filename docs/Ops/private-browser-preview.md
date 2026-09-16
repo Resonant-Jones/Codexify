@@ -3,7 +3,9 @@
 This is an opt-in friends-and-family demonstration lane, not a new supported
 public product surface. Its supported profile is
 `v1-whooshd-deepseek-web`: local Whoosh'd remains the default provider and
-DeepSeek V4 Flash is the only admitted cloud lane. The global beta posture
+DeepSeek is the only admitted cloud lane. The selector reads DeepSeek's live
+chat-model roster while the configured model remains the degraded-discovery
+fallback. The global beta posture
 remains local-first and local-only.
 
 ## Persona Profile route admission

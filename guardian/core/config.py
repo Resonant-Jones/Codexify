@@ -157,6 +157,19 @@ class Settings(BaseSettings):
         default=_DEFAULT_DEEPSEEK_BASE,
         description="Base URL for DeepSeek's OpenAI-compatible API endpoint.",
     )
+    DEEPSEEK_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for DeepSeek's live model index endpoint. "
+            "Defaults to deriving /models from DEEPSEEK_BASE_URL."
+        ),
+    )
+    DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for DeepSeek live model index discovery requests (seconds)."
+        ),
+    )
     DEEPSEEK_CHAT_MODEL: str | None = Field(
         default="deepseek-v4-flash",
         description="Default chat model for DeepSeek completions.",

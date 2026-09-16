@@ -12,9 +12,9 @@
 # ADR-052 only for the exact local-model pin and configuration authority).
 #
 # Per ADR-074, this profile owns the allowed/default provider posture. The
-# normal chat route is logical and Whoosh'd owns its physical mapping. An
-# operator may still supply an exact model selection, which remains subject to
-# fail-closed inventory validation.
+# normal chat route is logical and Whoosh'd owns its physical mapping. DeepSeek
+# model selection is backed by the provider's live /models inventory; an
+# operator-supplied exact model remains subject to fail-closed validation.
 #
 # Route posture: this canonical friends/family tester profile mounts the
 # existing Hosted Room owner/guest route families for private-preview
@@ -103,6 +103,9 @@ provider_contract:
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
   LOCAL_CHAT_MODEL: local-chat
+  # The configured default remains a compatibility fallback when live model
+  # discovery is temporarily unavailable. Successful discovery exposes the
+  # provider-advertised chat roster to the selector.
   DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
 criticality:
   tier0:
