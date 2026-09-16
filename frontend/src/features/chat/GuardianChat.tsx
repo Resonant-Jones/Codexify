@@ -938,6 +938,7 @@ export function GuardianChat({
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
+  presentationMode,
   bare = false,
   sessionTabs = [],
   activeSessionTabId = null,
@@ -985,6 +986,8 @@ export function GuardianChat({
   onArchiveThread?: (threadId: number) => Promise<void> | void;
   onSidebarToggle?: () => void;
   isSidebarVisible?: boolean;
+  /** Presentation is owned by the shell; standalone consumers retain legacy inference. */
+  presentationMode?: "landing" | "conversation";
   onBack?: () => void;
   bare?: boolean;
   sessionTabs?: SessionTab[];
@@ -2064,6 +2067,13 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  // GuardianChat owns thread mechanics. The shell owns the visual landing mode
+  // and passes it here; the fallback keeps isolated component consumers on the
+  // existing no-thread presentation contract.
+  const resolvedPresentationMode =
+    presentationMode ?? (effectiveThreadId == null ? "landing" : "conversation");
+  const isLandingPresentation =
+    resolvedPresentationMode === "landing" && effectiveThreadId == null;
   const {
     dispatchErrors: codingLoopDispatchErrors,
     registerAcceptedRun: registerCodingLoopRun,
@@ -4387,8 +4397,31 @@ export function GuardianChat({
         effectiveThreadId={effectiveThreadId}
       />
 
+      {/* Conversation remains flow-based; landing anchors the Composer in the
+          usable post-chrome region and positions the greeting independently. */}
+      <div
+        data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
+        className={
+          isLandingPresentation
+            ? "relative flex min-h-0 flex-1 items-center justify-center"
+            : "contents"
+        }
+      >
+        <div
+          className={
+            isLandingPresentation
+              ? "relative flex w-full flex-col items-center"
+              : "contents"
+          }
+        >
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div
+        className={
+          isLandingPresentation
+            ? "absolute bottom-full mb-[var(--shell-gap)] flex w-full shrink-0 flex-col items-center"
+            : "relative flex flex-1 min-h-0 flex-col overflow-hidden"
+        }
+      >
         {effectiveThreadId != null ? (
           <div
             data-testid="chat-message-region"
@@ -4432,29 +4465,36 @@ export function GuardianChat({
           </div>
         ) : (
           <div
-            className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
+            data-testid="guardian-prompt-first-surface"
+            className={`flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
             style={{ color: "var(--muted)" }}
           >
-            {preferredName
-              ? `Welcome back, ${preferredName}. Let’s get started.`
-              : "New thread ready. Start typing below."}
+            <h1 className="text-lg font-medium text-[color:var(--text)]">
+              What should we work on?
+            </h1>
           </div>
         )}
       </div>
 
       <div
         data-testid="composer-shell-positioner"
-        className="z-20 mt-2 flex w-full shrink-0 justify-center"
+        className={
+          isLandingPresentation
+            ? "z-20 flex w-full shrink-0 justify-center"
+            : "z-20 mt-2 flex w-full shrink-0 justify-center"
+        }
       >
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
-          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden`}
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border ${isLandingPresentation ? "shadow-xl" : "shadow-2xl"} backdrop-blur-xl flex flex-col overflow-hidden`}
           style={{
             ...mobileComposerShellMotionStyle,
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
-            background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+            background: isLandingPresentation
+              ? "color-mix(in oklab, var(--panel-bg) 72%, transparent)"
+              : "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
             minHeight: compactMobile
@@ -4477,6 +4517,9 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
               />
               <Composer
+                presentationMode={
+                  isLandingPresentation ? "landing" : "conversation"
+                }
                 onSend={handleSendMessage}
                 ensureThreadIdForAttachments={ensureThreadIdForAttachments}
                 prefill={externalPrefill ?? prefill}
@@ -4696,6 +4739,8 @@ export function GuardianChat({
               ) : null}
             </div>
           </div>
+        </div>
+      </div>
         </div>
       </div>
     </div>

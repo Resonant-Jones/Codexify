@@ -260,6 +260,7 @@ export function Composer({
   projectId,
   projectOptions = [],
   onProjectChange,
+  presentationMode = "conversation",
   compactMobile = false,
   mobileModelId,
   mobileModelLabel,
@@ -310,6 +311,7 @@ export function Composer({
   projectId?: number | string | null;
   projectOptions?: ComposerSelectOption[];
   onProjectChange?: (projectId: string) => void;
+  presentationMode?: "landing" | "conversation";
   documentTiles?: unknown[];
   onDocumentTileRemove?: (tile: unknown) => void;
   currentRequestState?: unknown;
@@ -357,6 +359,21 @@ export function Composer({
   const [executionMode, setExecutionMode] =
     useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
+  const [landingControlsFocused, setLandingControlsFocused] = useState(false);
+  const [landingSelectorOpen, setLandingSelectorOpen] = useState(false);
+  const landingControlsRef = useRef<HTMLDivElement | null>(null);
+  const [landingFinePointer, setLandingFinePointer] = useState(() =>
+    window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false
+  );
+  const [landingControlsHovered, setLandingControlsHovered] = useState(false);
+  const landingControlsDismissTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const isLandingPresentation = presentationMode === "landing";
+  const isLandingControlsOpen =
+    isLandingPresentation &&
+    (compactMobile || !landingFinePointer || landingControlsFocused ||
+      landingSelectorOpen || landingControlsHovered);
   const showComposerExpansionControl =
     !compactMobile && hasCollapsedOverflow;
   const isDesktopComposerExpanded =
@@ -402,6 +419,58 @@ export function Composer({
       }
     }
   }, [compactMobile, hasCollapsedOverflow, isComposerExpanded]);
+
+  useEffect(() => {
+    if (!isLandingPresentation) return;
+    const media = window.matchMedia?.("(hover: hover) and (pointer: fine)");
+    if (!media) return;
+    const update = () => {
+      setLandingFinePointer(media.matches);
+      setLandingControlsHovered(false);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [isLandingPresentation]);
+
+  useEffect(() => {
+    const controls = landingControlsRef.current;
+    if (!isLandingPresentation || !controls) return;
+    // ComposerSelectMenu owns its open state. Observe its public trigger state
+    // so portaled menus retain disclosure, including programmatic provider opens.
+    const update = () => {
+      const open = Boolean(controls.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'));
+      setLandingSelectorOpen(open);
+      if (!open) {
+        setLandingControlsFocused(controls.contains(document.activeElement));
+        // A portal can unmount under the pointer without emitting pointerleave.
+        setLandingControlsHovered(controls.matches(":hover"));
+      }
+    };
+    const observer = new MutationObserver(update);
+    observer.observe(controls, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
+    update();
+    return () => observer.disconnect();
+  }, [isLandingPresentation, compactMobile]);
+
+  useEffect(() => {
+    if (isLandingPresentation) return;
+    if (landingControlsDismissTimerRef.current) {
+      clearTimeout(landingControlsDismissTimerRef.current);
+      landingControlsDismissTimerRef.current = null;
+    }
+    setLandingControlsFocused(false);
+    setLandingSelectorOpen(false);
+    setLandingControlsHovered(false);
+  }, [isLandingPresentation]);
+
+  useEffect(() => {
+    return () => {
+      if (landingControlsDismissTimerRef.current) {
+        clearTimeout(landingControlsDismissTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const surface = composerSurfaceRef.current;
@@ -822,6 +891,26 @@ export function Composer({
     e.preventDefault();
   };
 
+  const clearLandingControlsDismissTimer = () => {
+    if (!landingControlsDismissTimerRef.current) return;
+    clearTimeout(landingControlsDismissTimerRef.current);
+    landingControlsDismissTimerRef.current = null;
+  };
+
+  const showLandingControlsForPointer = (event: React.PointerEvent) => {
+    if (compactMobile || !landingFinePointer || event.pointerType === "touch") return;
+    clearLandingControlsDismissTimer();
+    setLandingControlsHovered(true);
+  };
+
+  const scheduleLandingControlsPointerDismiss = () => {
+    clearLandingControlsDismissTimer();
+    landingControlsDismissTimerRef.current = setTimeout(() => {
+      landingControlsDismissTimerRef.current = null;
+      setLandingControlsHovered(false);
+    }, 120);
+  };
+
   const selectedProviderLabel =
     providerOptions.find((option) => option.value === activeProviderId)?.label ??
     null;
@@ -1099,7 +1188,9 @@ export function Composer({
     </div>
   );
 
-  const renderComposerActionMenu = () => (
+  const renderComposerActionMenu = ({
+    showModelMenu = compactMobile,
+  }: { showModelMenu?: boolean } = {}) => (
     <ComposerActionMenu
       disabled={draftControlsDisabled}
       depthMode={depthMode}
@@ -1124,7 +1215,7 @@ export function Composer({
       onVoiceTurn={onVoiceTurn}
       voiceTurnDisabled={voiceTurnDisabled}
       voiceTurnLabel={voiceTurnLabel}
-      showModelMenu={compactMobile}
+      showModelMenu={showModelMenu}
       modelId={mobileModelId}
       modelLabel={mobileModelLabel}
       modelOptions={mobileModelOptions}
@@ -1166,6 +1257,100 @@ export function Composer({
     </Button>
   );
 
+  const renderLandingInferenceControls = () => (
+    <div
+      ref={landingControlsRef}
+      data-testid="composer-landing-hover-zone"
+      className="relative w-full"
+      style={{ minWidth: 0, height: compactMobile ? 44 : 32 }}
+      onPointerEnter={showLandingControlsForPointer}
+      onPointerLeave={scheduleLandingControlsPointerDismiss}
+      onFocusCapture={() => setLandingControlsFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setLandingControlsFocused(false);
+        }
+      }}
+    >
+      <div
+        data-testid="composer-landing-inference-controls"
+        data-revealed={isLandingControlsOpen ? "true" : "false"}
+        style={{ inset: 0, minWidth: 0 }}
+        className={cn(
+          "absolute flex items-center justify-center gap-[12px] [&>[data-ddm-root]]:min-w-[0px] [&>[data-ddm-root]]:flex transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none motion-reduce:!transform-none",
+          isLandingControlsOpen
+            ? "[transform:translateY(0px)] opacity-100 pointer-events-auto"
+            : "[transform:translateY(8px)] opacity-0 pointer-events-none"
+        )}
+      >
+        <ComposerSelectMenu
+          ariaLabel="Select provider"
+          menuLabel="Provider"
+          valueLabel={providerLabel}
+          options={providerOptions}
+          selectedValue={activeProviderId}
+          openSignal={providerOpenSignal}
+          isPhoneShell={compactMobile}
+          disabled={draftControlsDisabled || providerOptions.length === 0}
+          onSelect={onProviderChange ?? (() => {})}
+        />
+        <ComposerSelectMenu
+          ariaLabel="Select model"
+          menuLabel="Model"
+          valueLabel={modelLabel}
+          options={modelOptions}
+          selectedValue={activeModelId}
+          isPhoneShell={compactMobile}
+          disabled={draftControlsDisabled || modelOptions.length === 0}
+          onSelect={onModelChange ?? (() => {})}
+        />
+        <ComposerSelectMenu
+          ariaLabel="Select inference mode"
+          menuLabel="Mode"
+          valueLabel={inferenceModeLabel}
+          options={inferenceModeOptions}
+          selectedValue={activeInferenceMode}
+          isPhoneShell={compactMobile}
+          disabled={
+            draftControlsDisabled || inferenceModeOptions.length === 0
+          }
+          onSelect={(nextMode) =>
+            onInferenceModeChange?.(nextMode as ComposerInferenceMode)
+          }
+        />
+      </div>
+    </div>
+  );
+
+  const renderLandingControlRow = () => (
+    <>
+      {compactMobile ? renderLandingInferenceControls() : null}
+      <div
+        data-testid="composer-landing-control-row"
+        className={cn(
+          CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+          compactMobile
+            ? "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
+            : "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+        )}
+      >
+        {renderComposerActionMenu({ showModelMenu: false })}
+        {compactMobile ? renderComposerTextarea() : renderLandingInferenceControls()}
+        <div
+          data-testid="composer-send-slot"
+          className={cn(
+            "flex shrink-0 items-center justify-center justify-self-end",
+            compactMobile ? "mr-[var(--composer-text-pad-x,14px)]" : "",
+            CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+          )}
+        >
+          {renderSendButton()}
+        </div>
+      </div>
+      <div aria-hidden="true" className="h-2 w-full shrink-0" />
+    </>
+  );
+
   return (
     <>
       {/* Status announcement */}
@@ -1178,6 +1363,7 @@ export function Composer({
         data-composer-root
         data-mobile-compact={compactMobile ? "true" : "false"}
         data-composer-expanded={isDesktopComposerExpanded ? "true" : "false"}
+        data-presentation-mode={presentationMode}
         className={cn(
           "flex w-full flex-col",
           compactMobile
@@ -1327,7 +1513,9 @@ export function Composer({
             }}
           />
 
-          {compactMobile ? (
+          {isLandingPresentation ? (
+            renderLandingControlRow()
+          ) : compactMobile ? (
             <div
               data-testid="composer-control-row"
               className={cn(

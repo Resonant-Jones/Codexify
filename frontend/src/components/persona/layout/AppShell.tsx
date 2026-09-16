@@ -1313,6 +1313,10 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const [view, setView] = useState<AppShellView>(() => {
     if (typeof window !== "undefined") {
+      if (window.location.pathname === "/") {
+        return "guardian";
+      }
+
       const routeView = resolveViewFromPathname(window.location.pathname);
       if (routeView) return routeView;
 
@@ -1324,6 +1328,13 @@ export default function AppShell({
 
     return "dashboard";
   });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian" || window.location.pathname !== "/") return;
+
+    window.history.replaceState({}, "", "/chat");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(

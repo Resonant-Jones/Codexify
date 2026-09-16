@@ -35,6 +35,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   default: apiMocks,
+  buildChatThreadsPath: () => "/api/chat/threads",
 }));
 
 vi.mock("@/features/chat/GuardianChat", () => ({
@@ -487,6 +488,122 @@ describe("Guardian mobile composer single surface", () => {
     expect(
       screen.queryByRole("button", { name: "Select retrieval source" })
     ).toBeNull();
+  });
+
+  it("keeps landing inference controls mounted but quiet until lower-edge hover", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query.includes("hover") && query.includes("pointer: fine"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftValue=""
+        presentationMode="landing"
+        activeProviderId="local"
+        providerOptions={[{ value: "local", label: "Local" }]}
+        activeModelId="guardian-model"
+        modelOptions={[{ value: "guardian-model", label: "Guardian model" }]}
+        inferenceModeOptions={[{ value: "auto", label: "Auto" }]}
+        projectId="7"
+        projectOptions={[{ value: "7", label: "Canonical project" }]}
+        onProjectChange={vi.fn()}
+        sourceOptions={[{ value: "project", label: "Project" }]}
+      />
+    );
+
+    expect(screen.getByTestId("composer-textarea")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    const controls = screen.getByTestId("composer-landing-inference-controls");
+    expect(controls).toHaveAttribute("data-revealed", "false");
+    expect(controls).toHaveClass("opacity-0", "pointer-events-none");
+    expect(screen.queryByTestId("composer-coding-loop-toggle")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open composer actions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select project" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Select provider" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select model" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select inference mode" })).toBeInTheDocument();
+
+    fireEvent.pointerEnter(screen.getByTestId("composer-landing-hover-zone"));
+    expect(controls).toHaveAttribute("data-revealed", "true");
+    expect(controls).toHaveClass("opacity-100", "pointer-events-auto");
+  });
+
+  it("uses the bounded lower edge for desktop reveal while touch stays available", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query.includes("hover") && query.includes("pointer: fine"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    const desktop = render(
+      <Composer onSend={vi.fn()} draftValue="" presentationMode="landing" />
+    );
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "false"
+    );
+    fireEvent.pointerEnter(screen.getByTestId("composer-landing-hover-zone"));
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "true"
+    );
+    desktop.unmount();
+
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftValue=""
+        presentationMode="landing"
+        compactMobile
+      />
+    );
+    expect(screen.getByTestId("composer-landing-inference-controls")).toHaveAttribute(
+      "data-revealed",
+      "true"
+    );
+    expect(document.querySelectorAll("[data-composer-root]")).toHaveLength(1);
+  });
+
+  it("retains the existing control strip in conversation presentation", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftValue=""
+        presentationMode="conversation"
+        activeProviderId="local"
+        providerOptions={[{ value: "local", label: "Local" }]}
+        activeModelId="guardian-model"
+        modelOptions={[{ value: "guardian-model", label: "Guardian model" }]}
+        inferenceModeOptions={[{ value: "auto", label: "Auto" }]}
+      />
+    );
+
+    expect(screen.getByTestId("composer-control-row")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-coding-loop-toggle")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open composer actions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select provider" })).toBeInTheDocument();
+    expect(screen.queryByTestId("composer-landing-controls-toggle")).toBeNull();
   });
 
   it("clears draft on successful send and preserves on failure", async () => {
