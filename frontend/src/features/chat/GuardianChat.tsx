@@ -938,6 +938,7 @@ export function GuardianChat({
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
+  sidebarRevealAttention = false,
   presentationMode,
   bare = false,
   sessionTabs = [],
@@ -986,6 +987,7 @@ export function GuardianChat({
   onArchiveThread?: (threadId: number) => Promise<void> | void;
   onSidebarToggle?: () => void;
   isSidebarVisible?: boolean;
+  sidebarRevealAttention?: boolean;
   /** Presentation is owned by the shell; standalone consumers retain legacy inference. */
   presentationMode?: "landing" | "conversation";
   onBack?: () => void;
@@ -4241,10 +4243,22 @@ export function GuardianChat({
           className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
           >
           <div className="flex items-center gap-2 shrink-0">
+            <style>{`
+              @keyframes guardian-sidebar-glint {
+                0%, 100% { color: var(--muted); }
+                50% { color: var(--text); }
+              }
+              @media (prefers-reduced-motion: no-preference) {
+                .guardian-sidebar-reveal[data-sidebar-attention="intro"] svg {
+                  animation: guardian-sidebar-glint 700ms ease-in-out 2;
+                }
+              }
+            `}</style>
             {onSidebarToggle && (
               <button
                 type="button"
-                className="icon-inline"
+                className="icon-inline guardian-sidebar-reveal"
+                data-sidebar-attention={sidebarRevealAttention && !isSidebarVisible ? "intro" : undefined}
                 aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
                 onClick={onSidebarToggle}
                 disabled={!onSidebarToggle}

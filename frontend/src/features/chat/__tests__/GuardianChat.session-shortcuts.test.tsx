@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat from "@/features/chat/GuardianChat";
 import api from "@/lib/api";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/api")>(),
   default: {
     get: vi.fn(),
     post: vi.fn(),
@@ -74,8 +75,9 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  // Match the hook's stable snapshot/callback identities across presentation renders.
+  const snapshot = {
     messages: [],
     loading: false,
     error: null,
@@ -99,15 +101,14 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
-  }),
-}));
+  };
+  return { default: () => snapshot };
+});
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
-    subscribe: () => () => {},
-  }),
-}));
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = { subscribe: () => () => {} };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),
@@ -387,6 +388,32 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
 
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(1, "tab-2");
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(2, "tab-2");
+  });
+
+  it("adds only the explicit finite, reduced-motion-safe sidebar hint", async () => {
+    const onSidebarToggle = vi.fn();
+    const props = {
+      activeThread: { id: "42", title: "Active" } as any,
+      isSidebarVisible: false, sidebarRevealAttention: true, onSidebarToggle,
+    };
+    const view = renderShortcutChat(props);
+    const reveal = screen.getByRole("button", { name: "Show sidebar" });
+    expect(reveal).toHaveAttribute("data-sidebar-attention", "intro");
+    const style = view.container.querySelector("style")?.textContent;
+    expect(style).toContain("prefers-reduced-motion: no-preference");
+    expect(style).toContain("guardian-sidebar-glint 700ms ease-in-out 2");
+    expect(style).not.toContain("infinite");
+    view.rerender(<GuardianChat guardianName="Guardian" userName="tester" onSendMessage={vi.fn().mockResolvedValue(undefined)} {...props} />);
+    expect(screen.getByRole("button", { name: "Show sidebar" })).toBe(reveal);
+    await userEvent.setup().click(reveal);
+    expect(onSidebarToggle).toHaveBeenCalledTimes(1);
+    view.rerender(<GuardianChat guardianName="Guardian" userName="tester" onSendMessage={vi.fn().mockResolvedValue(undefined)} {...props} sidebarRevealAttention={false} />);
+    expect(reveal).not.toHaveAttribute("data-sidebar-attention");
+  });
+
+  it("leaves an ordinarily hidden sidebar reveal unanimated", () => {
+    renderShortcutChat({ isSidebarVisible: false, onSidebarToggle: vi.fn() });
+    expect(screen.getByRole("button", { name: "Show sidebar" })).not.toHaveAttribute("data-sidebar-attention");
   });
 
   it("renders the prompt-first state with the shared Composer and no transcript", () => {
