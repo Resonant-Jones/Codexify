@@ -36,6 +36,7 @@ type ComposerSelectMenuProps = {
   valueLabel: string;
   options: ComposerSelectOption[];
   isPhoneShell?: boolean;
+  triggerVariant?: "bare" | "chip";
   selectedValue?: string | null;
   disabled?: boolean;
   emptyLabel?: string;
@@ -55,6 +56,7 @@ export function ComposerSelectMenu({
   valueLabel,
   options,
   isPhoneShell = false,
+  triggerVariant = "bare",
   selectedValue,
   disabled = false,
   emptyLabel = "No options available.",
@@ -215,9 +217,16 @@ export function ComposerSelectMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-none border-0 bg-transparent px-0 py-0 text-[12px] transition-colors",
+              "inline-flex h-8 min-w-0 items-center gap-1.5 text-[12px] transition-colors",
+              triggerVariant === "chip"
+                ? "rounded-[var(--radius-micro)] border bg-[var(--chip-bg)] px-2.5 py-0 hover:bg-[color-mix(in_oklab,var(--chip-bg)_78%,var(--text)_22%)]"
+                : "rounded-none border-0 bg-transparent px-0 py-0",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
-              disabled ? "cursor-not-allowed opacity-45" : "opacity-100 hover:opacity-80",
+              disabled
+                ? "cursor-not-allowed opacity-45"
+                : triggerVariant === "chip"
+                  ? "opacity-100"
+                  : "opacity-100 hover:opacity-80",
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell),
@@ -228,10 +237,15 @@ export function ComposerSelectMenu({
               color: isPhoneShell
                 ? "color-mix(in oklab, var(--text) 86%, var(--muted) 14%)"
                 : "var(--text)",
+              borderColor:
+                triggerVariant === "chip" ? "var(--panel-border)" : undefined,
+              background:
+                triggerVariant === "chip" ? "var(--chip-bg)" : undefined,
               height: "var(--composer-control-size, 2rem)",
             },
           })}
           aria-label={ariaLabel}
+          data-composer-select-trigger-variant={triggerVariant}
           disabled={disabled}
         >
           <span className="truncate">{valueLabel}</span>

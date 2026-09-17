@@ -4397,8 +4397,8 @@ export function GuardianChat({
         effectiveThreadId={effectiveThreadId}
       />
 
-      {/* Conversation remains flow-based; landing anchors the Composer in the
-          usable post-chrome region and positions the greeting independently. */}
+      {/* Conversation remains flow-based; landing keeps the greeting and Composer
+          together as one centered prompt-first unit. */}
       <div
         data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
         className={
@@ -4408,17 +4408,23 @@ export function GuardianChat({
         }
       >
         <div
+          data-testid={isLandingPresentation ? "guardian-landing-unit" : undefined}
           className={
             isLandingPresentation
-              ? "relative flex w-full flex-col items-center"
+              ? `relative mx-auto flex w-full flex-col items-stretch gap-[var(--shell-gap)] ${CHAT_LANE_MAX_WIDTH_CLASS}`
               : "contents"
+          }
+          style={
+            isLandingPresentation
+              ? { maxWidth: CHAT_LANE_MAX_WIDTH }
+              : undefined
           }
         >
       {/* Messages region - Flex 1, scrolls independently */}
       <div
         className={
           isLandingPresentation
-            ? "absolute bottom-full mb-[var(--shell-gap)] flex w-full shrink-0 flex-col items-center"
+            ? "relative flex w-full shrink-0 flex-col items-start"
             : "relative flex flex-1 min-h-0 flex-col overflow-hidden"
         }
       >
@@ -4466,7 +4472,7 @@ export function GuardianChat({
         ) : (
           <div
             data-testid="guardian-prompt-first-surface"
-            className={`flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
+            className="flex w-full flex-col items-start justify-end px-[var(--card-pad)] text-left"
             style={{ color: "var(--muted)" }}
           >
             <h1 className="text-lg font-medium text-[color:var(--text)]">

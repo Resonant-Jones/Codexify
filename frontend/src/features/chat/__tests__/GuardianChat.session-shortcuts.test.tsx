@@ -392,11 +392,20 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
   it("renders the prompt-first state with the shared Composer and no transcript", () => {
     renderShortcutChat();
 
-    expect(screen.getByTestId("guardian-prompt-first-surface")).toHaveTextContent(
+    const landingUnit = screen.getByTestId("guardian-landing-unit");
+    const greeting = screen.getByTestId("guardian-prompt-first-surface");
+    const composer = screen.getByTestId("composer-stub");
+
+    expect(greeting).toHaveTextContent(
       "What should we work on?"
     );
-    expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-stub")).toHaveAttribute(
+    expect(landingUnit).toContainElement(greeting);
+    expect(landingUnit).toContainElement(composer);
+    expect(greeting.compareDocumentPosition(composer)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(composer).toBeInTheDocument();
+    expect(composer).toHaveAttribute(
       "data-presentation-mode",
       "landing"
     );

@@ -1261,7 +1261,7 @@ export function Composer({
     <div
       ref={landingControlsRef}
       data-testid="composer-landing-hover-zone"
-      className="relative w-full"
+      className={cn("relative min-w-0", compactMobile ? "w-full" : "flex-1")}
       style={{ minWidth: 0, height: compactMobile ? 44 : 32 }}
       onPointerEnter={showLandingControlsForPointer}
       onPointerLeave={scheduleLandingControlsPointerDismiss}
@@ -1277,7 +1277,8 @@ export function Composer({
         data-revealed={isLandingControlsOpen ? "true" : "false"}
         style={{ inset: 0, minWidth: 0 }}
         className={cn(
-          "absolute flex items-center justify-center gap-[12px] [&>[data-ddm-root]]:min-w-[0px] [&>[data-ddm-root]]:flex transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none motion-reduce:!transform-none",
+          "absolute flex items-center gap-[12px] [&>[data-ddm-root]]:min-w-[0px] [&>[data-ddm-root]]:flex transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none motion-reduce:!transform-none",
+          compactMobile ? "justify-center" : "justify-start",
           isLandingControlsOpen
             ? "[transform:translateY(0px)] opacity-100 pointer-events-auto"
             : "[transform:translateY(8px)] opacity-0 pointer-events-none"
@@ -1291,6 +1292,7 @@ export function Composer({
           selectedValue={activeProviderId}
           openSignal={providerOpenSignal}
           isPhoneShell={compactMobile}
+          triggerVariant={compactMobile ? "bare" : "chip"}
           disabled={draftControlsDisabled || providerOptions.length === 0}
           onSelect={onProviderChange ?? (() => {})}
         />
@@ -1301,6 +1303,7 @@ export function Composer({
           options={modelOptions}
           selectedValue={activeModelId}
           isPhoneShell={compactMobile}
+          triggerVariant={compactMobile ? "bare" : "chip"}
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
@@ -1311,6 +1314,7 @@ export function Composer({
           options={inferenceModeOptions}
           selectedValue={activeInferenceMode}
           isPhoneShell={compactMobile}
+          triggerVariant={compactMobile ? "bare" : "chip"}
           disabled={
             draftControlsDisabled || inferenceModeOptions.length === 0
           }
@@ -1331,11 +1335,23 @@ export function Composer({
           CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
           compactMobile
             ? "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
-            : "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+            : "flex w-full min-w-0 items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
         )}
       >
-        {renderComposerActionMenu({ showModelMenu: false })}
-        {compactMobile ? renderComposerTextarea() : renderLandingInferenceControls()}
+        {compactMobile ? (
+          <>
+            {renderComposerActionMenu({ showModelMenu: false })}
+            {renderComposerTextarea()}
+          </>
+        ) : (
+          <div
+            data-testid="composer-landing-control-cluster"
+            className="flex min-w-0 flex-1 items-center gap-3"
+          >
+            {renderComposerActionMenu({ showModelMenu: false })}
+            {renderLandingInferenceControls()}
+          </div>
+        )}
         <div
           data-testid="composer-send-slot"
           className={cn(
