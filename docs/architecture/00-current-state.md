@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-09-16
+2026-09-17
 
 ## Interpretation rule
 
@@ -18,13 +18,13 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated friends-and-family private-preview lane. Recent provider/configuration work is merged on local `main`, but no new live supported-Compose closure, provider execution proof, or wider Beta claim was established. Local `main` is seven commits ahead of its local `origin/main` ref; publication alignment remains a release gate.
+`main` remains in local-first Beta hardening with a separately gated friends-and-family private-preview lane. Recent mainline work is Guardian landing/chat/composer presentation and interaction refinement with focused frontend tests; it does not establish live supported-Compose closure, provider execution, or a wider Beta claim. Local `main` is two commits ahead of its local `origin/main` ref, so publication alignment remains a separate release gate.
 
 ## What changed recently
 
-- Whoosh'd now owns the physical local-model mapping behind the logical `local-chat` route; exact operator overrides still fail closed when absent from live inventory.
-- Private Preview now discovers DeepSeek's authenticated chat-capable model roster, with `deepseek-flash` as the bounded degraded-discovery fallback; focused contract/test coverage is merged.
-- The 2026-09-16 mainline accounting log records no new implementation or runtime qualification. Removal of a superseded log and media artifacts is documentary/repository bookkeeping only.
+- Mainline merged Guardian chat/sidebar/composer interaction refinements and prompt-first landing/composer layout changes with focused frontend test coverage.
+- The 2026-09-17 mainline accounting log records no same-day implementation or runtime qualification; the release boundary did not widen.
+- Local `main` is two commits ahead of `origin/main`; no push or remote reconciliation is part of this audit.
 
 ## Current supported reality
 
@@ -33,15 +33,17 @@ This file is authoritative for:
 - The local profile requires live Whoosh'd inventory for physical model availability. The tracked `local-chat` value is a logical route, not model-runtime proof.
 - Private Preview is an opt-in tester lane: Whoosh'd remains the default, DeepSeek is the only admitted cloud lane, and the live roster/fallback behavior does not make cloud inference public Beta support.
 - Main contains bounded proof for selected migration/recovery, Chroma topology, ingress, Persona, sharing, and UMS-04 export/restore surfaces; those proofs do not establish a running release path.
+- Guardian landing/chat/composer refinements are merged with focused frontend tests; they do not change the supported install path or Beta boundary.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
+- Do not treat merged landing/composer UI changes or focused frontend tests as authenticated browser completion, provider execution, persistence, or release proof.
 - Do not treat logical `local-chat`, DeepSeek roster discovery, focused tests, or provider catalog output as live provider execution or persistence proof.
 - Do not treat the private-preview migration/recovery and Chroma topology evidence as application startup, retrieval, authenticated browser, isolation, canary, or release proof; the matching Persona application remains blocked.
 - Do not treat merged ADR-087 deadline snapshots and lock renewal as end-to-end provider/tool cancellation, graceful shutdown, finite drain, or cleanup proof.
 - Do not promote CE-L1, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or other local-only/unmerged work into the release promise without its named proof.
-- Do not infer publication from another checkout, dirty working-tree changes, local-only artifacts, planning language, or the seven-commit local-main publication gap.
+- Do not infer publication from another checkout, dirty working-tree changes, local-only artifacts, planning language, or the two-commit local-main publication gap.
 
 ## Active blockers
 
