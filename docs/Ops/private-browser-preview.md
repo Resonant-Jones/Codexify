@@ -97,14 +97,57 @@ CODEXIFY_EGRESS_ALLOWLIST=deepseek
 These values belong only to this named preview lane. Do not copy them into
 `v1-local-core-web-mcp`.
 
-Provision each allowlisted account. The password is read interactively:
+For new-human onboarding, first authorize the recipient in the existing
+private-preview access configuration. Then issue a one-time ADR-088 activation
+URL from the running backend:
 
 ```bash
-docker compose --env-file .env.private-preview \
+docker compose -p codexify_private_preview \
+  --env-file .env.private-preview \
   -f docker-compose.yml -f docker-compose.private-preview.yml \
-  exec backend python -m guardian.cli.private_preview_provision \
-  --email guest@example.com
+  exec backend python -m guardian.cli.private_preview_account_activation \
+  issue \
+  --email guest@example.com \
+  --actor-user-id operator@example.com \
+  --base-url https://preview.codexify.space
 ```
+
+The command accepts only the canonical private-preview posture. It resolves
+the recipient's role from `CODEXIFY_PREVIEW_ADMIN_EMAILS` and
+`CODEXIFY_PREVIEW_APPROVED_EMAILS`; callers cannot supply or override the role.
+Deliver the single emitted activation URL out of band. The recipient chooses
+their password on the activation page, Guardian creates the canonical `User`
+on successful redemption, and the recipient then logs in normally.
+
+The onboarding authority flow is:
+
+```text
+operator authorizes recipient in private-preview access configuration
+→ operator issues ADR-088 activation URL
+→ recipient chooses password
+→ canonical User created on redemption
+→ recipient logs in normally
+```
+
+To revoke an unconsumed activation, use its durable activation ID:
+
+```bash
+docker compose -p codexify_private_preview \
+  --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  exec backend python -m guardian.cli.private_preview_account_activation \
+  revoke \
+  --activation-id ACTIVATION_ID \
+  --actor-user-id operator@example.com
+```
+
+`python -m guardian.cli.private_preview_provision --email <email>` remains the
+legacy operator credential-create/reset path. It reads the password
+interactively and is not the preferred workflow for onboarding a new person.
+
+Repository and focused-test qualification cover only the entrypoint and its
+authority boundary. Live private-preview migration, disposable activation,
+redemption, replay, and recipient login remain a separate operator proof.
 
 ## Render, start, and inspect
 
