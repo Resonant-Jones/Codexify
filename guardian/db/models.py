@@ -152,6 +152,71 @@ class User(Base):
     )
 
 
+class AccountActivationCapability(Base):
+    """Recipient-bound one-time capability for canonical account creation."""
+
+    __tablename__ = "account_activation_capabilities"
+
+    activation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    intended_role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    resulting_user_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "token_digest",
+            name="uq_account_activation_capabilities_token_digest",
+        ),
+        CheckConstraint(
+            "intended_role IN ('admin', 'guest')",
+            name="account_activation_capabilities_role_check",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="account_activation_capabilities_expiry_check",
+        ),
+        CheckConstraint(
+            "((consumed_at IS NULL AND resulting_user_id IS NULL) OR "
+            "(consumed_at IS NOT NULL AND resulting_user_id IS NOT NULL))",
+            name="account_activation_capabilities_consumption_check",
+        ),
+        CheckConstraint(
+            "NOT (consumed_at IS NOT NULL AND revoked_at IS NOT NULL)",
+            name="account_activation_capabilities_terminal_state_check",
+        ),
+        Index(
+            "ix_account_activation_capabilities_recipient_lifecycle",
+            "recipient_email",
+            "consumed_at",
+            "revoked_at",
+            "expires_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # User Profiles
 # =========================
