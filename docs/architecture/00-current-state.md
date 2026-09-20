@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-09-19
+2026-09-20
 
 ## Interpretation rule
 
@@ -18,14 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated friends-and-family private-preview lane. Mainline has merged Guardian landing/chat/composer refinements and accepted the ADR-088 account-activation boundary, but no fresh supported-Compose or runtime qualification has widened the release promise.
+`main` remains in local-first Beta hardening with a separately gated friends-and-family private-preview lane. Mainline now contains the ADR-088 account-activation implementation and preview admission, but live activation proof and fresh supported-Compose qualification have not widened the release promise.
 
 ## What changed recently
 
-- Mainline merged Guardian landing, sidebar, composer, and session-continuity refinements with focused frontend test coverage.
-- Mainline accepted ADR-088 and added account-activation terrain analysis; this establishes a design boundary, not shipped activation support.
-- The 2026-09-17 through 2026-09-19 mainline logs record no additional implementation or runtime qualification.
-- Local `main` is eleven commits ahead of `origin/main`; no remote publication or reconciliation is evidence of release readiness.
+- Mainline merged Guardian landing, sidebar, composer, and session-continuity refinements with focused frontend coverage.
+- Mainline merged one-time, recipient-bound account activation: Guardian service/routes, migration, operator CLIs, activation page, and focused tests.
+- Private Preview now admits the activation path under its canonical profile; the operator authority and role boundary remain explicit.
+- Current-tip focused backend activation tests pass, and the activation-page tests pass; no live preview activation or recipient-login proof was established.
+- The 2026-09-20 mainline log records no same-day implementation or runtime qualification.
 
 ## Current supported reality
 
@@ -34,13 +35,13 @@ This file is authoritative for:
 - The local profile requires live Whoosh'd inventory for physical model availability. `local-chat` is a logical route, not model-runtime proof.
 - Private Preview is an opt-in tester lane: Whoosh'd remains the default, DeepSeek is the only admitted cloud lane, and roster/fallback behavior does not make cloud inference public Beta support.
 - Main contains bounded proof for selected migration/recovery, Chroma topology, ingress, Persona, sharing, and UMS-04 export/restore surfaces; these do not establish a running release path.
-- Guardian UI refinements and the ADR-088 contract are on main; account-activation implementation and qualification are not part of supported reality.
+- Account activation is merged and admitted only as a gated private-preview/tester capability; its repository-level tests do not prove a live preview onboarding path.
 
 ## Not yet true / do not assume
 
 - Do not assume current-tip Compose health, model inventory, terminal chat, durable assistant readback, retrieval, queue/worker execution, locks, terminal events, or recovery closure.
 - Do not treat merged UI changes or focused frontend tests as authenticated browser completion, provider execution, persistence, or release proof.
-- Do not treat the ADR-088 contract, dirty-checkout activation code, or focused activation proof as a live tester-account path, replay proof, or release support.
+- Do not treat the ADR-088 implementation, CLIs, or activation-page tests as live migration, disposable issuance/redemption, replay rejection, or recipient-login proof.
 - Do not treat logical `local-chat`, DeepSeek roster discovery, focused tests, or provider catalog output as live provider execution or persistence proof.
 - Do not treat private-preview migration/recovery and Chroma topology evidence as application startup, isolation, canary, or release proof.
 - Do not promote CE-L1, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or other local-only/unmerged work into the release promise.
@@ -49,9 +50,8 @@ This file is authoritative for:
 
 - Fresh current-tip supported-Compose proof is missing across health, model inventory, chat, persistence/readback, retrieval, queue/worker, locks, and events.
 - Tester bind-readiness repair and fresh isolated runtime proof remain open; historical diagnosis is static evidence only.
-- Private Preview remains blocked on Chroma/application startup, provider/persistence/observability/isolation, and approved non-admin canary proof.
+- Private Preview remains blocked on Chroma/application startup, provider/persistence/observability/isolation, live activation/replay/login, and approved non-admin canary proof.
 - ADR-087 enforcement and runtime proof remain open for provider/worker cleanup, PostgreSQL persistence, locks, late results, and finite graceful drain.
-- Account activation lacks merged implementation plus frontend, auth-regression, security, disposable-runtime, live-profile, and real-recipient proof.
 - CE-L1, browser/import, connector, Watchdog, retention, hosted-sandbox, and local-main publication alignment gates remain open or bounded.
 
 ## This week's priorities
@@ -59,8 +59,8 @@ This file is authoritative for:
 1. Run the canonical current-tip Compose proof bundle, including Whoosh'd inventory, chat, persistence/readback, retrieval, queue/worker, locks, and events.
 2. Land and qualify the fail-closed Tester bind-readiness predicate on a fresh isolated runtime.
 3. Finish ADR-087 enforcement and prove finite drain, graceful stop, late-result handling, and durable terminal truth.
-4. Resume Private Preview at Chroma/application, provider/persistence/isolation, authenticated browser, and canary gates.
-5. Keep ADR-088 activation out of support claims until its implementation lands on `main` and completes its named proof lane; then requalify CE-L1, connectors, Watchdog, retention, hosted sandbox, and publication alignment.
+4. Qualify Private Preview activation end to end, then resume provider/persistence/isolation, authenticated browser, and canary gates.
+5. Reconcile the intended publication baseline before making release claims; then requalify CE-L1, connectors, Watchdog, retention, and hosted sandbox.
 
 ## Release definition right now
 
@@ -68,7 +68,7 @@ This file is authoritative for:
 - [x] Internal, bounded, qualification-pending, and Out-of-Beta surfaces remain distinct from Beta Supported claims.
 - [ ] Current-tip Compose proves healthy startup, live model inventory, terminal chat, durable readback, retrieval, and event delivery.
 - [ ] Queue/worker, deadline, graceful-stop, lock, migration, recovery, browser, and account-import claimed-path gates are green.
-- [ ] Preview/provider lanes have current-main evidence for live execution, durable readback, isolation, and recovery/canary behavior where applicable.
+- [ ] Preview activation and provider lanes have current-main evidence for live execution, durable readback, isolation, recovery, and canary behavior where applicable.
 - [ ] The release candidate is reconciled to the intended publication baseline.
 
 ## How to read the rest of the KB
