@@ -35,6 +35,11 @@ x-whooshd-provider: &whooshd_provider
   CODEXIFY_EGRESS_ALLOWLIST: ""
   CODEXIFY_LOCAL_ONLY_MODE: "true"
   CODEXIFY_SUPPORTED_PROFILE: "v1-local-core-web-mcp"
+  OPENAI_API_KEY: ""
+  GROQ_API_KEY: ""
+  DEEPSEEK_API_KEY: ""
+  ALIBABA_API_KEY: ""
+  MINIMAX_API_KEY: ""
 
 x-whooshd-embed-provider: &whooshd_embed_provider
   LLM_PROVIDER: "local"
@@ -44,13 +49,20 @@ x-whooshd-embed-provider: &whooshd_embed_provider
   ALLOW_CLOUD_PROVIDERS: "false"
   CODEXIFY_EGRESS_ALLOWLIST: ""
   CODEXIFY_LOCAL_ONLY_MODE: "true"
+  OPENAI_API_KEY: ""
+  GROQ_API_KEY: ""
+  DEEPSEEK_API_KEY: ""
+  ALIBABA_API_KEY: ""
+  MINIMAX_API_KEY: ""
 
 x-whooshd-models: &whooshd_models
-  # Whoosh'd resolves the logical route to its operator-selected physical model.
-  LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
-  LOCAL_LLM_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
-  LLM_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
-  DEFAULT_LOCAL_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+  # The supported smoke path always requests the stable logical route.
+  # Whoosh'd resolves it to the operator-selected physical model; ambient
+  # physical-model values must not shadow this supported-profile authority.
+  LOCAL_CHAT_MODEL: "local-chat"
+  LOCAL_LLM_MODEL: "local-chat"
+  LLM_MODEL: "local-chat"
+  DEFAULT_LOCAL_MODEL: "local-chat"
   LOCAL_VISION_MODEL: "${LOCAL_VISION_MODEL:-}"
   LOCAL_GGUF_MODEL: "${LOCAL_GGUF_MODEL:-}"
   LLM_REQUEST_TIMEOUT_SECONDS: "600"
@@ -62,6 +74,11 @@ services:
 
   worker-chat:
     environment:
+      <<: [*whooshd_provider, *whooshd_models]
+
+  worker-document-embed:
+    environment:
+      # This required Tier-0 worker shares the supported local-only posture.
       <<: [*whooshd_provider, *whooshd_models]
 
   worker-warmup:
