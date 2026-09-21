@@ -2233,15 +2233,16 @@ def _all_local_attempt_failures_are_404(failures: list[str]) -> bool:
     )
 
 
-def _parse_local_catalog_payload(payload: Any) -> list[str]:
-    names: list[str] = []
+def _parse_local_catalog_entries(payload: Any) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
     if not isinstance(payload, dict):
-        return names
+        return entries
     for key in ("models", "data"):
         collection = payload.get(key)
         if not isinstance(collection, list):
             continue
         for item in collection:
+            metadata: dict[str, str] | None = None
             if isinstance(item, str):
                 model_name = item.strip()
             elif isinstance(item, dict):
@@ -2251,11 +2252,26 @@ def _parse_local_catalog_payload(payload: Any) -> list[str]:
                     or item.get("id")
                     or ""
                 ).strip()
+                raw_metadata = item.get("metadata")
+                if isinstance(raw_metadata, dict):
+                    display_name = str(
+                        raw_metadata.get("display_name") or ""
+                    ).strip()
+                    if display_name:
+                        metadata = {"display_name": display_name}
             else:
                 model_name = ""
             if model_name:
-                names.append(model_name)
-    return names
+                entry: dict[str, Any] = {"id": model_name}
+                if metadata:
+                    entry["metadata"] = metadata
+                entries.append(entry)
+    return entries
+
+
+def _parse_local_catalog_payload(payload: Any) -> list[str]:
+    """Return the legacy model-name surface used by existing callers."""
+    return [entry["id"] for entry in _parse_local_catalog_entries(payload)]
 
 
 def discover_local_model_inventory(
@@ -2271,6 +2287,7 @@ def discover_local_model_inventory(
     selected_base_url: str | None = None
     selected_inventory_url: str | None = None
     selected_inventory_endpoint: str | None = None
+    selected_inventory_models: list[dict[str, Any]] = []
     failure_kind: str | None = None
 
     for candidate in _resolve_local_endpoint_candidates(settings):
@@ -2287,6 +2304,7 @@ def discover_local_model_inventory(
         )
         candidate_names: list[str] = []
         successful_inventory_urls: list[str] = []
+        successful_inventory_models: list[tuple[str, list[dict[str, Any]]]] = []
         for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
             try:
                 response = fetch(url, timeout=timeout_seconds)
@@ -2312,11 +2330,13 @@ def discover_local_model_inventory(
                     f"{url} (invalid JSON: {type(exc).__name__}: {exc})"
                 )
                 continue
-            parsed_names = _parse_local_catalog_payload(payload)
+            parsed_models = _parse_local_catalog_entries(payload)
+            parsed_names = [entry["id"] for entry in parsed_models]
             if not parsed_names:
                 continue
             candidate_names.extend(parsed_names)
             successful_inventory_urls.append(url)
+            successful_inventory_models.append((url, parsed_models))
         if candidate_names:
             names.extend(candidate_names)
             selected_base_url = candidate.base_url
@@ -2333,6 +2353,14 @@ def discover_local_model_inventory(
                     "/v1/models"
                     if selected_inventory_url.endswith("/v1/models")
                     else "/api/tags"
+                )
+                selected_inventory_models = next(
+                    (
+                        models
+                        for url, models in successful_inventory_models
+                        if url == selected_inventory_url
+                    ),
+                    [],
                 )
             failure_kind = None
             break
@@ -2387,6 +2415,8 @@ def discover_local_model_inventory(
             resolution[
                 "inventory_source"
             ] = f"{vendor}:{selected_inventory_endpoint}"
+    if selected_inventory_models:
+        resolution["inventory_models"] = selected_inventory_models
     return deduped, resolution
 
 

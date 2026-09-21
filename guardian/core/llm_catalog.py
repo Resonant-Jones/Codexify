@@ -388,6 +388,28 @@ def _apply_local_display_disambiguation(
     return entries
 
 
+def _local_inventory_display_names(
+    endpoint_resolution: dict[str, Any],
+) -> dict[str, str]:
+    display_names: dict[str, str] = {}
+    inventory_models = endpoint_resolution.get("inventory_models")
+    if not isinstance(inventory_models, list):
+        return display_names
+    for item in inventory_models:
+        if not isinstance(item, dict):
+            continue
+        model_id = normalize_model_id(item.get("id"))
+        metadata = item.get("metadata")
+        display_name = (
+            str(metadata.get("display_name") or "").strip()
+            if isinstance(metadata, dict)
+            else ""
+        )
+        if model_id and display_name:
+            display_names[model_id] = display_name
+    return display_names
+
+
 def _fetch_local_models(
     settings: Settings,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], Any]:
@@ -446,6 +468,7 @@ def _fetch_local_models(
         except Exception:
             source_base = None
     source_label = _source_label(source_base) if source_base else None
+    inventory_display_names = _local_inventory_display_names(endpoint_resolution)
     identities = _apply_local_display_disambiguation(
         [
             _local_model_identity(name, source_label=source_label)
@@ -454,11 +477,15 @@ def _fetch_local_models(
     )
     entries: list[dict[str, Any]] = []
     for name, identity in zip(deduped, identities, strict=False):
+        inventory_display_name = inventory_display_names.get(
+            normalize_model_id(name)
+        )
         profile = whooshd_profile_by_id_or_repo(name)
         if profile:
             name = str(profile.get("id") or name).strip()
         display_label = str(
-            (profile or {}).get("display_name")
+            inventory_display_name
+            or (profile or {}).get("display_name")
             or identity.get("alias")
             or identity.get("display_label")
             or name
@@ -485,7 +512,8 @@ def _fetch_local_models(
             identity.get("canonical_id") or name
         ).strip()
         entry["display_label"] = str(
-            (profile or {}).get("display_name")
+            inventory_display_name
+            or (profile or {}).get("display_name")
             or identity.get("display_label")
             or display_label
         ).strip()

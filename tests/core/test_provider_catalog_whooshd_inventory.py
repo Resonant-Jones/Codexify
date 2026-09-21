@@ -44,6 +44,26 @@ def _whooshd_inventory(url: str, *args, **kwargs) -> _Response:
     return _Response({}, status_code=404)
 
 
+def _whooshd_alias_inventory(url: str, *args, **kwargs) -> _Response:
+    _ = (args, kwargs)
+    if url == "http://host.docker.internal:8000/api/tags":
+        return _Response({"models": []}, status_code=404)
+    if url == "http://host.docker.internal:8000/v1/models":
+        return _Response(
+            {
+                "data": [
+                    {
+                        "id": "local-chat",
+                        "metadata": {
+                            "display_name": "Gemma 4 12B IT QAT 4-bit"
+                        },
+                    }
+                ]
+            }
+        )
+    return _Response({}, status_code=404)
+
+
 def _deepseek_model_index(url: str, *args, **kwargs) -> _Response:
     _ = args
     assert url == "https://api.deepseek.com/v1/models"
@@ -181,6 +201,33 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
     assert local["advertised_models"] == [_LLAMA, _QWEN_VL, _QWEN_GGUF]
     assert local["enabled"] is False
     assert local["truth"]["selectable"] is False
+
+
+def test_whooshd_catalog_uses_inventory_display_name_for_local_chat_alias(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_alias_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_CHAT_MODEL="local-chat"), include_all=True
+    )
+
+    local = _local_provider(payload)
+    model = local["models"][0]
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["configured_model"] == "local-chat"
+    assert model["id"] == "local-chat"
+    assert model["canonical_id"] == "local-chat"
+    assert model["displayName"] == "Gemma 4 12B IT QAT 4-bit"
+    assert model["display_label"] == "Gemma 4 12B IT QAT 4-bit"
+    assert local["model_resolution"]["model"] == "local-chat"
+    assert local["endpoint_resolution"]["inventory_models"] == [
+        {
+            "id": "local-chat",
+            "metadata": {"display_name": "Gemma 4 12B IT QAT 4-bit"},
+        }
+    ]
 
 
 def test_local_runtime_display_override_remains_authoritative(monkeypatch) -> None:
