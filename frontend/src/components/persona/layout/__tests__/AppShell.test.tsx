@@ -1386,12 +1386,16 @@ describe("AppShell shared gallery persistence truth", () => {
     expect(
       screen.queryByRole("img", { name: "Failed upload" })
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Abstract signal study" })
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       const persistedGallery = JSON.parse(
         localStorage.getItem("cfy.gallery") ?? "[]"
-      ) as Array<{ prompt: string }>;
-      expect(persistedGallery).toHaveLength(0);
+      ) as Array<{ prompt: string; mock?: boolean }>;
+      expect(persistedGallery).toHaveLength(3);
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
     });
 
     act(() => {
@@ -1410,9 +1414,10 @@ describe("AppShell shared gallery persistence truth", () => {
     await waitFor(() => {
       const persistedGallery = JSON.parse(
         localStorage.getItem("cfy.gallery") ?? "[]"
-      ) as Array<{ prompt: string }>;
+      ) as Array<{ prompt: string; mock?: boolean }>;
       expect(persistedGallery).toHaveLength(1);
       expect(persistedGallery[0]?.prompt).toBe("Persisted upload");
+      expect(persistedGallery[0]?.mock).toBe(false);
     });
   });
 });
@@ -1453,14 +1458,116 @@ describe("AppShell gallery demo content", () => {
 
     render(<AppShell />);
 
+    const abstractImage = await screen.findByRole("img", {
+      name: "Abstract signal study",
+    });
+    expect(abstractImage).toHaveAttribute(
+      "src",
+      "/peekaboo-demo/abstract-signal-study.png"
+    );
+    expect(
+      screen.getByRole("img", { name: "Interface moodboard" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Field notes map" })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Mock")).toHaveLength(3);
+    expect(
+      screen.queryByRole("img", { name: "Demo gallery item" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ src: string; mock?: boolean }>;
+      expect(persistedGallery).toHaveLength(3);
+      expect(persistedGallery[0]?.src).toBe(
+        "/peekaboo-demo/abstract-signal-study.png"
+      );
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
+    });
+  });
+
+  it("migrates cached localhost starter URLs to same-origin mock assets", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png",
+          prompt: "Abstract signal study",
+        },
+        {
+          src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png",
+          prompt: "Interface moodboard",
+        },
+        {
+          src: "http://localhost:5173/peekaboo-demo/field-notes-map.png",
+          prompt: "Field notes map",
+        },
+      ])
+    );
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByRole("img", { name: "Abstract signal study" })
+    ).toHaveAttribute("src", "/peekaboo-demo/abstract-signal-study.png");
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ src: string; mock?: boolean }>;
+      expect(persistedGallery.map((item) => item.src)).toEqual([
+        "/peekaboo-demo/abstract-signal-study.png",
+        "/peekaboo-demo/interface-moodboard.png",
+        "/peekaboo-demo/field-notes-map.png",
+      ]);
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
+    });
+  });
+
+  it("removes starter images as soon as the first user image is imported", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+
     expect(
       await screen.findByRole("img", { name: "Abstract signal study" })
     ).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Interface moodboard" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Field notes map" })).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: "Demo gallery item" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    const galleryUploaderConfig = uploaderState.configs.at(-1);
+    expect(galleryUploaderConfig?.onImages).toBeTypeOf("function");
+
+    act(() => {
+      galleryUploaderConfig?.onImages?.([
+        {
+          src: "/media/images/user-import.png",
+          prompt: "User import",
+        },
+      ]);
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "User import" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Abstract signal study" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Mock")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ prompt: string; mock?: boolean }>;
+      expect(persistedGallery).toEqual([
+        expect.objectContaining({ prompt: "User import", mock: false }),
+      ]);
+    });
   });
 
   it("auto-hides gallery demo items once real gallery items exist", async () => {
