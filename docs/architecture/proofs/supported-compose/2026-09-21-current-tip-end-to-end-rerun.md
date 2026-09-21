@@ -2,134 +2,311 @@
 
 ## Result
 
-**Overall result: HOLD.**  The originally selected checkout was changed by an
-external rebase during the run, so this is not a complete qualification of the
-post-rebase current tip.  Before that identity change, the running supported
-stack demonstrated a concrete supported-path defect: the browser continued to
-announce `Queued` after terminal task completion, durable readback, reload, and
-a safe restart.  That contradicts the terminal-event/UI-truth invariant.
+**Overall result: HOLD.** The repaired current tip executes the supported local
+chat and document path, but two essential supported invariants do not close:
 
-The exact runtime revision evaluated before the identity boundary was
-`da55b055e8c34a1400416f5416e00864168496f0` (`main`, then 22 commits ahead of
-`origin/main`, dirty only for a pre-existing staged deletion of the daily log).
-At 2026-09-21 14:03:18 EDT the checkout was rebased externally to
-`6aa2d137eb3afc7d3d150f6533ce6ade36adf4e2`, clean and equal to `origin/main`.
-The backend image remained the image built before that rebase.  Per the task
-stop condition, all evidence collected after that point is explicitly
-non-qualifying for the original runtime revision and no claim is made that the
-new tip was evaluated.
+1. the browser continues to expose `Queued` after the durable task is
+   terminal-successful, the assistant row is persisted, and the same transcript
+   is reconstructed after reload and restart; and
+2. the retrieval turn returns the synthetic document fact under project scope,
+   but no persisted terminal or assistant evidence identifies the contributing
+   document or chunk.
 
-## Environment and authority
+The exact evaluated commit is
+`1fbf2f043117a252bfafe52720725cfc29281e92` on `main`. Its parent is
+`6aa2d137eb3afc7d3d150f6533ce6ade36adf4e2` (`Align supported local model
+projection`). The historical repair SHA named by the task,
+`da55b055e8c34a1400416f5416e00864168496f0`, is not an ancestor after the
+repository's prior rebase; `git patch-id --stable` gives both repair commits the
+same patch id, `19db61a609f49663e7f232692add47eea2062eed`. The supported repair was
+therefore present in rebased form and was independently re-proved live rather
+than inferred from history.
+
+## Environment
 
 | Field | Evidence |
 |---|---|
-| Observation window | 2026-09-21 13:53–14:13 EDT (17:53–18:13 UTC) |
-| Machine | `vaultnode.local`; `Darwin 27.2.0 arm64`; machine id/role `vaultnode` / `canonical_evidence_host` |
-| Selected revision | `da55b055e8c34a1400416f5416e00864168496f0` before the mid-run rebase |
-| Final checkout | `6aa2d137eb3afc7d3d150f6533ce6ade36adf4e2`, reached by `rebase (finish)` at 14:03:18 EDT |
-| Supported profile | `v1-local-core-web-mcp`; `LLM_PROVIDER=local`; `CODEXIFY_LOCAL_ONLY_MODE=true`; `ALLOW_CLOUD_PROVIDERS=false`; empty egress allowlist; `LOCAL_CHAT_MODEL=local-chat` in the effective containers |
-| Runtime identity | Provider/policy `local`; runtime `whooshd` / Whoosh'd; physical inventory target `local-chat`, displayed as Gemma 4 12B IT QAT 4-bit |
-| Durable authority | PostgreSQL (`alembic_version` `a8d4c2f6b1e9`); Redis used only for queue/event/lock operations |
-| Canonical receipt | `live-proof-receipt-sha256-677c42e437b26b1a1f406a9d9b015977805bc8aaa623bd3ecbc1e056b9b7db76`: execution probes PASS, authority `PROVISIONAL` for `commit_upstream_mismatch` and `dirty_worktree` |
+| Observation window | 2026-09-21 14:36–17:16 EDT (18:36–21:16 UTC) |
+| Machine | `VaultNode.local`; `Darwin 27.2.0 arm64` |
+| Branch / HEAD | `main`; `1fbf2f043117a252bfafe52720725cfc29281e92` |
+| Upstream / divergence | `origin/main` at `6aa2d137eb3afc7d3d150f6533ce6ade36adf4e2`; ahead 1, behind 0 |
+| Initial worktree | Clean: no staged, unstaged, or untracked paths. The task-described staged Dev Log deletion was not present and was not created or restored. |
+| Supported topology | `docker-compose.yml` plus `docker-compose.whooshd-smoke.yml`; profile `v1-local-core-web-mcp` |
+| Command-scoped posture | `LLM_PROVIDER=local`; `CODEXIFY_LOCAL_ONLY_MODE=true`; `ALLOW_CLOUD_PROVIDERS=false`; empty egress allowlist; no `LOCAL_CHAT_MODEL` override |
+| Effective required-service model route | Backend, `worker-chat`, and `worker-document-embed` each projected `LOCAL_CHAT_MODEL=local-chat` together with the supported local-only posture |
+| Direct rendered-config hash | `dad71e60ce9481db74eed5b25fd32571ba4c3dc519c641d1bd0af0fd3ce0eeed` |
+| Migration head | PostgreSQL `alembic_version=a8d4c2f6b1e9` |
+| Durable / operational authority | PostgreSQL remained durable application truth; Redis was used only for queue, heartbeat, event, and lock observation |
+| Canonical live-proof receipt | `live-proof-receipt-sha256-bef1ef239470abdf6b4425a819223b886cb570a2c07ee26f89a4b786e9a29d87`; execution outcome `PASS`, schema valid, authority `PROVISIONAL` only for `commit_upstream_mismatch`; collector runtime hash `151aff39fdd379d3982ca8646467b9ca5944d9a6ab4eb37435210ecf25327653` |
 
-## Evaluation matrix
+The receipt collector's static runtime hash and the direct fully rendered Compose
+hash use different normalization surfaces; both are recorded without treating
+them as interchangeable.
 
-| Surface | Result | Evidence / surface | Relevant identifier / note |
-|---|---|---|---|
-| repository/current-tip identity | BLOCKED | Git identity before and after run; reflog | Revision changed from `da55b055…` to `6aa2d137…` during evaluation. |
-| supported profile/config | PASS | Effective container env, `/health`, `/health/chat` | Profile valid with no mismatch; no cloud-capable configuration. |
-| Compose startup/readiness | PASS | Supported `docker compose up -d --build` and `compose ps` | Backend/db/redis healthy; frontend and required workers running; supporting graph service healthy. |
-| migrations | PASS | Migrator exit 0; PostgreSQL inspection | Alembic head `a8d4c2f6b1e9`. |
-| Whoosh'd connectivity | PASS | `/health/chat`, Whoosh'd `/health` | Ready, managed-sidecar lifecycle, queue depth 0 when observed. |
-| live model inventory | PASS | Whoosh'd `/v1/models`, `/api/llm/catalog` | Sole target `local-chat`, owned by `whooshd`; registry provenance authoritative. |
-| provider/runtime identity | PASS | Catalog, health, persisted assistant metadata | Stable `local` distinct from Whoosh'd runtime and physical target; no fallback/cloud provenance. |
-| browser authentication/session | PASS | Headed Chrome at `127.0.0.1:5173` | Authenticated local session loaded and remained usable. |
-| Guardian/chat UI | FAIL | Playwright snapshots/screenshots | Transcript/composer work, but top-level status stayed `Queued` after completion and reload. |
-| cold chat | PASS | Real browser turn, task events, PostgreSQL | Thread 3; user msg 8; task `4f4a5441-6783-40d1-aba8-bb56d8c35fd9`; assistant msg 9 returned exact marker. |
-| warm continuation | PASS | Real browser turn, PostgreSQL, events | Task `790c69c8-3bec-43ba-b418-46f52a8c72f1`; assistant msg 11 returned `WARM_CONTEXT_M9P2`. |
-| durable user-message persistence | PASS | Read-only PostgreSQL | Messages 8, 10, 12, 14, and 16 persisted under thread 3 / project 1 / user `local`. |
-| durable assistant-message persistence | PASS | Read-only PostgreSQL | Messages 9, 11, 13, 15, and 17 persisted with task/request/attempt correlation and local provenance. |
-| reload/re-entry | PASS | Browser reload and screenshot | Transcript reconstructed in correct order, including cold, warm, lock, retrieval, and later restart turn. |
-| document upload/readback | PASS | Real Documents UI; `uploaded_documents` | Document `37606b8e-59f8-411e-bcca-4625268eba81`, project 1/thread 3/user local, `ready`; parsed durable text contains the synthetic marker/fact. |
-| workspace retrieval | PASS | Real Project-source chat and terminal event | Task `6a996323-b419-47f2-a57a-aef64f3d5c26`; exact synthetic answer returned. |
-| retrieval scoping/provenance | INSUFFICIENT PROOF | `task.completed` trace and RAG debug surface | Source mode `project`, boundary `same_user_same_project`, counts include thread document 1/project documents 2, but no document id/chunk citation is preserved. |
-| queue progression | PASS | Outbox task sequences | Each inspected task has one `task.running`, one `message.created`, one `task.completed`; no duplicate terminal event observed. |
-| worker execution | PASS | Fresh worker health; assistant metadata/events | `worker-chat` executed the local turns; document worker indexed the upload. |
-| lock release | PASS | Redis sampled during real browser lock-witness turn | `turn_lock:3` acquired by task `306546bf-3d26-41d2-9054-df0d77e3d46b`, 840-second lease, then absent after assistant msg 13 terminalized. |
-| terminal events | FAIL | Event outbox vs browser state | Back end emitted one terminal `task.completed` per task and UI rendered output, but browser continued to expose `Queued`. |
-| restart persistence | PASS | Narrow `docker compose restart`; health; browser/db readback | Existing transcript/document survived; post-restart task `8b6d8b8d-39f5-43cd-bacb-26afbcf4b35a` produced durable assistant msg 17. A transient proxy `ECONNREFUSED`/HTTP 500 burst occurred while services restarted, then health and ordinary chat recovered. |
-| bounded negative path | BLOCKED | Browser model selector | The supported UI exposed only live `local-chat`; no accepted UI control exists for an unavailable exact local target, and transport/config injection was intentionally not used. |
-| provider-health/degraded-state truth | FAIL | `/health/llm`, `/health/chat`, catalog, browser | Runtime health remained healthy/ready and local execution succeeded. The browser's persistent `Queued` projection is stale/incorrect (**classification B**) rather than evidence of provider degradation. |
-| fatal browser console/runtime errors | BLOCKED | Browser console during the checkout-change interval | A transient Vite reload error for a missing `ActivateAccountPage.tsx` occurred while the checkout changed; it cleared on reload. It cannot be attributed reliably to the pre-rebase runtime. |
+## Effective runtime and readiness
 
-## Controlled identifiers and timing observations
+The supported stack was recreated with `up -d --build --force-recreate` for
+PostgreSQL, Redis, Neo4j, graph init, migrator, model prep, backend, both required
+workers, and frontend. Persistent volumes were preserved; `down -v` was never
+used. Containers began creation at 18:36:04 UTC. Backend table/migration
+verification began at 18:36:50, and Vite reported ready at 18:37:15, an
+approximately 71-second creation-to-frontend-ready interval. The first fully
+instrumented browser request began at 18:44 UTC; no SLO is inferred.
 
-| Turn | Task / result | Observed total completion |
+PostgreSQL, Redis, Neo4j, and backend became healthy; init/migration/model-prep
+services exited successfully; both workers reported startup and fresh heartbeat
+evidence. Startup also emitted non-blocking warnings: an SQLAlchemy relationship
+overlap warning, skipped built-in help ingestion, failed General system-role
+assignment, and a logging-format `TypeError` during the ChatGPT import sweep.
+They were preserved as observations and were not repaired.
+
+Live probes agreed after startup and again after restart:
+
+- `/health`: `status=ok`, supported profile valid, no mismatches,
+  `selected_provider=local`, cloud-capable configuration absent, and no release
+  hold;
+- `/health/chat`: healthy, Redis reachable, chat worker fresh, queue depth zero,
+  provider `local`, strict model source `LOCAL_CHAT_MODEL`, model `local-chat`;
+- `/api/health/llm`: online, provider `local`, logical model `local-chat`, Whoosh'd
+  endpoint selected, no release hold;
+- `/api/llm/catalog`: stable provider id `local`, runtime id `whooshd`, runtime
+  preset `whooshd-mlx`, logical/canonical model id `local-chat`;
+- Whoosh'd `/health`: ready, version `0.1.0rc3`, queue depth zero, no active job;
+- Whoosh'd `/v1/models`: `local-chat`, owned by `whooshd`, engine `mlx_vlm`,
+  format `mlx`, authoritative-registry resolution, managed-sidecar execution,
+  display metadata `Gemma 4 12B IT QAT 4-bit`.
+
+The physical display metadata is observational Whoosh'd inventory, not a
+Codexify supported-profile default or architecture token.
+
+## Runtime matrix
+
+| Surface | Result | Evidence / interpretation |
 |---|---|---|
-| Cold | `4f4a5441-6783-40d1-aba8-bb56d8c35fd9` → msg 9 | 25.6 s (17:55:43.869–17:56:09.485 UTC) |
-| Warm | `790c69c8-3bec-43ba-b418-46f52a8c72f1` → msg 11 | 14.5 s (17:57:03.905–17:57:18.430 UTC) |
-| Lock witness | `306546bf-3d26-41d2-9054-df0d77e3d46b` → msg 13 | active lock sampled 17:59:30–18:00:29 UTC; released after terminal completion |
-| Retrieval | `6a996323-b419-47f2-a57a-aef64f3d5c26` → msg 15 | 30.0 s (18:04:44.296–18:05:14.282 UTC) |
-| Post-restart | `8b6d8b8d-39f5-43cd-bacb-26afbcf4b35a` → msg 17 | roughly 18 s observed |
+| repository/current-tip identity | PASS | HEAD remained `1fbf2f043…` from initial capture through proof edit; repair content is the patch-equivalent rebased parent `6aa2d137…`. |
+| supported profile/config | PASS | Render and three required-container environments agree on local-only posture and logical `local-chat`; no manual model override. |
+| Compose startup/readiness | PASS | Genuine rebuild/recreate completed without volume destruction; required services and init jobs reached their expected states. |
+| migrations | PASS | Migrator exited 0 and PostgreSQL independently reported `a8d4c2f6b1e9`. |
+| Whoosh'd connectivity | PASS | Backend inventory/health and direct Whoosh'd health/inventory agreed. |
+| live model inventory | PASS | Whoosh'd advertised executable `local-chat` with physical display metadata observed separately. |
+| provider/runtime identity | PASS | Provider `local`, logical model `local-chat`, runtime `whooshd`; persisted turns show no fallback and no cloud-capable configuration. |
+| browser authentication/session | PASS | Real headed Chrome loaded the local authenticated session before and after restart. |
+| Guardian/chat UI | FAIL | Transcript and composer worked, but the accessible top-level status remained `Queued` after every inspected success, reload, and restart. |
+| cold chat | PASS | Exact requested marker rendered, terminalized, and persisted under thread 4. |
+| warm continuation | PASS | Same-thread request correctly returned the history-dependent suffix `T1FB`; the output omitted the requested `WARM_CONTEXT_` prefix but proved the preceding marker was available. |
+| durable user-message persistence | PASS | PostgreSQL preserved evaluated user messages 18, 20, 32, and 34 with ownership, order, and timestamps. |
+| durable assistant-message persistence | PASS | Assistant messages 19, 21, 33, and 35 persisted exactly once with local provider/model correlation. |
+| browser reload/re-entry | PASS | Reload reconstructed evaluated cold/warm turns before later concurrent user activity; retrieval and post-restart transcripts also reconstructed. |
+| document upload/readback | PASS | Real Documents UI uploaded document `95b2cd45-b603-46a0-99ea-07fc4e855cdc`; PostgreSQL shows project 1, user `local`, status `ready`; UI showed Ready after reload. |
+| workspace retrieval | PASS | Real Project-source turn returned exact synthetic value `HELIOTROPE-7429`. |
+| retrieval provenance/scoping | FAIL | Terminal trace proves project source and three eligible project documents with no global fallback, but `trace.documents=[]` and persisted `retrieval_provenance=null`; the contributing document/chunk is not attributable. |
+| queue progression | PASS | Cold, warm, retrieval, and post-restart tasks each had one running event, one assistant message event, and one completed terminal event; Redis queues returned to zero. |
+| worker execution | PASS | Chat worker claimed/executed all correlated turns; document worker logged one-chunk embedding and durable ready status. |
+| lock acquisition/release | PASS | Redis exposed `turn_lock` ownership during cold, warm, retrieval, and post-restart execution; each lock cleared after terminal completion and the next same-thread turn proceeded. |
+| terminal events | FAIL | Durable outbox terminal truth and rendered assistant output are successful, while browser status remains `Queued`. |
+| bounded negative path | BLOCKED | The supported browser selector exposed only live `local-chat`; no accepted UI control admitted an unavailable exact target. No configuration, request interception, or transport fault was injected. |
+| restart persistence | PASS | Narrow application-service restart preserved chat rows, document ready state, retrieval state, and browser reconstruction; a new ordinary local turn succeeded. |
+| provider-health/degraded-state truth | PASS | Classification **A**: backend/provider healthy and the former provider-degraded warning absent. The separate stale `Queued` request-status defect remains captured under Guardian/terminal events. |
+| fatal browser/runtime errors | PASS | No fatal browser exception was observed. Favicon 404s, one slow-path warning, and transient restart connection noise were non-fatal; ordinary use recovered. |
+| backend static validation | FAIL | Focused governing suite remained 151 passed / 5 failed; failures are stale documentation/test expectations, not a new live-runtime contradiction. |
+| frontend static validation | FAIL | Four smaller files passed 32/32; lifecycle-timing OOMed near 4 GiB and turn-lock-lifecycle made no progress for one minute and was terminated. |
 
-Application start and token-first-byte timing were not measured with a reliable
-instrumentation boundary; no performance conclusion or SLO is asserted.
+## Request correlation
+
+| Turn | Thread | User msg | Task | Run | Request | Attempt | Assistant msg | Terminal event |
+|---|---:|---:|---|---|---|---|---:|---:|
+| cold | 4 | 18 | `18d1b7c0-f2bd-4d6e-8734-52331bab9017` | `9809d4d2fed94b088ab49945e5c7a252` | `req_9b619d15f0094b94a219906d734662ce` | `attempt_07127f889d93412eb02ccfaae2e7b35e` | 19 | 48 |
+| warm | 4 | 20 | `da2eb497-a2bf-4258-bd4d-4d4ad587a30a` | `7ec379ccba7b4a4ab306cccfc6c285a2` | `req_5aa7f53a5a6d49fb9fd934372ba7f91a` | `attempt_9dc2064fc12b4f41b4208b3ff0c95ee4` | 21 | 52 |
+| retrieval | 6 | 32 | `8885699e-9677-4a99-898d-a596d9073e48` | `558fd22278bb4197b68b5de1c3cab325` | `req_54a6fe2c200a4e738fe5d811ada9f115` | `attempt_affc804d2c9d44cbb6d9c154412e6b29` | 33 | 78 |
+| post-restart | 6 | 34 | `a9d8a391-8b07-49c9-94b3-0f3dcdf7ce18` | `8076c174a2874b7294de9fd4037f3754` | `req_13252be3b7f6476daeaf4708b25c2ccc` | `attempt_cec7a541787f47abb83b8afee292eea3` | 35 | 82 |
+
+All four assistant rows report attempted/final provider `local`, attempted/final
+logical model `local-chat`, successful completion truth, and
+`fallback_attempted=false`. The durable terminal traces explicitly report clean
+provider termination and persisted output.
+
+During an operator pause, the same live browser/thread 4 received unrelated user
+messages 28 and 30 and assistant messages 29 and 31. They occurred two hours
+after the bounded cold/warm evidence. The original message/task/event IDs above
+were unchanged. Retrieval was therefore performed in fresh thread 6 to avoid
+conflating that concurrent activity with the evaluation slice.
+
+## Durable readback
+
+Read-only PostgreSQL inspection established:
+
+- threads 4 and 6 are project 1 / owner `local`;
+- evaluated user and assistant rows are ordered by durable ids/timestamps;
+- each correlated task has exactly one evaluated assistant row and exactly one
+  `task.completed` outbox event;
+- assistant metadata preserves request/task/attempt correlation, strict logical
+  route selection, local provider truth, and no fallback;
+- uploaded document `95b2cd45-b603-46a0-99ea-07fc4e855cdc` is owned by `local`,
+  scoped to project 1, embedded as one chunk, and durably `ready`;
+- no evaluated task showed persisted output without terminal success or terminal
+  success without persisted output.
+
+Redis inspection was used only for live queue/heartbeat/lock evidence. Chat and
+document queue lengths returned to zero, and no evaluated `turn_lock` survived a
+terminal state.
+
+## Timing observations
+
+| Measure | Observation |
+|---|---:|
+| startup creation to frontend ready | approximately 71 s (18:36:04–18:37:15 UTC) |
+| cold TTFT | 27.567 s |
+| cold total | 31.930 s |
+| warm TTFT | 26.410 s |
+| warm total | 28.394 s |
+| retrieval TTFT | 20.175 s |
+| retrieval total | 22.247 s |
+| narrow restart recovery | 34 s (21:08:12–21:08:46 UTC) |
+| post-restart total | 29.391 s |
+
+TTFT is the durable terminal trace interval from `queued_at` to
+`first_token_at`; total is the recorded task duration. These observations do not
+establish or evaluate a performance SLO.
+
+## Previous Finding Disposition
+
+| Finding | Disposition | Rerun evidence |
+|---|---|---|
+| F1 — supported local model resolution non-executable | CLOSED | `local-chat` was independently advertised, selected, executed, and persisted across cold, warm, retrieval, and post-restart turns. |
+| F2 — required-service profile projection inconsistent | CLOSED | Backend and both required workers independently projected the coherent supported local-only environment and `local-chat`. |
+| F3 — successful-chat/persistence downstream failure | DOWNSTREAM RESOLVED | Browser output, terminal success, PostgreSQL persistence, reload, and restart readback all succeeded. |
+| F4 — terminal failure/browser event-delivery disagreement | PERSISTS | Even successful terminal events leave the browser's accessible top-level state at `Queued`; the unavailable-model negative path was blocked by the supported selector. |
+| F5 — incomplete document-level retrieval provenance | PERSISTS | Correct project-scoped answer, but no contributing document/chunk identity in terminal or persisted assistant provenance. |
+| F6 — incomplete lock-acquisition proof | CLOSED | Direct Redis acquisition/owner/lease samples and post-terminal release were captured repeatedly. |
+| F7 — static validation failures/OOM behavior | PERSISTS | Backend remains 151/5; lifecycle-timing still OOMs and turn-lock-lifecycle still hangs; smaller suites remain green. |
 
 ## Failure ledger
 
-1. **F1 — terminal state projection is stale (FAIL, deterministic in this run).**
-   - Observed: `Queued` remained accessible after each terminal event, durable
-     assistant persistence, reload, and restart, while the in-panel provider
-     projection reported `Ready` / `Completed`.
-   - Expected: browser-visible terminal state agrees with the canonical task
-     terminal event and persisted assistant result.
-   - Governing invariant: browser/UI success or display must not contradict
-     durable/event truth; terminal-event delivery must agree with domain state.
-   - Evidence: headed-browser snapshots `cold-terminal.png`,
-     `reload-durable-thread.png`, and `post-restart-terminal.png`; outbox rows
-     for each task list exactly one `task.completed`.
-   - Suspected seam: Guardian task-status/session projection.
+### 1. Terminal event/browser status contradiction — current first prerequisite
 
-2. **F2 — retrieval identity provenance incomplete (INSUFFICIENT PROOF).**
-   - Observed: terminal trace proves project-scope retrieval and source counts,
-     but not the precise document/chunk selected; assistant metadata and latest
-     RAG debug view have null provenance.
-   - Expected: attributable retrieval-path evidence for the synthetic document.
-   - Governing invariant: correct model text alone is not retrieval proof.
-   - Suspected seam: retrieval provenance persistence/projection.
+- **Observed:** browser output renders and PostgreSQL/outbox prove successful
+  terminal completion, but the accessible top-level status remains `Queued`
+  after cold, warm, retrieval, post-restart completion, reload, and re-entry.
+- **Expected:** running/terminal browser state agrees with canonical task/event
+  truth and clears generating/pending state promptly.
+- **Governing invariant:** API success is not browser proof; browser/event/durable
+  terminal truth must be coherent.
+- **Evidence:** outbox events 48, 52, 78, and 82; corresponding durable assistant
+  rows; headed-browser snapshots and screenshots before/after reload/restart.
+- **Reproduction status:** deterministic across every inspected successful turn.
+- **Suspected subsystem:** Guardian task-status / SessionSpine event projection.
+- **Recommended next atomic task:** repair and narrowly qualify terminal task
+  state projection so terminal success and failure clear the browser's queued /
+  generating state without changing queue, event, or persistence authority.
 
-3. **F3 — bounded UI negative path unavailable (BLOCKED).**
-   - Observed: the real selector offered only the live inventory model.
-   - Expected: a supported UI path for a bounded fail-closed unavailable-target
-     test, or an explicitly authorized alternative.
-   - No configuration or transport injection was used.
+### 2. Retrieval attribution missing
 
-4. **F4 — qualification identity invalidated mid-run (BLOCKED).**
-   - Observed: external rebase changed the worktree/ref while the earlier image
-     continued running.  Later static results therefore belong to neither a
-     stable original checkout nor a rebuilt new-tip runtime.
-   - Expected: frozen repository ref from identity capture through closeout.
+- **Observed:** the answer is exactly correct and the terminal trace records
+  project mode, `same_user_same_project`, three eligible project documents, and
+  no global fallback; however `trace.documents=[]` and persisted
+  `retrieval_provenance=null`.
+- **Expected:** evidence identifies the contributing uploaded document/chunk or
+  an equivalent attributable durable provenance record.
+- **Governing invariant:** answer correctness alone is not retrieval provenance
+  proof.
+- **Evidence:** document id `95b2cd45-b603-46a0-99ea-07fc4e855cdc`, message 33,
+  terminal event 78, assistant metadata and terminal trace.
+- **Reproduction status:** reproduced.
+- **Suspected subsystem:** project-document retrieval provenance capture and
+  terminal/persistence projection.
+- **Recommended next atomic task:** deferred until the first prerequisite above
+  is closed; no retrieval implementation change is authorized here.
+
+### 3. Required bounded negative browser path unavailable
+
+- **Observed:** the live browser model menu exposes only the executable Whoosh'd
+  `local-chat` catalog entry.
+- **Expected:** an accepted, non-destructive supported UI path for an unavailable
+  exact local target, or a separately authorized failure harness.
+- **Governing invariant:** fail-closed semantics must not be weakened or
+  manufactured by altering supported configuration.
+- **Evidence:** real selector snapshot with one model entry.
+- **Reproduction status:** blocked rather than falsified.
+- **Suspected subsystem:** proof-surface limitation, not an established runtime
+  defect.
+- **Recommended next atomic task:** deferred; no config, network, or request-body
+  injection was used.
+
+### 4. Static lifecycle/release-contract validation remains open
+
+- **Observed:** four backend assertions retain stale current-state structure
+  expectations; one startup fixture retains the old physical model; the two
+  large Guardian lifecycle files still OOM/hang.
+- **Expected:** focused governing checks complete cleanly against current logical
+  model and documentation truth.
+- **Governing invariant:** static validation is surface-specific and cannot
+  override live runtime evidence.
+- **Evidence:** command ledger below.
+- **Reproduction status:** reproduced.
+- **Suspected subsystem:** stale test expectations plus frontend test-runner /
+  lifecycle fixture memory behavior.
+- **Recommended next atomic task:** deferred; tests/configuration were not edited
+  in this verification-only task.
 
 ## Commands and validation
 
-| Command / surface | Exit / result |
-|---|---|
-| Supported Compose recreation with command-scoped profile flags | 0; required services ready |
-| `make ... canonical-audit-live-proof-receipt ...` | 0; execution PASS, authority provisional as noted |
-| `.venv/bin/python -m pytest -v tests/architecture/test_supported_compose_local_model_projection.py tests/core/test_config_coherence.py` | 1; one ambient-profile coherence failure |
-| Same config-coherence suite with explicit supported local env and empty egress allowlist | 0; 16 passed |
-| `.venv/bin/python scripts/validate_docs.py` | 0 |
-| Focused supported-boundary/profile suite (149 tests) | 5 failed, 144 passed; run after the ref changed and thus non-qualifying for selected runtime |
-| Focused frontend catalog/document/runtime-health tests | 0; 19 passed |
-| Focused `GuardianChat.lifecycle-timing` and `GuardianChat.turn-lock-lifecycle` | no result after one minute; terminated and recorded as a bounded validation hang |
-| Headed Playwright/Chrome | actual local browser exercise completed; artifacts kept outside repository under `/private/tmp/codexify-current-tip-rerun-playwright-20260921` |
+Commands are grouped by proof surface. No secret values or environment dumps
+were printed.
 
-## Follow-through
+| Command / action | Exit / result | Interpretation |
+|---|---:|---|
+| `git status --porcelain=v2 --branch`; `git rev-parse HEAD`; `git rev-parse @{upstream}`; divergence and repeated identity checks | 0 | Stable exact evaluated tip and clean initial worktree; ahead 1 / behind 0. |
+| repair ancestry, commit metadata, and stable patch-id comparison | ancestry 1; other commands 0 | Historical `da55b055…` is not post-rebase ancestry; `6aa2d137…` is patch-equivalent and is HEAD's parent. |
+| supported `docker compose ... config --quiet` and full render/hash, with command-scoped profile flags and no `LOCAL_CHAT_MODEL` | 0 | Render valid; direct hash recorded. |
+| supported `docker compose ... up -d --build --force-recreate` for required services and init jobs | 0 after approved Docker build access | Fresh supported recreation succeeded without destroying volumes. |
+| selected `docker inspect`, Compose status/logs, required-container environment inspection | 0 | Required services ready; three required environments coherent; warnings bounded above. |
+| host/backend/Whoosh'd health, inventory, catalog, and frontend probes | 0 | Provider/runtime/logical route and physical inventory agreed; no F1/F2 release hold. |
+| canonical live-proof receipt collector with both Compose files | 0 | Execution `PASS`, schema valid, authority provisional only for upstream mismatch. |
+| headed Playwright Chrome: cold, warm, reload, document upload, retrieval, model-menu inspection, restart re-entry, and post-restart turn | supported actions 0 | Real UI exercised; screenshots retained outside the repository under `/private/tmp/codexify-current-tip-rerun-playwright-20260921-tip1fb/`. The first session expired during an operator pause and was relaunched; durable evidence remained intact. |
+| read-only PostgreSQL queries over threads, messages, documents, Alembic, and event outbox | 0 after correcting exploratory legacy table/database names | Canonical durable evidence and correlation recorded. |
+| Redis queue, heartbeat, and `turn_lock` inspection during/after active turns | 0 | Acquisition/ownership/release and idle queues directly observed. |
+| narrow `docker compose ... restart backend worker-chat worker-document-embed frontend` | 0 | No persistent service/volume restart; recovery in 34 s and post-restart chat succeeded. |
+| `.venv/bin/python -m pytest -v tests/architecture/test_supported_compose_local_model_projection.py` | 0 | 4 passed. |
+| `.venv/bin/python -m pytest -v tests/core/test_config_coherence.py` ambient | 1 | 15 passed / 1 failed because ambient `.env` selects the unrelated DeepSeek profile. |
+| same config-coherence command under supported command-scoped flags, no model override | 0 | 16 passed. |
+| focused backend release/profile/receipt/Compose/live/workspace contract suite | 1 | 151 passed / 5 failed / 8 warnings: four stale current-state assertions and one stale physical-model fixture. |
+| individual `ProviderSelect.catalog`, `useTaskEvents`, `DocumentsView.interactions`, and `test/useRuntimeHealth` Vitest files | 0 | 5 + 4 + 7 + 16 = 32 passed. |
+| individual `GuardianChat.lifecycle-timing` Vitest | 1 | Worker reached the approximately 4 GiB heap limit and OOMed after about 61 s. |
+| individual `GuardianChat.turn-lock-lifecycle` Vitest | terminated after 60 s | No result/progress; bounded hang preserved without heap/config changes. |
+| Pi DeepSeek delegation catalog/check/dry-run and two bounded inference attempts | checks/dry-run passed; inference wrapper failed closed before inference | Selected pair appeared in catalog but wrapper reported it unavailable; no context was sent and no delegated artifact was created. |
+| `.venv/bin/python scripts/validate_docs.py` | 0 | Required architecture documents, README links, and source headings validated. |
+| `git diff --check -- docs/architecture/proofs/supported-compose/2026-09-21-current-tip-end-to-end-rerun.md` | 0 | No whitespace errors in the sole authorized artifact. |
 
-ADR impact: **aligned, no ADR change.**  No implementation, configuration,
-architecture-contract, migration, or release-claim file was modified.  This
-receipt does **not** justify a current-state/release update.  The single
-highest-priority next atomic task is: **freeze an identified current-tip ref and
-rebuild the supported stack from that same ref before rerunning the qualification**.
-Only after that prerequisite is met should the confirmed terminal-status
-projection defect be repaired and requalified.
+The focused backend command was:
+
+```text
+.venv/bin/python -m pytest -p no:cacheprovider -v tests/architecture/test_beta_release_boundary.py tests/core/test_supported_profile.py tests/core/test_supported_profile_auth_coherence.py tests/core/test_supported_profile_provider.py tests/core/test_supported_profile_quarantine.py tests/core/test_supported_profile_startup.py tests/audit/test_collect_canonical_live_proof_receipt.py tests/ops/test_source_compose_supported_profile_contract.py tests/proofs/test_supported_profile_live_proof_contract.py tests/proofs/test_workspace_obsidian_e2e_contract.py
+```
+
+## ADR impact and invariants
+
+**ADR impact: aligned with ADR-069, ADR-041, ADR-042, and ADR-074; no ADR change.**
+No provider, runtime, persistence, queue, lock, event, retrieval, profile, or
+release doctrine was changed.
+
+- PostgreSQL remained canonical durable application truth.
+- Redis remained operational/ephemeral evidence, not competing domain truth.
+- Provider identity remained `local`; logical supported route remained
+  `local-chat`; Whoosh'd retained physical mapping ownership.
+- No physical model name was promoted to Codexify supported-profile truth.
+- Cloud fallback remained disabled and unneeded; all evaluated completions show
+  `fallback_attempted=false`.
+- Browser, API, catalog, queue, worker, persistence, retrieval, lock, and restart
+  evidence were evaluated as distinct proof surfaces.
+- Fail-closed behavior was not weakened and no defect was repaired.
+
+## Documentation follow-through
+
+This HOLD does **not** provide sufficient evidence for a current-state or
+release-readiness update. `docs/architecture/00-current-state.md`, the original
+failed evaluation, and the repair proof were not modified.
+
+The single first-prerequisite next implementation task is the terminal
+task-state/browser projection defect described in failure-ledger item 1. Do not
+begin retrieval-provenance or static-test reconciliation until that atomic task
+is separately authorized and bounded.
