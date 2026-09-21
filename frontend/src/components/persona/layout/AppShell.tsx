@@ -618,6 +618,45 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+const SEEDED_GALLERY_ITEMS: ReadonlyArray<GalleryItem> = [
+  {
+    src: "/peekaboo-demo/abstract-signal-study.png",
+    prompt: "Abstract signal study",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/interface-moodboard.png",
+    prompt: "Interface moodboard",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/field-notes-map.png",
+    prompt: "Field notes map",
+    mock: true,
+  },
+];
+
+const SEEDED_GALLERY_ITEMS_BY_PATH = new Map(
+  SEEDED_GALLERY_ITEMS.map((item) => [item.src, item])
+);
+
+function createSeededGalleryItems(): GalleryItem[] {
+  return SEEDED_GALLERY_ITEMS.map((item) => ({ ...item }));
+}
+
+function resolveSeededGalleryItem(value: unknown): GalleryItem | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const pathname = new URL(value, base).pathname;
+    const seededItem = SEEDED_GALLERY_ITEMS_BY_PATH.get(pathname);
+    return seededItem ? { ...seededItem } : null;
+  } catch {
+    return null;
+  }
+}
+
 function isTransientFailedGalleryItem(raw: any): boolean {
   const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
   return (
@@ -628,10 +667,11 @@ function isTransientFailedGalleryItem(raw: any): boolean {
 }
 
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  const seededItem = resolveSeededGalleryItem(candidate);
+  if (seededItem) return seededItem;
   if (isTransientFailedGalleryItem(raw)) return null;
-  const src = normalizeGallerySrc(
-    raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
-  );
+  const src = normalizeGallerySrc(candidate);
   if (!src) return null;
   const prompt =
     typeof raw?.prompt === "string" && raw.prompt.trim()
@@ -2328,29 +2368,28 @@ export default function AppShell({
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery, setGallery] = useState<GalleryItem[]>(() => {
-    // The local tester exposes Vite static assets on 5173 while the guest
-    // shell is served through the 5174 sidecar entrypoint.
-    const def: GalleryItem[] = [
-      { src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study" },
-      { src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard" },
-      { src: "http://localhost:5173/peekaboo-demo/field-notes-map.png", prompt: "Field notes map" },
-    ];
+    const def = createSeededGalleryItems();
     if (typeof window === "undefined") return def;
+    let hasUserUpload = false;
     try {
+      hasUserUpload = Boolean(localStorage.getItem("cfy.hasUserUpload"));
       const raw = localStorage.getItem("cfy.gallery");
       if (!raw) {
-        localStorage.setItem("cfy.gallery", JSON.stringify(def));
-        return def;
+        const initialGallery = hasUserUpload ? [] : def;
+        localStorage.setItem("cfy.gallery", JSON.stringify(initialGallery));
+        return initialGallery;
       }
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return def;
+      if (!Array.isArray(parsed)) return hasUserUpload ? [] : def;
       const normalized = parsed
         .map((item) => normalizeGalleryItem(item))
         .filter((item): item is GalleryItem => !!item);
-      return normalized.length > 0 && normalized.every((item) => item.mock)
-        ? def
-        : normalized;
-    } catch { return def; }
+      const userItems = normalized.filter((item) => !item.mock);
+      if (userItems.length > 0) return userItems;
+      return hasUserUpload ? [] : def;
+    } catch {
+      return hasUserUpload ? [] : def;
+    }
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2467,8 +2506,11 @@ export default function AppShell({
         .filter((item): item is GalleryItem => !!item);
       if (normalizedItems.length === 0) return;
       setGallery((prev) => {
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -2518,8 +2560,11 @@ export default function AppShell({
           .map((item: any) => normalizeGalleryItem(item))
           .filter((item): item is GalleryItem => !!item);
         if (normalizedItems.length === 0) return prev;
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
