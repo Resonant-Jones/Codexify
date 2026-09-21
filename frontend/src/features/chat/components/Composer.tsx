@@ -60,7 +60,7 @@ const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
 const COMPOSER_EXPANDED_MAX_HEIGHT = "clamp(14rem, 34vh, 22rem)";
-const COMPOSER_EXPAND_CONTROL_TEXT_INSET = `calc(${COMPOSER_TEXTAREA_PAD_X} + var(--composer-control-size, 2rem) + ${COMPOSER_TEXTAREA_PAD_X})`;
+const COMPOSER_EXPAND_CONTROL_TEXT_INSET = `calc(${COMPOSER_TEXTAREA_PAD_X} + var(--composer-control-size, 1.5rem) + ${COMPOSER_TEXTAREA_PAD_X})`;
 const COMPOSER_OVERFLOW_TOLERANCE_PX = 2;
 
 const parsePx = (value?: string | null) => {
@@ -1171,17 +1171,17 @@ export function Composer({
           size="icon"
           onMouseDown={(event) => event.preventDefault()}
           onClick={toggleComposerExpansion}
-          className="absolute z-10 h-7 w-7 rounded-[var(--radius-micro)] p-0 opacity-70 hover:opacity-100"
+          className="absolute z-10 h-6 w-6 rounded-[var(--radius-micro)] p-0 opacity-70 hover:opacity-100"
           style={{
             right: COMPOSER_TEXTAREA_PAD_X,
-            bottom: COMPOSER_TEXTAREA_PAD_Y,
+            top: COMPOSER_TEXTAREA_PAD_Y,
             color: "var(--muted)",
           }}
         >
           {isDesktopComposerExpanded ? (
-            <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+            <Minimize2 className="h-3 w-3" aria-hidden="true" />
           ) : (
-            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+            <Maximize2 className="h-3 w-3" aria-hidden="true" />
           )}
         </Button>
       ) : null}

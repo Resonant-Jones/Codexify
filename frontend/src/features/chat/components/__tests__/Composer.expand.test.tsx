@@ -84,10 +84,17 @@ describe("Composer expansion", () => {
     textareaGeometry = { clientHeight: 96, scrollHeight: 192 };
     rerender(<Composer {...defaultProps} draftValue="A longer draft" />);
 
-    expect(screen.getByRole("button", { name: "Expand composer" })).toHaveAttribute(
+    const expandButton = screen.getByRole("button", { name: "Expand composer" });
+    expect(expandButton).toHaveAttribute(
       "aria-expanded",
       "false",
     );
+    expect(expandButton).toHaveClass("h-6", "w-6");
+    expect(expandButton).toHaveStyle({
+      right: "var(--composer-text-pad-x, 14px)",
+      top: "var(--composer-text-pad-y, 10px)",
+    });
+    expect(expandButton.style.bottom).toBe("");
     expect(
       screen
         .getByPlaceholderText("Write a message…")
