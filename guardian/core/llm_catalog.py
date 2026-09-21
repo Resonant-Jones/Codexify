@@ -26,6 +26,7 @@ from guardian.core.provider_registry import (
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
+    resolve_local_runtime_identity,
 )
 from guardian.core.provider_registry import (
     resolve_model_capability_state as resolve_model_capability_state_registry,
@@ -684,15 +685,27 @@ def _provider_source(
     return source
 
 
-def _provider_display_name(provider_id: str, settings: Settings) -> str:
+def _provider_display_name(
+    provider_id: str,
+    settings: Settings,
+    runtime_identity: dict[str, Any] | None = None,
+) -> str:
     fallback = _PROVIDER_LABELS.get(provider_id, provider_id.title())
     if provider_id != "local":
         return fallback
 
-    configured = str(
-        getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", "") or ""
+    runtime_display_name = str(
+        (runtime_identity or {}).get("displayName") or ""
     ).strip()
-    return configured or fallback
+    return runtime_display_name or fallback
+
+
+def _local_provider_runtime_identity(settings: Settings) -> dict[str, Any]:
+    return resolve_local_runtime_identity(
+        vendor=getattr(settings, "LOCAL_PROVIDER_VENDOR", None),
+        runtime_preset=getattr(settings, "LOCAL_RUNTIME_PRESET", None),
+        display_name=getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", None),
+    )
 
 
 def _provider_entry(
@@ -768,7 +781,16 @@ def _provider_entry(
         and not bool(supported_profile_approved)
     ):
         return None
-    display_name = _provider_display_name(provider_id, settings)
+    runtime_identity = (
+        _local_provider_runtime_identity(settings)
+        if provider_id == "local"
+        else None
+    )
+    display_name = _provider_display_name(
+        provider_id,
+        settings,
+        runtime_identity=runtime_identity,
+    )
     entry: dict[str, Any] = {
         "id": provider_id,
         "displayName": display_name,
@@ -784,6 +806,8 @@ def _provider_entry(
     source = _provider_source(provider_id, settings, endpoint_resolution)
     if source is not None:
         entry["source"] = source
+    if runtime_identity is not None:
+        entry["runtime"] = runtime_identity
     if endpoint_resolution is not None:
         entry["endpoint_resolution"] = endpoint_resolution
     if local_model_resolution is not None:

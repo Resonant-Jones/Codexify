@@ -1325,7 +1325,7 @@ export function GuardianChat({
     () =>
       catalogProviders.map((provider) => ({
         value: provider.id,
-        label: provider.displayName,
+        label: provider.runtime?.displayName ?? provider.displayName,
         description: (() => {
           const chatModels = provider.models.filter(isChatSelectableModel);
           if (!provider.available) {

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import requests
+import pytest
 
 from guardian.core import llm_catalog
 from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
-from guardian.core.provider_registry import validate_provider_model_selection
+from guardian.core.provider_registry import (
+    resolve_local_runtime_identity,
+    validate_provider_model_selection,
+)
 
 _GEMMA = "mlx-community/gemma-4-e2b-it-4bit"
 _LLAMA = "llama-3.2-3b-mlx"
@@ -99,6 +103,44 @@ def _local_provider(payload: dict) -> dict:
     )
 
 
+@pytest.mark.parametrize(
+    ("configured_identity", "expected_id", "expected_display_name"),
+    [
+        ("whooshd-mlx", "whooshd", "Whoosh'd"),
+        ("ollama", "ollama", "Ollama"),
+        ("lmstudio", "lm_studio", "LM Studio"),
+        ("lm_studio", "lm_studio", "LM Studio"),
+    ],
+)
+def test_local_runtime_identity_normalizes_known_configured_values(
+    configured_identity: str,
+    expected_id: str,
+    expected_display_name: str,
+) -> None:
+    runtime = resolve_local_runtime_identity(vendor=configured_identity)
+
+    assert runtime["id"] == expected_id
+    assert runtime["displayName"] == expected_display_name
+    assert runtime["identitySource"] == "vendor"
+    assert runtime["recognized"] is True
+
+
+def test_unknown_local_runtime_identity_stays_generic() -> None:
+    runtime = resolve_local_runtime_identity(
+        vendor="acme-runtime",
+        runtime_preset="whooshd-mlx",
+    )
+
+    assert runtime == {
+        "id": "custom",
+        "displayName": "Custom Local",
+        "identitySource": "vendor",
+        "recognized": False,
+        "vendor": "acme-runtime",
+        "runtimePreset": "whooshd-mlx",
+    }
+
+
 def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
     monkeypatch,
 ) -> None:
@@ -108,6 +150,17 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
 
     local = _local_provider(payload)
     model_ids = [model["id"] for model in local["models"]]
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["runtime"] == {
+        "id": "whooshd",
+        "displayName": "Whoosh'd",
+        "identitySource": "vendor",
+        "recognized": True,
+        "vendor": "whooshd",
+        "runtimePreset": "whooshd-mlx",
+    }
+    assert local["source"]["label"] == "host.docker.internal:8000"
     assert model_ids == [_LLAMA, _QWEN_VL, _QWEN_GGUF]
     assert _GEMMA not in model_ids
     assert local["configured_model"] == _GEMMA
@@ -117,6 +170,59 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
     assert local["advertised_models"] == [_LLAMA, _QWEN_VL, _QWEN_GGUF]
     assert local["enabled"] is False
     assert local["truth"]["selectable"] is False
+
+
+def test_local_runtime_display_override_remains_authoritative(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_PROVIDER_DISPLAY_NAME="Jones Runtime"),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Jones Runtime"
+    assert local["runtime"]["id"] == "whooshd"
+    assert local["runtime"]["displayName"] == "Jones Runtime"
+
+
+def test_known_runtime_vendor_supplies_display_without_override(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_PROVIDER_DISPLAY_NAME=None),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["runtime"]["displayName"] == "Whoosh'd"
+
+
+def test_unknown_runtime_is_not_inferred_from_endpoint_or_models(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(
+            LOCAL_PROVIDER_DISPLAY_NAME=None,
+            LOCAL_PROVIDER_VENDOR="acme-runtime",
+        ),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Custom Local"
+    assert local["runtime"]["id"] == "custom"
+    assert local["runtime"]["recognized"] is False
+    assert local["source"]["label"] == "host.docker.internal:8000"
+    assert [model["id"] for model in local["models"]] == [
+        _LLAMA,
+        _QWEN_VL,
+        _QWEN_GGUF,
+    ]
 
 
 def test_local_chat_model_wins_over_legacy_local_model_env(monkeypatch) -> None:
