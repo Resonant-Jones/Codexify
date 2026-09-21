@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import requests
 import pytest
+import requests
 
 from guardian.core import llm_catalog
 from guardian.core.config import Settings
@@ -138,6 +138,17 @@ def test_unknown_local_runtime_identity_stays_generic() -> None:
         "recognized": False,
         "vendor": "acme-runtime",
         "runtimePreset": "whooshd-mlx",
+    }
+
+
+def test_unconfigured_local_runtime_identity_uses_explicit_unknown_fallback() -> None:
+    runtime = resolve_local_runtime_identity()
+
+    assert runtime == {
+        "id": "unknown",
+        "displayName": "Local Runtime",
+        "identitySource": "fallback",
+        "recognized": False,
     }
 
 

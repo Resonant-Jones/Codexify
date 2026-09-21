@@ -137,7 +137,8 @@ def resolve_local_runtime_identity(
         identity_source = "runtime_preset"
         configured_identity = configured_preset
 
-    canonical_id = normalize_local_runtime_identity(configured_identity)
+    normalized_identity = normalize_local_runtime_identity(configured_identity)
+    canonical_id = normalized_identity
     if canonical_id is None:
         canonical_id = "custom" if configured_identity else "unknown"
 
@@ -146,8 +147,7 @@ def resolve_local_runtime_identity(
         "id": identity.id,
         "displayName": configured_display_name or identity.display_name,
         "identitySource": identity_source,
-        "recognized": normalize_local_runtime_identity(configured_identity)
-        is not None,
+        "recognized": normalized_identity is not None,
     }
     if configured_vendor:
         resolved["vendor"] = configured_vendor

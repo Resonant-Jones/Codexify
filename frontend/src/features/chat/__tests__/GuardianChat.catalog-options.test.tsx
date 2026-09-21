@@ -81,8 +81,8 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  const stableChatState = {
     messages: [],
     loading: false,
     error: null,
@@ -106,15 +106,20 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
-  }),
-}));
+  };
+  return {
+    default: () => stableChatState,
+  };
+});
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const stableLiveEvents = {
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return {
+    useLiveEvents: () => stableLiveEvents,
+  };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),
@@ -239,8 +244,8 @@ describe("GuardianChat catalog-backed model options", () => {
                 },
                 source: {
                   kind: "local",
-                  baseUrl: "http://host.docker.internal:8000/v1",
-                  label: "host.docker.internal:8000",
+                  baseUrl: "http://host.docker.internal:11434/v1",
+                  label: "host.docker.internal:11434",
                   vendor: "whooshd",
                   runtimePreset: "whooshd-mlx",
                 },
@@ -296,8 +301,9 @@ describe("GuardianChat catalog-backed model options", () => {
     const providerOptions = await screen.findByTestId("provider-options");
     expect(providerOptions).toHaveTextContent("Whoosh'd");
     expect(providerOptions).not.toHaveTextContent("Local");
+    expect(providerOptions).not.toHaveTextContent("Ollama");
     expect(providerOptions).toHaveTextContent(
-      "1 chat model · Source host.docker.internal:8000"
+      "1 chat model · Source host.docker.internal:11434"
     );
     expect(providerOptions.firstElementChild).toHaveAttribute(
       "data-provider-value",
