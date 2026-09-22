@@ -62,16 +62,17 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { getPreferredProviderSelection } from "@/lib/providerPref";
-import { mapRuntimeToVisualState } from "@/contracts/runtimeVisualState";
 import {
   checkAuthGate,
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
 import { getDesktopRuntimeAuthConfig, isTauriRuntime } from "@/lib/runtimeConfig";
-import type {
-  ChatRequestState,
-  ProviderRuntimeState,
+import {
+  describeProviderState,
+  normalizeProviderRuntimeState,
+  PROVIDER_RUNTIME_STATES,
+  type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
@@ -1884,17 +1885,18 @@ export default function GuardianChatWithSidebar({
     [isPromptFirstStart]
   );
 
-  const providerStateToken = useMemo(() => {
-    return providerRuntimeState ?? "offline";
-  }, [providerRuntimeState]);
-
-  const requestState: ChatRequestState =
-    providerStateToken === "model_warming" ? "awaiting_model" : "queued";
-  const visualState = mapRuntimeToVisualState(
-    requestState,
-    providerStateToken as ProviderRuntimeState
+  const providerStateToken = useMemo(
+    () => normalizeProviderRuntimeState(providerRuntimeState),
+    [providerRuntimeState]
   );
-  const chatDisabled = (!isDesktopLayout && isSidebarOpen) || visualState.isBlocking;
+  const providerPresentation = useMemo(
+    () => describeProviderState(providerStateToken),
+    [providerStateToken]
+  );
+  const providerBlocksChat =
+    providerStateToken === PROVIDER_RUNTIME_STATES.MODEL_WARMING ||
+    providerStateToken === PROVIDER_RUNTIME_STATES.ERROR;
+  const chatDisabled = (!isDesktopLayout && isSidebarOpen) || providerBlocksChat;
   const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
@@ -2243,9 +2245,12 @@ export default function GuardianChatWithSidebar({
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
                 <div
                   className="px-2 py-1 text-xs text-[color:var(--muted)]"
-                  title={visualState.description}
+                  role="status"
+                  aria-label={`Provider runtime: ${providerPresentation.title}`}
+                  data-provider-runtime-state={providerStateToken}
+                  title={providerPresentation.detail}
                 >
-                  {visualState.label}
+                  {providerPresentation.title}
                 </div>
                 <GuardianChat
                   guardianName={guardianName}
