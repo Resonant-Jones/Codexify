@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-_WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+_LOCAL_CHAT_ROUTE = "local-chat"
 
 _GUARDIAN_API_ENV_KEYS = (
     "GUARDIAN_API_KEY",
@@ -28,6 +28,7 @@ _GUARDIAN_API_ENV_KEYS = (
     "LOCAL_CHAT_MODEL",
     "OPENAI_API_KEY",
     "GROQ_API_KEY",
+    "DEEPSEEK_API_KEY",
     "ALIBABA_API_KEY",
     "MINIMAX_API_KEY",
 )
@@ -52,6 +53,7 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     for key in (
         "OPENAI_API_KEY",
         "GROQ_API_KEY",
+        "DEEPSEEK_API_KEY",
         "ALIBABA_API_KEY",
         "MINIMAX_API_KEY",
     ):
@@ -102,11 +104,11 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     )
     monkeypatch.setenv(
         "LOCAL_LLM_MODEL",
-        env_overrides.pop("LOCAL_LLM_MODEL", _WHOOSHD_MODEL),
+        env_overrides.pop("LOCAL_LLM_MODEL", _LOCAL_CHAT_ROUTE),
     )
     monkeypatch.setenv(
         "LOCAL_CHAT_MODEL",
-        env_overrides.pop("LOCAL_CHAT_MODEL", _WHOOSHD_MODEL),
+        env_overrides.pop("LOCAL_CHAT_MODEL", _LOCAL_CHAT_ROUTE),
     )
     for key, value in env_overrides.items():
         monkeypatch.setenv(key, value)
@@ -163,13 +165,14 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     )
     settings.LOCAL_PROVIDER_VENDOR = os.getenv("LOCAL_PROVIDER_VENDOR", "whooshd")
     settings.LOCAL_LLM_MODEL = os.getenv(
-        "LOCAL_LLM_MODEL", _WHOOSHD_MODEL
+        "LOCAL_LLM_MODEL", _LOCAL_CHAT_ROUTE
     )
     settings.LOCAL_CHAT_MODEL = os.getenv(
-        "LOCAL_CHAT_MODEL", _WHOOSHD_MODEL
+        "LOCAL_CHAT_MODEL", _LOCAL_CHAT_ROUTE
     )
     settings.OPENAI_API_KEY = None
     settings.GROQ_API_KEY = None
+    settings.DEEPSEEK_API_KEY = None
     settings.ALIBABA_API_KEY = None
     settings.MINIMAX_API_KEY = None
     return guardian_api
