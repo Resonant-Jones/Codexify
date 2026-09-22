@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
 
 import AppShell from "@/components/persona/layout/AppShell";
 import {
@@ -17,11 +16,9 @@ vi.mock("@/lib/authState", () => ({
   checkAuthGate: () => true,
   useAuthState: () => ({ user: null, token: null, loading: false }),
 }));
-
 vi.mock("@/hooks/useLiveEvents", () => ({
   useLiveEvents: () => ({ connected: false, lastEvent: null }),
 }));
-
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => ({
     status: RUNTIME_HEALTH_STATUSES.UNAVAILABLE,
@@ -36,69 +33,26 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
     lastFailedAt: null,
     stale: false,
     diagnostics: {
-      resolvedApiBaseUrl: null,
-      resolvedApiBaseUrlSource: "unknown",
-      apiKeyPresent: false,
-      apiKeySource: "unknown",
-      hydrationState: "ready",
-      nativeCommandStatus: null,
-      authSource: "unknown",
-      chat: {
-        endpoint: "/health/chat",
-        httpStatus: null,
-        transportErrorClass: null,
-        parsedStatus: null,
-        parsedOk: null,
-        detailsStatus: null,
-        detailsOk: null,
-        providerRuntimeAvailable: null,
-        endpointResolutionState: null,
-        failureReason: null,
-      },
-      llm: {
-        endpoint: "/api/health/llm",
-        httpStatus: null,
-        transportErrorClass: null,
-        parsedStatus: null,
-        parsedOk: null,
-        detailsStatus: null,
-        detailsOk: null,
-        providerRuntimeAvailable: null,
-        endpointResolutionState: null,
-        failureReason: null,
-      },
-      liveEvents: {
-        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
-        connected: true,
-        statusUpdatedAt: null,
-      },
-      failureKind: null,
-      lastSuccessAt: null,
-      lastFailedAt: null,
-      lastCheckedAt: null,
-      currentComputedStateSource: "fallback",
+      resolvedApiBaseUrl: null, resolvedApiBaseUrlSource: "unknown", apiKeyPresent: false,
+      apiKeySource: "unknown", hydrationState: "ready", nativeCommandStatus: null,
+      authSource: "unknown", failureKind: null, lastSuccessAt: null, lastFailedAt: null,
+      lastCheckedAt: null, currentComputedStateSource: "fallback",
+      chat: { endpoint: "/health/chat", httpStatus: null, transportErrorClass: null, parsedStatus: null, parsedOk: null, detailsStatus: null, detailsOk: null, providerRuntimeAvailable: null, endpointResolutionState: null, failureReason: null },
+      llm: { endpoint: "/api/health/llm", httpStatus: null, transportErrorClass: null, parsedStatus: null, parsedOk: null, detailsStatus: null, detailsOk: null, providerRuntimeAvailable: null, endpointResolutionState: null, failureReason: null },
+      liveEvents: { connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED, connected: true, statusUpdatedAt: null },
     },
   }),
 }));
-
-vi.mock("@/hooks/useWallpaperUrl", () => ({
-  useWallpaperUrl: () => null,
-}));
-
+vi.mock("@/hooks/useWallpaperUrl", () => ({ useWallpaperUrl: () => null }));
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
 );
-
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   useRuntimeRouteCapability: () => ({ ready: true, state: "available" }),
   SUPPORTED_PROFILE_ROUTE_LABELS: { CODEX: "codex", IMPRINT: "imprint", CONNECTORS: "connectors" },
 }));
-
 vi.mock("@/state/session/SessionSpine", () => ({
-  SessionSpine: {
-    getRegisteredSpine: () => null,
-    subscribeActiveSpine: () => () => {},
-  },
+  SessionSpine: { getRegisteredSpine: () => null, subscribeActiveSpine: () => () => {} },
 }));
 
 beforeEach(() => {
@@ -107,299 +61,25 @@ beforeEach(() => {
   resetPersonaStudioApiMock();
 });
 
-function renderAppShell() {
-  return render(
-    <AppShell startupLocked={false} startupOverlay={null} />
-  );
-}
+describe("Persona Studio V2 AppShell integration", () => {
+  it("keeps AppShell Dock authority and routes directly to the two-frame workspace", () => {
+    render(<AppShell startupLocked={false} startupOverlay={null} />);
 
-describe("Persona Studio Shell Integration", () => {
-  it("renders the Persona Studio route in the app shell", async () => {
-    renderAppShell();
+    expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-page")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-assistant-frame")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-configuration-frame")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-page").closest("[data-active-view='personaStudio']")).toHaveAttribute("data-active-view-contract", "assistant-configuration");
+  });
 
-    expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+  it("retains the local-only Test boundary inside AppShell", async () => {
+    const user = userEvent.setup();
+    render(<AppShell startupLocked={false} startupOverlay={null} />);
+
+    await user.click(screen.getByRole("tab", { name: /^test$/i }));
     expect(screen.getByTestId("persona-preview-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-guide-lane")).toBeInTheDocument();
-  });
-
-  it("renders Persona Studio hierarchy directly from the route", () => {
-    renderAppShell();
-
-    expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
-    expect(screen.getByText(/configure reusable agent profiles\./i)).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-guide-lane")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
-  });
-
-  it("renders the right rail with the Preview tab default", () => {
-    renderAppShell();
-
-    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-rail-tabs")).toBeInTheDocument();
-    const previewTab = screen.getByRole("tab", { name: /^preview$/i });
-    expect(previewTab).toHaveAttribute("aria-selected", "true");
-    expect(previewTab).toHaveAttribute(
-      "aria-controls",
-      "persona-studio-rail-panel-preview"
-    );
-
-    const diagnosticsTab = screen.getByRole("tab", { name: /^diagnostics$/i });
-    expect(diagnosticsTab).toHaveAttribute("aria-selected", "false");
-
-    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
-  });
-
-  it("renders the editor tabs when Persona Studio is active", () => {
-    renderAppShell();
-
-    expect(screen.getByRole("button", { name: /identity/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /model/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /voice/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /prompt/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /tools/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retrieval/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /truth matrix/i })).toBeInTheDocument();
-  });
-
-  it("renders diagnostics panel when Persona Studio is active", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
-    const diagnosticsPanel = screen.getByTestId("persona-studio-rail-diagnostics-panel");
-    expect(diagnosticsPanel).toHaveAttribute("role", "tabpanel");
-    expect(diagnosticsPanel).toHaveAttribute(
-      "aria-labelledby",
-      "persona-studio-rail-tab-diagnostics"
-    );
-    expect(screen.getByText("Save Status")).toBeInTheDocument();
-    expect(screen.getByText("Effective Config")).toBeInTheDocument();
-    expect(screen.getByText("Debug Log")).toBeInTheDocument();
-  });
-
-  it("does not render chat composer or thread UI in Persona Studio", () => {
-    renderAppShell();
-
-    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
-  });
-
-  it("renders Generation Top K and Retrieval Top K as separate fields", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    await user.click(screen.getByRole("button", { name: /model/i }));
-
-    expect(screen.getByText("Generation Top K", { selector: "label" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /retrieval/i }));
-
-    expect(screen.getByText("Retrieval Top K", { selector: "label" })).toBeInTheDocument();
-    expect(screen.getByText(/distinct from generation top k/i)).toBeInTheDocument();
-  });
-
-  it("can select a profile from the profile selector", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    await user.click(trigger);
-
-    const codeAssistantOption = screen.getByTestId("persona-studio-profile-option-profile-2");
-    await user.click(codeAssistantOption);
-
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant/i);
-  });
-
-  it("renders the profile selector as a compact inline text trigger (no square tile)", () => {
-    renderAppShell();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    const save = screen.getByTestId("persona-studio-action-save");
-
-    expect(trigger).toHaveTextContent(/guardian default/i);
-    expect(
-      screen.getByTestId("persona-studio-profile-selector-trigger-name")
-    ).toHaveTextContent(/guardian default/i);
-
-    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
-    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
-    expect(trigger.querySelector("svg")).toBeNull();
-
-    expect(
-      screen.queryByTestId("persona-studio-profile-selector-tile")
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("persona-studio-profile-selector-card")
-    ).not.toBeInTheDocument();
-
-    const triggerRect = trigger.getBoundingClientRect();
-    const saveRect = save.getBoundingClientRect();
-    expect(triggerRect.height).toBeLessThanOrEqual(saveRect.height + 1);
-    expect(triggerRect.height).toBeLessThan(40);
-  });
-
-  it("renders profile actions in the selector dropdown", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-
-    expect(screen.getByTestId("persona-studio-action-save")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-action-save-as-new")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-action-reset")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-action-reset-all")).toBeVisible();
-  });
-
-  it("renders profile-level actions and the Studio reset exactly once, and not the old 'Reset All Data'", () => {
-    renderAppShell();
-
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^reset local studio data$/i })
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getAllByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveLength(1);
-
-    expect(
-      screen.queryByRole("button", { name: /^reset all data$/i })
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/reset all data/i)).not.toBeInTheDocument();
-  });
-
-  it("opens a bounded scrollable profile list when the compact selector is clicked", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-
-    const list = screen.getByTestId("persona-studio-profile-selector-list");
-    expect(list).toBeInTheDocument();
-    expect(list.className).toMatch(/overflow-y-auto/);
-    expect(list.className).toMatch(/max-h-/);
-
-    expect(
-      screen.getByTestId("persona-studio-profile-option-profile-1")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("persona-studio-profile-option-profile-2")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("persona-studio-profile-option-profile-3")
-    ).toBeInTheDocument();
-  });
-
-  it("applies Persona Studio action material markers under the shell", () => {
-    renderAppShell();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    const save = screen.getByTestId("persona-studio-action-save");
-    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
-    const reset = screen.getByTestId("persona-studio-action-reset");
-    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
-    const send = screen.getByRole("button", { name: /^send$/i });
-    const clear = screen.getByRole("button", { name: /clear preview session/i });
-
-    expect(trigger).toHaveClass("ps-action-chip");
-    expect(trigger).toHaveAttribute("data-ps-material", "selector");
-
-    expect(save).toHaveAttribute("data-ps-material", "primary");
-    expect(send).toHaveAttribute("data-ps-material", "primary");
-
-    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
-    expect(clear).toHaveAttribute("data-ps-material", "secondary");
-
-    expect(reset).toHaveAttribute("data-ps-material", "reset");
-    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
-
-    [trigger, save, saveAsNew, reset, resetAll, send, clear].forEach((chip) => {
-      expect(chip.querySelector("svg")).toBeNull();
-    });
-  });
-
-  it("applies Persona Studio action material markers under the shell", () => {
-    renderAppShell();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    const save = screen.getByTestId("persona-studio-action-save");
-    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
-    const reset = screen.getByTestId("persona-studio-action-reset");
-    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
-    const send = screen.getByRole("button", { name: /^send$/i });
-    const clear = screen.getByRole("button", { name: /clear preview session/i });
-
-    expect(trigger).toHaveClass("ps-action-chip");
-    expect(trigger).toHaveAttribute("data-ps-material", "selector");
-
-    expect(save).toHaveAttribute("data-ps-material", "primary");
-    expect(send).toHaveAttribute("data-ps-material", "primary");
-
-    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
-    expect(clear).toHaveAttribute("data-ps-material", "secondary");
-
-    expect(reset).toHaveAttribute("data-ps-material", "reset");
-    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
-
-    // No decorative SVGs introduced onto any action chip via the shell path
-    [trigger, save, saveAsNew, reset, resetAll, send, clear].forEach((chip) => {
-      expect(chip.querySelector("svg")).toBeNull();
-    });
-  });
-
-  it("renders a truthful matrix for current Persona Studio controls", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    await user.click(screen.getByRole("button", { name: /truth matrix/i }));
-
-    const matrix = screen.getByRole("table", { name: /persona studio truth matrix/i });
-
-    expect(within(matrix).getByRole("columnheader", { name: /control/i })).toBeInTheDocument();
-    expect(within(matrix).getByRole("columnheader", { name: /ui present/i })).toBeInTheDocument();
-    expect(
-      within(matrix).getByRole("columnheader", { name: /local draft state/i })
-    ).toBeInTheDocument();
-    expect(within(matrix).getByRole("columnheader", { name: /saved locally/i })).toBeInTheDocument();
-    expect(
-      within(matrix).getByRole("columnheader", { name: /backend persisted/i })
-    ).toBeInTheDocument();
-    expect(
-      within(matrix).getByRole("columnheader", { name: /applied to runtime/i })
-    ).toBeInTheDocument();
-
-    const getRowValues = (label: string) => {
-      const rowHeader = within(matrix).getByRole("rowheader", { name: label });
-      const row = rowHeader.closest("tr");
-      expect(row).not.toBeNull();
-      return within(row as HTMLElement)
-        .getAllByRole("cell")
-        .map((cell) => cell.textContent?.trim());
-    };
-
-    expect(getRowValues("Persona Name")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
-    expect(getRowValues("System Prompt")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
-    expect(getRowValues("Model Provider")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
-    expect(getRowValues("Model ID")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
-    expect(getRowValues("Temperature")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
-    expect(getRowValues("Generation Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
-    expect(getRowValues("Retrieval Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
-    expect(getRowValues("Voice Enabled")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
   });
 });
