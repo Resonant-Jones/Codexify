@@ -168,9 +168,19 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
-const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+const UNSET_PREFERRED_NAME_VALUES = new Set(["guest", "unknown", "user", "you"]);
+const PERSONALIZED_LANDING_GREETINGS: ReadonlyArray<(name: string) => string> = [
+  (name) => `Welcome back, ${name}.`,
+  (name) => `Good to see you, ${name}.`,
+  (name) => `What are we making today, ${name}?`,
+  (name) => `Where should we begin, ${name}?`,
+];
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
+
+function randomLandingGreetingIndex(): number {
+  return Math.floor(Math.random() * PERSONALIZED_LANDING_GREETINGS.length);
+}
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -1012,6 +1022,9 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const [landingGreetingIndex, setLandingGreetingIndex] = useState(
+    randomLandingGreetingIndex
+  );
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -2076,6 +2089,18 @@ export function GuardianChat({
     presentationMode ?? (effectiveThreadId == null ? "landing" : "conversation");
   const isLandingPresentation =
     resolvedPresentationMode === "landing" && effectiveThreadId == null;
+  const wasLandingPresentation = useRef(isLandingPresentation);
+
+  useEffect(() => {
+    if (isLandingPresentation && !wasLandingPresentation.current) {
+      setLandingGreetingIndex(randomLandingGreetingIndex());
+    }
+    wasLandingPresentation.current = isLandingPresentation;
+  }, [isLandingPresentation]);
+
+  const landingGreeting = preferredName
+    ? PERSONALIZED_LANDING_GREETINGS[landingGreetingIndex](preferredName)
+    : "What should we work on?";
   const {
     dispatchErrors: codingLoopDispatchErrors,
     registerAcceptedRun: registerCodingLoopRun,
@@ -4430,7 +4455,17 @@ export function GuardianChat({
           }
           style={
             isLandingPresentation
-              ? { maxWidth: CHAT_LANE_MAX_WIDTH }
+              ? {
+                  position: "fixed",
+                  top: "50vh",
+                  left: "max(var(--page-pad, 0px), var(--shell-gap, 12px))",
+                  right: "max(var(--page-pad, 0px), var(--shell-gap, 12px))",
+                  width: "auto",
+                  maxWidth: CHAT_LANE_MAX_WIDTH,
+                  marginInline: "auto",
+                  zIndex: 20,
+                  transform: "translateY(-100%)",
+                }
               : undefined
           }
         >
@@ -4486,11 +4521,11 @@ export function GuardianChat({
         ) : (
           <div
             data-testid="guardian-prompt-first-surface"
-            className="flex w-full flex-col items-start justify-end px-[var(--card-pad)] text-left"
+            className="flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center"
             style={{ color: "var(--muted)" }}
           >
-            <h1 className="text-lg font-medium text-[color:var(--text)]">
-              What should we work on?
+            <h1 className="w-full text-center text-lg font-medium text-[color:var(--text)]">
+              {landingGreeting}
             </h1>
           </div>
         )}

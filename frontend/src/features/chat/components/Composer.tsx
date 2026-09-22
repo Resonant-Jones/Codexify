@@ -1337,6 +1337,7 @@ export function Composer({
             ? "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
             : "flex w-full min-w-0 items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
         )}
+        style={compactMobile ? undefined : { transform: "translateX(-2px)" }}
       >
         {compactMobile ? (
           <>
@@ -1356,9 +1357,11 @@ export function Composer({
           data-testid="composer-send-slot"
           className={cn(
             "flex shrink-0 items-center justify-center justify-self-end",
-            compactMobile ? "mr-[var(--composer-text-pad-x,14px)]" : "",
-            CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+            compactMobile
+              ? "mr-[var(--composer-text-pad-x,14px)]"
+              : CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
           )}
+          style={compactMobile ? undefined : { marginRight: "4px" }}
         >
           {renderSendButton()}
         </div>

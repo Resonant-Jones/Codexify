@@ -423,9 +423,7 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
     const greeting = screen.getByTestId("guardian-prompt-first-surface");
     const composer = screen.getByTestId("composer-stub");
 
-    expect(greeting).toHaveTextContent(
-      "What should we work on?"
-    );
+    expect(greeting).toHaveTextContent(/tester/);
     expect(landingUnit).toContainElement(greeting);
     expect(landingUnit).toContainElement(composer);
     expect(greeting.compareDocumentPosition(composer)).toBe(
