@@ -26,6 +26,17 @@ Studio browser save/backend readback remains pending. Qualify the running
 lineage and route before resuming authenticated browser persistence proof;
 this admission does not advance general Beta support.
 
+## People direct messaging route admission
+
+`v1-whooshd-deepseek-web` also admits the existing `direct_messages` route for
+authenticated, same-node People messaging. The profile manifest is the route
+gate; the existing route-registration flag defaults on, so no additional
+environment variable is required. Direct messaging uses the current private
+preview account boundary and does not enable federation or Guardian
+execution. The separate `share` route remains quarantined, so link creation
+and the Share Sheet's send-a-link flow stay unavailable in this profile. This
+admission does not widen default Beta support.
+
 ## Provider and network posture
 
 - Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.

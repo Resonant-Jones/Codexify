@@ -1,4 +1,4 @@
-# v1-whooshd-deepseek-web: dual-provider Tester topology with operator-supplied local model selection.
+# v1-whooshd-deepseek-web: dual-provider private-preview web runtime with operator-supplied local model selection.
 #
 # This is an operator-controlled candidate profile for load observation. It
 # does not change the default beta profile or imply that cloud inference is
@@ -16,10 +16,10 @@
 # model selection is backed by the provider's live /models inventory; an
 # operator-supplied exact model remains subject to fail-closed validation.
 #
-# Route posture: this canonical friends/family tester profile mounts the
-# existing Hosted Room owner/guest route families for private-preview
-# collaboration qualification only. This does not widen the default beta
-# promise, and it does not qualify Hosted Rooms for release.
+# Route posture: this opt-in private-preview profile mounts the existing
+# Hosted Room owner/guest route families and same-node direct messaging for
+# private-preview qualification only. Share links, federation, and Guardian
+# execution remain quarantined. This does not widen the default beta promise.
 
 name: v1-whooshd-deepseek-web
 version: 1
@@ -62,6 +62,7 @@ route_posture:
     - persona_profiles
     - hosted_rooms
     - hosted_room_guest
+    - direct_messages
   internal_only:
     - coding_work_orders
     - command_bus
