@@ -23,8 +23,14 @@ const sessionState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/chat/GuardianChat", () => ({
-  default: (props: { activeThread?: { id?: string } | null }) => (
-    <div data-testid="guardian-chat-mock">
+  default: (props: {
+    activeThread?: { id?: string } | null;
+    providerRuntimeState?: string | null;
+  }) => (
+    <div
+      data-testid="guardian-chat-mock"
+      data-provider-runtime-state={props.providerRuntimeState ?? "unknown"}
+    >
       {props.activeThread?.id === "7" ? (
         <article aria-label="Completed assistant response">
           Durable assistant output
@@ -182,12 +188,14 @@ function renderShell(providerRuntimeState: ProviderRuntimeState) {
   );
 }
 
-function expectProviderStatus(state: string, label: string) {
-  const status = screen.getByRole("status", {
-    name: `Provider runtime: ${label}`,
-  });
-  expect(status).toHaveAttribute("data-provider-runtime-state", state);
-  expect(status).toHaveTextContent(label);
+function expectProviderStatusHidden(state: string) {
+  expect(
+    screen.queryByRole("status", { name: /^Provider runtime:/ })
+  ).not.toBeInTheDocument();
+  expect(screen.getByTestId("guardian-chat-mock")).toHaveAttribute(
+    "data-provider-runtime-state",
+    state
+  );
   expect(screen.queryByText("Queued")).not.toBeInTheDocument();
 }
 
@@ -224,10 +232,10 @@ describe("GuardianChatWithSidebar terminal projection", () => {
     });
   });
 
-  it("shows a healthy idle provider without inventing a queued request", () => {
+  it("keeps healthy idle provider state out of the shell status UI", () => {
     renderShell(PROVIDER_RUNTIME_STATES.READY);
 
-    expectProviderStatus(PROVIDER_RUNTIME_STATES.READY, "Ready");
+    expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.READY);
   });
 
   it("keeps a completed conversation visible without projecting Queued", async () => {
@@ -239,7 +247,7 @@ describe("GuardianChatWithSidebar terminal projection", () => {
     expect(await screen.findByLabelText("Completed assistant response")).toHaveTextContent(
       "Durable assistant output"
     );
-    expectProviderStatus(PROVIDER_RUNTIME_STATES.READY, "Ready");
+    expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.READY);
   });
 
   it("stays non-queued when an idle completed thread is remounted", async () => {
@@ -254,21 +262,21 @@ describe("GuardianChatWithSidebar terminal projection", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Completed assistant response")).toBeInTheDocument();
     });
-    expectProviderStatus(PROVIDER_RUNTIME_STATES.READY, "Ready");
+    expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.READY);
   });
 
-  it("preserves canonical model-warming runtime truth without Queued", () => {
+  it("keeps model-warming state out of shell status UI while passing it to chat", () => {
     renderShell(PROVIDER_RUNTIME_STATES.MODEL_WARMING);
 
-    expectProviderStatus(PROVIDER_RUNTIME_STATES.MODEL_WARMING, "Model warming");
+    expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.MODEL_WARMING);
   });
 
   it.each([
-    [PROVIDER_RUNTIME_STATES.DEGRADED, "Provider degraded"],
-    [PROVIDER_RUNTIME_STATES.OFFLINE, "Provider offline"],
-  ])("preserves %s provider truth without Queued", (state, label) => {
+    PROVIDER_RUNTIME_STATES.DEGRADED,
+    PROVIDER_RUNTIME_STATES.OFFLINE,
+  ])("keeps %s state out of shell status UI while passing it to chat", (state) => {
     renderShell(state);
 
-    expectProviderStatus(state, label);
+    expectProviderStatusHidden(state);
   });
 });

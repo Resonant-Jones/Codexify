@@ -69,7 +69,6 @@ import {
 } from "@/lib/authState";
 import { getDesktopRuntimeAuthConfig, isTauriRuntime } from "@/lib/runtimeConfig";
 import {
-  describeProviderState,
   normalizeProviderRuntimeState,
   PROVIDER_RUNTIME_STATES,
   type ProviderRuntimeState,
@@ -1889,10 +1888,6 @@ export default function GuardianChatWithSidebar({
     () => normalizeProviderRuntimeState(providerRuntimeState),
     [providerRuntimeState]
   );
-  const providerPresentation = useMemo(
-    () => describeProviderState(providerStateToken),
-    [providerStateToken]
-  );
   const providerBlocksChat =
     providerStateToken === PROVIDER_RUNTIME_STATES.MODEL_WARMING ||
     providerStateToken === PROVIDER_RUNTIME_STATES.ERROR;
@@ -2243,15 +2238,6 @@ export default function GuardianChatWithSidebar({
                 </div>
               )}
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-                <div
-                  className="px-2 py-1 text-xs text-[color:var(--muted)]"
-                  role="status"
-                  aria-label={`Provider runtime: ${providerPresentation.title}`}
-                  data-provider-runtime-state={providerStateToken}
-                  title={providerPresentation.detail}
-                >
-                  {providerPresentation.title}
-                </div>
                 <GuardianChat
                   guardianName={guardianName}
                   userName={userName}
