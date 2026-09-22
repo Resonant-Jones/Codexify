@@ -2039,6 +2039,33 @@ def _run_chat_completion_task_compat(
         if completion_result.get("execution") is not None:
             result["execution"] = completion_result.get("execution")
 
+        retrieval_truth_sources = (
+            completion_result,
+            helper_payload_summary,
+            helper_trace,
+            trace,
+        )
+        for key in (
+            "retrieval_policy",
+            "retrieval_posture",
+            "retrieval_provenance",
+            "retrieval_suppression",
+            "retrieval_executed",
+            "retrieval_absence_reason",
+        ):
+            for source in retrieval_truth_sources:
+                if not isinstance(source, dict):
+                    continue
+                value = source.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, dict):
+                    value = dict(value)
+                elif isinstance(value, list):
+                    value = list(value)
+                result[key] = value
+                break
+
     # Final assembly boundary: re-normalize image-routing truth after the
     # worker has merged the completion payload, payload summary, and nested
     # trace, so persisted snapshots cannot retain stale

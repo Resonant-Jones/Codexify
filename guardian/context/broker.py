@@ -3523,7 +3523,7 @@ class ContextBroker:
             source_table = "uploaded_documents"
 
         scope_lane = f"{scope}_docs"
-        return {
+        record = {
             "id": str(getattr(row, "id", "")),
             "title": title,
             "excerpt": self._build_excerpt(raw_content, excerpt_chars),
@@ -3548,6 +3548,17 @@ class ContextBroker:
                 "model": getattr(row, "model", None),
             },
         }
+
+        # Uploaded-document excerpts are taken from the beginning of the same
+        # parsed text that the document embedding worker chunks.  The retained
+        # excerpt therefore belongs to ingestion chunk zero.  Carry that
+        # existing stable index into the final retained bundle so completion
+        # provenance can correlate document_id + chunk_index without copying
+        # text or inventing a second chunk identifier.
+        if doc_type == "uploaded" and record["excerpt"]:
+            record["chunk_index"] = 0
+
+        return record
 
     def _build_excerpt(self, raw_content: str, max_chars: int) -> str:
         content = str(raw_content or "").strip()

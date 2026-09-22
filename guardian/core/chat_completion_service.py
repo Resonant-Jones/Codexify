@@ -4124,6 +4124,211 @@ def _obsidian_semantic_hits_from_bundle(
     ]
 
 
+_MAX_CONTRIBUTING_RETRIEVAL_ITEMS = 64
+
+
+def _retrieval_item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = item.get("meta")
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+def _retrieval_provenance_value(
+    item: dict[str, Any],
+    metadata: dict[str, Any],
+    *keys: str,
+) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return value
+        value = metadata.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _retrieval_provenance_int(value: Any, *, allow_zero: bool = False) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    if normalized < 0 or (normalized == 0 and not allow_zero):
+        return None
+    return normalized
+
+
+def _retrieval_provenance_score(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized
+
+
+def _project_contributing_retrieval_item(
+    item: dict[str, Any],
+    *,
+    document_record: bool,
+) -> dict[str, Any] | None:
+    metadata = _retrieval_item_metadata(item)
+    document_id = _retrieval_provenance_value(
+        item,
+        metadata,
+        "document_id",
+        "doc_id",
+    )
+    if document_id in (None, "") and document_record:
+        document_id = item.get("id")
+    document_id_text = str(document_id or "").strip()
+    if not document_id_text:
+        return None
+
+    projected: dict[str, Any] = {
+        "source_type": str(
+            _retrieval_provenance_value(item, metadata, "source_type", "source")
+            or item.get("document_type")
+            or "document"
+        ).strip(),
+        "role": str(
+            _retrieval_provenance_value(item, metadata, "role") or "document"
+        ).strip(),
+        "document_id": document_id_text,
+    }
+
+    chunk_id = _retrieval_provenance_value(item, metadata, "chunk_id")
+    if chunk_id in (None, "") and not document_record:
+        chunk_id = item.get("id")
+    if chunk_id not in (None, ""):
+        projected["chunk_id"] = str(chunk_id).strip()
+
+    chunk_index = _retrieval_provenance_int(
+        _retrieval_provenance_value(item, metadata, "chunk_index"),
+        allow_zero=True,
+    )
+    if chunk_index is not None:
+        projected["chunk_index"] = chunk_index
+
+    chunk_count = _retrieval_provenance_int(
+        _retrieval_provenance_value(item, metadata, "chunk_count")
+    )
+    if chunk_count is not None:
+        projected["chunk_count"] = chunk_count
+
+    for key in ("project_id", "thread_id"):
+        normalized = _retrieval_provenance_int(
+            _retrieval_provenance_value(item, metadata, key)
+        )
+        if normalized is not None:
+            projected[key] = normalized
+
+    retrieval_lane = _retrieval_provenance_value(
+        item,
+        metadata,
+        "retrieval_lane",
+    )
+    if retrieval_lane not in (None, ""):
+        projected["retrieval_lane"] = str(retrieval_lane).strip()
+
+    namespace = _retrieval_provenance_value(item, metadata, "namespace")
+    if namespace not in (None, ""):
+        projected["namespace"] = str(namespace).strip()
+
+    filename = _retrieval_provenance_value(item, metadata, "filename")
+    if filename in (None, "") and document_record:
+        filename = item.get("title")
+    if filename not in (None, ""):
+        projected["filename"] = str(filename).strip()
+
+    score = _retrieval_provenance_score(item.get("score"))
+    if score is not None:
+        projected["score"] = score
+
+    return {key: value for key, value in projected.items() if value not in (None, "")}
+
+
+def _build_contributing_retrieval_items(
+    bundle: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(bundle, dict):
+        return []
+
+    prompt_meta = bundle.get("_prompt_meta")
+    if not isinstance(prompt_meta, dict):
+        return []
+    context_meta = prompt_meta.get("context")
+    if not isinstance(context_meta, dict):
+        context_meta = {}
+    semantic_meta = context_meta.get("semantic")
+    semantic_injected = bool(
+        semantic_meta.get("injected") if isinstance(semantic_meta, dict) else False
+    )
+    docs_meta = prompt_meta.get("docs")
+    docs_injected = bool(
+        docs_meta.get("injected") if isinstance(docs_meta, dict) else False
+    )
+
+    retained_items: list[tuple[dict[str, Any], bool]] = []
+    if semantic_injected:
+        retained_items.extend(
+            (item, False)
+            for item in (bundle.get("semantic") or [])
+            if isinstance(item, dict) and _semantic_context_item_text(item)
+        )
+    if docs_injected:
+        docs = bundle.get("docs")
+        if isinstance(docs, dict):
+            for scope in ("thread", "project"):
+                retained_items.extend(
+                    (item, True)
+                    for item in (docs.get(scope) or [])
+                    if isinstance(item, dict)
+                )
+
+    contributing_items: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item, document_record in retained_items:
+        projected = _project_contributing_retrieval_item(
+            item,
+            document_record=document_record,
+        )
+        if projected is None:
+            continue
+        identity = (
+            projected.get("source_type"),
+            projected.get("document_id"),
+            projected.get("chunk_id"),
+            projected.get("chunk_index"),
+            projected.get("retrieval_lane"),
+            projected.get("project_id"),
+            projected.get("thread_id"),
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        contributing_items.append(projected)
+        if len(contributing_items) >= _MAX_CONTRIBUTING_RETRIEVAL_ITEMS:
+            break
+    return contributing_items
+
+
+def _cohere_contributing_retrieval_truth(
+    *,
+    retrieval_provenance: dict[str, Any],
+    retrieval_executed: Any,
+    retrieval_absence_reason: Any,
+) -> tuple[Any, Any]:
+    contributing_items = retrieval_provenance.get("contributing_items")
+    if isinstance(contributing_items, list) and contributing_items:
+        return True, None
+    return retrieval_executed, retrieval_absence_reason
+
+
 def _build_retrieval_provenance(
     *,
     requested_source_mode: str | None,
@@ -4242,6 +4447,7 @@ def _build_retrieval_provenance(
         ),
         "source_hit_counts": source_hit_counts,
         "retrieval_status": retrieval_status,
+        "contributing_items": _build_contributing_retrieval_items(bundle),
     }
 
 
@@ -5310,7 +5516,18 @@ async def build_messages_for_llm(
                             if isinstance(item, dict)
                         ]
                     )
-    if retained_result_count <= 0:
+    (
+        retrieval_executed,
+        retrieval_absence_reason,
+    ) = _cohere_contributing_retrieval_truth(
+        retrieval_provenance=retrieval_provenance,
+        retrieval_executed=retrieval_executed,
+        retrieval_absence_reason=retrieval_absence_reason,
+    )
+    if (
+        retained_result_count <= 0
+        and not retrieval_provenance.get("contributing_items")
+    ):
         retrieval_absence_reason = (
             TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
         )

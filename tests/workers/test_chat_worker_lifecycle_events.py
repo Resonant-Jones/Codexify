@@ -207,6 +207,35 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     task = _build_task(task_id="task-provenance")
 
     published: list[tuple[str, dict[str, Any]]] = []
+    persisted_extra_meta: list[dict[str, Any]] = []
+    retrieval_provenance = {
+        "requested_source_mode": "Personal_Knowledge",
+        "normalized_source_mode": "personal_knowledge",
+        "source_hit_counts": {
+            "semantic_total": 2,
+            "thread_semantic": 0,
+            "obsidian_semantic": 2,
+            "other_semantic": 0,
+            "project_documents": 0,
+            "thread_documents": 0,
+            "global_documents": 0,
+            "other_documents": 0,
+            "memory": 0,
+            "graph": 0,
+        },
+        "retrieval_status": "obsidian_only_success",
+        "contributing_items": [
+            {
+                "source_type": "document",
+                "role": "document",
+                "document_id": "doc-provenance-1",
+                "chunk_id": "vector-chunk-4",
+                "chunk_index": 4,
+                "project_id": 7,
+                "retrieval_lane": "project_semantic",
+            }
+        ],
+    }
     monkeypatch.setattr(
         chat_worker.dependencies,
         "chatlog_db",
@@ -247,7 +276,8 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     monkeypatch.setattr(
         chat_worker,
         "_persist_message_extra_meta",
-        lambda **_kwargs: True,
+        lambda **kwargs: persisted_extra_meta.append(dict(kwargs["payload"]))
+        or True,
     )
     monkeypatch.setattr(
         chat_worker,
@@ -256,42 +286,55 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "_embed_message", lambda *_, **__: None)
     monkeypatch.setattr(
-        chat_worker,
-        "run_chat_completion_task",
+        chat_worker._chat_completion_service,
+        "build_sanitized_payload_summary",
         lambda *_args, **_kwargs: {
-            "message_id": 42,
-            "provider": "local",
-            "model": "test-model",
-            "persistence_outcome": "persisted",
-            "terminal_evidence": {
-                "status": "success",
-                "visible_output_emitted": False,
-                "explicit_provider_terminal_observed": True,
-                "finish_reason": "stop",
-                "transport_ended_cleanly": True,
-                "provider": "local",
-                "model": "test-model",
-                "failure_kind": None,
-                "retry_permitted": False,
-            },
-            "retrieval_provenance": {
-                "requested_source_mode": "Personal_Knowledge",
-                "normalized_source_mode": "personal_knowledge",
-                "source_hit_counts": {
-                    "semantic_total": 2,
-                    "thread_semantic": 0,
-                    "obsidian_semantic": 2,
-                    "other_semantic": 0,
-                    "project_documents": 0,
-                    "thread_documents": 0,
-                    "global_documents": 0,
-                    "other_documents": 0,
-                    "memory": 0,
-                    "graph": 0,
-                },
-                "retrieval_status": "obsidian_only_success",
-            },
+            "message_count": 1,
+            "retrieval_provenance": retrieval_provenance,
+            "retrieval_executed": True,
+            "retrieval_absence_reason": None,
         },
+    )
+    monkeypatch.setattr(chat_worker, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda provider, settings, **kwargs: {"provider": provider, **kwargs},
+    )
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "use the retained document"}],
+            "local",
+            "test-model",
+            {},
+            {"source_mode": "personal_knowledge"},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker,
+        "stream_local",
+        lambda *_args, **_kwargs: _TokenStream(),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *_args, **_kwargs: _TokenStream(),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fallback should not be used")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fallback should not be used")
+        ),
     )
 
     chat_worker._run_chat_task(task)
@@ -305,3 +348,13 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     assert completed_payload["retrieval_provenance"]["requested_source_mode"] == (
         "Personal_Knowledge"
     )
+    completed_item = completed_payload["retrieval_provenance"][
+        "contributing_items"
+    ][0]
+    persisted_item = persisted_extra_meta[0]["retrieval_provenance"][
+        "contributing_items"
+    ][0]
+    assert completed_item == persisted_item
+    assert completed_item["document_id"] == "doc-provenance-1"
+    assert completed_item["chunk_id"] == "vector-chunk-4"
+    assert completed_item["chunk_index"] == 4
