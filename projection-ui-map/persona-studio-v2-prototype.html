@@ -5,10 +5,300 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23ffffff' d='M16 3 27 9.5 16 16 5 9.5 16 3Zm-11 13 11 6.5L27 16l-4-2.35-7 4.15-7-4.15L5 16Zm0 6.5L16 29l11-6.5-4-2.35-7 4.15-7-4.15-4 2.35Z'/%3E%3C/svg%3E" />
   <title>Codexify Persona Studio V2 — Interaction Prototype</title>
-  <!-- Reuse production CSS primitives; this standalone preview has no React shell. -->
-  <link rel="stylesheet" href="../frontend/src/index.css" />
-  <link rel="stylesheet" href="../frontend/src/components/persona/layout/AppShell.css" />
+  <!-- Standalone copies of the used index.css and AppShell.css primitives. -->
   <style>
+button,
+input,
+textarea,
+select {
+  color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled {
+  color: var(--text-subtle);
+}
+
+input:disabled::placeholder,
+textarea:disabled::placeholder {
+  color: var(--text-subtle);
+}
+
+:root {
+  --radius: 20px;
+  --card-radius: 20px;
+  --tile-radius: 20px;
+  --card-pad: 10px;
+  --board-edge: 8px;
+  --shell-gap: 16px;
+  --gutter: 16px;
+  --workspace-w: 320px;
+  --panel-bg: color-mix(in oklab, #0b0f16 65%, transparent);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-bezel: rgba(255, 255, 255, 0.12);
+  --chip-bg: rgba(255, 255, 255, 0.04);
+  --chip-border: rgba(255, 255, 255, 0.16);
+  --text: #f9fafb;
+  --muted: rgba(249, 250, 251, 0.72);
+  --text-subtle: rgba(249, 250, 251, 0.58);
+  --icon: var(--text);
+  --icon-muted: rgba(249, 250, 251, 0.76);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-soft: rgba(255, 255, 255, 0.04);
+  --text-on-accent: #f9fafb;
+  --info-surface: rgba(96, 165, 250, 0.18);
+  --info-text: #bfdbfe;
+  --tag-surface: rgba(192, 132, 252, 0.18);
+  --tag-text: #e9d5ff;
+  --danger-surface: rgba(248, 113, 113, 0.16);
+  --danger-border: rgba(248, 113, 113, 0.32);
+  --danger-text: #fecaca;
+  --accent: rgba(56, 189, 248, 0.85);
+  --accent-weak: rgba(56, 189, 248, 0.35);
+  --accent-strong: rgba(14, 165, 233, 0.95);
+}
+
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pill-gap, 0.65rem);
+  padding: 0.35rem;
+  border-radius: var(--tile-radius, 20px);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 18px 36px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(8px) saturate(160%);
+  isolation: isolate;
+}
+
+.icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border-radius: var(--radius-micro);
+  /* Remove visible borders */
+  box-shadow: none;
+  border: none;
+  /* Match or blend with header background */
+  background: transparent;
+  /* Ensure icons inherit contrast-aware color */
+  color: var(--icon);
+  cursor: pointer;
+  transition: background 120ms ease-out, transform 80ms ease-out, box-shadow 120ms ease-out;
+}
+.icon-inline:hover {
+  /* Subtle hover cue: very light tint */
+  background: color-mix(in oklab, var(--panel-bg) 95%, var(--text) 5%);
+}
+.icon-inline:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.icon-inline:active {
+  transform: translateY(1px);
+}
+.icon-inline:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Dark mode explicit override for icon contrast */
+.embedded-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--tile-radius, 20px);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 72%, transparent);
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 60%, transparent);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: transform .15s ease, background .22s ease, border-color .22s ease;
+}
+.embedded-btn:hover {
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 72%, transparent);
+}
+.embedded-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.embedded-btn:active {
+  transform: translateY(1px);
+}
+.embedded-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.pill-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--tile-radius, 20px);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--pill-font)/1.05 -apple-system, BlinkMacSystemFont, "SF Pro",
+        "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  cursor: pointer;
+  user-select: none;
+  transition: color .18s ease, background .22s ease, box-shadow .22s ease, transform .12s ease;
+}
+
+.pill-tab:hover {
+  color: var(--text);
+}
+.pill-tab:active {
+  transform: translateY(1px);
+}
+.pill-tab:focus-visible {
+  outline: 2px solid var(--accent-weak);
+  outline-offset: 2px;
+}
+
+/* Active state: accent-backed pill */
+.pill-tab[data-state="active"] {
+  color: var(--pill-active-text, var(--text));
+  border-color: color-mix(in oklab, var(--accent-strong) 40%, transparent);
+  background: color-mix(in oklab, var(--accent-strong) 86%, transparent);
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+/* Brand badge – black pill (theme-invariant, not overridden by global button or pill styles) */
+.brand-tab {
+  font: 600 calc(var(--pill-font) * 1.15)/1 -apple-system, BlinkMacSystemFont, "SF Pro",
+        "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Absolute identity: opt out of theme tokens */
+  color: #f9fafb !important;
+
+  /* Stable dark pill regardless of theme */
+  background: linear-gradient(
+    180deg,
+    rgba(20, 20, 20, 0.92),
+    rgba(10, 10, 10, 0.98)
+  ) !important;
+
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 -6px 12px rgba(0,0,0,0.35),
+    0 6px 18px rgba(0,0,0,0.25) !important;
+}
+
+button.brand-tab,
+.pill-tab.brand-tab {
+  color: #f9fafb !important;
+}
+
+/* Dark mode tuning */
+.dark .glass-pill {
+  border-color: color-mix(in oklab, var(--panel-border) 82%, transparent);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.48));
+}
+.dark .pill-tab[data-state="active"] {
+  background: color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4));
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 28%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.22);
+}
+
+/* Material Controls sliders — touch-friendly, single-column control stack.
+   Resets the default <Input> wrapper visuals (border, background, padding)
+   and supplies a chunkier track + thumb suitable for iPad/iPhone targets. */
+.material-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--accent-strong);
+  color: var(--text);
+}
+
+.material-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 70%, transparent);
+  border: 0;
+}
+
+.material-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--accent-strong);
+  border: 2px solid color-mix(in oklab, var(--text) 90%, transparent);
+  margin-top: -9px;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-strong) 25%, transparent);
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+
+.material-slider::-moz-range-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 70%, transparent);
+  border: 0;
+}
+
+.material-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--accent-strong);
+  border: 2px solid color-mix(in oklab, var(--text) 90%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-strong) 25%, transparent);
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+
+.material-slider:hover::-webkit-slider-thumb,
+.material-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-strong) 40%, transparent);
+}
+
+.material-slider:hover::-moz-range-thumb,
+.material-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-strong) 40%, transparent);
+}
+
+.material-slider:active::-webkit-slider-thumb {
+  transform: scale(1.05);
+}
+
+.material-slider:active::-moz-range-thumb {
+  transform: scale(1.05);
+}
+
+.material-slider:focus-visible {
+  outline: none;
+}
+
+
     /* Standalone dark-shell defaults from AppShell.tsx (neutral depth/warmth).
        Keep these host-token values aligned with AppShell; no new global tokens. */
     :root {
@@ -33,6 +323,22 @@
       --accent: #6b7280;
       --accent-weak: var(--accent);
       --accent-strong: var(--accent);
+      --edge-chrome: 6px;
+      --shell-gap: 16px;
+      --card-pad: 12px;
+      --page-gutter-top: 24px;
+      --pill-pad-y: 11px;
+      --pill-gap: 0.65rem;
+      --viewport-radius: var(--card-radius);
+      --frame: 3px;
+      --bezel: 6px;
+      --rim: 3px;
+      --tile-blur: 22px;
+      --lip-w: 6px;
+      --depth-scale: 1.35;
+      --liquid-bezel-w: 3px;
+      --icon: var(--text);
+      --pill-active-text: #fff;
       --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     }
 
@@ -58,21 +364,50 @@
     .app {
       height: 100dvh;
       display: grid;
-      grid-template-rows: 58px minmax(0, 1fr) 68px;
+      grid-template-rows: auto minmax(0, 1fr) 68px;
+      padding: var(--edge-chrome);
     }
 
+    /* AppShell top chrome: independent Dock and right-hand utilities. */
     .app-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      padding: 0 22px;
-      border-bottom: 1px solid var(--panel-border);
-      background: var(--panel-sheet);
-      backdrop-filter: none;
+      display: grid;
+      grid-template-columns: auto minmax(var(--shell-gap), 1fr) auto;
+      align-items: start;
       position: relative;
       z-index: 20;
+      min-width: 0;
     }
+    .codexify-dock {
+      position: relative;
+      width: fit-content;
+      max-width: 100%;
+      min-width: 0;
+      padding-block: var(--pill-pad-y);
+      overflow: hidden;
+    }
+    .codexify-dock__rail {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: var(--pill-gap);
+      min-width: 0;
+      white-space: nowrap;
+    }
+    /* RefractiveGlassCard's supported CSS fallback; no remote gallery dependency. */
+    .dock-glass {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06);
+      backdrop-filter: blur(12px) saturate(120%);
+      -webkit-backdrop-filter: blur(12px) saturate(120%);
+      box-shadow: inset 0 1px rgba(255,255,255,0.22), inset 0 -1px rgba(0,0,0,0.28), 0 10px 22px rgba(0,0,0,0.25);
+    }
+    .codexify-dock__utility-cluster { grid-column: 3; }
+    .dock-beta { background: var(--accent); color: var(--text-on-accent); opacity: .85; border-radius: var(--tile-radius); padding: calc(var(--card-pad) / 6) calc(var(--card-pad) * 2 / 3); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
     .brand-lockup, .header-actions, .profile-trigger, .mode-switch, .view-switch, .save-state, .footer-actions, .inline, .field-label-row { display: flex; align-items: center; }
     .brand-lockup { gap: 12px; min-width: 0; }
@@ -144,7 +479,7 @@
       display: grid;
       grid-template-columns: minmax(330px, 0.76fr) minmax(570px, 1.38fr);
       gap: var(--shell-gap);
-      padding: var(--shell-gap);
+      padding: var(--page-gutter-top) 0 var(--shell-gap);
     }
 
     .pane {
@@ -157,7 +492,7 @@
       overflow: hidden;
     }
 
-    .assistant-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .assistant-pane > .fc-inner-clip > .fc-inner { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
     .pane-header {
       min-height: 76px;
       display: flex;
@@ -215,7 +550,7 @@
     .example-action { border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 12px; }
     .example-action:hover { color: var(--muted); text-decoration: underline; }
 
-    .configuration-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .configuration-pane > .fc-inner-clip > .fc-inner { display: grid; grid-template-rows: auto minmax(0, 1fr); }
     .configuration-header { padding: 13px 16px; min-height: 76px; }
     .configuration-header .pane-heading p { max-width: 460px; }
     .configuration-scroll { min-height: 0; overflow-y: auto; padding: 12px; scrollbar-width: thin; scrollbar-color: var(--panel-border-strong) transparent; }
@@ -334,8 +669,8 @@
     @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
     /* Presentation adapters only: V2 layout and its aria-selected controller stay intact. */
-    .pane { background: var(--panel-sheet); border-color: var(--panel-sheet-border); box-shadow: inset 0 1px 0 var(--panel-bezel); }
-    .app-header, .save-bar { background: var(--panel-sheet); }
+
+    .save-bar { background: var(--panel-sheet); border-radius: var(--card-radius); }
     .pane-header, .composer-wrap, .manifest-toolbar, .effective-table th { background: var(--surface-soft); }
     .config-section, .note-card, .effective-shell, .manifest-editor { border-radius: var(--tile-radius); background: var(--panel-sheet); }
     .config-section:hover { border-color: var(--panel-border-strong); }
@@ -345,15 +680,14 @@
     .message-card, .message.user .message-card, .toggle-row { background: var(--surface-soft); }
     .message-meta, .section-copy span, .pane-heading p, .field-help, .save-copy span { color: var(--text-subtle); }
     .mode-switch, .view-switch { background: var(--surface-soft); border-radius: var(--tile-radius); flex-shrink: 0; }
-    .pill-tab[aria-selected="true"] { color: var(--text); background: var(--surface-hover); border-color: var(--panel-border-strong); box-shadow: inset 0 1px 0 var(--panel-bezel); }
-    .profile-trigger { background: var(--panel-sheet); border-radius: var(--tile-radius); }
+
+
     .button { min-height: 36px; }
     /* Match ui/Button's default variant, with no prototype gradient or glow. */
     .button.primary { background: var(--accent); color: var(--panel-bg); border-color: transparent; min-width: 114px; }
     .button.primary:hover:not(:disabled) { background: var(--accent-strong); }
     .button:disabled { opacity: .45; cursor: not-allowed; }
-    .send-button { background: var(--surface-soft); color: var(--text); }
-    .send-button:hover { background: var(--surface-hover); }
+
     .field input[type="text"], .field input[type="number"], .field textarea, .field select { font-size: 14px; padding: 8px 12px; }
     .field input:focus, .field textarea:focus, .field select:focus, .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
     .switch-track { background: var(--chip-bg); border-color: var(--panel-border-strong); }
@@ -372,17 +706,22 @@
 
     @media (max-width: 1080px) {
       body { overflow: auto; }
-      .app { height: auto; min-height: 100dvh; grid-template-rows: 58px auto 68px; }
+      .app { height: auto; min-height: 100dvh; grid-template-rows: auto auto 68px; }
       .workspace { grid-template-columns: 1fr; min-height: 1140px; }
       .assistant-pane { min-height: 540px; }
       .configuration-pane { min-height: 660px; }
       .save-bar { position: sticky; bottom: 0; }
     }
     @media (max-width: 700px) {
-      .app-header { padding: 0 12px; }
+      :root { --edge-chrome: 4px; --shell-gap: 12px; --card-pad: 10px; --page-gutter-top: 12px; --pill-pad-y: var(--card-pad); }
+      .app-header { grid-template-columns: minmax(0, 1fr) auto; gap: var(--shell-gap); }
+      .codexify-dock__utility-cluster { grid-column: 2; }
+      .codexify-dock__rail { flex-wrap: wrap; gap: calc(var(--pill-gap) / 2); }
+      .codexify-dock__rail > :not(.brand-tab):not([aria-current]) { display: none; }
+      .codexify-dock .pill-tab { padding-inline: calc(var(--card-pad) / 2); }
       .brand-name, .prototype-label, .header-divider, .module-title { display: none; }
       .profile-trigger { min-width: 150px; }
-      .workspace { padding: 9px; gap: 9px; min-height: 1260px; }
+      .workspace { padding: var(--page-gutter-top) 0 var(--shell-gap); gap: var(--shell-gap); min-height: 1260px; }
       .pane-header { align-items: flex-start; flex-direction: column; }
       .mode-switch, .view-switch { width: 100%; }
       .mode-switch button, .view-switch button { flex: 1; }
@@ -401,21 +740,239 @@
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
 
+
+    /* Material declarations follow layout adapters so they remain authoritative. */
+.icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border-radius: var(--radius-micro);
+  /* Remove visible borders */
+  box-shadow: none;
+  border: none;
+  /* Match or blend with header background */
+  background: transparent;
+  /* Ensure icons inherit contrast-aware color */
+  color: var(--icon);
+  cursor: pointer;
+  transition: background 120ms ease-out, transform 80ms ease-out, box-shadow 120ms ease-out;
+}
+.icon-inline:hover {
+  /* Subtle hover cue: very light tint */
+  background: color-mix(in oklab, var(--panel-bg) 95%, var(--text) 5%);
+}
+.icon-inline:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.icon-inline:active {
+  transform: translateY(1px);
+}
+.icon-inline:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Dark mode explicit override for icon contrast */
+.embedded-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--tile-radius, 20px);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 72%, transparent);
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 60%, transparent);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: transform .15s ease, background .22s ease, border-color .22s ease;
+}
+.embedded-btn:hover {
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 72%, transparent);
+}
+.embedded-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.embedded-btn:active {
+  transform: translateY(1px);
+}
+.embedded-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Active state: accent-backed pill */
+.pill-tab[aria-selected="true"] {
+  color: var(--pill-active-text, var(--text));
+  border-color: color-mix(in oklab, var(--accent-strong) 40%, transparent);
+  background: color-mix(in oklab, var(--accent-strong) 86%, transparent);
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+.dark .pill-tab[aria-selected="true"] {
+  background: color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4));
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 28%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.22);
+}
+
+
+        .fc-inner-clip {
+          position: relative;
+          flex: 1 1 auto;
+          min-height: 0;
+          border-radius: inherit;
+          overflow: visible;
+          display: flex;
+          flex-direction: column;
+        }
+        .fc-root {
+          border-radius: var(--card-radius, 19px); /* reads 19px via AppShell */
+          isolation: isolate; /* prevent backdrop bleed */
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+          box-sizing: border-box;
+          overflow: hidden; /* clip content to rounded corners */
+          min-height: 0;
+        }
+        .fc-inner {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          flex: 1 1 auto;
+          min-height: 0;
+          box-sizing: border-box;
+          padding: 8px;
+        }
+        .fc-bezel,
+        .fc-liquid,
+        .fc-inner {
+          border-radius: inherit; /* exact match: no phantom corners */
+        }
+
+        /* Hard-clip decorative layers to the exact curve */
+        .fc-bezel,
+        .fc-liquid {
+          position: absolute;
+          inset: 0;
+          overflow: clip;
+          -webkit-clip-path: inset(0 round var(--card-radius));
+          clip-path: inset(0 round var(--card-radius));
+          pointer-events: none;
+        }
+
+        /* Bezel: translucent ring + depth shadow that scales by depth vars */
+        .fc-bezel {
+          border: var(--bezel, 4px) solid var(--panel-bezel, rgba(255,255,255,0.16));
+          backdrop-filter: saturate(140%) blur(var(--tile-blur, 8px));
+          -webkit-backdrop-filter: saturate(140%) blur(var(--tile-blur, 8px));
+          box-shadow:
+            inset 0 var(--lip-w, 4px) rgba(255,255,255,0.20),
+            inset 0 calc(-1 * var(--lip-w, 4px)) rgba(0,0,0,0.20),
+            /* outer depth scales by --depth-scale and --fc-depth */
+            0 calc(14px * var(--depth-scale, 1) * var(--fc-depth)) calc(34px * var(--depth-scale, 1) * var(--fc-depth)) rgba(0,0,0,0.20),
+            0 calc(4px * var(--depth-scale, 1) * var(--fc-depth))  calc(12px * var(--depth-scale, 1) * var(--fc-depth)) rgba(0,0,0,0.14);
+          transition: box-shadow 160ms ease;
+        }
+
+        /* Liquid accent ring: neutral by default, accent when selected */
+        .fc-liquid {
+          border: var(--rim, 3px) solid transparent; /* sits just outside the inner face */
+          background:
+            linear-gradient(var(--fc-accent, rgba(255,255,255,0.06)), var(--fc-accent, rgba(255,255,255,0.06))) padding-box,
+            linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)) border-box;
+          background-clip: padding-box, border-box;
+        }
+        .fc-root[data-selected="true"] .fc-liquid { --fc-accent: var(--accent-strong); }
+
+        /* Inner content face: scroll-safe, compositor-safe */
+        .fc-inner {
+          position: relative;
+          margin: var(--liquid-bezel-w, 3px);
+          border: 1px solid var(--panel-border, rgba(255,255,255,0.10));
+          background: var(--panel-bg, rgba(17,24,39,0.86));
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.06),
+            inset 0 -10px 24px rgba(0,0,0,0.18);
+          overflow: visible; /* allow scroll containers and absolute children */
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+
+        /* Hover energy (optional) */
+        .fc-root[data-hoverpop="true"]:where(:hover, :focus-visible) .fc-bezel {
+          box-shadow:
+            inset 0 var(--lip-w, 4px) rgba(255,255,255,0.20),
+            inset 0 calc(-1 * var(--lip-w, 4px)) rgba(0,0,0,0.20),
+            0 calc(16px * var(--depth-scale, 1) * var(--fc-depth)) calc(40px * var(--depth-scale, 1) * var(--fc-depth)) rgba(0,0,0,0.22),
+            0 calc(6px * var(--depth-scale, 1) * var(--fc-depth))  calc(16px * var(--depth-scale, 1) * var(--fc-depth)) rgba(0,0,0,0.18);
+        }
+
+        @keyframes shimmerRipple {
+          0% {
+            box-shadow: 0 0 0px rgba(255,255,255,0.04);
+          }
+          50% {
+            box-shadow: 0 0 10px rgba(255,255,255,0.12);
+          }
+          100% {
+            box-shadow: 0 0 0px rgba(255,255,255,0.04);
+          }
+        }
+        .fc-liquid.shimmer-subtle {
+          animation: shimmerRipple 18s ease-in-out infinite;
+        }
+        .fc-liquid.shimmer-strong {
+          animation: shimmerRipple 10s ease-in-out infinite;
+        }
+        .fc-liquid.shimmer-ambient {
+          animation: shimmerRipple 6s ease-in-out infinite;
+        }
+
+    .fc-root { position: relative; --fc-depth: 1; border: 1px solid var(--panel-border); background: var(--panel-bg); padding: var(--shell-gap); box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+    .fc-inner { padding: calc(var(--card-pad) * 2 / 3); }
+    .profile-trigger { justify-content: space-between; }
+    .button.primary { background: var(--accent); color: var(--panel-bg); }
+    .button.primary:hover { background: var(--accent-strong); }
+    .button.primary:disabled { opacity: .5; }
+    .field input:not([type="range"]):not([type="checkbox"]), .field select, .field textarea, .manifest-toolbar select {
+      background: color-mix(in oklab, var(--panel-bg) 80%, transparent);
+      padding: calc(var(--card-pad) / 3) var(--card-pad);
+    }
+    .field input:not([type="range"]):not([type="checkbox"]), .field select { height: 36px; }
+    .field textarea { padding-block: calc(var(--card-pad) * 2 / 3); resize: none; }
+    .field .material-slider:focus { border: 0; box-shadow: none; }
+    @media (max-width: 700px) {
+      .fc-root { padding: var(--edge-chrome); }
+      .composer textarea, .field input, .field textarea, .field select { font-size: 16px; }
+    }
+
   </style>
 </head>
-<body>
-  <div class="app">
+<body class="dark">
+  <div class="app codexify-shell dark" id="shellScene">
     <header class="app-header">
-      <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" fill="none"><path d="M16 3 27 9.5 16 16 5 9.5 16 3Z" fill="currentColor" opacity=".95"/><path d="m5 16 11 6.5L27 16l-4-2.35L16 17.8 9 13.65 5 16Z" fill="currentColor"/><path d="m5 22.5 11 6.5 11-6.5-4-2.35-7 4.15-7-4.15-4 2.35Z" fill="currentColor"/></svg>
+      <nav class="codexify-dock glass-pill" aria-label="Codexify destinations">
+        <div class="dock-glass" aria-hidden="true"></div>
+        <div class="codexify-dock__rail">
+          <button class="pill-tab brand-tab" type="button" data-shell-destination="Codexify">Codexify</button>
+          <span class="dock-beta">Beta</span>
+          <button class="pill-tab" type="button" data-shell-destination="Guardian">Guardian</button>
+          <button class="pill-tab" type="button" data-shell-destination="Dashboard">Dashboard</button>
+          <button class="pill-tab" type="button" data-shell-destination="Documents">Documents</button>
+          <button class="pill-tab" type="button" data-shell-destination="Gallery">Gallery</button>
+          <button class="pill-tab" type="button" data-state="active" aria-current="page">Persona Studio</button>
         </div>
-        <span class="brand-name">Codexify</span>
-        <span class="header-divider" aria-hidden="true"></span>
-        <span class="module-title">Persona Studio</span>
-        <span class="prototype-label">V2 prototype</span>
-      </div>
-      <div class="header-actions">
+      </nav>
+      <div class="header-actions codexify-dock__utility-cluster">
         <button class="profile-trigger embedded-btn" id="profileTrigger" type="button" aria-haspopup="menu" aria-expanded="false">
           <span class="profile-avatar" aria-hidden="true"></span>
           <span class="profile-name" id="profileName">Meridian</span>
@@ -437,7 +994,10 @@
     </header>
 
     <main class="workspace">
-      <section class="pane assistant-pane" aria-labelledby="assistantTitle">
+      <section class="pane fc-root assistant-pane" data-hoverpop="true" aria-labelledby="assistantTitle">
+        <div class="fc-bezel" aria-hidden="true"></div>
+        <div class="fc-liquid shimmer-subtle" aria-hidden="true" style="padding:var(--liquid-bezel-w);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude"></div>
+        <div class="fc-inner-clip"><div class="fc-inner">
         <header class="pane-header">
           <div class="pane-heading">
             <h1 id="assistantTitle">Studio Assistant</h1>
@@ -460,9 +1020,13 @@
             <button class="send-button icon-inline" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" fill="none"><path d="m4 3 13 7-13 7 2-7-2-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 10h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
           </form>
         </div>
+        </div></div>
       </section>
 
-      <section class="pane configuration-pane" aria-labelledby="configurationTitle">
+      <section class="pane fc-root configuration-pane" data-hoverpop="true" aria-labelledby="configurationTitle">
+        <div class="fc-bezel" aria-hidden="true"></div>
+        <div class="fc-liquid shimmer-subtle" aria-hidden="true" style="padding:var(--liquid-bezel-w);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude"></div>
+        <div class="fc-inner-clip"><div class="fc-inner">
         <header class="pane-header configuration-header">
           <div class="pane-heading">
             <h2 id="configurationTitle">Configuration</h2>
@@ -475,6 +1039,7 @@
           </div>
         </header>
         <div class="configuration-scroll" id="configurationViewport"></div>
+        </div></div>
       </section>
     </main>
 
@@ -494,6 +1059,100 @@
   </div>
 
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script>
+    // AppShell scene projection: dark posture, local preferences, no persistence writes.
+    (() => {
+      const scene = document.getElementById("shellScene");
+      const read = key => { try { return localStorage.getItem(key); } catch { return null; } };
+      const safeNumber = (value, fallback) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
+      };
+  function hexToRgb(hex) {
+    const n = hex.replace("#", "");
+    const v = n.length === 3 ? n.split("").map((c) => c + c).join("") : n;
+    const num = parseInt(v, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+  }
+  function hslToHex(h, s, l) {
+    s /= 100; l /= 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (0 <= h && h < 60) { r = c; g = x; }
+    else if (60 <= h && h < 120) { r = x; g = c; }
+    else if (120 <= h && h < 180) { g = c; b = x; }
+    else if (180 <= h && h < 240) { g = x; b = c; }
+    else if (240 <= h && h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    const to255 = (v) => Math.round((v + m) * 255);
+    const out = (n) => n.toString(16).padStart(2, "0");
+    return `#${out(to255(r))}${out(to255(g))}${out(to255(b))}`;
+  }
+  function lighten(hex, amount) {
+    const { r, g, b } = hexToRgb(hex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    const nl = Math.min(100, l + amount * 100);
+    return hslToHex(h, s, nl);
+  }
+  function darken(hex, amount) {
+    const { r, g, b } = hexToRgb(hex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    const nl = Math.max(0, l - amount * 100);
+    return hslToHex(h, s, nl);
+  }
+
+
+      let depth = safeNumber(read("cfy.depth"), .6);
+      let fade = safeNumber(read("cfy.fade"), .4);
+      function renderScene() {
+        const candidate = read("cfy.baseColor") || "#6B7280";
+        const baseColor = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(candidate) ? candidate : "#6B7280";
+        const wallpaper = read("cfy.wallpaper");
+        ["--accent", "--accent-weak", "--accent-strong"].forEach(token => scene.style.setProperty(token, baseColor));
+        // AppShell's no-wallpaper effect selects the dark theme defaults.
+        if (!wallpaper) { depth = .92; fade = .1; }
+        scene.style.backgroundImage = wallpaper
+          ? `linear-gradient(135deg, rgba(0,0,0,${(depth * .7).toFixed(3)}), rgba(0,0,0,${(fade * .35).toFixed(3)})), url(${JSON.stringify(wallpaper)})`
+          : `linear-gradient(to bottom, ${lighten(baseColor, fade * .6)}, ${darken(baseColor, depth * .8)})`;
+        scene.style.backgroundSize = "cover";
+        scene.style.backgroundPosition = "center";
+        scene.style.backgroundRepeat = "no-repeat";
+        scene.dataset.scene = wallpaper ? "wallpaper" : "gradient";
+      }
+      renderScene();
+      window.addEventListener("storage", event => {
+        if (event.key === "cfy.wallpaper" || event.key === "cfy.baseColor" || event.key === null) renderScene();
+      });
+      document.querySelectorAll("[data-shell-destination]").forEach(button => {
+        button.addEventListener("click", () => {
+          const notice = document.createElement("div");
+          notice.className = "toast";
+          notice.textContent = `${button.dataset.shellDestination} is outside this standalone Persona Studio preview.`;
+          document.getElementById("toastStack").append(notice);
+          setTimeout(() => notice.remove(), 3500);
+        });
+      });
+    })();
+  </script>
 
   <script>
     (() => {
