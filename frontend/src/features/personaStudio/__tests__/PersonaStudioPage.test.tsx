@@ -1,614 +1,90 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
-import { OptionalSurfaceError } from "@/lib/api";
 
 import PersonaStudioPage from "../PersonaStudioPage";
 import { personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
-
-const voiceApiMock = vi.hoisted(() => ({
-  fetchPersonaVoiceProviders: vi.fn(),
-  fetchPersonaVoiceProviderVoices: vi.fn(),
-  previewPersonaVoice: vi.fn(),
-}));
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
 );
 
-vi.mock("@/lib/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return {
-    ...actual,
-    fetchPersonaVoiceProviders: voiceApiMock.fetchPersonaVoiceProviders,
-    fetchPersonaVoiceProviderVoices: voiceApiMock.fetchPersonaVoiceProviderVoices,
-    previewPersonaVoice: voiceApiMock.previewPersonaVoice,
-  };
-});
-
 beforeEach(() => {
   window.localStorage.clear();
   resetPersonaStudioApiMock();
-  voiceApiMock.fetchPersonaVoiceProviders.mockReset();
-  voiceApiMock.fetchPersonaVoiceProviderVoices.mockReset();
-  voiceApiMock.previewPersonaVoice.mockReset();
-  voiceApiMock.fetchPersonaVoiceProviders.mockResolvedValue([
-    {
-      providerId: "elevenlabs",
-      label: "ElevenLabs",
-      classification: "cloud",
-      state: "degraded",
-      statusDetail:
-        "Provider registered, but disabled under the current local-only beta posture.",
-      capabilities: {
-        presetVoices: true,
-        cloning: true,
-        promptDefinedVoice: true,
-        preview: false,
-      },
-    },
-    {
-      providerId: "local_openai_compatible",
-      label: "Local OpenAI-Compatible",
-      classification: "local",
-      state: "available",
-      statusDetail:
-        "Provider is available for Persona Studio voice selection.",
-      capabilities: {
-        presetVoices: true,
-        cloning: false,
-        promptDefinedVoice: false,
-        preview: true,
-      },
-    },
-  ]);
-  voiceApiMock.fetchPersonaVoiceProviderVoices.mockImplementation(
-    async (providerId: string) => {
-      if (providerId === "local_openai_compatible") {
-        return {
-          providerId,
-          state: "available",
-          statusDetail:
-            "Provider is available for Persona Studio voice selection.",
-          voices: [
-            {
-              voiceId: "alloy",
-              label: "alloy",
-              kind: "preset",
-              previewSupported: true,
-              bindingSupported: true,
-              summary: "Balanced local preset.",
-            },
-            {
-              voiceId: "ember",
-              label: "ember",
-              kind: "preset",
-              previewSupported: true,
-              bindingSupported: true,
-              summary: "Warmer local preset.",
-            },
-          ],
-        };
-      }
-      return {
-        providerId,
-        state: "degraded",
-        statusDetail:
-          "Provider is outside the supported local-only posture, so Persona Studio exposes no bindable voices here.",
-        voices: [],
-      };
-    }
-  );
-  voiceApiMock.previewPersonaVoice.mockResolvedValue({
-    providerId: "local_openai_compatible",
-    voiceId: "alloy",
-    state: "available",
-    preview: {
-      contentType: "audio/wav",
-      playbackUrl: "data:audio/wav;base64,UklGRg==",
-      expiresInSeconds: 0,
-      durationMs: null,
-    },
-    appliedRuntimeOptions: {},
-    ephemeral: true,
-    persistsPersonaState: false,
-    linksMessageHistory: false,
-    statusDetail: "Preview generated for immediate playback only.",
-  });
 });
 
-function renderPage() {
-  return render(<PersonaStudioPage />);
-}
-
-describe("Persona Studio Page", () => {
-  it("keeps the editor and right rail on one unified parent surface", () => {
-    renderPage();
-
-    const shell = screen.getByTestId("persona-studio-shell");
-    const editor = within(shell).getByTestId("persona-studio-editor");
-    const header = within(shell).getByTestId("persona-studio-shell-header");
-    const railLane = within(shell).getByTestId("persona-studio-rail-lane");
-    const rail = within(railLane).getByTestId("persona-studio-rail");
-    const previewPanel = within(rail).getByTestId("persona-preview-panel");
-    const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
-
-    expect(shell).toBeVisible();
-    expect(header).toBeVisible();
-    expect(editor).toBeVisible();
-    expect(railLane).toBeVisible();
-    expect(rail).toBeVisible();
-    expect(previewPanel).toBeVisible();
-    expect(screen.getByTestId("persona-studio-guide-lane")).toBeVisible();
-    expect(shell).toHaveClass("overflow-y-auto");
-    expect(configurationLane).toHaveClass("overflow-y-auto");
-    expect(screen.getByTestId("persona-studio-rail-tabs")).toBeVisible();
-  });
-
-  it("renders the primary two-lane shell with the rail on the right (Preview tab default)", () => {
-    renderPage();
-
-    const shell = screen.getByTestId("persona-studio-shell");
-    const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
-    const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
-    const previewPanel = within(railLane).getByTestId("persona-preview-panel");
-    const header = within(previewPanel).getByTestId("persona-preview-panel-header");
-    const transcript = within(previewPanel).getByTestId("persona-preview-panel-transcript");
-    const composer = within(previewPanel).getByTestId("persona-preview-panel-composer");
-
-    expect(configurationLane).toBeVisible();
-    expect(railLane).toBeVisible();
-    expect(within(shell).getByRole("heading", { name: /persona studio/i })).toBeVisible();
-    expect(within(shell).getByTestId("persona-studio-tabs")).toBeVisible();
-    expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
-    expect(previewPanel).toBeVisible();
-    expect(header).toBeVisible();
-    expect(transcript).toBeVisible();
-    expect(composer).toBeVisible();
-    expect(within(header).getByText("Draft Preview")).toBeVisible();
-    expect(within(header).getByText(/test before saving/i)).toBeVisible();
-    expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /temporary preview\. not saved to chat history/i
-    );
-    expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
-    expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /temporary preview\. not saved to chat history/i
-    );
-    expect(
-      screen.getByPlaceholderText(/send a temporary test prompt/i)
-    ).toBeVisible();
-  });
-
-  it("supports a multi-turn preview transcript", async () => {
+describe("Persona Studio V2 workspace", () => {
+  it("renders the two primary surfaces and applies Build changes only to the local draft", async () => {
     const user = userEvent.setup();
-    renderPage();
+    render(<PersonaStudioPage />);
+
+    expect(screen.getByTestId("persona-studio-workspace")).toHaveAttribute("data-layout", "assistant-configuration");
+    expect(screen.getByTestId("persona-studio-assistant-frame")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-configuration-frame")).toBeVisible();
+    expect(screen.queryByTestId("persona-studio-footer")).not.toBeInTheDocument();
 
     await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Coding"
+      screen.getByRole("textbox", { name: /describe a supported draft change/i }),
+      "Make this more analytical and use Claude with lower temperature"
     );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /apply locally/i }));
 
-    const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
-    expect(within(transcript).getByText(/this is the first preview turn in this studio session/i)).toBeVisible();
-    expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(1);
-    expect(within(transcript).queryByText(/^ephemeral assistant$/i)).not.toBeInTheDocument();
-    expect(within(transcript).getAllByTestId("persona-preview-panel-turn-row")).toHaveLength(2);
-    expect(within(transcript).getAllByText(/^user bubble$/i)).toHaveLength(1);
-    expect(within(transcript).getAllByText(/^preview block$/i)).toHaveLength(1);
-    expect(
-      within(transcript)
-        .getAllByTestId("persona-preview-panel-turn-row")
-        .map((row) => row.getAttribute("data-message-layout"))
-    ).toEqual(["user-bubble", "preview-block"]);
-  });
-
-  it("keeps prior turns visible and changes later replies when the draft changes", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Planning"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Refine the answer"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("persona-preview-panel-transcript")
-      ).toHaveTextContent(/current draft snapshot:/i)
-    );
-
-    await user.click(screen.getByRole("button", { name: /model/i }));
-    await user.selectOptions(screen.getByRole("combobox", { name: /provider/i }), "anthropic");
-
-    await waitFor(() =>
-      expect(screen.getByText(/draft changed since the last reply/i)).toBeVisible()
-    );
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Refine the answer again"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-
-    const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
-    expect(within(transcript).getAllByText(/anthropic \/ gpt-4o/i).length).toBeGreaterThan(0);
-    expect(within(transcript).getAllByText(/^earlier draft$/i).length).toBeGreaterThan(0);
-    expect(within(transcript).getByText(/^current draft$/i)).toBeVisible();
-  });
-
-  it("renders draft snapshot context in each assistant reply", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Planning"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-
-    const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
-    expect(within(transcript).getByText(/^guardian default$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^openai \/ gpt-4o$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^0\.7$/i)).toBeVisible();
-  });
-
-  it("clears the preview session on demand", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Research"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
-      /current draft/i
-    );
-
-    await user.click(screen.getByRole("button", { name: /clear preview session/i }));
-
-    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
-      /no preview turns yet/i
-    );
-  });
-
-  it("does not persist the preview session across remounts", async () => {
-    const user = userEvent.setup();
-    const firstRender = renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Coding"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-    await waitFor(() =>
-      expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
-        /current draft snapshot:/i
-      )
-    );
-
-    firstRender.unmount();
-    renderPage();
-
-    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
-      /no preview turns yet/i
-    );
-  });
-
-  it("renders the truthful empty-state copy for the draft preview", () => {
-    renderPage();
-
-    const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(
-      within(transcript).getByText(/no preview turns yet\./i)
-    ).toBeVisible();
-  });
-
-  it("does not touch runtime write paths or session persistence", async () => {
-    const user = userEvent.setup();
-    const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
-    renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /persona preview prompt/i }),
-      "Coding"
-    );
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-    await waitFor(() =>
-      expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
-        /current draft snapshot:/i
-      )
-    );
-
-    expect(personaStudioApiMock.fetchPersonaProfiles).toHaveBeenCalledTimes(1);
-    expect(personaStudioApiMock.createPersonaProfile).not.toHaveBeenCalled();
     expect(personaStudioApiMock.updatePersonaProfile).not.toHaveBeenCalled();
-    expect(sessionSetItemSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId("persona-studio-build-transcript")).toHaveTextContent(/updated .*local draft/i);
+    expect(screen.getByTestId("persona-studio-form-section-prompt")).toHaveAttribute("data-highlighted", "true");
+    expect(screen.getByTestId("persona-studio-form-section-model")).toHaveAttribute("data-highlighted", "true");
+    expect(screen.getByDisplayValue("claude-sonnet")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("0.2")).toBeInTheDocument();
   });
 
-  it("switches the rail between Preview and Diagnostics tabs", async () => {
+  it("uses the existing ephemeral preview engine in Test mode without a nested preview heading", async () => {
     const user = userEvent.setup();
-    renderPage();
+    render(<PersonaStudioPage />);
 
-    // Default Preview tab — diagnostics not visible
-    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /^test$/i }));
+    const preview = screen.getByTestId("persona-preview-panel");
+    expect(preview).toBeVisible();
+    expect(within(preview).queryByTestId("persona-preview-panel-header")).not.toBeInTheDocument();
+    expect(within(preview).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(/not saved to chat history/i);
 
-    // Switch to Diagnostics
-    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
-    expect(screen.getByText("Save Status")).toBeVisible();
-    expect(screen.getByText("Effective Config")).toBeVisible();
-    expect(screen.getByText("Debug Log")).toBeVisible();
-
-    // Switch back to Preview
-    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
-    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Plan this");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(within(preview).getByText(/this is the first preview turn/i)).toBeVisible());
+    expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
   });
 
-  it("renders the section tabs in the header area", () => {
-    renderPage();
+  it("round-trips valid Manifest JSON into Form and preserves the draft when JSON is invalid", async () => {
+    const user = userEvent.setup();
+    render(<PersonaStudioPage />);
 
-    const sectionTabs = screen.getByTestId("persona-studio-tabs");
-    expect(sectionTabs).toBeVisible();
-    expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
-  });
+    await user.click(screen.getByRole("tab", { name: /^manifest$/i }));
+    const manifestInput = screen.getByRole("textbox", { name: /persona manifest json/i });
+    const manifest = JSON.parse((manifestInput as HTMLTextAreaElement).value) as Record<string, unknown>;
+    const identity = manifest.identity as Record<string, unknown>;
+    identity.name = "Manifest Persona";
+    fireEvent.change(manifestInput, { target: { value: JSON.stringify(manifest, null, 2) } });
 
-  it("keeps the compact profile selector and actions in the main editor lane", () => {
-    renderPage();
+    await user.click(screen.getByRole("tab", { name: /^form$/i }));
+    expect(screen.getByDisplayValue("Manifest Persona")).toBeInTheDocument();
 
-    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("persona-studio-rail-lane")).queryByTestId(
-        "persona-studio-profile-selector"
-      )
-    ).not.toBeInTheDocument();
-  });
-
-  it("applies Persona Studio action material markers to the tray and preview controls", () => {
-    renderPage();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    const save = screen.getByTestId("persona-studio-action-save");
-    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
-    const reset = screen.getByTestId("persona-studio-action-reset");
-    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
-    const send = screen.getByRole("button", { name: /^send$/i });
-    const clear = screen.getByRole("button", { name: /clear preview session/i });
-
-    // Utility / selector chip
-    expect(trigger).toHaveClass("ps-action-chip");
-    expect(trigger).toHaveAttribute("data-ps-material", "selector");
-
-    // Primary action chips (Save profile, Send)
-    expect(save).toHaveClass("ps-action-chip");
-    expect(save).toHaveAttribute("data-ps-material", "primary");
-    expect(send).toHaveClass("ps-action-chip");
-    expect(send).toHaveAttribute("data-ps-material", "primary");
-
-    // Secondary action chips (Save as new profile, Clear preview session)
-    expect(saveAsNew).toHaveClass("ps-action-chip");
-    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
-    expect(clear).toHaveClass("ps-action-chip");
-    expect(clear).toHaveAttribute("data-ps-material", "secondary");
-
-    // Reset / danger chips (Reset profile changes, Reset local Studio data)
-    expect(reset).toHaveClass("ps-action-chip");
-    expect(reset).toHaveAttribute("data-ps-material", "reset");
-    expect(resetAll).toHaveClass("ps-action-chip");
-    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
-  });
-
-  it("keeps the profile/action tray text-first, compact, and free of added decorative SVGs or helper text", () => {
-    renderPage();
-
-    const tray = screen.getByTestId("persona-studio-profile-selector");
-
-    // Every Persona Studio action chip in the tray stays text-first: no
-    // decorative SVG icon introduced by this material pass.
-    const chips = tray.querySelectorAll("[data-ps-material]");
-    expect(chips.length).toBeGreaterThan(0);
-    chips.forEach((chip) => {
-      expect(chip.querySelector("svg")).toBeNull();
-      // No subtitle/helper paragraphs introduced inside or directly under a chip
-      expect(chip.querySelector("p, .helper-text, .subtitle")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: /^manifest$/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: /persona manifest json/i }), {
+      target: { value: '{"bindings":{"project":"nope"}}' },
     });
-
-    // The tray stays a single compact row (no microcopy block rendered beneath)
-    expect(tray.tagName).toBe("DIV");
-    expect(tray.className).toMatch(/flex/);
-    expect(tray.querySelector("h1, h2, h3, p")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(/manifest not applied/i);
+    await user.click(screen.getByRole("tab", { name: /^form$/i }));
+    expect(screen.getByDisplayValue("Manifest Persona")).toBeInTheDocument();
   });
 
-  it("renders stable voice panel sections", async () => {
+  it("labels unresolved environmental truth honestly in Effective", async () => {
     const user = userEvent.setup();
-    renderPage();
+    render(<PersonaStudioPage />);
 
-    await user.click(screen.getByRole("button", { name: /^voice$/i }));
-
-    const panel = await screen.findByTestId("persona-voice-panel");
-    expect(panel).toBeVisible();
-    expect(within(panel).getByTestId("persona-voice-panel-provider")).toBeVisible();
-    expect(within(panel).getByTestId("persona-voice-panel-preset")).toBeVisible();
-    expect(within(panel).getByTestId("persona-voice-panel-runtime-style")).toBeVisible();
-    expect(within(panel).getByTestId("persona-voice-panel-preview")).toBeVisible();
-    expect(within(panel).getByTestId("persona-voice-panel-binding")).toBeVisible();
-  });
-
-  it("renders the bounded Studio Guide sidecar", () => {
-    renderPage();
-
-    const guide = screen.getByTestId("persona-studio-guide-panel");
-    expect(guide).toBeVisible();
-    expect(within(guide).getByText(/studio guide/i)).toBeVisible();
-    expect(within(guide).getByText(/deterministic draft linting/i)).toBeVisible();
-    expect(within(guide).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(guide).queryByText(/chat history/i)).not.toBeInTheDocument();
-    expect(within(guide).queryByText(/composer/i)).not.toBeInTheDocument();
-  });
-
-  it("surfaces draft-aware guidance cards from unsaved prompt edits", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: /^identity$/i }));
-    await user.clear(screen.getByPlaceholderText(/enter persona name/i));
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), "Code Assistant");
-    await user.clear(screen.getByPlaceholderText(/describe this persona/i));
-    await user.type(
-      screen.getByPlaceholderText(/describe this persona/i),
-      "Specialized for code review and programming tasks"
-    );
-
-    await user.click(screen.getByRole("button", { name: /^prompt$/i }));
-    const prompt = screen.getByPlaceholderText(
-      /enter the system prompt that defines this persona's behavior/i
-    );
-    const styleNotes = screen.getByPlaceholderText(/notes about tone, manner, and communication style/i);
-    const directives = screen.getByPlaceholderText(/operational directives and constraints/i);
-
-    await user.clear(prompt);
-    await user.type(prompt, "Be helpful.");
-    await user.clear(styleNotes);
-    await user.type(styleNotes, "Be warm but cold. Be concise yet verbose.");
-    await user.clear(directives);
-
-    const guide = screen.getByTestId("persona-studio-guide-panel");
-    const cards = within(guide).getAllByTestId("persona-studio-guide-card");
-
-    expect(cards).toHaveLength(5);
-    expect(within(guide).getByText(/role clarity/i)).toBeVisible();
-    expect(within(guide).getByText(/system prompt is too vague/i)).toBeVisible();
-    expect(within(guide).getByText(/contradictory tone instructions/i)).toBeVisible();
-    expect(within(guide).getByText(/missing constraints/i)).toBeVisible();
-    expect(within(guide).getByText(/identity and wording mismatch/i)).toBeVisible();
-  });
-
-  it("updates selectable preset voices when the provider changes", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: /^voice$/i }));
-
-    const providerSelect = await screen.findByLabelText(/voice provider/i);
-    await user.selectOptions(providerSelect, "local_openai_compatible");
-
-    await waitFor(() =>
-      expect(
-        screen.getByLabelText(/selectable preset voice/i)
-      ).toHaveValue("alloy")
-    );
-
-    const presetSelect = screen.getByLabelText(/selectable preset voice/i);
-    expect(within(presetSelect).getByRole("option", { name: "alloy" })).toBeVisible();
-    expect(within(presetSelect).getByRole("option", { name: "ember" })).toBeVisible();
-  });
-
-  it("shows the provider CTA and keeps deep provider controls out of Persona Studio", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: /^voice$/i }));
-
-    const panel = await screen.findByTestId("persona-voice-panel");
-    expect(
-      within(panel).getByRole("button", { name: /manage in provider view/i })
-    ).toBeVisible();
-    expect(within(panel).queryByText(/reference audio/i)).not.toBeInTheDocument();
-    expect(within(panel).queryByText(/clone voice/i)).not.toBeInTheDocument();
-    expect(within(panel).queryByText(/generate voice/i)).not.toBeInTheDocument();
-  });
-
-  it("renders degraded and empty states truthfully", async () => {
-    const user = userEvent.setup();
-    voiceApiMock.fetchPersonaVoiceProviders.mockRejectedValueOnce(
-      new OptionalSurfaceError(
-        "not_found",
-        404,
-        "Optional surface absent",
-        null
-      )
-    );
-
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: /^voice$/i }));
-
-    expect(
-      await screen.findByText(/voice discovery is unavailable in this runtime/i)
-    ).toBeVisible();
-    expect(
-      screen.getByText(
-        /persona studio could not find the backend voice discovery surface in this environment/i
-      )
-    ).toBeVisible();
-  });
-
-  it("renders bounded preview controls and calls the preview route", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: /^voice$/i }));
-    await user.selectOptions(
-      await screen.findByLabelText(/voice provider/i),
-      "local_openai_compatible"
-    );
-
-    const previewButton = await screen.findByRole("button", {
-      name: /preview voice/i,
-    });
-    const sampleText = screen.getByLabelText(/sample text/i);
-
-    await user.clear(sampleText);
-    await user.type(sampleText, "Test the bounded preview.");
-    await user.click(previewButton);
-
-    await waitFor(() =>
-      expect(voiceApiMock.previewPersonaVoice).toHaveBeenCalledWith({
-        provider: "local_openai_compatible",
-        voice_id: "alloy",
-        sample_text: "Test the bounded preview.",
-        speed: 1,
-      })
-    );
-
-    expect(await screen.findByTestId("persona-voice-preview-audio")).toBeVisible();
-    expect(screen.queryByText(/threaded chat/i)).not.toBeInTheDocument();
-  });
-
-  it("keeps the Studio Guide draft-aware without exposing a chat composer or history", () => {
-    renderPage();
-
-    const guide = screen.getByTestId("persona-studio-guide-panel");
-    expect(within(guide).queryByText(/threaded chat/i)).not.toBeInTheDocument();
-    expect(within(guide).queryByRole("button", { name: /send/i })).not.toBeInTheDocument();
-    expect(within(guide).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(guide).getByText(/deterministic draft linting/i)).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /^effective$/i }));
+    expect(screen.getByTestId("persona-studio-effective")).toHaveTextContent(/unavailable to resolve here/i);
+    expect(screen.getByTestId("persona-studio-effective")).toHaveTextContent(/not resolved/i);
+    expect(screen.getByTestId("persona-studio-effective")).not.toHaveTextContent(/available and authorized/i);
   });
 });

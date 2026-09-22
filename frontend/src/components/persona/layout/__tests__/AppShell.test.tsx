@@ -1089,7 +1089,8 @@ describe("AppShell settings utility trigger", () => {
 
     await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
 
-    expect(await screen.findByTestId("persona-studio-framecard")).toBeInTheDocument();
+    expect(await screen.findByTestId("persona-studio-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/persona-studio");
 
     await user.click(screen.getByTestId("settings-utility-toggle"));

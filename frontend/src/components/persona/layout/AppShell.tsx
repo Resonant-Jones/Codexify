@@ -4175,18 +4175,11 @@ export default function AppShell({
             <div
               className="h-full w-full isolate"
               data-active-view="personaStudio"
-              data-active-view-contract="left-center-right"
+              data-active-view-contract="assistant-configuration"
               data-thread-rail="absent"
               data-view-family="personaStudio"
             >
-              <FrameCard
-                refractiveFallback
-                shimmerMode="subtle"
-                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-                data-testid="persona-studio-framecard"
-              >
-                <PersonaStudioPage />
-              </FrameCard>
+              <PersonaStudioPage />
             </div>
           )}
         </div>
