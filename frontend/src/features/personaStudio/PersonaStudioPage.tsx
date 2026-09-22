@@ -448,14 +448,61 @@ export default function PersonaStudioPage() {
 
   return (
     <main className="h-full min-h-0 w-full overflow-y-auto" data-testid="persona-studio-page" data-persona-studio-layout="assistant-configuration">
+      <style data-testid="persona-studio-layout-styles">{`
+        [data-testid="persona-studio-page"] {
+          container: persona-studio / inline-size;
+        }
+        [data-testid="persona-studio-workspace"] {
+          display: grid;
+          box-sizing: border-box;
+          min-height: 100%;
+          grid-template-columns: minmax(0, 1fr);
+          grid-auto-rows: minmax(34rem, auto);
+          gap: var(--shell-gap);
+          padding: var(--shell-gap);
+        }
+        [data-testid="persona-studio-workspace"] > .fc-root {
+          min-width: 0;
+          min-height: 0;
+        }
+        [data-testid="persona-studio-workspace"] .fc-inner > div,
+        [data-testid="persona-studio-build-mode"],
+        [data-testid="persona-studio-test-mode"] {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+          min-width: 0;
+        }
+        [data-testid="persona-studio-configuration-viewport"],
+        [data-testid="persona-studio-build-transcript"] {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+        }
+        [data-testid="persona-studio-workspace"] :is(input, textarea, select) {
+          box-sizing: border-box;
+          max-width: 100%;
+        }
+        @container persona-studio (min-width: 900px) {
+          [data-testid="persona-studio-workspace"] {
+            height: 100%;
+            min-height: 0;
+            grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.35fr);
+            grid-template-rows: minmax(0, 1fr);
+          }
+          [data-testid="persona-studio-workspace"] > .fc-root {
+            grid-row: 1;
+          }
+        }
+      `}</style>
       <PersonaStudioActionChipStyles />
       <h1 className="sr-only">Persona Studio</h1>
       <div
-        className="grid min-h-full grid-cols-1 gap-[var(--shell-gap)] p-[var(--shell-gap)] xl:h-full xl:grid-cols-[minmax(330px,0.76fr)_minmax(570px,1.38fr)]"
         data-testid="persona-studio-workspace"
         data-layout="assistant-configuration"
       >
-        <FrameCard refractiveFallback shimmerMode="subtle" className="min-h-[34rem] xl:min-h-0" data-testid="persona-studio-assistant-frame" ariaLabel="Studio Assistant">
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-assistant-frame" ariaLabel="Studio Assistant">
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
               <div>
@@ -501,7 +548,7 @@ export default function PersonaStudioPage() {
           </div>
         </FrameCard>
 
-        <FrameCard refractiveFallback shimmerMode="subtle" className="min-h-[34rem] xl:min-h-0" data-testid="persona-studio-configuration-frame" ariaLabel="Configuration">
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-configuration-frame" ariaLabel="Configuration">
           <div className="flex min-h-0 flex-1 flex-col">
             <header className="space-y-3 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
               <div className="flex flex-wrap items-start justify-between gap-3">

@@ -46,7 +46,7 @@ describe("Persona Studio V2 render and authority safety", () => {
     render(<PersonaStudioPage />);
 
     const workspace = screen.getByTestId("persona-studio-workspace");
-    expect(workspace).toHaveClass("grid-cols-1", "xl:grid-cols-[minmax(330px,0.76fr)_minmax(570px,1.38fr)]");
+    expect(workspace.children).toHaveLength(2);
     expect(screen.getAllByTestId(/persona-studio-(assistant|configuration)-frame/)).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "Studio Assistant" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Configuration" })).toBeInTheDocument();
