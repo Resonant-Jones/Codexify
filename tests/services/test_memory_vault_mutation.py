@@ -1,7 +1,7 @@
 """Focused PostgreSQL tests for the Memory Vault governance mutation spine.
 
-Proves the UMS-05C1 internal mutation service against a disposable
-PostgreSQL authority:
+Proves the UMS-05C1 / C3 / C4 / C5 internal mutation service against a
+disposable PostgreSQL authority:
 
 - CAS-backed pin/unpin with ``memory_records.updated_at``;
 - one atomic transaction per changed mutation;
@@ -12,7 +12,10 @@ PostgreSQL authority:
 - account-scoped and Project-scoped mutation;
 - explicit account-to-Project, Project-to-Project, and Project-to-account scope;
 - canonical Project ownership and ADR-081 conflict enforcement;
-- shared record CAS across pin, hold, and Project scope;
+- shared record CAS across pin, hold, Project scope, and Persona attribution;
+- explicit add/remove Persona attribution with active/retired lifecycle;
+- same-account DB integrity across ``memory_records`` / ``memory_persona_links``
+  / ``persona_subjects``;
 - preservation of every other authoritative canonical field.
 """
 
@@ -29,13 +32,26 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 
-from guardian.db.models import MemoryProvenance, MemoryRecord, Project, User
-from guardian.protocol_tokens import MemorySemanticSpecies
+from guardian.db.models import (
+    MemoryPersonaLink,
+    MemoryProvenance,
+    MemoryRecord,
+    PersonaSubject,
+    Project,
+    User,
+)
+from guardian.protocol_tokens import (
+    MemoryPersonaLinkKind,
+    MemorySemanticSpecies,
+    PersonaSubjectLifecycle,
+)
 from guardian.services.memory_vault_mutation import (
+    ACTION_ADD_PERSONA_ATTRIBUTION,
     ACTION_CLEAR_PROJECT_SCOPE,
     ACTION_HOLD,
     ACTION_PIN,
     ACTION_RELEASE_HOLD,
+    ACTION_REMOVE_PERSONA_ATTRIBUTION,
     ACTION_SET_PROJECT_SCOPE,
     ACTION_UNPIN,
     RECEIPT_SCHEMA,
@@ -43,6 +59,8 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
     MemoryVaultMutationService,
+    MemoryVaultPersonaSubjectLifecycleConflict,
+    MemoryVaultPersonaSubjectNotAvailable,
     MemoryVaultProjectAuthorityConflict,
     MemoryVaultProjectNotAvailable,
 )
@@ -178,6 +196,43 @@ def _seed(session) -> dict:
     b_id = str(uuid.uuid4())
     conflicted_project_memory_id = str(uuid.uuid4())
 
+    subject_a_active = str(uuid.uuid4())
+    subject_b_active = str(uuid.uuid4())
+    subject_retired = str(uuid.uuid4())
+    subject_b_foreign = str(uuid.uuid4())
+    session.add(
+        PersonaSubject(
+            persona_subject_id=subject_a_active,
+            user_id=ACCOUNT_A,
+            display_name_snapshot="Alice",
+            lifecycle=PersonaSubjectLifecycle.ACTIVE.value,
+        )
+    )
+    session.add(
+        PersonaSubject(
+            persona_subject_id=subject_b_active,
+            user_id=ACCOUNT_A,
+            display_name_snapshot="Bob",
+            lifecycle=PersonaSubjectLifecycle.ACTIVE.value,
+        )
+    )
+    session.add(
+        PersonaSubject(
+            persona_subject_id=subject_retired,
+            user_id=ACCOUNT_A,
+            display_name_snapshot="Retired",
+            lifecycle=PersonaSubjectLifecycle.RETIRED.value,
+        )
+    )
+    session.add(
+        PersonaSubject(
+            persona_subject_id=subject_b_foreign,
+            user_id=ACCOUNT_B,
+            display_name_snapshot="Foreign",
+            lifecycle=PersonaSubjectLifecycle.ACTIVE.value,
+        )
+    )
+
     session.add(
         MemoryRecord(
             memory_id=account_scoped_id,
@@ -232,6 +287,20 @@ def _seed(session) -> dict:
     )
     session.flush()
 
+    # The pre-existing exact retired-link fixture is added AFTER the
+    # MemoryRecord parent row is committed so the FK check observes the
+    # canonical memory. Both inserts share the same flush window.
+    session.add(
+        MemoryPersonaLink(
+            link_id=str(uuid.uuid4()),
+            memory_id=conflicted_project_memory_id,
+            user_id=ACCOUNT_A,
+            persona_subject_id=subject_retired,
+            persona_user_id=ACCOUNT_A,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+        )
+    )
+
     # One initial canonical provenance row for the account-scoped memory.
     session.add(
         MemoryProvenance(
@@ -254,6 +323,10 @@ def _seed(session) -> dict:
         "conflicted_project_id": 9002,
         "foreign_project_id": 9100,
         "conflicted_project_memory_id": conflicted_project_memory_id,
+        "subject_a_active": subject_a_active,
+        "subject_b_active": subject_b_active,
+        "subject_retired": subject_retired,
+        "subject_b_foreign": subject_b_foreign,
     }
 
 
@@ -1193,3 +1266,677 @@ def test_project_scope_rejects_invalid_project_id(seeded, invalid_project_id):
                 expected_updated_at=t1,
                 project_id=invalid_project_id,
             )
+
+
+# ---------------------------------------------------------------------------
+# Persona-attribution mutation.
+# ---------------------------------------------------------------------------
+
+
+def _persona_links(session_factory, memory_id: str) -> list[tuple[str, str, str]]:
+    """Return ``(persona_subject_id, persona_user_id, link_kind)`` triples for
+    one memory row, sorted for deterministic assertions.
+    """
+    with session_factory() as session:
+        rows = (
+            session.query(
+                MemoryPersonaLink.persona_subject_id,
+                MemoryPersonaLink.persona_user_id,
+                MemoryPersonaLink.link_kind,
+            )
+            .filter_by(memory_id=memory_id, user_id=ACCOUNT_A)
+            .order_by(
+                MemoryPersonaLink.link_kind.asc(),
+                MemoryPersonaLink.persona_subject_id.asc(),
+            )
+            .all()
+        )
+        return [
+            (str(r.persona_subject_id), str(r.persona_user_id), str(r.link_kind))
+            for r in rows
+        ]
+
+
+def _non_persona_fields(session_factory, memory_id: str) -> dict:
+    row = _current(session_factory, memory_id)
+    return {
+        "user_id": row.user_id,
+        "project_id": row.project_id,
+        "semantic_species": row.semantic_species,
+        "text_content": row.text_content,
+        "fact_key": row.fact_key,
+        "fact_value": row.fact_value,
+        "fact_confidence": row.fact_confidence,
+        "reviewed_at": row.reviewed_at,
+        "activated_at": row.activated_at,
+        "pinned": row.pinned,
+        "held": row.held,
+        "extensions": row.extensions,
+    }
+
+
+def _subjects_snapshot(session_factory) -> dict[str, list[tuple[str, str]]]:
+    """Return ``[(subject_user_id, lifecycle)]`` for every Persona subject.
+
+    Used to assert Persona subjects and bindings are never mutated by C5.
+    """
+    with session_factory() as session:
+        rows = session.query(
+            PersonaSubject.persona_subject_id,
+            PersonaSubject.user_id,
+            PersonaSubject.lifecycle,
+        ).all()
+        return {
+            str(r.persona_subject_id): [(str(r.user_id), str(r.lifecycle))]
+            for r in rows
+        }
+
+
+def test_persona_attribution_add_to_active_subject(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+    subjects_before = _subjects_snapshot(factory)
+
+    with factory() as session:
+        result = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+            reason="attribution-a",
+            request_ref="req-attribution-a",
+        )
+
+    assert result.changed is True
+    assert result.previous_updated_at == t1
+    assert result.resulting_updated_at != t1
+    assert any(
+        link.persona_subject_id == subject_id
+        and link.link_kind == MemoryPersonaLinkKind.ASSOCIATED_WITH.value
+        for link in result.item.persona_links
+    )
+
+    receipt = _receipts(factory, memory_id)[-1]
+    assert receipt.extensions["action"] == ACTION_ADD_PERSONA_ATTRIBUTION
+    assert receipt.extensions["previous_values"] == {"persona_attribution": None}
+
+    with factory() as session:
+        link_row = (
+            session.query(MemoryPersonaLink)
+            .filter_by(
+                memory_id=memory_id,
+                persona_subject_id=subject_id,
+                link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            )
+            .one()
+        )
+    assert receipt.extensions["new_values"] == {
+        "persona_attribution": {
+            "link_id": link_row.link_id,
+            "persona_subject_id": subject_id,
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+        }
+    }
+    assert receipt.extensions["reason"] == "attribution-a"
+    assert receipt.extensions["request_ref"] == "req-attribution-a"
+    assert _pin_count(factory, memory_id) == count_before + 1
+    assert _subjects_snapshot(factory) == subjects_before
+
+    # Same-account DB integrity: memory / link / subject all share the
+    # authenticated account.
+    with factory() as session:
+        joined = session.execute(
+            sa.select(
+                MemoryRecord.user_id,
+                MemoryPersonaLink.user_id,
+                MemoryPersonaLink.persona_user_id,
+                PersonaSubject.user_id,
+            )
+            .join(
+                MemoryPersonaLink,
+                sa.and_(
+                    MemoryPersonaLink.memory_id == MemoryRecord.memory_id,
+                    MemoryPersonaLink.user_id == MemoryRecord.user_id,
+                ),
+            )
+            .join(
+                PersonaSubject,
+                sa.and_(
+                    PersonaSubject.persona_subject_id
+                    == MemoryPersonaLink.persona_subject_id,
+                    PersonaSubject.user_id == MemoryPersonaLink.persona_user_id,
+                ),
+            )
+            .where(MemoryRecord.memory_id == memory_id)
+        ).one()
+    assert joined.user_id == joined[1] == joined[2] == joined[3] == ACCOUNT_A
+
+
+def test_persona_attribution_remove_yields_clear_seed(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+
+    with factory() as session:
+        added = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=_current(factory, memory_id).updated_at,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+    count_after_add = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        added_link = (
+            session.query(MemoryPersonaLink)
+            .filter_by(memory_id=memory_id, persona_subject_id=subject_id)
+            .one()
+        )
+    added_link_id = added_link.link_id
+
+    with factory() as session:
+        removed = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=added.resulting_updated_at,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=False,
+        )
+
+    assert removed.changed is True
+    assert removed.resulting_updated_at != added.resulting_updated_at
+    assert not any(
+        link.persona_subject_id == subject_id
+        and link.link_kind == MemoryPersonaLinkKind.ASSOCIATED_WITH.value
+        for link in removed.item.persona_links
+    )
+    with factory() as session:
+        remaining = (
+            session.query(MemoryPersonaLink)
+            .filter_by(memory_id=memory_id, persona_subject_id=subject_id)
+            .all()
+        )
+    assert remaining == []
+
+    receipt = _receipts(factory, memory_id)[-1]
+    assert receipt.extensions["action"] == ACTION_REMOVE_PERSONA_ATTRIBUTION
+    assert receipt.extensions["new_values"] == {"persona_attribution": None}
+    assert receipt.extensions["previous_values"]["persona_attribution"] == {
+        "link_id": added_link_id,
+        "persona_subject_id": subject_id,
+        "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+    }
+    assert _pin_count(factory, memory_id) == count_after_add + 1
+
+
+def test_persona_attribution_duplicate_add_is_noop(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t0 = _current(factory, memory_id).updated_at
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t0,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+    t_after_first = _current(factory, memory_id).updated_at
+    count_after_first = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        noop = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t_after_first,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+    assert noop.changed is False
+    assert noop.receipt_id is None
+    assert noop.previous_updated_at == noop.resulting_updated_at == t_after_first
+    assert _pin_count(factory, memory_id) == count_after_first
+
+
+def test_persona_attribution_absent_remove_is_noop(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_b_active"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        noop = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.CAPTURED_UNDER,
+            present=False,
+        )
+    assert noop.changed is False
+    assert noop.receipt_id is None
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_persona_attribution_link_kind_independence(seeded):
+    """Different link kinds for one subject must coexist; remove one, keep the other."""
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_b_active"]
+    t0 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t0,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.CAPTURED_UNDER,
+            present=True,
+        )
+    with factory() as session:
+        after_capture = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=_current(factory, memory_id).updated_at,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+
+    assert any(
+        l.link_kind == MemoryPersonaLinkKind.CAPTURED_UNDER.value
+        and l.persona_subject_id == subject_id
+        for l in after_capture.item.persona_links
+    )
+    assert any(
+        l.link_kind == MemoryPersonaLinkKind.ASSOCIATED_WITH.value
+        and l.persona_subject_id == subject_id
+        for l in after_capture.item.persona_links
+    )
+
+    with factory() as session:
+        removed = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=after_capture.resulting_updated_at,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=False,
+        )
+
+    # captured_under survives; associated_with is removed.
+    survivors = [(s, k) for s, _u, k in _persona_links(factory, memory_id)]
+    assert (subject_id, MemoryPersonaLinkKind.CAPTURED_UNDER.value) in survivors
+    assert (subject_id, MemoryPersonaLinkKind.ASSOCIATED_WITH.value) not in survivors
+
+
+@pytest.mark.parametrize(
+    "kind_value",
+    [k.value for k in MemoryPersonaLinkKind],
+)
+def test_persona_attribution_accepts_every_canonical_kind(seeded, kind_value):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t0 = _current(factory, memory_id).updated_at
+
+    with factory() as session:
+        result = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t0,
+            persona_subject_id=subject_id,
+            link_kind=kind_value,
+            present=True,
+        )
+    assert result.changed is True
+    assert any(
+        link.persona_subject_id == subject_id and link.link_kind == kind_value
+        for link in result.item.persona_links
+    )
+
+
+def test_persona_attribution_invalid_internal_kind_fails_closed(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultMutationError):
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_persona_attribution(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                persona_subject_id=seeded["subject_a_active"],
+                link_kind="not-a-canonical-link-kind",
+                present=True,
+            )
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_persona_attribution_missing_subject_unavailable(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultPersonaSubjectNotAvailable) as excinfo:
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_persona_attribution(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                persona_subject_id="00000000-0000-0000-0000-deadbeef0000",
+                link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+                present=True,
+            )
+    assert "not available" in str(excinfo.value)
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_persona_attribution_foreign_subject_unavailable(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultPersonaSubjectNotAvailable):
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_persona_attribution(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                persona_subject_id=seeded["subject_b_foreign"],
+                link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+                present=True,
+            )
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_persona_attribution_retired_new_add_fails_closed(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultPersonaSubjectLifecycleConflict):
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_persona_attribution(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                persona_subject_id=seeded["subject_retired"],
+                link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+                present=True,
+            )
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+
+
+def test_persona_attribution_retired_existing_link_kept_as_noop(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["conflicted_project_memory_id"]
+    subject_id = seeded["subject_retired"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+    # Pre-seed has an existing exact ``associated_with`` link from ACCOUNT_A
+    # to the retired subject on this memory.
+
+    with factory() as session:
+        noop = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+    assert noop.changed is False
+    assert noop.receipt_id is None
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == count_before
+    # Historical exact link still present.
+    with factory() as session:
+        link_rows = (
+            session.query(MemoryPersonaLink)
+            .filter_by(memory_id=memory_id, persona_subject_id=subject_id)
+            .all()
+        )
+    assert len(link_rows) == 1
+
+
+def test_persona_attribution_retired_link_can_be_removed(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["conflicted_project_memory_id"]
+    subject_id = seeded["subject_retired"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        removed = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=False,
+        )
+    assert removed.changed is True
+    assert removed.resulting_updated_at != t1
+    receipt = _receipts(factory, memory_id)[-1]
+    assert receipt.extensions["action"] == ACTION_REMOVE_PERSONA_ATTRIBUTION
+    assert _pin_count(factory, memory_id) == count_before + 1
+    with factory() as session:
+        link_rows = (
+            session.query(MemoryPersonaLink)
+            .filter_by(memory_id=memory_id, persona_subject_id=subject_id)
+            .all()
+        )
+    assert link_rows == []
+
+
+def test_persona_attribution_does_not_mutate_subjects_or_bindings(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subjects_before = _subjects_snapshot(factory)
+    with factory() as session:
+        sa_orm = session
+        snapshot_persona_subjects_table = sa_orm.execute(
+            sa.text(
+                "SELECT persona_subject_id, user_id, lifecycle "
+                "FROM persona_subjects ORDER BY persona_subject_id"
+            )
+        ).fetchall()
+        snapshot_bindings_count = sa_orm.execute(
+            sa.text("SELECT COUNT(*) FROM persona_subject_bindings")
+        ).scalar_one()
+
+    t0 = _current(factory, memory_id).updated_at
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t0,
+            persona_subject_id=seeded["subject_a_active"],
+            link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            present=True,
+        )
+
+    with factory() as session:
+        sa_orm = session
+        after_persona_subjects = sa_orm.execute(
+            sa.text(
+                "SELECT persona_subject_id, user_id, lifecycle "
+                "FROM persona_subjects ORDER BY persona_subject_id"
+            )
+        ).fetchall()
+        after_bindings_count = sa_orm.execute(
+            sa.text("SELECT COUNT(*) FROM persona_subject_bindings")
+        ).scalar_one()
+
+    assert [tuple(r) for r in after_persona_subjects] == [
+        tuple(r) for r in snapshot_persona_subjects_table
+    ]
+    assert after_bindings_count == snapshot_bindings_count
+    assert _subjects_snapshot(factory) == subjects_before
+
+
+def test_persona_attribution_atomic_rollback_and_independence(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t1 = _current(factory, memory_id).updated_at
+    receipt_count_before = _pin_count(factory, memory_id)
+    independent_before = _non_persona_fields(factory, memory_id)
+    link_count_before = len(_persona_links(factory, memory_id))
+
+    with factory() as session:
+        service = MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        )
+
+        def _fail_on_receipt_flush(session_, flush_context, instances):
+            if any(
+                isinstance(obj, MemoryProvenance)
+                and (obj.extensions.get("action") == ACTION_ADD_PERSONA_ATTRIBUTION)
+                for obj in session_.new
+            ):
+                raise RuntimeError("forced receipt persistence failure")
+
+        event.listen(session, "before_flush", _fail_on_receipt_flush)
+        try:
+            with pytest.raises(MemoryVaultMutationError):
+                service.set_persona_attribution(
+                    memory_id=memory_id,
+                    expected_updated_at=t1,
+                    persona_subject_id=subject_id,
+                    link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+                    present=True,
+                )
+        finally:
+            event.remove(session, "before_flush", _fail_on_receipt_flush)
+
+    assert _current(factory, memory_id).updated_at == t1
+    assert _pin_count(factory, memory_id) == receipt_count_before
+    assert len(_persona_links(factory, memory_id)) == link_count_before
+    assert _non_persona_fields(factory, memory_id) == independent_before
+
+
+def test_persona_attribution_invalidates_stale_pin_intent(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t1 = _current(factory, memory_id).updated_at
+    pinned_before = _current(factory, memory_id).pinned
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            persona_subject_id=subject_id,
+            link_kind=MemoryPersonaLinkKind.CAPTURED_UNDER,
+            present=True,
+        )
+    post_attribution_token = _current(factory, memory_id).updated_at
+    count_after_attribution = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultMutationConflict):
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_pinned(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                pinned=True,
+            )
+    assert _current(factory, memory_id).pinned == pinned_before
+    assert _current(factory, memory_id).updated_at == post_attribution_token
+    assert _pin_count(factory, memory_id) == count_after_attribution
+    assert _pin_count(factory, memory_id) == count_before + 1
+
+
+def test_pin_hold_project_scope_invalidate_stale_persona_intent(seeded):
+    factory = seeded["session_factory"]
+    memory_id = seeded["account_scoped_id"]
+    subject_id = seeded["subject_a_active"]
+    t1 = _current(factory, memory_id).updated_at
+    count_before = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_pinned(
+            memory_id=memory_id,
+            expected_updated_at=t1,
+            pinned=True,
+        )
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_held(
+            memory_id=memory_id,
+            expected_updated_at=_current(factory, memory_id).updated_at,
+            held=True,
+        )
+    with factory() as session:
+        MemoryVaultMutationService(
+            session, authenticated_account_id=ACCOUNT_A
+        ).set_project_scope(
+            memory_id=memory_id,
+            expected_updated_at=_current(factory, memory_id).updated_at,
+            project_id=seeded["project_id"],
+        )
+    intermediate_token = _current(factory, memory_id).updated_at
+    count_after_mutations = _pin_count(factory, memory_id)
+
+    with factory() as session:
+        with pytest.raises(MemoryVaultMutationConflict):
+            MemoryVaultMutationService(
+                session, authenticated_account_id=ACCOUNT_A
+            ).set_persona_attribution(
+                memory_id=memory_id,
+                expected_updated_at=t1,
+                persona_subject_id=subject_id,
+                link_kind=MemoryPersonaLinkKind.ASSOCIATED_WITH,
+                present=True,
+            )
+    assert _current(factory, memory_id).updated_at == intermediate_token
+    assert _pin_count(factory, memory_id) == count_after_mutations

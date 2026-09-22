@@ -1,16 +1,16 @@
-"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C4).
+"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C4 / C5).
 
-Proves that the qualified Memory Vault router (GET + PATCH pin/unpin) is
-registered through Guardian's canonical route control plane as
-``internal_only`` on exactly the three intended web profiles, remains
-quarantined elsewhere, is hidden from public OpenAPI, and can be disabled
-by its feature flag.
+Proves that the qualified Memory Vault router (GET + PATCH pin/unpin/hold/
+project-scope/persona-attribution) is registered through Guardian's
+canonical route control plane as ``internal_only`` on exactly the three
+intended web profiles, remains quarantined elsewhere, is hidden from public
+OpenAPI, and can be disabled by its feature flag.
 
 This suite inspects route-control posture only. It does not reproduce the
 B1 persistence semantics (proven by
 ``tests/services/test_memory_vault_read_projection.py``), the B2 HTTP
 adapter semantics (proven by ``tests/routes/test_memory_vault.py``), or
-the C1 mutation authority (proven by
+the C1-C5 mutation authority (proven by
 ``tests/services/test_memory_vault_mutation.py``).
 """
 
@@ -39,10 +39,14 @@ VAULT_HOLD_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/hold"
 VAULT_PROJECT_SCOPE_PATCH_PATH = (
     "/api/memory-vault/items/canonical/{memory_id}/project-scope"
 )
+VAULT_PERSONA_ATTRIBUTION_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/persona-attribution"
+)
 VAULT_PATCH_PATHS = {
     VAULT_PIN_PATCH_PATH,
     VAULT_HOLD_PATCH_PATH,
     VAULT_PROJECT_SCOPE_PATCH_PATH,
+    VAULT_PERSONA_ATTRIBUTION_PATCH_PATH,
 }
 VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
 

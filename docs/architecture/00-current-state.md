@@ -121,8 +121,9 @@ This file is authoritative for:
   UMS-05C2 VAULT PIN MUTATION API: CLOSED
   UMS-05C3 VAULT HOLD/RELEASE-HOLD MUTATION: CLOSED
   UMS-05C4 PROJECT-SCOPE MUTATION: CLOSED
-  UMS-05C5 PERSONA ATTRIBUTION MUTATION: AUTHORIZED
-  UMS-05C6+: NOT AUTHORIZED
+  UMS-05C5 PERSONA ATTRIBUTION MUTATION: CLOSED
+  UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: AUTHORIZED
+  UMS-05C7+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -883,6 +884,46 @@ This file is authoritative for:
   is CLOSED; UMS-05C5 (Persona attribution mutation) alone is
   AUTHORIZED; UMS-05C6+, UMS-05D+, and UMS-06+ remain NOT AUTHORIZED.
   See the [UMS-05C4 Project-scope mutation proof](./proofs/runtime/2026-09-15-ums05c4-vault-project-scope-mutation-proof.md).
+
+- **UMS-05C5 (Vault Persona attribution mutation, qualified on
+  `feature/ums-continued`)**: the qualified mutation spine now supports
+  canonical
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/persona-attribution`,
+  exposing
+  `MemoryVaultMutationService.set_persona_attribution(persona_subject_id,
+  link_kind, present, ...)`. Stable attribution authority remains
+  `persona_subjects.persona_subject_id`; canonical link-kind authority
+  remains `MemoryPersonaLinkKind` (`captured_under`, `suggested_by`,
+  `associated_with`). Mutable PersonaProfile identity, display names,
+  prompts, profile manifests, and bindings are not attribution authority.
+  Direct human desired-state mutation is supported: `present=True` adds
+  one exact typed link for an active same-account subject;
+  `present=False` removes one exact typed link whether the subject is
+  active or retired; existing exact link to a retired subject remains as
+  a fresh-CAS no-op rather than being silently pruned. Missing and
+  foreign-account Persona subjects share a single unavailable posture
+  (404 `Persona subject not available`); retired-subject new-attribution
+  fails closed (409 `Persona subject is not active for new
+  attribution`). Persona-link changes share the same record-level
+  `memory_records.updated_at` CAS with pin, hold, and Project scope;
+  cross-action stale-write protection is proven in both directions.
+  Receipt payloads use the frozen `add_persona_attribution` /
+  `remove_persona_attribution` action labels and carry only the
+  canonical `link_id` / `persona_subject_id` / `link_kind` transition,
+  never display name, PersonaProfile ID, prompt, profile manifest, or
+  memory content. Different link kinds for the same subject coexist
+  independently; one removal does not affect another. No Persona subject
+  row, no Persona binding, and no Persona subject lifecycle is mutated;
+  no retrieval / recall / ambient-eligibility / ownership / Project-scope
+  / pin / hold / review / activation side effect exists. Memory Vault
+  remains internal-only and hidden from public OpenAPI; no frontend
+  control exists. This qualification is **branch-local** on
+  `feature/ums-continued` and has NOT been merged into the current
+  `main`, exposed via Preview, or treated as a release. UMS-05C5 is
+  CLOSED on this branch; UMS-05C6 (direct user-authored Vault
+  creation) alone is AUTHORIZED; UMS-05C7+, UMS-05D+, and UMS-06+
+  remain NOT AUTHORIZED. See the
+  [UMS-05C5 Persona-attribution mutation proof](./proofs/runtime/2026-09-22-ums05c5-vault-persona-attribution-mutation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

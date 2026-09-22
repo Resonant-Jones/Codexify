@@ -43,12 +43,14 @@ from guardian.core.memory_compatibility import (
     MemoryCompatibilitySourceKind,
     MemoryCompatibilitySourceRef,
 )
-from guardian.protocol_tokens import MemorySemanticSpecies
+from guardian.protocol_tokens import MemoryPersonaLinkKind, MemorySemanticSpecies
 from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
     MemoryVaultMutationService,
+    MemoryVaultPersonaSubjectLifecycleConflict,
+    MemoryVaultPersonaSubjectNotAvailable,
     MemoryVaultProjectAuthorityConflict,
     MemoryVaultProjectNotAvailable,
 )
@@ -99,6 +101,8 @@ _PROJECT_AUTHORITY_CONFLICT_DETAIL = {
     "code": MemoryVaultProjectAuthorityConflict.code,
     "message": "Project ownership metadata conflicts with canonical authority.",
 }
+_PERSONA_SUBJECT_UNAVAILABLE_DETAIL = "Persona subject not available"
+_PERSONA_SUBJECT_LIFECYCLE_DETAIL = "Persona subject is not active for new attribution"
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +217,19 @@ class VaultProjectScopeRequest(_VaultMutationRequest):
     """Request body for explicit canonical Project-scope mutation."""
 
     project_id: Annotated[int, Field(strict=True, gt=0)] | None
+
+
+class VaultPersonaAttributionRequest(_VaultMutationRequest):
+    """Request body for explicit canonical Persona-attribution mutation.
+
+    Targets one exact ``(memory_id, persona_subject_id, link_kind)`` triple.
+    PersonaProfile identity, display names, prompts, and review posture are
+    never accepted as mutation authority.
+    """
+
+    persona_subject_id: Annotated[str, Field(strict=True, min_length=1)]
+    link_kind: MemoryPersonaLinkKind
+    present: bool
 
 
 class VaultMutationResponse(BaseModel):
@@ -617,6 +634,46 @@ def patch_canonical_vault_item_project_scope(
     )
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/persona-attribution",
+    response_model=VaultMutationResponse,
+)
+def patch_canonical_vault_item_persona_attribution(
+    memory_id: str,
+    body: VaultPersonaAttributionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultMutationResponse:
+    """Add or remove one exact typed stable-Persona attribution link."""
+    try:
+        result = service.set_persona_attribution(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            persona_subject_id=body.persona_subject_id,
+            link_kind=body.link_kind,
+            present=body.present,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultPersonaSubjectNotAvailable:
+        raise HTTPException(status_code=404, detail=_PERSONA_SUBJECT_UNAVAILABLE_DETAIL)
+    except MemoryVaultPersonaSubjectLifecycleConflict:
+        raise HTTPException(status_code=409, detail=_PERSONA_SUBJECT_LIFECYCLE_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except MemoryVaultMutationError:
+        raise HTTPException(status_code=409, detail=_MUTATION_INTEGRITY_DETAIL)
+
+    return VaultMutationResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -629,6 +686,7 @@ __all__ = [
     "VaultPinRequest",
     "VaultHoldRequest",
     "VaultProjectScopeRequest",
+    "VaultPersonaAttributionRequest",
     "VaultMutationResponse",
     "MemoryCompatibilitySourceRefResponse",
 ]

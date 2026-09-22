@@ -1,16 +1,17 @@
-"""Memory Vault mutation service (UMS-05C1 / UMS-05C3 / UMS-05C4).
+"""Memory Vault mutation service (UMS-05C1 / UMS-05C3 / UMS-05C4 / UMS-05C5).
 
 Implements account-owned canonical ``memory_records`` pin/unpin,
-hold/release-hold, and Project-scope mutation through an explicit
-``updated_at`` compare-and-swap token and one append-only
-``memory_provenance`` receipt per actual state change.
+hold/release-hold, Project-scope mutation, and stable Persona-attribution
+mutation through an explicit ``updated_at`` compare-and-swap token and one
+append-only ``memory_provenance`` receipt per actual state change.
 
-It writes only canonical ``pinned``, ``held``, and ``project_id`` state. It does
-not:
+It writes only canonical ``pinned``, ``held``, ``project_id``, and
+``memory_persona_links`` state. It does not:
 
 - expose an HTTP route;
-- mutate content, review, activation, Persona links, or ``extensions``;
+- mutate content, review, activation, or ``extensions``;
 - mutate compatibility projections or Personal Facts;
+- mutate Persona subject lifecycle, bindings, profiles, or prompts;
 - introduce a revision column or a mutation-receipt table;
 - grant retrieval or ambient eligibility;
 - implement decay, heat, or ranking.
@@ -18,7 +19,9 @@ not:
 Receipts are AUDIT / LINEAGE only. Pin authority remains
 ``memory_records.pinned`` and hold authority remains
 ``memory_records.held``; the provenance ``extensions`` payload is
-non-authoritative evidence.
+non-authoritative evidence. Persona attribution authority remains
+``memory_persona_links`` referencing the stable
+``persona_subjects.persona_subject_id``.
 """
 
 from __future__ import annotations
@@ -35,7 +38,14 @@ from guardian.core.project_ownership import (
     PROJECT_OWNERSHIP_AUTHORITY_CONFLICT,
     classify_project_ownership,
 )
-from guardian.db.models import MemoryProvenance, MemoryRecord, Project
+from guardian.db.models import (
+    MemoryPersonaLink,
+    MemoryProvenance,
+    MemoryRecord,
+    PersonaSubject,
+    Project,
+)
+from guardian.protocol_tokens import MemoryPersonaLinkKind, PersonaSubjectLifecycle
 from guardian.services.memory_vault_read import (
     MemoryVaultReadService,
     VaultIdentity,
@@ -50,6 +60,8 @@ ACTION_HOLD = "hold"
 ACTION_RELEASE_HOLD = "release_hold"
 ACTION_SET_PROJECT_SCOPE = "set_project_scope"
 ACTION_CLEAR_PROJECT_SCOPE = "clear_project_scope"
+ACTION_ADD_PERSONA_ATTRIBUTION = "add_persona_attribution"
+ACTION_REMOVE_PERSONA_ATTRIBUTION = "remove_persona_attribution"
 
 #: Stable receipt schema marker stored in provenance extensions.
 RECEIPT_SCHEMA = "memory-vault-mutation.v1"
@@ -63,6 +75,11 @@ MUTATION_SOURCE = "vault"
 #: mutate. Kept explicitly closed; there is no dynamic caller-selected field
 #: mutation.
 _GOVERNANCE_FIELDS = frozenset({"pinned", "held"})
+
+#: Closed vocabulary of canonical Persona-link token values. Mirrors
+#: ``MemoryPersonaLinkKind`` for internal normalization; the canonical enum
+#: is the protocol authority for accepted values.
+_PERSONA_LINK_KIND_VALUES = frozenset({kind.value for kind in MemoryPersonaLinkKind})
 
 
 class MemoryVaultMutationError(Exception):
@@ -89,6 +106,23 @@ class MemoryVaultProjectAuthorityConflict(MemoryVaultMutationError):
     """A canonical Project carries conflicting ADR-081 compatibility data."""
 
     code = PROJECT_OWNERSHIP_AUTHORITY_CONFLICT
+
+
+class MemoryVaultPersonaSubjectNotAvailable(MemoryVaultMutationError):
+    """The requested Persona subject is missing or belongs to another account.
+
+    Missing and foreign-account share this same posture; the service never
+    reveals subject existence to a non-owner.
+    """
+
+
+class MemoryVaultPersonaSubjectLifecycleConflict(MemoryVaultMutationError):
+    """A NEW Persona attribution was requested against a non-active subject.
+
+    Existing exact link persistence against a retired subject remains a
+    fresh-token no-op; this conflict is reserved for new-attribution
+    attempts against retired subjects.
+    """
 
 
 @dataclass(frozen=True)
@@ -284,6 +318,170 @@ class MemoryVaultMutationService:
             item=item,
         )
 
+    def set_persona_attribution(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        persona_subject_id: str,
+        link_kind: MemoryPersonaLinkKind | str,
+        present: bool,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        """Set or remove one exact stable-Persona attribution link.
+
+        ``persona_subjects.persona_subject_id`` is the attribution target;
+        ``MemoryPersonaLinkKind`` is the link-kind token authority. The
+        mutation is desired-state, not command-style: ``present=True`` asserts
+        the exact link must exist, ``present=False`` asserts it must not.
+
+        - PersonaProfile identity, display names, and prompts are not
+          attribution authority.
+        - Same-account subject is enforced by direct subject lookup;
+          missing and foreign-account subjects share one unavailable posture.
+        - For ``present=True`` with no existing exact link, the subject
+          lifecycle must equal ``active``; ``retired`` fails closed.
+        - For ``present=True`` with an existing exact link, the operation is
+          a fresh-token no-op (retirement does not silently prune links).
+        - For ``present=False``, an existing exact link may be removed
+          whether the subject is ``active`` or ``retired``.
+        - Subject lifecycle and bindings are never mutated; the
+          ``memory_records.updated_at`` CAS is advanced atomically with the
+          child-link insert/delete plus the canonical provenance receipt.
+        """
+        self._validate_memory_id(memory_id)
+        self._validate_cas_token(expected_updated_at)
+        self._validate_persona_subject_id(persona_subject_id)
+        canonical_link_kind = self._normalize_link_kind(link_kind)
+
+        row = self._load_authorized_memory(memory_id)
+        self._require_fresh_token(row, expected_updated_at)
+
+        previous_updated_at = row.updated_at
+
+        subject = self._load_available_persona_subject(persona_subject_id)
+        existing_link = self._find_existing_persona_link(
+            memory_id=memory_id,
+            persona_subject_id=persona_subject_id,
+            link_kind=canonical_link_kind,
+        )
+        current_present = existing_link is not None
+
+        if current_present == present:
+            item = self._readback(memory_id)
+            self._session.rollback()
+            return VaultMutationResult(
+                changed=False,
+                receipt_id=None,
+                previous_updated_at=previous_updated_at,
+                resulting_updated_at=previous_updated_at,
+                item=item,
+            )
+
+        if present and subject.lifecycle != PersonaSubjectLifecycle.ACTIVE.value:
+            self._session.rollback()
+            raise MemoryVaultPersonaSubjectLifecycleConflict(
+                "Persona subject is not active for new attribution."
+            )
+
+        try:
+            new_token = self._session.execute(
+                update(MemoryRecord)
+                .where(
+                    MemoryRecord.memory_id == memory_id,
+                    MemoryRecord.user_id == self._account,
+                    MemoryRecord.updated_at == expected_updated_at,
+                )
+                .values(updated_at=func.clock_timestamp())
+                .returning(MemoryRecord.updated_at)
+            ).scalar_one()
+        except NoResultFound as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationConflict(
+                "memory item changed; expected_updated_at is stale"
+            ) from exc
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError("memory mutation failed") from exc
+
+        if present:
+            link_id = str(uuid.uuid4())
+            self._session.add(
+                MemoryPersonaLink(
+                    link_id=link_id,
+                    memory_id=memory_id,
+                    user_id=self._account,
+                    persona_subject_id=persona_subject_id,
+                    persona_user_id=self._account,
+                    link_kind=canonical_link_kind,
+                )
+            )
+            previous_value: dict | None = None
+            new_value: dict | None = {
+                "link_id": link_id,
+                "persona_subject_id": persona_subject_id,
+                "link_kind": canonical_link_kind,
+            }
+            action = ACTION_ADD_PERSONA_ATTRIBUTION
+            assert existing_link is None
+        else:
+            assert existing_link is not None
+            self._session.delete(existing_link)
+            previous_value = {
+                "link_id": existing_link.link_id,
+                "persona_subject_id": existing_link.persona_subject_id,
+                "link_kind": existing_link.link_kind,
+            }
+            new_value = None
+            action = ACTION_REMOVE_PERSONA_ATTRIBUTION
+
+        receipt = self._build_receipt(
+            memory_id=memory_id,
+            action=action,
+            field_name="persona_attribution",
+            previous_value=previous_value,
+            new_value=new_value,
+            expected_updated_at=expected_updated_at,
+            resulting_updated_at=new_token,
+            reason=reason,
+            request_ref=request_ref,
+        )
+        self._session.add(receipt)
+
+        try:
+            self._session.flush()
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError(
+                "memory mutation transaction failed"
+            ) from exc
+
+        self._session.commit()
+
+        item = self._readback(memory_id)
+        resulting_present = any(
+            link.persona_subject_id == persona_subject_id
+            and link.link_kind == canonical_link_kind
+            for link in item.persona_links
+        )
+        if present != resulting_present:
+            raise MemoryVaultMutationError(
+                "canonical readback Persona-link mismatch after mutation"
+            )
+        if item.updated_at != new_token:
+            raise MemoryVaultMutationError(
+                "canonical readback timestamp mismatch after mutation"
+            )
+
+        return VaultMutationResult(
+            changed=True,
+            receipt_id=receipt.provenance_id,
+            previous_updated_at=previous_updated_at,
+            resulting_updated_at=new_token,
+            item=item,
+        )
+
     # -- Shared mutation spine --------------------------------------------
 
     def _set_boolean_governance_state(
@@ -422,8 +620,8 @@ class MemoryVaultMutationService:
         memory_id: str,
         action: str,
         field_name: str,
-        previous_value: bool | int | None,
-        new_value: bool | int | None,
+        previous_value: bool | int | dict | None,
+        new_value: bool | int | dict | None,
         expected_updated_at: datetime,
         resulting_updated_at: datetime,
         reason: str | None,
@@ -433,6 +631,11 @@ class MemoryVaultMutationService:
 
         The receipt carries audit evidence only; it never becomes authority.
         Full memory content / fact payload is intentionally not stored.
+
+        ``previous_value`` / ``new_value`` accept primitives (for
+        ``pinned``/``held``/``project_id``) or a structured dict
+        (``memory_persona_links`` link fields plus stable subject ID and
+        canonical link kind for Persona-attribution mutations).
         """
         normalized_request_ref = str(request_ref).strip() if request_ref else None
         return MemoryProvenance(
@@ -549,6 +752,68 @@ class MemoryVaultMutationService:
                 "project_id must be a positive integer or null"
             )
 
+    @staticmethod
+    def _validate_persona_subject_id(value: object) -> None:
+        if not value or not isinstance(value, str) or not value.strip():
+            raise MemoryVaultMutationError("persona_subject_id is required")
+
+    @staticmethod
+    def _normalize_link_kind(value: object) -> str:
+        """Normalize one canonical link-kind value to ``MemoryPersonaLinkKind``.
+
+        Accepts either the enum instance or its string ``value``; rejects
+        everything else. The canonical enum is the protocol authority and
+        is the only path that can supply a valid token.
+        """
+        if isinstance(value, MemoryPersonaLinkKind):
+            return value.value
+        if not isinstance(value, str) or not value.strip():
+            raise MemoryVaultMutationError("link_kind is required")
+        candidate = value.strip()
+        if candidate not in _PERSONA_LINK_KIND_VALUES:
+            raise MemoryVaultMutationError(
+                "link_kind must be a canonical MemoryPersonaLinkKind value"
+            )
+        return candidate
+
+    def _load_available_persona_subject(
+        self, persona_subject_id: str
+    ) -> PersonaSubject:
+        """Resolve one same-account canonical Persona subject.
+
+        Missing and foreign-account subjects share one unavailable posture;
+        the service does not differentiate them.
+        """
+        subject = self._session.execute(
+            select(PersonaSubject).where(
+                PersonaSubject.persona_subject_id == persona_subject_id,
+                PersonaSubject.user_id == self._account,
+            )
+        ).scalar_one_or_none()
+        if subject is None:
+            self._session.rollback()
+            raise MemoryVaultPersonaSubjectNotAvailable(
+                "Persona subject is not available"
+            )
+        return subject
+
+    def _find_existing_persona_link(
+        self,
+        *,
+        memory_id: str,
+        persona_subject_id: str,
+        link_kind: str,
+    ) -> MemoryPersonaLink | None:
+        return self._session.execute(
+            select(MemoryPersonaLink).where(
+                MemoryPersonaLink.memory_id == memory_id,
+                MemoryPersonaLink.user_id == self._account,
+                MemoryPersonaLink.persona_subject_id == persona_subject_id,
+                MemoryPersonaLink.persona_user_id == self._account,
+                MemoryPersonaLink.link_kind == link_kind,
+            )
+        ).scalar_one_or_none()
+
 
 __all__ = [
     "ACTION_PIN",
@@ -557,11 +822,15 @@ __all__ = [
     "ACTION_RELEASE_HOLD",
     "ACTION_SET_PROJECT_SCOPE",
     "ACTION_CLEAR_PROJECT_SCOPE",
+    "ACTION_ADD_PERSONA_ATTRIBUTION",
+    "ACTION_REMOVE_PERSONA_ATTRIBUTION",
     "MemoryVaultMutationConflict",
     "MemoryVaultMutationError",
     "MemoryVaultMutationNotAvailable",
     "MemoryVaultProjectNotAvailable",
     "MemoryVaultProjectAuthorityConflict",
+    "MemoryVaultPersonaSubjectNotAvailable",
+    "MemoryVaultPersonaSubjectLifecycleConflict",
     "MemoryVaultMutationService",
     "RECEIPT_SCHEMA",
     "VaultMutationResult",

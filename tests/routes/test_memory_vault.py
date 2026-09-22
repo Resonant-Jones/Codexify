@@ -28,12 +28,14 @@ from guardian.core.memory_compatibility import (
     MemoryCompatibilitySourceKind,
     MemoryCompatibilitySourceRef,
 )
-from guardian.protocol_tokens import MemorySemanticSpecies
+from guardian.protocol_tokens import MemoryPersonaLinkKind, MemorySemanticSpecies
 from guardian.routes import memory_vault
 from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
+    MemoryVaultPersonaSubjectLifecycleConflict,
+    MemoryVaultPersonaSubjectNotAvailable,
     MemoryVaultProjectAuthorityConflict,
     MemoryVaultProjectNotAvailable,
     VaultMutationResult,
@@ -173,6 +175,33 @@ class FakeVaultMutationService:
                 "memory_id": memory_id,
                 "expected_updated_at": expected_updated_at,
                 "project_id": project_id,
+                "reason": reason,
+                "request_ref": request_ref,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None, "fake mutation result not configured"
+        return self.result
+
+    def set_persona_attribution(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        persona_subject_id: str,
+        link_kind,
+        present: bool,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultMutationResult:
+        self.calls.append(
+            {
+                "memory_id": memory_id,
+                "expected_updated_at": expected_updated_at,
+                "persona_subject_id": persona_subject_id,
+                "link_kind": link_kind,
+                "present": present,
                 "reason": reason,
                 "request_ref": request_ref,
             }
@@ -1408,3 +1437,261 @@ def test_router_method_surface() -> None:
         if path.startswith("/api/memory-vault"):
             for forbidden in ("post", "put", "delete"):
                 assert forbidden not in operations, f"{path} exposes {forbidden}"
+
+
+# ---------------------------------------------------------------------------
+# Persona-attribution mutation API.
+# ---------------------------------------------------------------------------
+
+
+def _persona_attribution_url(memory_id: str) -> str:
+    return f"/api/memory-vault/items/canonical/{memory_id}/persona-attribution"
+
+
+def test_persona_attribution_add_and_remove_delegate_exactly(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+) -> None:
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-persona",
+        item=_canonical_item("mem-1", updated_at=T2),
+    )
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+            "reason": "link A",
+            "request_ref": "req-A",
+        },
+    )
+    assert response.status_code == 200
+    assert fake_mutation_service.calls == [
+        {
+            "memory_id": "mem-1",
+            "expected_updated_at": T1,
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH,
+            "present": True,
+            "reason": "link A",
+            "request_ref": "req-A",
+        }
+    ]
+
+    fake_mutation_service.calls.clear()
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-remove",
+        item=_canonical_item("mem-1", updated_at=T2),
+    )
+    response_remove = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": False,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response_remove.status_code == 200
+    assert fake_mutation_service.calls[0]["present"] is False
+    assert (
+        fake_mutation_service.calls[0]["link_kind"]
+        == MemoryPersonaLinkKind.ASSOCIATED_WITH
+    )
+
+
+def test_persona_attribution_noop_returns_changed_false(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+) -> None:
+    fake_mutation_service.result = _mutation_result(
+        changed=False,
+        receipt_id=None,
+        item=_canonical_item("mem-1", updated_at=T1),
+    )
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.CAPTURED_UNDER.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is False
+    assert body["receipt_id"] is None
+
+
+def test_persona_attribution_invalid_link_kind_is_422(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": "not_a_canonical_link_kind",
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == 422
+    assert fake_mutation_service.calls == []
+
+
+@pytest.mark.parametrize(
+    "missing_body",
+    [
+        {"expected_updated_at": T1.isoformat(), "present": True},
+        {
+            "persona_subject_id": "sub-A",
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+        {
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "expected_updated_at": T1.isoformat(),
+        },
+        {
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+        },
+    ],
+)
+def test_persona_attribution_missing_required_field_is_422(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+    missing_body: dict,
+) -> None:
+    response = client.patch(_persona_attribution_url("mem-1"), json=missing_body)
+    assert response.status_code == 422
+    assert fake_mutation_service.calls == []
+
+
+def test_persona_attribution_cas_validation_is_422(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    base = {
+        "persona_subject_id": "sub-A",
+        "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+        "present": True,
+    }
+    for variant in (
+        {**base},
+        {**base, "expected_updated_at": "not-a-date"},
+        {**base, "expected_updated_at": "2026-01-01T00:00:00"},
+    ):
+        assert (
+            client.patch(_persona_attribution_url("mem-1"), json=variant).status_code
+            == 422
+        )
+    assert fake_mutation_service.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "body"),
+    [
+        (
+            MemoryVaultMutationConflict("internal stale"),
+            409,
+            {"detail": "Memory changed since it was read"},
+        ),
+        (
+            MemoryVaultPersonaSubjectNotAvailable("missing"),
+            404,
+            {"detail": "Persona subject not available"},
+        ),
+        (
+            MemoryVaultPersonaSubjectLifecycleConflict("retired"),
+            409,
+            {"detail": "Persona subject is not active for new attribution"},
+        ),
+        (
+            MemoryVaultMutationNotAvailable("memory secret"),
+            404,
+            {"detail": "Memory not available"},
+        ),
+        (
+            MemoryVaultMutationError("sql secret"),
+            409,
+            {"detail": "Memory mutation unavailable"},
+        ),
+    ],
+)
+def test_persona_attribution_error_mapping(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+    error: Exception,
+    status: int,
+    body: dict,
+) -> None:
+    fake_mutation_service.error = error
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == status
+    assert response.json() == body
+    assert str(error) not in response.text
+
+
+def test_persona_attribution_requires_stable_account() -> None:
+    blank = RequestUserScope(user_id="legacy-a", account_id="", multi_user_enabled=True)
+    client = _build_client(api_key_override=True, scope=blank)
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_persona_attribution_rejects_attempted_authority_injection() -> None:
+    captured: dict[str, Any] = {}
+
+    def mutation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultMutationService:
+        captured["account_id"] = scope.account_id
+        fake = FakeVaultMutationService()
+        fake.result = _mutation_result(
+            changed=True,
+            receipt_id="r",
+            item=_canonical_item("mem-1", updated_at=T2),
+        )
+        return fake
+
+    scope = RequestUserScope(user_id="legacy-a", account_id=ACCOUNT_A)
+    client = _build_client(scope=scope, mutation_factory=mutation_factory)
+    response = client.patch(
+        _persona_attribution_url("mem-1"),
+        params={
+            "user_id": ACCOUNT_B,
+            "account_id": ACCOUNT_B,
+            "persona_profile_id": "pro-1",
+        },
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    assert captured["account_id"] == ACCOUNT_A
