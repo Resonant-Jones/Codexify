@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2370b7ff' d='M16 3 27 9.5 16 16 5 9.5 16 3Zm-11 13 11 6.5L27 16l-4-2.35-7 4.15-7-4.15L5 16Zm0 6.5L16 29l11-6.5-4-2.35-7 4.15-7-4.15-4 2.35Z'/%3E%3C/svg%3E" />
+  <title>Codexify Persona Studio V2 — Interaction Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070b12;
+      --bg-deep: #05080d;
+      --panel: rgba(15, 23, 36, 0.86);
+      --panel-strong: rgba(18, 28, 43, 0.96);
+      --panel-soft: rgba(24, 37, 55, 0.64);
+      --field: rgba(7, 13, 23, 0.72);
+      --line: rgba(168, 198, 232, 0.13);
+      --line-strong: rgba(168, 198, 232, 0.24);
+      --text: #eef5ff;
+      --text-soft: #b9c7d9;
+      --muted: #8091a8;
+      --accent: #70b7ff;
+      --accent-strong: #358dff;
+      --accent-soft: rgba(83, 155, 255, 0.15);
+      --violet: #9b86ff;
+      --cyan: #67e8e3;
+      --amber: #ffbd4a;
+      --green: #65d6a3;
+      --red: #ff858f;
+      --radius-xl: 18px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 65% -20%, rgba(52, 112, 184, 0.22), transparent 38%),
+        radial-gradient(circle at 10% 105%, rgba(93, 71, 187, 0.12), transparent 35%),
+        linear-gradient(150deg, var(--bg-deep), var(--bg) 55%, #08111c);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button, select, input[type="checkbox"], input[type="range"] { cursor: pointer; }
+    ::selection { background: rgba(81, 153, 255, 0.34); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+    .app {
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr) 68px;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 12, 20, 0.72);
+      backdrop-filter: blur(18px) saturate(135%);
+      position: relative;
+      z-index: 20;
+    }
+
+    .brand-lockup, .header-actions, .profile-trigger, .mode-switch, .view-switch, .save-state, .footer-actions, .inline, .field-label-row { display: flex; align-items: center; }
+    .brand-lockup { gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      color: #8bc9ff;
+      filter: drop-shadow(0 0 14px rgba(68, 145, 255, .32));
+    }
+    .brand-mark svg { width: 100%; height: 100%; }
+    .brand-name { font-weight: 680; letter-spacing: -0.02em; font-size: 15px; }
+    .header-divider { width: 1px; height: 22px; background: var(--line-strong); }
+    .module-title { color: var(--text-soft); font-weight: 620; white-space: nowrap; }
+    .prototype-label { color: var(--muted); font-size: 11px; border: 1px solid var(--line); padding: 3px 7px; border-radius: 999px; }
+    .header-actions { gap: 10px; position: relative; }
+
+    .profile-trigger {
+      min-width: 178px;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 8px 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 11px;
+      background: rgba(15, 24, 38, 0.75);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+    }
+    .profile-trigger:hover { border-color: rgba(112,183,255,.48); background: rgba(24,37,56,.82); }
+    .profile-avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #6ec6ff, #6b55d9 58%, #281f63); box-shadow: 0 0 18px rgba(108,105,255,.28); }
+    .profile-name { flex: 1; text-align: left; }
+    .chevron { width: 16px; height: 16px; color: var(--muted); transition: transform .18s ease; }
+    .profile-trigger[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+    .profile-menu {
+      position: absolute;
+      top: 46px;
+      right: 0;
+      width: 244px;
+      padding: 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: 13px;
+      background: rgba(12, 19, 31, .98);
+      box-shadow: 0 20px 60px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.04);
+      backdrop-filter: blur(22px);
+      transform-origin: top right;
+      animation: menu-in .14s ease-out;
+    }
+    @keyframes menu-in { from { opacity: 0; transform: translateY(-5px) scale(.98); } }
+    .profile-menu[hidden] { display: none; }
+    .menu-label { padding: 7px 10px 6px; font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
+    .menu-separator { height: 1px; background: var(--line); margin: 6px; }
+    .menu-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      color: var(--text-soft);
+    }
+    .menu-item:hover { background: var(--accent-soft); color: var(--text); }
+    .menu-item svg { width: 16px; height: 16px; color: var(--muted); }
+    .menu-item .check { margin-left: auto; color: var(--accent); }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(330px, 0.76fr) minmax(570px, 1.38fr);
+      gap: 14px;
+      padding: 14px 16px;
+    }
+
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: linear-gradient(145deg, rgba(17, 27, 42, .9), rgba(10, 17, 28, .82));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .assistant-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .pane-header {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(17, 27, 43, .5);
+    }
+    .pane-heading { min-width: 0; }
+    .pane-heading h1, .pane-heading h2 { margin: 0; letter-spacing: -.025em; }
+    .pane-heading h1 { font-size: 18px; font-weight: 680; }
+    .pane-heading h2 { font-size: 17px; font-weight: 680; }
+    .pane-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .mode-switch, .view-switch {
+      padding: 3px;
+      gap: 3px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(4, 9, 16, .48);
+    }
+    .mode-switch button, .view-switch button {
+      border: 0;
+      border-radius: 7px;
+      padding: 8px 14px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 620;
+    }
+    .mode-switch button[aria-selected="true"], .view-switch button[aria-selected="true"] {
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(71, 137, 229, .30), rgba(50, 104, 181, .2));
+      box-shadow: inset 0 0 0 1px rgba(112, 183, 255, .44), 0 8px 22px rgba(0, 67, 155, .14);
+    }
+
+    .conversation { min-height: 0; overflow-y: auto; padding: 18px 18px 26px; scrollbar-width: thin; scrollbar-color: rgba(129,157,191,.22) transparent; }
+    .conversation::-webkit-scrollbar, .configuration-scroll::-webkit-scrollbar { width: 8px; }
+    .conversation::-webkit-scrollbar-thumb, .configuration-scroll::-webkit-scrollbar-thumb { background: rgba(129,157,191,.2); border-radius: 8px; }
+    .message { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; margin: 0 0 16px; align-items: start; }
+    .message.user { grid-template-columns: minmax(0, 1fr) 28px; }
+    .message.user .message-card { grid-column: 1; grid-row: 1; background: rgba(25, 40, 59, .72); border-color: rgba(136,172,214,.16); }
+    .message.user .message-avatar { grid-column: 2; background: linear-gradient(135deg, #3a4b63, #233044); color: #dbe9fa; }
+    .message-avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #342c7a, #1d2754); color: #8dd8ff; border: 1px solid rgba(255,255,255,.06); }
+    .message-avatar svg { width: 15px; height: 15px; }
+    .message-card { max-width: 92%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 4px 13px 13px 13px; background: rgba(22, 34, 51, .82); color: var(--text-soft); line-height: 1.55; box-shadow: inset 0 1px 0 rgba(255,255,255,.025); }
+    .message.user .message-card { justify-self: end; border-radius: 13px 4px 13px 13px; }
+    .message-card p { margin: 0; white-space: pre-wrap; }
+    .message-card ul { margin: 8px 0 0; padding-left: 18px; }
+    .message-card li + li { margin-top: 4px; }
+    .message-meta { display: block; margin-top: 8px; color: #6f829b; font-size: 10px; }
+    .change-summary { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); color: #a8bcda; font-size: 11px; }
+    .empty-test { height: 100%; min-height: 240px; display: grid; place-items: center; text-align: center; color: var(--muted); }
+    .empty-test svg { width: 30px; height: 30px; color: var(--violet); margin-bottom: 12px; }
+    .empty-test strong { display: block; color: var(--text-soft); font-size: 14px; margin-bottom: 7px; }
+    .empty-test p { max-width: 290px; margin: 0; font-size: 12px; line-height: 1.55; }
+
+    .composer-wrap { border-top: 1px solid var(--line); padding: 12px; background: rgba(8, 13, 22, .68); }
+    .composer-context { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 3px 9px; color: var(--muted); font-size: 10px; }
+    .ephemeral-flag { display: inline-flex; align-items: center; gap: 6px; color: #a99dff; }
+    .ephemeral-flag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--violet); box-shadow: 0 0 9px var(--violet); }
+    .composer { position: relative; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--field); transition: border-color .18s, box-shadow .18s; }
+    .composer:focus-within { border-color: rgba(112,183,255,.56); box-shadow: 0 0 0 3px rgba(62,141,255,.08); }
+    .composer textarea { width: 100%; min-height: 76px; max-height: 145px; resize: none; padding: 12px 46px 12px 12px; border: 0; outline: 0; background: transparent; color: var(--text); line-height: 1.5; }
+    .composer textarea::placeholder { color: #677991; }
+    .send-button { position: absolute; right: 8px; bottom: 8px; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(120,171,232,.22); border-radius: 9px; background: rgba(60, 104, 160, .35); color: #dcecff; }
+    .send-button:hover { background: rgba(58,128,219,.5); border-color: rgba(112,183,255,.48); }
+    .send-button svg { width: 16px; height: 16px; }
+    .example-action { border: 0; padding: 0; background: transparent; color: #8dbfff; font-size: 10px; }
+    .example-action:hover { color: #b8d7ff; text-decoration: underline; }
+
+    .configuration-pane { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .configuration-header { padding: 13px 16px; min-height: 76px; }
+    .configuration-header .pane-heading p { max-width: 460px; }
+    .configuration-scroll { min-height: 0; overflow-y: auto; padding: 12px; scrollbar-width: thin; scrollbar-color: rgba(129,157,191,.22) transparent; }
+    .view { min-height: 100%; }
+
+    .section-list { display: grid; gap: 8px; }
+    .config-section { border: 1px solid var(--line); border-radius: 13px; background: rgba(16, 26, 41, .66); overflow: hidden; transition: border-color .18s, background .18s; }
+    .config-section:hover { border-color: rgba(165,196,231,.2); }
+    .section-toggle { width: 100%; min-height: 62px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 20px; align-items: center; gap: 10px; padding: 10px 14px; border: 0; text-align: left; background: transparent; }
+    .section-toggle:hover { background: rgba(255,255,255,.015); }
+    .section-icon { width: 30px; height: 30px; display: grid; place-items: center; color: #93c9ff; }
+    .section-icon svg { width: 20px; height: 20px; }
+    .section-copy strong { display: block; font-size: 13px; font-weight: 650; }
+    .section-copy span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .section-toggle .chevron { justify-self: end; }
+    .section-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+    .section-body { padding: 3px 14px 16px 58px; }
+    .section-body[hidden] { display: none; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .field { min-width: 0; position: relative; padding: 2px; border-radius: 10px; transition: background .25s, box-shadow .25s; }
+    .field.wide { grid-column: 1 / -1; }
+    .field-label-row { justify-content: space-between; gap: 8px; margin: 0 1px 6px; }
+    .field label, .field-title { font-size: 11px; color: var(--text-soft); font-weight: 610; }
+    .field-help { color: var(--muted); font-size: 10px; font-weight: 450; }
+    .field input[type="text"], .field input[type="number"], .field textarea, .field select, .manifest-toolbar select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--field);
+      color: var(--text);
+      padding: 9px 10px;
+      outline: none;
+      transition: border-color .16s, box-shadow .16s;
+    }
+    .field textarea { min-height: 92px; resize: vertical; line-height: 1.5; }
+    .field input:focus, .field textarea:focus, .field select:focus { border-color: rgba(112,183,255,.54); box-shadow: 0 0 0 3px rgba(60,140,255,.07); }
+    .range-row { display: grid; grid-template-columns: minmax(0,1fr) 44px; gap: 10px; align-items: center; min-height: 37px; }
+    input[type="range"] { width: 100%; accent-color: var(--accent-strong); }
+    .range-value { color: #d5e8ff; font-family: var(--mono); font-size: 11px; text-align: right; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; min-height: 40px; gap: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(7,13,23,.42); }
+    .toggle-copy strong { display: block; color: var(--text-soft); font-size: 11px; }
+    .toggle-copy span { display: block; color: var(--muted); font-size: 10px; margin-top: 3px; }
+    .switch { position: relative; width: 34px; height: 19px; flex: 0 0 auto; }
+    .switch input { position: absolute; opacity: 0; pointer-events: none; }
+    .switch-track { position: absolute; inset: 0; border-radius: 99px; background: #28384c; border: 1px solid rgba(183,209,239,.14); transition: .18s ease; }
+    .switch-track::after { content: ""; position: absolute; width: 13px; height: 13px; left: 2px; top: 2px; border-radius: 50%; background: #9eb0c6; box-shadow: 0 1px 4px rgba(0,0,0,.34); transition: .18s ease; }
+    .switch input:checked + .switch-track { background: var(--accent-strong); }
+    .switch input:checked + .switch-track::after { transform: translateX(15px); background: white; }
+    .capability-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+    .changed-field { background: linear-gradient(135deg, rgba(74,165,255,.14), rgba(137,95,255,.12)); box-shadow: 0 0 0 1px rgba(105,177,255,.52), 0 0 24px rgba(87,135,255,.12); animation: changed-pulse .9s ease-out; }
+    @keyframes changed-pulse { 0% { box-shadow: 0 0 0 5px rgba(101,181,255,.22), 0 0 32px rgba(103,116,255,.2); } }
+    .changed-badge { color: #bdb3ff; font-size: 9px; white-space: nowrap; }
+    .changed-badge::before { content: "✦"; margin-right: 4px; }
+
+    .binding-boundary { margin-bottom: 13px; padding: 11px 12px; border: 1px solid rgba(103,232,227,.16); border-radius: 10px; background: rgba(35,112,119,.07); color: #9fbac2; font-size: 11px; line-height: 1.55; }
+    .binding-boundary strong { color: #a7e8e4; }
+    .binding-row { display: grid; grid-template-columns: minmax(145px,.65fr) minmax(0,1.35fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .binding-row:last-child { border-bottom: 0; }
+    .binding-key { color: var(--text-soft); font-size: 11px; }
+    .binding-value { color: var(--muted); font-family: var(--mono); font-size: 10px; overflow-wrap: anywhere; }
+    .binding-state { color: var(--cyan); font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+
+    .manifest-layout { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 12px; }
+    .manifest-editor { min-height: 520px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: rgba(5, 10, 18, .7); }
+    .manifest-toolbar { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border-bottom: 1px solid var(--line); background: rgba(18,29,45,.68); }
+    .manifest-title { display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 11px; }
+    .manifest-title svg { width: 16px; height: 16px; color: var(--violet); }
+    .portable-tag { color: #b6aaff; border: 1px solid rgba(155,134,255,.24); border-radius: 999px; padding: 3px 7px; font-size: 9px; }
+    .manifest-editor textarea { width: 100%; min-height: 0; resize: none; border: 0; outline: 0; padding: 15px 17px; background: transparent; color: #c4d6ec; font: 11px/1.62 var(--mono); tab-size: 2; }
+    .manifest-status { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    .manifest-status .ok { color: var(--green); }
+    .manifest-status .error { color: var(--red); }
+    .small-button { border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(27,43,64,.7); padding: 7px 10px; color: var(--text-soft); font-size: 10px; }
+    .small-button:hover { border-color: rgba(112,183,255,.44); color: var(--text); }
+    .manifest-notes { display: grid; align-content: start; gap: 10px; }
+    .note-card { border: 1px solid var(--line); border-radius: 12px; background: rgba(17,28,44,.62); padding: 13px; }
+    .note-card h3 { margin: 0 0 7px; font-size: 11px; }
+    .note-card p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .note-card code { color: #a7e8e4; font-family: var(--mono); }
+    .boundary-list { margin: 9px 0 0; padding: 0; list-style: none; color: #91a3b8; font-size: 10px; }
+    .boundary-list li { padding: 5px 0; border-top: 1px solid var(--line); }
+
+    .effective-shell { min-height: 100%; border: 1px solid var(--line); border-radius: 13px; background: rgba(12,20,32,.58); overflow: hidden; }
+    .effective-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 16px; border-bottom: 1px solid var(--line); }
+    .effective-intro h3 { margin: 0; font-size: 13px; }
+    .effective-intro p { margin: 5px 0 0; max-width: 610px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .simulation-tag { flex: 0 0 auto; border: 1px solid rgba(255,189,74,.22); color: var(--amber); border-radius: 999px; padding: 5px 8px; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+    .effective-table { width: 100%; border-collapse: collapse; }
+    .effective-table th, .effective-table td { padding: 13px 16px; border-bottom: 1px solid var(--line); text-align: left; font-size: 11px; }
+    .effective-table th { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .1em; background: rgba(17,28,44,.36); }
+    .effective-table td:first-child { color: var(--text-soft); font-weight: 610; }
+    .status-token { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; }
+    .status-token::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+    .on { color: var(--green); }
+    .off { color: #8293aa; }
+    .denied { color: var(--red); }
+    .requested { color: #9ecbff; }
+    .available { color: var(--cyan); }
+    .effective-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); margin-top: 10px; border-top: 1px solid var(--line); }
+    .effective-foot > div { padding: 14px; background: rgba(12,20,32,.92); }
+    .effective-foot strong { display: block; font-size: 10px; margin-bottom: 5px; }
+    .effective-foot span { color: var(--muted); font-size: 9px; line-height: 1.45; }
+
+    .save-bar { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 10px 18px; border-top: 1px solid var(--line); background: rgba(8, 14, 23, .94); backdrop-filter: blur(18px); position: relative; z-index: 15; }
+    .save-state { gap: 11px; min-width: 0; }
+    .state-light { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 13px rgba(255,189,74,.7); }
+    .save-state.clean .state-light { background: var(--green); box-shadow: 0 0 12px rgba(101,214,163,.5); }
+    .save-copy strong { display: block; font-size: 12px; font-weight: 620; color: #ffd27b; }
+    .save-state.clean .save-copy strong { color: #a8e8cb; }
+    .save-copy span { display: block; color: var(--muted); font-size: 9px; margin-top: 3px; }
+    .footer-actions { gap: 9px; }
+    .button { min-height: 38px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 8px 14px; background: rgba(18,29,45,.7); color: var(--text-soft); font-weight: 620; font-size: 11px; }
+    .button:hover:not(:disabled) { border-color: rgba(119,177,245,.5); color: var(--text); background: rgba(27,44,66,.82); }
+    .button.primary { min-width: 114px; border-color: rgba(86,157,255,.6); background: linear-gradient(180deg, #3f94ff, #276fd6); color: white; box-shadow: 0 10px 28px rgba(22,101,218,.22), inset 0 1px 0 rgba(255,255,255,.2); }
+    .button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #55a2ff, #2f7be8); }
+    .button:disabled { cursor: not-allowed; opacity: .42; }
+
+    .toast-stack { position: fixed; right: 18px; bottom: 82px; z-index: 50; display: grid; gap: 8px; pointer-events: none; }
+    .toast { width: min(340px, calc(100vw - 36px)); padding: 11px 13px; border: 1px solid var(--line-strong); border-radius: 11px; background: rgba(18,28,43,.96); color: var(--text-soft); box-shadow: 0 16px 50px rgba(0,0,0,.4); font-size: 11px; animation: toast-in .22s ease-out; }
+    .toast strong { color: var(--text); }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+    @media (max-width: 1080px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100dvh; grid-template-rows: 58px auto 68px; }
+      .workspace { grid-template-columns: 1fr; min-height: 1140px; }
+      .assistant-pane { min-height: 540px; }
+      .configuration-pane { min-height: 660px; }
+      .save-bar { position: sticky; bottom: 0; }
+    }
+    @media (max-width: 700px) {
+      .app-header { padding: 0 12px; }
+      .brand-name, .prototype-label, .header-divider, .module-title { display: none; }
+      .profile-trigger { min-width: 150px; }
+      .workspace { padding: 9px; gap: 9px; min-height: 1260px; }
+      .pane-header { align-items: flex-start; flex-direction: column; }
+      .mode-switch, .view-switch { width: 100%; }
+      .mode-switch button, .view-switch button { flex: 1; }
+      .form-grid, .form-grid.three, .capability-grid { grid-template-columns: 1fr; }
+      .manifest-layout { grid-template-columns: 1fr; }
+      .manifest-editor { min-height: 500px; }
+      .section-body { padding-left: 14px; }
+      .binding-row { grid-template-columns: 1fr; gap: 4px; }
+      .effective-table th, .effective-table td { padding: 10px 8px; }
+      .effective-foot { grid-template-columns: 1fr; }
+      .save-bar { padding: 9px 10px; }
+      .save-copy span { display: none; }
+      .button { padding: 8px 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M16 3 27 9.5 16 16 5 9.5 16 3Z" fill="currentColor" opacity=".95"/><path d="m5 16 11 6.5L27 16l-4-2.35L16 17.8 9 13.65 5 16Z" fill="#6b60e8"/><path d="m5 22.5 11 6.5 11-6.5-4-2.35-7 4.15-7-4.15-4 2.35Z" fill="#385fdc"/></svg>
+        </div>
+        <span class="brand-name">Codexify</span>
+        <span class="header-divider" aria-hidden="true"></span>
+        <span class="module-title">Persona Studio</span>
+        <span class="prototype-label">V2 prototype</span>
+      </div>
+      <div class="header-actions">
+        <button class="profile-trigger" id="profileTrigger" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span class="profile-avatar" aria-hidden="true"></span>
+          <span class="profile-name" id="profileName">Meridian</span>
+          <svg class="chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="profile-menu" id="profileMenu" role="menu" hidden>
+          <div class="menu-label">Presets</div>
+          <button class="menu-item" type="button" role="menuitem" data-profile="Meridian">Meridian <span class="check">✓</span></button>
+          <button class="menu-item" type="button" role="menuitem" data-profile="Atlas">Atlas</button>
+          <button class="menu-item" type="button" role="menuitem" data-profile="Scribe">Scribe</button>
+          <div class="menu-separator"></div>
+          <button class="menu-item" type="button" role="menuitem" data-profile-action="new"><span data-icon="plus"></span>New Persona</button>
+          <button class="menu-item" type="button" role="menuitem" data-profile-action="duplicate"><span data-icon="copy"></span>Duplicate</button>
+          <button class="menu-item" type="button" role="menuitem" data-profile-action="import"><span data-icon="upload"></span>Import</button>
+          <button class="menu-item" type="button" role="menuitem" data-profile-action="manage"><span data-icon="sliders"></span>Manage Presets</button>
+        </div>
+        <input hidden id="importInput" type="file" accept="application/json,.json" />
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="pane assistant-pane" aria-labelledby="assistantTitle">
+        <header class="pane-header">
+          <div class="pane-heading">
+            <h1 id="assistantTitle">Studio Assistant</h1>
+            <p id="assistantSubtitle">Describe the persona you want to forge.</p>
+          </div>
+          <div class="mode-switch" role="tablist" aria-label="Assistant mode">
+            <button type="button" role="tab" aria-selected="true" data-mode="build">Build</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="test">Test</button>
+          </div>
+        </header>
+        <div class="conversation" id="conversation" aria-live="polite"></div>
+        <div class="composer-wrap">
+          <div class="composer-context">
+            <span id="composerHint">Edits the draft only · never saves automatically</span>
+            <button class="example-action" id="exampleAction" type="button">Use example request</button>
+          </div>
+          <form class="composer" id="composerForm">
+            <label class="sr-only" for="composerInput">Message Studio Assistant</label>
+            <textarea id="composerInput" placeholder="Describe what you want to change…"></textarea>
+            <button class="send-button" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" fill="none"><path d="m4 3 13 7-13 7 2-7-2-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 10h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          </form>
+        </div>
+      </section>
+
+      <section class="pane configuration-pane" aria-labelledby="configurationTitle">
+        <header class="pane-header configuration-header">
+          <div class="pane-heading">
+            <h2 id="configurationTitle">Configuration</h2>
+            <p>Inspect and adjust the current draft. Portable intent and environment bindings remain distinct.</p>
+          </div>
+          <div class="view-switch" role="tablist" aria-label="Configuration view">
+            <button type="button" role="tab" aria-selected="true" data-view="form">Form</button>
+            <button type="button" role="tab" aria-selected="false" data-view="manifest">Manifest</button>
+            <button type="button" role="tab" aria-selected="false" data-view="effective">Effective</button>
+          </div>
+        </header>
+        <div class="configuration-scroll" id="configurationViewport"></div>
+      </section>
+    </main>
+
+    <footer class="save-bar">
+      <div class="save-state" id="saveState">
+        <span class="state-light" aria-hidden="true"></span>
+        <div class="save-copy">
+          <strong id="saveStateTitle">Draft differs from rev 7</strong>
+          <span id="saveStateDetail">Assistant and manual edits remain local until you save.</span>
+        </div>
+      </div>
+      <div class="footer-actions">
+        <button class="button" id="revertButton" type="button">Revert changes</button>
+        <button class="button primary" id="saveButton" type="button">Save rev 8</button>
+      </div>
+    </footer>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+      const clone = value => JSON.parse(JSON.stringify(value));
+      const esc = value => String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+      const now = () => new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" }).format(new Date());
+
+      const icons = {
+        spark: '<svg viewBox="0 0 20 20" fill="none"><path d="m10 2 1.2 4.1L15 8l-3.8 1.9L10 14l-1.2-4.1L5 8l3.8-1.9L10 2Z" fill="currentColor"/><path d="m16 2 .5 1.7L18 4.5l-1.5.8L16 7l-.5-1.7L14 4.5l1.5-.8L16 2Z" fill="currentColor" opacity=".65"/></svg>',
+        user: '<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 17c.4-3.5 2.1-5.2 5.5-5.2s5.1 1.7 5.5 5.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        identity: '<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 17c.4-3.4 2.2-5.1 5.5-5.1s5.1 1.7 5.5 5.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        prompt: '<svg viewBox="0 0 20 20" fill="none"><path d="M5 2.8h7l3 3V17H5V2.8Z" stroke="currentColor" stroke-width="1.4"/><path d="M12 3v3h3M7.5 9h5M7.5 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+        model: '<svg viewBox="0 0 20 20" fill="none"><rect x="5" y="5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M8 8h4v4H8V8ZM10 2.5V5M10 15v2.5M2.5 10H5M15 10h2.5M4.7 4.7 6 6M14 14l1.3 1.3M15.3 4.7 14 6M6 14l-1.3 1.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        voice: '<svg viewBox="0 0 20 20" fill="none"><path d="M3 9v2M6 6v8M9 3v14M12 6v8M15 8v4M18 9v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        capabilities: '<svg viewBox="0 0 20 20" fill="none"><path d="m10 2 6.5 3.7v8.5L10 18l-6.5-3.8V5.7L10 2Z" stroke="currentColor" stroke-width="1.3"/><path d="m3.8 5.9 6.2 3.6 6.2-3.6M10 9.5V18M6.8 4l6.4 3.7v7.4" stroke="currentColor" stroke-width="1.1"/></svg>',
+        retrieval: '<svg viewBox="0 0 20 20" fill="none"><ellipse cx="10" cy="5" rx="6" ry="2.8" stroke="currentColor" stroke-width="1.4"/><path d="M4 5v5c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8V5M4 10v5c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5" stroke="currentColor" stroke-width="1.4"/></svg>',
+        binding: '<svg viewBox="0 0 20 20" fill="none"><path d="m8 12 4-4M6.7 14.5l-1 1a3 3 0 0 1-4.2-4.2l3-3a3 3 0 0 1 4.2 0M13.3 5.5l1-1a3 3 0 0 1 4.2 4.2l-3 3a3 3 0 0 1-4.2 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        code: '<svg viewBox="0 0 20 20" fill="none"><path d="m7 5-4 5 4 5M13 5l4 5-4 5M11.5 3l-3 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        plus: '<svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        copy: '<svg viewBox="0 0 20 20" fill="none"><rect x="6" y="6" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M13 6V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1" stroke="currentColor" stroke-width="1.4"/></svg>',
+        upload: '<svg viewBox="0 0 20 20" fill="none"><path d="M10 13V3m0 0L6 7m4-4 4 4M4 12v4h12v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        sliders: '<svg viewBox="0 0 20 20" fill="none"><path d="M4 4v12M10 4v12M16 4v12M2 7h4M8 13h4M14 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="4" cy="7" r="1.5" fill="currentColor"/><circle cx="10" cy="13" r="1.5" fill="currentColor"/><circle cx="16" cy="9" r="1.5" fill="currentColor"/></svg>',
+        flask: '<svg viewBox="0 0 20 20" fill="none"><path d="M7 2.5h6M8 3v5l-4.6 7.2A1.5 1.5 0 0 0 4.7 17.5h10.6a1.5 1.5 0 0 0 1.3-2.3L12 8V3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M6 13h8" stroke="currentColor" stroke-width="1.4"/></svg>'
+      };
+
+      const initialSaved = {
+        apiVersion: "codexify.persona/v1",
+        profileIdentity: "meridian",
+        identity: {
+          name: "Meridian",
+          description: "A measured strategic partner for complex work."
+        },
+        prompt: {
+          systemPrompt: "You are Meridian, a calm and exacting collaborator. Make assumptions visible and preserve human decision authority.",
+          styleNotes: "Measured, clear, and practical.",
+          directives: "Separate evidence from inference. Prefer the smallest useful next step."
+        },
+        model: {
+          provider: "openai",
+          model: "gpt-5",
+          temperature: 0.55,
+          topK: 40,
+          topP: 0.9,
+          maxTokens: 4096
+        },
+        voice: {
+          enabled: true,
+          provider: "local",
+          voicePreset: "calm-neutral",
+          speed: 0.96,
+          wakeWord: "Meridian",
+          interruptible: true
+        },
+        capabilities: {
+          permissions: { web: false, email: true, drive: true, calendar: false, cli: false, filesystem: false },
+          skills: ["research", "synthesis"]
+        },
+        retrieval: {
+          enabled: true,
+          mode: "hybrid",
+          topK: 8,
+          rerank: true,
+          sources: ["project-notes", "architecture-kb"]
+        }
+      };
+
+      const state = {
+        draft: clone(initialSaved),
+        saved: clone(initialSaved),
+        revision: 7,
+        dirty: true,
+        assistantMode: "build",
+        activeView: "form",
+        openSections: new Set(["identity", "model", "capabilities"]),
+        changedFields: new Set(),
+        buildMessages: [
+          { role: "assistant", text: "Tell me how you want Meridian to think, speak, and work. I’ll translate your intent into draft configuration changes for you to review.", time: now() }
+        ],
+        testMessages: [],
+        bindings: {
+          invocationAlias: "@meridian",
+          projectPin: "Project Northstar",
+          accountOwner: "Current account",
+          connections: "Drive / Research Library",
+          runtimeAuthorization: "Policy evaluated at invocation"
+        },
+        environment: {
+          web: { availability: "Available", authorized: true },
+          email: { availability: "Unavailable", authorized: false },
+          drive: { availability: "Authorized", authorized: true },
+          calendar: { availability: "Available", authorized: false },
+          cli: { availability: "Unavailable", authorized: false },
+          filesystem: { availability: "Local only", authorized: true }
+        },
+        manifestStatus: { type: "ok", text: "JSON is synchronized with the Form view." }
+      };
+      state.draft.identity.description = "A measured, systems-minded partner for complex work.";
+
+      const sectionMeta = [
+        ["identity", "Identity", "Name, description, and authored presentation", "identity"],
+        ["prompt", "Behavior / Prompt", "System prompt, working style, and directives", "prompt"],
+        ["model", "Model", "Requested provider and generation parameters", "model"],
+        ["voice", "Voice", "Requested voice and speaking behavior", "voice"],
+        ["capabilities", "Capabilities", "Requested ceiling; never an authority grant", "capabilities"],
+        ["retrieval", "Retrieval", "Requested policy and non-secret source references", "retrieval"],
+        ["bindings", "Activation & Bindings", "Environment-specific mappings outside the manifest", "binding"]
+      ];
+
+      function icon(name) { return icons[name] || icons.spark; }
+      function setPath(object, path, value) {
+        const parts = path.split(".");
+        const last = parts.pop();
+        const target = parts.reduce((current, part) => current[part], object);
+        target[last] = value;
+      }
+      function getPath(object, path) { return path.split(".").reduce((current, part) => current?.[part], object); }
+      function isDirty() { return JSON.stringify(state.draft) !== JSON.stringify(state.saved) || state.dirty; }
+      function fieldClass(path, extra = "") { return `field ${extra} ${state.changedFields.has(path) ? "changed-field" : ""}`.trim(); }
+      function changedBadge(path) { return state.changedFields.has(path) ? '<span class="changed-badge">Assistant changed</span>' : ""; }
+      function options(values, current) { return values.map(([value, label]) => `<option value="${esc(value)}" ${value === current ? "selected" : ""}>${esc(label)}</option>`).join(""); }
+      function toggleField(path, title, description) {
+        const checked = getPath(state.draft, path);
+        return `<div class="${fieldClass(path)}" data-field="${path}"><div class="toggle-row"><div class="toggle-copy"><strong>${esc(title)}</strong><span>${esc(description)}</span></div><label class="switch"><input type="checkbox" data-path="${path}" ${checked ? "checked" : ""}><span class="switch-track"></span></label></div>${changedBadge(path)}</div>`;
+      }
+
+      function renderConversation() {
+        const container = $("#conversation");
+        const messages = state.assistantMode === "build" ? state.buildMessages : state.testMessages;
+        if (state.assistantMode === "test" && messages.length === 0) {
+          container.innerHTML = `<div class="empty-test">${icon("flask")}<div><strong>Ephemeral persona preview</strong><p>Ask Meridian something. Responses are canned from the current draft and are not saved as chat history.</p></div></div>`;
+          return;
+        }
+        container.innerHTML = messages.map(message => `
+          <div class="message ${message.role === "user" ? "user" : "assistant"}">
+            <div class="message-avatar" aria-hidden="true">${message.role === "user" ? icon("user") : icon("spark")}</div>
+            <div class="message-card"><p>${esc(message.text)}</p>${message.changes?.length ? `<ul>${message.changes.map(change => `<li>${esc(change)}</li>`).join("")}</ul><div class="change-summary">${message.changes.length} draft field${message.changes.length === 1 ? "" : "s"} updated · not saved</div>` : ""}<span class="message-meta">${esc(message.time)}</span></div>
+          </div>`).join("");
+        requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+      }
+
+      function renderIdentity() {
+        return `<div class="form-grid">
+          <div class="${fieldClass("identity.name")}" data-field="identity.name"><div class="field-label-row"><label for="identityName">Display name</label>${changedBadge("identity.name")}</div><input id="identityName" type="text" data-path="identity.name" value="${esc(state.draft.identity.name)}"></div>
+          <div class="${fieldClass("profileIdentity")}" data-field="profileIdentity"><div class="field-label-row"><label for="profileIdentity">Profile identity</label>${changedBadge("profileIdentity")}</div><input id="profileIdentity" type="text" data-path="profileIdentity" value="${esc(state.draft.profileIdentity)}"></div>
+          <div class="${fieldClass("identity.description", "wide")}" data-field="identity.description"><div class="field-label-row"><label for="identityDescription">Description</label>${changedBadge("identity.description")}</div><textarea id="identityDescription" data-path="identity.description">${esc(state.draft.identity.description)}</textarea></div>
+        </div>`;
+      }
+
+      function renderPrompt() {
+        return `<div class="form-grid">
+          <div class="${fieldClass("prompt.systemPrompt", "wide")}" data-field="prompt.systemPrompt"><div class="field-label-row"><label for="systemPrompt">System prompt</label>${changedBadge("prompt.systemPrompt")}</div><textarea id="systemPrompt" data-path="prompt.systemPrompt">${esc(state.draft.prompt.systemPrompt)}</textarea></div>
+          <div class="${fieldClass("prompt.styleNotes")}" data-field="prompt.styleNotes"><div class="field-label-row"><label for="styleNotes">Style notes</label>${changedBadge("prompt.styleNotes")}</div><textarea id="styleNotes" data-path="prompt.styleNotes">${esc(state.draft.prompt.styleNotes)}</textarea></div>
+          <div class="${fieldClass("prompt.directives")}" data-field="prompt.directives"><div class="field-label-row"><label for="directives">Directives</label>${changedBadge("prompt.directives")}</div><textarea id="directives" data-path="prompt.directives">${esc(state.draft.prompt.directives)}</textarea></div>
+        </div>`;
+      }
+
+      function renderModel() {
+        return `<div class="form-grid three">
+          <div class="${fieldClass("model.provider")}" data-field="model.provider"><div class="field-label-row"><label for="modelProvider">Provider request</label>${changedBadge("model.provider")}</div><select id="modelProvider" data-path="model.provider">${options([["openai","OpenAI"],["anthropic","Anthropic"],["local","Local runtime"]], state.draft.model.provider)}</select></div>
+          <div class="${fieldClass("model.model")}" data-field="model.model"><div class="field-label-row"><label for="modelName">Model</label>${changedBadge("model.model")}</div><input id="modelName" type="text" data-path="model.model" value="${esc(state.draft.model.model)}"></div>
+          <div class="${fieldClass("model.maxTokens")}" data-field="model.maxTokens"><div class="field-label-row"><label for="maxTokens">Max tokens</label>${changedBadge("model.maxTokens")}</div><input id="maxTokens" type="number" min="256" max="32768" step="256" data-path="model.maxTokens" value="${state.draft.model.maxTokens}"></div>
+          <div class="${fieldClass("model.temperature")}" data-field="model.temperature"><div class="field-label-row"><label for="temperature">Temperature</label>${changedBadge("model.temperature")}</div><div class="range-row"><input id="temperature" type="range" min="0" max="1.5" step="0.05" data-path="model.temperature" value="${state.draft.model.temperature}"><output class="range-value" data-output="model.temperature">${state.draft.model.temperature.toFixed(2)}</output></div></div>
+          <div class="${fieldClass("model.topP")}" data-field="model.topP"><div class="field-label-row"><label for="topP">Top P</label>${changedBadge("model.topP")}</div><div class="range-row"><input id="topP" type="range" min="0" max="1" step="0.05" data-path="model.topP" value="${state.draft.model.topP}"><output class="range-value" data-output="model.topP">${state.draft.model.topP.toFixed(2)}</output></div></div>
+          <div class="${fieldClass("model.topK")}" data-field="model.topK"><div class="field-label-row"><label for="topK">Top K</label>${changedBadge("model.topK")}</div><input id="topK" type="number" min="1" max="100" data-path="model.topK" value="${state.draft.model.topK}"></div>
+        </div>`;
+      }
+
+      function renderVoice() {
+        return `<div class="form-grid">
+          <div class="wide">${toggleField("voice.enabled", "Voice enabled", "Requested voice behavior; runtime availability is resolved elsewhere.")}</div>
+          <div class="${fieldClass("voice.provider")}" data-field="voice.provider"><div class="field-label-row"><label for="voiceProvider">Provider</label>${changedBadge("voice.provider")}</div><select id="voiceProvider" data-path="voice.provider">${options([["local","Local"],["elevenlabs","ElevenLabs"],["system","System voice"]], state.draft.voice.provider)}</select></div>
+          <div class="${fieldClass("voice.voicePreset")}" data-field="voice.voicePreset"><div class="field-label-row"><label for="voicePreset">Voice preset</label>${changedBadge("voice.voicePreset")}</div><input id="voicePreset" type="text" data-path="voice.voicePreset" value="${esc(state.draft.voice.voicePreset)}"></div>
+          <div class="${fieldClass("voice.speed")}" data-field="voice.speed"><div class="field-label-row"><label for="voiceSpeed">Speed</label>${changedBadge("voice.speed")}</div><div class="range-row"><input id="voiceSpeed" type="range" min="0.5" max="1.5" step="0.02" data-path="voice.speed" value="${state.draft.voice.speed}"><output class="range-value" data-output="voice.speed">${state.draft.voice.speed.toFixed(2)}</output></div></div>
+          <div class="${fieldClass("voice.wakeWord")}" data-field="voice.wakeWord"><div class="field-label-row"><label for="wakeWord">Wake word</label>${changedBadge("voice.wakeWord")}</div><input id="wakeWord" type="text" data-path="voice.wakeWord" value="${esc(state.draft.voice.wakeWord)}"></div>
+          <div class="wide">${toggleField("voice.interruptible", "Interruptible", "Allow a speaker to interrupt voice playback.")}</div>
+        </div>`;
+      }
+
+      function renderCapabilities() {
+        const permissionCopy = {
+          web: ["Web search", "Request live web access"], email: ["Email", "Request email actions"], drive: ["Drive", "Request connected-drive access"],
+          calendar: ["Calendar", "Request calendar actions"], cli: ["Command line", "Request bounded CLI tools"], filesystem: ["Filesystem", "Request local file access"]
+        };
+        return `<div class="binding-boundary"><strong>Requested ceiling, not a grant.</strong> Effective capability authority is resolved by account, project, profile, and runtime policy.</div><div class="capability-grid">${Object.entries(permissionCopy).map(([key, copy]) => toggleField(`capabilities.permissions.${key}`, copy[0], copy[1])).join("")}</div><div class="form-grid" style="margin-top:13px"><div class="${fieldClass("capabilities.skills", "wide")}" data-field="capabilities.skills"><div class="field-label-row"><label for="skills">Requested skills</label><span class="field-help">Comma-separated references</span>${changedBadge("capabilities.skills")}</div><input id="skills" type="text" data-path="capabilities.skills" data-array="true" value="${esc(state.draft.capabilities.skills.join(", "))}"></div></div>`;
+      }
+
+      function renderRetrieval() {
+        return `<div class="form-grid">
+          <div class="wide">${toggleField("retrieval.enabled", "Retrieval enabled", "Request retrieval against authorized source references.")}</div>
+          <div class="${fieldClass("retrieval.mode")}" data-field="retrieval.mode"><div class="field-label-row"><label for="retrievalMode">Mode</label>${changedBadge("retrieval.mode")}</div><select id="retrievalMode" data-path="retrieval.mode">${options([["hybrid","Hybrid"],["semantic","Semantic"],["keyword","Keyword"]], state.draft.retrieval.mode)}</select></div>
+          <div class="${fieldClass("retrieval.topK")}" data-field="retrieval.topK"><div class="field-label-row"><label for="retrievalTopK">Top K</label>${changedBadge("retrieval.topK")}</div><input id="retrievalTopK" type="number" min="1" max="50" data-path="retrieval.topK" value="${state.draft.retrieval.topK}"></div>
+          <div class="wide">${toggleField("retrieval.rerank", "Rerank results", "Request a reranking pass when available.")}</div>
+          <div class="${fieldClass("retrieval.sources", "wide")}" data-field="retrieval.sources"><div class="field-label-row"><label for="retrievalSources">Source references</label><span class="field-help">Non-secret logical references</span>${changedBadge("retrieval.sources")}</div><input id="retrievalSources" type="text" data-path="retrieval.sources" data-array="true" value="${esc(state.draft.retrieval.sources.join(", "))}"></div>
+        </div>`;
+      }
+
+      function renderBindings() {
+        return `<div class="binding-boundary"><strong>Bindings are not portable persona identity.</strong> These values represent environment-specific state and are intentionally excluded from the JSON manifest. In production, their governing systems would validate and own them.</div>
+          ${Object.entries({ invocationAlias: "Invocation alias", projectPin: "Project pin", accountOwner: "Account ownership", connections: "Connections", runtimeAuthorization: "Runtime authorization" }).map(([key, label]) => `<div class="binding-row"><span class="binding-key">${label}</span><span class="binding-value">${esc(state.bindings[key])}</span><span class="binding-state">Environment</span></div>`).join("")}`;
+      }
+
+      function sectionContent(id) {
+        return ({ identity: renderIdentity, prompt: renderPrompt, model: renderModel, voice: renderVoice, capabilities: renderCapabilities, retrieval: renderRetrieval, bindings: renderBindings })[id]();
+      }
+
+      function renderForm() {
+        return `<div class="view section-list">${sectionMeta.map(([id, title, description, iconName]) => {
+          const open = state.openSections.has(id);
+          return `<section class="config-section" data-section="${id}"><button class="section-toggle" type="button" aria-expanded="${open}" data-section-toggle="${id}"><span class="section-icon">${icon(iconName)}</span><span class="section-copy"><strong>${title}</strong><span>${description}</span></span><svg class="chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><div class="section-body" ${open ? "" : "hidden"}>${open ? sectionContent(id) : ""}</div></section>`;
+        }).join("")}</div>`;
+      }
+
+      function renderManifest() {
+        return `<div class="view manifest-layout"><div class="manifest-editor"><div class="manifest-toolbar"><div class="manifest-title">${icon("code")} PersonaProfileManifest <span class="portable-tag">portable draft</span></div><button class="small-button" type="button" id="formatManifest">Format JSON</button></div><textarea id="manifestEditor" spellcheck="false" aria-label="Persona manifest JSON"></textarea><div class="manifest-status"><span id="manifestStatus" class="${state.manifestStatus.type}">${esc(state.manifestStatus.text)}</span><button class="small-button" type="button" id="applyManifest">Apply JSON to draft</button></div></div><aside class="manifest-notes"><div class="note-card"><h3>One object, two projections</h3><p>Form and JSON edit the same in-memory <code>PersonaProfileManifest</code> draft.</p></div><div class="note-card"><h3>Deliberately excluded</h3><p>Portable configuration cannot self-assign environment authority.</p><ul class="boundary-list"><li>@persona aliases</li><li>Project pins</li><li>Account ownership</li><li>Connections or credentials</li><li>Runtime authorization</li></ul></div><div class="note-card"><h3>Prototype boundary</h3><p>No schema service, persistence API, or resolver is connected to this artifact.</p></div></aside></div>`;
+      }
+
+      function effectiveRow(key, label) {
+        const requestedValue = Boolean(state.draft.capabilities.permissions[key]);
+        const environment = state.environment[key];
+        const effective = requestedValue && environment.authorized;
+        const denied = requestedValue && !environment.authorized;
+        return `<tr><td>${label}</td><td><span class="status-token ${requestedValue ? "requested" : "off"}">${requestedValue ? "ON" : "OFF"}</span></td><td><span class="status-token ${environment.authorized ? "available" : "off"}">${esc(environment.availability)}</span></td><td><span class="status-token ${denied ? "denied" : effective ? "on" : "off"}">${denied ? "DENIED" : effective ? "ON" : "OFF"}</span></td></tr>`;
+      }
+
+      function renderEffective() {
+        return `<div class="view effective-shell"><div class="effective-intro"><div><h3>Requested → Available → Effective</h3><p>A visual inspection model for configuration intent, environment inputs, and the resulting runtime ceiling. Values below are fixtures for interaction design only.</p></div><span class="simulation-tag">Simulated</span></div><table class="effective-table"><thead><tr><th>Capability</th><th>Requested</th><th>Available</th><th>Effective</th></tr></thead><tbody>${effectiveRow("web","Web")}${effectiveRow("email","Email")}${effectiveRow("drive","Drive")}${effectiveRow("calendar","Calendar")}${effectiveRow("cli","Command line")}${effectiveRow("filesystem","Filesystem")}</tbody></table><div class="effective-foot"><div><strong>Requested</strong><span>Authored intent in the portable manifest.</span></div><div><strong>Available</strong><span>Simulated environment fixture; not proof of authority or health.</span></div><div><strong>Effective</strong><span>Illustrative intersection only. No backend resolver exists here.</span></div></div></div>`;
+      }
+
+      function renderConfiguration() {
+        const viewport = $("#configurationViewport");
+        viewport.innerHTML = state.activeView === "form" ? renderForm() : state.activeView === "manifest" ? renderManifest() : renderEffective();
+        if (state.activeView === "manifest") $("#manifestEditor").value = JSON.stringify(state.draft, null, 2);
+      }
+
+      function renderFooter() {
+        const dirty = isDirty();
+        const saveState = $("#saveState");
+        saveState.classList.toggle("clean", !dirty);
+        $("#saveStateTitle").textContent = dirty ? `Draft differs from rev ${state.revision}` : `Saved as rev ${state.revision}`;
+        $("#saveStateDetail").textContent = dirty ? "Assistant and manual edits remain local until you save." : "No unsaved draft changes.";
+        $("#revertButton").disabled = !dirty;
+        $("#saveButton").disabled = !dirty;
+        $("#saveButton").textContent = `Save rev ${state.revision + 1}`;
+      }
+
+      function renderMode() {
+        $$("[data-mode]").forEach(button => button.setAttribute("aria-selected", String(button.dataset.mode === state.assistantMode)));
+        const test = state.assistantMode === "test";
+        $("#assistantSubtitle").textContent = test ? "Preview the current draft without saving a conversation." : "Describe the persona you want to forge.";
+        $("#composerHint").innerHTML = test ? '<span class="ephemeral-flag">Ephemeral preview · no history saved</span>' : "Edits the draft only · never saves automatically";
+        $("#exampleAction").textContent = test ? "Ask a sample question" : "Use example request";
+        $("#composerInput").placeholder = test ? "Ask Meridian to respond as configured…" : "Describe what you want to change…";
+        renderConversation();
+      }
+
+      function renderAll() {
+        $("#profileName").textContent = state.draft.identity.name;
+        $$("[data-view]").forEach(button => button.setAttribute("aria-selected", String(button.dataset.view === state.activeView)));
+        renderMode();
+        renderConfiguration();
+        renderFooter();
+      }
+
+      function toast(message, title = "") {
+        const item = document.createElement("div");
+        item.className = "toast";
+        const strong = document.createElement("strong");
+        const text = document.createElement("span");
+        if (title) { strong.textContent = title + " "; item.append(strong); }
+        text.textContent = message;
+        item.append(text);
+        $("#toastStack").append(item);
+        setTimeout(() => item.remove(), 3400);
+      }
+
+      let highlightTimer;
+      function highlightChanges(paths) {
+        clearTimeout(highlightTimer);
+        state.changedFields = new Set(paths);
+        renderConfiguration();
+        highlightTimer = setTimeout(() => {
+          state.changedFields.clear();
+          if (state.activeView === "form") renderConfiguration();
+        }, 4200);
+      }
+
+      function applyAssistantIntent(input) {
+        const text = input.toLowerCase();
+        const changes = [];
+        const paths = [];
+        const apply = (path, value, label, section) => {
+          if (JSON.stringify(getPath(state.draft, path)) === JSON.stringify(value)) return;
+          setPath(state.draft, path, value);
+          changes.push(label);
+          paths.push(path);
+          state.openSections.add(section);
+        };
+
+        if (/analytical|more rigorous|evidence|precise/.test(text)) {
+          apply("prompt.styleNotes", "Analytical, evidence-led, concise. Surface assumptions and tradeoffs.", "Behavior shifted toward analytical and evidence-led", "prompt");
+          apply("prompt.directives", "Separate evidence from inference. Stress-test assumptions. Prefer the smallest useful next step.", "Analytical directives strengthened", "prompt");
+        }
+        if (/claude|anthropic/.test(text)) {
+          apply("model.provider", "anthropic", "Provider set to Anthropic", "model");
+          apply("model.model", "claude-sonnet", "Model set to Claude Sonnet", "model");
+        }
+        if (/openai|gpt/.test(text) && !/not openai|instead of openai/.test(text)) {
+          apply("model.provider", "openai", "Provider set to OpenAI", "model");
+          apply("model.model", "gpt-5", "Model set to GPT-5", "model");
+        }
+        if (/lower temperature|low temperature|less creative|more deterministic/.test(text)) apply("model.temperature", 0.2, "Temperature lowered to 0.20", "model");
+        if (/higher temperature|more creative|imaginative/.test(text)) apply("model.temperature", 0.9, "Temperature raised to 0.90", "model");
+        if (/(allow|enable|turn on|use).{0,18}(web|web search)|web search.{0,12}(on|enabled|allowed)/.test(text)) apply("capabilities.permissions.web", true, "Web search requested", "capabilities");
+        if (/(disable|turn off|remove|no).{0,18}(web|web search)/.test(text)) apply("capabilities.permissions.web", false, "Web search disabled", "capabilities");
+        if (/(disable|turn off|remove|no).{0,18}email|email.{0,12}(off|disabled)/.test(text)) apply("capabilities.permissions.email", false, "Email disabled", "capabilities");
+        if (/(allow|enable|turn on|use).{0,18}email|email.{0,12}(on|enabled|allowed)/.test(text)) apply("capabilities.permissions.email", true, "Email requested", "capabilities");
+        if (/(disable|turn off).{0,18}voice/.test(text)) apply("voice.enabled", false, "Voice disabled", "voice");
+        if (/(enable|turn on).{0,18}voice/.test(text)) apply("voice.enabled", true, "Voice enabled", "voice");
+        if (/warmer|more empathetic|more human/.test(text)) apply("prompt.styleNotes", "Warm, grounded, and analytical. Acknowledge context before recommending action.", "Tone made warmer and more grounded", "prompt");
+        if (/(disable|turn off).{0,18}retrieval/.test(text)) apply("retrieval.enabled", false, "Retrieval disabled", "retrieval");
+        if (/(enable|turn on|use).{0,18}retrieval/.test(text)) apply("retrieval.enabled", true, "Retrieval enabled", "retrieval");
+
+        if (!changes.length) {
+          changes.push("No safe structured mapping was inferred. The draft is unchanged.");
+        } else {
+          state.dirty = false;
+          state.activeView = "form";
+          $$("[data-view]").forEach(button => button.setAttribute("aria-selected", String(button.dataset.view === "form")));
+        }
+        return { changes, paths };
+      }
+
+      function cannedTestResponse(input) {
+        const analytical = /analytical|evidence-led|stress-test/i.test(state.draft.prompt.styleNotes + state.draft.prompt.directives);
+        const web = state.draft.capabilities.permissions.web;
+        const voice = state.draft.voice.enabled;
+        const opening = analytical ? "I’d separate the question into evidence, assumptions, and the smallest reversible decision." : "I’d start by clarifying the outcome and the constraints that matter most.";
+        const boundary = web ? "Web access is requested in this draft, though this preview does not perform a live search." : "Web access is off in this draft, so I would work only from the context you provide.";
+        const vocal = voice ? ` The requested voice preset is ${state.draft.voice.voicePreset}.` : " Voice output is disabled.";
+        return `${opening}\n\n${boundary}${vocal}\n\nPreview response to: “${input}”`;
+      }
+
+      function submitComposer(input) {
+        const value = input.trim();
+        if (!value) return;
+        if (state.assistantMode === "build") {
+          state.buildMessages.push({ role: "user", text: value, time: now() });
+          const result = applyAssistantIntent(value);
+          const response = result.paths.length ? "I updated the draft. Review the highlighted fields in Configuration before you save." : "I couldn’t map that request confidently to a typed field. Try naming a behavior, model, temperature, capability, voice, or retrieval change.";
+          state.buildMessages.push({ role: "assistant", text: response, changes: result.changes, time: now() });
+          renderAll();
+          if (result.paths.length) {
+            highlightChanges(result.paths);
+            toast(`${result.paths.length} fields changed in the draft.`, "Assistant update");
+          }
+        } else {
+          state.testMessages.push({ role: "user", text: value, time: now() });
+          state.testMessages.push({ role: "assistant", text: cannedTestResponse(value), time: now() });
+          renderConversation();
+        }
+      }
+
+      function applyManifest() {
+        const editor = $("#manifestEditor");
+        try {
+          const value = JSON.parse(editor.value);
+          const required = ["apiVersion", "profileIdentity", "identity", "prompt", "model", "voice", "capabilities", "retrieval"];
+          const missing = required.filter(key => !(key in value));
+          if (missing.length) throw new Error(`Missing: ${missing.join(", ")}`);
+          if (value.apiVersion !== "codexify.persona/v1") throw new Error("apiVersion must remain codexify.persona/v1");
+          const forbidden = ["bindings", "credentials", "accountOwner", "projectPins", "runtimeAuthorization"].filter(key => key in value);
+          if (forbidden.length) throw new Error(`Bindings are not portable manifest fields: ${forbidden.join(", ")}`);
+          state.draft = value;
+          state.dirty = false;
+          state.manifestStatus = { type: "ok", text: "JSON applied to the shared draft." };
+          renderAll();
+          toast("The Form projection now reflects the JSON draft.", "Manifest applied");
+        } catch (error) {
+          state.manifestStatus = { type: "error", text: error.message };
+          $("#manifestStatus").className = "error";
+          $("#manifestStatus").textContent = error.message;
+        }
+      }
+
+      function profilePreset(name) {
+        const presets = {
+          Meridian: ["meridian", "A measured, systems-minded partner for complex work.", "Measured, clear, and practical."],
+          Atlas: ["atlas", "A structural navigator for architecture and systems mapping.", "Spatial, systematic, and concise."],
+          Scribe: ["scribe", "An editorial collaborator for clear, durable writing.", "Precise, humane, and attentive to voice."]
+        };
+        const [id, description, style] = presets[name];
+        state.draft.profileIdentity = id;
+        state.draft.identity.name = name;
+        state.draft.identity.description = description;
+        state.draft.prompt.styleNotes = style;
+        state.dirty = true;
+        $("#profileName").textContent = name;
+        closeProfileMenu();
+        renderAll();
+        toast(`${name} loaded as an unsaved draft.`, "Preset");
+      }
+
+      function closeProfileMenu() {
+        $("#profileMenu").hidden = true;
+        $("#profileTrigger").setAttribute("aria-expanded", "false");
+      }
+
+      function initializeIcons() { $$('[data-icon]').forEach(node => node.innerHTML = icon(node.dataset.icon)); }
+
+      document.addEventListener("click", event => {
+        const mode = event.target.closest("[data-mode]");
+        if (mode) { state.assistantMode = mode.dataset.mode; renderMode(); return; }
+        const view = event.target.closest("[data-view]");
+        if (view) { state.activeView = view.dataset.view; renderAll(); return; }
+        const section = event.target.closest("[data-section-toggle]");
+        if (section) {
+          const id = section.dataset.sectionToggle;
+          state.openSections.has(id) ? state.openSections.delete(id) : state.openSections.add(id);
+          renderConfiguration();
+          return;
+        }
+        const profile = event.target.closest("[data-profile]");
+        if (profile) { profilePreset(profile.dataset.profile); return; }
+        const action = event.target.closest("[data-profile-action]");
+        if (action) {
+          const kind = action.dataset.profileAction;
+          closeProfileMenu();
+          if (kind === "new") {
+            state.draft = clone(initialSaved);
+            state.draft.profileIdentity = "untitled-persona";
+            state.draft.identity.name = "Untitled Persona";
+            state.draft.identity.description = "A new persona draft.";
+            state.saved = clone(state.draft);
+            state.revision = 0;
+            state.dirty = true;
+            renderAll();
+          } else if (kind === "duplicate") {
+            state.draft.profileIdentity += "-copy";
+            state.draft.identity.name += " Copy";
+            state.dirty = true;
+            renderAll();
+          } else if (kind === "import") {
+            $("#importInput").click();
+          } else {
+            toast("Preset administration is intentionally subordinate in this prototype.", "Manage Presets");
+          }
+          return;
+        }
+        if (!event.target.closest(".header-actions")) closeProfileMenu();
+      });
+
+      $("#profileTrigger").addEventListener("click", () => {
+        const menu = $("#profileMenu");
+        menu.hidden = !menu.hidden;
+        $("#profileTrigger").setAttribute("aria-expanded", String(!menu.hidden));
+      });
+
+      $("#composerForm").addEventListener("submit", event => {
+        event.preventDefault();
+        const input = $("#composerInput");
+        submitComposer(input.value);
+        input.value = "";
+      });
+      $("#composerInput").addEventListener("keydown", event => {
+        if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); $("#composerForm").requestSubmit(); }
+      });
+      $("#exampleAction").addEventListener("click", () => {
+        $("#composerInput").value = state.assistantMode === "build"
+          ? "Make Meridian more analytical, use Claude, lower temperature, allow web search, and disable email."
+          : "How would you help me evaluate a risky architecture decision?";
+        $("#composerInput").focus();
+      });
+
+      $("#configurationViewport").addEventListener("input", event => {
+        const control = event.target.closest("[data-path]");
+        if (!control) return;
+        let value = control.type === "checkbox" ? control.checked : control.value;
+        if (control.dataset.array === "true") value = value.split(",").map(item => item.trim()).filter(Boolean);
+        else if (control.type === "range" || control.type === "number") value = Number(value);
+        setPath(state.draft, control.dataset.path, value);
+        state.dirty = false;
+        const output = $(`[data-output="${control.dataset.path}"]`);
+        if (output) output.value = Number(value).toFixed(2);
+        if (control.dataset.path === "identity.name") { $("#profileName").textContent = value; }
+        renderFooter();
+      });
+
+      $("#configurationViewport").addEventListener("click", event => {
+        if (event.target.closest("#applyManifest")) { applyManifest(); return; }
+        if (event.target.closest("#formatManifest")) {
+          try { $("#manifestEditor").value = JSON.stringify(JSON.parse($("#manifestEditor").value), null, 2); }
+          catch { toast("Fix the JSON syntax before formatting.", "Manifest"); }
+        }
+      });
+
+      $("#saveButton").addEventListener("click", () => {
+        state.revision += 1;
+        state.saved = clone(state.draft);
+        state.dirty = false;
+        renderFooter();
+        toast(`Meridian is now represented as revision ${state.revision} in this prototype. No backend request was made.`, "Draft saved");
+      });
+      $("#revertButton").addEventListener("click", () => {
+        state.draft = clone(state.saved);
+        state.dirty = false;
+        state.changedFields.clear();
+        renderAll();
+        toast(`Draft restored to revision ${state.revision}.`, "Reverted");
+      });
+
+      $("#importInput").addEventListener("change", event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          state.activeView = "manifest";
+          renderAll();
+          $("#manifestEditor").value = String(reader.result);
+          applyManifest();
+        };
+        reader.readAsText(file);
+        event.target.value = "";
+      });
+
+      initializeIcons();
+      renderAll();
+    })();
+  </script>
+</body>
+</html>
