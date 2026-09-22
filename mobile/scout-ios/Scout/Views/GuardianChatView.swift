@@ -27,7 +27,6 @@ struct GuardianChatView: View {
     @State private var newThreadTitle = ""
     @State private var isCreating = false
     @State private var createError: String?
-    @State private var navigationPath: [ThreadNav] = []
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -312,10 +311,6 @@ private struct ThreadMessagesView: View {
     @State private var tasksMessage: String?
     @State private var isLoadingTasks = false
     @State private var selectedTab = 0
-    @State private var showRename = false
-    @State private var renameTitle = ""
-    @State private var renameError: String?
-    @State private var isRenaming = false
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -1215,7 +1210,7 @@ private struct TaskEventsView: View {
 
 // MARK: - Document Detail View
 
-private struct DocumentDetailView: View {
+struct DocumentDetailView: View {
     let documentId: String
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
