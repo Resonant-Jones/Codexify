@@ -1359,6 +1359,14 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     requested_model = _normalize_model_override(task.model)
     temperature = getattr(task, "temperature", None)
     selection_source = str(getattr(task, "selection_source", "") or "").strip() or None
+    explicit_text_model = bool(
+        selection_source == "explicit"
+        and _normalize_model_override(getattr(task, "requested_model", None))
+        and not any(
+            isinstance(part, dict) and part.get("type") == "image_url"
+            for part in (getattr(task, "latest_turn_messages", None) or [])
+        )
+    )
     provider_pinned = bool(getattr(task, "provider_pinned", False))
     model_resolved_provider: str | None = None
 
@@ -1422,6 +1430,29 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         )
 
     if provider and isinstance(settings, Settings):
+        if provider == "local" and explicit_text_model:
+            exact_resolution = resolve_local_execution_model(
+                settings=settings,
+                requested_model=requested_model,
+                requested_model_is_authoritative=True,
+            )
+            if not exact_resolution.ok:
+                detail = exact_resolution.error_detail()
+                detail.update(
+                    requested_provider=requested_provider or provider,
+                    requested_model=requested_model,
+                    selection_source="explicit",
+                    model_resolution=exact_resolution.as_dict(),
+                    completion_truth=_completion_truth(
+                        accepted=True,
+                        attempted=False,
+                        fallback_attempted=False,
+                        executed=False,
+                        completed=False,
+                    ),
+                    visible_output_emitted=False,
+                )
+                raise HTTPException(status_code=400, detail=detail)
         explicit_model_bound_provider = bool(
             requested_model
             and model_resolved_provider
@@ -1435,6 +1466,10 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
                 settings=settings,
             )
             if not valid:
+                if explicit_text_model:
+                    raise LLMConfigError(
+                        reason or "Requested model is not available"
+                    )
                 fallback_model = _degraded_provider_model_fallback(
                     provider=provider,
                     requested_model=model,
@@ -1460,7 +1495,11 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         requested_provider=requested_provider,
         requested_model=requested_model,
         selection_source=selection_source
-        or ("explicit" if (requested_provider or requested_model) else "default"),
+        or (
+            "explicit"
+            if (task.requested_provider or task.requested_model)
+            else "default"
+        ),
         provider_pinned=provider_pinned,
     )
 
@@ -1671,11 +1710,19 @@ def _run_chat_completion_task_compat(
             local_model_resolution = resolve_local_execution_model(
                 settings=settings,
                 requested_model=requested_model or model,
+                requested_model_is_authoritative=bool(
+                    selection_source == "explicit"
+                    and getattr(task, "requested_model", None)
+                    and not any(
+                        isinstance(part, dict) and part.get("type") == "image_url"
+                        for part in (getattr(task, "latest_turn_messages", None) or [])
+                    )
+                ),
             )
             model_resolution = local_model_resolution.as_dict()
         except Exception:
             model_resolution = None
-    if isinstance(model_resolution, dict):
+    if isinstance(model_resolution, dict) and selection_source != "explicit":
         resolution_source = str(model_resolution.get("source") or "").strip()
         if resolution_source:
             selection_source = resolution_source
@@ -2807,6 +2854,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         for key in (
             "provider",
             "model",
+            "requested_provider",
+            "requested_model",
             "attempted_provider",
             "attempted_model",
             "resolved_provider",
@@ -2820,6 +2869,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "message",
             "persistence_outcome",
             "completion_truth",
+            "visible_output_emitted",
+            "model_resolution",
             "attempted_provider_truth",
             "final_provider_truth",
             "terminal_evidence",
@@ -2854,6 +2905,12 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             failure_payload["provider"] = task.provider
         if task.model:
             failure_payload["model"] = task.model
+        if task.requested_model:
+            failure_payload.setdefault("requested_model", task.requested_model)
+        if task.requested_provider:
+            failure_payload.setdefault("requested_provider", task.requested_provider)
+        if task.selection_source:
+            failure_payload.setdefault("selection_source", task.selection_source)
         failure_payload.setdefault(
             "request_correlation",
             correlation_metadata(

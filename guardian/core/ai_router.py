@@ -1463,6 +1463,7 @@ def resolve_local_execution_model(
     *,
     settings: Optional[Settings] = None,
     requested_model: str | None = None,
+    requested_model_is_authoritative: bool = False,
     validate_availability: bool = False,
     discovered_model_names: list[str] | None = None,
     endpoint_resolution: dict[str, Any] | None = None,
@@ -1475,8 +1476,11 @@ def resolve_local_execution_model(
         resolved,
         requested_model=requested_model,
     )
+    if requested_model_is_authoritative and requested:
+        candidates = [(requested, "requested_model")]
+        validate_availability = True
     substitution_reason = None
-    if strict and requested:
+    if strict and requested and not requested_model_is_authoritative:
         configured_preview = candidates[0][0] if candidates else ""
         if configured_preview and requested != configured_preview:
             substitution_reason = (
@@ -1506,6 +1510,41 @@ def resolve_local_execution_model(
             resolved,
             timeout_seconds=timeout_seconds or 1.5,
             request_get=request_get,
+        )
+
+    if requested_model_is_authoritative and requested:
+        if not resolved_endpoint or resolved_endpoint.get("state") != "available":
+            return LocalModelResolution(
+                model=requested,
+                source=source,
+                strict=strict,
+                requested_model=requested,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message="Local runtime inventory is unavailable for explicit model selection",
+                endpoint_resolution=resolved_endpoint,
+            )
+        if requested not in {
+            normalize_model_id(item) for item in names if normalize_model_id(item)
+        }:
+            return LocalModelResolution(
+                model=requested,
+                source=source,
+                strict=strict,
+                requested_model=requested,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=f"Requested model '{requested}' is not advertised by the local runtime",
+                endpoint_resolution=resolved_endpoint,
+                advertised_models=list(names),
+                inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
+            )
+        return LocalModelResolution(
+            model=requested,
+            source=source,
+            strict=strict,
+            requested_model=requested,
+            endpoint_resolution=resolved_endpoint,
+            advertised_models=list(names),
+            inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
         )
 
     if (
@@ -1836,6 +1875,7 @@ def chat_with_ai(
     attempt_id: str | None = None,
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1851,8 +1891,10 @@ def chat_with_ai(
         local_model_resolution = resolve_local_execution_model(
             settings=settings,
             requested_model=model,
+            requested_model_is_authoritative=requested_model_is_authoritative,
             validate_availability=bool(
-                strict_local_chat
+                requested_model_is_authoritative
+                or strict_local_chat
                 and authoritative_model
                 and authoritative_model != requested_model
             ),
@@ -1928,6 +1970,7 @@ def chat_with_ai(
                     "attempt_id": attempt_id,
                     "strict_provider_model": strict_provider_model,
                     "strict_single_request": strict_single_request,
+                    "requested_model_is_authoritative": requested_model_is_authoritative,
                 },
             ),
         )
@@ -2541,11 +2584,13 @@ def call_local(
     attempt_id: str | None = None,
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         requested_model=model,
+        requested_model_is_authoritative=requested_model_is_authoritative,
     )
     if not local_model_resolution.ok:
         raise HTTPException(
@@ -2951,11 +2996,13 @@ def stream_local(
     task_id: str | None = None,
     attempt_id: str | None = None,
     cancel_check=None,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         requested_model=model,
+        requested_model_is_authoritative=requested_model_is_authoritative,
     )
     if not local_model_resolution.ok:
         raise HTTPException(

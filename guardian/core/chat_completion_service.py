@@ -1399,6 +1399,16 @@ def _execute_completion_attempt(
     reasoning_mode = getattr(task, "reasoning_mode", None)
     temperature = getattr(task, "temperature", None)
     settings = get_settings()
+    exact_text_model = bool(
+        provider == "local"
+        and getattr(task, "selection_source", None) == "explicit"
+        and str(getattr(task, "requested_model", "") or "").strip()
+        and model == getattr(task, "requested_model", None)
+        and not any(
+            isinstance(part, dict) and part.get("type") == "image_url"
+            for part in (getattr(task, "latest_turn_messages", None) or [])
+        )
+    )
 
     def _record_attempt_failure(exc: Exception) -> None:
         metadata = {
@@ -1439,6 +1449,7 @@ def _execute_completion_attempt(
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
                     "cancel_check": cancel_check,
+                    "requested_model_is_authoritative": exact_text_model,
                 },
             ),
         )
@@ -1561,6 +1572,7 @@ def _execute_completion_attempt(
                     "request_id": request_id,
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
+                    "requested_model_is_authoritative": exact_text_model,
                 },
             ),
         )
@@ -6640,12 +6652,18 @@ def run_chat_completion_task(
             local_model_resolution = resolve_local_execution_model(
                 settings=settings,
                 requested_model=requested_model or model,
+                requested_model_is_authoritative=bool(
+                    getattr(task, "selection_source", None) == "explicit"
+                    and getattr(task, "requested_model", None)
+                    and model == getattr(task, "requested_model", None)
+                    and not has_structured_image
+                ),
             )
             model_resolution = local_model_resolution.as_dict()
         except Exception:
             model_resolution = None
     selection_source = str(getattr(task, "selection_source", "") or "").strip() or None
-    if isinstance(model_resolution, dict):
+    if isinstance(model_resolution, dict) and selection_source != "explicit":
         resolution_source = str(model_resolution.get("source") or "").strip()
         if resolution_source:
             selection_source = resolution_source

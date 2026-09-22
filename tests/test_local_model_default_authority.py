@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from guardian.core.ai_router import (
+    LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
     WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON,
     resolve_local_execution_model,
 )
@@ -95,3 +96,47 @@ def test_logical_route_resolves_but_unavailable_exact_override_fails_closed() ->
     )
     assert not exact.ok
     assert exact.failure_kind == WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON
+
+
+def test_explicit_request_model_is_exact_independently_of_configured_default() -> None:
+    settings = Settings(
+        _env_file=None,
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        LOCAL_PROVIDER_VENDOR="whooshd",
+        LOCAL_CHAT_MODEL=LOGICAL_ROUTE,
+    )
+    endpoint = {"state": "available", "inventory_source": "synthetic:/v1/models"}
+    rejected = resolve_local_execution_model(
+        settings=settings,
+        requested_model="missing-local-model-A7K9",
+        requested_model_is_authoritative=True,
+        discovered_model_names=[LOGICAL_ROUTE],
+        endpoint_resolution=endpoint,
+    )
+    assert not rejected.ok
+    assert rejected.model == "missing-local-model-A7K9"
+    assert rejected.failure_kind == LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
+    assert rejected.source == "requested_model"
+
+    advertised = resolve_local_execution_model(
+        settings=settings,
+        requested_model="exact-test-model",
+        requested_model_is_authoritative=True,
+        discovered_model_names=[LOGICAL_ROUTE, "exact-test-model"],
+        endpoint_resolution=endpoint,
+    )
+    assert advertised.ok
+    assert advertised.model == "exact-test-model"
+    assert advertised.source == "requested_model"
+
+    default = resolve_local_execution_model(
+        settings=settings,
+        requested_model="missing-local-model-A7K9",
+        discovered_model_names=[LOGICAL_ROUTE],
+        endpoint_resolution=endpoint,
+    )
+    assert default.ok
+    assert default.model == LOGICAL_ROUTE
+    assert default.source == "LOCAL_CHAT_MODEL"
