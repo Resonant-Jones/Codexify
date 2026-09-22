@@ -282,11 +282,12 @@ function RuntimeStatusStrip({
     inferenceState.phase === "completed" ||
     inferenceState.phase === "failed" ||
     inferenceState.phase === "cancelled";
+  const isQueued = inferenceState.statusText === "Queued…";
 
-  // Only show when provider is not in the default ready state,
-  // or when an active inference is in progress.
+  // Queue acceptance is diagnostic state; keep it in lifecycle records but
+  // do not surface it as a user-facing runtime status.
   const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
-  const showRequestState = isActive || isTerminal;
+  const showRequestState = (isActive || isTerminal) && !isQueued;
 
   if (!showProviderState && !showRequestState) {
     return null;
