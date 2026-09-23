@@ -4,7 +4,52 @@ from __future__ import annotations
 
 import logging
 
-from guardian.utils.log_safety import install_safe_logging
+from guardian.utils.log_safety import install_safe_logging, sanitize_record
+
+
+def test_startup_import_sweep_logs_numeric_item_count(monkeypatch, caplog):
+    import backend.rag.chatgpt_migration as migration
+    import guardian.guardian_api as guardian_api
+
+    monkeypatch.setattr(guardian_api, "get_single_user_id", lambda: "local")
+    monkeypatch.setattr(
+        migration,
+        "retry_chatgpt_import_embeddings",
+        lambda **kwargs: {
+            "embedding_candidates": 7,
+            "embeddings_persisted": 5,
+            "embeddings_failed": 2,
+            "embedding_coverage_degraded": True,
+        },
+    )
+    install_safe_logging()
+    with caplog.at_level(logging.INFO):
+        guardian_api._run_chatgpt_import_startup_sweep()
+
+    assert "item_count=7 persisted=5 failed=2 degraded=True" in caplog.text
+    assert "ChatGPT import sweep failed" not in caplog.text
+
+
+def test_repeated_sanitization_preserves_counts_and_redacts_candidates():
+    candidate_text = "PRIVATE_CANDIDATE_SENTINEL"
+    record = logging.LogRecord(
+        "guardian.cwc.logging.test",
+        logging.INFO,
+        __file__,
+        0,
+        "[startup] item_count=%d candidate=%s",
+        (7, candidate_text),
+        None,
+    )
+
+    for _ in range(3):
+        sanitize_record(record, force=True)
+        assert type(record.args[0]) is int
+        assert record.args[0] == 7
+        rendered = record.getMessage()
+        assert "item_count=7" in rendered
+        assert "candidate=<redacted>" in rendered
+        assert candidate_text not in rendered
 
 
 def _emit_test_log(

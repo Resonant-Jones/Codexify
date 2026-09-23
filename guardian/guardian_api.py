@@ -355,7 +355,7 @@ def _run_chatgpt_import_startup_sweep() -> None:
             else logger.info
         )
         level(
-            "[startup] ChatGPT import sweep user_id=%s limit=%d candidates=%d persisted=%d failed=%d degraded=%s",
+            "[startup] ChatGPT import sweep user_id=%s limit=%d item_count=%d persisted=%d failed=%d degraded=%s",
             user_id,
             retry_cap,
             int(stats.get("embedding_candidates", 0)),
