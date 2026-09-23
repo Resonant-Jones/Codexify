@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,6 +126,137 @@ for (const fileCount of [2, 25]) {
     }
   });
 }
+
+test('current account import UI stages an OpenAI batch through Guardian', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-ui-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(join(exportFolder, 'nested'), { recursive: true });
+  writeFileSync(join(exportFolder, 'conversations.json'), '[]');
+  writeFileSync(join(exportFolder, 'nested', 'user.json'), '{}');
+  const expectedBytes = 4;
+  let commitIntercepted = 0;
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'local');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.route('**/api/imports/openai-account/*/commit', async (route) => {
+      commitIntercepted += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Diagnostic probe stops after durable staging.' }),
+      });
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+
+    const createResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/imports/openai-account' &&
+      response.request().method() === 'POST'
+    );
+    const uploadResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/files$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(200);
+    const created = await createResponse.json();
+    const jobId = String(created.job_id ?? '');
+    expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(created.source_system).toBe('openai');
+    expect(created.total_file_count).toBe(2);
+    expect(created.total_byte_count).toBe(expectedBytes);
+
+    const uploadResponse = await uploadResponsePromise;
+    expect(uploadResponse.status()).toBe(200);
+    expect(new URL(uploadResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/files`);
+    const contentType = uploadResponse.request().headers()['content-type'] ?? '';
+    const boundary = contentType.match(/^multipart\/form-data;\s*boundary=([^;]+)$/i)?.[1];
+    expect(boundary).toBeTruthy();
+    const body = uploadResponse.request().postDataBuffer()?.toString('latin1') ?? '';
+    const parts = body.split(`--${boundary}`).slice(1, -1);
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toContain('name="files"; filename="conversations.json"');
+    expect(parts[1]).toContain('name="relative_paths"');
+    expect(parts[1]).toContain('openai-export/conversations.json');
+    expect(parts[2]).toContain('name="files"; filename="user.json"');
+    expect(parts[3]).toContain('name="relative_paths"');
+    expect(parts[3]).toContain('openai-export/nested/user.json');
+    const uploaded = await uploadResponse.json();
+    expect(uploaded.job_id).toBe(jobId);
+    expect(uploaded.uploaded_file_count).toBe(2);
+    expect(uploaded.uploaded_byte_count).toBe(expectedBytes);
+
+    const statusResponse = await page.request.get(`/api/imports/openai-account/${jobId}`, {
+      headers: { 'X-User-Id': 'local' },
+    });
+    expect(statusResponse.status()).toBe(200);
+    const readback = await statusResponse.json();
+    expect(readback.job_id).toBe(jobId);
+    expect(readback.status).toBe('receiving');
+    expect(readback.total_file_count).toBe(2);
+    expect(readback.total_byte_count).toBe(expectedBytes);
+    expect(readback.uploaded_file_count).toBe(2);
+    expect(readback.uploaded_byte_count).toBe(expectedBytes);
+
+    const dbContainer = process.env.PW_ACCOUNT_IMPORT_DB_CONTAINER;
+    if (dbContainer) {
+      const sql = `BEGIN READ ONLY;\nSELECT row_to_json(t)::text FROM (
+        SELECT id, user_id, source_system, status, total_file_count,
+               total_byte_count, uploaded_file_count, uploaded_byte_count,
+               jsonb_array_length(staged_manifest::jsonb) AS manifest_count,
+               (SELECT jsonb_agg(entry->>'path' ORDER BY ordinal)
+                FROM jsonb_array_elements(staged_manifest::jsonb)
+                  WITH ORDINALITY AS entries(entry, ordinal)) AS manifest_paths
+        FROM openai_account_import_jobs WHERE id = '${jobId}'
+      ) t;\nROLLBACK;\n`;
+      const output = execFileSync('docker', [
+        'exec', '-i', dbContainer, 'sh', '-lc',
+        'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At',
+      ], { input: sql, encoding: 'utf8' });
+      const row = JSON.parse(output.split('\n').find((line) => line.startsWith('{')) ?? 'null');
+      expect(row).toMatchObject({
+        id: jobId,
+        user_id: 'local',
+        source_system: 'openai',
+        status: 'receiving',
+        total_file_count: 2,
+        total_byte_count: expectedBytes,
+        uploaded_file_count: 2,
+        uploaded_byte_count: expectedBytes,
+        manifest_count: 2,
+        manifest_paths: [
+          'openai-export/conversations.json',
+          'openai-export/nested/user.json',
+        ],
+      });
+    }
+    await expect.poll(() => commitIntercepted).toBe(1);
+    console.log('account-import staging receipt', JSON.stringify({
+      job_id: jobId,
+      observed_at: new Date().toISOString(),
+      create_status: createResponse.status(),
+      upload_status: uploadResponse.status(),
+      readback_status: statusResponse.status(),
+      files: 2,
+      bytes: expectedBytes,
+      database_readback: Boolean(dbContainer),
+      commit_intercepted: commitIntercepted === 1,
+    }));
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
 
 test.describe('ChatGPT migration import', () => {
   for (const importFixture of IMPORT_FIXTURE_CASES) {
@@ -405,12 +537,12 @@ test.describe('ChatGPT migration import', () => {
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
 
     const fixturePath = fileURLToPath(
       new URL(importFixture.fixtureUrl, import.meta.url)
     );
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]:not([webkitdirectory])');
     await fileInput.setInputFiles(fixturePath);
     await expect(page.getByText(importFixture.expectedFilename)).toBeVisible();
     const selectedFileText = await fileInput.evaluate(async (element) => {
@@ -429,15 +561,15 @@ test.describe('ChatGPT migration import', () => {
     expect(uploadedMultipartBody).toContain(`filename="${importFixture.expectedFilename}"`);
 
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toHaveCount(0);
 
     const guardianTab = page.getByRole('button', { name: 'Guardian' }).first();
     await expect(guardianTab).toBeVisible();
     await guardianTab.click();
 
-    const importedThreadTile = page.locator('.thread-preview', {
-      hasText: importedThread.title,
-    }).first();
+    const showSidebar = page.getByRole('button', { name: 'Show sidebar' });
+    if (await showSidebar.isVisible()) await showSidebar.click();
+    const importedThreadTile = page.getByTestId(`thread-tile-${importedThread.id}`);
     await expect(importedThreadTile).toBeVisible({ timeout: 20000 });
     await importedThreadTile.click();
 
@@ -574,13 +706,13 @@ test.describe('ChatGPT migration import', () => {
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
 
     const tempDir = mkdtempSync(join(tmpdir(), 'codexify-chatgpt-import-'));
     const largeFixturePath = join(tempDir, 'chatgpt_export_large.json');
     const largePayload = Buffer.alloc(51 * 1024 * 1024, ' ');
     writeFileSync(largeFixturePath, largePayload);
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]:not([webkitdirectory])');
     try {
       await fileInput.setInputFiles(largeFixturePath);
 
