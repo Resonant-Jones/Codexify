@@ -42,6 +42,31 @@ from guardian.services.openai_account_import import (
 logger = logging.getLogger(__name__)
 
 
+class AccountImportEmbeddingHandoffRetryable(RuntimeError):
+    """Keep a committed import job recoverable when Redis handoff fails."""
+
+
+def _handoff_committed_embeddings(
+    service: OpenAIAccountImportService,
+    *,
+    job_id: str,
+    user_id: str,
+    conversation_ids: list[str] | None = None,
+) -> None:
+    try:
+        service.enqueue_pending_import_embeddings(
+            job_id=job_id,
+            user_id=user_id,
+            conversation_ids=conversation_ids,
+        )
+    except AccountImportError:
+        raise
+    except Exception as exc:
+        raise AccountImportEmbeddingHandoffRetryable(
+            f"Import embedding handoff failed for job {job_id}"
+        ) from exc
+
+
 def _database_url() -> str:
     return os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
 
@@ -195,6 +220,15 @@ def process_account_import_task(
                 str(snapshot.get("source_system") or "").strip().lower()
             )
 
+            if job_source_system == "openai":
+                # A crash after the durable batch checkpoint but before Redis
+                # enqueue leaves the job running. Startup requeues that job;
+                # its checkpointed conversations are reconciled here before
+                # the importer skips them on resume.
+                _handoff_committed_embeddings(
+                    service, job_id=job_id, user_id=user_id
+                )
+
             if job_source_system == "anthropic":
                 anthropic_result = import_anthropic_export_conversations(
                     export_root,
@@ -243,6 +277,26 @@ def process_account_import_task(
             report = diagnose_openai_export_path(export_root)
             inventory = report.inventory
             if inventory.legacy_detected or inventory.sharded_detected:
+                handoff_failure: AccountImportEmbeddingHandoffRetryable | None = None
+
+                def record_batch_and_handoff(batch: dict[str, Any]) -> None:
+                    nonlocal handoff_failure
+                    service.record_conversation_batch(
+                        job_id=job_id,
+                        user_id=user_id,
+                        batch=batch,
+                    )
+                    try:
+                        _handoff_committed_embeddings(
+                            service,
+                            job_id=job_id,
+                            user_id=user_id,
+                            conversation_ids=list(batch.get("conversation_ids") or []),
+                        )
+                    except AccountImportEmbeddingHandoffRetryable as exc:
+                        handoff_failure = exc
+                        raise
+
                 diagnostics = import_openai_export_conversations(
                     export_root,
                     user_id=user_id,
@@ -255,12 +309,12 @@ def process_account_import_task(
                         str(value)
                         for value in checkpoint.get("conversation_ids", [])
                     ),
-                    on_batch_committed=lambda batch: service.record_conversation_batch(
-                        job_id=job_id,
-                        user_id=user_id,
-                        batch=batch,
-                    ),
+                    on_batch_committed=record_batch_and_handoff,
                 )
+                # The importer turns callback exceptions into diagnostics; keep
+                # the handoff's retryable classification across that boundary.
+                if handoff_failure is not None:
+                    raise handoff_failure
                 if diagnostics.errors:
                     raise RuntimeError("; ".join(diagnostics.errors[:5]))
                 source_summary = {
@@ -392,6 +446,12 @@ def process_account_import_task(
 
         service.complete_job(job_id=job_id, user_id=user_id)
         return True
+    except AccountImportEmbeddingHandoffRetryable:
+        # The checkpoint and canonical rows remain durable. Do not classify a
+        # transient Redis handoff as a terminal import failure: retry this
+        # running job here, or through startup recovery after a crash.
+        logger.exception("[account-import] embedding handoff deferred job_id=%s", job_id)
+        raise
     except Exception as exc:
         logger.exception("[account-import] worker failed job_id=%s", job_id)
         code = exc.code if isinstance(exc, AccountImportError) else "account_import_worker_failed"
@@ -435,7 +495,12 @@ def run_forever() -> None:
             time.sleep(1.0)
             continue
         if payload:
-            process_account_import_task(payload, service=service)
+            while True:
+                try:
+                    process_account_import_task(payload, service=service)
+                    break
+                except AccountImportEmbeddingHandoffRetryable:
+                    time.sleep(5.0)
 
 
 if __name__ == "__main__":

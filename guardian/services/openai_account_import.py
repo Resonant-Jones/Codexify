@@ -31,6 +31,7 @@ from guardian.core.storage import (
     create_storage_from_env,
 )
 from guardian.db.models import (
+    ChatMessage,
     ChatThread,
     GeneratedImage,
     MediaAsset,
@@ -57,6 +58,10 @@ logger = logging.getLogger(__name__)
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _DETAIL_LIMIT = 100
 _DETAIL_TEXT_LIMIT = 500
+_IMPORT_EMBED_PAGE_SIZE = 128
+_IMPORT_EMBED_TEXT_LIMIT = max(
+    1, int(os.getenv("CODEXIFY_CHATGPT_IMPORT_MAX_EMBED_TEXT_CHARS", "24000"))
+)
 
 
 class AccountImportError(ValueError):
@@ -187,6 +192,7 @@ class OpenAIAccountImportService:
         staging_storage: StorageManager | None = None,
         media_storage: StorageManager | None = None,
         enqueue_task: Callable[..., None] | None = None,
+        enqueue_import_embedding_task: Callable[[dict[str, Any]], str] | None = None,
         emit_event: Callable[..., None] | None = None,
         limits: AccountImportLimits | None = None,
     ) -> None:
@@ -206,6 +212,11 @@ class OpenAIAccountImportService:
 
             enqueue_task = enqueue_account_import
         self.enqueue_task = enqueue_task
+        if enqueue_import_embedding_task is None:
+            from guardian.queue.redis_queue import enqueue_chat_import_embed
+
+            enqueue_import_embedding_task = enqueue_chat_import_embed
+        self.enqueue_import_embedding_task = enqueue_import_embedding_task
         self.emit_event = emit_event or event_bus.emit_event
         self.limits = limits or AccountImportLimits.from_env()
 
@@ -791,6 +802,154 @@ class OpenAIAccountImportService:
             user_id,
         )
         return result
+
+    def enqueue_pending_import_embeddings(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        conversation_ids: Sequence[str] | None = None,
+    ) -> int:
+        """Hand committed OpenAI messages to the derived import-embed queue.
+
+        The durable job checkpoint and canonical pending rows are the recovery
+        source. Redis enqueue is deliberately outside the database transaction:
+        a replay may enqueue twice, and the embed worker upserts by canonical
+        message ID so that replay cannot multiply Chroma records.
+        """
+
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id)
+            if job.source_system != "openai":
+                return 0
+            committed = {
+                str(value)
+                for value in (job.checkpoint or {}).get("conversation_ids", [])
+                if str(value).strip()
+            }
+        requested = (
+            {str(value) for value in conversation_ids if str(value).strip()}
+            if conversation_ids is not None
+            else committed
+        )
+        if not requested.issubset(committed):
+            raise AccountImportError(
+                "Embedding handoff referenced an uncommitted conversation.",
+                code="embedding_handoff_uncommitted_conversation",
+                status_code=409,
+            )
+        if not requested:
+            return 0
+
+        enqueued = 0
+        cursor = 0
+        while True:
+            with self.db.get_session() as session:
+                rows = (
+                    session.query(ChatMessage, ChatThread, Project)
+                    .join(ChatThread, ChatMessage.thread_id == ChatThread.id)
+                    .join(Project, ChatThread.project_id == Project.id)
+                    .filter(
+                        ChatMessage.id > cursor,
+                        ChatMessage.user_id == user_id,
+                        ChatThread.user_id == user_id,
+                        Project.user_id == user_id,
+                        ChatThread.origin_system == "openai",
+                        ChatMessage.extra_meta["source_thread_id"]
+                        .as_string()
+                        .in_(requested),
+                        ChatMessage.extra_meta["embedding_status"].as_string()
+                        == "pending",
+                    )
+                    .order_by(ChatMessage.id)
+                    .limit(_IMPORT_EMBED_PAGE_SIZE)
+                    .all()
+                )
+                payloads: list[dict[str, Any]] = []
+                for message, thread, project in rows:
+                    # Keep the canonical columns authoritative even when JSON
+                    # provenance contains stale or conflicting user fields.
+                    if (
+                        message.user_id != user_id
+                        or thread.user_id != user_id
+                        or project.user_id != user_id
+                        or thread.origin_system != "openai"
+                        or message.thread_id != thread.id
+                        or thread.project_id != project.id
+                    ):
+                        continue
+                    provenance = dict(message.extra_meta or {})
+                    if provenance.get("embedding_status") != "pending":
+                        continue
+                    source_thread_id = str(
+                        provenance.get("source_thread_id") or ""
+                    ).strip()
+                    source_message_id = str(
+                        provenance.get("source_message_id") or ""
+                    ).strip()
+                    if source_thread_id not in requested:
+                        continue
+                    if not source_message_id:
+                        raise AccountImportError(
+                            "Committed import message lacks source provenance.",
+                            code="embedding_handoff_provenance_missing",
+                            status_code=500,
+                        )
+                    content = str(message.content or "").strip()[
+                        :_IMPORT_EMBED_TEXT_LIMIT
+                    ]
+                    if not content:
+                        raise AccountImportError(
+                            "Committed import message has no embeddable text.",
+                            code="embedding_handoff_content_missing",
+                            status_code=500,
+                        )
+                    timestamp = (
+                        message.event_at.isoformat()
+                        if message.event_at is not None
+                        else str(provenance.get("source_created_at") or "")
+                    )
+                    meta: dict[str, Any] = {
+                        "user_id": user_id,
+                        "thread_id": int(thread.id),
+                        "role": message.role,
+                        "message_id": int(message.id),
+                        "timestamp": timestamp,
+                        "source_thread_id": source_thread_id,
+                        "source_message_id": source_message_id,
+                        "origin": "chatgpt_import",
+                        "source": "chatgpt_import",
+                    }
+                    for key in (
+                        "turn_index",
+                        "source_created_at_inferred",
+                        "source_conversation_template_id",
+                        "source_gizmo_id",
+                        "source_gizmo_type",
+                        "era",
+                        "canonical_filter_profile",
+                    ):
+                        value = provenance.get(key)
+                        if isinstance(value, (str, int, float, bool)):
+                            meta[key] = value
+                    payloads.append(
+                        {
+                            "content": content,
+                            "thread_id": int(thread.id),
+                            "role": message.role,
+                            "message_id": int(message.id),
+                            "meta": meta,
+                            "origin": "chatgpt_import",
+                            "source": "chatgpt_import",
+                        }
+                    )
+                if rows:
+                    cursor = int(rows[-1][0].id)
+            for payload in payloads:
+                self.enqueue_import_embedding_task(payload)
+                enqueued += 1
+            if len(rows) < _IMPORT_EMBED_PAGE_SIZE:
+                return enqueued
 
     def record_source_summary(
         self,

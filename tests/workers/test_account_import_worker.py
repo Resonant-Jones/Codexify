@@ -43,6 +43,8 @@ class FakeWorkerService:
         )
         self.raise_materialize: Exception | None = None
         self.raise_complete: Exception | None = None
+        self.handoff_failures = 0
+        self.checkpoint_ids = ["already-committed"]
 
     def mark_running(self, **kwargs):
         self.calls.append(("running", kwargs))
@@ -54,14 +56,23 @@ class FakeWorkerService:
             raise self.raise_materialize
         return {
             "checkpoint": {
-                "conversation_ids": ["already-committed"],
+                "conversation_ids": list(self.checkpoint_ids),
                 "media_paths": ["media/already.png"],
-            }
+            },
+            "source_system": "openai",
         }
 
     def record_conversation_batch(self, **kwargs):
         self.calls.append(("conversation-batch", kwargs["batch"]))
+        self.checkpoint_ids.extend(kwargs["batch"].get("conversation_ids", []))
         return {}
+
+    def enqueue_pending_import_embeddings(self, **kwargs):
+        self.calls.append(("embedding-handoff", kwargs))
+        if self.handoff_failures and kwargs.get("conversation_ids") is not None:
+            self.handoff_failures -= 1
+            raise RuntimeError("temporary import-embed queue failure")
+        return 1
 
     def record_source_summary(self, **kwargs):
         self.calls.append(("source-summary", kwargs["summary"]))
@@ -177,6 +188,18 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
 
     assert result is True
     assert observed_completed_ids == [{"already-committed"}]
+    handoffs = [payload for name, payload in service.calls if name == "embedding-handoff"]
+    assert handoffs == [
+        {"job_id": "job-1", "user_id": "account-a", "conversation_ids": None},
+        {
+            "job_id": "job-1",
+            "user_id": "account-a",
+            "conversation_ids": ["new-conversation"],
+        },
+    ]
+    names = [name for name, _ in service.calls]
+    assert names.index("conversation-batch") < names.index("embedding-handoff", 4)
+    assert names.index("embedding-handoff", 4) < names.index("complete")
     assert (
         "source-summary",
         {
@@ -301,6 +324,81 @@ def test_worker_startup_requeues_queued_and_running_jobs():
     assert account_import_worker.requeue_incomplete_jobs(service) == 2
     assert ("enqueue", ("queued-job", "account-a")) in service.calls
     assert ("enqueue", ("running-job", "account-a")) in service.calls
+
+
+def test_committed_batch_handoff_failure_keeps_job_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeWorkerService()
+    service.checkpoint_ids = []
+    service.handoff_failures = 1
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[],
+        legacy_detected=True,
+        sharded_detected=False,
+        detected_format="legacy",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "build_openai_export_image_evidence_index",
+        lambda _inventory: {},
+    )
+
+    def import_conversations(_root, **kwargs):
+        if "source-1" not in kwargs["completed_conversation_ids"]:
+            try:
+                kwargs["on_batch_committed"](
+                    {
+                        "conversation_ids": ["source-1"],
+                        "conversation_counts": [
+                            {"conversation_id": "source-1", "message_count": 1}
+                        ],
+                        "threads_imported": 1,
+                        "messages_imported": 1,
+                    }
+                )
+            except account_import_worker.AccountImportEmbeddingHandoffRetryable:
+                # The production importer converts callback exceptions to
+                # diagnostics; the worker must retain retryable classification.
+                return SimpleNamespace(errors=["handoff failed"])
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=1,
+            conversations_accepted=1,
+            conversations_skipped_title=0,
+            conversations_skipped_limit=0,
+            conversations_skipped_duplicate=0,
+            conversations_skipped_checkpoint=0,
+            conversations_failed=0,
+            text_import_complete=True,
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        import_conversations,
+    )
+    payload = {"type": TASK_TYPE, "job_id": "job-1", "user_id": "account-a"}
+
+    with pytest.raises(account_import_worker.AccountImportEmbeddingHandoffRetryable):
+        account_import_worker.process_account_import_task(payload, service=service)
+    assert service.checkpoint_ids == ["source-1"]
+    assert not any(name in {"failed", "complete"} for name, _ in service.calls)
+
+    assert account_import_worker.process_account_import_task(payload, service=service)
+    handoffs = [value for name, value in service.calls if name == "embedding-handoff"]
+    assert handoffs[-1] == {
+        "job_id": "job-1",
+        "user_id": "account-a",
+        "conversation_ids": None,
+    }
+    assert service.calls[-1][0] == "complete"
 
 
 def test_zip_traversal_is_rejected_before_extraction(tmp_path: Path):
