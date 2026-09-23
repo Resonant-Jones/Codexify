@@ -5,25 +5,25 @@
 > ADR impact: aligned with existing architecture contracts
 > Governing contracts: `config-and-ops.md`, `account-export-restore-contract.md`, `data-and-storage.md`
 
-Purpose: Define how Scout stores, validates, and presents remote Vault endpoint configuration without implementing networking, authentication, sync, or runtime behavior.
+Purpose: Define how Scout stores and presents endpoint configuration and enforces its current client authentication selection without granting runtime or identity authority.
 
-Last updated: 2026-06-20
+Last updated: 2026-09-23
 
 ## Scope
 
-This contract defines the local configuration surface for a future Scout client that can point at a remote Codexify Vault runtime.
+This contract defines Scout's local endpoint configuration and current request-authentication boundary. It does not establish a remote-session implementation or a supported remote runtime path.
 
 Current truth:
 
-- Scout currently exists only as a SwiftUI shell scaffold.
+- Scout has a tracked Xcode app, passing package tests, and a bounded iPhone Simulator launch and five-route shell smoke result, recorded in `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md`.
 - Guardian remains the operator-facing runtime authority.
 - Vault remains the long-term authority for durable Codexify account, thread, memory, document, and artifact state.
 - Local Docker Compose remains the supported runtime path.
-- No authenticated Scout-to-Vault API lane exists yet.
+- Scout's current local/operator request path can attach `X-API-Key`, while authenticated live Scout-to-Guardian/Vault continuity remains unproven. Remote-session login and Bearer handling are not implemented.
 - No mobile sync protocol exists yet.
 - No release promise exists for remote mobile operation.
 
-This document is a configuration contract only. It does not define endpoint routes, transport handshakes, OAuth flows, token refresh behavior, sync semantics, background workers, or document replication.
+This document governs endpoint metadata and client request-authentication selection only. It does not define endpoint routes, transport handshakes, OAuth flows, token refresh behavior, sync semantics, background workers, or document replication.
 
 ## Canonical Concepts
 
@@ -47,9 +47,15 @@ Connection Status must be inspectable and must not silently downgrade failures t
 
 ### Authentication State
 
-Authentication State is Scout's user-visible interpretation of whether the selected endpoint has usable credentials.
+Authentication State is Scout's user-visible interpretation of authentication evidence for the selected endpoint. Credential presence alone does not establish an authenticated state.
 
 Authentication State is distinct from Connection Status. An endpoint can be reachable while still requiring authentication, and a credential can exist locally while the endpoint is unreachable.
+
+### Authentication Mode
+
+Authentication Mode is the explicit client credential mechanism selected for a profile. It is independent of transport and of observed Authentication State. Scout serializes `localAPIKey` or `remoteSession` in `authenticationMode`; it does not infer the mode from a URL, network label, stored key, or HTTP response.
+
+`localAPIKey` retains the existing optional `X-API-Key` request behavior. `remoteSession` is representable and can be saved, but is unavailable: Scout has no remote login or Bearer credential lane. Its request guard returns an inspectable unsupported-mode error before network dispatch, with no API-key, Bearer, or anonymous fallback. A remote profile cannot restore a stale authenticated display as current evidence.
 
 ### Endpoint Validation State
 
@@ -59,19 +65,24 @@ Validation is not authentication. Validation is not reachability. Validation is 
 
 ## Endpoint Profile Shape
 
-The first profile shape is a contract-level data shape, not implementation code.
+The table describes the profile concepts. Current Swift `Codable` keys use camelCase, including `baseURL`, `transportType`, `authenticationMode`, `authenticationState`, `validationState`, and `lastConnectedAt`.
 
 | Field | Meaning |
 | --- | --- |
 | `id` | Stable local identifier for this endpoint profile. |
 | `name` | User-visible label for the endpoint. |
 | `base_url` | Canonical base URL for the remote Vault-compatible runtime. |
-| `transport_type` | Transport family selected for the profile. Initial contract value is `https`. Future values require a contract update. |
+| `transport_type` | User-selected transport label; current Scout values are `tailscale`, `localNetwork`, and `custom`. The URL scheme is separate and does not choose authentication mode. |
+| `authenticationMode` | Explicit client credential mechanism: `localAPIKey` or `remoteSession`; separate from transport and observed state. |
 | `last_connected_at` | Timestamp of the last successful authenticated connection, if any. Absence means no successful connection is known. |
 | `authentication_state` | Current user-visible authentication state for the profile. |
 | `validation_state` | Current user-visible validation state for the profile. |
 
 Optional future fields may be added only through a compatible schema migration. Future profile extensions must preserve existing profile identity, user ownership, and failure visibility.
+
+For the current on-device `ScoutEndpointProfile` encoding, a stored profile with no `authenticationMode` field decodes as `localAPIKey` while preserving its identifier, label, URL, transport, and other metadata. This compatibility rule applies only to an absent field. Explicit `null`, unknown, or malformed mode values fail decoding and must remain available for explicit repair; they never select local credentials. New encodings include `authenticationMode`. Mode metadata contains no credential material, and the existing profile storage key is unchanged. A full export schema or general profile-version migration is not defined by this narrow compatibility rule.
+
+The current `ScoutRequestAuthentication` policy is applied by every existing Scout request consumer before `URLSession` dispatch, including health checks, writes, and task-event streaming. It clears incompatible authorization headers, attaches a non-empty local API key only in `localAPIKey` mode, and rejects `remoteSession` before sending. Saving a profile, selecting a mode, possessing a key, or receiving a health response does not by itself establish authentication. Settings clears stale connection-test presentation when endpoint identity or mode changes and discards a late probe result for a changed draft.
 
 ## Connection-State Vocabulary
 
@@ -118,7 +129,7 @@ Credential-bearing material must use the platform secure storage lane. On iOS, S
 
 Endpoint profile data must be migration-ready:
 
-- profile schemas must be versioned before durable storage is shipped
+- a future exported or shared profile schema requires explicit versioning before that feature is shipped
 - migrations must preserve profile identity and user labels
 - unsupported future schemas must fail closed or require explicit user repair
 - migration failures must be visible to the user and must not silently discard endpoint profiles
@@ -156,7 +167,7 @@ If endpoint profiles are added to a future export schema, the export manifest mu
 
 ## Future Compatibility Expectations
 
-Before implementation, Scout endpoint configuration needs an explicit schema version and migration path.
+Before future export, restore, or cross-client profile exchange, Scout endpoint configuration needs an explicit schema version and migration path beyond the absent-field compatibility rule above.
 
 Future runtime work must define separately:
 
@@ -168,13 +179,13 @@ Future runtime work must define separately:
 - conflict policy for any replicated state
 - user-visible recovery behavior
 
-Until those contracts exist, endpoint profiles remain inert configuration and presentation state.
+Until those contracts exist, endpoint profiles do not establish remote-session capability, account identity, or sync authority. Current local-key request construction remains subject to Guardian authorization and separate live qualification.
 
 ## Non-Goals
 
 This contract does not define:
 
-- networking implementation
+- general networking implementation beyond authentication selection
 - route names or API schemas
 - OAuth implementation
 - token refresh implementation

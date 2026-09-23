@@ -53,15 +53,11 @@ struct ScoutGuardianSendMessageService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         let body: [String: String] = ["role": "user", "content": trimmed]
         request.httpBody = try? JSONEncoder().encode(body)
 
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {

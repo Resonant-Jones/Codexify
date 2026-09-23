@@ -117,10 +117,7 @@ struct ScoutTaskEventStreamService {
                     var request = URLRequest(url: url)
                     request.timeoutInterval = 30
 
-                    let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-                    if let key = apiKey, hasApiKey {
-                        request.setValue(key, forHTTPHeaderField: "X-API-Key")
-                    }
+                    try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
 
                     let (bytes, response) = try await session.bytes(for: request)
 

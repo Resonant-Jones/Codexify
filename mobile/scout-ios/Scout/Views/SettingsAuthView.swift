@@ -5,6 +5,7 @@ struct SettingsAuthView: View {
     @State private var validationErrors: [ScoutEndpointDraftValidationError] = []
     @State private var showValidationResults = false
     @State private var isProbing = false
+    @State private var probeGeneration = 0
     @State private var connectionMessage: String?
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var saveMessage: String?
@@ -19,17 +20,30 @@ struct SettingsAuthView: View {
         NavigationStack {
             Form {
                 Section("Endpoint Profile") {
-                    TextField("Name", text: $draftProfile.name)
+                    TextField("Name", text: nameBinding)
 
-                    TextField("Vault Base URL", text: $draftProfile.baseURL)
+                    TextField("Vault Base URL", text: baseURLBinding)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
 
-                    Picker("Transport", selection: $draftProfile.transportType) {
+                    Picker("Transport", selection: transportBinding) {
                         ForEach(ScoutEndpointTransportType.allCases) { transport in
                             Text(transport.title).tag(transport)
                         }
+                    }
+                }
+
+                Section("Authentication Mode") {
+                    Picker("Mode", selection: authenticationModeBinding) {
+                        ForEach(ScoutEndpointAuthenticationMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    if draftProfile.authenticationMode == .remoteSession {
+                        Text("Remote-session login is not implemented. No request will be sent in this mode.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -51,7 +65,8 @@ struct SettingsAuthView: View {
                     HStack {
                         Text("Last Connected")
                         Spacer()
-                        if let lastConnected = draftProfile.lastConnectedAt {
+                        if draftProfile.authenticationMode == .localAPIKey,
+                           let lastConnected = draftProfile.lastConnectedAt {
                             Text(lastConnected, style: .date)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -65,6 +80,12 @@ struct SettingsAuthView: View {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
+                        Button("Replace unreadable profile with a new draft", role: .destructive) {
+                            storedProfileData = Data()
+                            draftProfile = .emptyDraft
+                            loadError = nil
+                            resetCurrentConnectionEvidence()
+                        }
                     }
                 }
 
@@ -86,21 +107,33 @@ struct SettingsAuthView: View {
                             return
                         }
 
+                        let testedEndpoint = draftProfile
+                        probeGeneration += 1
+                        let testedGeneration = probeGeneration
                         isProbing = true
                         connectionMessage = nil
                         saveMessage = nil
                         draftProfile.validationState = .validating
 
                         Task {
-                            let apiKey: String?
-                            do {
-                                apiKey = try keychainStore.loadAPIKey()
-                            } catch {
-                                keychainMessage = "Could not load API key from Keychain. Testing without credentials."
-                                apiKey = nil
+                            var apiKey: String?
+                            if testedEndpoint.authenticationMode == .localAPIKey {
+                                do {
+                                    apiKey = try keychainStore.loadAPIKey()
+                                } catch {
+                                    keychainMessage = "Could not load API key from Keychain. Testing without credentials."
+                                }
                             }
 
-                            let result = await ScoutEndpointConnectivityProbe.probe(endpoint: draftProfile, apiKey: apiKey)
+                            let result = await ScoutEndpointConnectivityProbe.probe(endpoint: testedEndpoint, apiKey: apiKey)
+                            guard probeGeneration == testedGeneration,
+                                  draftProfile.id == testedEndpoint.id,
+                                  draftProfile.name == testedEndpoint.name,
+                                  draftProfile.baseURL == testedEndpoint.baseURL,
+                                  draftProfile.transportType == testedEndpoint.transportType,
+                                  draftProfile.authenticationMode == testedEndpoint.authenticationMode else {
+                                return
+                            }
                             draftProfile.validationState = result.validationState
                             draftProfile.authenticationState = result.authenticationState
                             if let connectedAt = result.connectedAt {
@@ -114,7 +147,7 @@ struct SettingsAuthView: View {
                             }
                         }
                     }
-                    .disabled(!draftProfile.isValidDraft || isProbing)
+                    .disabled(!draftProfile.isValidDraft || isProbing || loadError != nil)
                 }
 
                 Section {
@@ -128,63 +161,66 @@ struct SettingsAuthView: View {
                         }
                         persistDraft()
                     }
+                    .disabled(loadError != nil)
                 }
 
-                Section("API Key") {
-                    SecureField("Vault API Key", text: $apiKeyInput)
-                        .disabled(isKeyStored && apiKeyInput.isEmpty)
+                if draftProfile.authenticationMode == .localAPIKey {
+                    Section("API Key") {
+                        SecureField("Vault API Key", text: $apiKeyInput)
+                            .disabled(isKeyStored && apiKeyInput.isEmpty)
 
-                    if isKeyStored {
-                        HStack {
-                            Label("Stored in Keychain", systemImage: "lock.fill")
-                                .foregroundStyle(.green)
-                            Spacer()
-                            Button("Delete", role: .destructive) {
-                                try? keychainStore.deleteAPIKey()
-                                isKeyStored = false
-                                apiKeyInput = ""
-                                keychainMessage = "API key removed from Keychain."
+                        if isKeyStored {
+                            HStack {
+                                Label("Stored in Keychain", systemImage: "lock.fill")
+                                    .foregroundStyle(.green)
+                                Spacer()
+                                Button("Delete", role: .destructive) {
+                                    try? keychainStore.deleteAPIKey()
+                                    isKeyStored = false
+                                    apiKeyInput = ""
+                                    keychainMessage = "API key removed from Keychain."
+                                }
                             }
-                        }
 
-                        if !apiKeyInput.isEmpty {
-                            Button("Update") {
+                            if !apiKeyInput.isEmpty {
+                                Button("Update") {
+                                    let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    guard !trimmed.isEmpty else { return }
+                                    do {
+                                        try keychainStore.saveAPIKey(trimmed)
+                                        apiKeyInput = ""
+                                        keychainMessage = "API key updated in Keychain."
+                                    } catch {
+                                        keychainMessage = "Failed to update API key."
+                                    }
+                                }
+                            }
+                        } else {
+                            Button("Save to Keychain") {
                                 let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
                                 do {
                                     try keychainStore.saveAPIKey(trimmed)
+                                    isKeyStored = true
                                     apiKeyInput = ""
-                                    keychainMessage = "API key updated in Keychain."
+                                    keychainMessage = "API key saved to Keychain."
                                 } catch {
-                                    keychainMessage = "Failed to update API key."
+                                    keychainMessage = "Failed to save API key."
                                 }
                             }
+                            .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-                    } else {
-                        Button("Save to Keychain") {
-                            let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            do {
-                                try keychainStore.saveAPIKey(trimmed)
-                                isKeyStored = true
-                                apiKeyInput = ""
-                                keychainMessage = "API key saved to Keychain."
-                            } catch {
-                                keychainMessage = "Failed to save API key."
-                            }
+
+                        if let msg = keychainMessage {
+                            Label(msg, systemImage: msg.contains("Failed") ? "xmark.circle.fill" : "checkmark.circle.fill")
+                                .foregroundStyle(msg.contains("Failed") ? .red : .green)
+                                .font(.caption)
                         }
-                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
 
-                    if let msg = keychainMessage {
-                        Label(msg, systemImage: msg.contains("Failed") ? "xmark.circle.fill" : "checkmark.circle.fill")
-                            .foregroundStyle(msg.contains("Failed") ? .red : .green)
-                            .font(.caption)
+                        Text("The API key is stored in the iOS Keychain and never written to UserDefaults or included in unencrypted backups.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-
-                    Text("The API key is stored in the iOS Keychain and never written to UserDefaults or included in unencrypted backups.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 if isProbing {
@@ -240,14 +276,58 @@ struct SettingsAuthView: View {
         }
     }
 
+    private var nameBinding: Binding<String> {
+        Binding(get: { draftProfile.name }, set: { value in
+            guard value != draftProfile.name else { return }
+            draftProfile.name = value
+            resetCurrentConnectionEvidence()
+        })
+    }
+
+    private var baseURLBinding: Binding<String> {
+        Binding(get: { draftProfile.baseURL }, set: { value in
+            guard value != draftProfile.baseURL else { return }
+            draftProfile.baseURL = value
+            resetCurrentConnectionEvidence()
+        })
+    }
+
+    private var transportBinding: Binding<ScoutEndpointTransportType> {
+        Binding(get: { draftProfile.transportType }, set: { value in
+            guard value != draftProfile.transportType else { return }
+            draftProfile.transportType = value
+            resetCurrentConnectionEvidence()
+        })
+    }
+
+    private var authenticationModeBinding: Binding<ScoutEndpointAuthenticationMode> {
+        Binding(get: { draftProfile.authenticationMode }, set: { value in
+            guard value != draftProfile.authenticationMode else { return }
+            draftProfile.authenticationMode = value
+            apiKeyInput = ""
+            resetCurrentConnectionEvidence()
+        })
+    }
+
+    private func resetCurrentConnectionEvidence() {
+        probeGeneration += 1
+        isProbing = false
+        draftProfile.authenticationState = .unconfigured
+        draftProfile.validationState = .unconfigured
+        draftProfile.lastConnectedAt = nil
+        connectionMessage = nil
+        saveMessage = nil
+        validationErrors = []
+        showValidationResults = false
+    }
+
     private func loadProfile() {
         guard !storedProfileData.isEmpty else { return }
         do {
             draftProfile = try JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData)
             loadError = nil
         } catch {
-            draftProfile = .emptyDraft
-            loadError = "Could not load saved profile. Starting with a blank configuration."
+            loadError = "Could not load saved profile. Stored data was preserved; replace it explicitly to start a new draft."
         }
     }
 

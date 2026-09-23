@@ -79,14 +79,10 @@ struct ScoutEndpointConnectivityProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         let requestStart = Date()
 
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
             let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
@@ -144,6 +140,15 @@ struct ScoutEndpointConnectivityProbe {
                     latencyMilliseconds: latencyMs
                 )
             }
+        } catch let error as ScoutRequestAuthenticationError {
+            return ScoutEndpointConnectivityResult(
+                validationState: .invalidConfiguration,
+                authenticationState: .unconfigured,
+                message: error.localizedDescription,
+                connectedAt: nil,
+                snapshot: nil,
+                latencyMilliseconds: nil
+            )
         } catch let error as URLError where error.code == .timedOut {
             return ScoutEndpointConnectivityResult(
                 validationState: .unreachable,

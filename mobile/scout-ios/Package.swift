@@ -29,6 +29,7 @@ let package = Package(
                 "Models/ScoutRAGTraceSnapshot.swift",
                 "Models/ScoutTaskReceiptSummary.swift",
                 "Services/ScoutEndpointConnectivityProbe.swift",
+                "Services/ScoutRequestAuthentication.swift",
                 "Services/ScoutLLMHealthProbe.swift",
                 "Services/ScoutLLMCatalogProbe.swift",
                 "Services/ScoutGuardianThreadsProbe.swift",
