@@ -419,13 +419,18 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
   it("renders the prompt-first state with the shared Composer and no transcript", () => {
     renderShortcutChat();
 
+    const landingStage = screen.getByTestId("guardian-landing-stage");
     const landingUnit = screen.getByTestId("guardian-landing-unit");
     const greeting = screen.getByTestId("guardian-prompt-first-surface");
     const composer = screen.getByTestId("composer-stub");
 
     expect(greeting).toHaveTextContent(/tester/);
+    expect(landingStage).toContainElement(landingUnit);
     expect(landingUnit).toContainElement(greeting);
     expect(landingUnit).toContainElement(composer);
+    expect(landingUnit.style.position).not.toBe("fixed");
+    expect(landingUnit.style.left).toBe("");
+    expect(landingUnit.style.right).toBe("");
     expect(greeting.compareDocumentPosition(composer)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
@@ -441,6 +446,8 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
     renderShortcutChat({ activeThread: { id: "42", title: "Active" } as any });
 
     expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-landing-stage")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-landing-unit")).not.toBeInTheDocument();
     expect(screen.queryByTestId("guardian-prompt-first-surface")).not.toBeInTheDocument();
     expect(screen.getByTestId("composer-stub")).toHaveAttribute(
       "data-presentation-mode",

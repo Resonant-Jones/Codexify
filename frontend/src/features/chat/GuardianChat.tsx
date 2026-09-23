@@ -4443,8 +4443,13 @@ export function GuardianChat({
         data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
         className={
           isLandingPresentation
-            ? "relative flex min-h-0 flex-1 items-center justify-center"
+            ? "relative flex min-h-0 min-w-0 flex-1 items-center justify-center"
             : "contents"
+        }
+        style={
+          isLandingPresentation
+            ? { paddingInline: "max(var(--page-pad, 0px), var(--shell-gap, 12px))" }
+            : undefined
         }
       >
         <div
@@ -4457,15 +4462,9 @@ export function GuardianChat({
           style={
             isLandingPresentation
               ? {
-                  position: "fixed",
-                  top: "50vh",
-                  left: "max(var(--page-pad, 0px), var(--shell-gap, 12px))",
-                  right: "max(var(--page-pad, 0px), var(--shell-gap, 12px))",
-                  width: "auto",
                   maxWidth: CHAT_LANE_MAX_WIDTH,
-                  marginInline: "auto",
                   zIndex: 20,
-                  transform: "translateY(-100%)",
+                  transform: "translateY(-50%)",
                 }
               : undefined
           }
