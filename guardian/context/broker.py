@@ -35,6 +35,7 @@ from guardian.context.tool_intents import (
     redact_tool_intent_dict,
 )
 from guardian.core.config import Settings, get_settings
+from guardian.core.pgdb import PgDB
 from guardian.memoryos.retriever import MemoryOSRetriever
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
@@ -1953,11 +1954,14 @@ class ContextBroker:
     ) -> List[Dict[str, Any]]:
         """Fetch recent messages from a thread.
 
-        Uses chatlog.last_messages when available, otherwise falls back to
-        chatlog.list_messages(thread_id, limit=n, offset=0).
+        PostgreSQL uses its explicit newest-window read. Other adapters use
+        last_messages when available, then their generic list fallback.
         """
-        # Preferred: use last_messages if adapter provides it (ordered newest→oldest)
-        if hasattr(self.chatlog, "last_messages"):
+        # PostgreSQL has an explicit newest-window read that returns chronological order.
+        if isinstance(self.chatlog, PgDB):
+            result = self.chatlog.recent_messages(thread_id, limit=n)
+        # Preferred on other adapters: use last_messages when available.
+        elif hasattr(self.chatlog, "last_messages"):
             try:
                 result = self.chatlog.last_messages(
                     thread_id, n=n, user_id=user_id

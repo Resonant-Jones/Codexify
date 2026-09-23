@@ -38,6 +38,7 @@ from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
+from guardian.core.pgdb import PgDB
 from guardian.context.context_directive_resolver import (
     CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
     SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -5040,11 +5041,14 @@ async def build_messages_for_llm(
     # the visible transcript (which may page older messages through
     # the transcript endpoint at GET /{thread_id}/messages).
     limit = int(task.max_context or 50)
-    items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
-    try:
-        items = sorted(items, key=lambda m: m.get("id") or 0)
-    except Exception:
-        pass
+    if isinstance(dependencies.chatlog_db, PgDB):
+        items = dependencies.chatlog_db.recent_messages(thread_id, limit=limit)
+    else:
+        items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+        try:
+            items = sorted(items, key=lambda m: m.get("id") or 0)
+        except Exception:
+            pass
 
     explicit_latest_turn_message_id = _coerce_message_id(
         getattr(task, "latest_turn_message_id", None)

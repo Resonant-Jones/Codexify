@@ -1609,6 +1609,23 @@ class PgDB(ChatDB):
             messages = [row for row in messages if row.get("kind") not in exclude_kinds]
         return messages
 
+    def recent_messages(self, thread_id: int, *, limit: int) -> list[dict[str, Any]]:
+        """Return the newest bounded thread window in chronological order."""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, thread_id, role, content, created_at
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT %s
+                    """,
+                    (thread_id, limit),
+                )
+                newest_first = [dict(row) for row in cur.fetchall()]
+        return list(reversed(newest_first))
+
     def count_messages(self, thread_id: int):
         """Return integer count of messages for a thread."""
         with self._connect() as conn:
