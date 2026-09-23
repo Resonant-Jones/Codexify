@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -252,6 +253,131 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
       bytes: expectedBytes,
       database_readback: Boolean(dbContainer),
       commit_intercepted: commitIntercepted === 1,
+    }));
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('current account import UI commits a valid OpenAI export for materialization', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-materialization-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(exportFolder);
+  const sourceConversationId = 'axis-import-materialization-20260923-01';
+  const userMessageId = 'axis-import-user-message-20260923-01';
+  const assistantMessageId = 'axis-import-assistant-message-20260923-01';
+  const exportData = [{
+    conversation_id: sourceConversationId,
+    id: sourceConversationId,
+    title: 'Axis Import Materialization Probe',
+    current_node: assistantMessageId,
+    create_time: 1720000000,
+    update_time: 1720000001,
+    mapping: {
+      [userMessageId]: {
+        id: userMessageId,
+        parent: null,
+        children: [assistantMessageId],
+        message: {
+          id: userMessageId,
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['CODEXIFY_IMPORT_USER_SENTINEL_20260923'] },
+          create_time: 1720000000,
+        },
+      },
+      [assistantMessageId]: {
+        id: assistantMessageId,
+        parent: userMessageId,
+        children: [],
+        message: {
+          id: assistantMessageId,
+          author: { role: 'assistant' },
+          content: { content_type: 'text', parts: ['CODEXIFY_IMPORT_ASSISTANT_SENTINEL_20260923'] },
+          create_time: 1720000001,
+        },
+      },
+    },
+  }];
+  const bytes = Buffer.from(JSON.stringify(exportData));
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(join(exportFolder, 'conversations.json'), bytes);
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'local');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+
+    const createResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/imports/openai-account' &&
+      response.request().method() === 'POST'
+    );
+    const uploadResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/files$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const commitResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/commit$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(200);
+    const created = await createResponse.json();
+    const jobId = String(created.job_id ?? '');
+    expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(created.source_system).toBe('openai');
+    expect(created.total_file_count).toBe(1);
+    expect(created.total_byte_count).toBe(bytes.length);
+
+    const uploadResponse = await uploadResponsePromise;
+    expect(uploadResponse.status()).toBe(200);
+    expect(new URL(uploadResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/files`);
+    const uploaded = await uploadResponse.json();
+    expect(uploaded.job_id).toBe(jobId);
+    expect(uploaded.uploaded_file_count).toBe(1);
+    expect(uploaded.uploaded_byte_count).toBe(bytes.length);
+
+    const commitResponse = await commitResponsePromise;
+    expect(commitResponse.status()).toBe(200);
+    expect(new URL(commitResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/commit`);
+    const committed = await commitResponse.json();
+    expect(committed.job_id).toBe(jobId);
+    expect(committed.status).toBe('queued');
+    expect(committed.queued_at).toBeTruthy();
+
+    const statusResponse = await page.request.get(`/api/imports/openai-account/${jobId}`, {
+      headers: { 'X-User-Id': 'local' },
+    });
+    expect(statusResponse.status()).toBe(200);
+    const readback = await statusResponse.json();
+    expect(readback.job_id).toBe(jobId);
+    expect(readback.status).toBe('queued');
+    expect(readback.uploaded_file_count).toBe(1);
+    expect(readback.uploaded_byte_count).toBe(bytes.length);
+    console.log('account-import materialization commit receipt', JSON.stringify({
+      job_id: jobId,
+      observed_at: new Date().toISOString(),
+      source_conversation_id: sourceConversationId,
+      source_message_ids: [userMessageId, assistantMessageId],
+      relative_path: 'openai-export/conversations.json',
+      file_count: 1,
+      byte_count: bytes.length,
+      sha256,
+      create_status: createResponse.status(),
+      upload_status: uploadResponse.status(),
+      commit_status: commitResponse.status(),
+      readback_status: statusResponse.status(),
+      job_status: readback.status,
     }));
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
