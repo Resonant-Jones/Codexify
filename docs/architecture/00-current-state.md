@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-09-22
+2026-09-23
 
 ## Interpretation rule
 
@@ -18,56 +18,57 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated friends-and-family private-preview lane. The current-tip supported-Compose rerun proves substantial local runtime behavior, but release qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated private-preview lane. Mainline has merged the supported-path repair set, but the last complete supported-Compose qualification ended `HOLD` and no complete post-repair rerun is recorded. The 2026-09-23 mainline log records no new implementation or qualification work.
 
 ## What changed recently
 
-- Merged one-time, recipient-bound account activation and admitted it only to the gated private-preview/tester lane.
-- Separated stable provider identity, configured local runtime identity, logical model route, and inventory display metadata.
-- Repaired the supported Whoosh'd Compose projection so required services use local-only, cloud-disabled `local-chat`; added focused regression coverage.
-- Current-tip rerun proved health, migrations, inventory, cold/warm chat, document upload, project retrieval, persistence, queue/worker execution, locks, reload, and narrow restart recovery.
-- The rerun still records `HOLD`; the 2026-09-22 mainline log records no additional implementation or runtime qualification.
+- Merged Guardian terminal-task projection repairs; the complete qualification recorded browser `Ready` convergence, no stale `Queued`, and agreement with durable terminal truth.
+- Merged durable retrieval provenance for contributing document/chunk identities; the qualification recorded exact equality between assistant and terminal-outbox provenance.
+- Merged explicit local-model authority and fail-closed handling; focused tests and a bounded live rejection passed, but full post-repair qualification is still pending.
+- Reconciled the backend release-boundary suite and Guardian lifecycle-test reliability; the declared bundles recorded 157/157 backend and 11/11 lifecycle tests.
+- Enabled direct messages only in the gated private-preview profile and polished the Guardian shell; no public Beta support claim widened.
+- Recorded a no-change mainline day for 2026-09-23.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose with `v1-local-core-web-mcp`, `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
-- The declared Beta Supported contract covers local inference, ordinary chat, durable threads/messages/tasks, document upload/embed/readback, workspace-scoped retrieval, identity/ownership, migrations, and operator diagnostics; current-tip qualification is separate.
-- Mainline proof establishes a bounded working local path: Whoosh'd advertises executable `local-chat`, two-turn chat persists assistant rows, project retrieval returns the test fact, and readback survives reload and narrow service restart.
-- `local` is the stable provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical display metadata remains inventory observation.
-- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation is gated; none of this is public Beta support.
+- The Beta Supported contract covers local inference, ordinary chat, durable threads/messages/tasks, document upload/embed/readback, workspace retrieval, identity/ownership, migrations, and operator diagnostics; qualification is a separate gate.
+- Mainline contains bounded proof for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, and the declared static suites at the evaluated frozen tip.
+- `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical display metadata remains inventory observation.
+- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation/direct messaging remain gated; these are not public Beta support.
 
 ## Not yet true / do not assume
 
-- Do not call the supported path release-ready: the rerun is `HOLD`.
-- Do not treat a durable successful task as browser completion proof; the top-level UI remains `Queued` after success, reload, and restart.
-- Do not treat correct retrieval output as document-level provenance; terminal and assistant records lack the contributing document/chunk attribution.
-- Do not treat the focused model-projection test as full release validation; the governing backend suite remains 151 passed / 5 failed, and two large frontend lifecycle files OOM or hang.
-- Do not promote unmerged or untracked terminal-state repair work, activation CLIs/tests, CE-L1, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, or Pi into the release promise.
+- Do not call the supported path release-ready: the latest complete qualification is `HOLD`.
+- Do not claim the explicit unavailable-model path is fully requalified: the repair is merged and bounded tests pass, but the full current-tip bundle has not been rerun.
+- Do not infer restart/post-restart proof from the pre-repair qualification; those rows were blocked after the fail-closed contradiction.
+- Do not treat focused tests, UI polish, direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, or Pi work as public Beta support without current-main qualification.
+- Do not treat local `main` being one commit ahead of `origin/main`, or the staged unrelated dev-log deletion, as release or runtime evidence.
 
 ## Active blockers
 
-- Guardian terminal-task/session projection must clear stale `Queued` state and agree with durable terminal truth for success and failure.
-- Retrieval must persist attributable document/chunk provenance, not only project scope and a correct answer.
-- Governing static validation remains open: stale backend expectations and frontend lifecycle OOM/hang behavior need scoped resolution.
+- Run the complete supported-Compose qualification against the repaired current `main`, including exact-model rejection, restart recovery, and post-restart ordinary chat.
+- Resolve the remaining neighboring explicit-model worker-test contradiction and keep the fail-closed contract authoritative.
+- Reconcile a clean intended publication baseline before making a release claim; no push or remote publication is implied by this audit.
 - Private Preview still lacks live activation/replay/login, Chroma/application, provider/persistence/isolation, and approved non-admin canary proof.
-- ADR-087 graceful shutdown/finite drain, Tester bind-readiness, browser/import, connector, Watchdog, retention, hosted-sandbox, and publication-baseline gates remain open or bounded.
+- ADR-087 graceful shutdown/finite drain, Tester bind-readiness, browser/import, connector, Watchdog, retention, hosted-sandbox, and other bounded qualification gates remain open where not directly covered above.
 
 ## This week's priorities
 
-1. Repair and requalify terminal task-state projection on the supported browser path.
-2. Re-run retrieval with durable document/chunk provenance and close the attribution gap.
-3. Resolve the scoped backend assertions and frontend lifecycle OOM/hang without weakening release contracts.
-4. Qualify Private Preview activation, provider/persistence/isolation, and non-admin canary behavior end to end.
-5. Reconcile the intended publication baseline, then rerun the complete supported-Compose release bundle.
+1. Freeze the repaired current `main` and run the full supported-Compose proof bundle.
+2. Close the explicit-model test contradiction and verify no substitution before provider execution.
+3. Confirm browser terminal convergence, durable provenance, queue/worker/lock behavior, and restart recovery on that same tip.
+4. Qualify the gated private-preview activation, provider/persistence/isolation, and non-admin canary path.
+5. Reconcile the publication baseline and update release claims only from the resulting evidence.
 
 ## Release definition right now
 
-- [x] The supported install path and Beta boundary are defined on `main`.
-- [x] Provider/runtime identity, local-only posture, and fail-closed boundaries are explicit.
-- [ ] Current-tip Compose proves coherent health, inventory, chat, durable readback, retrieval provenance, browser terminal state, and event delivery.
-- [ ] Queue/worker, deadline, graceful-stop, lock, migration, recovery, browser, and account-import claimed-path gates are green.
-- [ ] Preview activation and provider lanes have current-main evidence for live execution, durable readback, isolation, recovery, and canary behavior where applicable.
-- [ ] Governing static checks and the intended publication baseline are reconciled.
+- [x] Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.
+- [x] Mainline has bounded repair and qualification evidence for terminal projection, retrieval provenance, and static lifecycle reliability.
+- [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval provenance, browser terminal state, event delivery, and restart recovery.
+- [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
+- [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, and account-import claimed-path gates are green on the same evaluated tip.
+- [ ] Preview lanes and the intended publication baseline have current evidence where claimed.
 
 ## How to read the rest of the KB
 
