@@ -257,7 +257,8 @@ function FormSection({
       id={`persona-studio-form-section-${id}`}
       data-testid={`persona-studio-form-section-${id}`}
       data-highlighted={highlighted ? "true" : "false"}
-      className="border-b py-3 last:border-b-0"
+      data-open={open ? "true" : "false"}
+      className="ps-form-section rounded-[var(--radius-micro)] border"
       style={{
         borderColor: "var(--panel-border)",
         background: highlighted
@@ -270,17 +271,17 @@ function FormSection({
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={contentId}
-        className="flex w-full items-start justify-between gap-4 px-1 text-left"
+        className="ps-section-toggle flex w-full items-start justify-between gap-[var(--card-pad)] text-left"
       >
         <span>
-          <span className="block text-sm font-semibold">{title}</span>
+          <span className="block text-base font-semibold leading-6">{title}</span>
           <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{summary}</span>
         </span>
-        <span className="pt-0.5 text-xs text-[var(--muted)]" aria-hidden>
-          {open ? "−" : "+"}
-        </span>
+        <svg className="mt-1 h-4 w-4 shrink-0 text-[var(--muted)]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d={open ? "M3 10l5-5 5 5" : "M3 6l5 5 5-5"} />
+        </svg>
       </button>
-      {open ? <div id={contentId} className="space-y-4 px-1 pb-1 pt-4">{children}</div> : null}
+      {open ? <div id={contentId} className="ps-section-fields">{children}</div> : null}
     </section>
   );
 }
@@ -298,7 +299,7 @@ function FieldLabel({
     <label
       htmlFor={htmlFor}
       data-highlighted={highlighted ? "true" : "false"}
-      className="block space-y-1.5 text-sm font-medium"
+      className="block space-y-1.5 text-xs font-medium text-[var(--muted)]"
       style={{ color: highlighted ? "var(--accent)" : undefined }}
     >
       {children}
@@ -496,6 +497,54 @@ export default function PersonaStudioPage() {
           }
         }
       `}</style>
+      <style data-testid="persona-studio-hierarchy-styles">{`
+        /* Guardian composer geometry, scoped to text entry (including embedded Test). */
+        [data-testid="persona-studio-page"] :is(textarea, input[type="text"], input[type="number"], input:not([type])) {
+          border-radius: 24px;
+          padding: var(--card-pad) var(--shell-gap);
+          font-size: 0.875rem;
+          font-weight: 400;
+          line-height: 1.5;
+          color: var(--text);
+        }
+        [data-testid="persona-studio-page"] :is(input[type="text"], input[type="number"], input:not([type])) {
+          height: auto;
+          min-height: calc(var(--card-pad) * 3.5);
+        }
+        [data-testid="persona-studio-page"] .ps-save-row {
+          border-block: 1px solid var(--panel-border);
+          padding-block: calc(var(--card-pad) / 2);
+        }
+        [data-testid="persona-studio-page"] .ps-projection-nav {
+          border: 1px solid var(--panel-border);
+          border-radius: var(--radius-micro);
+          background: color-mix(in srgb, var(--chip-bg) 70%, var(--panel-bg));
+        }
+        [data-testid="persona-studio-page"] .ps-projection-nav .pill-tab {
+          font-weight: 600;
+        }
+        [data-testid="persona-studio-page"] .ps-form-section {
+          background: color-mix(in srgb, var(--panel-bg) 92%, var(--text));
+        }
+        [data-testid="persona-studio-page"] .ps-section-toggle {
+          padding: var(--card-pad) var(--shell-gap);
+          border-radius: inherit;
+        }
+        [data-testid="persona-studio-page"] .ps-form-section[data-open="true"] .ps-section-toggle {
+          border-bottom: 1px solid var(--panel-border);
+          border-bottom-left-radius: 0;
+          border-bottom-right-radius: 0;
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields {
+          padding: var(--shell-gap);
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields > * + * {
+          margin-top: var(--shell-gap);
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields :is(input, textarea, select) {
+          font-weight: 400;
+        }
+      `}</style>
       <PersonaStudioActionChipStyles />
       <h1 className="sr-only">Persona Studio</h1>
       <div
@@ -550,10 +599,10 @@ export default function PersonaStudioPage() {
 
         <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-configuration-frame" ariaLabel="Configuration">
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="space-y-3 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
+            <header className="ps-configuration-header space-y-[var(--card-pad)] border-b pb-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold">Configuration</h2>
+                  <h2 className="text-2xl font-semibold tracking-tight">Configuration</h2>
                   <p className="mt-1 text-xs leading-5 text-[var(--muted)]">One local draft projected as Form, Manifest, or effective inspection.</p>
                 </div>
                 <DropdownMenu>
@@ -566,21 +615,21 @@ export default function PersonaStudioPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="ps-save-row flex flex-wrap items-center justify-between gap-[var(--card-pad)]">
                 <span className="text-xs font-medium text-[var(--muted)]" data-testid="persona-studio-save-status" data-saved-revision={savedRevision ?? ""}>{status}</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button {...personaStudioActionChip("reset")} type="button" variant="ghost" size="sm" onClick={resetSelectedProfile} disabled={!hasSavedVersion || !isDirty} data-testid="persona-studio-action-reset">Revert</Button>
                   <Button {...personaStudioActionChip("primary")} type="button" variant="ghost" size="sm" onClick={saveSelectedProfile} disabled={!isDirty} data-testid="persona-studio-action-save">Save</Button>
                 </div>
               </div>
-              <div className="flex gap-1" role="tablist" aria-label="Configuration projection">
+              <div className="ps-projection-nav flex gap-1" role="tablist" aria-label="Configuration projection">
                 {(["form", "manifest", "effective"] as const).map((mode) => <button key={mode} type="button" role="tab" aria-selected={configurationMode === mode} onClick={() => setConfigurationMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={configurationMode === mode ? "active" : "inactive"}>{mode}</button>)}
               </div>
             </header>
 
-            <div className="min-h-0 flex-1 overflow-y-auto pt-2" data-testid="persona-studio-configuration-viewport" data-saved-profile-id={hasSavedVersion ? selectedProfile.id : ""} data-draft-state={isDirty ? "dirty" : "clean"}>
+            <div className="min-h-0 flex-1 overflow-y-auto pt-[var(--card-pad)]" data-testid="persona-studio-configuration-viewport" data-saved-profile-id={hasSavedVersion ? selectedProfile.id : ""} data-draft-state={isDirty ? "dirty" : "clean"}>
               {configurationMode === "form" ? (
-                <div data-testid="persona-studio-form" className="divide-y" style={{ borderColor: "var(--panel-border)" }}>
+                <div data-testid="persona-studio-form" className="space-y-[var(--card-pad)]">
                   <FormSection id="identity" title="Identity" summary="Portable name and description for this Persona Profile." open={openSections.identity} highlighted={false} onToggle={() => toggleSection("identity")}>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <FieldLabel htmlFor="persona-studio-name"><span>Persona name</span><Input id="persona-studio-name" aria-label="Persona name" value={config.identity.name} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, name: event.target.value } }))} placeholder="Enter persona name" /></FieldLabel>
