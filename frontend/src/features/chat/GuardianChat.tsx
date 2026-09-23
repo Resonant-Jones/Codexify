@@ -131,6 +131,7 @@ import {
 import {
   loadDocumentContentById,
   serializeDocumentContextMessage,
+  documentIdentityKey,
   type DocumentContextTile,
   type DocumentContextContent,
 } from "@/lib/documentContext";
@@ -912,8 +913,9 @@ function dedupeDocumentContextTiles(
   const next: DocumentContextTile[] = [];
   for (const tile of tiles) {
     const id = String(tile?.id ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
+    const identity = documentIdentityKey(tile);
+    if (!id || seen.has(identity)) continue;
+    seen.add(identity);
     next.push(tile);
   }
   return next;
@@ -3380,16 +3382,15 @@ export function GuardianChat({
 
       const loaded: DocumentContextContent[] = await Promise.all(
         tiles.map(async (tile) => {
-          const record = await loadDocumentContentById(tile.id);
+          const record = await loadDocumentContentById(tile.id, tile.artifactType);
           const content = String(record.content ?? "").trim();
           if (!content) {
             throw new Error(`Document "${tile.title}" has no readable content.`);
           }
           return {
             tile: {
-              ...tile,
-              title: tile.title || record.title || "Untitled",
-              ext: tile.ext || record.ext,
+              ...record.tile,
+              preview: tile.preview,
             },
             content,
           };
