@@ -255,7 +255,7 @@ export function ChatGPTImportModal({
       );
       return;
     }
-    void startOpenAIAccountImport(files, userName, sourceSystem).catch(() => {
+    void startOpenAIAccountImport(files, sourceSystem).catch(() => {
       // The module-level coordinator owns and exposes the durable error state.
     });
   };

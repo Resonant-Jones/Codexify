@@ -191,22 +191,12 @@ describe("ChatGPTImportModal account export intake", () => {
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
     // The submission crossed the existing import-submission seam with the
     // canonical Anthropic source. No `origin_system` field is ever sent.
-    expect(coordinator.start).toHaveBeenCalledWith(
-      expect.any(Array),
-      "account-a",
-      "anthropic"
-    );
-    const [
-      startFiles,
-      startUserId,
-      startSource,
-      startOptions,
-    ] = coordinator.start.mock.calls[0];
+    expect(coordinator.start).toHaveBeenCalledWith(expect.any(Array), "anthropic");
+    const [startFiles, startSource, startOptions] =
+      coordinator.start.mock.calls[0];
     expect(startFiles).toEqual(expect.any(Array));
-    expect(startUserId).toBe("account-a");
     expect(startSource).toBe("anthropic");
-    // Only the three documented arguments flow through the seam; any
-    // surfaced origin_system would appear here as a fourth argument.
+    // Only files and canonical source flow through the seam.
     expect(startOptions).toBeUndefined();
   });
 
@@ -247,11 +237,7 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
-    expect(coordinator.start).toHaveBeenCalledWith(
-      expect.any(Array),
-      "account-a",
-      "openai"
-    );
+    expect(coordinator.start).toHaveBeenCalledWith(expect.any(Array), "openai");
   });
 
   it("routes both Anthropic and OpenAI through the same existing submission seam", async () => {
@@ -279,7 +265,7 @@ describe("ChatGPTImportModal account export intake", () => {
       }
     );
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledTimes(1));
-    expect(coordinator.start.mock.calls[0][2]).toBe("anthropic");
+    expect(coordinator.start.mock.calls[0][1]).toBe("anthropic");
 
     // Reset and drive the OpenAI branch through the same modal.
     coordinator.start.mockClear();
@@ -294,7 +280,7 @@ describe("ChatGPTImportModal account export intake", () => {
       }
     );
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledTimes(1));
-    expect(coordinator.start.mock.calls[0][2]).toBe("openai");
+    expect(coordinator.start.mock.calls[0][1]).toBe("openai");
 
     // The legacy single-file ChatGPT endpoint must not be involved in
     // either path through the rendered modal.
@@ -319,7 +305,7 @@ describe("ChatGPTImportModal account export intake", () => {
       }
     );
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
-    const sourceSystem = coordinator.start.mock.calls[0][2];
+    const sourceSystem = coordinator.start.mock.calls[0][1];
     expect(["openai", "anthropic"]).toContain(sourceSystem);
   });
 
@@ -377,12 +363,12 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
-    const [files, userId] = coordinator.start.mock.calls[0];
+    const [files, sourceSystem] = coordinator.start.mock.calls[0];
     expect(files.map((item: any) => item.relativePath)).toEqual([
       "export/conversations.json",
       "export/media/image.png",
     ]);
-    expect(userId).toBe("account-a");
+    expect(sourceSystem).toBe("openai");
   });
 
   it("submits every folder-picker file immediately", async () => {
@@ -424,10 +410,28 @@ describe("ChatGPTImportModal account export intake", () => {
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
     // The default source is "openai" because the explicit selector defaults
-    // to OpenAI; the third argument must always be the canonical source.
+    // to OpenAI; the second argument must always be the canonical source.
     expect(coordinator.start).toHaveBeenCalledWith(
       [{ file: archive, relativePath: "openai-export.zip" }],
-      "account-a",
+      "openai"
+    );
+  });
+
+  it("does not pass the presentation name You as account authority", async () => {
+    const json = new File(["[]"], "conversations.json");
+    const root = directoryEntry("/export", [
+      [fileEntry("/export/conversations.json", json)],
+    ]);
+    render(<ChatGPTImportModal open onOpenChange={vi.fn()} userName="You" />);
+
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      { dataTransfer: { items: [{ webkitGetAsEntry: () => root }], files: [] } }
+    );
+
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    expect(coordinator.start).toHaveBeenCalledWith(
+      [{ file: json, relativePath: "export/conversations.json" }],
       "openai"
     );
   });

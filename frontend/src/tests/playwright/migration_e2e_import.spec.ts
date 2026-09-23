@@ -128,6 +128,78 @@ for (const fileCount of [2, 25]) {
   });
 }
 
+test('account import identity stays with backend when Settings display name is You', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-identity-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(exportFolder);
+  writeFileSync(join(exportFolder, 'conversations.json'), '[]');
+  const requests: Array<{ path: string; userId: string | undefined }> = [];
+  const job = {
+    job_id: 'identity-probe-job',
+    source_system: 'openai',
+    status: 'receiving',
+    total_file_count: 1,
+    total_byte_count: 2,
+    uploaded_file_count: 1,
+    uploaded_byte_count: 2,
+    imported_thread_count: 0,
+    imported_message_count: 0,
+    imported_media_count: 0,
+    duplicate_count: 0,
+    skipped_count: 0,
+    warning_count: 0,
+    failure_count: 0,
+    warning_details: [],
+    error_details: [],
+  };
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'You');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.route('**/health', (route) => route.fulfill({ status: 200, body: '{}' }));
+    await page.route(/\/api\/imports\/openai-account(?:\/.*)?$/, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      requests.push({ path, userId: route.request().headers()['x-user-id'] });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...job,
+          status: path.endsWith('/commit') ||
+            path === '/api/imports/openai-account/identity-probe-job'
+              ? 'queued'
+              : 'receiving',
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Imprint' }).click();
+    await expect(
+      page.getByText('User Nickname').locator('..').locator('input')
+    ).toHaveValue('You');
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
+    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    await expect.poll(() => requests.map(({ path }) => path), { timeout: 10_000 }).toEqual([
+      '/api/imports/openai-account',
+      '/api/imports/openai-account/identity-probe-job/files',
+      '/api/imports/openai-account/identity-probe-job/commit',
+      '/api/imports/openai-account/identity-probe-job',
+    ]);
+    expect(requests.every(({ userId }) => userId === undefined)).toBe(true);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test('current account import UI stages an OpenAI batch through Guardian', async ({ page }) => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-ui-'));
   const exportFolder = join(fixtureRoot, 'openai-export');

@@ -74,7 +74,7 @@ describe("account import coordinator continuity", () => {
     apiMocks.fetch.mockReset().mockResolvedValue(job("queued"));
   });
 
-  it("keeps account scope through create, transfer, commit, and polling", async () => {
+  it("keeps account identity out of create, transfer, commit, and polling", async () => {
     const coordinator = await import(
       "@/features/imports/accountImportCoordinator"
     );
@@ -83,25 +83,20 @@ describe("account import coordinator continuity", () => {
       { file: new File(["png"], "image.png"), relativePath: "export/media/image.png" },
     ];
 
-    await coordinator.startOpenAIAccountImport(files, "account-a");
+    await coordinator.startOpenAIAccountImport(files);
 
-    expect(apiMocks.create).toHaveBeenCalledWith(
-      {
-        total_file_count: 2,
-        total_byte_count: 5,
-        source_system: "openai",
-      },
-      "account-a"
-    );
-    expect(apiMocks.upload).toHaveBeenCalledWith(
-      "job-restore",
-      files,
-      "account-a"
-    );
-    expect(apiMocks.commit).toHaveBeenCalledWith("job-restore", "account-a");
+    expect(apiMocks.create).toHaveBeenCalledWith({
+      total_file_count: 2,
+      total_byte_count: 5,
+      source_system: "openai",
+    });
+    expect(apiMocks.upload).toHaveBeenCalledWith("job-restore", files);
+    expect(apiMocks.commit).toHaveBeenCalledWith("job-restore");
     expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe(
       "accepted"
     );
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    expect(apiMocks.fetch).toHaveBeenCalledWith("job-restore");
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
@@ -113,22 +108,15 @@ describe("account import coordinator continuity", () => {
       { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
     ];
 
-    await coordinator.startOpenAIAccountImport(files, "account-anthropic", "anthropic");
+    await coordinator.startOpenAIAccountImport(files, "anthropic");
 
-    expect(apiMocks.create).toHaveBeenCalledWith(
-      {
-        total_file_count: 1,
-        total_byte_count: 2,
-        source_system: "anthropic",
-      },
-      "account-anthropic"
-    );
-    expect(apiMocks.upload).toHaveBeenCalledWith(
-      "job-restore",
-      files,
-      "account-anthropic"
-    );
-    expect(apiMocks.commit).toHaveBeenCalledWith("job-restore", "account-anthropic");
+    expect(apiMocks.create).toHaveBeenCalledWith({
+      total_file_count: 1,
+      total_byte_count: 2,
+      source_system: "anthropic",
+    });
+    expect(apiMocks.upload).toHaveBeenCalledWith("job-restore", files);
+    expect(apiMocks.commit).toHaveBeenCalledWith("job-restore");
     // The request contract is the authoritative surface for this test: the
     // create call must explicitly serialize source_system="anthropic".
     const createCall = apiMocks.create.mock.calls[0]?.[0] as Record<
@@ -148,10 +136,10 @@ describe("account import coordinator continuity", () => {
       { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
     ];
 
-    await coordinator.startOpenAIAccountImport(files, "account-a", "openai");
+    await coordinator.startOpenAIAccountImport(files, "openai");
 
     await expect(
-      coordinator.startOpenAIAccountImport(files, "account-a", "anthropic")
+      coordinator.startOpenAIAccountImport(files, "anthropic")
     ).rejects.toThrow(/already active for openai/);
     expect(apiMocks.create).toHaveBeenCalledTimes(1);
     coordinator.resetAccountImportCoordinatorForTests();
@@ -204,10 +192,7 @@ describe("account import coordinator continuity", () => {
         "anthropic"
       )
     );
-    expect(apiMocks.fetch).toHaveBeenCalledWith(
-      "legacy-source",
-      undefined
-    );
+    expect(apiMocks.fetch).toHaveBeenCalledWith("legacy-source");
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
@@ -218,7 +203,7 @@ describe("account import coordinator continuity", () => {
     const files = [
       { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
     ];
-    await coordinator.startOpenAIAccountImport(files, "account-a", "anthropic");
+    await coordinator.startOpenAIAccountImport(files, "anthropic");
     const call = apiMocks.create.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(call).toBeDefined();
     expect("origin_system" in call).toBe(false);
@@ -256,7 +241,7 @@ describe("account import coordinator continuity", () => {
         "accepted"
       )
     );
-    expect(apiMocks.fetch).toHaveBeenCalledWith("job-restore", undefined);
+    expect(apiMocks.fetch).toHaveBeenCalledWith("job-restore");
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
@@ -290,7 +275,7 @@ describe("account import coordinator continuity", () => {
 
     expect(window.localStorage.getItem("cfy.accountImport:v1")).toBeNull();
     expect(apiMocks.fetch).toHaveBeenCalledTimes(1);
-    expect(apiMocks.fetch).toHaveBeenCalledWith("stale-404-job", undefined);
+    expect(apiMocks.fetch).toHaveBeenCalledWith("stale-404-job");
 
     // Advance well past multiple polling intervals — no further calls.
     await vi.advanceTimersByTimeAsync(5000);
