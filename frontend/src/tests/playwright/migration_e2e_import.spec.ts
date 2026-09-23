@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +50,81 @@ const IMPORT_FIXTURE_CASES: ImportFixtureCase[] = [
     ],
   },
 ];
+
+for (const fileCount of [2, 25]) {
+  test(`account-import browser sends ${fileCount} ordered multipart pairs`, async ({ page }) => {
+    let received: { method: string; contentType: string; body: Buffer } | null = null;
+    const receiver = createServer(async (request, response) => {
+      response.setHeader('Access-Control-Allow-Origin', String(request.headers.origin ?? 'http://127.0.0.1:5173'));
+      response.setHeader('Access-Control-Allow-Credentials', 'true');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-API-Key, Authorization');
+      response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      if (request.method === 'OPTIONS') {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      if (request.url?.endsWith('/imports/openai-account/probe-job/files')) {
+        received = {
+          method: request.method ?? '',
+          contentType: String(request.headers['content-type'] ?? ''),
+          body: Buffer.concat(chunks),
+        };
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ job_id: 'probe-job', status: 'receiving', uploaded_file_count: fileCount }));
+        return;
+      }
+      response.setHeader('Content-Type', 'application/json');
+      response.end('{}');
+    });
+    await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+    const address = receiver.address();
+    if (!address || typeof address === 'string') throw new Error('Receiver port unavailable');
+    try {
+      await page.route('**/api/**', async (route) => {
+        const url = new URL(route.request().url());
+        await route.continue({ url: `http://127.0.0.1:${address.port}${url.pathname}` });
+      });
+      await page.goto('/');
+      await page.evaluate(async (count) => {
+        const { uploadOpenAIAccountImportBatch } = await import(/* @vite-ignore */ '/lib/api.ts');
+        const files = [
+          { file: new File(['[]'], 'conversations.json', { type: 'application/json' }), relativePath: 'conversations.json' },
+          { file: new File(['{}'], 'user.json', { type: 'application/json' }), relativePath: 'nested/user.json' },
+        ];
+        for (let index = 2; index < count; index += 1) {
+          files.push({
+            file: new File([new Uint8Array(750_000)], `part-${index}.dat`, { type: 'application/octet-stream' }),
+            relativePath: `nested/part-${index}.dat`,
+          });
+        }
+        await uploadOpenAIAccountImportBatch('probe-job', files);
+      }, fileCount);
+
+      expect(received).not.toBeNull();
+      const { method, contentType, body } = received!;
+      expect(method).toBe('POST');
+      const boundary = contentType.match(/^multipart\/form-data;\s*boundary=([^;]+)$/i)?.[1];
+      expect(boundary).toBeTruthy();
+      const parts = body.toString('latin1').split(`--${boundary}`).slice(1, -1);
+      expect(parts).toHaveLength(fileCount * 2);
+      for (let index = 0; index < fileCount; index += 1) {
+        const filename = index === 0 ? 'conversations.json' : index === 1 ? 'user.json' : `part-${index}.dat`;
+        const relativePath = index === 0 ? filename : `nested/${filename}`;
+        expect(parts[index * 2]).toContain(`name="files"; filename="${filename}"`);
+        expect(parts[index * 2 + 1]).toContain('name="relative_paths"');
+        expect(parts[index * 2 + 1]).toContain(`\r\n\r\n${relativePath}\r\n`);
+      }
+      expect(parts[0]).toContain('Content-Type: application/json');
+      expect(parts[2]).toContain('Content-Type: application/json');
+      if (fileCount === 25) expect(body.length).toBeGreaterThan(17_000_000);
+    } finally {
+      await new Promise<void>((resolve) => receiver.close(() => resolve()));
+    }
+  });
+}
 
 test.describe('ChatGPT migration import', () => {
   for (const importFixture of IMPORT_FIXTURE_CASES) {
