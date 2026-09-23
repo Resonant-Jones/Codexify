@@ -122,8 +122,9 @@ This file is authoritative for:
   UMS-05C3 VAULT HOLD/RELEASE-HOLD MUTATION: CLOSED
   UMS-05C4 PROJECT-SCOPE MUTATION: CLOSED
   UMS-05C5 PERSONA ATTRIBUTION MUTATION: CLOSED
-  UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: AUTHORIZED
-  UMS-05C7+: NOT AUTHORIZED
+  UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
+  UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: AUTHORIZED
+  UMS-05C8+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -924,6 +925,40 @@ This file is authoritative for:
   creation) alone is AUTHORIZED; UMS-05C7+, UMS-05D+, and UMS-06+
   remain NOT AUTHORIZED. See the
   [UMS-05C5 Persona-attribution mutation proof](./proofs/runtime/2026-09-22-ums05c5-vault-persona-attribution-mutation-proof.md).
+
+- **UMS-05C6 (Vault direct user-authored creation, qualified on
+  `feature/ums-continued`)**: a new dedicated
+  `MemoryVaultCreationService` exposes the explicit authenticated
+  human canonical-memory authoring authority admitted by the frozen UMS
+  contract. The service constructor binds the authenticated account; no
+  per-call owner / memory-ID override is permitted. `create_memory`
+  accepts only `content` (and optional opaque `request_ref`); all other
+  canonical dimensions — semantic species (fixed to
+  `episodic_semantic_memory`), Project scope (NULL), Persona links
+  (empty), pin/hold (false), review/activation (database-authored
+  `reviewed_at`/`activated_at` driven), and server-generated memory ID —
+  are owned by the creation service. Each call persists exactly one
+  canonical `MemoryRecord` and exactly one initial `MemoryProvenance`
+  creation receipt (`source_system=codexify`,
+  `source_subject_kind=vault`, `is_imported=false`, action
+  `create_memory`, action schema `memory-vault-mutation.v1`) in a
+  single PostgreSQL transaction, with receipt payload containing only
+  authoritative ID transitions and never the authored content. Forced
+  receipt-flush failure rolls back both rows cleanly. The canonical
+  readback uses `MemoryVaultReadService`; creation does not duplicate
+  read-projection logic. Personal Facts are not created; no model calls,
+  summarization, classification, or rewriting occur; ambient eligibility
+  is not written. HTTP surface adds exactly `POST
+  /api/memory-vault/items` (status 201) reusing the existing items
+  path; the Vault router now exposes `GET + POST + PATCH` (no `PUT` or
+  `DELETE`); all seven unique path templates remain hidden from public
+  OpenAPI, internal-only on admitted profiles, feature-flag-removable,
+  and quarantine-outranked. UMS-04 portability round-trip remains green
+  with no export/restore implementation change. UMS-05C6 is CLOSED on
+  this branch; UMS-05C7 (remaining mutation authority revalidation)
+  alone is AUTHORIZED; UMS-05C8+, UMS-05D+, and UMS-06+ remain NOT
+  AUTHORIZED. See the
+  [UMS-05C6 direct creation proof](./proofs/runtime/2026-09-23-ums05c6-vault-direct-creation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

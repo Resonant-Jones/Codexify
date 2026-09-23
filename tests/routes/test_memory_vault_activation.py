@@ -50,6 +50,11 @@ VAULT_PATCH_PATHS = {
 }
 VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
 
+#: The list-items path is now GET + POST (C6 explicit creation);
+#: every other Vault path remains a single HTTP method.
+VAULT_LIST_PATH = "/api/memory-vault/items"
+VAULT_LIST_METHODS = {"GET", "POST"}
+
 _PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "supported_profiles"
 
 
@@ -158,13 +163,21 @@ def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
     guardian_api = load_guardian_api("v1-local-core-web-mcp")
     app = guardian_api.app
 
-    routes_by_path = {
-        getattr(route, "path", None): route
-        for route in app.routes
-        if getattr(route, "path", None) in VAULT_PATHS
-    }
-    assert set(routes_by_path) == VAULT_PATHS
-    for path in VAULT_GET_PATHS:
-        assert set(routes_by_path[path].methods) == {"GET"}
+    # The list path is a multi-method route (GET + POST after C6).
+    # Multiple FastAPI route entries may share the same ``path`` attribute
+    # when the same URL exposes multiple HTTP methods, so we collect
+    # methods across all such entries for each path.
+    methods_by_path: dict[str, set[str]] = {}
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if path in VAULT_PATHS:
+            methods_by_path.setdefault(path, set()).update(
+                m.upper() for m in route.methods or []
+            )
+
+    assert set(methods_by_path) == VAULT_PATHS
+    for path in VAULT_GET_PATHS - {VAULT_LIST_PATH}:
+        assert methods_by_path[path] == {"GET"}
+    assert methods_by_path[VAULT_LIST_PATH] == VAULT_LIST_METHODS
     for path in VAULT_PATCH_PATHS:
-        assert set(routes_by_path[path].methods) == {"PATCH"}
+        assert methods_by_path[path] == {"PATCH"}

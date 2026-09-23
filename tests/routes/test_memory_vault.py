@@ -30,6 +30,11 @@ from guardian.core.memory_compatibility import (
 )
 from guardian.protocol_tokens import MemoryPersonaLinkKind, MemorySemanticSpecies
 from guardian.routes import memory_vault
+from guardian.services.memory_vault_creation import (
+    MemoryVaultCreationError,
+    MemoryVaultCreationIntegrityError,
+    VaultCreationResult,
+)
 from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
@@ -212,6 +217,33 @@ class FakeVaultMutationService:
         return self.result
 
 
+class FakeVaultCreationService:
+    """Records calls and returns typed C6 creation results."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.result: VaultCreationResult | None = None
+        self.error: Exception | None = None
+
+    def create_memory(
+        self,
+        *,
+        content: str,
+        request_ref: str | None = None,
+    ):
+        from guardian.services.memory_vault_creation import (
+            MemoryVaultCreationError,
+            MemoryVaultCreationIntegrityError,
+            VaultCreationResult,
+        )
+
+        self.calls.append({"content": content, "request_ref": request_ref})
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None, "fake creation result not configured"
+        return self.result
+
+
 def _canonical_item(memory_id: str = "mem-1", **overrides: Any) -> VaultItem:
     kwargs: dict[str, Any] = dict(
         identity=VaultIdentity(kind="canonical", canonical_memory_id=memory_id),
@@ -278,6 +310,7 @@ def _build_client(
     scope: RequestUserScope | None = None,
     service_factory: Any | None = None,
     mutation_factory: Any | None = None,
+    creation_factory: Any | None = None,
 ) -> TestClient:
     app = FastAPI()
     app.include_router(memory_vault.router)
@@ -293,6 +326,10 @@ def _build_client(
         app.dependency_overrides[memory_vault.get_memory_vault_mutation_service] = (
             mutation_factory
         )
+    if creation_factory is not None:
+        app.dependency_overrides[memory_vault.get_memory_vault_creation_service] = (
+            creation_factory
+        )
     return TestClient(app)
 
 
@@ -307,9 +344,15 @@ def fake_mutation_service() -> FakeVaultMutationService:
 
 
 @pytest.fixture
+def fake_creation_service() -> FakeVaultCreationService:
+    return FakeVaultCreationService()
+
+
+@pytest.fixture
 def client(
     fake_service: FakeVaultService,
     fake_mutation_service: FakeVaultMutationService,
+    fake_creation_service: FakeVaultCreationService,
 ) -> TestClient:
     captured: dict[str, Any] = {}
 
@@ -325,6 +368,12 @@ def client(
     ) -> FakeVaultMutationService:
         return fake_mutation_service
 
+    def creation_factory(
+        scope: RequestUserScope = Depends(get_request_user_scope),
+    ) -> FakeVaultCreationService:
+        captured["creation_account_id"] = scope.account_id
+        return fake_creation_service
+
     scope = RequestUserScope(
         user_id="legacy-a",
         subject_id="subject-a",
@@ -335,6 +384,7 @@ def client(
         scope=scope,
         service_factory=fake_factory,
         mutation_factory=mutation_factory,
+        creation_factory=creation_factory,
     )
 
 
@@ -1431,12 +1481,20 @@ def test_router_method_surface() -> None:
             assert methods <= {
                 "get",
                 "patch",
+                "post",
             }, f"{path} has unexpected methods: {methods}"
-    # Explicitly assert no other write methods exist under the Vault namespace.
+    # Explicitly assert no other write methods exist under the Vault
+    # namespace beyond the admitted ``POST /api/memory-vault/items``
+    # (C6 explicit creation). PUT/DELETE must never appear.
     for path, operations in schema["paths"].items():
         if path.startswith("/api/memory-vault"):
-            for forbidden in ("post", "put", "delete"):
+            for forbidden in ("put", "delete"):
                 assert forbidden not in operations, f"{path} exposes {forbidden}"
+    # Only the explicit creation PATCH route may carry POST.
+    assert "post" in schema["paths"]["/api/memory-vault/items"]
+    for path, operations in schema["paths"].items():
+        if path.startswith("/api/memory-vault") and path != "/api/memory-vault/items":
+            assert "post" not in operations, f"{path} exposes post"
 
 
 # ---------------------------------------------------------------------------
@@ -1695,3 +1753,159 @@ def test_persona_attribution_rejects_attempted_authority_injection() -> None:
     )
     assert response.status_code == 200
     assert captured["account_id"] == ACCOUNT_A
+
+
+# ---------------------------------------------------------------------------
+# C6 direct user-authored creation (POST /api/memory-vault/items).
+# ---------------------------------------------------------------------------
+
+
+def test_create_memory_delegates_exactly(
+    fake_creation_service: FakeVaultCreationService,
+    client: TestClient,
+) -> None:
+    fake_creation_service.result = VaultCreationResult(
+        receipt_id="receipt-create-1",
+        item=_canonical_item(
+            "new-mem-1",
+            content="The red toolbox is in the garage.",
+        ),
+    )
+    response = client.post(
+        "/api/memory-vault/items",
+        json={
+            "content": "The red toolbox is in the garage.",
+            "request_ref": "req-c6-1",
+        },
+    )
+    assert response.status_code == 201
+    assert fake_creation_service.calls == [
+        {
+            "content": "The red toolbox is in the garage.",
+            "request_ref": "req-c6-1",
+        }
+    ]
+    body = response.json()
+    assert body["receipt_id"] == "receipt-create-1"
+    assert body["item"]["identity"]["canonical_memory_id"] == "new-mem-1"
+
+
+def test_create_memory_account_authority_is_constructor_bound(
+    fake_creation_service: FakeVaultCreationService,
+    client: TestClient,
+) -> None:
+    fake_creation_service.result = VaultCreationResult(
+        receipt_id="r",
+        item=_canonical_item("mem-x"),
+    )
+    response = client.post(
+        "/api/memory-vault/items",
+        json={
+            "content": "for A only",
+            "account_id": ACCOUNT_B,
+            "user_id": ACCOUNT_B,
+            "memory_id": "client-supplied",
+            "project_id": 9999,
+            "pinned": True,
+            "held": True,
+            "semantic_species": "verified_personal_fact",
+        },
+    )
+    assert response.status_code == 201
+    # Only the body fields content/request_ref reach the service; the
+    # additional keys have zero semantic effect because the model only
+    # accepts `content` and `request_ref`.
+    assert fake_creation_service.calls == [
+        {
+            "content": "for A only",
+            "request_ref": None,
+        }
+    ]
+
+
+def test_create_memory_missing_content_is_422(
+    fake_creation_service: FakeVaultCreationService,
+    client: TestClient,
+) -> None:
+    response = client.post("/api/memory-vault/items", json={})
+    assert response.status_code == 422
+    assert fake_creation_service.calls == []
+
+
+def test_create_memory_whitespace_only_is_422(
+    fake_creation_service: FakeVaultCreationService,
+    client: TestClient,
+) -> None:
+    fake_creation_service.error = MemoryVaultCreationError("content is required")
+    response = client.post(
+        "/api/memory-vault/items",
+        json={"content": "   \n  "},
+    )
+    assert response.status_code == 422
+    assert "Memory" in response.json()["detail"]
+
+
+def test_create_memory_integrity_failure_is_409(
+    fake_creation_service: FakeVaultCreationService,
+    client: TestClient,
+) -> None:
+    fake_creation_service.error = MemoryVaultCreationIntegrityError("internal")
+    response = client.post("/api/memory-vault/items", json={"content": "for A only"})
+    assert response.status_code == 409
+    # Internal exception text must not leak into the HTTP detail.
+    assert "internal" not in response.text
+
+
+def test_create_memory_requires_stable_account() -> None:
+    blank = RequestUserScope(user_id="legacy-a", account_id="", multi_user_enabled=True)
+    client = _build_client(api_key_override=True, scope=blank)
+    response = client.post(
+        "/api/memory-vault/items",
+        json={"content": "should fail"},
+    )
+    assert response.status_code == 401
+
+
+def test_create_memory_methods_posture() -> None:
+    """Vault routes now expose GET + POST + PATCH (no PUT/DELETE)."""
+    client = _build_client()
+    routes = {
+        (route.path, tuple(sorted(route.methods - {"HEAD"})))
+        for route in memory_vault.router.routes
+    }
+    has_post_items = any(
+        p == "/api/memory-vault/items" and "POST" in m for p, m in routes
+    )
+    has_get_items = any(
+        p == "/api/memory-vault/items" and "GET" in m for p, m in routes
+    )
+    assert has_post_items
+    assert has_get_items
+    for path, methods in routes:
+        if path.startswith("/api/memory-vault"):
+            for forbidden in ("PUT", "DELETE"):
+                assert forbidden not in methods, f"{path} exposes {forbidden}"
+
+
+def test_create_memory_existing_mutation_routes_remain_qualified(
+    fake_mutation_service: FakeVaultMutationService,
+    client: TestClient,
+) -> None:
+    """C5 PATCH Persona-attribution route must not have regressed."""
+    fake_mutation_service.result = VaultMutationResult(
+        changed=True,
+        receipt_id="r",
+        previous_updated_at=T1,
+        resulting_updated_at=T2,
+        item=_canonical_item("mem-1"),
+    )
+    response = client.patch(
+        "/api/memory-vault/items/canonical/mem-1/persona-attribution",
+        json={
+            "persona_subject_id": "sub-A",
+            "link_kind": MemoryPersonaLinkKind.ASSOCIATED_WITH.value,
+            "present": True,
+            "expected_updated_at": T1.isoformat(),
+        },
+    )
+    assert response.status_code == 200

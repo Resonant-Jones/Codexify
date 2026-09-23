@@ -1,14 +1,17 @@
-"""Authenticated Memory Vault HTTP adapter (UMS-05B2 / UMS-05C2-C4).
+"""Authenticated Memory Vault HTTP adapter (UMS-05B2 / UMS-05C2-C6).
 
-This module exposes the already-qualified Memory Vault read and
-pin/unpin mutation authorities over FastAPI:
+This module exposes the already-qualified Memory Vault read,
+pin/unpin, hold/release-hold, Project-scope, Persona-attribution, and
+direct user-authored creation authorities over FastAPI:
 
     GET   /api/memory-vault/items
+    POST  /api/memory-vault/items
     GET   /api/memory-vault/items/canonical/{memory_id}
     GET   /api/memory-vault/items/compatibility/{source_kind}/{source_id}
     PATCH /api/memory-vault/items/canonical/{memory_id}/pin
     PATCH /api/memory-vault/items/canonical/{memory_id}/hold
     PATCH /api/memory-vault/items/canonical/{memory_id}/project-scope
+    PATCH /api/memory-vault/items/canonical/{memory_id}/persona-attribution
 
 It is an adapter only. It does not:
 
@@ -44,6 +47,11 @@ from guardian.core.memory_compatibility import (
     MemoryCompatibilitySourceRef,
 )
 from guardian.protocol_tokens import MemoryPersonaLinkKind, MemorySemanticSpecies
+from guardian.services.memory_vault_creation import (
+    MemoryVaultCreationError,
+    MemoryVaultCreationIntegrityError,
+    MemoryVaultCreationService,
+)
 from guardian.services.memory_vault_mutation import (
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
@@ -232,6 +240,20 @@ class VaultPersonaAttributionRequest(_VaultMutationRequest):
     present: bool
 
 
+class VaultCreateMemoryRequest(BaseModel):
+    """Request body for direct user-authored Vault creation (UMS-05C6).
+
+    Only the explicitly human-authored ``content`` text and an optional
+    opaque ``request_ref`` are accepted. Project, Persona, semantic
+    species, pin/hold, review/activation, ambient eligibility, and
+    memory ID are never caller-chosen here; the creation service
+    owns those dimensions.
+    """
+
+    content: Annotated[str, Field(strict=True, min_length=1)]
+    request_ref: str | None = Field(default=None, max_length=128)
+
+
 class VaultMutationResponse(BaseModel):
     """Serialized Vault governance mutation result."""
 
@@ -239,6 +261,13 @@ class VaultMutationResponse(BaseModel):
     receipt_id: str | None
     previous_updated_at: datetime
     resulting_updated_at: datetime
+    item: VaultItemResponse
+
+
+class VaultCreationResponse(BaseModel):
+    """Serialized Vault direct creation result (UMS-05C6)."""
+
+    receipt_id: str
     item: VaultItemResponse
 
 
@@ -308,6 +337,27 @@ def get_memory_vault_mutation_service(
     session = db.get_session()
     try:
         yield MemoryVaultMutationService(
+            session,
+            authenticated_account_id=account_id,
+        )
+    finally:
+        session.close()
+
+
+def get_memory_vault_creation_service(
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Iterator[MemoryVaultCreationService]:
+    """Bind a ``MemoryVaultCreationService`` to the authenticated account.
+
+    Reuses the same repository database/session authority as the read and
+    mutation services; the C6 creation service owns user-authored record
+    authoring, separate from governance mutation.
+    """
+    account_id = _resolve_vault_account(scope)
+    db = _get_vault_db()
+    session = db.get_session()
+    try:
+        yield MemoryVaultCreationService(
             session,
             authenticated_account_id=account_id,
         )
@@ -674,10 +724,47 @@ def patch_canonical_vault_item_persona_attribution(
     )
 
 
+_CREATION_UNAVAILABLE_DETAIL = "Memory creation unavailable"
+
+
+@router.post(
+    "/items",
+    response_model=VaultCreationResponse,
+    status_code=201,
+)
+def create_vault_item(
+    body: VaultCreateMemoryRequest = Body(...),
+    service: MemoryVaultCreationService = Depends(get_memory_vault_creation_service),
+) -> VaultCreationResponse:
+    """Direct authenticated user-authored Vault memory creation.
+
+    Accepts only ``content`` (and optional ``request_ref``). All other
+    canonical dimensions — account owner, semantic species, project
+    scope, Persona links, pin/hold, review/activation, and memory ID —
+    are owned by the C6 creation service. Returns 201 with the
+    canonical ``VaultItem`` readback.
+    """
+    try:
+        result = service.create_memory(
+            content=body.content,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultCreationIntegrityError:
+        raise HTTPException(status_code=409, detail=_CREATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultCreationError:
+        raise HTTPException(status_code=422, detail=_CREATION_UNAVAILABLE_DETAIL)
+
+    return VaultCreationResponse(
+        receipt_id=result.receipt_id,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
     "get_memory_vault_mutation_service",
+    "get_memory_vault_creation_service",
     "VaultIdentityResponse",
     "VaultItemResponse",
     "VaultListResponse",
@@ -687,6 +774,8 @@ __all__ = [
     "VaultHoldRequest",
     "VaultProjectScopeRequest",
     "VaultPersonaAttributionRequest",
+    "VaultCreateMemoryRequest",
     "VaultMutationResponse",
+    "VaultCreationResponse",
     "MemoryCompatibilitySourceRefResponse",
 ]
