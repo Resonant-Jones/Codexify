@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core.dependencies import require_api_key
@@ -46,6 +46,19 @@ class GuardianDelegationCreateRequest(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+@router.get("")
+async def list_guardian_delegations(
+    thread_id: int = Query(gt=0),
+) -> dict[str, Any]:
+    try:
+        return _service.list_delegated_tasks(thread_id)
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
 
 
 @router.post("", status_code=201)

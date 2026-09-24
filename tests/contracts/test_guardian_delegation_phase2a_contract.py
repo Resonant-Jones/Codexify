@@ -982,6 +982,7 @@ def test_only_expected_guardian_delegation_routes_registered() -> None:
         for route in guardian_delegations.router.routes
     }
     assert routes == {
+        ("/api/guardian/delegations", ("GET",)),
         ("/api/guardian/delegations", ("POST",)),
         ("/api/guardian/delegations/{intent_id}", ("GET",)),
         ("/api/guardian/delegations/{intent_id}/approve", ("POST",)),
