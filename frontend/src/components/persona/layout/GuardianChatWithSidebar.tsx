@@ -122,7 +122,9 @@ function PanelShell({
       hoverPop={!disabled}
       ariaLabel={disabled ? "panel disabled" : undefined}
       style={{
-        ["--bezel" as any]: "1.5px",
+        ["--bezel" as any]: "1px",
+        ["--fc-frame-background" as any]: "transparent",
+        ["--fc-rim-background" as any]: "transparent",
         borderRadius: "var(--card-radius)",
         borderWidth: 1,
         borderStyle: "solid",
