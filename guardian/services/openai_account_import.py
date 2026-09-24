@@ -37,6 +37,9 @@ from guardian.db.models import (
     MediaAsset,
     OpenAIAccountImportJob,
     Project,
+    ProjectDocumentLink,
+    ThreadDocument,
+    UploadedDocument,
     UploadedImage,
 )
 from guardian.protocol_tokens import (
@@ -52,6 +55,7 @@ from guardian.services.media_identity import (
     source_label_from_filename,
     utcnow,
 )
+from guardian.services.document_parsers import PdfTextExtractionError, extract_pdf_text
 
 logger = logging.getLogger(__name__)
 
@@ -649,7 +653,7 @@ class OpenAIAccountImportService:
         root = destination.resolve()
         root.mkdir(parents=True, exist_ok=True)
         locator = str(snapshot["staging_locator"]).strip("/")
-        for item in snapshot["staged_manifest"]:
+        for index, item in enumerate(snapshot["staged_manifest"]):
             relative_path = normalize_import_relative_path(str(item.get("path") or ""))
             storage_path = str(item.get("storage_path") or "")
             normalized_storage_path = storage_path.replace("\\", "/")
@@ -671,21 +675,29 @@ class OpenAIAccountImportService:
                     code="path_traversal_rejected",
                     status_code=500,
                 ) from exc
-            self.staging_storage.download_to_path(storage_path, target)
-            digest = hashlib.sha256()
-            size = 0
-            with target.open("rb") as staged_file:
-                while True:
-                    chunk = staged_file.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    digest.update(chunk)
-            if (
-                digest.hexdigest() != str(item.get("sha256"))
-                or size != int(item.get("size"))
-            ):
+            for attempt in range(3):
+                self.staging_storage.download_to_path(storage_path, target)
+                digest = hashlib.sha256()
+                size = 0
+                with target.open("rb") as staged_file:
+                    while True:
+                        chunk = staged_file.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        digest.update(chunk)
+                if (
+                    digest.hexdigest() == str(item.get("sha256"))
+                    and size == int(item.get("size"))
+                ):
+                    break
                 target.unlink(missing_ok=True)
+                logger.warning(
+                    "[account-import] materialized copy failed integrity check "
+                    "job_id=%s file_index=%d attempt=%d",
+                    job_id, index, attempt + 1,
+                )
+            else:
                 raise AccountImportError(
                     f"Staged file integrity check failed: {relative_path}",
                     code="staged_file_integrity_failed",
@@ -994,6 +1006,7 @@ class OpenAIAccountImportService:
         user_id: str,
         threads_imported: int,
         messages_imported: int,
+        canonical_duplicate_count: int = 0,
         phase_key: str = "conversations",
     ) -> dict[str, Any]:
         """Durably credit canonical committed conversation totals onto the job.
@@ -1018,6 +1031,7 @@ class OpenAIAccountImportService:
 
         threads = max(0, int(threads_imported))
         messages = max(0, int(messages_imported))
+        duplicates = max(0, int(canonical_duplicate_count))
         normalized_key = str(phase_key or "").strip() or "conversations"
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id, for_update=True)
@@ -1034,7 +1048,18 @@ class OpenAIAccountImportService:
             if existing is not None:
                 existing_threads = max(0, int(existing.get("threads_imported", 0)))
                 existing_messages = max(0, int(existing.get("messages_imported", 0)))
-                if (existing_threads, existing_messages) != (threads, messages):
+                existing_duplicates = max(0, int(existing.get("canonical_duplicate_count", 0)))
+                replay_matches_committed_corpus = (
+                    threads == 0
+                    and messages == 0
+                    and duplicates
+                    == existing_threads + existing_messages + existing_duplicates
+                )
+                if (
+                    (existing_threads, existing_messages, existing_duplicates)
+                    != (threads, messages, duplicates)
+                    and not replay_matches_committed_corpus
+                ):
                     raise AccountImportError(
                         "Committed conversation totals conflict with already "
                         f"recorded accounting for phase={normalized_key!r} "
@@ -1046,15 +1071,19 @@ class OpenAIAccountImportService:
                     )
                 session.refresh(job)
                 return self.serialize_job(job)
-            if threads or messages:
-                recorded.append(
-                    {
-                        "key": normalized_key,
-                        "threads_imported": threads,
-                        "messages_imported": messages,
-                    }
-                )
+            if threads or messages or duplicates:
+                entry = {
+                    "key": normalized_key,
+                    "threads_imported": threads,
+                    "messages_imported": messages,
+                }
+                if duplicates:
+                    entry["canonical_duplicate_count"] = duplicates
+                recorded.append(entry)
                 checkpoint["committed_conversation_totals"] = recorded
+                checkpoint["canonical_duplicate_count"] = (
+                    int(checkpoint.get("canonical_duplicate_count", 0)) + duplicates
+                )
                 job.checkpoint = checkpoint
                 flag_modified(job, "checkpoint")
                 job.imported_thread_count = (
@@ -1063,6 +1092,7 @@ class OpenAIAccountImportService:
                 job.imported_message_count = (
                     int(job.imported_message_count or 0) + messages
                 )
+                job.duplicate_count = int(job.duplicate_count or 0) + duplicates
                 job.updated_at = _utcnow()
                 session.commit()
                 session.refresh(job)
@@ -1099,16 +1129,19 @@ class OpenAIAccountImportService:
 
     @staticmethod
     def _resolve_source_thread(
-        session: Session, *, user_id: str, source_thread_id: str | None
+        session: Session, *, user_id: str, source_thread_id: str | None,
+        origin_system: str = "openai",
     ) -> ChatThread | None:
         if not source_thread_id:
             return None
-        rows = session.query(ChatThread).filter(ChatThread.user_id == user_id).all()
-        for thread in rows:
-            metadata = thread.thread_config if isinstance(thread.thread_config, dict) else {}
-            if str(metadata.get("source_thread_id") or "") == source_thread_id:
-                return thread
-        return None
+        return session.query(ChatThread).join(
+            ChatMessage, ChatMessage.thread_id == ChatThread.id
+        ).filter(
+            ChatThread.user_id == user_id,
+            ChatThread.origin_system == origin_system,
+            ChatMessage.extra_meta["source_thread_id"].as_string()
+            == source_thread_id,
+        ).first()
 
     def import_image_record(
         self,
@@ -1253,6 +1286,8 @@ class OpenAIAccountImportService:
                 existing.source_thread_id = (
                     existing.source_thread_id or evidence.source_thread_id
                 )
+                if source_thread is not None and existing.thread_id is None:
+                    existing.thread_id = source_thread.id
 
             ensure_asset_alias(
                 session,
@@ -1330,6 +1365,8 @@ class OpenAIAccountImportService:
                 else:
                     image.deleted_at = None
                     image.source_tag = effective_source_tag
+            if source_thread is not None and image.thread_id is None:
+                image.thread_id = source_thread.id
             session.commit()
             return {
                 "path": record.path,
@@ -1340,6 +1377,292 @@ class OpenAIAccountImportService:
                 "thread_id": source_thread.id if source_thread is not None else None,
                 "created": bool(asset_created or metadata_created),
                 "duplicate": not bool(asset_created or metadata_created),
+            }
+
+    def import_pdf_record(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        record: OpenAIExportFileRecord,
+        evidence: OpenAIExportImageEvidence,
+    ) -> dict[str, Any]:
+        """Store a magic-verified PDF through canonical imported media/document rows."""
+        if record.detected_kind != "pdf":
+            raise AccountImportError(
+                "Only PDF records may enter PDF ingestion.",
+                code="unsupported_media_kind",
+            )
+        data = Path(record.absolute_path).read_bytes()
+        if not data.startswith(b"%PDF-"):
+            raise AccountImportError(
+                "Document bytes did not match the detected PDF type.",
+                code="unsupported_media_kind",
+            )
+        content_hash = compute_content_hash(data)
+        filename = Path(record.path).name
+        source_tag = (
+            evidence.source_tag
+            if evidence.source_tag in {"generated", "uploaded", "unclassified"}
+            else "unclassified"
+        )
+        try:
+            parsed_text = extract_pdf_text(data)
+        except PdfTextExtractionError:
+            parsed_text = None
+
+        return self._import_document_bytes(
+            job_id=job_id,
+            user_id=user_id,
+            path=record.path,
+            filename=filename,
+            data=data,
+            mime_type="application/pdf",
+            parsed_text=parsed_text,
+            evidence=evidence,
+            origin_system="openai",
+        )
+
+    def import_text_document_record(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        path: str,
+        source_filename: str,
+        content: str,
+        source_thread_id: str | None,
+        source_message_id: str | None,
+        source_project_id: str | None,
+        source_document_id: str | None,
+    ) -> dict[str, Any]:
+        """Persist source-provided extracted text as an imported derivative document."""
+        if not isinstance(content, str) or not content.strip():
+            raise AccountImportError(
+                "Source document contained no recoverable text.",
+                code="document_text_unavailable",
+            )
+        path = normalize_import_relative_path(path)
+        source_filename = Path(source_filename or "document").name
+        evidence = OpenAIExportImageEvidence(
+            source_tag="unclassified",
+            source_thread_id=source_thread_id,
+            source_message_id=source_message_id,
+            evidence_kind="source_extracted_text",
+        )
+        return self._import_document_bytes(
+            job_id=job_id,
+            user_id=user_id,
+            path=path,
+            filename=f"{source_filename}.extracted.txt",
+            data=content.encode("utf-8"),
+            mime_type="text/plain",
+            parsed_text=content,
+            evidence=evidence,
+            origin_system="anthropic",
+            lineage_extra={
+                "source_filename": source_filename,
+                "source_project_id": source_project_id,
+                "source_document_id": source_document_id,
+                "materialization": "extracted_text_only",
+            },
+        )
+
+    def _import_document_bytes(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        path: str,
+        filename: str,
+        data: bytes,
+        mime_type: str,
+        parsed_text: str | None,
+        evidence: OpenAIExportImageEvidence,
+        origin_system: str,
+        lineage_extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        content_hash = compute_content_hash(data)
+        source_tag = (
+            evidence.source_tag
+            if evidence.source_tag in {"generated", "uploaded", "unclassified"}
+            else "unclassified"
+        )
+
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id)
+            source_thread = self._resolve_source_thread(
+                session,
+                user_id=user_id,
+                source_thread_id=evidence.source_thread_id,
+                origin_system=origin_system,
+            )
+            project = (
+                session.query(Project).filter(
+                    Project.id == source_thread.project_id,
+                    Project.user_id == user_id,
+                ).first()
+                if source_thread is not None and source_thread.project_id is not None
+                else None
+            ) or self._resolve_import_project(session, user_id=user_id)
+            asset = find_existing_asset(
+                session,
+                project_id=int(project.id),
+                media_kind="document",
+                provenance="imported",
+                content_hash=content_hash,
+            )
+            if asset is not None and str(asset.user_id) != user_id:
+                raise AccountImportError(
+                    "Canonical document ownership did not match the import account.",
+                    code="media_account_scope_mismatch",
+                    status_code=500,
+                )
+            relationships = evidence.relationships or (
+                OpenAIExportImageRelationship(
+                    source_thread_id=evidence.source_thread_id,
+                    source_message_id=evidence.source_message_id,
+                    evidence_kind=evidence.evidence_kind,
+                ),
+            )
+            lineage = [
+                {
+                    "import_job_id": job_id,
+                    "source_relative_path": path,
+                    "source_export_id": job.source_export_fingerprint,
+                    "source_message_id": relation.source_message_id,
+                    "source_thread_id": relation.source_thread_id,
+                    "evidence_kind": relation.evidence_kind,
+                    "source_tag": source_tag,
+                    **(lineage_extra or {}),
+                }
+                for relation in relationships
+            ]
+            asset_created = asset is None
+            if asset is None:
+                identity = compute_identity(
+                    file_data=data,
+                    media_kind="document",
+                    provenance="uploaded",
+                    human_label=source_label_from_filename(
+                        filename, fallback="imported-document"
+                    ),
+                    original_filename=None,
+                    mime_type=mime_type,
+                    first_seen_at=job.created_at or utcnow(),
+                    content_hash=content_hash,
+                )
+                src_url = self.media_storage.upload_file(
+                    data,
+                    f"{identity.storage_prefix}{identity.system_name}",
+                    content_type=mime_type,
+                    metadata={"import_job_id": job_id, "source_path": path},
+                )
+                asset = MediaAsset(
+                    id=str(uuid.uuid4()),
+                    project_id=int(project.id),
+                    thread_id=source_thread.id if source_thread is not None else None,
+                    user_id=user_id,
+                    media_kind="document",
+                    provenance="imported",
+                    source_tag=source_tag,
+                    content_hash=identity.content_hash,
+                    deterministic_id=identity.deterministic_id,
+                    normalized_slug=identity.normalized_slug,
+                    system_name=identity.system_name,
+                    storage_prefix=identity.storage_prefix,
+                    src_url=src_url,
+                    mime_type=mime_type,
+                    filesize=len(data),
+                    import_job_id=job_id,
+                    source_relative_path=path,
+                    source_export_id=job.source_export_fingerprint,
+                    source_message_id=evidence.source_message_id,
+                    source_thread_id=evidence.source_thread_id,
+                    import_lineage=lineage,
+                )
+                session.add(asset)
+                session.flush()
+            else:
+                current = list(asset.import_lineage or [])
+                for item in lineage:
+                    if item not in current:
+                        current.append(item)
+                asset.import_lineage = current[-_DETAIL_LIMIT:]
+                if asset.source_tag != source_tag:
+                    asset.source_tag = "unclassified"
+                if source_thread is not None and asset.thread_id is None:
+                    asset.thread_id = source_thread.id
+            ensure_asset_alias(
+                session,
+                asset_id=asset.id,
+                alias=filename,
+                alias_type="original_name",
+            )
+            document = session.query(UploadedDocument).filter(
+                UploadedDocument.asset_id == asset.id,
+                UploadedDocument.deleted_at.is_(None),
+            ).first()
+            document_created = document is None
+            if document is None:
+                document = UploadedDocument(
+                    id=str(uuid.uuid4()),
+                    asset_id=asset.id,
+                    project_id=int(project.id),
+                    thread_id=source_thread.id if source_thread is not None else None,
+                    user_id=user_id,
+                    filename=filename,
+                    filesize=len(data),
+                    mime_type=mime_type,
+                    src_url=asset.src_url,
+                    source_tag=str(asset.source_tag or "unclassified"),
+                    parsed_text=parsed_text,
+                    embedding_status="pending" if parsed_text else "failed",
+                    embedding_error=None if parsed_text else "parsed_text_missing",
+                    embedding_completed_at=None if parsed_text else _utcnow(),
+                )
+                session.add(document)
+                session.flush()
+            elif str(document.user_id) != user_id:
+                raise AccountImportError(
+                    "Canonical document ownership did not match the import account.",
+                    code="media_account_scope_mismatch",
+                    status_code=500,
+                )
+            if source_thread is not None and document.thread_id is None:
+                document.thread_id = source_thread.id
+            if source_thread is not None and session.query(ThreadDocument.id).filter_by(
+                thread_id=source_thread.id,
+                document_id=document.id,
+                relation="attached",
+            ).first() is None:
+                session.add(ThreadDocument(
+                    thread_id=source_thread.id,
+                    document_id=document.id,
+                    relation="attached",
+                ))
+            if session.query(ProjectDocumentLink.id).filter_by(
+                project_id=int(project.id),
+                document_id=document.id,
+                document_type="uploaded",
+            ).first() is None:
+                session.add(ProjectDocumentLink(
+                    project_id=int(project.id),
+                    document_id=document.id,
+                    document_type="uploaded",
+                    attached_by=user_id,
+                ))
+            session.commit()
+            return {
+                "path": path,
+                "asset_id": asset.id,
+                "media_id": document.id,
+                "media_kind": "document",
+                "source_tag": str(asset.source_tag or "unclassified"),
+                "thread_id": source_thread.id if source_thread is not None else None,
+                "text_extracted": bool(document.parsed_text),
+                "created": bool(asset_created or document_created),
+                "duplicate": not bool(asset_created or document_created),
             }
 
     def record_media_batch(
@@ -1390,7 +1713,16 @@ class OpenAIAccountImportService:
                 credited_warnings.append(item)
             checkpoint["warning_keys"] = warning_keys[-_DETAIL_LIMIT:]
             job.checkpoint = checkpoint
-            imported_count = len(credited_results)
+            imported_count = sum(
+                1 for item in credited_results if item.get("created")
+            )
+            document_count = sum(
+                1 for item in credited_results
+                if item.get("media_kind") == "document" and item.get("created")
+            )
+            checkpoint["imported_document_count"] = (
+                int(checkpoint.get("imported_document_count", 0)) + document_count
+            )
             duplicate_count = sum(
                 1 for item in credited_results if item.get("duplicate")
             )
@@ -1455,6 +1787,16 @@ class OpenAIAccountImportService:
             canonical_duplicate_count = int(
                 (job.checkpoint or {}).get("canonical_duplicate_count", 0)
             )
+            source_summary = (job.checkpoint or {}).get("source_summary") or {}
+            if (
+                source_summary
+                and int(source_summary.get("conversations_discovered", 0)) == 0
+            ):
+                raise AccountImportError(
+                    "The selected export yielded no conversations.",
+                    code=AccountImportErrorCode.NO_COMMITTED_ENTITIES.value,
+                    status_code=500,
+                )
             if committed_entity_count == 0 and canonical_duplicate_count == 0:
                 raise AccountImportError(
                     "The export finished processing, but no canonical entities were committed.",
@@ -1708,6 +2050,9 @@ class OpenAIAccountImportService:
             "imported_thread_count": int(job.imported_thread_count or 0),
             "imported_message_count": int(job.imported_message_count or 0),
             "imported_media_count": int(job.imported_media_count or 0),
+            "imported_document_count": int(
+                (job.checkpoint or {}).get("imported_document_count", 0)
+            ),
             "duplicate_count": int(job.duplicate_count or 0),
             "canonical_duplicate_count": int(
                 (job.checkpoint or {}).get("canonical_duplicate_count", 0)

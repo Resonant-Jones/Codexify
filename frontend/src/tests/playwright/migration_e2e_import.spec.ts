@@ -182,8 +182,8 @@ test('account import identity stays with backend when Settings display name is Y
       page.getByText('User Nickname').locator('..').locator('input')
     ).toHaveValue('You');
     await page.getByRole('tab', { name: 'Data' }).click();
-    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
     const chooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Choose Folder' }).click();
     await (await chooserPromise).setFiles(exportFolder);
@@ -225,8 +225,8 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
     await page.goto('/');
     await page.getByRole('button', { name: 'Settings' }).first().click();
     await page.getByRole('tab', { name: 'Data' }).click();
-    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
     await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
 
     const createResponsePromise = page.waitForResponse((response) =>
@@ -382,8 +382,8 @@ test('current account import UI commits a valid OpenAI export for materializatio
     await page.goto('/');
     await page.getByRole('button', { name: 'Settings' }).first().click();
     await page.getByRole('tab', { name: 'Data' }).click();
-    await page.getByRole('button', { name: 'Import ChatGPT history' }).click();
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
     await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
 
     const createResponsePromise = page.waitForResponse((response) =>
@@ -731,11 +731,11 @@ test.describe('ChatGPT migration import', () => {
     await dataTab.click();
     await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
+    const importButton = page.getByRole('button', { name: 'Import Conversation History' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
 
     const fixturePath = fileURLToPath(
       new URL(importFixture.fixtureUrl, import.meta.url)
@@ -759,7 +759,7 @@ test.describe('ChatGPT migration import', () => {
     expect(uploadedMultipartBody).toContain(`filename="${importFixture.expectedFilename}"`);
 
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toHaveCount(0);
 
     const guardianTab = page.getByRole('button', { name: 'Guardian' }).first();
     await expect(guardianTab).toBeVisible();
@@ -900,11 +900,11 @@ test.describe('ChatGPT migration import', () => {
     await dataTab.click();
     await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
+    const importButton = page.getByRole('button', { name: 'Import Conversation History' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import account data' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
 
     const tempDir = mkdtempSync(join(tmpdir(), 'codexify-chatgpt-import-'));
     const largeFixturePath = join(tempDir, 'chatgpt_export_large.json');

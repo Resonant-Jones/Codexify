@@ -16,6 +16,7 @@ import logging
 import os
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -96,6 +97,29 @@ def _clean_optional_model_kind(value: Any) -> str | None:
     return None
 
 
+class _BorrowedConversationConnection:
+    """Expose a scoped connection without transferring commit ownership."""
+
+    def __init__(self, connection: Any):
+        self._connection = connection
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback):
+        return False
+
+    def cursor(self, *args, **kwargs):
+        return self._connection.cursor(*args, **kwargs)
+
+    def commit(self):
+        raise RuntimeError("Cannot commit a borrowed conversation connection")
+
+    def rollback(self):
+        # Legacy schema fallbacks must not erase preceding conversation writes.
+        raise RuntimeError("Cannot roll back a borrowed conversation connection")
+
+
 class PgDB(ChatDB):
     def __init__(self, dsn: str):
         """Initialize connection to PostgreSQL's consciousness fabric.
@@ -121,6 +145,9 @@ class PgDB(ChatDB):
         self._connector_has_schedule = False
         self._chat_messages_has_kind: bool | None = None
         self._chat_threads_has_last_interaction_at: bool | None = None
+        self._conversation_connection: ContextVar[Any | None] = ContextVar(
+            f"conversation_connection_{id(self)}", default=None
+        )
 
     def _normalize_dsn(self, dsn: str) -> str:
         """Coerce any SQLAlchemy-style DSN to plain psycopg-compatible URL."""
@@ -142,7 +169,27 @@ class PgDB(ChatDB):
         - postgresql://user:pass@host/db
         - postgresql+psycopg2://user:pass@host/db  (normalised to the former)
         """
+        scoped = self._conversation_connection.get()
+        if scoped is not None:
+            return _BorrowedConversationConnection(scoped)
         return psycopg.connect(self.dsn, row_factory=dict_row)
+
+    @contextmanager
+    def conversation_transaction(self):
+        """Own one PostgreSQL transaction across an imported conversation.
+
+        Existing repository methods retain their usual connection behavior outside
+        this scope. Nested ``with self._connect()`` blocks borrow this connection
+        without committing it; only this outer scope commits or rolls back.
+        """
+        if self._conversation_connection.get() is not None:
+            raise RuntimeError("Nested conversation transactions are not supported")
+        with self._connect() as conn:
+            token = self._conversation_connection.set(conn)
+            try:
+                yield
+            finally:
+                self._conversation_connection.reset(token)
 
     @contextmanager
     def _sa_session(self):

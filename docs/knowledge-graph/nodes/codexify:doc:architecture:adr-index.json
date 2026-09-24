@@ -8,20 +8,20 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "d24bf0240094f70dd26e66be016a34ce10f8897c956ee00dc80dacb1cf5a5df2",
+  "content_hash": "ba94237e124424a83813b25b60308368ecccc2d6395fcfea569b10b525e511da",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Source bytes reverified during the PR #799 DLG integrity repair. ADR-index architecture semantics are unchanged; no ADR identity, numbering, status, or authority changed in this task.",
+    "reason": "ADR-089 was added to the canonical index; source routing and accepted decision identity were re-reviewed. This verifies documentation metadata only, not runtime behavior or release support.",
     "state": "current",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "verified_at": "2026-09-10T14:05:00Z",
-    "verified_commit": "136142a1a74595d46fa2ac047d1743f4654f7357"
+    "verified_at": "2026-09-24T20:44:47Z",
+    "verified_commit": "cac2e9b2dbeffcb7d0d098482773adf7e75a0d9f"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

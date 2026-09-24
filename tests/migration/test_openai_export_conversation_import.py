@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 import types
+import uuid
 from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -548,7 +550,7 @@ def test_idempotent_reimport_does_not_duplicate(
     find_message_calls: list[tuple] = []
     first_import_thread_id: int | None = None
 
-    def _find_thread(db, *, user_id, source_thread_id):
+    def _find_thread(db, *, user_id, source_thread_id, origin_system=None):
         find_thread_calls.append((user_id, source_thread_id))
         # On first import, return None (create new). On second, return first's ID.
         if len(find_thread_calls) > 1 and first_import_thread_id is not None:
@@ -964,7 +966,7 @@ def test_idempotent_rerun_with_deferred_embeddings(
 
     find_thread_calls: list = []
 
-    def _find_thread(db, *, user_id, source_thread_id):
+    def _find_thread(db, *, user_id, source_thread_id, origin_system=None):
         find_thread_calls.append((user_id, source_thread_id))
         if len(find_thread_calls) > 1:
             return 1
@@ -1010,3 +1012,265 @@ def test_idempotent_rerun_with_deferred_embeddings(
     assert first.conversations_imported == 1
     assert first.embedding_mode == "defer"
     assert second.conversations_imported == 0
+
+
+def test_postgres_source_identity_replay_keeps_canonical_ids() -> None:
+    """Exercise the real PostgreSQL lookup and provenance uniqueness index."""
+    database_url = os.getenv("TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL replay test")
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql
+    from psycopg.rows import dict_row
+
+    migration = importlib.import_module("backend.rag.chatgpt_migration")
+    schema = f"import_replay_{uuid.uuid4().hex[:12]}"
+
+    class PostgresImportStore:
+        def _connect(self):
+            conn = psycopg.connect(database_url, row_factory=dict_row)
+            with conn.cursor() as cur:
+                cur.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+            return conn
+
+        def create_chat_thread(self, *, user_id, title, summary, project_id,
+                               metadata, origin_system):
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO chat_threads (user_id, origin_system, metadata) "
+                    "VALUES (%s, %s, %s::jsonb) RETURNING id",
+                    (user_id, origin_system, json.dumps(metadata)),
+                )
+                return cur.fetchone()
+
+        def get_chat_thread(self, thread_id):
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute("SELECT metadata FROM chat_threads WHERE id = %s", (thread_id,))
+                return cur.fetchone()
+
+        def update_thread_metadata(self, thread_id, metadata):
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE chat_threads SET metadata = %s::jsonb WHERE id = %s",
+                    (json.dumps(metadata), thread_id),
+                )
+
+        def create_message(self, thread_id, role, content, created_at=None):
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO chat_messages (thread_id, role, content) "
+                    "VALUES (%s, %s, %s) RETURNING id",
+                    (thread_id, role, content),
+                )
+                return cur.fetchone()["id"]
+
+    with psycopg.connect(database_url, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    try:
+        store = PostgresImportStore()
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE chat_threads (id bigserial PRIMARY KEY, "
+                "user_id text NOT NULL, origin_system text NOT NULL, "
+                "metadata jsonb NOT NULL DEFAULT '{}'::jsonb)"
+            )
+            cur.execute(
+                "CREATE TABLE chat_messages (id bigserial PRIMARY KEY, "
+                "thread_id bigint NOT NULL REFERENCES chat_threads(id), "
+                "role text NOT NULL, content text NOT NULL, event_at timestamptz, "
+                "extra_meta jsonb NOT NULL DEFAULT '{}'::jsonb)"
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX uq_chat_messages_source_thread_message "
+                "ON chat_messages ((extra_meta->>'source_thread_id'), "
+                "(extra_meta->>'source_message_id')) "
+                "WHERE extra_meta ? 'source_thread_id' "
+                "AND extra_meta ? 'source_message_id' "
+                "AND (extra_meta->>'source_message_id') <> ''"
+            )
+
+        timestamp = datetime.now(timezone.utc)
+
+        def ingest(source_thread_id: str, source_message_id: str):
+            return migration._ingest_canonical_messages(
+                chatlog_db=store, user_id="account-a", title="Imported",
+                thread_summary="Imported from Claude", import_source="claude",
+                import_profile="claude_import", source_thread_id=source_thread_id,
+                messages=[{
+                    "source_thread_id": source_thread_id,
+                    "source_message_id": source_message_id,
+                    "turn_index": 0, "source_created_at": timestamp,
+                    "imported_at": timestamp, "role": "user", "content": "Hello",
+                }],
+                imports_project_id=1, import_grouping_metadata={},
+                pending_embed_items=[], pending_embed_message_ids=[],
+                filtered_count=0, filtered_reasons={}, embedding_mode="off",
+                disable_personal_facts=True,
+            )
+
+        assert ingest("claude-conversation", "claude-message") == (1, 1)
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM chat_threads")
+            thread_id = cur.fetchone()["id"]
+            cur.execute("SELECT id, extra_meta FROM chat_messages")
+            original = cur.fetchone()
+
+        assert migration._find_existing_thread_for_source(
+            store, "account-a", "claude-conversation", origin_system=None
+        ) == thread_id
+        assert migration._find_existing_thread_for_source(
+            store, "account-a", "claude-conversation", origin_system="openai"
+        ) is None
+        assert ingest("claude-conversation", "claude-message") == (0, 0)
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM chat_threads")
+            assert cur.fetchone()["n"] == 1
+            cur.execute("SELECT id, extra_meta FROM chat_messages")
+            replayed = cur.fetchone()
+            assert cur.fetchone() is None
+        assert replayed["id"] == original["id"]
+        assert replayed["extra_meta"]["source_thread_id"] == "claude-conversation"
+        assert replayed["extra_meta"]["source_message_id"] == "claude-message"
+
+        assert ingest("new-conversation", "new-message") == (1, 1)
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM chat_threads")
+            assert cur.fetchone()["n"] == 2
+            cur.execute("SELECT count(*) AS n FROM chat_messages")
+            assert cur.fetchone()["n"] == 2
+
+        orphan_message_id = store.create_message(thread_id, "user", "Orphan")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            migration._persist_temporal_metadata(
+                store, orphan_message_id, original["extra_meta"], timestamp
+            )
+        with store._connect() as conn, conn.cursor() as cur:
+            cur.execute("DROP TABLE chat_messages")
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            migration._find_existing_thread_for_source(
+                store, "account-a", "claude-conversation", "anthropic"
+            )
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            migration._find_existing_message_for_source(
+                store, thread_id, "claude-message"
+            )
+    finally:
+        with psycopg.connect(database_url, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_postgres_conversation_transaction_rolls_back_and_replays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after the second provenance update cannot commit a fragment."""
+    database_url = os.getenv("TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
+    psycopg = pytest.importorskip("psycopg")
+    from guardian.core.pgdb import PgDB
+
+    migration = importlib.import_module("backend.rag.chatgpt_migration")
+    db = PgDB(database_url)
+    monkeypatch.setattr(migration.dependencies, "chatlog_db", db)
+    source_ids = [f"atomic-proof-{uuid.uuid4().hex}" for _ in range(2)]
+    conversation = lambda source_id: _build_mapping_conversation(
+        [("user", "First", 1.0), ("assistant", "Second", 2.0)],
+        conversation_id=source_id,
+    )
+    original_persist = migration._persist_temporal_metadata
+
+    def readback(source_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        from psycopg.rows import dict_row
+
+        with psycopg.connect(database_url, row_factory=dict_row) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ct.id, ct.user_id, ct.project_id, p.user_id AS project_user_id, "
+                "ct.origin_system, ct.metadata FROM chat_threads ct "
+                "LEFT JOIN projects p ON p.id = ct.project_id "
+                "WHERE ct.user_id = %s "
+                "AND ct.metadata->>'source_thread_id' = %s ORDER BY ct.id",
+                ("local", source_id),
+            )
+            threads = cur.fetchall()
+            cur.execute(
+                "SELECT id, thread_id, user_id, extra_meta FROM chat_messages "
+                "WHERE extra_meta->>'source_thread_id' = %s ORDER BY id",
+                (source_id,),
+            )
+            messages = cur.fetchall()
+            cur.execute(
+                "SELECT count(*) AS n FROM personal_fact_evidence "
+                "WHERE evidence_meta->>'source_thread_id' = %s",
+                (source_id,),
+            )
+            return threads, messages, cur.fetchone()["n"]
+
+    def import_one(source_id: str) -> dict[str, Any]:
+        return migration.ingest_chatgpt_conversation_records(
+            [conversation(source_id)], user_id="local", embedding_mode="defer",
+            disable_personal_facts=True,
+        )
+
+    try:
+        calls = 0
+
+        def fail_after_second_write(*args, **kwargs):
+            nonlocal calls
+            original_persist(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("synthetic failure after second provenance write")
+
+        monkeypatch.setattr(migration, "_persist_temporal_metadata", fail_after_second_write)
+        with pytest.raises(RuntimeError, match="synthetic failure"):
+            import_one(source_ids[0])
+        assert calls == 2
+        assert readback(source_ids[0]) == ([], [], 0)
+
+        monkeypatch.setattr(migration, "_persist_temporal_metadata", original_persist)
+        first = import_one(source_ids[0])
+        assert (first["threads_imported"], first["messages_imported"]) == (1, 2)
+        threads, messages, evidence_count = readback(source_ids[0])
+        assert evidence_count == 0
+        assert len(threads) == 1 and len(messages) == 2
+        assert threads[0]["origin_system"] == "openai"
+        assert threads[0]["user_id"] == "local"
+        assert threads[0]["project_user_id"] == "local"
+        assert threads[0]["project_id"] is not None
+        assert threads[0]["metadata"]["source_thread_id"] == source_ids[0]
+        assert all(message["user_id"] == "local" for message in messages)
+        assert [message["extra_meta"]["source_message_id"] for message in messages] == ["m1", "m2"]
+        identity_before = (
+            threads[0]["id"],
+            [(message["id"], message["thread_id"], message["extra_meta"]) for message in messages],
+        )
+        replay = import_one(source_ids[0])
+        assert (replay["threads_imported"], replay["messages_imported"]) == (0, 0)
+        replay_threads, replay_messages, replay_evidence_count = readback(source_ids[0])
+        assert replay_evidence_count == evidence_count
+        assert (
+            replay_threads[0]["id"],
+            [(message["id"], message["thread_id"], message["extra_meta"]) for message in replay_messages],
+        ) == identity_before
+
+        calls = 0
+
+        def fail_with_database_error(*args, **kwargs):
+            nonlocal calls
+            original_persist(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                raise psycopg.OperationalError("synthetic database connection failure")
+
+        monkeypatch.setattr(migration, "_persist_temporal_metadata", fail_with_database_error)
+        with pytest.raises(psycopg.OperationalError, match="synthetic database"):
+            import_one(source_ids[1])
+        assert calls == 2
+        assert readback(source_ids[1]) == ([], [], 0)
+    finally:
+        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM chat_threads WHERE user_id = %s "
+                "AND metadata->>'source_thread_id' = ANY(%s)",
+                ("local", source_ids),
+            )

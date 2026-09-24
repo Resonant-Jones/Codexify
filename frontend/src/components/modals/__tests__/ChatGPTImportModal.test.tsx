@@ -179,7 +179,7 @@ describe("ChatGPTImportModal account export intake", () => {
     ).toHaveAttribute("style", expect.stringContaining("rgba(34, 197, 94"));
 
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -227,7 +227,7 @@ describe("ChatGPTImportModal account export intake", () => {
     expect(anthropicRadio.checked).toBe(false);
 
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -256,7 +256,7 @@ describe("ChatGPTImportModal account export intake", () => {
     // submission seam — not a separate endpoint or component.
     await user.click(screen.getByTestId("account-import-source-anthropic"));
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -271,7 +271,7 @@ describe("ChatGPTImportModal account export intake", () => {
     coordinator.start.mockClear();
     await user.click(screen.getByTestId("account-import-source-openai"));
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -296,7 +296,7 @@ describe("ChatGPTImportModal account export intake", () => {
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -353,7 +353,7 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => root }],
@@ -404,7 +404,7 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       { dataTransfer: { files: [archive] } }
     );
 
@@ -425,7 +425,7 @@ describe("ChatGPTImportModal account export intake", () => {
     render(<ChatGPTImportModal open onOpenChange={vi.fn()} userName="You" />);
 
     fireEvent.drop(
-      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       { dataTransfer: { items: [{ webkitGetAsEntry: () => root }], files: [] } }
     );
 

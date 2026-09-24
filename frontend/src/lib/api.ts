@@ -960,6 +960,7 @@ export interface AccountImportJob {
   imported_thread_count: number;
   imported_message_count: number;
   imported_media_count: number;
+  imported_document_count?: number;
   duplicate_count: number;
   canonical_duplicate_count?: number;
   skipped_count: number;

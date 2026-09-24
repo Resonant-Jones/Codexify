@@ -6,20 +6,20 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "a60104630870a849739638b96a8d8f7397bf5b4d0119b84cde3029a89ea87ea3",
+  "content_hash": "aa4b81d0d2a10b02025d10dda56842dbfcf66aa7d89b98af61e6e3d505259f4c",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Reverified the Architecture KB entrypoint at af8b7cc9 after the Memory Vault operator-contract, read-projection, and current-state posture updates. The KB remains structural/source-routing authority and continues to delegate release/current-state interpretation to 00-current-state.md; no runtime, release, provider, retrieval, persistence, or authority claim is widened.",
+    "reason": "The Document Recall Contract entrypoint and current-state routing were re-reviewed. This verifies documentation metadata only, not runtime behavior or release support.",
     "state": "current",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "verified_at": "2026-09-14T17:22:31Z",
-    "verified_commit": "af8b7cc9e1e7140374f5f0485a3da35d8c6cb34a"
+    "verified_at": "2026-09-24T20:44:47Z",
+    "verified_commit": "cac2e9b2dbeffcb7d0d098482773adf7e75a0d9f"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
