@@ -24,6 +24,9 @@ from guardian.db.models import (
     MediaAsset,
     OpenAIAccountImportJob,
     Project,
+    ProjectDocumentLink,
+    ThreadDocument,
+    UploadedDocument,
     UploadedImage,
     User,
 )
@@ -234,6 +237,9 @@ def account_import_service(tmp_path: Path):
         MediaAlias.__table__,
         GeneratedImage.__table__,
         UploadedImage.__table__,
+        UploadedDocument.__table__,
+        ThreadDocument.__table__,
+        ProjectDocumentLink.__table__,
     ]
     Base.metadata.create_all(engine, tables=tables)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
@@ -377,6 +383,53 @@ def test_staged_job_conflicts_events_and_media_replay_are_durable(
     assert media_events[0][4] == 1
 
 
+def test_materialization_retries_corrupt_copy_but_never_accepts_it(
+    account_import_service, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    service, _sessions, _trace, staging, _media = account_import_service
+    content = b"canonical export bytes"
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=len(content)
+    )
+    service.stage_files(
+        job_id=job["job_id"], user_id="account-a",
+        files=[StagedImportFile("export/conversations.json", content)],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+
+    original_download = staging.download_to_path
+    calls = 0
+
+    def corrupt_first_copy(storage_path: str, destination: Path) -> None:
+        nonlocal calls
+        original_download(storage_path, destination)
+        calls += 1
+        if calls == 1:
+            destination.write_bytes(b"")
+
+    monkeypatch.setattr(staging, "download_to_path", corrupt_first_copy)
+    service.materialize_staged_export(
+        job_id=job["job_id"], user_id="account-a",
+        destination=tmp_path / "recovered",
+    )
+    assert calls == 2
+    assert (tmp_path / "recovered/export/conversations.json").read_bytes() == content
+
+    def always_corrupt(storage_path: str, destination: Path) -> None:
+        original_download(storage_path, destination)
+        destination.write_bytes(b"")
+
+    monkeypatch.setattr(staging, "download_to_path", always_corrupt)
+    with pytest.raises(AccountImportError) as failure:
+        service.materialize_staged_export(
+            job_id=job["job_id"], user_id="account-a",
+            destination=tmp_path / "rejected",
+        )
+    assert failure.value.code == "staged_file_integrity_failed"
+    assert not (tmp_path / "rejected/export/conversations.json").exists()
+
+
 def test_unclassified_media_keeps_conflicting_source_relationships(
     account_import_service,
     tmp_path: Path,
@@ -436,6 +489,104 @@ def test_unclassified_media_keeps_conflicting_source_relationships(
             "user_message_attachment",
             "generation_metadata",
         }
+
+
+def test_pdf_dat_import_uses_canonical_document_store_and_replays(
+    account_import_service,
+    tmp_path: Path,
+):
+    service, sessions, _trace, _staging, media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    source = tmp_path / "opaque.dat"
+    source.write_bytes(b"%PDF-1.4\ninvalid synthetic PDF")
+    record = OpenAIExportFileRecord(
+        path="parts/media/opaque.dat",
+        absolute_path=str(source),
+        size=source.stat().st_size,
+        extension=".dat",
+        detected_kind="pdf",
+        first_bytes_hex=source.read_bytes()[:16].hex(),
+        magic_signature="PDF",
+    )
+    evidence = OpenAIExportImageEvidence(source_tag="unclassified")
+
+    first = service.import_pdf_record(
+        job_id=job["job_id"], user_id="account-a", record=record, evidence=evidence
+    )
+    replay = service.import_pdf_record(
+        job_id=job["job_id"], user_id="account-a", record=record, evidence=evidence
+    )
+    service.record_media_batch(
+        job_id=job["job_id"], user_id="account-a", results=[first]
+    )
+    service.record_media_batch(
+        job_id=job["job_id"], user_id="account-a", results=[replay]
+    )
+
+    assert first["created"] is True
+    assert replay["duplicate"] is True
+    with sessions() as session:
+        asset = session.query(MediaAsset).one()
+        document = session.query(UploadedDocument).one()
+        link = session.query(ProjectDocumentLink).one()
+        assert asset.media_kind == "document"
+        assert asset.provenance == "imported"
+        assert asset.source_tag == "unclassified"
+        assert asset.mime_type == "application/pdf"
+        assert document.asset_id == asset.id
+        assert document.source_tag == "unclassified"
+        assert link.document_id == document.id
+        assert session.query(ThreadDocument).count() == 0
+    assert len(media.list_files("documents")) == 1
+    readback = service.get_job(job_id=job["job_id"], user_id="account-a")
+    assert readback["imported_media_count"] == 1
+    assert readback["imported_document_count"] == 1
+
+
+def test_claude_extracted_text_document_is_truthfully_labeled_and_deduped(
+    account_import_service,
+):
+    service, sessions, _trace, _staging, media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2,
+        source_system="anthropic",
+    )
+    kwargs = {
+        "job_id": job["job_id"],
+        "user_id": "account-a",
+        "path": "anthropic/project-docs/source-doc.txt",
+        "source_filename": "source.pdf",
+        "content": "Recovered source text",
+        "source_thread_id": None,
+        "source_message_id": None,
+        "source_project_id": "source-project",
+        "source_document_id": "source-doc",
+    }
+    first = service.import_text_document_record(**kwargs)
+    replay = service.import_text_document_record(**kwargs)
+    assert first["created"] is True
+    assert replay["duplicate"] is True
+    with sessions() as session:
+        asset = session.query(MediaAsset).one()
+        document = session.query(UploadedDocument).one()
+        assert asset.provenance == "imported"
+        assert asset.source_tag == "unclassified"
+        assert asset.mime_type == "text/plain"
+        assert asset.import_lineage[0]["materialization"] == "extracted_text_only"
+        assert asset.import_lineage[0]["source_project_id"] == "source-project"
+        assert document.filename == "source.pdf.extracted.txt"
+        assert document.parsed_text == "Recovered source text"
+        assert session.query(ProjectDocumentLink).count() == 1
+    assert len(media.list_files("documents")) == 1
 
 
 def test_terminal_failure_replay_does_not_inflate_counters_or_events(
@@ -535,6 +686,37 @@ def test_zero_committed_entities_cannot_be_classified_as_success(
     )
 
 
+def test_media_commit_cannot_complete_a_zero_conversation_history_import(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("image.dat", b"ab")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.record_source_summary(
+        job_id=job["job_id"],
+        user_id="account-a",
+        summary={"conversations_discovered": 0},
+    )
+    service.record_media_batch(
+        job_id=job["job_id"],
+        user_id="account-a",
+        results=[{"path": "image.dat", "media_id": "media-1", "created": True}],
+    )
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.complete_job(job_id=job["job_id"], user_id="account-a")
+
+    assert exc_info.value.code == AccountImportErrorCode.NO_COMMITTED_ENTITIES.value
+
+
 # ---------------------------------------------------------------------------
 # Provider-neutral committed-conversation-total accounting
 # ---------------------------------------------------------------------------
@@ -606,6 +788,57 @@ def test_committed_conversation_totals_exact_replay_is_idempotent(
     assert len(
         internal["checkpoint"]["committed_conversation_totals"]
     ) == 1
+
+
+def test_claude_duplicate_only_job_completes_without_new_canonical_rows(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2,
+        source_system="anthropic",
+    )
+    service.stage_files(
+        job_id=job["job_id"], user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.record_source_summary(
+        job_id=job["job_id"], user_id="account-a",
+        summary={"conversations_discovered": 1, "conversations_accepted": 1,
+                 "conversation_transactions_committed": True},
+    )
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"], user_id="account-a",
+        threads_imported=0, messages_imported=0,
+        canonical_duplicate_count=3, phase_key="anthropic_conversations",
+    )
+    terminal = service.complete_job(job_id=job["job_id"], user_id="account-a")
+    assert terminal["status"] == "completed_with_warnings"
+    assert terminal["imported_thread_count"] == 0
+    assert terminal["imported_message_count"] == 0
+    assert terminal["canonical_duplicate_count"] == 3
+    assert terminal["duplicate_count"] == 3
+
+
+def test_claude_accounting_accepts_canonical_replay_after_credit(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(user_id="account-a", total_file_count=1, total_byte_count=2)
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"], user_id="account-a", threads_imported=1,
+        messages_imported=2, phase_key="anthropic_conversations",
+    )
+    replay = service.record_committed_conversation_totals(
+        job_id=job["job_id"], user_id="account-a", threads_imported=0,
+        messages_imported=0, canonical_duplicate_count=3,
+        phase_key="anthropic_conversations",
+    )
+    assert replay["imported_thread_count"] == 1
+    assert replay["imported_message_count"] == 2
+    assert replay["canonical_duplicate_count"] == 0
 
 
 def test_committed_conversation_totals_conflicting_replay_fails_closed(

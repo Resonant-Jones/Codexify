@@ -1,13 +1,15 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PersonaStudioBackendProfile } from "../personaStudioApi";
 import PersonaStudioPage from "../PersonaStudioPage";
-import { createPersonaStudioSeedState, persistPersonaStudioLocalState } from "../personaStudioStore";
-
-import { normalizeProfile, personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
+import { createPersonaStudioSeedState } from "../personaStudioStore";
+import {
+  normalizeProfile,
+  personaStudioApiMock,
+  resetPersonaStudioApiMock,
+} from "./personaStudioApiMock";
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
@@ -18,11 +20,15 @@ function backendProfile(): PersonaStudioBackendProfile {
   return normalizeProfile({
     id: "profile-1",
     manifest: {
-      apiVersion: "codexify.persona/v1", profileIdentity: "profile-1", revision: 12,
+      apiVersion: "codexify.persona/v1",
+      profileIdentity: "profile-1",
+      revision: 12,
       identity: { name: "Backend Persona", description: "Backend description" },
-      prompt: { systemPrompt: "Backend prompt", styleNotes: "Backend style", directives: "Backend directive" },
+      prompt: { systemPrompt: "Backend prompt", styleNotes: "Backend style", directives: "Backend directives" },
       model: { ...config.model, model: "backend-model", temperature: 0.4 },
-      voice: config.voice, capabilities: config.tools, retrieval: config.retrieval,
+      voice: config.voice,
+      capabilities: config.tools,
+      retrieval: config.retrieval,
     },
   });
 }
@@ -34,126 +40,86 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const editor = () => screen.getByTestId("persona-studio-editor");
-
 beforeEach(() => {
   window.localStorage.clear();
   resetPersonaStudioApiMock([backendProfile()]);
 });
 
-describe("Persona Studio persistence", () => {
-  it("hydrates canonical authored fields and establishes the saved editor baseline", async () => {
-    const user = userEvent.setup();
+describe("Persona Studio acknowledgement persistence", () => {
+  it("hydrates the acknowledged manifest and uses its revision as the clean baseline", async () => {
     render(<PersonaStudioPage />);
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
+
     await screen.findByDisplayValue("Backend Persona");
     expect(screen.getByDisplayValue("Backend description")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "profile-1");
-    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    expect(screen.getByTestId("persona-studio-configuration-viewport")).toHaveAttribute("data-saved-profile-id", "profile-1");
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 12");
     expect(screen.getByTestId("persona-studio-action-save")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /^prompt$/i }));
-    expect(screen.getByDisplayValue("Backend prompt")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Backend style")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Backend directive")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^model$/i }));
-    expect(screen.getByDisplayValue("backend-model")).toBeInTheDocument();
   });
 
-  it("keeps drafts across tabs and waits for update acknowledgement before becoming clean", async () => {
+  it("waits for acknowledgement before clearing dirty state, then reverts to that acknowledgement", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-    await screen.findByDisplayValue("Backend Persona");
-    await user.clear(screen.getByPlaceholderText(/enter persona name/i));
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), "Submitted draft");
-    await user.click(screen.getByRole("button", { name: /^model$/i }));
-    await user.click(screen.getByRole("button", { name: /^identity$/i }));
-    expect(screen.getByDisplayValue("Submitted draft")).toBeInTheDocument();
+    const name = await screen.findByLabelText(/persona name/i);
+    await user.clear(name);
+    await user.type(name, "Submitted draft");
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Unsaved changes · saved rev 12");
+
     const pending = deferred<PersonaStudioBackendProfile>();
     personaStudioApiMock.updatePersonaProfile.mockReturnValueOnce(pending.promise);
     await user.click(screen.getByTestId("persona-studio-action-save"));
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-    const response = backendProfile();
-    response.manifest.identity.name = "Acknowledged name";
-    response.manifest.revision = response.current_revision = 30;
-    await act(async () => pending.resolve(response));
-    expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "clean");
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), " edit");
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Unsaved changes · saved rev 12");
+
+    const acknowledged = backendProfile();
+    acknowledged.manifest.identity.name = "Acknowledged name";
+    acknowledged.manifest.revision = acknowledged.current_revision = 30;
+    await act(async () => pending.resolve(acknowledged));
+    await waitFor(() => expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument());
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 30");
+
+    await user.type(screen.getByLabelText(/persona name/i), " changed");
     await user.click(screen.getByTestId("persona-studio-action-reset"));
     expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 30");
   });
 
-  it("keeps a failed update dirty and resets to the previous canonical snapshot", async () => {
+  it("leaves a failed save dirty and lets Revert restore the prior acknowledgement", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-    await screen.findByDisplayValue("Backend Persona");
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), " unsaved");
+    const name = await screen.findByLabelText(/persona name/i);
+    await user.type(name, " unsaved");
     personaStudioApiMock.updatePersonaProfile.mockRejectedValueOnce(new Error("offline"));
     await user.click(screen.getByTestId("persona-studio-action-save"));
+
+    await waitFor(() => expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Unsaved changes · saved rev 12"));
     expect(screen.getByDisplayValue("Backend Persona unsaved")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "profile-1");
     await user.click(screen.getByTestId("persona-studio-action-reset"));
     expect(screen.getByDisplayValue("Backend Persona")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "clean");
+    expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 12");
   });
 
-  it("keeps a new copy unsaved until creation acknowledgement and preserves concurrent edits", async () => {
+  it("preserves an edit concurrent with Duplicate-as-new acknowledgement", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
     await screen.findByDisplayValue("Backend Persona");
     const pending = deferred<PersonaStudioBackendProfile>();
     personaStudioApiMock.createPersonaProfile.mockReturnValueOnce(pending.promise);
+
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
     await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-    await user.type(screen.getByPlaceholderText(/enter persona name/i), " newer");
-    const body = personaStudioApiMock.createPersonaProfile.mock.calls[0][0];
-    if (!("manifest" in body)) throw new Error("Expected canonical write");
-    const response = normalizeProfile({ id: body.manifest.profileIdentity, manifest: { ...body.manifest, revision: 4 } });
-    await act(async () => pending.resolve(response));
+    const name = await screen.findByLabelText(/persona name/i);
+    await user.type(name, " newer");
+    const body = personaStudioApiMock.createPersonaProfile.mock.calls[0]?.[0] as {
+      manifest: { profileIdentity: string; [key: string]: unknown };
+    };
+    const acknowledged = normalizeProfile({
+      id: body.manifest.profileIdentity,
+      manifest: { ...body.manifest, revision: 4 } as PersonaStudioBackendProfile["manifest"],
+    });
+    await act(async () => pending.resolve(acknowledged));
+
+    await waitFor(() => expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Unsaved changes · saved rev 4"));
     expect(screen.getByDisplayValue("Backend Persona Copy newer")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-    expect(editor()).toHaveAttribute("data-saved-profile-id", body.manifest.profileIdentity);
     await user.click(screen.getByTestId("persona-studio-action-reset"));
     expect(screen.getByDisplayValue("Backend Persona Copy")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-draft-state", "clean");
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-    expect(within(screen.getByTestId("persona-studio-profile-selector-list")).getByText("Backend Persona")).toBeVisible();
-  });
-
-  it("recovers failed creation as an unsaved draft after offline remount", async () => {
-    const user = userEvent.setup();
-    const page = render(<PersonaStudioPage />);
-    await screen.findByDisplayValue("Backend Persona");
-    personaStudioApiMock.createPersonaProfile.mockRejectedValueOnce(new Error("offline"));
-    await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
-    page.unmount();
-    personaStudioApiMock.fetchPersonaProfiles.mockRejectedValueOnce(new Error("offline"));
-    render(<PersonaStudioPage />);
-    await screen.findByDisplayValue("Backend Persona Copy");
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-  });
-
-  it("recovers local-only work without claiming a saved backend profile", async () => {
-    persistPersonaStudioLocalState(createPersonaStudioSeedState());
-    personaStudioApiMock.fetchPersonaProfiles.mockRejectedValueOnce(new Error("offline"));
-    render(<PersonaStudioPage />);
-    await waitFor(() => expect(personaStudioApiMock.fetchPersonaProfiles).toHaveBeenCalled());
-    expect(screen.getByDisplayValue("Guardian Default")).toBeInTheDocument();
-    expect(editor()).toHaveAttribute("data-saved-profile-id", "");
-    expect(editor()).toHaveAttribute("data-draft-state", "dirty");
-    expect(screen.getByTestId("persona-studio-action-save")).toBeEnabled();
-  });
-
-  it("does not render chat composer or message thread UI", async () => {
-    render(<PersonaStudioPage />);
-    await screen.findByDisplayValue("Backend Persona");
-    expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
   });
 });

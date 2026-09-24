@@ -1,22 +1,6 @@
 /**
- * TODO: TOKEN MIGRATION PLAN — Codexify UI Architecture
- *
- * Current state:
- *   - Inline CSS variables declared directly in AppShell serve as runtime design tokens.
- *   - Variables like `--bezel`, `--rim`, `--panel-bg`, etc., are effectively local tokens.
- *
- * Next phase:
- *   - Extract all static vars into `/src/theme/tokens.json`.
- *   - Create `/src/theme/index.ts` to import JSON and export `cssVars` for React + CSS injection.
- *   - Optional: Add Style Dictionary or a simple script to export Figma/Swift/React Native tokens.
- *
- * Goal:
- *   - Establish a universal token layer for Codexify and PulseOS.
- *   - Maintain parity across Web, Electron, and mobile builds.
- *
- * Notes:
- *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
- *   - Migration should be trivial if naming consistency is preserved.
+ * AppShell projects responsive layout and active material colors.
+ * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
 import { ChevronRight, Settings2 } from "lucide-react";
@@ -132,7 +116,7 @@ import RoomMode from "@/features/rooms/RoomMode";
 import { parseHostedRoomRoute } from "@/features/rooms/roomRoute";
 import "./AppShell.css";
 
-// TEMPORARY: inject static design tokens until full migration is done.
+// Publish canonical static tokens before the shell renders.
 import {
   applySurfaceWarmth,
   injectCssVars,
@@ -618,6 +602,45 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+const SEEDED_GALLERY_ITEMS: ReadonlyArray<GalleryItem> = [
+  {
+    src: "/peekaboo-demo/abstract-signal-study.png",
+    prompt: "Abstract signal study",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/interface-moodboard.png",
+    prompt: "Interface moodboard",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/field-notes-map.png",
+    prompt: "Field notes map",
+    mock: true,
+  },
+];
+
+const SEEDED_GALLERY_ITEMS_BY_PATH = new Map(
+  SEEDED_GALLERY_ITEMS.map((item) => [item.src, item])
+);
+
+function createSeededGalleryItems(): GalleryItem[] {
+  return SEEDED_GALLERY_ITEMS.map((item) => ({ ...item }));
+}
+
+function resolveSeededGalleryItem(value: unknown): GalleryItem | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const pathname = new URL(value, base).pathname;
+    const seededItem = SEEDED_GALLERY_ITEMS_BY_PATH.get(pathname);
+    return seededItem ? { ...seededItem } : null;
+  } catch {
+    return null;
+  }
+}
+
 function isTransientFailedGalleryItem(raw: any): boolean {
   const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
   return (
@@ -628,10 +651,11 @@ function isTransientFailedGalleryItem(raw: any): boolean {
 }
 
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  const seededItem = resolveSeededGalleryItem(candidate);
+  if (seededItem) return seededItem;
   if (isTransientFailedGalleryItem(raw)) return null;
-  const src = normalizeGallerySrc(
-    raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
-  );
+  const src = normalizeGallerySrc(candidate);
   if (!src) return null;
   const prompt =
     typeof raw?.prompt === "string" && raw.prompt.trim()
@@ -1313,6 +1337,10 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const [view, setView] = useState<AppShellView>(() => {
     if (typeof window !== "undefined") {
+      if (window.location.pathname === "/") {
+        return "guardian";
+      }
+
       const routeView = resolveViewFromPathname(window.location.pathname);
       if (routeView) return routeView;
 
@@ -1324,6 +1352,13 @@ export default function AppShell({
 
     return "dashboard";
   });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian" || window.location.pathname !== "/") return;
+
+    window.history.replaceState({}, "", "/chat");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
@@ -2207,28 +2242,23 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const styleVars = {
     /* === GENERAL LAYOUT TOKENS === */
-    "--radius-micro": "8px",                 // chips, inputs, pills
-    "--radius-tile": "20px",                  // cards, tiles, panels
-    "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
     "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,
     "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
     "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
-    "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
-    "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
+    ...(isPhoneShell || shellViewportProfile.viewportClass === "small_tablet"
+      ? {
+          "--edge-chrome": shellViewportProfile.shellEdgeChrome,
+          "--shell-gap": shellViewportProfile.shellGap,
+          "--card-pad": shellViewportProfile.shellCardPad,
+          "--viewport-radius": shellViewportProfile.viewportRadius,
+        }
+      : {}),
     "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
-    "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
-    "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
     "--dock-collapsed-page-gutter": "6px",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
-    "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
-    "--frame": "3px",                         // Outer frame thickness
-    // --bezel: Visual margin between the refractive glass and the opaque content surface.
-    // Changing this variable tunes the glass thickness everywhere.
-    "--bezel": "var(--bezel, 6px)",             // Bezel (margin) between glass and content (default 6px)
-    "--rim": "3px",                           // Inner rim spacing
 
     /* === TILE / CHIP / ELEMENT SIZING === */
     "--project-tile-size": "72px",              // Project tile square size
@@ -2280,11 +2310,6 @@ export default function AppShell({
     "--accent-strong": accentStrong,
     "--pill-active-text": accentContrast,
 
-    /* === SEMANTIC FALLBACKS (legacy) === */
-    "--radius": "var(--tile-radius)",           // Used in old components
-    "--board-edge": "var(--edge-chrome)",       // Used in spacing wrappers
-    "--gutter": "var(--shell-gap)",             // Used in layout
-    // --bezel is also set at the main viewport for live tuning of glass thickness
   } as React.CSSProperties;
 
 
@@ -2317,29 +2342,28 @@ export default function AppShell({
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery, setGallery] = useState<GalleryItem[]>(() => {
-    // The local tester exposes Vite static assets on 5173 while the guest
-    // shell is served through the 5174 sidecar entrypoint.
-    const def: GalleryItem[] = [
-      { src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study" },
-      { src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard" },
-      { src: "http://localhost:5173/peekaboo-demo/field-notes-map.png", prompt: "Field notes map" },
-    ];
+    const def = createSeededGalleryItems();
     if (typeof window === "undefined") return def;
+    let hasUserUpload = false;
     try {
+      hasUserUpload = Boolean(localStorage.getItem("cfy.hasUserUpload"));
       const raw = localStorage.getItem("cfy.gallery");
       if (!raw) {
-        localStorage.setItem("cfy.gallery", JSON.stringify(def));
-        return def;
+        const initialGallery = hasUserUpload ? [] : def;
+        localStorage.setItem("cfy.gallery", JSON.stringify(initialGallery));
+        return initialGallery;
       }
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return def;
+      if (!Array.isArray(parsed)) return hasUserUpload ? [] : def;
       const normalized = parsed
         .map((item) => normalizeGalleryItem(item))
         .filter((item): item is GalleryItem => !!item);
-      return normalized.length > 0 && normalized.every((item) => item.mock)
-        ? def
-        : normalized;
-    } catch { return def; }
+      const userItems = normalized.filter((item) => !item.mock);
+      if (userItems.length > 0) return userItems;
+      return hasUserUpload ? [] : def;
+    } catch {
+      return hasUserUpload ? [] : def;
+    }
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2456,8 +2480,11 @@ export default function AppShell({
         .filter((item): item is GalleryItem => !!item);
       if (normalizedItems.length === 0) return;
       setGallery((prev) => {
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -2507,8 +2534,11 @@ export default function AppShell({
           .map((item: any) => normalizeGalleryItem(item))
           .filter((item): item is GalleryItem => !!item);
         if (normalizedItems.length === 0) return prev;
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -3396,7 +3426,6 @@ export default function AppShell({
 
         /* ✨ glossy‑glass overrides */
         "--tile-blur": "22px",                       // stronger backdrop blur
-        "--bezel": "6px",                            // bezel (glass margin) can be tuned here
         "--lip-w": "6px",                            // deeper inner lip
         "--depth-scale": "1.35",                     // bolder drop‑shadow scale
         "--panel-bezel": "rgba(255,255,255,0.28)",   // brighter edge sparkle
@@ -3517,10 +3546,10 @@ export default function AppShell({
             style={mobileTopNavDockStyle}
           >
             {/* glass backdrop */}
-            <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
                 wallpaperUrl={activeWallpaper}
-                className="w-full h-full rounded-full"
+                className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
                 aberration={0.006}
@@ -3667,7 +3696,6 @@ export default function AppShell({
             ...(isPhoneFrameFirstShell
               ? {
                   "--frame": "1px",
-                  "--bezel": "var(--bezel, 6px)",
                   "--rim": "1px",
                 }
               : {}),
@@ -3706,11 +3734,8 @@ export default function AppShell({
               data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
+                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                 "--gutter": "var(--shell-gap)",
-                "--card-pad": shellViewportProfile.shellCardPad,
                 "--min-h": shellViewportProfile.contentMinHeight,
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
@@ -3935,9 +3960,7 @@ export default function AppShell({
                       sessionComposerBlocked ? "true" : "false"
                     }
                     style={{
-                      "--frame": "1px",
-                      "--bezel": "var(--bezel, 6px)",
-                      "--rim": "1px",
+                      ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                     } as React.CSSProperties}
                   >
                     <ErrorBoundary>
@@ -4119,18 +4142,11 @@ export default function AppShell({
             <div
               className="h-full w-full isolate"
               data-active-view="personaStudio"
-              data-active-view-contract="left-center-right"
+              data-active-view-contract="assistant-configuration"
               data-thread-rail="absent"
               data-view-family="personaStudio"
             >
-              <FrameCard
-                refractiveFallback
-                shimmerMode="subtle"
-                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-                data-testid="persona-studio-framecard"
-              >
-                <PersonaStudioPage />
-              </FrameCard>
+              <PersonaStudioPage />
             </div>
           )}
         </div>

@@ -67,6 +67,95 @@ class ProviderGovernanceRule:
         }
 
 
+@dataclass(frozen=True)
+class LocalRuntimeIdentity:
+    id: str
+    display_name: str
+
+
+_LOCAL_RUNTIME_IDENTITIES: tuple[LocalRuntimeIdentity, ...] = (
+    LocalRuntimeIdentity(id="whooshd", display_name="Whoosh'd"),
+    LocalRuntimeIdentity(id="ollama", display_name="Ollama"),
+    LocalRuntimeIdentity(id="lm_studio", display_name="LM Studio"),
+    LocalRuntimeIdentity(id="custom", display_name="Custom Local"),
+    LocalRuntimeIdentity(id="unknown", display_name="Local Runtime"),
+)
+
+_LOCAL_RUNTIME_IDENTITY_BY_ID = {
+    identity.id: identity for identity in _LOCAL_RUNTIME_IDENTITIES
+}
+
+_LOCAL_RUNTIME_IDENTITY_ALIASES = {
+    "whooshd": "whooshd",
+    "whooshd-mlx": "whooshd",
+    "whooshd_mlx": "whooshd",
+    "whooshd mlx": "whooshd",
+    "ollama": "ollama",
+    "lmstudio": "lm_studio",
+    "lm-studio": "lm_studio",
+    "lm_studio": "lm_studio",
+    "lm studio": "lm_studio",
+    "custom": "custom",
+    "custom-openai-compatible": "custom",
+    "custom_openai_compatible": "custom",
+    "openai-compatible": "custom",
+    "unknown": "unknown",
+}
+
+
+def normalize_local_runtime_identity(value: Any) -> str | None:
+    """Return a canonical local-runtime id without inspecting endpoints/models."""
+
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return None
+    return _LOCAL_RUNTIME_IDENTITY_ALIASES.get(normalized)
+
+
+def resolve_local_runtime_identity(
+    *,
+    vendor: Any = None,
+    runtime_preset: Any = None,
+    display_name: Any = None,
+) -> dict[str, Any]:
+    """Resolve configured local-runtime identity separately from provider id.
+
+    An explicit vendor is authoritative over the preset. Unknown configured
+    values remain custom rather than being guessed from an endpoint or model.
+    """
+
+    configured_vendor = str(vendor or "").strip()
+    configured_preset = str(runtime_preset or "").strip()
+    configured_display_name = str(display_name or "").strip()
+
+    identity_source = "fallback"
+    configured_identity = ""
+    if configured_vendor:
+        identity_source = "vendor"
+        configured_identity = configured_vendor
+    elif configured_preset:
+        identity_source = "runtime_preset"
+        configured_identity = configured_preset
+
+    normalized_identity = normalize_local_runtime_identity(configured_identity)
+    canonical_id = normalized_identity
+    if canonical_id is None:
+        canonical_id = "custom" if configured_identity else "unknown"
+
+    identity = _LOCAL_RUNTIME_IDENTITY_BY_ID[canonical_id]
+    resolved: dict[str, Any] = {
+        "id": identity.id,
+        "displayName": configured_display_name or identity.display_name,
+        "identitySource": identity_source,
+        "recognized": normalized_identity is not None,
+    }
+    if configured_vendor:
+        resolved["vendor"] = configured_vendor
+    if configured_preset:
+        resolved["runtimePreset"] = configured_preset
+    return resolved
+
+
 _PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
     ProviderGovernanceRule(
         provider="openai",
@@ -107,10 +196,10 @@ _PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
     ProviderGovernanceRule(
         provider="deepseek",
         label="DeepSeek",
-        governance_classification="static_authorized",
-        live_discovery_expected=False,
-        routing_validate_discovered_inventory=False,
-        configured_defaults_allowed_during_degraded_discovery=False,
+        governance_classification="discovery_backed",
+        live_discovery_expected=True,
+        routing_validate_discovered_inventory=True,
+        configured_defaults_allowed_during_degraded_discovery=True,
         local_only=False,
     ),
     ProviderGovernanceRule(
@@ -351,8 +440,24 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
     "deepseek": (
         {
-            "id": "deepseek-v4-flash",
-            "displayName": "DeepSeek V4 Flash",
+            "id": "deepseek-flash",
+            "displayName": "DeepSeek Flash",
+            "contextWindow": 1000000,
+            "capabilities": {
+                "chat": True,
+                "vision": False,
+                "text_input": True,
+                "tools": True,
+                "streaming": True,
+            },
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
+        },
+        {
+            "id": "deepseek-v4-pro",
+            "displayName": "DeepSeek V4 Pro",
             "contextWindow": 1000000,
             "capabilities": {
                 "chat": True,
@@ -568,6 +673,8 @@ def _provider_model_index_timeout(
     provider = normalize_provider(provider_id)
     if provider == "groq":
         raw = getattr(settings, "GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "deepseek":
+        raw = getattr(settings, "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
     elif provider == "alibaba":
         raw = getattr(settings, "ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
     elif provider == "minimax":
@@ -590,6 +697,13 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
             str(getattr(settings, "GROQ_BASE_URL", "") or "").strip()
             or _DEFAULT_GROQ_MODEL_INDEX_BASE
         )
+    elif provider == "deepseek":
+        override = str(
+            getattr(settings, "DEEPSEEK_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = str(
+            getattr(settings, "DEEPSEEK_BASE_URL", "") or ""
+        ).strip()
     elif provider == "alibaba":
         override = str(
             getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
@@ -632,6 +746,10 @@ def _provider_model_index_headers(
     headers = {"Accept": "application/json"}
     if provider == "groq":
         api_key = str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
+        headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+    if provider == "deepseek":
+        api_key = str(getattr(settings, "DEEPSEEK_API_KEY", "") or "").strip()
         headers["Authorization"] = f"Bearer {api_key}"
         return headers
     if provider == "alibaba":
@@ -1584,6 +1702,33 @@ def resolve_provider_capability(
                     "utility_model_count": utility_model_count,
                     "total_model_count": len(models),
                 }
+        elif (
+            provider == "deepseek"
+            and model_index["state"] != "available"
+            and not models
+            and default_model
+            and provider_allows_default_during_degraded_discovery(provider)
+        ):
+            models = [
+                _normalize_model_descriptor(
+                    {
+                        "id": default_model,
+                        "displayName": default_model,
+                        "supports_chat": True,
+                        "supports_vision": False,
+                        "supports_text_input": True,
+                        "model_kind": "chat",
+                    }
+                )
+            ]
+            model_index = {
+                **model_index,
+                "source": "fallback",
+                "state": "degraded",
+                "model_count": 1,
+                "utility_model_count": 0,
+                "total_model_count": 1,
+            }
         elif (
             model_index["state"] != "available"
             and not models

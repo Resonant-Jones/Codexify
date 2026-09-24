@@ -10,6 +10,7 @@ from guardian.context.retrieval_router_policy import (
     WIDEN_REASON_NONE,
 )
 from guardian.core.chat_completion_service import (
+    _build_retrieval_provenance,
     _filter_image_refusal_semantic_context,
 )
 from guardian.protocol_tokens import TraceSuppressionReason
@@ -228,6 +229,11 @@ def test_image_turn_refusal_suppression_is_annotated():
             "source_type": "retrieval",
             "role": "assistant",
             "retrieval_policy": {"source_mode": "project"},
+            "metadata": {
+                "doc_id": "suppressed-foreign-document",
+                "chunk_index": 0,
+                "user_id": "other-user",
+            },
         },
         {
             "id": "keep-1",
@@ -239,6 +245,13 @@ def test_image_turn_refusal_suppression_is_annotated():
             "source_type": "retrieval",
             "role": "user",
             "retrieval_policy": {"source_mode": "project"},
+            "metadata": {
+                "doc_id": "retained-document",
+                "chunk_index": 3,
+                "chunk_count": 4,
+                "namespace": "project:9",
+                "user_id": "local",
+            },
         },
     ]
 
@@ -263,3 +276,70 @@ def test_image_turn_refusal_suppression_is_annotated():
     assert suppressed["policy_reason"] == (
         TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
     )
+
+    provenance = _build_retrieval_provenance(
+        requested_source_mode="project",
+        normalized_source_mode="project",
+        bundle={
+            "semantic": filtered,
+            "docs": {"project": [], "thread": [], "global": []},
+            "_prompt_meta": {
+                "context": {
+                    "semantic": {"count": 1, "injected": True},
+                },
+                "docs": {"count": 0, "injected": False},
+            },
+            "retrieval_suppression": suppression,
+        },
+    )
+    assert provenance["contributing_items"] == [
+        {
+            "source_type": "retrieval",
+            "role": "user",
+            "document_id": "retained-document",
+            "chunk_id": "keep-1",
+            "chunk_index": 3,
+            "chunk_count": 4,
+            "project_id": 9,
+            "thread_id": 2,
+            "retrieval_lane": "thread_semantic",
+            "namespace": "project:9",
+            "score": 0.5,
+        }
+    ]
+    assert "suppressed-foreign-document" not in repr(
+        provenance["contributing_items"]
+    )
+
+
+def test_uploaded_scoped_document_retains_ingestion_chunk_zero() -> None:
+    broker = ContextBroker(
+        chatlog_db=None,
+        vector_store=None,
+        settings=SimpleNamespace(GUARDIAN_ENABLE_GRAPH_CONTEXT=False),
+    )
+    record = broker._serialize_doc_record(
+        row=SimpleNamespace(
+            id="doc-project-44",
+            filename="project-fact.txt",
+            parsed_text="A bounded excerpt used by the provider.",
+            source_tag="upload",
+            mime_type="text/plain",
+            project_id=17,
+            thread_id=None,
+            user_id="local",
+            created_at=None,
+            model=None,
+        ),
+        doc_type="uploaded",
+        scope="project",
+        excerpt_chars=420,
+        relation="project_library",
+        attached_at=None,
+        attached_by="local",
+        retrieval_policy={"source_mode": "project"},
+    )
+
+    assert record["id"] == "doc-project-44"
+    assert record["chunk_index"] == 0
+    assert record["retrieval_lane"] == "project_docs"

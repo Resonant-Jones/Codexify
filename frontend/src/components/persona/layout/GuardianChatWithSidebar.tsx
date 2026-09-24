@@ -62,16 +62,16 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { getPreferredProviderSelection } from "@/lib/providerPref";
-import { mapRuntimeToVisualState } from "@/contracts/runtimeVisualState";
 import {
   checkAuthGate,
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
 import { getDesktopRuntimeAuthConfig, isTauriRuntime } from "@/lib/runtimeConfig";
-import type {
-  ChatRequestState,
-  ProviderRuntimeState,
+import {
+  normalizeProviderRuntimeState,
+  PROVIDER_RUNTIME_STATES,
+  type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
@@ -88,14 +88,30 @@ type PanelShellProps = React.PropsWithChildren<{
   className?: string;
   surfaceStyle?: React.CSSProperties;
   disabled?: boolean;
+  transparent?: boolean;
 }>;
 
-function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellProps) {
+function PanelShell({
+  className,
+  surfaceStyle,
+  disabled,
+  transparent = false,
+  children,
+}: PanelShellProps) {
   const panelStyle: React.CSSProperties = {
     opacity: disabled ? 0.35 : 1,
     pointerEvents: disabled ? "none" : undefined,
     ...(surfaceStyle ?? {}),
   };
+
+  if (transparent) {
+    return (
+      <div className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)} style={panelStyle}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <FrameCard
       fill
@@ -128,6 +144,21 @@ function formatDesktopAuthDiagnostics(): string[] {
     `runtimeRoot=${snapshot.runtimeRoot ?? "<unavailable>"}`,
     snapshot.failureKind ? `failureKind=${snapshot.failureKind}` : null,
   ].filter((line): line is string => Boolean(line));
+}
+
+function isCanonicalGuardianStartRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/" || window.location.pathname === "/chat";
+}
+
+// Presentation only: thread identity continues to belong to SessionSpine.
+const GUARDIAN_PRESENTATION_KEY = "cfy.guardian.presentation";
+const GUARDIAN_SIDEBAR_INTRO_KEY = "cfy.guardian.sidebarIntro";
+function readPresentationMarker(key: string): string | null {
+  try { return window.sessionStorage.getItem(key); } catch { return null; }
+}
+function writePresentationMarker(key: string, value: string) {
+  try { window.sessionStorage.setItem(key, value); } catch { /* in-memory fallback */ }
 }
 
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
@@ -357,6 +388,23 @@ export default function GuardianChatWithSidebar({
     const stored = localStorage.getItem("cfy.sidebarVisible");
     return stored === null ? true : stored === "true";
   });
+  const [presentationLifecycle, setPresentationLifecycle] = React.useState(
+    () => readPresentationMarker(GUARDIAN_PRESENTATION_KEY)
+  );
+  const [sidebarIntro, setSidebarIntro] = React.useState(
+    () => readPresentationMarker(GUARDIAN_SIDEBAR_INTRO_KEY)
+  );
+  const [sidebarRevealAttention, setSidebarRevealAttention] = React.useState(false);
+  const updatePresentationLifecycle = React.useCallback((value: string) => {
+    writePresentationMarker(GUARDIAN_PRESENTATION_KEY, value);
+    setPresentationLifecycle(value);
+  }, []);
+  const updateSidebarIntro = React.useCallback((value: string) => {
+    writePresentationMarker(GUARDIAN_SIDEBAR_INTRO_KEY, value);
+    setSidebarIntro(value);
+  }, []);
+  // Landing and the unacknowledged introduction leave the durable preference intact.
+  const [isLandingSidebarOpen, setIsLandingSidebarOpen] = React.useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -595,6 +643,15 @@ export default function GuardianChatWithSidebar({
         modelId: DEFAULT_MODEL_ID,
         inferenceMode: DEFAULT_INFERENCE_MODE,
       })
+      .then(() => {
+        if (cancelled) return;
+        // An explicit URL outranks the previously active hydrated tab.
+        const routeThreadId = resolveRouteThreadId();
+        const tab = sessionSpine.getActiveTab();
+        if (routeThreadId && tab && tab.threadId !== routeThreadId) {
+          sessionSpine.tabSetThread(tab.tabId, routeThreadId);
+        }
+      })
       .finally(() => {
         if (!cancelled) setSessionReady(true);
       });
@@ -616,6 +673,7 @@ export default function GuardianChatWithSidebar({
     DEFAULT_COMPOSER_INFERENCE_MODE
   );
   const lastSessionSyncTabIdRef = React.useRef<TabId | null>(null);
+  const lastSessionSyncThreadIdRef = React.useRef<string | null>(null);
   const activeSessionDraftSeed = useSessionActiveDraft(sessionSpine);
   const selectedProjectFilter = React.useMemo(() => {
     if (!selectedProjectId) return null;
@@ -654,6 +712,14 @@ export default function GuardianChatWithSidebar({
   // Guard against stale session thread ids that no longer exist in the loaded list.
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
+
+    if (isCanonicalGuardianStartRoute() && presentationLifecycle !== "conversation") {
+      if (activeId !== null) {
+        setActiveId(null);
+      }
+      return;
+    }
+
     const targetThreadId = activeSessionTab.threadId ?? null;
     const currentRouteThreadId = resolveRouteThreadId();
     const targetMissingFromThreads =
@@ -665,11 +731,8 @@ export default function GuardianChatWithSidebar({
       !threadsHasMore &&
       !threadsLoadingMore;
 
-    if (targetMissingFromThreads) {
-      if (!shouldClearMissingTarget) {
-        // Keep session linkage intact: filtered/paginated lists can omit a valid thread.
-        return;
-      }
+    // Filtered/paginated lists are not evidence that the active thread is gone.
+    if (targetMissingFromThreads && shouldClearMissingTarget) {
       if (activeId !== null) {
         setActiveId(null);
       }
@@ -683,6 +746,9 @@ export default function GuardianChatWithSidebar({
       return;
     }
 
+    if (targetThreadId && presentationLifecycle !== "conversation") {
+      updatePresentationLifecycle("conversation");
+    }
     if (targetThreadId === activeId) return;
     setActiveId(targetThreadId);
     // Only push state if the route actually differs from target
@@ -694,6 +760,8 @@ export default function GuardianChatWithSidebar({
     activeId,
     activeSessionTab,
     activeSessionTabId,
+    presentationLifecycle,
+    updatePresentationLifecycle,
     resolveRouteThreadId,
     sessionReady,
     sessionSpine,
@@ -708,10 +776,15 @@ export default function GuardianChatWithSidebar({
   React.useEffect(() => {
     if (!sessionReady || !sessionSpine || !activeSessionTabId) return;
     const sessionTabChanged = lastSessionSyncTabIdRef.current !== activeSessionTabId;
+    const sessionThreadId = activeSessionTab?.threadId ?? null;
+    const sessionThreadChanged = lastSessionSyncThreadIdRef.current !== sessionThreadId;
     lastSessionSyncTabIdRef.current = activeSessionTabId;
+    lastSessionSyncThreadIdRef.current = sessionThreadId;
     if (!activeId) return;
+    // Restoration can change the thread on the same tab. Do not write the
+    // previous render's visible thread back over that authoritative change.
     if (
-      sessionTabChanged &&
+      (sessionTabChanged || sessionThreadChanged) &&
       (activeSessionTab?.threadId ?? null) !== activeId
     ) {
       return;
@@ -730,7 +803,16 @@ export default function GuardianChatWithSidebar({
     sessionSpine,
     threads,
   ]);
-  const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
+  const isPromptFirstStart = activeId === null && isCanonicalGuardianStartRoute()
+    && (presentationLifecycle !== "conversation" || (sessionReady && !activeSessionTab?.threadId));
+  const guardianPresentationMode = isPromptFirstStart
+    ? "landing"
+    : "conversation";
+  const isSidebarOpen = isDesktopLayout
+    ? guardianPresentationMode === "landing"
+      ? isLandingSidebarOpen
+      : sidebarIntro === "suppressed" ? false : isSidebarVisible
+    : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
   const guardianLayoutMode = mobileShellProfile.guardian.singleLane
     ? "single_lane"
@@ -740,13 +822,21 @@ export default function GuardianChatWithSidebar({
 
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
+      if (next) {
+        updateSidebarIntro("acknowledged");
+        setSidebarRevealAttention(false);
+      }
       if (isDesktopLayout) {
-        setIsSidebarVisible(next);
+        if (guardianPresentationMode === "landing") {
+          setIsLandingSidebarOpen(next);
+        } else {
+          setIsSidebarVisible(next);
+        }
       } else {
         setIsMobileSidebarOpen(next);
       }
     },
-    [isDesktopLayout]
+    [guardianPresentationMode, isDesktopLayout, updateSidebarIntro]
   );
 
   const closeMobileToolsMenu = React.useCallback(() => {
@@ -823,6 +913,9 @@ export default function GuardianChatWithSidebar({
   );
 
   const handleNewChat = React.useCallback(async () => {
+    updatePresentationLifecycle("new-chat");
+    setIsLandingSidebarOpen(false);
+    setSidebarRevealAttention(false);
     setActiveId(null);
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", "/chat");
@@ -831,23 +924,17 @@ export default function GuardianChatWithSidebar({
       sessionSpine.tabOpen(undefined, NEW_THREAD_TITLE);
     }
     return null;
-  }, [sessionSpine]);
+  }, [sessionSpine, updatePresentationLifecycle]);
 
   const handleSessionTabOpen = React.useCallback(() => {
-    if (!sessionSpine) {
-      void handleNewChat();
-      return;
-    }
-    setActiveId(null);
-    if (typeof window !== "undefined") {
-      window.history.replaceState({}, "", "/chat");
-    }
-    sessionSpine.tabOpen(undefined, NEW_THREAD_TITLE);
-  }, [handleNewChat, sessionSpine]);
+    void handleNewChat();
+  }, [handleNewChat]);
 
   const handleSessionTabActivate = React.useCallback((tabId: TabId) => {
     const nextTab = sessionRail.tabs.find((tab) => tab.tabId === tabId) ?? null;
     const nextThreadId = nextTab?.threadId ?? null;
+    updatePresentationLifecycle(nextThreadId ? "conversation" : "new-chat");
+    setIsLandingSidebarOpen(false);
     setActiveId(nextThreadId);
     if (typeof window !== "undefined") {
       const nextPath = nextThreadId ? `/chat/${nextThreadId}` : "/chat";
@@ -869,7 +956,7 @@ export default function GuardianChatWithSidebar({
             )?.name ?? null
           : null)
     );
-  }, [sessionRail.tabs, sessionSpine, threads]);
+  }, [sessionRail.tabs, sessionSpine, threads, updatePresentationLifecycle]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
     sessionSpine?.tabClose(tabId);
@@ -1276,6 +1363,7 @@ export default function GuardianChatWithSidebar({
   );
 
   const handleSelectThread = React.useCallback((id: string) => {
+    updatePresentationLifecycle("conversation");
     setActiveId(id);
     if (sessionSpine && activeSessionTabId) {
       const selected = threads.find((thread) => thread.id === id);
@@ -1294,17 +1382,21 @@ export default function GuardianChatWithSidebar({
     isDesktopLayout,
     sessionSpine,
     threads,
+    updatePresentationLifecycle,
   ]);
 
 
   // Never auto-select on list refresh. If selected thread disappears, clear it.
   React.useEffect(() => {
-    if (!threadsLoaded) return;
+    if (!threadsLoaded || threadsHasMore || threadsLoadingMore || selectedProjectFilter != null) return;
     if (!activeId) return;
     if (threads.some((thread) => thread.id === activeId)) return;
     setActiveId(null);
   }, [
     threadsLoaded,
+    threadsHasMore,
+    threadsLoadingMore,
+    selectedProjectFilter,
     activeId,
     threads,
   ]);
@@ -1316,6 +1408,10 @@ export default function GuardianChatWithSidebar({
         setActiveId(null);
         return;
       }
+      updatePresentationLifecycle("conversation");
+      if (sessionSpine && activeSessionTabId && activeSessionTab?.threadId !== routeId) {
+        sessionSpine.tabSetThread(activeSessionTabId, routeId);
+      }
       setActiveId((prev) => (prev === routeId ? prev : routeId));
       if (threadsLoaded && !threads.some((t) => t.id === routeId)) {
         void loadThreads({ reset: true });
@@ -1325,7 +1421,8 @@ export default function GuardianChatWithSidebar({
       window.addEventListener("popstate", onPopstate);
       return () => window.removeEventListener("popstate", onPopstate);
     }
-  }, [loadThreads, resolveRouteThreadId, threads, threadsLoaded]);
+  }, [activeSessionTab?.threadId, activeSessionTabId, loadThreads, resolveRouteThreadId,
+    sessionSpine, threads, threadsLoaded, updatePresentationLifecycle]);
 
   const loadMoreThreads = React.useCallback(async () => {
     if (!threadsHasMore || threadsLoadingMore) {
@@ -1338,8 +1435,12 @@ export default function GuardianChatWithSidebar({
     let found = threads.find((t) => t.id === activeId) || null;
     if (found) return found;
     return {
-      id: "temp",
-      title: NEW_THREAD_TITLE,
+      // The sidebar page may omit the authoritative active thread. Let the
+      // existing chat loader fetch that identity rather than presenting a draft.
+      id: activeId ?? "temp",
+      title: activeId && activeSessionTab?.threadId === activeId
+        ? activeSessionTab.title || NEW_THREAD_TITLE
+        : NEW_THREAD_TITLE,
       lastMessage: "",
       unread: 0,
       participants: [
@@ -1351,7 +1452,8 @@ export default function GuardianChatWithSidebar({
       projectName: selectedProjectName,
       lastInteractionAt: null,
     };
-  }, [threads, activeId, userName, guardianName, selectedProjectId, selectedProjectName]);
+  }, [threads, activeId, activeSessionTab?.threadId, activeSessionTab?.title,
+    userName, guardianName, selectedProjectId, selectedProjectName]);
 
   const effectiveThreadIdForMenu = React.useMemo(() => {
     if (!activeThread || activeThread.id === "temp") return null;
@@ -1511,6 +1613,11 @@ export default function GuardianChatWithSidebar({
       const shouldPromoteVisibleTab =
         !targetTabId || targetTabId === activeSessionTabId;
       if (shouldPromoteVisibleTab) {
+        updatePresentationLifecycle("conversation");
+        if (guardianPresentationMode === "landing" && sidebarIntro == null && isDesktopLayout) {
+          updateSidebarIntro("suppressed");
+          setSidebarRevealAttention(true);
+        }
         setActiveId(idStr);
       }
       setThreads((prev) => {
@@ -1552,6 +1659,11 @@ export default function GuardianChatWithSidebar({
     },
     [
       activeSessionTabId,
+      guardianPresentationMode,
+      sidebarIntro,
+      isDesktopLayout,
+      updatePresentationLifecycle,
+      updateSidebarIntro,
       guardianName,
       selectedProjectId,
       selectedProjectName,
@@ -1768,23 +1880,18 @@ export default function GuardianChatWithSidebar({
     []
   );
   const chatSurfaceStyle = useMemo(
-    () => ({
-      background: "var(--panel-bg)",
-    }),
-    []
+    () => (isPromptFirstStart ? {} : { background: "var(--panel-bg)" }),
+    [isPromptFirstStart]
   );
 
-  const providerStateToken = useMemo(() => {
-    return providerRuntimeState ?? "offline";
-  }, [providerRuntimeState]);
-
-  const requestState: ChatRequestState =
-    providerStateToken === "model_warming" ? "awaiting_model" : "queued";
-  const visualState = mapRuntimeToVisualState(
-    requestState,
-    providerStateToken as ProviderRuntimeState
+  const providerStateToken = useMemo(
+    () => normalizeProviderRuntimeState(providerRuntimeState),
+    [providerRuntimeState]
   );
-  const chatDisabled = (!isDesktopLayout && isSidebarOpen) || visualState.isBlocking;
+  const providerBlocksChat =
+    providerStateToken === PROVIDER_RUNTIME_STATES.MODEL_WARMING ||
+    providerStateToken === PROVIDER_RUNTIME_STATES.ERROR;
+  const chatDisabled = (!isDesktopLayout && isSidebarOpen) || providerBlocksChat;
   const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
@@ -1876,10 +1983,15 @@ export default function GuardianChatWithSidebar({
         )}
 
         {/* Sidebar */}
-        {isSidebarOpen && isDesktopLayout && (
+        {isDesktopLayout && (
           <div
-            className={clsx("h-full w-full min-h-0 overflow-hidden box-border", sidebarWrapperClass)}
+            className={clsx(
+              "h-full w-full min-h-0 overflow-hidden box-border",
+              sidebarWrapperClass,
+              !isSidebarOpen && "hidden"
+            )}
             style={{ gridColumn: "1", gridRow: "1" }}
+            aria-hidden={!isSidebarOpen || undefined}
           >
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
               <RefractiveGlassCard
@@ -1930,6 +2042,7 @@ export default function GuardianChatWithSidebar({
             className="h-full w-full min-h-0 overflow-hidden box-border rounded-[var(--card-radius)]"
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
+            transparent={isPromptFirstStart}
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
               {frameFirstMobile && (
@@ -2125,12 +2238,6 @@ export default function GuardianChatWithSidebar({
                 </div>
               )}
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-                <div
-                  className="px-2 py-1 text-xs text-[color:var(--muted)]"
-                  title={visualState.description}
-                >
-                  {visualState.label}
-                </div>
                 <GuardianChat
                   guardianName={guardianName}
                   userName={userName}
@@ -2155,6 +2262,8 @@ export default function GuardianChatWithSidebar({
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
                   isSidebarVisible={isSidebarOpen}
+                  sidebarRevealAttention={isDesktopLayout && sidebarRevealAttention}
+                  presentationMode={guardianPresentationMode}
                   sessionTabs={sessionRail.tabs}
                   activeSessionTabId={activeSessionTabId}
                   activeProviderId={activeSessionProviderId}

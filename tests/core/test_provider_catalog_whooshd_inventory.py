@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import pytest
+import requests
+
 from guardian.core import llm_catalog
 from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
-from guardian.core.provider_registry import validate_provider_model_selection
+from guardian.core.provider_registry import (
+    resolve_local_runtime_identity,
+    validate_provider_model_selection,
+)
 
 _GEMMA = "mlx-community/gemma-4-e2b-it-4bit"
 _LLAMA = "llama-3.2-3b-mlx"
@@ -38,6 +44,50 @@ def _whooshd_inventory(url: str, *args, **kwargs) -> _Response:
     return _Response({}, status_code=404)
 
 
+def _whooshd_alias_inventory(url: str, *args, **kwargs) -> _Response:
+    _ = (args, kwargs)
+    if url == "http://host.docker.internal:8000/api/tags":
+        return _Response({"models": []}, status_code=404)
+    if url == "http://host.docker.internal:8000/v1/models":
+        return _Response(
+            {
+                "data": [
+                    {
+                        "id": "local-chat",
+                        "metadata": {
+                            "display_name": "Gemma 4 12B IT QAT 4-bit"
+                        },
+                    }
+                ]
+            }
+        )
+    return _Response({}, status_code=404)
+
+
+def _deepseek_model_index(url: str, *args, **kwargs) -> _Response:
+    _ = args
+    assert url == "https://api.deepseek.com/v1/models"
+    assert (kwargs.get("headers") or {}).get("Authorization") == (
+        "Bearer test-deepseek-key"
+    )
+    assert kwargs.get("timeout") == 3.0
+    return _Response(
+        {
+            "object": "list",
+            "data": [
+                {"id": "deepseek-flash", "owned_by": "deepseek"},
+                {"id": "deepseek-v4-pro", "owned_by": "deepseek"},
+                {"id": "deepseek-chat", "owned_by": "deepseek"},
+            ],
+        }
+    )
+
+
+def _deepseek_model_index_timeout(url: str, *args, **kwargs) -> _Response:
+    _ = (url, args, kwargs)
+    raise requests.exceptions.Timeout("timed out")
+
+
 def _settings(**overrides) -> Settings:
     defaults = {
         "LLM_PROVIDER": "local",
@@ -62,7 +112,7 @@ def _settings(**overrides) -> Settings:
         "MINIMAX_API_KEY": None,
     }
     defaults.update(overrides)
-    return Settings(**defaults)
+    return Settings(_env_file=None, **defaults)
 
 
 def _local_provider(payload: dict) -> dict:
@@ -71,6 +121,55 @@ def _local_provider(payload: dict) -> dict:
         for provider in payload["providers"]
         if provider.get("id") == "local"
     )
+
+
+@pytest.mark.parametrize(
+    ("configured_identity", "expected_id", "expected_display_name"),
+    [
+        ("whooshd-mlx", "whooshd", "Whoosh'd"),
+        ("ollama", "ollama", "Ollama"),
+        ("lmstudio", "lm_studio", "LM Studio"),
+        ("lm_studio", "lm_studio", "LM Studio"),
+    ],
+)
+def test_local_runtime_identity_normalizes_known_configured_values(
+    configured_identity: str,
+    expected_id: str,
+    expected_display_name: str,
+) -> None:
+    runtime = resolve_local_runtime_identity(vendor=configured_identity)
+
+    assert runtime["id"] == expected_id
+    assert runtime["displayName"] == expected_display_name
+    assert runtime["identitySource"] == "vendor"
+    assert runtime["recognized"] is True
+
+
+def test_unknown_local_runtime_identity_stays_generic() -> None:
+    runtime = resolve_local_runtime_identity(
+        vendor="acme-runtime",
+        runtime_preset="whooshd-mlx",
+    )
+
+    assert runtime == {
+        "id": "custom",
+        "displayName": "Custom Local",
+        "identitySource": "vendor",
+        "recognized": False,
+        "vendor": "acme-runtime",
+        "runtimePreset": "whooshd-mlx",
+    }
+
+
+def test_unconfigured_local_runtime_identity_uses_explicit_unknown_fallback() -> None:
+    runtime = resolve_local_runtime_identity()
+
+    assert runtime == {
+        "id": "unknown",
+        "displayName": "Local Runtime",
+        "identitySource": "fallback",
+        "recognized": False,
+    }
 
 
 def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
@@ -82,6 +181,17 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
 
     local = _local_provider(payload)
     model_ids = [model["id"] for model in local["models"]]
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["runtime"] == {
+        "id": "whooshd",
+        "displayName": "Whoosh'd",
+        "identitySource": "vendor",
+        "recognized": True,
+        "vendor": "whooshd",
+        "runtimePreset": "whooshd-mlx",
+    }
+    assert local["source"]["label"] == "host.docker.internal:8000"
     assert model_ids == [_LLAMA, _QWEN_VL, _QWEN_GGUF]
     assert _GEMMA not in model_ids
     assert local["configured_model"] == _GEMMA
@@ -91,6 +201,86 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
     assert local["advertised_models"] == [_LLAMA, _QWEN_VL, _QWEN_GGUF]
     assert local["enabled"] is False
     assert local["truth"]["selectable"] is False
+
+
+def test_whooshd_catalog_uses_inventory_display_name_for_local_chat_alias(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_alias_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_CHAT_MODEL="local-chat"), include_all=True
+    )
+
+    local = _local_provider(payload)
+    model = local["models"][0]
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["configured_model"] == "local-chat"
+    assert model["id"] == "local-chat"
+    assert model["canonical_id"] == "local-chat"
+    assert model["displayName"] == "Gemma 4 12B IT QAT 4-bit"
+    assert model["display_label"] == "Gemma 4 12B IT QAT 4-bit"
+    assert local["model_resolution"]["model"] == "local-chat"
+    assert local["endpoint_resolution"]["inventory_models"] == [
+        {
+            "id": "local-chat",
+            "metadata": {"display_name": "Gemma 4 12B IT QAT 4-bit"},
+        }
+    ]
+
+
+def test_local_runtime_display_override_remains_authoritative(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_PROVIDER_DISPLAY_NAME="Jones Runtime"),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Jones Runtime"
+    assert local["runtime"]["id"] == "whooshd"
+    assert local["runtime"]["displayName"] == "Jones Runtime"
+
+
+def test_known_runtime_vendor_supplies_display_without_override(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(LOCAL_PROVIDER_DISPLAY_NAME=None),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Whoosh'd"
+    assert local["runtime"]["displayName"] == "Whoosh'd"
+
+
+def test_unknown_runtime_is_not_inferred_from_endpoint_or_models(monkeypatch) -> None:
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    payload = build_llm_catalog(
+        settings=_settings(
+            LOCAL_PROVIDER_DISPLAY_NAME=None,
+            LOCAL_PROVIDER_VENDOR="acme-runtime",
+        ),
+        include_all=True,
+    )
+
+    local = _local_provider(payload)
+    assert local["id"] == "local"
+    assert local["displayName"] == "Custom Local"
+    assert local["runtime"]["id"] == "custom"
+    assert local["runtime"]["recognized"] is False
+    assert local["source"]["label"] == "host.docker.internal:8000"
+    assert [model["id"] for model in local["models"]] == [
+        _LLAMA,
+        _QWEN_VL,
+        _QWEN_GGUF,
+    ]
 
 
 def test_local_chat_model_wins_over_legacy_local_model_env(monkeypatch) -> None:
@@ -112,18 +302,26 @@ def test_local_only_whooshd_mismatch_does_not_enable_cloud_fallback(
 ) -> None:
     monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
 
-    payload = build_llm_catalog(settings=_settings(), include_all=False)
+    payload = build_llm_catalog(settings=_settings(), include_all=True)
 
-    assert [provider["id"] for provider in payload["providers"]] == ["local"]
     local = _local_provider(payload)
+    assert local["enabled"] is False
+    assert not any(
+        provider["enabled"]
+        for provider in payload["providers"]
+        if provider["id"] != "local"
+    )
     assert local["truth"]["cloud_capable_configuration_present"] is False
     assert local["truth"]["egress_allowed"] is True
 
 
-def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
+def test_deepseek_catalog_discovers_full_model_roster_when_cloud_policy_allows(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -143,15 +341,27 @@ def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
     assert deepseek["available"] is True
     assert deepseek["authorized"] is True
     assert [model["id"] for model in deepseek["models"]] == [
-        "deepseek-v4-flash"
+        "deepseek-flash",
+        "deepseek-v4-pro",
+        "deepseek-chat",
     ]
-    assert deepseek["models"][0]["displayName"] == "DeepSeek V4 Flash"
+    assert deepseek["model_index"] == {
+        "source": "live",
+        "state": "available",
+        "endpoint": "https://api.deepseek.com/v1/models",
+        "model_count": 3,
+        "utility_model_count": 0,
+        "total_model_count": 3,
+    }
     assert deepseek["truth"]["selectable"] is True
     assert deepseek["truth"]["egress_allowed"] is True
 
 
-def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
+def test_deepseek_catalog_rejects_model_outside_live_roster(monkeypatch) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -162,18 +372,21 @@ def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
 
     allowed, reason = validate_provider_model_selection(
         provider_id="deepseek",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-unknown",
         settings=settings,
     )
 
     assert allowed is False
     assert reason == (
-        "Requested model 'deepseek-v4-pro' is not available for provider 'deepseek'"
+        "Requested model 'deepseek-v4-unknown' is not available for provider 'deepseek'"
     )
 
 
-def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
+def test_deepseek_catalog_accepts_every_provider_advertised_model(monkeypatch) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", _deepseek_model_index
+    )
     settings = _settings(
         LLM_PROVIDER="deepseek",
         ALLOW_CLOUD_PROVIDERS=True,
@@ -188,10 +401,37 @@ def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
         settings=settings,
     )
 
-    assert allowed is False
-    assert reason == (
-        "Requested model 'deepseek-chat' is not available for provider 'deepseek'"
+    assert reason is None
+    assert allowed is True
+
+
+def test_deepseek_catalog_keeps_configured_default_on_discovery_failure(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _deepseek_model_index_timeout,
     )
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    payload = build_llm_catalog(settings=settings, include_all=False)
+    deepseek = next(
+        provider
+        for provider in payload["providers"]
+        if provider["id"] == "deepseek"
+    )
+
+    assert deepseek["enabled"] is True
+    assert deepseek["models"][0]["id"] == "deepseek-v4-flash"
+    assert deepseek["model_index"]["source"] == "fallback"
+    assert deepseek["model_index"]["state"] == "degraded"
 
 
 def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(

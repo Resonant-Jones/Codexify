@@ -59,9 +59,9 @@ expected = {
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
-    "LOCAL_CHAT_MODEL": "qwen3.8-27b-4bit",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
+local_chat_models = set()
 for service_name in ("backend", "worker-chat"):
     environment = services.get(service_name, {}).get("environment", {})
     for key, value in expected.items():
@@ -70,6 +70,15 @@ for service_name in ("backend", "worker-chat"):
             raise SystemExit(
                 f"{service_name}.{key} expected {value!r}, found {actual!r}"
             )
+    local_chat_model = str(environment.get("LOCAL_CHAT_MODEL") or "").strip()
+    if not local_chat_model:
+        raise SystemExit(f"{service_name}.LOCAL_CHAT_MODEL must not be empty")
+    local_chat_models.add(local_chat_model)
+if len(local_chat_models) != 1:
+    raise SystemExit(
+        "backend and worker-chat must receive the same operator-selected "
+        f"local chat route: {sorted(local_chat_models)!r}"
+    )
 worker_chat = services.get("worker-chat", {}).get("environment", {})
 if str(worker_chat.get("CHAT_WORKER_CONCURRENCY", "")) != "1":
     raise SystemExit(

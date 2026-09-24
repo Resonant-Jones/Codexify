@@ -367,10 +367,10 @@ def _extract_generation_model(message: dict[str, Any]) -> str | None:
     return None
 
 
-def build_openai_export_image_evidence_index(
+def build_openai_export_asset_evidence_index(
     inventory: OpenAIExportInventory,
 ) -> dict[str, list[OpenAIExportImageEvidence]]:
-    """Index image references using only explicit message/export evidence.
+    """Index image and PDF references using explicit message/export evidence.
 
     Assistant/tool references are not considered generated unless generation
     metadata is present. A user-linked reference is positive upload evidence.
@@ -390,19 +390,20 @@ def build_openai_export_image_evidence_index(
         logger.exception("Unable to build OpenAI image evidence index")
         return {}
 
-    image_alias_counts: dict[str, int] = {}
+    asset_alias_counts: dict[str, int] = {}
     for record in inventory.files:
         if record.detected_kind not in {
             "image_png",
             "image_jpeg",
             "image_gif",
             "image_webp",
+            "pdf",
         }:
             continue
         for alias in _reference_aliases(record.path):
-            image_alias_counts[alias] = image_alias_counts.get(alias, 0) + 1
-    ambiguous_image_aliases = {
-        alias for alias, count in image_alias_counts.items() if count > 1
+            asset_alias_counts[alias] = asset_alias_counts.get(alias, 0) + 1
+    ambiguous_asset_aliases = {
+        alias for alias, count in asset_alias_counts.items() if count > 1
     }
 
     index: dict[str, list[OpenAIExportImageEvidence]] = {}
@@ -427,27 +428,38 @@ def build_openai_export_image_evidence_index(
                 message
             )
             uploaded = role in {"user", "human"}
-            if not generated and not uploaded:
-                continue
             evidence = OpenAIExportImageEvidence(
-                source_tag="generated" if generated else "uploaded",
+                source_tag=(
+                    "generated" if generated else "uploaded" if uploaded else "unclassified"
+                ),
                 source_thread_id=source_thread_id,
                 source_message_id=_coerce_nonempty(message.get("id") or node_id)
                 or None,
                 prompt=_extract_generation_prompt(message) if generated else None,
                 model=_extract_generation_model(message) if generated else None,
                 evidence_kind=(
-                    "generation_metadata" if generated else "user_message_attachment"
+                    "generation_metadata"
+                    if generated
+                    else "user_message_attachment"
+                    if uploaded
+                    else "message_asset_reference"
                 ),
             )
             for reference in references:
                 for alias in _reference_aliases(reference):
-                    if alias in ambiguous_image_aliases:
+                    if alias in ambiguous_asset_aliases:
                         continue
                     bucket = index.setdefault(alias, [])
                     if evidence not in bucket:
                         bucket.append(evidence)
     return index
+
+
+def build_openai_export_image_evidence_index(
+    inventory: OpenAIExportInventory,
+) -> dict[str, list[OpenAIExportImageEvidence]]:
+    """Compatibility name for the shared image/document reference index."""
+    return build_openai_export_asset_evidence_index(inventory)
 
 
 def resolve_openai_export_image_evidence(
@@ -507,10 +519,12 @@ def resolve_openai_export_image_evidence(
             relationships=relationships,
         )
     selected = matches[0]
+    thread_ids = {item.source_thread_id for item in matches if item.source_thread_id}
+    message_ids = {item.source_message_id for item in matches if item.source_message_id}
     return OpenAIExportImageEvidence(
         source_tag=selected.source_tag,
-        source_thread_id=selected.source_thread_id,
-        source_message_id=selected.source_message_id,
+        source_thread_id=next(iter(thread_ids)) if len(thread_ids) == 1 else None,
+        source_message_id=next(iter(message_ids)) if len(message_ids) == 1 else None,
         prompt=selected.prompt,
         model=selected.model,
         evidence_kind=selected.evidence_kind,
@@ -994,6 +1008,12 @@ def _payload_is_manifest(payload: Any) -> bool:
 
 
 def _is_modern_marker(record: OpenAIExportFileRecord) -> bool:
+    # Opaque export filenames also carry ordinary media. A marker identifies
+    # conversation material only when its decoded payload has that shape.
+    if record.detected_kind not in {"json_object", "json_array", "jsonl"}:
+        return False
+    if not record.conversation_candidate or _is_manifest_path(record.path):
+        return False
     parts = Path(record.path).parts
     if record.extension == ".dat":
         return True

@@ -241,7 +241,7 @@ describe("SettingsView", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
     expect(scrollBody).toHaveClass("overflow-auto", "justify-center");
     expect(scrollBody.parentElement).toHaveStyle({
@@ -266,25 +266,25 @@ describe("SettingsView", () => {
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     for (const tabName of ["Appearance", "Imprint", "Connectors", "Personal Facts"]) {
       await user.click(screen.getByRole("tab", { name: tabName }));
       expect(scrollBody).toBeInTheDocument();
       expect(
-        screen.queryByRole("button", { name: "Import ChatGPT history" })
+        screen.queryByRole("button", { name: "Import Conversation History" })
       ).not.toBeInTheDocument();
     }
   });
@@ -313,7 +313,7 @@ describe("SettingsView", () => {
       screen.queryByText(/project corpus lane/i)
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
   });
 
@@ -494,17 +494,17 @@ describe("SettingsView", () => {
 
     // Start on Appearance (canvas variant) — verify import button not present
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
   });
 

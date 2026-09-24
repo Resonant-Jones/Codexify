@@ -59,6 +59,7 @@ def _healthy_completion_service() -> dict[str, object]:
 
 def _settings() -> Settings:
     return Settings(
+        _env_file=None,
         LLM_PROVIDER="local",
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_LOCAL_ONLY_MODE=True,
@@ -110,6 +111,14 @@ def test_health_llm_route_degrades_when_whooshd_default_not_advertised(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    for key in (
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "ALIBABA_API_KEY",
+        "MINIMAX_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr("guardian.routes.health.requests.get", _whooshd_inventory)
     monkeypatch.setattr(
         "guardian.routes.health._collect_completion_service_health",

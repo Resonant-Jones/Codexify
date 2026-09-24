@@ -1,4 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +52,409 @@ const IMPORT_FIXTURE_CASES: ImportFixtureCase[] = [
     ],
   },
 ];
+
+for (const fileCount of [2, 25]) {
+  test(`account-import browser sends ${fileCount} ordered multipart pairs`, async ({ page }) => {
+    let received: { method: string; contentType: string; body: Buffer } | null = null;
+    const receiver = createServer(async (request, response) => {
+      response.setHeader('Access-Control-Allow-Origin', String(request.headers.origin ?? 'http://127.0.0.1:5173'));
+      response.setHeader('Access-Control-Allow-Credentials', 'true');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-API-Key, Authorization');
+      response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      if (request.method === 'OPTIONS') {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      if (request.url?.endsWith('/imports/openai-account/probe-job/files')) {
+        received = {
+          method: request.method ?? '',
+          contentType: String(request.headers['content-type'] ?? ''),
+          body: Buffer.concat(chunks),
+        };
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ job_id: 'probe-job', status: 'receiving', uploaded_file_count: fileCount }));
+        return;
+      }
+      response.setHeader('Content-Type', 'application/json');
+      response.end('{}');
+    });
+    await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+    const address = receiver.address();
+    if (!address || typeof address === 'string') throw new Error('Receiver port unavailable');
+    try {
+      await page.route('**/api/**', async (route) => {
+        const url = new URL(route.request().url());
+        await route.continue({ url: `http://127.0.0.1:${address.port}${url.pathname}` });
+      });
+      await page.goto('/');
+      await page.evaluate(async (count) => {
+        const { uploadOpenAIAccountImportBatch } = await import(/* @vite-ignore */ '/lib/api.ts');
+        const files = [
+          { file: new File(['[]'], 'conversations.json', { type: 'application/json' }), relativePath: 'conversations.json' },
+          { file: new File(['{}'], 'user.json', { type: 'application/json' }), relativePath: 'nested/user.json' },
+        ];
+        for (let index = 2; index < count; index += 1) {
+          files.push({
+            file: new File([new Uint8Array(750_000)], `part-${index}.dat`, { type: 'application/octet-stream' }),
+            relativePath: `nested/part-${index}.dat`,
+          });
+        }
+        await uploadOpenAIAccountImportBatch('probe-job', files);
+      }, fileCount);
+
+      expect(received).not.toBeNull();
+      const { method, contentType, body } = received!;
+      expect(method).toBe('POST');
+      const boundary = contentType.match(/^multipart\/form-data;\s*boundary=([^;]+)$/i)?.[1];
+      expect(boundary).toBeTruthy();
+      const parts = body.toString('latin1').split(`--${boundary}`).slice(1, -1);
+      expect(parts).toHaveLength(fileCount * 2);
+      for (let index = 0; index < fileCount; index += 1) {
+        const filename = index === 0 ? 'conversations.json' : index === 1 ? 'user.json' : `part-${index}.dat`;
+        const relativePath = index === 0 ? filename : `nested/${filename}`;
+        expect(parts[index * 2]).toContain(`name="files"; filename="${filename}"`);
+        expect(parts[index * 2 + 1]).toContain('name="relative_paths"');
+        expect(parts[index * 2 + 1]).toContain(`\r\n\r\n${relativePath}\r\n`);
+      }
+      expect(parts[0]).toContain('Content-Type: application/json');
+      expect(parts[2]).toContain('Content-Type: application/json');
+      if (fileCount === 25) expect(body.length).toBeGreaterThan(17_000_000);
+    } finally {
+      await new Promise<void>((resolve) => receiver.close(() => resolve()));
+    }
+  });
+}
+
+test('account import identity stays with backend when Settings display name is You', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-identity-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(exportFolder);
+  writeFileSync(join(exportFolder, 'conversations.json'), '[]');
+  const requests: Array<{ path: string; userId: string | undefined }> = [];
+  const job = {
+    job_id: 'identity-probe-job',
+    source_system: 'openai',
+    status: 'receiving',
+    total_file_count: 1,
+    total_byte_count: 2,
+    uploaded_file_count: 1,
+    uploaded_byte_count: 2,
+    imported_thread_count: 0,
+    imported_message_count: 0,
+    imported_media_count: 0,
+    duplicate_count: 0,
+    skipped_count: 0,
+    warning_count: 0,
+    failure_count: 0,
+    warning_details: [],
+    error_details: [],
+  };
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'You');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.route('**/health', (route) => route.fulfill({ status: 200, body: '{}' }));
+    await page.route(/\/api\/imports\/openai-account(?:\/.*)?$/, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      requests.push({ path, userId: route.request().headers()['x-user-id'] });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...job,
+          status: path.endsWith('/commit') ||
+            path === '/api/imports/openai-account/identity-probe-job'
+              ? 'queued'
+              : 'receiving',
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Imprint' }).click();
+    await expect(
+      page.getByText('User Nickname').locator('..').locator('input')
+    ).toHaveValue('You');
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    await expect.poll(() => requests.map(({ path }) => path), { timeout: 10_000 }).toEqual([
+      '/api/imports/openai-account',
+      '/api/imports/openai-account/identity-probe-job/files',
+      '/api/imports/openai-account/identity-probe-job/commit',
+      '/api/imports/openai-account/identity-probe-job',
+    ]);
+    expect(requests.every(({ userId }) => userId === undefined)).toBe(true);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('current account import UI stages an OpenAI batch through Guardian', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-ui-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(join(exportFolder, 'nested'), { recursive: true });
+  writeFileSync(join(exportFolder, 'conversations.json'), '[]');
+  writeFileSync(join(exportFolder, 'nested', 'user.json'), '{}');
+  const expectedBytes = 4;
+  let commitIntercepted = 0;
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'local');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.route('**/api/imports/openai-account/*/commit', async (route) => {
+      commitIntercepted += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Diagnostic probe stops after durable staging.' }),
+      });
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
+    await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+
+    const createResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/imports/openai-account' &&
+      response.request().method() === 'POST'
+    );
+    const uploadResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/files$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(200);
+    const created = await createResponse.json();
+    const jobId = String(created.job_id ?? '');
+    expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(created.source_system).toBe('openai');
+    expect(created.total_file_count).toBe(2);
+    expect(created.total_byte_count).toBe(expectedBytes);
+
+    const uploadResponse = await uploadResponsePromise;
+    expect(uploadResponse.status()).toBe(200);
+    expect(new URL(uploadResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/files`);
+    const contentType = uploadResponse.request().headers()['content-type'] ?? '';
+    const boundary = contentType.match(/^multipart\/form-data;\s*boundary=([^;]+)$/i)?.[1];
+    expect(boundary).toBeTruthy();
+    const body = uploadResponse.request().postDataBuffer()?.toString('latin1') ?? '';
+    const parts = body.split(`--${boundary}`).slice(1, -1);
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toContain('name="files"; filename="conversations.json"');
+    expect(parts[1]).toContain('name="relative_paths"');
+    expect(parts[1]).toContain('openai-export/conversations.json');
+    expect(parts[2]).toContain('name="files"; filename="user.json"');
+    expect(parts[3]).toContain('name="relative_paths"');
+    expect(parts[3]).toContain('openai-export/nested/user.json');
+    const uploaded = await uploadResponse.json();
+    expect(uploaded.job_id).toBe(jobId);
+    expect(uploaded.uploaded_file_count).toBe(2);
+    expect(uploaded.uploaded_byte_count).toBe(expectedBytes);
+
+    const statusResponse = await page.request.get(`/api/imports/openai-account/${jobId}`, {
+      headers: { 'X-User-Id': 'local' },
+    });
+    expect(statusResponse.status()).toBe(200);
+    const readback = await statusResponse.json();
+    expect(readback.job_id).toBe(jobId);
+    expect(readback.status).toBe('receiving');
+    expect(readback.total_file_count).toBe(2);
+    expect(readback.total_byte_count).toBe(expectedBytes);
+    expect(readback.uploaded_file_count).toBe(2);
+    expect(readback.uploaded_byte_count).toBe(expectedBytes);
+
+    const dbContainer = process.env.PW_ACCOUNT_IMPORT_DB_CONTAINER;
+    if (dbContainer) {
+      const sql = `BEGIN READ ONLY;\nSELECT row_to_json(t)::text FROM (
+        SELECT id, user_id, source_system, status, total_file_count,
+               total_byte_count, uploaded_file_count, uploaded_byte_count,
+               jsonb_array_length(staged_manifest::jsonb) AS manifest_count,
+               (SELECT jsonb_agg(entry->>'path' ORDER BY ordinal)
+                FROM jsonb_array_elements(staged_manifest::jsonb)
+                  WITH ORDINALITY AS entries(entry, ordinal)) AS manifest_paths
+        FROM openai_account_import_jobs WHERE id = '${jobId}'
+      ) t;\nROLLBACK;\n`;
+      const output = execFileSync('docker', [
+        'exec', '-i', dbContainer, 'sh', '-lc',
+        'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At',
+      ], { input: sql, encoding: 'utf8' });
+      const row = JSON.parse(output.split('\n').find((line) => line.startsWith('{')) ?? 'null');
+      expect(row).toMatchObject({
+        id: jobId,
+        user_id: 'local',
+        source_system: 'openai',
+        status: 'receiving',
+        total_file_count: 2,
+        total_byte_count: expectedBytes,
+        uploaded_file_count: 2,
+        uploaded_byte_count: expectedBytes,
+        manifest_count: 2,
+        manifest_paths: [
+          'openai-export/conversations.json',
+          'openai-export/nested/user.json',
+        ],
+      });
+    }
+    await expect.poll(() => commitIntercepted).toBe(1);
+    console.log('account-import staging receipt', JSON.stringify({
+      job_id: jobId,
+      observed_at: new Date().toISOString(),
+      create_status: createResponse.status(),
+      upload_status: uploadResponse.status(),
+      readback_status: statusResponse.status(),
+      files: 2,
+      bytes: expectedBytes,
+      database_readback: Boolean(dbContainer),
+      commit_intercepted: commitIntercepted === 1,
+    }));
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('current account import UI commits a valid OpenAI export for materialization', async ({ page }) => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'codexify-account-import-materialization-'));
+  const exportFolder = join(fixtureRoot, 'openai-export');
+  mkdirSync(exportFolder);
+  const sourceConversationId = 'axis-import-materialization-20260923-01';
+  const userMessageId = 'axis-import-user-message-20260923-01';
+  const assistantMessageId = 'axis-import-assistant-message-20260923-01';
+  const exportData = [{
+    conversation_id: sourceConversationId,
+    id: sourceConversationId,
+    title: 'Axis Import Materialization Probe',
+    current_node: assistantMessageId,
+    create_time: 1720000000,
+    update_time: 1720000001,
+    mapping: {
+      [userMessageId]: {
+        id: userMessageId,
+        parent: null,
+        children: [assistantMessageId],
+        message: {
+          id: userMessageId,
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['CODEXIFY_IMPORT_USER_SENTINEL_20260923'] },
+          create_time: 1720000000,
+        },
+      },
+      [assistantMessageId]: {
+        id: assistantMessageId,
+        parent: userMessageId,
+        children: [],
+        message: {
+          id: assistantMessageId,
+          author: { role: 'assistant' },
+          content: { content_type: 'text', parts: ['CODEXIFY_IMPORT_ASSISTANT_SENTINEL_20260923'] },
+          create_time: 1720000001,
+        },
+      },
+    },
+  }];
+  const bytes = Buffer.from(JSON.stringify(exportData));
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(join(exportFolder, 'conversations.json'), bytes);
+
+  try {
+    await page.addInitScript(() => {
+      localStorage.setItem('cfy.userName', 'local');
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.getByRole('button', { name: 'Import Conversation History' }).click();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
+    await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+
+    const createResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/imports/openai-account' &&
+      response.request().method() === 'POST'
+    );
+    const uploadResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/files$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const commitResponsePromise = page.waitForResponse((response) =>
+      /\/api\/imports\/openai-account\/[^/]+\/commit$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === 'POST'
+    );
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Choose Folder' }).click();
+    await (await chooserPromise).setFiles(exportFolder);
+
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(200);
+    const created = await createResponse.json();
+    const jobId = String(created.job_id ?? '');
+    expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(created.source_system).toBe('openai');
+    expect(created.total_file_count).toBe(1);
+    expect(created.total_byte_count).toBe(bytes.length);
+
+    const uploadResponse = await uploadResponsePromise;
+    expect(uploadResponse.status()).toBe(200);
+    expect(new URL(uploadResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/files`);
+    const uploaded = await uploadResponse.json();
+    expect(uploaded.job_id).toBe(jobId);
+    expect(uploaded.uploaded_file_count).toBe(1);
+    expect(uploaded.uploaded_byte_count).toBe(bytes.length);
+
+    const commitResponse = await commitResponsePromise;
+    expect(commitResponse.status()).toBe(200);
+    expect(new URL(commitResponse.url()).pathname).toBe(`/api/imports/openai-account/${jobId}/commit`);
+    const committed = await commitResponse.json();
+    expect(committed.job_id).toBe(jobId);
+    expect(committed.status).toBe('queued');
+    expect(committed.queued_at).toBeTruthy();
+
+    const statusResponse = await page.request.get(`/api/imports/openai-account/${jobId}`, {
+      headers: { 'X-User-Id': 'local' },
+    });
+    expect(statusResponse.status()).toBe(200);
+    const readback = await statusResponse.json();
+    expect(readback.job_id).toBe(jobId);
+    expect(readback.status).toBe('queued');
+    expect(readback.uploaded_file_count).toBe(1);
+    expect(readback.uploaded_byte_count).toBe(bytes.length);
+    console.log('account-import materialization commit receipt', JSON.stringify({
+      job_id: jobId,
+      observed_at: new Date().toISOString(),
+      source_conversation_id: sourceConversationId,
+      source_message_ids: [userMessageId, assistantMessageId],
+      relative_path: 'openai-export/conversations.json',
+      file_count: 1,
+      byte_count: bytes.length,
+      sha256,
+      create_status: createResponse.status(),
+      upload_status: uploadResponse.status(),
+      commit_status: commitResponse.status(),
+      readback_status: statusResponse.status(),
+      job_status: readback.status,
+    }));
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
 
 test.describe('ChatGPT migration import', () => {
   for (const importFixture of IMPORT_FIXTURE_CASES) {
@@ -325,16 +731,16 @@ test.describe('ChatGPT migration import', () => {
     await dataTab.click();
     await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
+    const importButton = page.getByRole('button', { name: 'Import Conversation History' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
 
     const fixturePath = fileURLToPath(
       new URL(importFixture.fixtureUrl, import.meta.url)
     );
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]:not([webkitdirectory])');
     await fileInput.setInputFiles(fixturePath);
     await expect(page.getByText(importFixture.expectedFilename)).toBeVisible();
     const selectedFileText = await fileInput.evaluate(async (element) => {
@@ -353,15 +759,15 @@ test.describe('ChatGPT migration import', () => {
     expect(uploadedMultipartBody).toContain(`filename="${importFixture.expectedFilename}"`);
 
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toHaveCount(0);
 
     const guardianTab = page.getByRole('button', { name: 'Guardian' }).first();
     await expect(guardianTab).toBeVisible();
     await guardianTab.click();
 
-    const importedThreadTile = page.locator('.thread-preview', {
-      hasText: importedThread.title,
-    }).first();
+    const showSidebar = page.getByRole('button', { name: 'Show sidebar' });
+    if (await showSidebar.isVisible()) await showSidebar.click();
+    const importedThreadTile = page.getByTestId(`thread-tile-${importedThread.id}`);
     await expect(importedThreadTile).toBeVisible({ timeout: 20000 });
     await importedThreadTile.click();
 
@@ -494,17 +900,17 @@ test.describe('ChatGPT migration import', () => {
     await dataTab.click();
     await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
+    const importButton = page.getByRole('button', { name: 'Import Conversation History' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
-    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
 
     const tempDir = mkdtempSync(join(tmpdir(), 'codexify-chatgpt-import-'));
     const largeFixturePath = join(tempDir, 'chatgpt_export_large.json');
     const largePayload = Buffer.alloc(51 * 1024 * 1024, ' ');
     writeFileSync(largeFixturePath, largePayload);
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]:not([webkitdirectory])');
     try {
       await fileInput.setInputFiles(largeFixturePath);
 

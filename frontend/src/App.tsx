@@ -47,6 +47,7 @@ import {
   waitForRuntimeReady,
 } from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
+import ActivateAccountPage from "./pages/login/ActivateAccountPage";
 import LoginPage from "./pages/login/LoginPage";
 import RegisterPage from "./pages/login/RegisterPage";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
@@ -121,6 +122,11 @@ function isShareRoute() {
 function isLoginRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/login");
+}
+
+function isActivateRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/activate";
 }
 
 function isRegisterRoute() {
@@ -611,6 +617,7 @@ export default function App() {
   const personaStudioRoute = isPersonaStudioRoute();
   const flowBuilderRoute = isFlowBuilderRoute();
   const shareRoute = isShareRoute();
+  const activateRoute = isActivateRoute();
   const loginRoute = isLoginRoute();
   const registerRoute = isRegisterRoute();
   const profileRoute = isProfileRoute();
@@ -666,6 +673,7 @@ export default function App() {
     !commandCenterRoute &&
     !personaStudioRoute &&
     !flowBuilderRoute &&
+    !activateRoute &&
     !loginRoute &&
     !registerRoute &&
     !profileRoute &&
@@ -1303,6 +1311,9 @@ export default function App() {
 
   if (tuneRoute) {
     return <DevTuneGate />;
+  }
+  if (activateRoute) {
+    return <ActivateAccountPage />;
   }
   if (loginRoute) {
     return authRouteCapability === "available" ? (

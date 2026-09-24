@@ -36,8 +36,11 @@ export function ShareButton({
 }: ShareButtonProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const pressFeedback = usePressFeedback({ enabled: isPhoneShell });
-  const capability = useRuntimeRouteCapability(
+  const directMessagesCapability = useRuntimeRouteCapability(
     SUPPORTED_PROFILE_ROUTE_LABELS.DIRECT_MESSAGES
+  );
+  const shareCapability = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.SHARE
   );
 
   return (
@@ -70,7 +73,8 @@ export function ShareButton({
         targetId={targetId}
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        capabilityState={capability.state}
+        capabilityState={directMessagesCapability.state}
+        shareCapabilityState={shareCapability.state}
         peopleState={peopleState}
         sourceThreadId={sourceThreadId}
         sourceProjectId={sourceProjectId}

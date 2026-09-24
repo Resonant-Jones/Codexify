@@ -516,7 +516,7 @@ function setRoutePath(pathname: string) {
 }
 
 function setRouteThread(threadId: number | null) {
-  setRoutePath(threadId == null ? "/" : `/chat/${threadId}`);
+  setRoutePath(threadId == null ? "/chat" : `/chat/${threadId}`);
 }
 
 function notifyRouteChange() {
@@ -545,6 +545,44 @@ function setViewportWidth(width: number) {
   });
   window.dispatchEvent(new Event("resize"));
 }
+
+describe("AppShell canonical desktop geometry", () => {
+  it("inherits the canonical registry without desktop geometry overrides", async () => {
+    const { injectCssVars } = await vi.importActual<typeof import("@/theme")>("@/theme");
+    injectCssVars();
+    installMatchMedia(false);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setViewportWidth(1280);
+
+    const { container } = render(<AppShell />);
+    const shell = container.firstElementChild as HTMLElement;
+    const root = document.documentElement.style;
+    const expected = {
+      "--radius-micro": "12px",
+      "--radius-tile": "20px",
+      "--card-radius": "var(--radius-tile)",
+      "--edge-chrome": "6px",
+      "--shell-gap": "16px",
+      "--viewport-radius": "var(--radius-tile)",
+      "--card-pad": "12px",
+      "--frame": "1.5px",
+      "--bezel": "6px",
+      "--rim": "var(--frame)",
+      "--dock-radius": "var(--radius-tile)",
+      "--dock-padding": "0.35rem",
+      "--dock-border": "var(--frame)",
+    };
+
+    for (const [token, value] of Object.entries(expected)) {
+      expect(root.getPropertyValue(token)).toBe(value);
+      expect(shell.style.getPropertyValue(token)).toBe("");
+    }
+    expect(root.getPropertyValue("--tile-radius")).toBe("var(--radius-tile)");
+    expect(root.getPropertyValue("--radius")).toBe("var(--tile-radius)");
+    expect(root.getPropertyValue("--board-edge")).toBe("var(--edge-chrome)");
+    expect(root.getPropertyValue("--gutter")).toBe("var(--shell-gap)");
+  });
+});
 
 beforeEach(() => {
   setViewportWidth(1280);
@@ -966,6 +1004,47 @@ describe("AppShell Guardian mobile navigation seam", () => {
   });
 });
 
+describe("AppShell prompt-first entry", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setAuthenticatedAuthState();
+    setRoutePath("/");
+    guardianShellPropsSpy.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("opens bare root in Guardian instead of restoring cfy.lastView", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-view-mock")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/chat");
+  });
+
+  it("keeps explicit deep links authoritative over prompt-first entry", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRoutePath("/documents");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/documents");
+
+    cleanup();
+    setRoutePath("/chat/123");
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/chat/123");
+  });
+});
+
 describe("AppShell settings utility trigger", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1048,7 +1127,8 @@ describe("AppShell settings utility trigger", () => {
 
     await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
 
-    expect(await screen.findByTestId("persona-studio-framecard")).toBeInTheDocument();
+    expect(await screen.findByTestId("persona-studio-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/persona-studio");
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
@@ -1175,7 +1255,7 @@ describe("AppShell dashboard create project flow", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
-    setRouteThread(null);
+    setRoutePath("/dashboard");
     localStorage.setItem("cfy.lastView", "dashboard");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
@@ -1223,7 +1303,7 @@ describe("AppShell dashboard create project flow", () => {
     setUnauthenticatedAuthState();
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
-    setRoutePath("/");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
     await act(async () => {
@@ -1242,14 +1322,14 @@ describe("AppShell dashboard create project flow", () => {
     authRouteCapabilityState.state = "unavailable";
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
-    setRoutePath("/");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New Thread" }));
     });
 
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/dashboard");
     expect(draftListener).not.toHaveBeenCalled();
     expect(mockApi.post).not.toHaveBeenCalled();
     window.removeEventListener("cfy:chat:new-draft", draftListener);
@@ -1257,7 +1337,7 @@ describe("AppShell dashboard create project flow", () => {
 
   it("opens an authenticated dashboard New Thread draft in Guardian", async () => {
     setAuthenticatedAuthState();
-    setRoutePath("/");
+    setRoutePath("/dashboard");
     const draftListener = vi.fn();
     window.addEventListener("cfy:chat:new-draft", draftListener);
 
@@ -1295,6 +1375,7 @@ describe("AppShell shared gallery persistence truth", () => {
 
   it("renders only persisted gallery items on the dashboard when transient failed uploads are cached", async () => {
     localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/dashboard");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1323,6 +1404,7 @@ describe("AppShell shared gallery persistence truth", () => {
 
   it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem("cfy.gallery", JSON.stringify([]));
 
     render(<AppShell />);
@@ -1343,12 +1425,16 @@ describe("AppShell shared gallery persistence truth", () => {
     expect(
       screen.queryByRole("img", { name: "Failed upload" })
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Abstract signal study" })
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       const persistedGallery = JSON.parse(
         localStorage.getItem("cfy.gallery") ?? "[]"
-      ) as Array<{ prompt: string }>;
-      expect(persistedGallery).toHaveLength(0);
+      ) as Array<{ prompt: string; mock?: boolean }>;
+      expect(persistedGallery).toHaveLength(3);
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
     });
 
     act(() => {
@@ -1367,9 +1453,10 @@ describe("AppShell shared gallery persistence truth", () => {
     await waitFor(() => {
       const persistedGallery = JSON.parse(
         localStorage.getItem("cfy.gallery") ?? "[]"
-      ) as Array<{ prompt: string }>;
+      ) as Array<{ prompt: string; mock?: boolean }>;
       expect(persistedGallery).toHaveLength(1);
       expect(persistedGallery[0]?.prompt).toBe("Persisted upload");
+      expect(persistedGallery[0]?.mock).toBe(false);
     });
   });
 });
@@ -1396,6 +1483,7 @@ describe("AppShell gallery demo content", () => {
 
   it("replaces an all-mock cached gallery with the seeded AppShell defaults", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1409,18 +1497,121 @@ describe("AppShell gallery demo content", () => {
 
     render(<AppShell />);
 
+    const abstractImage = await screen.findByRole("img", {
+      name: "Abstract signal study",
+    });
+    expect(abstractImage).toHaveAttribute(
+      "src",
+      "/peekaboo-demo/abstract-signal-study.png"
+    );
+    expect(
+      screen.getByRole("img", { name: "Interface moodboard" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Field notes map" })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Mock")).toHaveLength(3);
+    expect(
+      screen.queryByRole("img", { name: "Demo gallery item" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ src: string; mock?: boolean }>;
+      expect(persistedGallery).toHaveLength(3);
+      expect(persistedGallery[0]?.src).toBe(
+        "/peekaboo-demo/abstract-signal-study.png"
+      );
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
+    });
+  });
+
+  it("migrates cached localhost starter URLs to same-origin mock assets", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png",
+          prompt: "Abstract signal study",
+        },
+        {
+          src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png",
+          prompt: "Interface moodboard",
+        },
+        {
+          src: "http://localhost:5173/peekaboo-demo/field-notes-map.png",
+          prompt: "Field notes map",
+        },
+      ])
+    );
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByRole("img", { name: "Abstract signal study" })
+    ).toHaveAttribute("src", "/peekaboo-demo/abstract-signal-study.png");
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ src: string; mock?: boolean }>;
+      expect(persistedGallery.map((item) => item.src)).toEqual([
+        "/peekaboo-demo/abstract-signal-study.png",
+        "/peekaboo-demo/interface-moodboard.png",
+        "/peekaboo-demo/field-notes-map.png",
+      ]);
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
+    });
+  });
+
+  it("removes starter images as soon as the first user image is imported", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+
     expect(
       await screen.findByRole("img", { name: "Abstract signal study" })
     ).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Interface moodboard" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Field notes map" })).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: "Demo gallery item" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    const galleryUploaderConfig = uploaderState.configs.at(-1);
+    expect(galleryUploaderConfig?.onImages).toBeTypeOf("function");
+
+    act(() => {
+      galleryUploaderConfig?.onImages?.([
+        {
+          src: "/media/images/user-import.png",
+          prompt: "User import",
+        },
+      ]);
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "User import" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Abstract signal study" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Mock")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ prompt: string; mock?: boolean }>;
+      expect(persistedGallery).toEqual([
+        expect.objectContaining({ prompt: "User import", mock: false }),
+      ]);
+    });
   });
 
   it("auto-hides gallery demo items once real gallery items exist", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
@@ -1472,6 +1663,7 @@ describe("AppShell workspace drawer shell", () => {
     "renders the shared workspace drawer from the shell for %s and keeps open/close behavior intact",
     async (initialView) => {
       localStorage.setItem("cfy.lastView", initialView);
+      setRoutePath(initialView === "guardian" ? "/chat" : "/documents");
 
       render(<AppShell />);
 
@@ -1491,6 +1683,7 @@ describe("AppShell workspace drawer shell", () => {
 
   it("does not render workspace controls on dashboard", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/dashboard");
 
     render(<AppShell />);
 
@@ -1501,6 +1694,7 @@ describe("AppShell workspace drawer shell", () => {
   it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1537,6 +1731,7 @@ describe("AppShell workspace drawer shell", () => {
 
   it("gives Documents the same shared sidebar, center lane, and right workspace shell as Guardian", async () => {
     localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1580,6 +1775,7 @@ describe("AppShell workspace drawer shell", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -1926,6 +2122,7 @@ describe("AppShell workspace drawer shell", () => {
   it("does not render the workspace drawer for unsupported views", () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRouteThread(null);
+    setRoutePath("/gallery");
 
     render(<AppShell />);
 
@@ -1940,7 +2137,7 @@ describe("AppShell documents sidebar posture", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
-    setRouteThread(null);
+    setRoutePath("/documents");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -2093,6 +2290,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -2131,6 +2329,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(390);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 
@@ -2179,6 +2378,7 @@ describe("AppShell documents sidebar posture", () => {
     setViewportWidth(1024);
     localStorage.setItem("cfy.lastView", "documents");
     setRouteThread(null);
+    setRoutePath("/documents");
 
     render(<AppShell />);
 

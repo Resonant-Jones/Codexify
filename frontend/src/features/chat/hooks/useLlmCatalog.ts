@@ -11,6 +11,15 @@ type CatalogReasoningRuntime = {
   profileReason: string | null;
 };
 
+export type LlmCatalogRuntimeIdentity = {
+  id: string;
+  displayName: string;
+  vendor?: string;
+  runtimePreset?: string;
+  identitySource?: "vendor" | "runtime_preset" | "fallback";
+  recognized?: boolean;
+};
+
 export type LlmCatalogModel = {
   id: string;
   canonicalId: string;
@@ -69,12 +78,15 @@ export type LlmCatalogProvider = {
   authorized: boolean;
   available: boolean;
   disabledReason?: string;
+  runtime?: LlmCatalogRuntimeIdentity;
   source?: {
     kind?: string;
     baseUrl?: string;
     host?: string;
     port?: number;
     label?: string;
+    vendor?: string;
+    runtimePreset?: string;
   };
   models: LlmCatalogModel[];
 };
@@ -325,6 +337,13 @@ function normalizeProvider(raw: unknown): LlmCatalogProvider | null {
         .map((entry) => normalizeModel(id, entry))
         .filter(Boolean) as LlmCatalogModel[]
     : [];
+  const runtime =
+    provider.runtime && typeof provider.runtime === "object"
+      ? (provider.runtime as Record<string, unknown>)
+      : null;
+  const runtimeId = normalizeString(runtime?.id);
+  const runtimeDisplayName = normalizeString(runtime?.displayName);
+  const identitySource = normalizeString(runtime?.identitySource);
 
   return {
     id,
@@ -333,6 +352,23 @@ function normalizeProvider(raw: unknown): LlmCatalogProvider | null {
     authorized: Boolean(provider.authorized),
     available: Boolean(provider.available),
     disabledReason: normalizeString(provider.disabled_reason) ?? undefined,
+    runtime:
+      runtimeId && runtimeDisplayName
+        ? {
+            id: runtimeId,
+            displayName: runtimeDisplayName,
+            vendor: normalizeString(runtime?.vendor) ?? undefined,
+            runtimePreset:
+              normalizeString(runtime?.runtimePreset) ?? undefined,
+            identitySource:
+              identitySource === "vendor" ||
+              identitySource === "runtime_preset" ||
+              identitySource === "fallback"
+                ? identitySource
+                : undefined,
+            recognized: normalizeBoolean(runtime?.recognized),
+          }
+        : undefined,
     source:
       provider.source && typeof provider.source === "object"
         ? {
@@ -353,6 +389,13 @@ function normalizeProvider(raw: unknown): LlmCatalogProvider | null {
             label:
               normalizeString((provider.source as Record<string, unknown>).label) ??
               undefined,
+            vendor:
+              normalizeString((provider.source as Record<string, unknown>).vendor) ??
+              undefined,
+            runtimePreset:
+              normalizeString(
+                (provider.source as Record<string, unknown>).runtimePreset
+              ) ?? undefined,
           }
         : undefined,
     models,

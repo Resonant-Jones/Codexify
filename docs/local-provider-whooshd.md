@@ -46,21 +46,22 @@ The `v1-local-core-web-mcp` supported profile requires these exact values:
 | `CODEXIFY_EGRESS_ALLOWLIST` | `""` (empty) |
 | `CODEXIFY_LOCAL_ONLY_MODE` | `true` |
 
-Model names are intentionally not enforced by the supported profile. They are
-runtime inventory, not profile identity. The current smoke override supplies
-configuration defaults only:
+Physical model names are intentionally not enforced by the supported profile.
+They are Whoosh'd configuration and runtime inventory, not Codexify profile
+identity. The smoke override supplies one provider-owned logical route:
 
-| Variable | Smoke Default |
+| Variable | Smoke Route |
 |----------|---------------|
-| `LOCAL_CHAT_MODEL` | `gemma-4-12b-it-qat-4bit` |
-| `LOCAL_LLM_MODEL` | `gemma-4-12b-it-qat-4bit` |
-| `LLM_MODEL` | `gemma-4-12b-it-qat-4bit` |
-| `DEFAULT_LOCAL_MODEL` | `gemma-4-12b-it-qat-4bit` |
-| `LOCAL_VISION_MODEL` | `gemma-vision-mlx` |
-| `LOCAL_GGUF_MODEL` | `qwen3-coder-30b-gguf` |
+| `LOCAL_CHAT_MODEL` | `local-chat` |
+| `LOCAL_LLM_MODEL` | `local-chat` |
+| `LLM_MODEL` | `local-chat` |
+| `DEFAULT_LOCAL_MODEL` | `local-chat` |
+| `LOCAL_VISION_MODEL` | operator-supplied when required |
+| `LOCAL_GGUF_MODEL` | operator-supplied when required |
 
-These defaults are not live inventory proof. A model is supported for a live
-run only when the running Whoosh'd inventory advertises it.
+The route is not live inventory proof. Whoosh'd must advertise and resolve it
+for a live run. An operator may instead set an exact advertised model ID when
+exact-model execution is intentional.
 
 If your Whoosh'd host maintains a registry of several models, point the
 launcher at it with `WHOOSHD_MODEL_REGISTRY_PATH` and use
@@ -87,10 +88,10 @@ curl http://host.docker.internal:8000/v1/models
 curl http://host.docker.internal:8000/api/tags
 ```
 
-If `LOCAL_CHAT_MODEL` is set to the Gemma 12B smoke default but Whoosh'd
-does not advertise it, Codexify must not claim Gemma execution. Catalog and
-health surfaces should keep the advertised models visible while marking the
-configured model unavailable with:
+If `LOCAL_CHAT_MODEL` is set to an exact physical model that Whoosh'd does not
+advertise, Codexify must not claim its execution. Catalog and health surfaces
+should keep the advertised models visible while marking the configured model
+unavailable with:
 
 ```txt
 configured_model_not_advertised_by_whooshd

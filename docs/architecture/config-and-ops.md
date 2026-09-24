@@ -358,7 +358,19 @@ curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
 
 ### Whoosh'd runtime-family selection contract
 
-- Whoosh'd is the local inference control plane display/vendor layer over `providerId: local`.
+- `local` is the stable provider/policy class used for routing, authorization,
+  and persisted provider selection. It is not the human identity of every local
+  inference runtime.
+- The provider catalog projects local runtime identity separately: canonical
+  runtime id (for example `whooshd`), human label (for example `Whoosh'd`),
+  configured vendor/preset, source endpoint, and the model inventory advertised
+  by that source. `LOCAL_PROVIDER_DISPLAY_NAME` remains the explicit label
+  override; otherwise known `LOCAL_PROVIDER_VENDOR` or `LOCAL_RUNTIME_PRESET`
+  values resolve through the canonical runtime vocabulary. Unknown/custom
+  runtimes remain generically identified rather than being guessed from a URL,
+  port, or model name.
+- Whoosh'd is the current local inference control plane runtime identity over
+  `providerId: local` for the Whoosh'd profiles.
 - `mlx` and `gguf` are runtime-family values beneath Whoosh'd.
 - The preferred UX is a two-level selection:
   - Provider: Whoosh'd
@@ -368,6 +380,11 @@ curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
 - Runtime-family selection must not create provider ids named `mlx`, `gguf`, or `whooshd`.
 - Runtime-family selection must not imply model availability until the relevant local endpoint inventory proves the model exists.
 - Runtime-family selection is a contract/planning slice only unless code changes in a future task wire catalog, config, and UI behavior.
+- `local-chat` remains a logical model route. A physical model advertised by a
+  runtime remains a separate model identity, and neither one establishes
+  simultaneous routing among Whoosh'd, LM Studio, Ollama, or other local
+  runtimes. Multi-runtime discovery, selection, routing, and persistence remain
+  deferred architecture work.
 
 ### Current operator limits without a full Command Center / Observability Deck
 

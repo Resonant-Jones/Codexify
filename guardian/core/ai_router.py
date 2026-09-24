@@ -1463,6 +1463,7 @@ def resolve_local_execution_model(
     *,
     settings: Optional[Settings] = None,
     requested_model: str | None = None,
+    requested_model_is_authoritative: bool = False,
     validate_availability: bool = False,
     discovered_model_names: list[str] | None = None,
     endpoint_resolution: dict[str, Any] | None = None,
@@ -1475,8 +1476,11 @@ def resolve_local_execution_model(
         resolved,
         requested_model=requested_model,
     )
+    if requested_model_is_authoritative and requested:
+        candidates = [(requested, "requested_model")]
+        validate_availability = True
     substitution_reason = None
-    if strict and requested:
+    if strict and requested and not requested_model_is_authoritative:
         configured_preview = candidates[0][0] if candidates else ""
         if configured_preview and requested != configured_preview:
             substitution_reason = (
@@ -1506,6 +1510,41 @@ def resolve_local_execution_model(
             resolved,
             timeout_seconds=timeout_seconds or 1.5,
             request_get=request_get,
+        )
+
+    if requested_model_is_authoritative and requested:
+        if not resolved_endpoint or resolved_endpoint.get("state") != "available":
+            return LocalModelResolution(
+                model=requested,
+                source=source,
+                strict=strict,
+                requested_model=requested,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message="Local runtime inventory is unavailable for explicit model selection",
+                endpoint_resolution=resolved_endpoint,
+            )
+        if requested not in {
+            normalize_model_id(item) for item in names if normalize_model_id(item)
+        }:
+            return LocalModelResolution(
+                model=requested,
+                source=source,
+                strict=strict,
+                requested_model=requested,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=f"Requested model '{requested}' is not advertised by the local runtime",
+                endpoint_resolution=resolved_endpoint,
+                advertised_models=list(names),
+                inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
+            )
+        return LocalModelResolution(
+            model=requested,
+            source=source,
+            strict=strict,
+            requested_model=requested,
+            endpoint_resolution=resolved_endpoint,
+            advertised_models=list(names),
+            inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
         )
 
     if (
@@ -1836,6 +1875,7 @@ def chat_with_ai(
     attempt_id: str | None = None,
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1851,8 +1891,10 @@ def chat_with_ai(
         local_model_resolution = resolve_local_execution_model(
             settings=settings,
             requested_model=model,
+            requested_model_is_authoritative=requested_model_is_authoritative,
             validate_availability=bool(
-                strict_local_chat
+                requested_model_is_authoritative
+                or strict_local_chat
                 and authoritative_model
                 and authoritative_model != requested_model
             ),
@@ -1928,6 +1970,7 @@ def chat_with_ai(
                     "attempt_id": attempt_id,
                     "strict_provider_model": strict_provider_model,
                     "strict_single_request": strict_single_request,
+                    "requested_model_is_authoritative": requested_model_is_authoritative,
                 },
             ),
         )
@@ -2233,15 +2276,16 @@ def _all_local_attempt_failures_are_404(failures: list[str]) -> bool:
     )
 
 
-def _parse_local_catalog_payload(payload: Any) -> list[str]:
-    names: list[str] = []
+def _parse_local_catalog_entries(payload: Any) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
     if not isinstance(payload, dict):
-        return names
+        return entries
     for key in ("models", "data"):
         collection = payload.get(key)
         if not isinstance(collection, list):
             continue
         for item in collection:
+            metadata: dict[str, str] | None = None
             if isinstance(item, str):
                 model_name = item.strip()
             elif isinstance(item, dict):
@@ -2251,11 +2295,26 @@ def _parse_local_catalog_payload(payload: Any) -> list[str]:
                     or item.get("id")
                     or ""
                 ).strip()
+                raw_metadata = item.get("metadata")
+                if isinstance(raw_metadata, dict):
+                    display_name = str(
+                        raw_metadata.get("display_name") or ""
+                    ).strip()
+                    if display_name:
+                        metadata = {"display_name": display_name}
             else:
                 model_name = ""
             if model_name:
-                names.append(model_name)
-    return names
+                entry: dict[str, Any] = {"id": model_name}
+                if metadata:
+                    entry["metadata"] = metadata
+                entries.append(entry)
+    return entries
+
+
+def _parse_local_catalog_payload(payload: Any) -> list[str]:
+    """Return the legacy model-name surface used by existing callers."""
+    return [entry["id"] for entry in _parse_local_catalog_entries(payload)]
 
 
 def discover_local_model_inventory(
@@ -2271,6 +2330,7 @@ def discover_local_model_inventory(
     selected_base_url: str | None = None
     selected_inventory_url: str | None = None
     selected_inventory_endpoint: str | None = None
+    selected_inventory_models: list[dict[str, Any]] = []
     failure_kind: str | None = None
 
     for candidate in _resolve_local_endpoint_candidates(settings):
@@ -2287,6 +2347,7 @@ def discover_local_model_inventory(
         )
         candidate_names: list[str] = []
         successful_inventory_urls: list[str] = []
+        successful_inventory_models: list[tuple[str, list[dict[str, Any]]]] = []
         for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
             try:
                 response = fetch(url, timeout=timeout_seconds)
@@ -2312,11 +2373,13 @@ def discover_local_model_inventory(
                     f"{url} (invalid JSON: {type(exc).__name__}: {exc})"
                 )
                 continue
-            parsed_names = _parse_local_catalog_payload(payload)
+            parsed_models = _parse_local_catalog_entries(payload)
+            parsed_names = [entry["id"] for entry in parsed_models]
             if not parsed_names:
                 continue
             candidate_names.extend(parsed_names)
             successful_inventory_urls.append(url)
+            successful_inventory_models.append((url, parsed_models))
         if candidate_names:
             names.extend(candidate_names)
             selected_base_url = candidate.base_url
@@ -2333,6 +2396,14 @@ def discover_local_model_inventory(
                     "/v1/models"
                     if selected_inventory_url.endswith("/v1/models")
                     else "/api/tags"
+                )
+                selected_inventory_models = next(
+                    (
+                        models
+                        for url, models in successful_inventory_models
+                        if url == selected_inventory_url
+                    ),
+                    [],
                 )
             failure_kind = None
             break
@@ -2387,6 +2458,8 @@ def discover_local_model_inventory(
             resolution[
                 "inventory_source"
             ] = f"{vendor}:{selected_inventory_endpoint}"
+    if selected_inventory_models:
+        resolution["inventory_models"] = selected_inventory_models
     return deduped, resolution
 
 
@@ -2511,11 +2584,13 @@ def call_local(
     attempt_id: str | None = None,
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         requested_model=model,
+        requested_model_is_authoritative=requested_model_is_authoritative,
     )
     if not local_model_resolution.ok:
         raise HTTPException(
@@ -2921,11 +2996,13 @@ def stream_local(
     task_id: str | None = None,
     attempt_id: str | None = None,
     cancel_check=None,
+    requested_model_is_authoritative: bool = False,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         requested_model=model,
+        requested_model_is_authoritative=requested_model_is_authoritative,
     )
     if not local_model_resolution.ok:
         raise HTTPException(

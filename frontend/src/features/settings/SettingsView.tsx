@@ -1553,12 +1553,11 @@ export function SettingsView({
               <div className="flex items-start justify-between gap-[var(--radius-micro)]">
                 <div className="space-y-[calc(var(--radius-micro)/2)]">
                   <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>
-                    Migrate from ChatGPT
+                    Import Conversation History
                   </div>
                   <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-                    Import your ChatGPT export. Codexify will preserve project
-                    grouping and remove tool-output noise from the user-visible
-                    transcript.
+                    Choose ChatGPT or Claude after opening the importer. Imported
+                    conversations become Codexify threads and messages.
                   </p>
                 </div>
                 <div
@@ -1586,7 +1585,7 @@ export function SettingsView({
                   disabled={isImportActive}
                   className="rounded-[var(--tile-radius,19px)] w-full"
                 >
-                  {isImportActive ? "Import in progress..." : "Import ChatGPT history"}
+                  {isImportActive ? "Import in progress..." : "Import Conversation History"}
                 </Button>
                 <Button
                   type="button"

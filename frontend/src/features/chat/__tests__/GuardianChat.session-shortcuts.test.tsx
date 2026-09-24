@@ -1,11 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
 import api from "@/lib/api";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/api")>(),
   default: {
     get: vi.fn(),
     post: vi.fn(),
@@ -13,10 +14,20 @@ vi.mock("@/lib/api", () => ({
     delete: vi.fn(),
   },
   buildLlmCatalogPath: () => "/llm/catalog",
-  buildChatCompletePath: () => "/chat/complete",
+  buildChatThreadsPath: () => "/api/chat/threads",
+  buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+  hasRequestAuthCredential: vi.fn(() => true),
+}));
+
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => ({
+    ready: true,
+    status: "authenticated",
+    token: "test-token",
+  }),
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -38,11 +49,20 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 }));
 
 vi.mock("@/features/guardian/components/Composer", () => ({
-  Composer: () => (
-    <div data-testid="composer-stub">
+  Composer: ({
+    onSend,
+    presentationMode,
+  }: {
+    onSend?: (text: string) => Promise<void>;
+    presentationMode?: "landing" | "conversation";
+  }) => (
+    <div data-testid="composer-stub" data-presentation-mode={presentationMode}>
       <textarea data-testid="composer-textarea" placeholder="Write a message…" />
       <input data-testid="composer-input" />
       <div data-testid="composer-contenteditable" contentEditable suppressContentEditableWarning />
+      <button type="button" data-testid="composer-send" onClick={() => void onSend?.("First prompt")}>
+        Send
+      </button>
     </div>
   ),
 }));
@@ -55,8 +75,9 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  // Match the hook's stable snapshot/callback identities across presentation renders.
+  const snapshot = {
     messages: [],
     loading: false,
     error: null,
@@ -80,15 +101,14 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
-  }),
-}));
+  };
+  return { default: () => snapshot };
+});
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
-    subscribe: () => () => {},
-  }),
-}));
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = { subscribe: () => () => {} };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),
@@ -125,6 +145,7 @@ vi.mock("@/imprint/api", () => ({
 
 const mockApi = api as unknown as {
   get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
 };
 
 const BASE_TABS = [
@@ -367,5 +388,107 @@ describe("GuardianChat session tab keyboard shortcuts", () => {
 
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(1, "tab-2");
     expect(onSessionTabActivate).toHaveBeenNthCalledWith(2, "tab-2");
+  });
+
+  it("adds only the explicit finite, reduced-motion-safe sidebar hint", async () => {
+    const onSidebarToggle = vi.fn();
+    const props = {
+      activeThread: { id: "42", title: "Active" } as any,
+      isSidebarVisible: false, sidebarRevealAttention: true, onSidebarToggle,
+    };
+    const view = renderShortcutChat(props);
+    const reveal = screen.getByRole("button", { name: "Show sidebar" });
+    expect(reveal).toHaveAttribute("data-sidebar-attention", "intro");
+    const style = view.container.querySelector("style")?.textContent;
+    expect(style).toContain("prefers-reduced-motion: no-preference");
+    expect(style).toContain("guardian-sidebar-glint 700ms ease-in-out 2");
+    expect(style).not.toContain("infinite");
+    view.rerender(<GuardianChat guardianName="Guardian" userName="tester" onSendMessage={vi.fn().mockResolvedValue(undefined)} {...props} />);
+    expect(screen.getByRole("button", { name: "Show sidebar" })).toBe(reveal);
+    await userEvent.setup().click(reveal);
+    expect(onSidebarToggle).toHaveBeenCalledTimes(1);
+    view.rerender(<GuardianChat guardianName="Guardian" userName="tester" onSendMessage={vi.fn().mockResolvedValue(undefined)} {...props} sidebarRevealAttention={false} />);
+    expect(reveal).not.toHaveAttribute("data-sidebar-attention");
+  });
+
+  it("leaves an ordinarily hidden sidebar reveal unanimated", () => {
+    renderShortcutChat({ isSidebarVisible: false, onSidebarToggle: vi.fn() });
+    expect(screen.getByRole("button", { name: "Show sidebar" })).not.toHaveAttribute("data-sidebar-attention");
+  });
+
+  it("renders the prompt-first state with the shared Composer and no transcript", () => {
+    renderShortcutChat();
+
+    const landingStage = screen.getByTestId("guardian-landing-stage");
+    const landingUnit = screen.getByTestId("guardian-landing-unit");
+    const greeting = screen.getByTestId("guardian-prompt-first-surface");
+    const composer = screen.getByTestId("composer-stub");
+
+    expect(greeting).toHaveTextContent(/tester/);
+    expect(landingStage).toContainElement(landingUnit);
+    expect(landingUnit).toContainElement(greeting);
+    expect(landingUnit).toContainElement(composer);
+    expect(landingUnit.style.position).not.toBe("fixed");
+    expect(landingUnit.style.left).toBe("");
+    expect(landingUnit.style.right).toBe("");
+    expect(greeting.compareDocumentPosition(composer)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(composer).toBeInTheDocument();
+    expect(composer).toHaveAttribute(
+      "data-presentation-mode",
+      "landing"
+    );
+    expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
+  });
+
+  it("retains the active-thread transcript layout", () => {
+    renderShortcutChat({ activeThread: { id: "42", title: "Active" } as any });
+
+    expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-landing-stage")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-landing-unit")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-prompt-first-surface")).not.toBeInTheDocument();
+    expect(screen.getByTestId("composer-stub")).toHaveAttribute(
+      "data-presentation-mode",
+      "conversation"
+    );
+  });
+
+  it("creates a durable thread only after the first prompt is submitted", async () => {
+    const user = userEvent.setup();
+    const onThreadPersisted = vi.fn();
+    mockApi.post.mockImplementation(async (url: string) => {
+      if (url === "/api/chat/threads") {
+        return { data: { id: 77 } };
+      }
+      if (url === "/chat/77/complete") {
+        return { data: { task_id: "task-77" } };
+      }
+      return { data: {} };
+    });
+
+    renderShortcutChat({ onThreadPersisted });
+
+    expect(mockApi.post).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith(
+        "/api/chat/threads",
+        expect.objectContaining({ title: "First prompt" })
+      );
+    });
+    expect(mockApi.post).toHaveBeenCalledWith("/chat/77/messages", {
+      role: "user",
+      content: "First prompt",
+      project_id: undefined,
+    });
+    expect(onThreadPersisted).toHaveBeenCalledWith(
+      77,
+      "First prompt",
+      expect.objectContaining({ tabId: "tab-1" })
+    );
+    expect(window.location.pathname).toBe("/chat/77");
   });
 });

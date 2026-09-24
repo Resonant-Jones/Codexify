@@ -45,13 +45,16 @@ vi.mock("@/features/guardian/components/Composer", () => ({
     providerOptions,
     modelOptions,
   }: {
-    providerOptions?: Array<{ label: string; description?: string; disabled?: boolean }>;
-    modelOptions?: Array<{ label: string; description?: string }>;
+    providerOptions?: Array<{ value: string; label: string; description?: string; disabled?: boolean }>;
+    modelOptions?: Array<{ value: string; label: string; description?: string }>;
   }) => (
     <div data-testid="composer-stub">
       <div data-testid="provider-options">
         {(providerOptions ?? []).map((option, index) => (
-          <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
+          <div
+            key={`${option.label}-${option.description ?? "none"}-${index}`}
+            data-provider-value={option.value}
+          >
             <span>{option.label}</span>
             {option.description ? <span>{option.description}</span> : null}
             {option.disabled ? <span>disabled</span> : null}
@@ -60,7 +63,10 @@ vi.mock("@/features/guardian/components/Composer", () => ({
       </div>
       <div data-testid="model-options">
         {(modelOptions ?? []).map((option, index) => (
-          <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
+          <div
+            key={`${option.label}-${option.description ?? "none"}-${index}`}
+            data-model-value={option.value}
+          >
             <span>{option.label}</span>
             {option.description ? <span>{option.description}</span> : null}
           </div>
@@ -78,8 +84,8 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  const stableChatState = {
     messages: [],
     loading: false,
     error: null,
@@ -103,15 +109,20 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
-  }),
-}));
+  };
+  return {
+    default: () => stableChatState,
+  };
+});
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const stableLiveEvents = {
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return {
+    useLiveEvents: () => stableLiveEvents,
+  };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),
@@ -212,6 +223,177 @@ describe("GuardianChat catalog-backed model options", () => {
     expect(
       screen.queryByText("pattern-matched local qwen profile")
     ).not.toBeInTheDocument();
+  });
+
+  it("renders backend runtime identity while preserving the local provider value and source", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Local",
+                enabled: true,
+                authorized: true,
+                available: true,
+                runtime: {
+                  id: "whooshd",
+                  displayName: "Whoosh'd",
+                  vendor: "whooshd",
+                  runtimePreset: "whooshd-mlx",
+                  identitySource: "vendor",
+                  recognized: true,
+                },
+                source: {
+                  kind: "local",
+                  baseUrl: "http://host.docker.internal:11434/v1",
+                  label: "host.docker.internal:11434",
+                  vendor: "whooshd",
+                  runtimePreset: "whooshd-mlx",
+                },
+                models: [
+                  {
+                    id: "custom-model-without-vendor-name",
+                    canonical_id: "custom-model-without-vendor-name",
+                    display_label: "Custom Model",
+                    supports_chat: true,
+                    model_kind: "chat",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "custom-model-without-vendor-name",
+            error: null,
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "custom-model-without-vendor-name",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    const providerOptions = await screen.findByTestId("provider-options");
+    expect(providerOptions).toHaveTextContent("Whoosh'd");
+    expect(providerOptions).not.toHaveTextContent("Local");
+    expect(providerOptions).not.toHaveTextContent("Ollama");
+    expect(providerOptions).toHaveTextContent(
+      "1 chat model · Source host.docker.internal:11434"
+    );
+    expect(providerOptions.firstElementChild).toHaveAttribute(
+      "data-provider-value",
+      "local"
+    );
+  });
+
+  it("renders Whoosh'd inventory display names while preserving the local-chat model value", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Whoosh'd",
+                enabled: true,
+                authorized: true,
+                available: true,
+                runtime: {
+                  id: "whooshd",
+                  displayName: "Whoosh'd",
+                  identitySource: "vendor",
+                  recognized: true,
+                },
+                models: [
+                  {
+                    id: "local-chat",
+                    canonical_id: "local-chat",
+                    display_label: "Gemma 4 12B IT QAT 4-bit",
+                    supports_chat: true,
+                    model_kind: "chat",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "local-chat",
+            error: null,
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "local-chat",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    const providerOptions = await screen.findByTestId("provider-options");
+    const modelOptions = await screen.findByTestId("model-options");
+    expect(providerOptions).toHaveTextContent("Whoosh'd");
+    expect(providerOptions.firstElementChild).toHaveAttribute(
+      "data-provider-value",
+      "local"
+    );
+    expect(modelOptions).toHaveTextContent("Gemma 4 12B IT QAT 4-bit");
+    expect(modelOptions).not.toHaveTextContent("local-chat");
+    expect(modelOptions.firstElementChild).toHaveAttribute(
+      "data-model-value",
+      "local-chat"
+    );
   });
 
   it("shortens local filesystem model labels in the composer selector", async () => {

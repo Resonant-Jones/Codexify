@@ -39,12 +39,12 @@ CANONICAL_PROVIDER_CONTRACT = {
 }
 
 CANONICAL_SMOKE_MODELS = {
-    "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
-    "LOCAL_LLM_MODEL": "gemma-4-12b-it-qat-4bit",
-    "LLM_MODEL": "gemma-4-12b-it-qat-4bit",
-    "DEFAULT_LOCAL_MODEL": "gemma-4-12b-it-qat-4bit",
-    "LOCAL_VISION_MODEL": "gemma-vision-mlx",
-    "LOCAL_GGUF_MODEL": "qwen3-coder-30b-gguf",
+    "LOCAL_CHAT_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
+    "LOCAL_LLM_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
+    "LLM_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
+    "DEFAULT_LOCAL_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
+    "LOCAL_VISION_MODEL": "${LOCAL_VISION_MODEL:-}",
+    "LOCAL_GGUF_MODEL": "${LOCAL_GGUF_MODEL:-}",
 }
 
 BOOLEAN_FIELDS = {
@@ -163,7 +163,7 @@ class TestSmokeComposeOverrideExists:
         for key, value in CANONICAL_SMOKE_MODELS.items():
             assert backend_env[key] == value
 
-    def test_gemma_default_is_not_live_inventory_proof(self):
+    def test_logical_route_is_not_live_inventory_proof(self):
         profile = _load_supported_profile()
         contract = profile["provider_contract"]
         assert not MODEL_FIELDS.intersection(contract)
@@ -210,7 +210,7 @@ class TestAuthorizedSurfaces:
             assert "host.docker.internal:8000" in content
             assert MACHINE_SPECIFIC_BASE_URL not in content
 
-    def test_launcher_asserts_canonical_contract_and_default_model(self):
+    def test_launcher_asserts_canonical_contract_and_logical_route(self):
         content = SMOKE_LAUNCHER_PATH.read_text()
         for marker in (
             "LOCAL_BASE_URL: http://host.docker.internal:8000/v1",
@@ -219,7 +219,7 @@ class TestAuthorizedSurfaces:
             "LOCAL_COMPAT_FIRST: .true.",
             "WHOOSHD_HEALTH_BASE_URL: http://host.docker.internal:8000",
             "CODEXIFY_SUPPORTED_PROFILE: v1-local-core-web-mcp",
-            "gemma-4-12b-it-qat-4bit",
+            'SMOKE_MODEL="${LOCAL_CHAT_MODEL:-local-chat}"',
         ):
             assert marker in content
 

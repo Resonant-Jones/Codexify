@@ -16,14 +16,13 @@ Invariants (must remain true after any future edit):
    persistence path. It exists to be called from the existing
    ``OpenAIAccountImportService`` / ``account_import_worker`` seams when an
    account-export job declares ``source_system="anthropic"``.
-3. Anthropic ``projects/*.json``, ``users.json``, and ``memories.json`` are
-   ignored by this slice. Their presence must not cause import failure, and
-   they must not create any Codexify entity.
-4. Anthropic ``files[]`` references carry only ``{file_uuid, file_name}``
-   metadata with no recoverable bytes in the inspected export. The adapter
-   never fabricates or infers media binaries; it preserves the raw source
-   metadata through ``raw_message`` so downstream consumers can reason about
-   it, but it does not call any media/asset write seam.
+3. Anthropic ``projects/*.json`` may provide document text, but must not
+   create Codexify Projects. ``users.json`` and ``memories.json`` remain
+   outside this import.
+4. Anthropic ``files[]`` references have no recoverable original bytes in
+   the inspected export. Attachment ``extracted_content`` and project-doc
+   ``content`` are reported as derivative text documents to the worker.
+   The adapter never fabricates original binaries or writes media rows.
 5. Provenance is structural: the adapter stamps
    ``_codexify_import_metadata.anthropic_export_format`` and
    ``_codexify_import_metadata.anthropic_export_source_path`` on every
@@ -37,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -299,6 +299,94 @@ class AnthropicExtractedConversation:
     source_path: str
 
 
+@dataclass(frozen=True)
+class AnthropicExtractedTextDocument:
+    """Recoverable text from an attachment or project document, not original bytes."""
+
+    path: str
+    source_filename: str
+    content: str = field(repr=False)
+    source_thread_id: str | None = None
+    source_message_id: str | None = None
+    source_project_id: str | None = None
+    source_document_id: str | None = None
+
+
+def extract_anthropic_text_documents(
+    inventory: AnthropicExportInventory,
+    conversations: list[AnthropicExtractedConversation],
+) -> tuple[list[AnthropicExtractedTextDocument], int]:
+    """Keep only source-provided text; report references lacking recoverable bytes."""
+    documents: list[AnthropicExtractedTextDocument] = []
+    reference_only_count = 0
+
+    def stable_path(kind: str, *parts: str) -> str:
+        digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+        return f"anthropic/{kind}/{digest}.txt"
+
+    for extracted in conversations:
+        conversation = extracted.conversation
+        thread_id = str(conversation.get("uuid") or conversation.get("id") or "") or None
+        for message in conversation.get("chat_messages", []):
+            if not isinstance(message, dict):
+                continue
+            message_id = str(message.get("uuid") or message.get("id") or "") or None
+            files = message.get("files")
+            if isinstance(files, list):
+                reference_only_count += sum(isinstance(item, dict) for item in files)
+            attachments = message.get("attachments")
+            if not isinstance(attachments, list):
+                continue
+            for index, attachment in enumerate(attachments):
+                if not isinstance(attachment, dict):
+                    continue
+                content = attachment.get("extracted_content")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                filename = str(attachment.get("file_name") or "attachment")
+                documents.append(AnthropicExtractedTextDocument(
+                    path=stable_path(
+                        "attachments", extracted.source_path,
+                        thread_id or "", message_id or "", str(index),
+                    ),
+                    source_filename=filename,
+                    content=content,
+                    source_thread_id=thread_id,
+                    source_message_id=message_id,
+                ))
+
+    for record in inventory.files:
+        if (
+            "projects" not in Path(record.path).parts[:-1]
+            or record.detected_kind != "json_object"
+        ):
+            continue
+        try:
+            payload = json.loads(Path(record.absolute_path).read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or not isinstance(payload.get("docs"), list):
+            continue
+        project_id = str(payload.get("uuid") or "") or None
+        for index, document in enumerate(payload["docs"]):
+            if not isinstance(document, dict):
+                continue
+            content = document.get("content")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            document_id = str(document.get("uuid") or "") or None
+            documents.append(AnthropicExtractedTextDocument(
+                path=stable_path(
+                    "project-docs", record.path, document_id or str(index),
+                ),
+                source_filename=str(document.get("filename") or "project-document"),
+                content=content,
+                source_project_id=project_id,
+                source_document_id=document_id,
+            ))
+    return documents, reference_only_count
+
+
 @dataclass
 class AnthropicImportResult:
     """Bounded result returned by ``import_anthropic_export_path``.
@@ -312,17 +400,25 @@ class AnthropicImportResult:
     """
 
     conversations_discovered: int = 0
+    conversations_accepted: int = 0
     conversations_imported: int = 0
     messages_imported: int = 0
+    canonical_duplicate_count: int = 0
     conversations_failed: int = 0
+    reference_only_count: int = 0
+    documents: list[AnthropicExtractedTextDocument] = field(default_factory=list, repr=False)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "conversations_discovered": self.conversations_discovered,
+            "conversations_accepted": self.conversations_accepted,
             "conversations_imported": self.conversations_imported,
             "messages_imported": self.messages_imported,
+            "canonical_duplicate_count": self.canonical_duplicate_count,
             "conversations_failed": self.conversations_failed,
+            "reference_only_count": self.reference_only_count,
+            "documents_discovered": len(self.documents),
             "errors": list(self.errors),
         }
 
@@ -496,4 +592,20 @@ def import_anthropic_export_path(
         stats.get("threads_imported", 0)
     )
     result.messages_imported = _non_negative_int(stats.get("messages_imported", 0))
+    result.conversations_accepted = _non_negative_int(
+        stats.get("conversations_accepted", result.conversations_imported)
+    )
+    result.conversations_failed = _non_negative_int(
+        stats.get("conversations_failed", 0)
+    )
+    result.canonical_duplicate_count = _non_negative_int(
+        stats.get("canonical_duplicate_count", 0)
+    )
+    result.documents, result.reference_only_count = extract_anthropic_text_documents(
+        inventory, extracted
+    )
+    if result.conversations_failed:
+        result.errors.append(
+            f"Canonical Claude ingestion failed for {result.conversations_failed} conversation(s)."
+        )
     return result

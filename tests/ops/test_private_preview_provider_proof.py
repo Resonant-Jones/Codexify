@@ -12,7 +12,7 @@ from scripts.ops.private_preview_provider_proof import (
 )
 
 
-LOCAL_MODEL = "qwen3.8-27b-4bit"
+LOCAL_MODEL = "local-chat"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 

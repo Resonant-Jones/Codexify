@@ -124,6 +124,7 @@ function renderSheet(props: Partial<ComponentProps<typeof ShareSheet>> = {}) {
       open
       onClose={onClose}
       capabilityState="available"
+      shareCapabilityState="available"
       peopleState={state}
       sourceThreadId={null}
       {...props}
@@ -451,6 +452,7 @@ describe("ShareSheet", () => {
         open
         onClose={onClose}
         capabilityState="available"
+        shareCapabilityState="available"
         peopleState={state}
         sourceThreadId={null}
       />

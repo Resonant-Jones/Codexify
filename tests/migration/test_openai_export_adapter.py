@@ -417,7 +417,7 @@ def test_binary_and_unknown_dat_are_orphan_assets_without_crashing(
         diagnostic_output_dir=tmp_path / "diagnostics",
     )
 
-    assert stats["export_format"] == "sharded"
+    assert stats["export_format"] == "unknown"
     assert stats["threads_imported"] == 0
     assert stats["messages_imported"] == 0
     assert stats["orphaned_export_assets"] == 2
@@ -502,8 +502,9 @@ def test_sharded_import_is_idempotent_on_reimport(
     source_to_message: dict[tuple[int, str], int] = {}
     last_message_source = {"value": ""}
 
-    def find_thread(_db, user_id, source_thread_id):
+    def find_thread(_db, user_id, source_thread_id, origin_system=None):
         _ = user_id
+        _ = origin_system
         return source_to_thread.get(source_thread_id)
 
     def find_message(_db, thread_id, source_message_id):

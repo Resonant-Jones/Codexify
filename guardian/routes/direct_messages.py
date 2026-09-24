@@ -6,9 +6,10 @@ caller-supplied identity is never trusted, email is never exposed, and no
 Guardian/model/retrieval/memory work is performed by any path here.
 
 Route posture: registered under the ``direct_messages`` label and enabled
-only on the hosted/private test profile (``v1-friends-family-web``).  All
-other supported profiles leave the label unlisted, which the route-governance
-machinery treats as quarantined.
+only on the private-preview profile (``v1-whooshd-deepseek-web``) and the
+hosted/private test profile (``v1-friends-family-web``). All other supported
+profiles leave the label unlisted, which route governance treats as
+quarantined.
 """
 
 from __future__ import annotations

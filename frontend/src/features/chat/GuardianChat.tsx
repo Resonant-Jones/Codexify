@@ -131,6 +131,7 @@ import {
 import {
   loadDocumentContentById,
   serializeDocumentContextMessage,
+  documentIdentityKey,
   type DocumentContextTile,
   type DocumentContextContent,
 } from "@/lib/documentContext";
@@ -168,9 +169,19 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
-const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+const UNSET_PREFERRED_NAME_VALUES = new Set(["guest", "unknown", "user", "you"]);
+const PERSONALIZED_LANDING_GREETINGS: ReadonlyArray<(name: string) => string> = [
+  (name) => `Welcome back, ${name}.`,
+  (name) => `Good to see you, ${name}.`,
+  (name) => `What are we making today, ${name}?`,
+  (name) => `Where should we begin, ${name}?`,
+];
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
+
+function randomLandingGreetingIndex(): number {
+  return Math.floor(Math.random() * PERSONALIZED_LANDING_GREETINGS.length);
+}
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -272,11 +283,12 @@ function RuntimeStatusStrip({
     inferenceState.phase === "completed" ||
     inferenceState.phase === "failed" ||
     inferenceState.phase === "cancelled";
+  const isQueued = inferenceState.statusText === "Queued…";
 
-  // Only show when provider is not in the default ready state,
-  // or when an active inference is in progress.
+  // Queue acceptance is diagnostic state; keep it in lifecycle records but
+  // do not surface it as a user-facing runtime status.
   const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
-  const showRequestState = isActive || isTerminal;
+  const showRequestState = (isActive || isTerminal) && !isQueued;
 
   if (!showProviderState && !showRequestState) {
     return null;
@@ -901,8 +913,9 @@ function dedupeDocumentContextTiles(
   const next: DocumentContextTile[] = [];
   for (const tile of tiles) {
     const id = String(tile?.id ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
+    const identity = documentIdentityKey(tile);
+    if (!id || seen.has(identity)) continue;
+    seen.add(identity);
     next.push(tile);
   }
   return next;
@@ -938,6 +951,8 @@ export function GuardianChat({
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
+  sidebarRevealAttention = false,
+  presentationMode,
   bare = false,
   sessionTabs = [],
   activeSessionTabId = null,
@@ -985,6 +1000,9 @@ export function GuardianChat({
   onArchiveThread?: (threadId: number) => Promise<void> | void;
   onSidebarToggle?: () => void;
   isSidebarVisible?: boolean;
+  sidebarRevealAttention?: boolean;
+  /** Presentation is owned by the shell; standalone consumers retain legacy inference. */
+  presentationMode?: "landing" | "conversation";
   onBack?: () => void;
   bare?: boolean;
   sessionTabs?: SessionTab[];
@@ -1007,6 +1025,9 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const [landingGreetingIndex, setLandingGreetingIndex] = useState(
+    randomLandingGreetingIndex
+  );
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -1320,7 +1341,7 @@ export function GuardianChat({
     () =>
       catalogProviders.map((provider) => ({
         value: provider.id,
-        label: provider.displayName,
+        label: provider.runtime?.displayName ?? provider.displayName,
         description: (() => {
           const chatModels = provider.models.filter(isChatSelectableModel);
           if (!provider.available) {
@@ -2064,6 +2085,25 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  // GuardianChat owns thread mechanics. The shell owns the visual landing mode
+  // and passes it here; the fallback keeps isolated component consumers on the
+  // existing no-thread presentation contract.
+  const resolvedPresentationMode =
+    presentationMode ?? (effectiveThreadId == null ? "landing" : "conversation");
+  const isLandingPresentation =
+    resolvedPresentationMode === "landing" && effectiveThreadId == null;
+  const wasLandingPresentation = useRef(isLandingPresentation);
+
+  useEffect(() => {
+    if (isLandingPresentation && !wasLandingPresentation.current) {
+      setLandingGreetingIndex(randomLandingGreetingIndex());
+    }
+    wasLandingPresentation.current = isLandingPresentation;
+  }, [isLandingPresentation]);
+
+  const landingGreeting = preferredName
+    ? PERSONALIZED_LANDING_GREETINGS[landingGreetingIndex](preferredName)
+    : "What should we work on?";
   const {
     dispatchErrors: codingLoopDispatchErrors,
     registerAcceptedRun: registerCodingLoopRun,
@@ -3342,16 +3382,15 @@ export function GuardianChat({
 
       const loaded: DocumentContextContent[] = await Promise.all(
         tiles.map(async (tile) => {
-          const record = await loadDocumentContentById(tile.id);
+          const record = await loadDocumentContentById(tile.id, tile.artifactType);
           const content = String(record.content ?? "").trim();
           if (!content) {
             throw new Error(`Document "${tile.title}" has no readable content.`);
           }
           return {
             tile: {
-              ...tile,
-              title: tile.title || record.title || "Untitled",
-              ext: tile.ext || record.ext,
+              ...record.tile,
+              preview: tile.preview,
             },
             content,
           };
@@ -4231,10 +4270,22 @@ export function GuardianChat({
           className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
           >
           <div className="flex items-center gap-2 shrink-0">
+            <style>{`
+              @keyframes guardian-sidebar-glint {
+                0%, 100% { color: var(--muted); }
+                50% { color: var(--text); }
+              }
+              @media (prefers-reduced-motion: no-preference) {
+                .guardian-sidebar-reveal[data-sidebar-attention="intro"] svg {
+                  animation: guardian-sidebar-glint 700ms ease-in-out 2;
+                }
+              }
+            `}</style>
             {onSidebarToggle && (
               <button
                 type="button"
-                className="icon-inline"
+                className="icon-inline guardian-sidebar-reveal"
+                data-sidebar-attention={sidebarRevealAttention && !isSidebarVisible ? "intro" : undefined}
                 aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
                 onClick={onSidebarToggle}
                 disabled={!onSidebarToggle}
@@ -4387,8 +4438,46 @@ export function GuardianChat({
         effectiveThreadId={effectiveThreadId}
       />
 
+      {/* Conversation remains flow-based; landing keeps the greeting and Composer
+          together as one centered prompt-first unit. */}
+      <div
+        data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
+        className={
+          isLandingPresentation
+            ? "relative flex min-h-0 min-w-0 flex-1 items-center justify-center"
+            : "contents"
+        }
+        style={
+          isLandingPresentation
+            ? { paddingInline: "max(var(--page-pad, 0px), var(--shell-gap, 12px))" }
+            : undefined
+        }
+      >
+        <div
+          data-testid={isLandingPresentation ? "guardian-landing-unit" : undefined}
+          className={
+            isLandingPresentation
+              ? `relative mx-auto flex w-full flex-col items-stretch gap-[var(--shell-gap)] ${CHAT_LANE_MAX_WIDTH_CLASS}`
+              : "contents"
+          }
+          style={
+            isLandingPresentation
+              ? {
+                  maxWidth: CHAT_LANE_MAX_WIDTH,
+                  zIndex: 20,
+                  transform: "translateY(-50%)",
+                }
+              : undefined
+          }
+        >
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div
+        className={
+          isLandingPresentation
+            ? "relative flex w-full shrink-0 flex-col items-start"
+            : "relative flex flex-1 min-h-0 flex-col overflow-hidden"
+        }
+      >
         {effectiveThreadId != null ? (
           <div
             data-testid="chat-message-region"
@@ -4432,29 +4521,36 @@ export function GuardianChat({
           </div>
         ) : (
           <div
-            className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
+            data-testid="guardian-prompt-first-surface"
+            className="flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center"
             style={{ color: "var(--muted)" }}
           >
-            {preferredName
-              ? `Welcome back, ${preferredName}. Let’s get started.`
-              : "New thread ready. Start typing below."}
+            <h1 className="w-full text-center text-lg font-medium text-[color:var(--text)]">
+              {landingGreeting}
+            </h1>
           </div>
         )}
       </div>
 
       <div
         data-testid="composer-shell-positioner"
-        className="z-20 mt-2 flex w-full shrink-0 justify-center"
+        className={
+          isLandingPresentation
+            ? "z-20 flex w-full shrink-0 justify-center"
+            : "z-20 mt-2 flex w-full shrink-0 justify-center"
+        }
       >
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
-          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden`}
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border ${isLandingPresentation ? "shadow-xl" : "shadow-2xl"} backdrop-blur-xl flex flex-col overflow-hidden`}
           style={{
             ...mobileComposerShellMotionStyle,
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
-            background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+            background: isLandingPresentation
+              ? "color-mix(in oklab, var(--panel-bg) 72%, transparent)"
+              : "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
             minHeight: compactMobile
@@ -4477,6 +4573,9 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
               />
               <Composer
+                presentationMode={
+                  isLandingPresentation ? "landing" : "conversation"
+                }
                 onSend={handleSendMessage}
                 ensureThreadIdForAttachments={ensureThreadIdForAttachments}
                 prefill={externalPrefill ?? prefill}
@@ -4696,6 +4795,8 @@ export function GuardianChat({
               ) : null}
             </div>
           </div>
+        </div>
+      </div>
         </div>
       </div>
     </div>

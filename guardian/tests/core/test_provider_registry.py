@@ -131,7 +131,7 @@ def test_every_known_provider_is_classified_exactly_once():
 
 def test_provider_governance_audit_matches_current_contract():
     assert DISCOVERY_BACKED_PROVIDERS == frozenset(
-        {"groq", "alibaba", "minimax"}
+        {"groq", "deepseek", "alibaba", "minimax"}
     )
     assert STATIC_AUTHORIZED_PROVIDERS == frozenset({"openai"})
     assert LOCAL_ONLY_PROVIDERS == frozenset({"local"})
@@ -683,7 +683,7 @@ def test_provider_governance_contract_classifies_every_known_provider_once():
     assert (
         discovery_backed
         == DISCOVERY_BACKED_PROVIDERS
-        == {"groq", "alibaba", "minimax"}
+        == {"groq", "deepseek", "alibaba", "minimax"}
     )
     assert static_authorized == STATIC_AUTHORIZED_PROVIDERS == {"openai"}
     assert local_only == LOCAL_ONLY_PROVIDERS == {"local"}

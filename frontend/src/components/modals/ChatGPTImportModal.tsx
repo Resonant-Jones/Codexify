@@ -14,11 +14,8 @@ import {
   startOpenAIAccountImport,
   subscribeAccountImportCoordinator,
 } from "@/features/imports/accountImportCoordinator";
-import api, {
+import {
   isAccountImportSourceSystem,
-  normalizeChatGptImportStats,
-  normalizeImportRuntimeError,
-  preflightBackendAvailability,
   type AccountImportSourceSystem,
   type ChatGptImportStats,
 } from "@/lib/api";
@@ -37,8 +34,7 @@ const SOURCE_OPTIONS: ReadonlyArray<{
   {
     value: "anthropic",
     label: "Anthropic (Claude)",
-    helper:
-      "Choose this for an Anthropic Claude account export. Only conversation data is currently supported.",
+    helper: "Choose this for a complete Anthropic Claude account export.",
   },
 ];
 
@@ -61,9 +57,8 @@ export interface MigrationStats {
   embedding_coverage_degraded: ChatGptImportStats["embedding_coverage_degraded"];
 }
 
-const LARGE_IMPORT_BYTES = 50 * 1024 * 1024;
 const CHATGPT_EXPORT_ACCEPT =
-  ".json,.dat,application/json,application/octet-stream";
+  ".json,.dat,.zip,application/json,application/octet-stream,application/zip";
 
 function isZipExport(file: File): boolean {
   return (
@@ -187,7 +182,6 @@ export function ChatGPTImportModal({
   onImported,
 }: ChatGPTImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
-  const isLargeImport = Boolean(file && file.size >= LARGE_IMPORT_BYTES);
   const [isDragOver, setIsDragOver] = useState(false);
   const [status, setStatus] = useState<
     "idle" | "uploading" | "success" | "error"
@@ -255,7 +249,7 @@ export function ChatGPTImportModal({
       );
       return;
     }
-    void startOpenAIAccountImport(files, userName, sourceSystem).catch(() => {
+    void startOpenAIAccountImport(files, sourceSystem).catch(() => {
       // The module-level coordinator owns and exposes the durable error state.
     });
   };
@@ -323,83 +317,8 @@ export function ChatGPTImportModal({
 
   const handleMigrate = async () => {
     if (!file) return;
-
-    if (isZipExport(file)) {
-      startFolderImport([{ file, relativePath: file.name }]);
-      return;
-    }
-
-    setError(null);
-    setErrorDetail(null);
-    setSourceValidationError(null);
-
-    if (!isAccountImportSourceSystem(sourceSystem)) {
-      setSourceValidationError(
-        "Select a supported account source before submitting."
-      );
-      return;
-    }
-    if (sourceSystem !== "openai") {
-      setSourceValidationError(
-        "Single-file OpenAI imports use the legacy ChatGPT export endpoint. For Anthropic, drop a complete export folder or ZIP archive."
-      );
-      return;
-    }
-
-    const availability = await preflightBackendAvailability();
-    if (!availability.ok) {
-      setStatus("error");
-      setError(
-        availability.message ||
-          "ChatGPT import cannot start because the local backend runtime is unavailable. Restore the local stack and retry."
-      );
-      setErrorDetail(availability.technicalDetail || null);
-      return;
-    }
-
-    setStatus("uploading");
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await api.post(
-        "/api/upload-chatgpt-export",
-        formData,
-        {
-          headers: {
-            "X-User-Id": userName,
-          },
-          // Large imports can exceed the default HTTP timeout.
-          timeout: 0,
-        }
-      );
-
-      const nextStats: MigrationStats =
-        normalizeChatGptImportStats(response.data);
-      setStats(nextStats);
-      onImported?.(nextStats);
-      setStatus("success");
-      setFile(null);
-      if (fileRef.current) fileRef.current.value = "";
-      try {
-        window.dispatchEvent(
-          new CustomEvent("cfy:threads:refresh", {
-            detail: { kind: "refresh", source: "chatgpt-import" },
-          })
-        );
-      } catch (eventErr) {
-        console.warn("[migration] thread refresh event failed", eventErr);
-      }
-    } catch (err: unknown) {
-      console.error("Migration error:", err);
-      setStatus("error");
-      const normalized = normalizeImportRuntimeError(err, {
-        phase: "upload",
-      });
-      setError(normalized.message);
-      setErrorDetail(normalized.technicalDetail || null);
-    }
+    startFolderImport([{ file, relativePath: file.name }]);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   if (!open) return null;
@@ -422,14 +341,13 @@ export function ChatGPTImportModal({
         }}
       >
         <div>
-          <h2 className="text-lg font-semibold">Import account data</h2>
+          <h2 className="text-lg font-semibold">Import Conversation History</h2>
           <p
             className="text-sm mt-1 opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            Choose the account source that produced your export, then drop
-            or select the export. The same canonical account-import
-            lifecycle is used for every supported source.
+            Choose the account source, then select or drop its complete account
+            export. Codexify finds the conversation parts inside it.
           </p>
         </div>
 
@@ -544,8 +462,8 @@ export function ChatGPTImportModal({
             />
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs opacity-70">
-                Drop a conversation JSON, .dat file, or complete export folder
-                here. Folder drops start immediately and retain nested paths.
+                Drop the complete export folder or ZIP here. Folder drops start
+                immediately and retain nested paths.
               </div>
               <div className="flex flex-shrink-0 gap-2">
                 <Button
@@ -580,25 +498,6 @@ export function ChatGPTImportModal({
                   : "No file selected"}
             </div>
           </div>
-
-          {isLargeImport && (
-            <div
-              className="rounded-xl border p-3 text-xs"
-              style={{
-                borderColor: "var(--panel-border)",
-                background:
-                  "color-mix(in oklab, var(--panel-sheet) 92%, transparent)",
-                color: "var(--text)",
-              }}
-            >
-              <div className="font-semibold">Large export detected</div>
-              <div className="mt-1 opacity-80">
-                Large ChatGPT exports are accepted. Processing may take longer,
-                runs in the background, and can resume across sessions or after
-                restarts.
-              </div>
-            </div>
-          )}
 
           {accountImportTransferring && (
             <div
@@ -649,8 +548,9 @@ export function ChatGPTImportModal({
               <div className="font-semibold">Import running in background</div>
               <div className="mt-1 text-xs opacity-80">
                 {accountImport.job.imported_thread_count} threads, {" "}
-                {accountImport.job.imported_message_count} messages, and {" "}
-                {accountImport.job.imported_media_count} images committed so far.
+                {accountImport.job.imported_message_count} messages, {" "}
+                {Math.max(0, accountImport.job.imported_media_count - (accountImport.job.imported_document_count || 0))} images, and {" "}
+                {accountImport.job.imported_document_count || 0} documents committed so far.
               </div>
             </div>
           )}
@@ -678,8 +578,9 @@ export function ChatGPTImportModal({
                 </div>
                 <div className="mt-1 text-xs opacity-80">
                   Imported {accountImport.job.imported_thread_count} threads, {" "}
-                  {accountImport.job.imported_message_count} messages, and {" "}
-                  {accountImport.job.imported_media_count} images.
+                  {accountImport.job.imported_message_count} messages, {" "}
+                  {Math.max(0, accountImport.job.imported_media_count - (accountImport.job.imported_document_count || 0))} images, and {" "}
+                  {accountImport.job.imported_document_count || 0} documents.
                 </div>
                 <div className="mt-1 text-xs opacity-80">
                   Duplicates: {accountImport.job.duplicate_count}. Skipped: {" "}
