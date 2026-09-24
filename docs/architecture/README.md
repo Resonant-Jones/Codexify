@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -53,7 +53,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Doc Map
 
-- [`00-current-state.md`](./00-current-state.md): first and highest-priority entry for live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities; first and highest-priority entry.
 - [`admin-account-observability-contract.md`](./admin-account-observability-contract.md): Guardian-owned, content-free account presence, guest-lineage, privacy, and retention contract; the heartbeat/cleanup slice is implemented, while operator analytics and geography remain deferred.
 - [`ADR-088: Guardian Account Activation and Credential Bootstrap`](./adr/088-guardian-account-activation-and-credential-bootstrap.md): accepted Guardian-owned boundary for operator-authorized, recipient-bound, digest-only, expiring, revocable, single-use account activation. The implementation and private-preview admission are merged on `main`, but frontend, auth-regression, security, disposable-runtime, live-profile, and real-recipient proof remain deferred; it does not widen release support.
 - [`chrome-side-panel-client.md`](./chrome-side-panel-client.md): architecture and trust boundary for the private unpacked Chrome side-panel chat client; local API-key and Tailscale remote-session behavior is governed by [`ADR-051`](./adr/051-chrome-side-panel-dual-auth-client-contract.md), remains internal-only, and stays outside the supported beta release surface.
