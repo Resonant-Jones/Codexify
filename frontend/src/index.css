@@ -69,12 +69,14 @@ textarea:disabled::placeholder {
 /* Frosted glass rim around cards */
 /* Pill-shaped navigation shell as a single glass pane */
 .glass-pill {
+  --dock-inset-x: var(--dock-padding);
+  --dock-inset-y: var(--dock-padding);
   display: inline-flex;
   align-items: center;
   gap: var(--pill-gap, 0.65rem);
-  padding: 0.35rem;
-  border-radius: var(--tile-radius, 19px);
-  border: 1.5px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
+  padding: var(--dock-padding);
+  border-radius: var(--dock-radius);
+  border: var(--dock-border) solid color-mix(in oklab, var(--panel-border) 70%, transparent);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.48),
@@ -121,7 +123,7 @@ textarea:disabled::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--tile-radius, 19px);
+  border-radius: var(--tile-radius);
   border: 1.5px solid color-mix(in oklab, var(--panel-border) 72%, transparent);
   background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 60%, transparent);
   padding: 0.45rem 0.9rem;
@@ -217,6 +219,18 @@ textarea:disabled::placeholder {
   opacity: 0.7;
 }
 
+/* Resolve on each shell so descendants inherit its actual inset geometry. */
+.glass-pill {
+  --dock-segment-radius: max(0px, calc(var(--dock-radius) - var(--dock-inset-x) - var(--dock-border))) / max(0px, calc(var(--dock-radius) - var(--dock-inset-y) - var(--dock-border)));
+}
+.codexify-dock {
+  --dock-inset-y: var(--pill-pad-y);
+}
+.settings-panel-dock__glass {
+  --dock-inset-x: var(--settings-dock-padding);
+  --dock-inset-y: var(--settings-dock-padding);
+}
+
 /* Integrated tabs that live *inside* the same glass pane */
 .pill-tab {
   position: relative;
@@ -224,7 +238,7 @@ textarea:disabled::placeholder {
   align-items: center;
   justify-content: center;
   padding: 0.45rem 0.85rem;
-  border-radius: var(--tile-radius, 19px);
+  border-radius: var(--dock-segment-radius, var(--tile-radius));
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
@@ -253,6 +267,8 @@ textarea:disabled::placeholder {
   --sidebar-source-mark-size: 22px;
   min-height: var(--sidebar-source-rail-height);
   align-items: center;
+  --dock-inset-x: 0.25rem;
+  --dock-inset-y: calc((var(--sidebar-source-rail-height) - var(--sidebar-source-control-size)) / 2 - var(--dock-border));
   padding-block: 2px;
 }
 
@@ -405,7 +421,7 @@ button.brand-tab,
 
 .session-rail__tab-shell {
   border: 1px solid transparent;
-  border-radius: calc(var(--tile-radius, 19px) - 2px);
+  border-radius: calc(var(--tile-radius) - 2px);
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;

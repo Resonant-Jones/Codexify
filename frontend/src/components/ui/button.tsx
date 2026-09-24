@@ -46,7 +46,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           !hasCallerUtility(/^text-(?:xs|sm|base|lg|xl|[2-9]xl|\[\d)/) && selectedSize.text,
           className
         )}
-        style={{ borderRadius: callerOwnsRadius ? undefined : "var(--radius-micro)", ...style }}
+        style={{
+          borderRadius: callerOwnsRadius
+            ? undefined
+            : hasCallerUtility(/^pill-tab$/)
+              ? "var(--dock-segment-radius, var(--radius-micro))"
+              : "var(--radius-micro)",
+          ...style,
+        }}
         {...props}
       />
     );

@@ -28,6 +28,8 @@ describe("FrameCard canonical chrome", () => {
     expect(css).toMatch(/\.fc-frame\s*\{[^}]*padding:\s*var\(--frame\)/s);
     expect(css).toMatch(/\.fc-rim\s*\{[^}]*padding:\s*var\(--rim\)/s);
     expect(css).toMatch(/\.fc-inner\s*\{[^}]*padding:\s*var\(--card-pad\)/s);
+    expect(css).toMatch(/\.fc-rim\s*\{[^}]*margin:\s*calc\(-1 \* var\(--frame\)\)/s);
+    expect(css).toMatch(/\.fc-liquid\s*\{[^}]*inset:\s*var\(--bezel\)/s);
     expect(css).not.toMatch(/liquid-bezel-w|padding:\s*8px|margin:\s*3px/);
   });
 

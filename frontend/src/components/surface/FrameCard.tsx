@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * Purpose
  *  - Provide a single, reusable shell for cards/tiles/panels that guarantees:
- *    • One source-of-truth corner radius (from `--card-radius`, e.g. 19px)
+ *    • One source-of-truth corner radius (from `--card-radius`, e.g. 20px)
  *    • No phantom square corners at high blur (hard clipping on decorative layers)
  *    • Depth that scales predictably via tokens
  *    • Optional accent ring for selected/active state
@@ -13,7 +13,7 @@
  *    layout and active material colors; FrameCard reads the resulting variables.
  *
  * Tokens consumed
- *  - Geometry:  --card-radius (→ typically points to --radius-tile: 19px)
+ *  - Geometry:  --card-radius (→ typically points to --radius-tile: 20px)
  *  - Chrome:    --bezel (px), --frame (px), --rim (px), --card-pad (px)
  *  - Material:  --panel-bg, --panel-border, --panel-bezel, --tile-blur (px)
  *  - Elevation: --depth-scale (multiplier, 0.75–1.25 typical)
@@ -255,13 +255,15 @@ export default function FrameCard({
           background: var(--panel-border);
         }
         .fc-rim {
+          /* Frame and rim share one edge footprint instead of adding widths. */
+          margin: calc(-1 * var(--frame));
           padding: var(--rim);
           background: var(--panel-bezel);
         }
 
         /* Liquid accent follows the canonical rim without adding an inset. */
         .fc-liquid {
-          inset: calc(var(--bezel) + var(--frame));
+          inset: var(--bezel);
           border: var(--rim) solid transparent;
           background:
             linear-gradient(var(--fc-accent, rgba(255,255,255,0.06)), var(--fc-accent, rgba(255,255,255,0.06))) padding-box,

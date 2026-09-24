@@ -3546,10 +3546,10 @@ export default function AppShell({
             style={mobileTopNavDockStyle}
           >
             {/* glass backdrop */}
-            <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
                 wallpaperUrl={activeWallpaper}
-                className="w-full h-full rounded-full"
+                className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
                 aberration={0.006}

@@ -559,15 +559,18 @@ describe("AppShell canonical desktop geometry", () => {
     const root = document.documentElement.style;
     const expected = {
       "--radius-micro": "12px",
-      "--radius-tile": "19px",
-      "--card-radius": "19px",
+      "--radius-tile": "20px",
+      "--card-radius": "var(--radius-tile)",
       "--edge-chrome": "6px",
       "--shell-gap": "16px",
-      "--viewport-radius": "19px",
+      "--viewport-radius": "var(--radius-tile)",
       "--card-pad": "12px",
       "--frame": "1.5px",
       "--bezel": "6px",
-      "--rim": "1.5px",
+      "--rim": "var(--frame)",
+      "--dock-radius": "var(--radius-tile)",
+      "--dock-padding": "0.35rem",
+      "--dock-border": "var(--frame)",
     };
 
     for (const [token, value] of Object.entries(expected)) {
