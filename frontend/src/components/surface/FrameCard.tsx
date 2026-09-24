@@ -252,13 +252,13 @@ export default function FrameCard({
         }
         .fc-frame {
           padding: var(--frame);
-          background: var(--fc-frame-background, var(--panel-border));
+          background: transparent;
         }
         .fc-rim {
           /* Frame and rim share one edge footprint instead of adding widths. */
           margin: calc(-1 * var(--frame));
           padding: var(--rim);
-          background: var(--fc-rim-background, var(--panel-bezel));
+          background: transparent;
         }
 
         /* Liquid accent follows the canonical rim without adding an inset. */
