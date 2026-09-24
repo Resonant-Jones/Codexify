@@ -35,13 +35,6 @@ textarea:disabled::placeholder {
 }
 
 :root {
-  --radius: 20px;
-  --card-radius: 20px;
-  --tile-radius: 20px;
-  --card-pad: 10px;
-  --board-edge: 8px;
-  --shell-gap: 16px;
-  --gutter: 16px;
   --workspace-w: 320px;
   --panel-bg: color-mix(in oklab, #0b0f16 65%, transparent);
   --panel-border: rgba(255, 255, 255, 0.08);
@@ -80,7 +73,7 @@ textarea:disabled::placeholder {
   align-items: center;
   gap: var(--pill-gap, 0.65rem);
   padding: 0.35rem;
-  border-radius: var(--tile-radius, 20px);
+  border-radius: var(--tile-radius, 19px);
   border: 1.5px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
   box-shadow:
@@ -128,7 +121,7 @@ textarea:disabled::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--tile-radius, 20px);
+  border-radius: var(--tile-radius, 19px);
   border: 1.5px solid color-mix(in oklab, var(--panel-border) 72%, transparent);
   background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 60%, transparent);
   padding: 0.45rem 0.9rem;
@@ -231,7 +224,7 @@ textarea:disabled::placeholder {
   align-items: center;
   justify-content: center;
   padding: 0.45rem 0.85rem;
-  border-radius: var(--tile-radius, 20px);
+  border-radius: var(--tile-radius, 19px);
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
@@ -412,7 +405,7 @@ button.brand-tab,
 
 .session-rail__tab-shell {
   border: 1px solid transparent;
-  border-radius: calc(var(--tile-radius, 20px) - 2px);
+  border-radius: calc(var(--tile-radius, 19px) - 2px);
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
@@ -684,12 +677,6 @@ button.brand-tab,
       minmax(0, var(--persona-studio-editor-flex))
       minmax(var(--persona-studio-preview-min), var(--persona-studio-preview-flex));
   }
-}
-
-/* Dashboard Layout helpers */
-.dashboard-doc-tile {
-  width: 125px !important;
-  height: 125px;
 }
 
 /* ─────────────────────────────────────────

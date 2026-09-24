@@ -546,6 +546,41 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
+describe("AppShell canonical desktop geometry", () => {
+  it("inherits the canonical registry without desktop geometry overrides", async () => {
+    const { injectCssVars } = await vi.importActual<typeof import("@/theme")>("@/theme");
+    injectCssVars();
+    installMatchMedia(false);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setViewportWidth(1280);
+
+    const { container } = render(<AppShell />);
+    const shell = container.firstElementChild as HTMLElement;
+    const root = document.documentElement.style;
+    const expected = {
+      "--radius-micro": "12px",
+      "--radius-tile": "19px",
+      "--card-radius": "19px",
+      "--edge-chrome": "6px",
+      "--shell-gap": "16px",
+      "--viewport-radius": "19px",
+      "--card-pad": "12px",
+      "--frame": "1.5px",
+      "--bezel": "6px",
+      "--rim": "1.5px",
+    };
+
+    for (const [token, value] of Object.entries(expected)) {
+      expect(root.getPropertyValue(token)).toBe(value);
+      expect(shell.style.getPropertyValue(token)).toBe("");
+    }
+    expect(root.getPropertyValue("--tile-radius")).toBe("var(--radius-tile)");
+    expect(root.getPropertyValue("--radius")).toBe("var(--tile-radius)");
+    expect(root.getPropertyValue("--board-edge")).toBe("var(--edge-chrome)");
+    expect(root.getPropertyValue("--gutter")).toBe("var(--shell-gap)");
+  });
+});
+
 beforeEach(() => {
   setViewportWidth(1280);
   setAuthenticatedAuthState();

@@ -1,22 +1,6 @@
 /**
- * TODO: TOKEN MIGRATION PLAN — Codexify UI Architecture
- *
- * Current state:
- *   - Inline CSS variables declared directly in AppShell serve as runtime design tokens.
- *   - Variables like `--bezel`, `--rim`, `--panel-bg`, etc., are effectively local tokens.
- *
- * Next phase:
- *   - Extract all static vars into `/src/theme/tokens.json`.
- *   - Create `/src/theme/index.ts` to import JSON and export `cssVars` for React + CSS injection.
- *   - Optional: Add Style Dictionary or a simple script to export Figma/Swift/React Native tokens.
- *
- * Goal:
- *   - Establish a universal token layer for Codexify and PulseOS.
- *   - Maintain parity across Web, Electron, and mobile builds.
- *
- * Notes:
- *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
- *   - Migration should be trivial if naming consistency is preserved.
+ * AppShell projects responsive layout and active material colors.
+ * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
 import { ChevronRight, Settings2 } from "lucide-react";
@@ -132,7 +116,7 @@ import RoomMode from "@/features/rooms/RoomMode";
 import { parseHostedRoomRoute } from "@/features/rooms/roomRoute";
 import "./AppShell.css";
 
-// TEMPORARY: inject static design tokens until full migration is done.
+// Publish canonical static tokens before the shell renders.
 import {
   applySurfaceWarmth,
   injectCssVars,
@@ -2258,28 +2242,23 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const styleVars = {
     /* === GENERAL LAYOUT TOKENS === */
-    "--radius-micro": "8px",                 // chips, inputs, pills
-    "--radius-tile": "20px",                  // cards, tiles, panels
-    "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
     "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,
     "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
     "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
-    "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
-    "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
+    ...(isPhoneShell || shellViewportProfile.viewportClass === "small_tablet"
+      ? {
+          "--edge-chrome": shellViewportProfile.shellEdgeChrome,
+          "--shell-gap": shellViewportProfile.shellGap,
+          "--card-pad": shellViewportProfile.shellCardPad,
+          "--viewport-radius": shellViewportProfile.viewportRadius,
+        }
+      : {}),
     "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
-    "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
-    "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
     "--dock-collapsed-page-gutter": "6px",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
-    "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
-    "--frame": "3px",                         // Outer frame thickness
-    // --bezel: Visual margin between the refractive glass and the opaque content surface.
-    // Changing this variable tunes the glass thickness everywhere.
-    "--bezel": "var(--bezel, 6px)",             // Bezel (margin) between glass and content (default 6px)
-    "--rim": "3px",                           // Inner rim spacing
 
     /* === TILE / CHIP / ELEMENT SIZING === */
     "--project-tile-size": "72px",              // Project tile square size
@@ -2331,11 +2310,6 @@ export default function AppShell({
     "--accent-strong": accentStrong,
     "--pill-active-text": accentContrast,
 
-    /* === SEMANTIC FALLBACKS (legacy) === */
-    "--radius": "var(--tile-radius)",           // Used in old components
-    "--board-edge": "var(--edge-chrome)",       // Used in spacing wrappers
-    "--gutter": "var(--shell-gap)",             // Used in layout
-    // --bezel is also set at the main viewport for live tuning of glass thickness
   } as React.CSSProperties;
 
 
@@ -3452,7 +3426,6 @@ export default function AppShell({
 
         /* ✨ glossy‑glass overrides */
         "--tile-blur": "22px",                       // stronger backdrop blur
-        "--bezel": "6px",                            // bezel (glass margin) can be tuned here
         "--lip-w": "6px",                            // deeper inner lip
         "--depth-scale": "1.35",                     // bolder drop‑shadow scale
         "--panel-bezel": "rgba(255,255,255,0.28)",   // brighter edge sparkle
@@ -3723,7 +3696,6 @@ export default function AppShell({
             ...(isPhoneFrameFirstShell
               ? {
                   "--frame": "1px",
-                  "--bezel": "var(--bezel, 6px)",
                   "--rim": "1px",
                 }
               : {}),
@@ -3762,11 +3734,8 @@ export default function AppShell({
               data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
+                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                 "--gutter": "var(--shell-gap)",
-                "--card-pad": shellViewportProfile.shellCardPad,
                 "--min-h": shellViewportProfile.contentMinHeight,
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
@@ -3991,9 +3960,7 @@ export default function AppShell({
                       sessionComposerBlocked ? "true" : "false"
                     }
                     style={{
-                      "--frame": "1px",
-                      "--bezel": "var(--bezel, 6px)",
-                      "--rim": "1px",
+                      ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                     } as React.CSSProperties}
                   >
                     <ErrorBoundary>
