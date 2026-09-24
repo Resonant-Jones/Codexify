@@ -114,6 +114,7 @@ export default function FrameCard({
   const d = clamp(depth, 0.5, 1.75, 1);
 
   const rootStyle: React.CSSProperties = {
+    ["--bezel" as any]: "1.5px",
     ...(style || {}),
     boxSizing: "border-box",
     ...(refractiveFallback
