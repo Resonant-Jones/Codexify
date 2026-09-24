@@ -719,3 +719,26 @@ It should not feel like:
 - a dumping ground for unrelated system features
 
 Codexify wins when Workspace makes the product feel more inhabited, more continuous, and more user-owned without adding structural chaos.
+
+## Notes promotion (implemented slice)
+
+The visible Workspace rail reads **Shelf | Notes | Inspector**. The `scratchpad`
+internal tab, component, and `cfy.workspace.scratchpad.*` browser-local keys
+remain for compatibility. Notes continues to be a thread-scoped staging pad:
+editing and debounced local draft restoration, Move to composer, Copy, and Clear
+retain their existing behavior. A local draft is distinct from a durable document.
+
+An explicit Save snapshots the current draft into a new `GeneratedDocument` with
+Markdown (`.md`) or plain text (`.txt`) format, an `attached` `ThreadDocument`
+link to the source thread, and an enabled generated `ProjectDocumentLink` to
+the thread's canonical project. The authenticated account and project are
+resolved by Guardian; no browser-supplied owner or project is authoritative.
+The saved document enters the normal document artifact and project knowledge
+scope. Save leaves the local draft in place and does not bind later keystrokes
+to the saved document. Each subsequent Save creates another snapshot. Clear
+only clears the local draft.
+
+PDF, DOC, DOCX, PNG, JPEG, and Codex exports remain deferred until their real
+serializers or artifact authority are implemented. Sketch is excluded from
+Notes. This section records the bounded code path; it does not establish live
+runtime or release qualification.

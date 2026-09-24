@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
 import PreviewTile from "@/components/ui/PreviewTile";
 import { isAgentUpdatedWorkspaceItem } from "../workspaceArtifactSignals";
 
@@ -8,6 +9,9 @@ type MediaBase = {
   id: string;
   src_url: string;
   filename?: string;
+  title?: string;
+  format?: string;
+  artifact_type?: string;
   caption?: string;
   mime_type?: string;
   filesize?: number;
@@ -72,7 +76,7 @@ function getUnreadIndicatorTestId(item: ShelfItem): string {
 }
 
 function documentItemToFile(doc: DocumentItem) {
-  const name = doc.filename || "Untitled";
+  const name = doc.filename || (doc.title && doc.format ? `${doc.title}.${doc.format}` : "Untitled");
   const extMatch = name.match(/\.([^.]+)$/);
   const ext = extMatch ? extMatch[1].toLowerCase() : undefined;
   return {
@@ -84,6 +88,15 @@ function documentItemToFile(doc: DocumentItem) {
     type: "file" as const,
     embeddingStatus: undefined,
     embeddingError: undefined,
+  };
+}
+
+function normalizeArtifact(doc: DocumentItem): DocumentItem {
+  if (doc.artifact_type !== "generated") return doc;
+  return {
+    ...doc,
+    filename: doc.filename || (doc.title && doc.format ? `${doc.title}.${doc.format}` : doc.title || "Untitled"),
+    src_url: doc.src_url || `/api/media/document-artifacts/${encodeURIComponent(doc.id)}?artifact_type=generated`,
   };
 }
 
@@ -187,10 +200,10 @@ export default function WorkspaceShelfPanel({
         const threadQp = new URLSearchParams({ thread_id: tid });
         queries.push({ key: "thread", qp: threadQp });
         promises.push(
-          fetch(`${base}/media/documents?${threadQp.toString()}`, {
+          fetch(`${base}/media/document-artifacts?${threadQp.toString()}`, buildAuthenticatedFetchInit({
             headers,
             signal: ac.signal,
-          }).then((r) => r.json())
+          })).then((r) => { if (!r.ok) throw new Error(`Document listing failed (${r.status})`); return r.json(); })
         );
         promises.push(
           fetch(`${base}/media/images?${threadQp.toString()}`, {
@@ -204,10 +217,10 @@ export default function WorkspaceShelfPanel({
         const projectQp = new URLSearchParams({ project_id: pid });
         queries.push({ key: "project", qp: projectQp });
         promises.push(
-          fetch(`${base}/media/documents?${projectQp.toString()}`, {
+          fetch(`${base}/media/document-artifacts?${projectQp.toString()}`, buildAuthenticatedFetchInit({
             headers,
             signal: ac.signal,
-          }).then((r) => r.json())
+          })).then((r) => { if (!r.ok) throw new Error(`Document listing failed (${r.status})`); return r.json(); })
         );
         promises.push(
           fetch(`${base}/media/images?${projectQp.toString()}`, {
@@ -235,13 +248,13 @@ export default function WorkspaceShelfPanel({
         if (q.key === "thread") {
           const docs = asArray<DocumentItem>(results[idx], ["documents", "items", "data"]);
           const imgs = asArray<ImageItem>(results[idx + 1], ["images", "items", "data"]);
-          newState.threadDocuments = docs;
+          newState.threadDocuments = docs.map(normalizeArtifact);
           newState.threadImages = imgs;
           idx += 2;
         } else if (q.key === "project") {
           const docs = asArray<DocumentItem>(results[idx], ["documents", "items", "data"]);
           const imgs = asArray<ImageItem>(results[idx + 1], ["images", "items", "data"]);
-          newState.projectDocuments = docs;
+          newState.projectDocuments = docs.map(normalizeArtifact);
           newState.projectImages = imgs;
           idx += 2;
         }

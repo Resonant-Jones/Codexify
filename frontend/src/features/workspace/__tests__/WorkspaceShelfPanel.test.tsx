@@ -400,4 +400,20 @@ describe("WorkspaceShelfPanel", () => {
       ).not.toBeInTheDocument();
     });
   });
+  it("shows a saved generated Note through the normal document artifact path", async () => {
+    globalFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ documents: [{
+        id: "note-1", artifact_type: "generated", title: "Guardian Notes",
+        format: "md", filename: null, src_url: null, thread_id: 42, project_id: 7,
+      }] }),
+    });
+    globalFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ images: [] }) });
+    render(<WorkspaceShelfPanel threadIdentity={42} />);
+    expect(await screen.findByText("Guardian Notes.md")).toBeInTheDocument();
+    expect(globalFetch).toHaveBeenCalledWith(
+      "/api/media/document-artifacts?thread_id=42", expect.any(Object)
+    );
+  });
+
 });
