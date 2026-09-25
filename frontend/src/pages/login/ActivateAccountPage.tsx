@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
@@ -24,16 +24,38 @@ function removeActivationTokenFromUrl(): void {
 }
 
 export default function ActivateAccountPage() {
-  const [token] = useState<string | null>(captureActivationToken);
+  const [token, setToken] = useState<string | null>(captureActivationToken);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [loading, setLoading] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [unavailable, setUnavailable] = useState(token === null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const activationVersion = useRef(0);
 
   useEffect(() => {
-    removeActivationTokenFromUrl();
+    // Opening another activation link may change only the fragment, without
+    // remounting this page. Capture it before clearing the browser-visible URL.
+    function acceptActivationFragment() {
+      if (!window.location.hash) return;
+      const nextToken = captureActivationToken();
+      removeActivationTokenFromUrl();
+      activationVersion.current += 1;
+      setToken(nextToken);
+      setPassword("");
+      setConfirmation("");
+      setLoading(false);
+      setSucceeded(false);
+      setUnavailable(nextToken === null);
+      setValidationError(null);
+    }
+
+    window.addEventListener("hashchange", acceptActivationFragment);
+    acceptActivationFragment();
+    return () => {
+      window.removeEventListener("hashchange", acceptActivationFragment);
+      activationVersion.current += 1;
+    };
   }, []);
 
   const canSubmit = useMemo(
@@ -55,15 +77,17 @@ export default function ActivateAccountPage() {
 
     setLoading(true);
     setValidationError(null);
+    const submittedVersion = activationVersion.current;
     try {
       await api.post("/auth/activate", { token, password });
+      if (submittedVersion !== activationVersion.current) return;
       setSucceeded(true);
       setPassword("");
       setConfirmation("");
     } catch {
-      setUnavailable(true);
+      if (submittedVersion === activationVersion.current) setUnavailable(true);
     } finally {
-      setLoading(false);
+      if (submittedVersion === activationVersion.current) setLoading(false);
     }
   }
 
