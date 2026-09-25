@@ -29,7 +29,7 @@ from guardian.core.supported_profile import SUPPORTED_PROFILE_ENV
 
 PRIVATE_PREVIEW_PROFILE_NAME = "v1-whooshd-deepseek-web"
 REQUIRED_AUTH_MODE = "remote"
-DEFAULT_EXPIRY_HOURS = 24
+DEFAULT_EXPIRY_HOURS = 7 * 24
 MAX_EXPIRY_HOURS = 7 * 24
 
 _DATABASE_UNAVAILABLE = "authentication database unavailable"

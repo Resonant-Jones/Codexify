@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
@@ -14,10 +14,13 @@ function captureActivationToken(): string | null {
   const fragment = window.location.hash.startsWith("#")
     ? window.location.hash.slice(1)
     : window.location.hash;
-  const token = new URLSearchParams(fragment).get("token")?.trim() || null;
+  return new URLSearchParams(fragment).get("token")?.trim() || null;
+}
+
+function removeActivationTokenFromUrl(): void {
+  if (typeof window === "undefined") return;
   const cleanUrl = `${window.location.pathname}${window.location.search}`;
   window.history.replaceState(window.history.state, "", cleanUrl);
-  return token;
 }
 
 export default function ActivateAccountPage() {
@@ -28,6 +31,10 @@ export default function ActivateAccountPage() {
   const [succeeded, setSucceeded] = useState(false);
   const [unavailable, setUnavailable] = useState(token === null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    removeActivationTokenFromUrl();
+  }, []);
 
   const canSubmit = useMemo(
     () =>
