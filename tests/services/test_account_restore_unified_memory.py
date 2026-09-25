@@ -104,6 +104,8 @@ def _valid_memory_records() -> list[dict[str, Any]]:
             "activated_at": LATER,
             "pinned": True,
             "held": False,
+            "review_state": "approved",
+            "lifecycle_state": "active",
             "extensions": {"display_hint": "architecture"},
             "created_at": NOW,
             "updated_at": LATER,
@@ -121,6 +123,8 @@ def _valid_memory_records() -> list[dict[str, Any]]:
             "activated_at": LATER,
             "pinned": False,
             "held": True,
+            "review_state": "approved",
+            "lifecycle_state": "active",
             "extensions": {"display_hint": "sovereignty"},
             "created_at": NOW,
             "updated_at": LATER,
@@ -1129,9 +1133,10 @@ def test_memory_conflict_fails_closed(temporary_postgres, tmp_path):
                 "INSERT INTO memory_records "
                 "(memory_id, user_id, project_id, semantic_species, "
                 "text_content, fact_key, fact_value, fact_confidence, "
-                "reviewed_at, activated_at, pinned, held, extensions, "
+                "reviewed_at, activated_at, pinned, held, "
+                "review_state, lifecycle_state, extensions, "
                 "created_at, updated_at) VALUES "
-                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)",
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)",
                 (
                     target_memory_id,
                     ACCOUNT_A,
@@ -1145,6 +1150,8 @@ def test_memory_conflict_fails_closed(temporary_postgres, tmp_path):
                     NOW,
                     False,
                     False,
+                    "approved",
+                    "active",
                     "{}",
                     NOW,
                     NOW,
@@ -1249,9 +1256,10 @@ def test_link_conflict_fails_closed(temporary_postgres, tmp_path):
                 "INSERT INTO memory_records "
                 "(memory_id, user_id, project_id, semantic_species, "
                 "text_content, fact_key, fact_value, fact_confidence, "
-                "reviewed_at, activated_at, pinned, held, extensions, "
+                "reviewed_at, activated_at, pinned, held, "
+                "review_state, lifecycle_state, extensions, "
                 "created_at, updated_at) VALUES "
-                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
                 "ON CONFLICT (memory_id) DO NOTHING",
                 (
                     target_memory_id,
@@ -1266,6 +1274,8 @@ def test_link_conflict_fails_closed(temporary_postgres, tmp_path):
                     planned_memory.activated_at,
                     planned_memory.pinned,
                     planned_memory.held,
+                    planned_memory.review_state,
+                    planned_memory.lifecycle_state,
                     __import__("json").dumps(planned_memory.extensions),
                     planned_memory.created_at,
                     planned_memory.updated_at,
@@ -1330,9 +1340,10 @@ def test_provenance_conflict_fails_closed(temporary_postgres, tmp_path):
                 "INSERT INTO memory_records "
                 "(memory_id, user_id, project_id, semantic_species, "
                 "text_content, fact_key, fact_value, fact_confidence, "
-                "reviewed_at, activated_at, pinned, held, extensions, "
+                "reviewed_at, activated_at, pinned, held, "
+                "review_state, lifecycle_state, extensions, "
                 "created_at, updated_at) VALUES "
-                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
                 "ON CONFLICT (memory_id) DO NOTHING",
                 (
                     target_memory_id,
@@ -1347,6 +1358,8 @@ def test_provenance_conflict_fails_closed(temporary_postgres, tmp_path):
                     planned_memory.activated_at,
                     planned_memory.pinned,
                     planned_memory.held,
+                    planned_memory.review_state,
+                    planned_memory.lifecycle_state,
                     __import__("json").dumps(planned_memory.extensions),
                     planned_memory.created_at,
                     planned_memory.updated_at,
@@ -1428,9 +1441,10 @@ def test_late_family_conflict_proves_classify_before_mutate(
                 "INSERT INTO memory_records "
                 "(memory_id, user_id, project_id, semantic_species, "
                 "text_content, fact_key, fact_value, fact_confidence, "
-                "reviewed_at, activated_at, pinned, held, extensions, "
+                "reviewed_at, activated_at, pinned, held, "
+                "review_state, lifecycle_state, extensions, "
                 "created_at, updated_at) VALUES "
-                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
                 "ON CONFLICT (memory_id) DO NOTHING",
                 (
                     target_memory_id,
@@ -1445,6 +1459,8 @@ def test_late_family_conflict_proves_classify_before_mutate(
                     planned_memory.activated_at,
                     planned_memory.pinned,
                     planned_memory.held,
+                    planned_memory.review_state,
+                    planned_memory.lifecycle_state,
                     __import__("json").dumps(planned_memory.extensions),
                     planned_memory.created_at,
                     planned_memory.updated_at,
