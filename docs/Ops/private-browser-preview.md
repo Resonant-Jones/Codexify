@@ -130,6 +130,22 @@ Deliver the single emitted activation URL out of band. The recipient chooses
 their password on the activation page, Guardian creates the canonical `User`
 on successful redemption, and the recipient then logs in normally.
 
+For a recipient who has not yet passed Cloudflare Access, send these steps
+with the invitation:
+
+1. Open `https://preview.codexify.space/login` and complete Cloudflare Access
+   sign-in. Stop at the Codexify login page; no Codexify account exists yet.
+2. In the **same browser**, open the full activation URL from the invitation
+   again. Choose a password, then use the ordinary Codexify login.
+
+The activation bearer is in the URL fragment (`#token=...`). Browsers do not
+send fragments with HTTP requests. A first-time Cloudflare Access sign-in can
+return the recipient to `/activate` without that fragment. An already-admitted
+operator browser can redeem the same link in one step, which is not a
+first-time recipient proof. If the recipient instead lands on `/activate` with
+an unavailable-link message after the Access check, reopen the original
+invitation before revoking or reissuing.
+
 The onboarding authority flow is:
 
 ```text

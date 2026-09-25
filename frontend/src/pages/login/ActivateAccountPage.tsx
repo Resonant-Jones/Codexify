@@ -126,6 +126,13 @@ export default function ActivateAccountPage() {
           ) : unavailable ? (
             <div className="login-threshold__error" role="alert">
               {ACTIVATION_UNAVAILABLE_MESSAGE}
+              {token === null ? (
+                <>
+                  <br />
+                  If you just completed the private workspace access check,
+                  reopen the original invitation link in this browser.
+                </>
+              ) : null}
             </div>
           ) : (
             <form className="login-threshold__form" onSubmit={handleSubmit}>
