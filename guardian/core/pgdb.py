@@ -5245,6 +5245,7 @@ def fetch_account_export_bundle_for_user(
                         memory_id, user_id, project_id, semantic_species,
                         text_content, fact_key, fact_value, fact_confidence,
                         reviewed_at, activated_at, pinned, held, extensions,
+                        review_state, lifecycle_state,
                         created_at, updated_at
                     FROM memory_records
                     WHERE user_id = %s

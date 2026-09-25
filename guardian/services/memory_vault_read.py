@@ -79,13 +79,21 @@ DEFAULT_LIST_LIMIT: int = 50
 MAX_LIST_LIMIT: int = 100
 
 #: Closed lifecycle / review posture vocabulary. Frozen by UMS-04C
-#: and §4.10 of the Unified Memory Store Contract. The Vault
-#: projection renders these strings to the operator; it does not
-#: invent new posture values.
+#: and §4.10 of the Unified Memory Store Contract, and finalized for
+#: ordinary canonical memory by UMS-05C8. The Vault projection reads
+#: these strings from the canonical ``review_state`` and
+#: ``lifecycle_state`` columns; it does not derive posture from
+#: timestamp presence and does not invent new posture values.
 REVIEW_POSTURE_PENDING: str = "pending"
 REVIEW_POSTURE_APPROVED: str = "approved"
+REVIEW_POSTURE_REJECTED: str = "rejected"
 REVIEW_POSTURE_DISPUTED: str = "disputed"
 LIFECYCLE_POSTURE_ACTIVE: str = "active"
+LIFECYCLE_POSTURE_DORMANT: str = "dormant"
+LIFECYCLE_POSTURE_RETIRED: str = "retired"
+#: Backwards-compatibility alias for the Personal Facts posture
+#: branch only. Personal Facts retain specialized authority (per
+#: ADR-084); they are not rewritten as ordinary-memory governance.
 LIFECYCLE_POSTURE_INACTIVE: str = "inactive"
 PINNED_TRUE: str = "pinned"
 PINNED_FALSE: str = "not_pinned"
@@ -222,7 +230,7 @@ class VaultItem:
     project_id: int | None = None
 
     review_posture: str = REVIEW_POSTURE_PENDING
-    lifecycle_posture: str = LIFECYCLE_POSTURE_INACTIVE
+    lifecycle_posture: str = LIFECYCLE_POSTURE_DORMANT
 
     pinned: bool = False
     held: bool = False
@@ -520,14 +528,25 @@ class MemoryVaultReadService:
             content = None
 
         review_posture = (
-            REVIEW_POSTURE_APPROVED
-            if row.reviewed_at is not None
+            row.review_state
+            if row.review_state
+            in (
+                REVIEW_POSTURE_PENDING,
+                REVIEW_POSTURE_APPROVED,
+                REVIEW_POSTURE_REJECTED,
+                REVIEW_POSTURE_DISPUTED,
+            )
             else REVIEW_POSTURE_PENDING
         )
         lifecycle_posture = (
-            LIFECYCLE_POSTURE_ACTIVE
-            if row.activated_at is not None
-            else LIFECYCLE_POSTURE_INACTIVE
+            row.lifecycle_state
+            if row.lifecycle_state
+            in (
+                LIFECYCLE_POSTURE_ACTIVE,
+                LIFECYCLE_POSTURE_DORMANT,
+                LIFECYCLE_POSTURE_RETIRED,
+            )
+            else LIFECYCLE_POSTURE_DORMANT
         )
 
         return VaultItem(

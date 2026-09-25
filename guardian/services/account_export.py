@@ -425,6 +425,8 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "activated_at",
         "pinned",
         "held",
+        "review_state",
+        "lifecycle_state",
         "extensions",
         "created_at",
         "updated_at",

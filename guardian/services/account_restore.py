@@ -2503,6 +2503,8 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "activated_at",
         "pinned",
         "held",
+        "review_state",
+        "lifecycle_state",
         "extensions",
         "created_at",
         "updated_at",
@@ -2608,6 +2610,8 @@ class PlannedMemoryRecord:
     activated_at: str | None
     pinned: bool
     held: bool
+    review_state: str
+    lifecycle_state: str
     extensions: dict[str, Any]
     created_at: str
     updated_at: str
@@ -2708,6 +2712,78 @@ def _preflight_extensions(value: Any, *, field: str) -> dict[str, Any]:
 
 def _preflight_dict_copy(value: dict[str, Any]) -> dict[str, Any]:
     return dict(value)
+
+
+_REVIEW_STATES: frozenset[str] = frozenset(
+    {"pending", "approved", "rejected", "disputed"}
+)
+_LIFECYCLE_STATES: frozenset[str] = frozenset({"active", "dormant", "retired"})
+
+
+def _resolve_legacy_or_typed_review_state(
+    *,
+    row: dict[str, Any],
+    memory_id: str,
+    reviewed_at: str | None,
+) -> str:
+    """Resolve canonical review_state for one memory_records restore row.
+
+    Bounded compatibility for pre-C8 v4 payloads where ``review_state``
+    is absent: derive deterministically from ``reviewed_at``. New C8-era
+    v4 payloads carry an explicit ``review_state`` value that is
+    validated against the canonical vocabulary. Invalid explicit values
+    fail closed; timestamp fallback NEVER infers ``rejected`` or
+    ``disputed``.
+    """
+    raw = row.get("review_state")
+    if raw is not None:
+        value = str(raw).strip()
+        if value not in _REVIEW_STATES:
+            raise _preflight_error(
+                "memory_review_state_invalid",
+                "memory_records.review_state must be one of pending / "
+                "approved / rejected / disputed; refusing to infer from "
+                "timestamps",
+                details={"memory_id": memory_id, "review_state": raw},
+            )
+        return value
+    if reviewed_at is None:
+        return "pending"
+    return "approved"
+
+
+def _resolve_legacy_or_typed_lifecycle_state(
+    *,
+    row: dict[str, Any],
+    memory_id: str,
+    activated_at: str | None,
+) -> str:
+    """Resolve canonical lifecycle_state for one memory_records restore row.
+
+    Bounded compatibility for pre-C8 v4 payloads where
+    ``lifecycle_state`` is absent: derive deterministically from
+    ``activated_at``. New C8-era v4 payloads carry an explicit
+    ``lifecycle_state`` value that is validated against the canonical
+    vocabulary. Invalid explicit values fail closed; timestamp
+    fallback NEVER infers ``retired``.
+    """
+    raw = row.get("lifecycle_state")
+    if raw is not None:
+        value = str(raw).strip()
+        if value not in _LIFECYCLE_STATES:
+            raise _preflight_error(
+                "memory_lifecycle_state_invalid",
+                "memory_records.lifecycle_state must be one of active / "
+                "dormant / retired; refusing to infer from timestamps",
+                details={
+                    "memory_id": memory_id,
+                    "lifecycle_state": raw,
+                },
+            )
+        return value
+    if activated_at is None:
+        return "dormant"
+    return "active"
 
 
 def _preflight_required_fields_present(row: dict[str, Any], family: str) -> None:
@@ -3089,6 +3165,16 @@ class UnifiedMemoryRestorePreflight:
                     "memory_records.held must be a boolean",
                     details={"memory_id": memory_id, "held": held},
                 )
+            review_state = _resolve_legacy_or_typed_review_state(
+                row=row,
+                memory_id=memory_id,
+                reviewed_at=reviewed_at,
+            )
+            lifecycle_state = _resolve_legacy_or_typed_lifecycle_state(
+                row=row,
+                memory_id=memory_id,
+                activated_at=activated_at,
+            )
             planned_memories[memory_id] = PlannedMemoryRecord(
                 source_memory_id=memory_id,
                 target_memory_id=memory_id,
@@ -3107,6 +3193,8 @@ class UnifiedMemoryRestorePreflight:
                 activated_at=activated_at,
                 pinned=pinned,
                 held=held,
+                review_state=review_state,
+                lifecycle_state=lifecycle_state,
                 extensions=_preflight_extensions(
                     row.get("extensions"), field="memory_records.extensions"
                 ),
@@ -3394,6 +3482,8 @@ _UNIFIED_MEMORY_MEMORY_FIELDS: tuple[str, ...] = (
     "activated_at",
     "pinned",
     "held",
+    "review_state",
+    "lifecycle_state",
     "extensions",
     "created_at",
     "updated_at",
@@ -3739,6 +3829,8 @@ class CanonicalMemoryRestoreExecutor:
                 "activated_at": planned.activated_at,
                 "pinned": planned.pinned,
                 "held": planned.held,
+                "review_state": planned.review_state,
+                "lifecycle_state": planned.lifecycle_state,
                 "extensions": planned.extensions,
                 "created_at": planned.created_at,
                 "updated_at": planned.updated_at,
@@ -4022,10 +4114,11 @@ class CanonicalMemoryRestoreExecutor:
                         'INSERT INTO "memory_records" '
                         "(memory_id, user_id, project_id, semantic_species, "
                         "text_content, fact_key, fact_value, fact_confidence, "
-                        "reviewed_at, activated_at, pinned, held, extensions, "
+                        "reviewed_at, activated_at, pinned, held, "
+                        "review_state, lifecycle_state, extensions, "
                         "created_at, updated_at) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-                        "%s, %s, %s, %s, %s)",
+                        "%s, %s, %s, %s, %s, %s, %s)",
                         (
                             m.target_memory_id,
                             m.target_account_id,
@@ -4039,6 +4132,8 @@ class CanonicalMemoryRestoreExecutor:
                             m.activated_at,
                             m.pinned,
                             m.held,
+                            m.review_state,
+                            m.lifecycle_state,
                             Json(m.extensions),
                             m.created_at,
                             m.updated_at,

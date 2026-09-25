@@ -124,8 +124,9 @@ This file is authoritative for:
   UMS-05C5 PERSONA ATTRIBUTION MUTATION: CLOSED
   UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
   UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
-  UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: AUTHORIZED
-  UMS-05C9+: NOT AUTHORIZED
+  UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
+  UMS-05C9 ORDINARY MEMORY CONTENT CORRECTION: AUTHORIZED
+  UMS-05C10+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -999,6 +1000,49 @@ This file is authoritative for:
   `feature/ums-continued` and has NOT been merged into the current
   `main`, exposed via Preview, or treated as a release. See the
   [UMS-05C7 remaining mutation authority revalidation](./proofs/runtime/2026-09-25-ums05c7-remaining-mutation-authority-revalidation.md).
+
+- **UMS-05C8 (Ordinary Memory Review and Lifecycle State Persistence,
+  qualified on `feature/ums-continued`)**: the shared persistence
+  prerequisite identified by C7 has been materialized. The canonical
+  `MemoryReviewState` and `MemoryLifecycleState` enums are now
+  registered in `guardian/protocol_tokens.py`. The canonical
+  `review_state` and `lifecycle_state` columns have been added to
+  `memory_records` with CHECK constraints
+  (`memory_records_review_state_check`,
+  `memory_records_lifecycle_state_check`); both columns are NOT NULL
+  with server defaults (`pending`, `dormant`). The Alembic revision
+  `8c2f4a6d9b10` backfilled existing rows from the legacy
+  timestamp-only model deterministically without inventing history
+  (no row was synthesized as `rejected`, `disputed`, or `retired`).
+  The downgrade is fail-closed: it refuses to drop the new columns if
+  any row carries a typed state that the legacy timestamp model cannot
+  represent. The Memory Vault canonical read projection now derives
+  `review_posture` and `lifecycle_posture` from the typed columns;
+  `reviewed_at` and `activated_at` are preserved as durable history
+  metadata but no longer substitute for posture authority. The C6
+  direct-creation service continues to write `approved`/`active` plus
+  the original C6 `reviewed_at = activated_at = database-authored now()`
+  posture. UMS-04 `account-export.v4` now carries both typed fields;
+  the restore path parses and validates them against the canonical
+  vocabulary and includes them in identity/conflict comparison.
+  Pre-C8 v4 payloads without these fields remain restorable through a
+  bounded legacy derivation that NEVER infers `rejected`, `disputed`,
+  or `retired`; invalid explicit values fail closed and abort the
+  entire restore. Personal Facts retain specialized
+  `status`/`is_active` authority; the Vault's Personal Facts posture
+  branch still maps to the deprecated `inactive` posture literal
+  (Personal Facts are not rewritten as ordinary-memory governance).
+  C1–C5 mutation suites (pin/hold/project-scope/persona-attribution)
+  remain green at 52 tests with no change to their public contracts;
+  C8 added no new mutation methods for the new columns. This
+  qualification is branch-local on `feature/ums-continued` and has NOT
+  been merged into the current `main`, exposed via Preview, or treated
+  as a release. UMS-05C8 is CLOSED on this branch; UMS-05C9 (ordinary
+  memory content correction) alone is AUTHORIZED; UMS-05C10+,
+  UMS-05D+, and UMS-06+ remain NOT AUTHORIZED. C9 must not yet
+  implement review actions or retire/restore services — those slices
+  remain blocked on this prerequisite having landed. See the
+  [UMS-05C8 ordinary-memory governance persistence proof](./proofs/runtime/2026-09-25-ums05c8-ordinary-memory-governance-persistence-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

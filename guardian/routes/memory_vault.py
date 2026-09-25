@@ -65,6 +65,7 @@ from guardian.services.memory_vault_mutation import (
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
     LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_DORMANT,
     LIFECYCLE_POSTURE_INACTIVE,
     MAX_LIST_LIMIT,
     REVIEW_POSTURE_APPROVED,
@@ -95,6 +96,7 @@ ReviewPostureParam = Literal[
 #: service so the route never redefines the token set.
 LifecyclePostureParam = Literal[
     LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_DORMANT,
     LIFECYCLE_POSTURE_INACTIVE,
 ]
 
@@ -172,7 +174,7 @@ class VaultItemResponse(BaseModel):
     account_owner: str = ""
     project_id: int | None = None
     review_posture: str = REVIEW_POSTURE_PENDING
-    lifecycle_posture: str = LIFECYCLE_POSTURE_INACTIVE
+    lifecycle_posture: str = LIFECYCLE_POSTURE_DORMANT
     pinned: bool = False
     held: bool = False
     created_at: datetime | None = None
