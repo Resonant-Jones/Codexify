@@ -46,6 +46,8 @@ class _ActivationDb:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        with engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         User.__table__.create(engine)
         AccountActivationCapability.__table__.create(engine)
         with engine.begin() as connection:
