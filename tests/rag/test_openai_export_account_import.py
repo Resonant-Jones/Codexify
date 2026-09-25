@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from backend.rag.openai_export_adapter import (
@@ -381,6 +381,52 @@ def test_staged_job_conflicts_events_and_media_replay_are_durable(
     ]
     assert len(media_events) == 1
     assert media_events[0][4] == 1
+
+
+def test_status_read_projects_only_public_fields_for_large_job(
+    account_import_service,
+):
+    service, sessions, _trace, _staging, _media = account_import_service
+    created = service.create_job(
+        user_id="account-a", total_file_count=6881, total_byte_count=8990043748
+    )
+    with sessions() as session:
+        job = session.get(OpenAIAccountImportJob, created["job_id"])
+        job.status = "running"
+        job.staged_manifest = [
+            {"path": f"file-{index}.dat", "size": index}
+            for index in range(6881)
+        ]
+        job.checkpoint = {
+            "conversation_ids": [f"conversation-{index}" for index in range(420)],
+            "imported_document_count": 3,
+            "canonical_duplicate_count": 2,
+            "source_summary": {"conversations_discovered": 5043},
+        }
+        session.commit()
+        expected = service.serialize_job(job)
+
+    statements: list[str] = []
+    engine = sessions.kw["bind"]
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        actual = service.get_job(job_id=created["job_id"], user_id="account-a")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert actual == expected
+    assert len(statements) == 1
+    assert "staged_manifest" not in statements[0]
+    assert "checkpoint AS" not in statements[0]
+    with sessions() as session:
+        job = session.get(OpenAIAccountImportJob, created["job_id"])
+        assert job.status == "running"
+        assert len(job.staged_manifest) == 6881
+        assert len(job.checkpoint["conversation_ids"]) == 420
 
 
 def test_materialization_retries_corrupt_copy_but_never_accepts_it(
