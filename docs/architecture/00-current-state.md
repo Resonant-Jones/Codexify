@@ -123,8 +123,9 @@ This file is authoritative for:
   UMS-05C4 PROJECT-SCOPE MUTATION: CLOSED
   UMS-05C5 PERSONA ATTRIBUTION MUTATION: CLOSED
   UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
-  UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: AUTHORIZED
-  UMS-05C8+: NOT AUTHORIZED
+  UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
+  UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: AUTHORIZED
+  UMS-05C9+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -959,6 +960,45 @@ This file is authoritative for:
   alone is AUTHORIZED; UMS-05C8+, UMS-05D+, and UMS-06+ remain NOT
   AUTHORIZED. See the
   [UMS-05C6 direct creation proof](./proofs/runtime/2026-09-23-ums05c6-vault-direct-creation-proof.md).
+
+- **UMS-05C7 (Remaining Memory Vault mutation authority revalidation,
+  qualified on `feature/ums-continued`)**: documentation-only
+  revalidation of the remaining UMS-05C capabilities. The current
+  qualified surface covers pin/unpin, hold/release, Project-scope
+  mutation, stable Persona attribution, and direct user-authored
+  creation. The remaining categories — ordinary-memory content
+  correction, ordinary-memory review/approve/reject/dispute, ordinary
+  retire/restore, and Personal Facts HTTP-adapter review/lifecycle —
+  have been classified. **Ordinary-memory content correction** is
+  IMPLEMENTABLE_ON_CURRENT_PERSISTENCE (mutable `text_content` plus
+  append-only `memory_provenance` lineage, UMS-04 round-trip proven).
+  **Ordinary-memory review and ordinary retire/restore** each
+  REQUIRES_CANONICAL_PERSISTENCE_PREREQUISITE: the current
+  `memory_records` envelope exposes only `reviewed_at` and
+  `activated_at` timestamp columns and a binary read projection
+  (`approved`/`pending`, `active`/`inactive`); the contract's
+  four-value review vocabulary
+  (`pending`/`approved`/`rejected`/`disputed`) and three-value
+  lifecycle vocabulary (`active`/`dormant`/`retired`) cannot be
+  faithfully represented without new typed columns
+  (`review_state`, `lifecycle_state`), corresponding
+  `MemoryReviewState`/`MemoryLifecycleState` protocol tokens, and a
+  migration that backfills from current timestamps. JSONB
+  `extensions` cannot promote to authority. **Personal Facts review
+  and lifecycle** DELEGATES_TO_EXISTING_SPECIALIZED_AUTHORITY
+  (`PersonalFact.status`, `is_active`, `PersonalFactRevision` already
+  exist; `guardian/routes/personal_facts.py` already exposes approve
+  /reject/dispute routes). Per the spec's Priority 1 rule — the shared
+  canonical persistence prerequisite for review and lifecycle — the
+  sole next slice authorized on this branch is **UMS-05C8 Ordinary
+  Memory Review and Lifecycle State Persistence**. UMS-05C9+,
+  UMS-05D+, and UMS-06+ remain NOT AUTHORIZED. UMS-05C8 must not yet
+  implement content correction, review actions, or retire/restore
+  mutation services — it is the persistence prerequisite, not a
+  mutation writer. This qualification is branch-local on
+  `feature/ums-continued` and has NOT been merged into the current
+  `main`, exposed via Preview, or treated as a release. See the
+  [UMS-05C7 remaining mutation authority revalidation](./proofs/runtime/2026-09-25-ums05c7-remaining-mutation-authority-revalidation.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
