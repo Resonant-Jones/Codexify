@@ -8,6 +8,27 @@ chat-model roster while the configured model remains the degraded-discovery
 fallback. The global beta posture
 remains local-first and local-only.
 
+## Mandatory private-preview authentication posture
+
+Generic Codexify defaults remain local-first: a deliberately local runtime may
+use local API-key authentication and the single-user identity fallback.
+Private preview must not inherit those defaults. The Compose overlay supplies
+one fixed Guardian posture to the backend:
+`GUARDIAN_EXPOSURE_MODE=private_preview`, `GUARDIAN_AUTH_MODE=remote`,
+`CODEXIFY_MULTI_USER_ENABLED=true`, and the existing
+`v1-whooshd-deepseek-web` profile.
+
+Before the backend starts, the `private-preview-auth-posture` one-shot service
+checks those exact values. The backend depends on that service completing
+successfully; missing, empty, or local auth/exposure values stop backend and
+therefore the public origin from starting. This check does not change generic
+Guardian defaults or create another identity authority.
+
+Cloudflare Tunnel terminating at loopback does not make a request local for
+Guardian authorization. Remote Guardian session authentication remains
+mandatory, and Cloudflare Access remains enabled pending separate
+public-ingress qualification. This task does not remove or reconfigure Access.
+
 ## Persona Profile route admission
 
 `v1-whooshd-deepseek-web` enables `persona_profiles`, admitting the existing
