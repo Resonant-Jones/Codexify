@@ -16,6 +16,7 @@ from guardian.agents.adapters.base import (
 )
 from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_REASONING_EFFORTS,
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
 )
@@ -104,6 +105,7 @@ class PiCodexRunnerAdapter:
         identity: AgentExecutionIdentity,
         *,
         read_only: bool,
+        reasoning_effort: str = "medium",
         required_tool_name: str | None = None,
     ) -> AgentRunEnvelope:
         """Execute exactly one Guardian-authorized Pi task.
@@ -132,6 +134,14 @@ class PiCodexRunnerAdapter:
                 errors=[],
                 failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
                 failure_stage="authorization",
+            )
+
+        if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi reasoning effort is unsupported",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="reasoning_effort",
             )
 
         # Required-tool support boundary:
@@ -178,6 +188,7 @@ class PiCodexRunnerAdapter:
             {
                 "PI_PROVIDER": identity.provider_id,
                 "PI_MODEL": identity.model_id,
+                "PI_THINKING": reasoning_effort,
                 "PI_GUARDIAN_AUTHORIZED": "1",
                 "PI_GUARDIAN_HARNESS_ID": identity.harness_id,
                 "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
@@ -202,6 +213,7 @@ class PiCodexRunnerAdapter:
                 require_runtime_identity=True,
                 require_tool_telemetry=True,
                 required_tool_name=normalized_required,
+                expected_reasoning_effort=reasoning_effort,
             )
         except subprocess.TimeoutExpired:
             return AgentRunEnvelope(
@@ -294,6 +306,7 @@ class PiCodexRunnerAdapter:
         require_runtime_identity: bool = False,
         require_tool_telemetry: bool = False,
         required_tool_name: str | None = None,
+        expected_reasoning_effort: str | None = None,
     ) -> AgentRunEnvelope:
         """Parse subprocess result into AgentRunEnvelope.
 
@@ -423,6 +436,22 @@ class PiCodexRunnerAdapter:
                     )
                 )
                 telemetry = _parse_tool_telemetry(data.get("tool_telemetry"))
+                reasoning = data.get("reasoning_effort")
+                if expected_reasoning_effort is not None and (
+                    not isinstance(reasoning, dict)
+                    or reasoning.get("requested") != expected_reasoning_effort
+                    or reasoning.get("effective") != expected_reasoning_effort
+                    or data.get("automatic_retries_disabled") is not True
+                ):
+                    retry_mismatch = data.get("automatic_retries_disabled") is not True
+                    return AgentRunEnvelope(
+                        status="error",
+                        summary="Pi wrapper did not attest bounded reasoning and retry posture",
+                        failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                        failure_stage=("authorized_retry_suppression" if retry_mismatch else "reasoning_effort"),
+                        runtime_identity_established=runtime_identity_established,
+                        provider_request_started=_bounded_bool(data.get("provider_request_started")),
+                    )
                 # Live authorized task must carry valid tool telemetry.
                 if require_tool_telemetry and not _is_valid_tool_telemetry(telemetry):
                     return AgentRunEnvelope(
@@ -564,6 +593,13 @@ class PiCodexRunnerAdapter:
                         data.get("provider_request_started")
                     ),
                     oauth_available=_bounded_bool(data.get("oauth_available")),
+                    requested_reasoning_effort=(
+                        reasoning.get("requested") if isinstance(reasoning, dict) else None
+                    ),
+                    effective_reasoning_effort=(
+                        reasoning.get("effective") if isinstance(reasoning, dict) else None
+                    ),
+                    automatic_retries_disabled=_bounded_bool(data.get("automatic_retries_disabled")),
                     effective_tool_names=telemetry[0],
                     write_tool_available=telemetry[1],
                     tool_execution_start_count=telemetry[2],

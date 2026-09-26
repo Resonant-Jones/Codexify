@@ -149,6 +149,14 @@ class FakeSession {
         this._subscribers = [];
     }
 
+    get thinkingLevel() {
+        return this.options.thinkingLevel;
+    }
+
+    get autoRetryEnabled() {
+        return this.settingsManager?.getRetryEnabled();
+    }
+
     getActiveToolNames() {
         return this._activeToolNames.slice();
     }
@@ -405,11 +413,8 @@ class FakeSession {
 }
 
 async function fakeCreateAgentSession(options = {}) {
-    // Required-tool sessions must suppress both independent Pi recovery
-    // paths before the session starts. This makes the provider-free fixture
-    // reject a wrapper that disables ordinary retries but leaves overflow
-    // auto-compaction able to call agent.continue().
-    if (process.env.PI_GUARDIAN_REQUIRED_TOOL) {
+    // Every authorized session must suppress both Pi recovery paths.
+    if (process.env.PI_GUARDIAN_AUTHORIZED === "1") {
         if (
             !options.settingsManager ||
             options.settingsManager.getRetryEnabled() !== false ||

@@ -25,6 +25,7 @@ from guardian.pi.contracts import (
     PiProviderLane,
 )
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_REASONING_EFFORTS,
     PiAuthorizedFailureClass,
     PiHarnessResultClass,
     PiInvocationReceiptStatus,
@@ -63,6 +64,7 @@ _GIT_TIMEOUT_SECONDS = 5
 _AUTHORIZED_FAILURE_STAGES = frozenset(
     {
         "adapter_execution",
+        "authorized_retry_suppression",
         "authorization",
         "identity_attestation",
         "identity_verification",
@@ -73,6 +75,7 @@ _AUTHORIZED_FAILURE_STAGES = frozenset(
         "provider_request",
         "provider_resolution",
         "provider_transport",
+        "reasoning_effort",
         "runtime_load",
         "session_initialization",
         "target_posture",
@@ -101,6 +104,7 @@ class PiAuthorizedHarnessRequest:
     timeout_seconds: int
     identity: PiAuthorizedExecutionIdentity
     read_only: bool
+    reasoning_effort: str = "medium"
     # Bounded Campaign Engine declared execution requirement.
     # When non-null, the adapter must project it into the first provider
     # request only. `None` preserves ordinary authorized execution.
@@ -129,6 +133,9 @@ class PiHarnessRuntimeEvidence:
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
     # Bounded Pi 0.82.1 tool activation + execution telemetry (evidence only).
     effective_tool_names: tuple[str, ...] | None = None
     write_tool_available: bool | None = None
@@ -169,6 +176,9 @@ class PiLiveInvocationOutcome:
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
     receipt: PiInvocationReceipt | None = None
     harness_result: PiHarnessResult | None = None
     actual_identity: PiAuthorizedExecutionIdentity | None = None
@@ -224,6 +234,7 @@ def invoke_guardian_authorized_pi(
     timeout_seconds: int,
     harness_runner: PiAuthorizedHarnessRunner | None = None,
     required_tool_name: str | None = None,
+    reasoning_effort: str = "medium",
 ) -> PiLiveInvocationOutcome:
     """Authorize and invoke one Pi harness call without durable side effects.
 
@@ -299,6 +310,14 @@ def invoke_guardian_authorized_pi(
             diagnostic_stage="tool_selection",
         )
 
+    if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+        return _blocked(
+            PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="reasoning_effort",
+        )
+
     pre_execution = _snapshot_target(target)
     request = PiAuthorizedHarnessRequest(
         prompt=str(prompt),
@@ -306,6 +325,7 @@ def invoke_guardian_authorized_pi(
         timeout_seconds=max(1, int(timeout_seconds)),
         identity=identity,
         read_only=not write_roots,
+        reasoning_effort=reasoning_effort,
         required_tool_name=normalized_required_tool,
     )
     runner = harness_runner or _run_with_pi_adapter
@@ -363,6 +383,19 @@ def invoke_guardian_authorized_pi(
             diagnostic_class=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
         )
 
+    if (
+        evidence.requested_reasoning_effort != reasoning_effort
+        or evidence.effective_reasoning_effort != reasoning_effort
+        or evidence.automatic_retries_disabled is not True
+    ):
+        retry_mismatch = evidence.automatic_retries_disabled is not True
+        return _blocked(
+            PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            runner_call_count=1,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage=("authorized_retry_suppression" if retry_mismatch else "reasoning_effort"),
+        )
+
     artifact_ref = f"pi://guardian-authorized/{envelope.invocation_id}/result"
     # Bounded selection evidence (separate from the ten-field telemetry).
     # Only non-null when the requested required tool was propagated through.
@@ -388,6 +421,8 @@ def invoke_guardian_authorized_pi(
         receipt_status=PiInvocationReceiptStatus.COMPLETED.value,
         validation_metadata={
             "guardian_authorized": True,
+            "reasoning_effort": {"requested": reasoning_effort, "effective": evidence.effective_reasoning_effort},
+            "automatic_retries_disabled": True,
             "policy_decision_id": decision.policy_decision_id,
             # Bounded tool + assistant-response telemetry — evidence only,
             # no args/results/content/deltas/IDs.
@@ -454,6 +489,8 @@ def invoke_guardian_authorized_pi(
         result_class=PiHarnessResultClass.SUCCESS.value,
         validation_metadata={
             "actual_runtime_identity_attested": True,
+            "reasoning_effort": {"requested": reasoning_effort, "effective": evidence.effective_reasoning_effort},
+            "automatic_retries_disabled": True,
             # Bounded tool + assistant-response telemetry — evidence only,
             # no args/results/content/deltas/IDs.
             "tool_telemetry": {
@@ -499,6 +536,9 @@ def invoke_guardian_authorized_pi(
         session_initialized=evidence.session_initialized,
         provider_request_started=evidence.provider_request_started,
         oauth_available=evidence.oauth_available,
+        requested_reasoning_effort=reasoning_effort,
+        effective_reasoning_effort=evidence.effective_reasoning_effort,
+        automatic_retries_disabled=True,
         receipt=receipt,
         harness_result=harness_result,
         actual_identity=actual_identity,
@@ -558,6 +598,7 @@ def _run_with_pi_adapter(
             harness_version=request.identity.harness_version,
         ),
         read_only=request.read_only,
+        reasoning_effort=request.reasoning_effort,
         required_tool_name=request.required_tool_name,
     )
     return PiHarnessRuntimeEvidence(
@@ -573,6 +614,9 @@ def _run_with_pi_adapter(
         session_initialized=result.session_initialized,
         provider_request_started=result.provider_request_started,
         oauth_available=result.oauth_available,
+        requested_reasoning_effort=result.requested_reasoning_effort,
+        effective_reasoning_effort=result.effective_reasoning_effort,
+        automatic_retries_disabled=result.automatic_retries_disabled,
         # Bounded tool telemetry (evidence only; Pi is the source of truth).
         effective_tool_names=result.effective_tool_names,
         write_tool_available=result.write_tool_available,

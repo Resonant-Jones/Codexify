@@ -547,22 +547,10 @@ async function runAgent() {
 	// Create session
 	let result;
 	try {
-		// Guardian-authorized required-tool path: disable Pi/agent
-		// automatic retries and automatic compaction. The bounded
-		// mandatory single-tool write
-		// turn must not silently continue across an automatic retry
-		// after a failed first attempt — the retry would not see the
-		// required ``tool_choice`` and ``disable_parallel_tool_use``
-		// projection (which is composed for the FIRST provider turn
-		// only). ADR-068's bounded one-attempt semantics make retry
-		// suppression the correct fail-closed behavior here, so
-		// establishing the recovery-disabled posture is MANDATORY for
-		// required-tool runs: the wrapper does NOT fall back to the
-		// default settings manager (which enables both mechanisms). In
-		// particular, Pi's overflow compaction recovery calls
-		// `agent.continue()` independently of the ordinary retry setting;
-		// either mechanism can otherwise escape the bounded mandatory
-		// selection after the first projected payload fails.
+		// Every Guardian-authorized invocation has one bounded provider
+		// attempt. Disable both Pi's ordinary retry and overflow-compaction
+		// recovery before session construction for read-only and writable
+		// tasks alike.
 		//
 		// The maintained Pi 0.82.1 API for that posture is
 		//     SettingsManager.inMemory({
@@ -574,9 +562,8 @@ async function runAgent() {
 		// `getCompactionEnabled` both default to true). If the
 		// `SettingsManager` export, the `inMemory` factory, or
 		// construction of the recovery-disabled instance is unavailable
-		// for a required-tool run, the wrapper fails closed BEFORE
-		// `createAgentSession` is called. Non-required-tool modes keep
-		// the maintained Pi retry settings unchanged.
+		// for an authorized run, the wrapper fails closed BEFORE
+		// `createAgentSession` is called.
 		const sessionOptions = {
 			cwd: OPTIONS.cwd,
 			model,
@@ -585,14 +572,14 @@ async function runAgent() {
 			tools: configuredToolNames,
 			sessionManager: SessionManager.inMemory(),
 		};
-		if (guardianAuthorizedMode && requiredToolName !== null) {
+		if (guardianAuthorizedMode) {
 			if (
 				!SettingsManager ||
 				typeof SettingsManager.inMemory !== "function"
 			) {
 				emitAuthorizedFailure(
 					"wrapper_protocol_failed",
-					"required_tool_retry_suppression",
+					"authorized_retry_suppression",
 					{
 						actual_runtime_identity: actualRuntimeIdentity,
 						runtime_identity_established: true,
@@ -609,18 +596,18 @@ async function runAgent() {
 						compaction: { enabled: false },
 					});
 			} catch (_settingsError) {
-				// Required-tool runs cannot tolerate a recovery-enabled
+				// Authorized runs cannot tolerate a recovery-enabled
 				// fallback — the default settings manager enables both
 				// ordinary retries and automatic compaction. Either can
 				// escape the bounded mandatory selection. Emit a bounded
 				// `wrapper_protocol_failed`
-				// failure with the local `required_tool_retry_suppression`
+				// failure with the local `authorized_retry_suppression`
 				// stage and return BEFORE `createAgentSession` is
 				// called. Provider transport and session initialization
 				// must not begin on this path.
 				emitAuthorizedFailure(
 					"wrapper_protocol_failed",
-					"required_tool_retry_suppression",
+					"authorized_retry_suppression",
 					{
 						actual_runtime_identity: actualRuntimeIdentity,
 						runtime_identity_established: true,
@@ -644,6 +631,31 @@ async function runAgent() {
 	}
 
 	session = result.session;
+	let reasoningEffortEvidence = null;
+	if (guardianAuthorizedMode) {
+		const effective = session?.thinkingLevel;
+		const retriesDisabled = session?.autoRetryEnabled === false
+			&& session?.settingsManager?.getCompactionEnabled?.() === false;
+		if (!retriesDisabled) {
+			emitAuthorizedFailure("wrapper_protocol_failed", "authorized_retry_suppression", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+				session_initialized: true,
+				provider_request_started: false,
+			});
+			return;
+		}
+		if (effective !== OPTIONS.thinking) {
+			emitAuthorizedFailure("wrapper_protocol_failed", "reasoning_effort", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+				session_initialized: true,
+				provider_request_started: false,
+			});
+			return;
+		}
+		reasoningEffortEvidence = { requested: OPTIONS.thinking, effective };
+	}
 
 	// Capture the effective tool surface from the actual session, NOT from the
 	// configured/intended value. This is the single source of truth for
@@ -662,9 +674,7 @@ async function runAgent() {
 	// Bounded required-tool selection state (first-turn only).
 	// Read ONLY for guardian-authorized-task. Other modes ignore the
 	// environment variable entirely. The requiredToolName is read
-	// earlier (before session creation) so the createAgentSession
-	// call can pass a retry-disabled SettingsManager when a required
-	// tool is in scope.
+	// earlier (before session creation) for first-turn selection.
 	const requiredToolSelection = {
 		required_tool_name: null,
 		hard_tool_selection_applied: false,
@@ -895,6 +905,8 @@ async function runAgent() {
 			session_initialized: true,
 			provider_request_started: true,
 			tool_telemetry: toolTelemetry,
+			reasoning_effort: reasoningEffortEvidence,
+			automatic_retries_disabled: true,
 		};
 		// Bounded required-tool selection evidence is exposed in a
 		// separate top-level key (never inside the ten-field

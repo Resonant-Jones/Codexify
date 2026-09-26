@@ -36,6 +36,9 @@ class AgentRunEnvelope(BaseModel):
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
 
     # Bounded Pi 0.82.1 tool activation + execution telemetry.
     # Evidence only — confers no execution authority.

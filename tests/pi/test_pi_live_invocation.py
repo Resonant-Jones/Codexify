@@ -154,6 +154,9 @@ def _evidence(**overrides: str | None) -> PiHarnessRuntimeEvidence:
         actual_harness_version=overrides.get(
             "actual_harness_version", IDENTITY["harness_version"]
         ),
+        requested_reasoning_effort="medium",
+        effective_reasoning_effort="medium",
+        automatic_retries_disabled=True,
     )
 
 
@@ -203,6 +206,55 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
     assert outcome.failure_reason == reason.value
     assert outcome.retry_count == 0
     assert outcome.fallback_count == 0
+
+
+def test_guardian_requests_high_effort_and_records_bounded_configuration(tmp_path: Path) -> None:
+    calls: list[PiAuthorizedHarnessRequest] = []
+
+    def runner(request: PiAuthorizedHarnessRequest) -> PiHarnessRuntimeEvidence:
+        calls.append(request)
+        return replace(
+            _evidence(),
+            requested_reasoning_effort=request.reasoning_effort,
+            effective_reasoning_effort=request.reasoning_effort,
+        )
+
+    envelope = _envelope()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Read the disposable fixture only.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        reasoning_effort="high",
+    )
+    assert outcome.ok is True
+    assert len(calls) == 1
+    assert calls[0].read_only is True
+    assert calls[0].reasoning_effort == "high"
+    assert outcome.retry_count == 0
+    assert outcome.fallback_count == 0
+    assert outcome.receipt.validation_metadata["reasoning_effort"] == {
+        "requested": "high", "effective": "high"
+    }
+    assert outcome.harness_result.validation_metadata["automatic_retries_disabled"] is True
+
+
+def test_guardian_rejects_unattested_effective_effort(tmp_path: Path) -> None:
+    envelope = _envelope()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Read only.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=_RecordingRunner(evidence=_evidence()),
+        reasoning_effort="high",
+    )
+    assert outcome.ok is False
+    assert outcome.diagnostic_stage == "reasoning_effort"
+    assert outcome.receipt is None
 
 
 def _fixture_tree(tmp_path: Path) -> None:
@@ -569,13 +621,15 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
                 {
                     "status": "ok",
                     "summary": "bounded",
-                    "actual_runtime_identity": {
+                        "actual_runtime_identity": {
                         "actual_provider_id": IDENTITY["provider_id"],
                         "actual_model_id": IDENTITY["model_id"],
                         "actual_harness_id": IDENTITY["harness_id"],
-                        "actual_harness_version": IDENTITY["harness_version"],
-                    },
-                    "tool_telemetry": {
+                            "actual_harness_version": IDENTITY["harness_version"],
+                        },
+                        "reasoning_effort": {"requested": "high", "effective": "high"},
+                        "automatic_retries_disabled": True,
+                        "tool_telemetry": {
                         "effective_tool_names": ["read", "bash", "edit", "write"],
                         "write_tool_available": True,
                         "tool_execution_start_count": 0,
@@ -597,10 +651,12 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
     monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
     monkeypatch.setenv("PI_MODEL", "ambient-model")
+    monkeypatch.setenv("PI_THINKING", "ambient-low")
     result = PiCodexRunnerAdapter().execute_authorized(
         AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
         AgentExecutionIdentity(**IDENTITY),
         read_only=True,
+        reasoning_effort="high",
     )
 
     environment = observed["environment"]
@@ -608,6 +664,7 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     assert observed["command"][-2] == "guardian-authorized-task"
     assert environment["PI_PROVIDER"] == IDENTITY["provider_id"]
     assert environment["PI_MODEL"] == IDENTITY["model_id"]
+    assert environment["PI_THINKING"] == "high"
     assert environment["PI_GUARDIAN_AUTHORIZED"] == "1"
     assert environment["PI_DISABLE_TOOLS"] == "1"
     assert result.actual_provider_id == IDENTITY["provider_id"]
@@ -616,6 +673,8 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     assert result.actual_harness_version == IDENTITY["harness_version"]
     assert result.errors == []
     assert result.status == "ok"
+    assert result.effective_reasoning_effort == "high"
+    assert result.automatic_retries_disabled is True
     assert result.summary == "bounded"
 
 
@@ -773,6 +832,8 @@ def _mock_wrapper_subprocess_assistant(
                         "actual_harness_id": IDENTITY["harness_id"],
                         "actual_harness_version": IDENTITY["harness_version"],
                     },
+                    "reasoning_effort": {"requested": "medium", "effective": "medium"},
+                    "automatic_retries_disabled": True,
                     **({"tool_telemetry": payload_telemetry}
                        if payload_telemetry is not None else {}),
                 }
@@ -1090,6 +1151,9 @@ def test_selection_evidence_copies_into_outcome_and_validation_metadata(
         actual_model_id=IDENTITY["model_id"],
         actual_harness_id=IDENTITY["harness_id"],
         actual_harness_version=IDENTITY["harness_version"],
+        requested_reasoning_effort="medium",
+        effective_reasoning_effort="medium",
+        automatic_retries_disabled=True,
         required_tool_name=selection["required_tool_name"],
         hard_tool_selection_applied=selection["hard_tool_selection_applied"],
         hard_tool_selection_application_count=(
