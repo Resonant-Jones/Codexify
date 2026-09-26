@@ -35,6 +35,8 @@ class AgentRunEnvelope(BaseModel):
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
     requested_reasoning_effort: str | None = None
     effective_reasoning_effort: str | None = None

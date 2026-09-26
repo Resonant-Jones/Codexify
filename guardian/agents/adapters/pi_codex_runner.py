@@ -9,13 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from guardian.agents.adapters.base import (
-    AgentAdapter,
     AgentExecutionIdentity,
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
 from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EXECUTION_PHASES,
+    PI_AUTHORIZED_PHASE_SENTINEL,
     PI_AUTHORIZED_REASONING_EFFORTS,
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
@@ -215,13 +216,20 @@ class PiCodexRunnerAdapter:
                 required_tool_name=normalized_required,
                 expected_reasoning_effort=reasoning_effort,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            phases, effort = _parse_authorized_timeout_phases(exc.stderr)
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi execution timed out",
                 failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
                 failure_stage="adapter_execution",
                 metrics={"timeout_seconds": request.timeout_seconds},
+                observed_execution_phases=phases or None,
+                highest_observed_execution_phase=phases[-1] if phases else None,
+                runtime_identity_established=len(phases) >= 2,
+                session_initialized=True if len(phases) >= 3 else None,
+                provider_request_started=True if len(phases) >= 4 else None,
+                effective_reasoning_effort=effort,
             )
         except FileNotFoundError:
             return AgentRunEnvelope(
@@ -952,6 +960,56 @@ def _parse_authorized_stdout_frame(stdout: str) -> dict[str, Any] | None:
     if not isinstance(parsed, dict):
         return None
     return parsed
+
+
+def _parse_authorized_timeout_phases(
+    stderr: str | bytes | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Recover only a complete, ordered prefix of the bounded phase channel.
+
+    Ordinary stderr is ignored. Any malformed, duplicate, skipped, or
+    out-of-order sentinel frame invalidates the entire trail. A truncated
+    final frame therefore never authorizes an earlier partial trail.
+    """
+    if isinstance(stderr, bytes):
+        if len(stderr) > 65536:
+            return (), None
+        try:
+            stderr = stderr.decode("utf-8")
+        except UnicodeDecodeError:
+            return (), None
+    if not isinstance(stderr, str) or len(stderr.encode("utf-8")) > 65536:
+        return (), None
+
+    phases: list[str] = []
+    effort: str | None = None
+    for line in stderr.splitlines():
+        if not line.startswith(PI_AUTHORIZED_PHASE_SENTINEL):
+            continue
+        try:
+            frame = json.loads(line[len(PI_AUTHORIZED_PHASE_SENTINEL) :])
+        except json.JSONDecodeError:
+            return (), None
+        index = len(phases)
+        if not isinstance(frame, dict) or index >= len(PI_AUTHORIZED_EXECUTION_PHASES):
+            return (), None
+        expected_keys = {"phase", "sequence"}
+        if index == 2:
+            expected_keys.add("effective_reasoning_effort")
+        if (
+            set(frame) != expected_keys
+            or frame.get("phase") != PI_AUTHORIZED_EXECUTION_PHASES[index]
+            or type(frame.get("sequence")) is not int
+            or frame["sequence"] != index + 1
+        ):
+            return (), None
+        if index == 2:
+            candidate = frame["effective_reasoning_effort"]
+            if not isinstance(candidate, str) or candidate not in PI_AUTHORIZED_REASONING_EFFORTS:
+                return (), None
+            effort = candidate
+        phases.append(frame["phase"])
+    return tuple(phases), effort
 
 
 def _failure_stage_for_class(failure_class: str | None) -> str:

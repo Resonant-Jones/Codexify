@@ -195,6 +195,48 @@ Authorized protocol framing rules:
 
 This framing decision is documented here so it does not become invisible implementation folklore.  No provider, model, tool, prompt, or persistence semantics change.
 
+### Timeout-surviving authorized phase evidence
+
+The live authorized wrapper emits an ordered, evidence-only phase prefix on
+`stderr`. Each frame begins with the exact
+`CODEXIFY_PI_AUTHORIZED_PHASE_V1:` sentinel and contains only an allowlisted
+JSON object. The canonical progression is:
+
+1. `wrapper_started` — authorized-mode initialization began;
+2. `runtime_identity_established` — provider/model/harness resolution and
+   verification succeeded, without duplicating identity values in the frame;
+3. `session_initialized` — the session exists and its selected effective
+   reasoning effort and disabled retry/compaction posture were verified;
+4. `provider_request_started` — Pi's first provider payload reached the
+   `onPayload` handoff after any required-tool projection succeeded. This is
+   immediately before transport dispatch; it does not prove provider receipt,
+   response, or completion.
+
+Frames carry `phase` and a one-based `sequence`. Only the third frame also
+carries `effective_reasoning_effort`, from the bounded allowed effort set.
+No prompt, response, reasoning content, credential, header, account ID,
+provider payload, tool input/result, file content, raw dependency log, or
+environment dump is admitted. Ordinary non-sentinel `stderr` has no phase
+meaning. The final non-empty **stdout** line remains the sole terminal JSON
+result; phase frames neither replace it nor grant execution authority.
+
+On `subprocess.TimeoutExpired`, the adapter reads only captured `stderr`
+(`str` or UTF-8 `bytes`, at most 64 KiB). It accepts a complete, exact,
+ordered prefix of the four frames. Any malformed, duplicated, skipped,
+out-of-order, unsupported, or extra-key sentinel frame invalidates the entire
+trail; non-sentinel lines are ignored. No valid frames means phase unknown.
+An absent later phase is unknown, not false. The highest valid phase and
+ordered prefix may pass through the typed Guardian outcome, with effective
+effort only if the verified third frame was present. Intermediate identity
+observation never becomes terminal actual identity.
+
+An adapter timeout remains a failed, inconclusive invocation with one runner
+call, zero Guardian retries/fallback, no `PiInvocationReceipt`, and no
+`PiHarnessResult`. Before/after target-posture enforcement retains precedence
+over diagnostic evidence. This observation does not alter Guardian authority,
+provider/model/harness verification, retry/fallback policy, Campaign Engine
+semantics, or CE-L0 qualification.
+
 ## Identity and Sovereignty Boundaries
 
 - Identity remains user-owned.

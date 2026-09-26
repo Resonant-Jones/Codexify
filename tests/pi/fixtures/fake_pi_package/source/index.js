@@ -199,6 +199,10 @@ class FakeSession {
         // repair end-to-end against the real agent-wrapper.js.
         process.stdout.write("FAKE_PI_SDK_DIAGNOSTIC\n");
 
+        if (this.behavior === "hang-before-payload") {
+            await new Promise(() => setInterval(() => {}, 1000));
+        }
+
         if (this.behavior === "failure") {
             // Raise a synthetic provider-request error so the real
             // wrapper emits its bounded failure JSON.
@@ -359,6 +363,9 @@ class FakeSession {
                     params.tools = projected.tools || params.tools;
                     params.tool_choice = projected.tool_choice;
                 }
+            }
+            if (this.behavior === "hang-after-payload" && turn === 0) {
+                await new Promise(() => setInterval(() => {}, 1000));
             }
             // Only the first turn is a "provider request" in this fake;
             // a second invocation just records the post-tool continuation
