@@ -4,7 +4,7 @@
 
 `BLOCKED` at the bounded live adapter timeout. Canonical readiness passed
 after operator-controlled `pi login openai-codex`, but the one authorized
-provider-backed attempt did not return a terminal runtime attestation within
+live-rail attempt did not return a terminal runtime attestation within
 120 seconds. This record does **not** emit
 `CE-L0_EXIT=GUARDIAN_PI_LIVE_READY`. CE-L1 remains gated. No release claim is
 widened.
@@ -16,7 +16,7 @@ widened.
 | Branch | `codex/campaign-engine-closure` |
 | Proof-time committed HEAD | `0d971d087cc1c7d7be11237cf3222725b65e25ac` |
 | `origin/main` | `4041440110a2c9c42fe8898ffafc7eb9b2a4255a` |
-| Working tree before and after | clean; no repository mutation by the provider-backed invocation |
+| Working tree before and after | clean; no repository mutation by the live-rail attempt |
 | Frozen request identity | `openai-codex / gpt-5.6-sol / pi-coding-agent / 0.82.1` |
 | Explicit invocation effort | `high` |
 | Guardian permissions | `files.read` on `.` only; no write grant |
