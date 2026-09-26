@@ -29,6 +29,7 @@ from guardian.db.models import (
     AuditLog,
     Base,
     ChatMessage,
+    ChatCompletionAttempt,
     ChatThread,
     ConnectorConfig,
     ConnectorRun,
@@ -51,6 +52,61 @@ _SCHEMA_VERIFY_LOCK = Lock()
 _GUARDIAN_DB_CACHE: dict[str, "GuardianDB"] = {}
 _GUARDIAN_DB_CACHE_LOCK = Lock()
 _DEFAULT_USER_ID = "local"
+
+
+def create_chat_completion_attempt(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+) -> None:
+    """Commit the resource binding before the task can enter Redis."""
+    with chatlog_db._sa_session() as session:
+        session.add(
+            ChatCompletionAttempt(
+                request_id=request_id,
+                backend_task_id=backend_task_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
+        )
+
+
+def mark_chat_completion_attempt_accepted(
+    chatlog_db: Any, *, backend_task_id: str
+) -> None:
+    """Record queue acceptance without changing the attempt's authority."""
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(backend_task_id=backend_task_id)
+            .one()
+        )
+        attempt.accepted_at = datetime.now(timezone.utc)
+
+
+def get_chat_completion_attempt_by_task_id(
+    chatlog_db: Any, backend_task_id: str
+) -> Optional[Dict[str, Any]]:
+    """Read a durable task-to-thread binding without consulting Redis."""
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(backend_task_id=backend_task_id)
+            .one_or_none()
+        )
+        if attempt is None:
+            return None
+        return {
+            "request_id": attempt.request_id,
+            "backend_task_id": attempt.backend_task_id,
+            "thread_id": attempt.thread_id,
+            "turn_id": attempt.turn_id,
+            "created_at": attempt.created_at,
+            "accepted_at": attempt.accepted_at,
+        }
 
 
 def _default_user_id() -> str:
