@@ -55,6 +55,15 @@ PI_AUTHORIZED_REASONING_EFFORTS: frozenset[str] = frozenset(
     {"off", "minimal", "low", "medium", "high", "xhigh"}
 )
 
+# Ordered, evidence-only phases for a single authorized wrapper invocation.
+PI_AUTHORIZED_PHASE_SENTINEL = "CODEXIFY_PI_AUTHORIZED_PHASE_V1:"
+PI_AUTHORIZED_EXECUTION_PHASES: tuple[str, ...] = (
+    "wrapper_started",
+    "runtime_identity_established",
+    "session_initialized",
+    "provider_request_started",
+)
+
 
 class PiProviderLaneClass(str, Enum):
     LOCAL = "local"

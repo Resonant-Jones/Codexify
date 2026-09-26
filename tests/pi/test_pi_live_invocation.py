@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -206,6 +208,113 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
     assert outcome.failure_reason == reason.value
     assert outcome.retry_count == 0
     assert outcome.fallback_count == 0
+
+
+@pytest.mark.parametrize(
+    ("behavior", "expected_phases", "provider_started", "effort"),
+    [
+        (
+            "hang-after-payload",
+            ("wrapper_started", "runtime_identity_established", "session_initialized", "provider_request_started"),
+            True,
+            "high",
+        ),
+        ("hang-before-payload", ("wrapper_started", "runtime_identity_established", "session_initialized"), None, "high"),
+    ],
+)
+def test_real_fake_pi_timeout_preserves_phase_evidence_without_terminal_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    behavior: str,
+    expected_phases: tuple[str, ...],
+    provider_started: bool | None,
+    effort: str,
+) -> None:
+    fake_source = Path(__file__).resolve().parent / "fixtures" / "fake_pi_package"
+    fake_package = tmp_path / "fake_pi_package"
+    (fake_package / "dist").mkdir(parents=True)
+    shutil.copyfile(fake_source / "package.json", fake_package / "package.json")
+    shutil.copyfile(fake_source / "source" / "index.js", fake_package / "dist" / "index.js")
+    target = tmp_path / "read_only_target"
+    target.mkdir()
+    (target / "proof.txt").write_text("unchanged\n")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("PI_CODING_AGENT_PACKAGE_ROOT", str(fake_package))
+    monkeypatch.setenv("PI_FAKE_I_BEHAVIOR", behavior)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    envelope = _envelope(model_id="gpt-5.6-sol", harness_version="0.82.1")
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Provider-free timeout fixture",
+        cwd=target,
+        timeout_seconds=2,
+        reasoning_effort="high",
+    )
+    assert outcome.ok is False
+    assert outcome.failure_reason == PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE.value
+    assert outcome.diagnostic_class == "adapter_timeout"
+    assert outcome.observed_execution_phases == expected_phases
+    assert outcome.highest_observed_execution_phase == expected_phases[-1]
+    assert outcome.provider_request_started is provider_started
+    assert outcome.effective_reasoning_effort == effort
+    assert outcome.actual_identity is None
+    assert outcome.receipt is None and outcome.harness_result is None
+    assert (outcome.runner_call_count, outcome.retry_count, outcome.fallback_count) == (1, 0, 0)
+    assert (target / "proof.txt").read_text() == "unchanged\n"
+    assert sorted(path.name for path in target.iterdir()) == ["proof.txt"]
+    if behavior == "hang-after-payload":
+        # The fake intentionally never writes the wrapper's terminal JSON.
+        # Inspect the actual child timeout separately from Guardian's
+        # sanitized outcome; no provider SDK or network is involved.
+        env = os.environ.copy()
+        env.update({
+            "PI_PROVIDER": "openai-codex",
+            "PI_MODEL": "gpt-5.6-sol",
+            "PI_THINKING": "high",
+            "PI_GUARDIAN_AUTHORIZED": "1",
+            "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+            "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+            "PI_DISABLE_TOOLS": "1",
+        })
+        wrapper = Path(__file__).resolve().parents[2] / "codex_runner/src/agent-wrapper.js"
+        with pytest.raises(subprocess.TimeoutExpired) as timeout:
+            subprocess.run(
+                ["node", str(wrapper), "guardian-authorized-task", "fixture"],
+                cwd=target, env=env, capture_output=True, text=True, timeout=2,
+            )
+        captured_stdout = timeout.value.stdout or b""
+        if isinstance(captured_stdout, bytes):
+            captured_stdout = captured_stdout.decode("utf-8")
+        assert captured_stdout.strip() == "FAKE_PI_SDK_DIAGNOSTIC"
+        assert (target / "proof.txt").read_text() == "unchanged\n"
+
+
+def test_timeout_phase_evidence_cannot_override_read_only_violation(tmp_path: Path) -> None:
+    target_file = tmp_path / "proof.txt"
+    target_file.write_text("before\n")
+    evidence = replace(
+        _evidence(status="error"),
+        failure_classification="adapter_timeout",
+        observed_execution_phases=(
+            "wrapper_started", "runtime_identity_established",
+            "session_initialized", "provider_request_started",
+        ),
+        highest_observed_execution_phase="provider_request_started",
+        provider_request_started=True,
+    )
+    runner = _RecordingRunner(
+        evidence=evidence,
+        mutation=lambda _request: target_file.write_text("after\n"),
+    )
+    outcome = _invoke(tmp_path, runner)
+    assert outcome.diagnostic_class == "target_posture_violation"
+    assert outcome.failure_reason == PiValidationFailureReason.READ_ONLY_VIOLATION.value
+    assert outcome.observed_execution_phases is None
+    assert outcome.receipt is None and outcome.harness_result is None
+    assert len(runner.calls) == 1
 
 
 def test_guardian_requests_high_effort_and_records_bounded_configuration(tmp_path: Path) -> None:

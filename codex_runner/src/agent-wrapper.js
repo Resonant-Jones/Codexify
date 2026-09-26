@@ -34,6 +34,22 @@ const mode = args[0] || "help";
 const prompt = args.slice(1).join(" ");
 const guardianAuthorizedMode = mode === "guardian-authorized-task";
 const guardianAuthorizedReadinessMode = mode === "guardian-authorized-readiness";
+const AUTHORIZED_PHASE_SENTINEL = "CODEXIFY_PI_AUTHORIZED_PHASE_V1:";
+const AUTHORIZED_PHASES = [
+	"wrapper_started",
+	"runtime_identity_established",
+	"session_initialized",
+	"provider_request_started",
+];
+let authorizedPhaseCount = 0;
+function emitAuthorizedPhase(phase, effectiveReasoningEffort = null) {
+	if (!guardianAuthorizedMode || AUTHORIZED_PHASES[authorizedPhaseCount] !== phase) return;
+	const frame = { phase, sequence: ++authorizedPhaseCount };
+	if (phase === "session_initialized") {
+		frame.effective_reasoning_effort = effectiveReasoningEffort;
+	}
+	process.stderr.write(`${AUTHORIZED_PHASE_SENTINEL}${JSON.stringify(frame)}\n`);
+}
 const ACTUAL_HARNESS_ID = "pi-coding-agent";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 
@@ -395,6 +411,7 @@ async function runAgent() {
 	const authorizedIdentity = guardianAuthorizedMode
 		? requireGuardianAuthorizedIdentity()
 		: null;
+	if (guardianAuthorizedMode) emitAuthorizedPhase("wrapper_started");
 
 	try {
 		({
@@ -477,6 +494,7 @@ async function runAgent() {
 			actual_harness_version: harnessVersion,
 		}
 		: null;
+	if (guardianAuthorizedMode) emitAuthorizedPhase("runtime_identity_established");
 
 	// Bounded required-tool selection state (first-turn only).
 	// Read ONLY for guardian-authorized-task. Other modes ignore the
@@ -655,6 +673,7 @@ async function runAgent() {
 			return;
 		}
 		reasoningEffortEvidence = { requested: OPTIONS.thinking, effective };
+		emitAuthorizedPhase("session_initialized", effective);
 	}
 
 	// Capture the effective tool surface from the actual session, NOT from the
@@ -822,6 +841,20 @@ async function runAgent() {
 	}
 
 	// Run the prompt
+	if (guardianAuthorizedMode) {
+		// Pi calls onPayload after request construction and credential
+		// resolution, immediately before handing the payload to transport.
+		// Chain after required-tool projection so failed projection cannot
+		// falsely claim the provider-request boundary.
+		const previousOnPayload = session.agent.onPayload;
+		session.agent.onPayload = async (params, modelArg) => {
+			const effective = typeof previousOnPayload === "function"
+				? await previousOnPayload(params, modelArg)
+				: params;
+			emitAuthorizedPhase("provider_request_started");
+			return effective;
+		};
+	}
 	const fullPrompt = buildPrompt(mode, prompt);
 	try {
 		await session.prompt(fullPrompt);

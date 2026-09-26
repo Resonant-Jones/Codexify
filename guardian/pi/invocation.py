@@ -13,7 +13,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from guardian.pi.contracts import (
     PiHarnessResult,
@@ -21,7 +21,6 @@ from guardian.pi.contracts import (
     PiInvocationEnvelope,
     PiInvocationPolicyDecision,
     PiInvocationReceipt,
-    PiPermissionGrant,
     PiProviderLane,
 )
 from guardian.pi.tokens import (
@@ -132,6 +131,8 @@ class PiHarnessRuntimeEvidence:
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
     requested_reasoning_effort: str | None = None
     effective_reasoning_effort: str | None = None
@@ -175,6 +176,8 @@ class PiLiveInvocationOutcome:
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
     requested_reasoning_effort: str | None = None
     effective_reasoning_effort: str | None = None
@@ -364,6 +367,9 @@ def invoke_guardian_authorized_pi(
             runtime_identity_established=evidence.runtime_identity_established,
             session_initialized=evidence.session_initialized,
             provider_request_started=evidence.provider_request_started,
+            observed_execution_phases=evidence.observed_execution_phases,
+            highest_observed_execution_phase=evidence.highest_observed_execution_phase,
+            effective_reasoning_effort=evidence.effective_reasoning_effort,
             runner_call_count=1,
         )
 
@@ -613,6 +619,8 @@ def _run_with_pi_adapter(
         runtime_identity_established=result.runtime_identity_established,
         session_initialized=result.session_initialized,
         provider_request_started=result.provider_request_started,
+        observed_execution_phases=result.observed_execution_phases,
+        highest_observed_execution_phase=result.highest_observed_execution_phase,
         oauth_available=result.oauth_available,
         requested_reasoning_effort=result.requested_reasoning_effort,
         effective_reasoning_effort=result.effective_reasoning_effort,
@@ -1039,6 +1047,9 @@ def _blocked(
     runtime_identity_established: bool = False,
     session_initialized: bool | None = None,
     provider_request_started: bool | None = None,
+    observed_execution_phases: tuple[str, ...] | None = None,
+    highest_observed_execution_phase: str | None = None,
+    effective_reasoning_effort: str | None = None,
 ) -> PiLiveInvocationOutcome:
     return PiLiveInvocationOutcome(
         ok=False,
@@ -1052,6 +1063,9 @@ def _blocked(
         runtime_identity_established=runtime_identity_established,
         session_initialized=session_initialized,
         provider_request_started=provider_request_started,
+        observed_execution_phases=observed_execution_phases,
+        highest_observed_execution_phase=highest_observed_execution_phase,
+        effective_reasoning_effort=effective_reasoning_effort,
     )
 
 
@@ -1095,6 +1109,9 @@ def _adapter_blocked(
     runtime_identity_established: bool = False,
     session_initialized: bool | None = None,
     provider_request_started: bool | None = None,
+    observed_execution_phases: tuple[str, ...] | None = None,
+    highest_observed_execution_phase: str | None = None,
+    effective_reasoning_effort: str | None = None,
 ) -> PiLiveInvocationOutcome:
     return _blocked(
         reason,
@@ -1105,6 +1122,9 @@ def _adapter_blocked(
         runtime_identity_established=runtime_identity_established,
         session_initialized=session_initialized,
         provider_request_started=provider_request_started,
+        observed_execution_phases=observed_execution_phases,
+        highest_observed_execution_phase=highest_observed_execution_phase,
+        effective_reasoning_effort=effective_reasoning_effort,
     )
 
 
