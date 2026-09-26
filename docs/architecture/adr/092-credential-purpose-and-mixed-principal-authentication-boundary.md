@@ -1,21 +1,23 @@
 # ADR-092: Credential Purpose and Mixed-Principal Authentication Boundary
 
-**Status:** Accepted architecture contract — 2026-09-26; runtime enforcement pending
+**Status:** Accepted architecture contract — 2026-09-26; partial runtime implementation
 
 ## Context and evidence boundary
 
 Guardian account sessions, API-key-exchanged operator sessions, and Hosted Room
-guest sessions are separate credential classes. Current account login issues a
-signed token whose `subject` is the canonical user ID, then stores that token
-with its user ID in the session store.
-That signed payload has no explicit account-purpose claim. The current guest
+guest sessions are separate credential classes. Canonical account login now
+issues a signed token whose `subject` is the canonical user ID and whose
+purpose is `account_session`, then stores that token with its user ID in the
+session store. The current guest
 token uses `subject=hosted_room_guest_session` as its purpose marker and binds
 one room, participant, and invitation. These token families use the configured
 Guardian session-signing secret. The admin session endpoints use the same
 signer to exchange `GUARDIAN_API_KEY` for a token with `subject="web"`, without
 a canonical user ID or account-session-store entry. Generic remote
 signed-token validation checks signature and a nonempty subject without
-consistently checking credential class. This is a **static token-purpose
+consistently checking credential class. A purpose-specific operator validator
+is now used by the Continuity operator route; generic remote account
+validation remains unstrict. This is a **static token-purpose
 separation concern**, not proof of a live account-authentication bypass;
 private-preview account authentication also requires a stored session for an
 approved account.
@@ -88,12 +90,12 @@ API-key-exchange endpoints must request `operator_session`. `subject="web"` is
 legacy subject data, not the operator-class authority. A future unclassified
 caller blocks implementation rather than inheriting a purpose from the signer.
 
-Current login issues a signed account token containing `subject`, `exp`, and
-`nonce`, but no `purpose`; it stores the token-to-user mapping with a TTL and
-returns the token to the client. The same token can be presented through a
-Bearer header or `gc_session`. Private preview additionally requires the
-stored session and approved account. No current account issuer or validator
-enforces `purpose=account_session` yet. Account activation capabilities under
+Current login issues a signed account token containing `subject`, `exp`,
+`nonce`, and `purpose=account_session`; it stores the token-to-user mapping
+with a TTL and returns the token to the client. The same token can be
+presented through a Bearer header or `gc_session`. Private preview additionally
+requires the stored session and approved account. Generic account validation
+does not yet enforce `purpose=account_session`. Account activation capabilities under
 ADR-088 remain separate, purpose-bound bootstrap credentials; redemption still
 leads to ordinary login rather than an automatic session.
 
@@ -173,7 +175,8 @@ Current consumer inventory, based on the production call graph, is:
 
 | Current surface | Classification and observed behavior | Target authority |
 |---|---|---|
-| `guardian/routes/admin.py` `/auth/session` and `/auth/session/cookie` | API-key exchange; the only production `subject="web"` issuers. The resulting token is not stored as an account session. | Operator issuance only, with explicit `operator_session` purpose. |
+| `guardian/routes/admin.py` `/auth/session` and `/auth/session/cookie` | API-key exchange; the only production `subject="web"` issuers. They issue explicit `operator_session` tokens and do not store them as account sessions. | Operator issuance only, with explicit `operator_session` purpose. |
+| `guardian/routes/continuity_operator.py` | Uses `require_operator_auth`, which admits configured API-key authority or a valid exact-purpose `operator_session` and rejects other signed credential classes. It does not resolve account identity. | Explicit operator authority on this developer/operator-only route. |
 | `guardian/core/dependencies.py::verify_api_key` / `require_api_key` in generic remote mode | Accepts any valid native session or compatible JWT signature before class validation. Consumers include operator/control routes **and** account-owned chat, projects, documents, Persona, task/event, and other application routes. | An operator token may pass only a route explicitly admitting operator authority. Its current generic acceptance on user-owned routes is implementation debt, not permission. |
 | `guardian/core/dependencies.py::get_request_user_id`, `get_request_user_scope`, and `verify_api_key` in private preview | Private preview requires a stored approved account session, so the unstored admin-issued web token does not satisfy that path as issued. Generic multi-user subject parsing can otherwise treat a signed `web` subject as user context. | Operator purpose must fail account resolution before session-store or subject mapping. |
 | `guardian/core/auth.py::require_auth` / `require_user` | Accepts a signed `web` token as a generic session and accepts raw `GUARDIAN_API_KEY`/`X-Guardian-Key` material; `require_user` can then construct user context. Account-export and federation-context routes consume that helper. | Operator purpose or raw key must not produce user identity. Current acceptance is implementation debt. |
@@ -187,11 +190,11 @@ route that currently uses that generic helper. In particular, ordinary
 account-owned application routes and task/event routes must not admit an
 operator token merely because its signature passes. The operator lane is
 limited to surfaces explicitly authorized for Guardian/API-key control-plane
-operations. No current route proves purpose-specific operator-session
-validation; the admin diagnostic gate still uses its own `X-Admin-Token` or
-private-preview account-admin check. The current generic remote acceptance and
-subject-only user construction must be narrowed in a later runtime task; this
-document is not live bypass proof or enforcement.
+operations. `continuity_operator.py` is the first migrated consumer with
+purpose-specific operator-session validation; the admin diagnostic gate still
+uses its own `X-Admin-Token` or private-preview account-admin check. Remaining
+generic remote acceptance and subject-only user construction must be narrowed
+in later runtime work; this document is not live bypass proof or enforcement.
 
 ### Hosted Room completion-event observation
 

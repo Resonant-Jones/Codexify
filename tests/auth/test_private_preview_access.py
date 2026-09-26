@@ -5,12 +5,16 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.session_store import get_session_store
 
 
 def _session_headers(email: str) -> dict[str, str]:
-    token, _ = issue_session_token(subject=email, ttl_seconds=60)
+    token, _ = issue_session_token(
+        subject=email,
+        ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
+    )
     get_session_store().store(token, email, 60)
     return {"Authorization": f"Bearer {token}"}
 
