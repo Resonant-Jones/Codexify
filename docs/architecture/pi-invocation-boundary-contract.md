@@ -231,6 +231,23 @@ Future proof expectations include:
 
 Diagnostics must align with Codexify's existing observability posture. Noisy harness internals do not belong in the primary chat lane.
 
+### Guardian-owned live invocation configuration
+
+For each Guardian-authorized live invocation, Guardian selects an allowed
+reasoning effort explicitly and the adapter projects it to Pi for that
+subprocess. Ambient `PI_THINKING` cannot select the effort. Before prompting,
+the wrapper verifies the effective session effort equals the requested value.
+The Receipt and Harness Result may retain only the requested and effective
+effort labels as bounded configuration evidence; thinking content is never
+captured by this field. Provider/model/harness identity verification remains
+separate and unchanged.
+
+Every Guardian-authorized live invocation, including a read-only invocation,
+must disable Pi automatic retries and automatic compaction recovery before
+the session is created. If that posture cannot be established or verified,
+execution fails closed before the provider prompt. Guardian performs no
+fallback, provider rebinding, repair, or additional invocation.
+
 ### Bounded Pi 0.82.1 tool observability (added 2026-08-29)
 
 Guardian-authorized live Pi execution may retain a bounded `tool_telemetry`
@@ -372,13 +389,13 @@ What is true now:
   transcript lineage, identity, persona state, and command-bus
   ownership; Pi does not gain any of those authorities from the
   implemented bounded seam.
-- The forced first-turn selection disables Pi/agent automatic retries
-  for the Guardian-authorized required-tool path so a failed first
-  provider turn cannot continue without the mandatory hard
-  ``tool_choice`` and the parallel-tool-disable posture.
+- Every Guardian-authorized live invocation disables Pi/agent automatic
+  retries and automatic compaction recovery, including read-only and
+  no-required-tool calls. The forced first-turn selection remains bounded
+  by the same one-attempt posture.
 - The bounded mandatory single-tool write turn is the only path that
-  forces a parallel-tool-disable posture; ordinary chat / non-required
-  Pi behavior is unchanged.
+  forces a parallel-tool-disable posture; ordinary chat Pi behavior is
+  unchanged.
 
 What is not yet true by this task:
 

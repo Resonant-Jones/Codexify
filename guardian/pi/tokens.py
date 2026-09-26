@@ -49,6 +49,13 @@ class PiAuthorizedFailureClass(str, Enum):
     UNKNOWN_ADAPTER_FAILURE = "unknown_adapter_failure"
 
 
+# The maintained Pi wrapper's bounded thinking-level vocabulary. Guardian
+# chooses one value per invocation; ambient PI_THINKING has no authority here.
+PI_AUTHORIZED_REASONING_EFFORTS: frozenset[str] = frozenset(
+    {"off", "minimal", "low", "medium", "high", "xhigh"}
+)
+
+
 class PiProviderLaneClass(str, Enum):
     LOCAL = "local"
     REMOTE = "remote"

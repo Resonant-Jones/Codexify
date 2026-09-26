@@ -1127,7 +1127,7 @@ def test_real_wrapper_required_tool_fails_closed_when_retry_settings_constructio
     parsed = json.loads(final_line)
     assert parsed["status"] == "error"
     assert parsed["failure_class"] == "wrapper_protocol_failed"
-    assert parsed["failure_stage"] == "required_tool_retry_suppression"
+    assert parsed["failure_stage"] == "authorized_retry_suppression"
     # Provider transport and session initialization must not begin on
     # this path.
     assert parsed["session_initialized"] is False
@@ -1199,17 +1199,10 @@ def test_real_wrapper_required_tool_disables_retry_and_compaction(
     not FAKE_SOURCE_INDEX.exists(),
     reason="tracked fake Pi source fixture is missing",
 )
-def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
+def test_real_wrapper_non_required_tool_fails_closed_without_retry_suppression(
     tmp_path: Path,
 ) -> None:
-    """Ordinary-path preservation control: non-required-tool run with a
-    fake Pi whose `SettingsManager.inMemory` refuses to construct a
-    retry-disabled instance.
-
-    The fail-closed retry-suppression posture applies only to the
-    bounded required-tool path. Non-required-tool runs must not be
-    blocked when the maintained retry-disabled surface is unavailable.
-    """
+    """Every authorized run fails before prompting if retries cannot be disabled."""
     materialized = _materialize_fake_pi_package(tmp_path)
     fake_home = tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
@@ -1230,18 +1223,37 @@ def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
     ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     final_line = result.stdout.strip().splitlines()[-1]
     parsed = json.loads(final_line)
-    assert parsed["status"] == "ok"
+    assert parsed["status"] == "error"
+    assert parsed["failure_stage"] == "authorized_retry_suppression"
+    assert parsed["provider_request_started"] is False
     # No required-tool selection was attempted.
     assert "required_tool_selection" not in parsed
-    # Session was created (fake's first-turn diagnostic appears).
-    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
-    tt = parsed["tool_telemetry"]
-    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
-    assert tt["write_tool_available"] is True
-    assert tt["tool_execution_start_count"] == 1
-    assert tt["tool_execution_end_count"] == 1
-    assert tt["executed_tool_names"] == ["write"]
-    assert tt["assistant_tool_call_count"] == 1
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in result.stdout
+
+
+def test_real_wrapper_read_only_high_effort_has_no_retry(tmp_path: Path) -> None:
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_DISABLE_TOOLS": "1",
+            "PI_THINKING": "high",
+            "PI_FAKE_I_BEHAVIOR": "success",
+            "PI_FAKE_SIMULATE_CONTEXT_OVERFLOW": "1",
+        },
+    )
+    assert result.returncode == 0
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" not in result.stdout
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "ok"
+    assert payload["reasoning_effort"] == {"requested": "high", "effective": "high"}
+    assert payload["automatic_retries_disabled"] is True
+    assert "required_tool_selection" not in payload
 
 
 # ---------------------------------------------------------------------------
@@ -1365,7 +1377,7 @@ def test_real_wrapper_required_tool_suppresses_compaction_recovery_on_context_ov
     not FAKE_SOURCE_INDEX.exists(),
     reason="tracked fake Pi source fixture is missing",
 )
-def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
+def test_real_wrapper_non_required_tool_suppresses_compaction_recovery(
     tmp_path: Path,
 ) -> None:
     """Control proving the fake's compaction escape is real.
@@ -1429,7 +1441,7 @@ def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
     # runs. The fake emitted _UNFORCED after inspecting the
     # effective continuation payload.
     assert "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED" not in result.stdout
-    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" not in result.stdout
     # Session was created (fake's first-turn diagnostic appears).
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
     # No required-tool selection was attempted.
