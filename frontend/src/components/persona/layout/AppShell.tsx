@@ -39,7 +39,11 @@ import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
-import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import {
+  setWallpaperPreference,
+  WALLPAPER_CHANGE_EVENT,
+  WALLPAPER_STORAGE_KEY,
+} from "@/lib/wallpaperPreference";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth, {
   formatRuntimeHealthDiagnostics,
@@ -1485,7 +1489,23 @@ export default function AppShell({
       window.removeEventListener("cfy:threads:refresh", syncRouteState as EventListener);
     };
   }, []);
-  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem("cfy.wallpaper")));
+  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem(WALLPAPER_STORAGE_KEY)));
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === WALLPAPER_STORAGE_KEY) setWallpaper(event.newValue);
+    };
+    const onWallpaperChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ url: string | null }>).detail;
+      setWallpaper(detail?.url ?? null);
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    };
+  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      📄 SECTION: Document and Gallery State
@@ -4103,7 +4123,7 @@ export default function AppShell({
                     systemPrompt={systemPrompt}
                     setSystemPrompt={setSystemPrompt}
                     wallpaper={wallpaper}
-                    setWallpaper={setWallpaper}
+                    setWallpaper={setWallpaperPreference}
                     extColors={extColors}
                     setExtColors={setExtColors}
                     dashboardThreadRows={dashboardThreadRows}
@@ -4241,6 +4261,7 @@ export default function AppShell({
           y={galleryMenu.y}
           onClose={() => setGalleryMenu(null)}
           items={[
+            ...(galleryMenu.src ? [{ label: "Set as wallpaper", onClick: () => { setWallpaperPreference(galleryMenu.src!); } }] : []),
             ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;

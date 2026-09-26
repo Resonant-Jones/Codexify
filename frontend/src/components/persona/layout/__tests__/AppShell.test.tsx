@@ -23,6 +23,7 @@ import {
   type WorkspaceLayoutMode,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
 import api from "@/lib/api";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -463,7 +464,23 @@ vi.mock("@/components/ui/ToastPortal", () => ({
 }));
 
 vi.mock("@/components/ui/ContextMenu", () => ({
-  default: () => null,
+  default: ({ items, onClose }: {
+    items: Array<{ label: string; onClick: () => void }>;
+    onClose: () => void;
+  }) => (
+    <div role="menu">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          onClick={() => { item.onClick(); onClose(); }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/modals/ImageGenModal", () => ({
@@ -1400,6 +1417,32 @@ describe("AppShell shared gallery persistence truth", () => {
       expect(persistedGallery).toHaveLength(1);
       expect(persistedGallery[0]?.prompt).toBe("Persisted image");
     });
+  });
+
+  it("sets the global gallery image as wallpaper and updates the scene immediately", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/global-wallpaper.png?sig=stable", prompt: "Global wallpaper" },
+      ])
+    );
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+    const image = await screen.findByRole("img", { name: "Global wallpaper" });
+    fireEvent.contextMenu(image);
+
+    expect(screen.getByRole("menuitem", { name: "Generate Prompt" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+
+    const wallpaper = normalizeMediaUrl("/media/images/global-wallpaper.png?sig=stable");
+    expect(localStorage.getItem("cfy.wallpaper")).toBe(wallpaper);
+    expect(document.querySelector(".codexify-shell")).toHaveStyle({
+      backgroundImage: expect.stringContaining(wallpaper),
+    });
+    expect(screen.queryByRole("menuitem", { name: "Generate Prompt" })).not.toBeInTheDocument();
   });
 
   it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {
