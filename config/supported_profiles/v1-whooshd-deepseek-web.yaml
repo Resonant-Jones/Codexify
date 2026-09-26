@@ -1,4 +1,4 @@
-# v1-whooshd-deepseek-web: dual-provider private-preview web runtime with operator-supplied local model selection.
+# v1-whooshd-deepseek-web: dual-provider Tester topology with operator-supplied local model selection.
 #
 # This is an operator-controlled candidate profile for load observation. It
 # does not change the default beta profile or imply that cloud inference is
@@ -12,14 +12,15 @@
 # ADR-052 only for the exact local-model pin and configuration authority).
 #
 # Per ADR-074, this profile owns the allowed/default provider posture. The
-# normal chat route is logical and Whoosh'd owns its physical mapping. DeepSeek
-# model selection is backed by the provider's live /models inventory; an
-# operator-supplied exact model remains subject to fail-closed validation.
+# operator environment supplies the concrete local chat-model selection and
+# the Whoosh'd/DeepSeek overlay transports it with interpolation. The tracked
+# Qwen default below is restored historical configuration evidence; it is not
+# a claim that Qwen is currently advertised or selected by a running Tester.
 #
-# Route posture: this opt-in private-preview profile mounts the existing
-# Hosted Room owner/guest route families and same-node direct messaging for
-# private-preview qualification only. Share links, federation, and Guardian
-# execution remain quarantined. This does not widen the default beta promise.
+# Route posture: this canonical friends/family tester profile mounts the
+# existing Hosted Room owner/guest route families for private-preview
+# collaboration qualification only. This does not widen the default beta
+# promise, and it does not qualify Hosted Rooms for release.
 
 name: v1-whooshd-deepseek-web
 version: 1
@@ -62,10 +63,10 @@ route_posture:
     - persona_profiles
     - hosted_rooms
     - hosted_room_guest
-    - direct_messages
   internal_only:
     - coding_work_orders
     - command_bus
+    - memory_vault
   quarantined:
     - neo
     - imprint
@@ -103,10 +104,7 @@ provider_contract:
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
-  LOCAL_CHAT_MODEL: local-chat
-  # The configured default remains a compatibility fallback when live model
-  # discovery is temporarily unavailable. Successful discovery exposes the
-  # provider-advertised chat roster to the selector.
+  LOCAL_CHAT_MODEL: qwen3.8-27b-4bit
   DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
 criticality:
   tier0:

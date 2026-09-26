@@ -1,0 +1,183 @@
+"""Activation tests for the Memory Vault read/mutation surface (UMS-05B3 / C4 / C5).
+
+Proves that the qualified Memory Vault router (GET + PATCH pin/unpin/hold/
+project-scope/persona-attribution) is registered through Guardian's
+canonical route control plane as ``internal_only`` on exactly the three
+intended web profiles, remains quarantined elsewhere, is hidden from public
+OpenAPI, and can be disabled by its feature flag.
+
+This suite inspects route-control posture only. It does not reproduce the
+B1 persistence semantics (proven by
+``tests/services/test_memory_vault_read_projection.py``), the B2 HTTP
+adapter semantics (proven by ``tests/routes/test_memory_vault.py``), or
+the C1-C5 mutation authority (proven by
+``tests/services/test_memory_vault_mutation.py``).
+"""
+
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+
+import pytest
+
+from guardian.core.supported_profile import load_supported_profile
+
+ADMITTED_PROFILES = {
+    "v1-local-core-web-mcp",
+    "v1-friends-family-web",
+    "v1-whooshd-deepseek-web",
+}
+
+VAULT_GET_PATHS = {
+    "/api/memory-vault/items",
+    "/api/memory-vault/items/canonical/{memory_id}",
+    "/api/memory-vault/items/compatibility/{source_kind}/{source_id}",
+}
+VAULT_PIN_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/pin"
+VAULT_HOLD_PATCH_PATH = "/api/memory-vault/items/canonical/{memory_id}/hold"
+VAULT_PROJECT_SCOPE_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/project-scope"
+)
+VAULT_PERSONA_ATTRIBUTION_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/persona-attribution"
+)
+VAULT_PATCH_PATHS = {
+    VAULT_PIN_PATCH_PATH,
+    VAULT_HOLD_PATCH_PATH,
+    VAULT_PROJECT_SCOPE_PATCH_PATH,
+    VAULT_PERSONA_ATTRIBUTION_PATCH_PATH,
+}
+VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
+
+#: The list-items path is now GET + POST (C6 explicit creation);
+#: every other Vault path remains a single HTTP method.
+VAULT_LIST_PATH = "/api/memory-vault/items"
+VAULT_LIST_METHODS = {"GET", "POST"}
+
+_PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "supported_profiles"
+
+
+def _all_profile_names() -> set[str]:
+    return {p.stem for p in _PROFILES_DIR.glob("*.yaml")}
+
+
+# ---------------------------------------------------------------------------
+# Manifest posture.
+# ---------------------------------------------------------------------------
+
+
+def test_admitted_profiles_mark_memory_vault_internal_only() -> None:
+    for name in sorted(ADMITTED_PROFILES):
+        manifest = load_supported_profile(name)
+        assert manifest.route_status("memory_vault") == "internal_only"
+        assert "memory_vault" not in manifest.enabled_routes
+        assert "memory_vault" in manifest.internal_only_routes
+        assert "memory_vault" not in manifest.quarantined_routes
+
+
+def test_other_profiles_quarantine_memory_vault() -> None:
+    others = _all_profile_names() - ADMITTED_PROFILES
+    assert others, "expected at least one non-admitted supported profile"
+    for name in sorted(others):
+        manifest = load_supported_profile(name)
+        assert manifest.route_status("memory_vault") == "quarantined"
+
+
+def test_legacy_memory_posture_unchanged() -> None:
+    """The legacy ``memory`` route family remains quarantined everywhere."""
+    for name in sorted(_all_profile_names()):
+        manifest = load_supported_profile(name)
+        assert manifest.route_status("memory") == "quarantined"
+
+
+# ---------------------------------------------------------------------------
+# Runtime control plane.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def load_guardian_api(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    import guardian.guardian_api as guardian_api
+
+    def _load(profile: str, *, flag: str | None = None):
+        monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+        monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+        monkeypatch.setenv("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
+        monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", profile)
+        if flag is None:
+            monkeypatch.delenv("CODEXIFY_ENABLE_MEMORY_VAULT_ROUTES", raising=False)
+        else:
+            monkeypatch.setenv("CODEXIFY_ENABLE_MEMORY_VAULT_ROUTES", flag)
+        return importlib.reload(guardian_api)
+
+    try:
+        yield _load
+    finally:
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+        monkeypatch.delenv("CODEXIFY_ENABLE_MEMORY_VAULT_ROUTES", raising=False)
+        importlib.reload(guardian_api)
+
+
+def _mounted_paths(app) -> set[str]:
+    return {
+        getattr(route, "path", None)
+        for route in app.routes
+        if isinstance(getattr(route, "path", None), str)
+    }
+
+
+def test_admitted_profile_mounts_vault_routes_internally(
+    load_guardian_api,
+) -> None:
+    guardian_api = load_guardian_api("v1-local-core-web-mcp")
+    app = guardian_api.app
+
+    assert "memory_vault" in app.state.supported_profile_enabled_labels
+    assert VAULT_PATHS <= _mounted_paths(app)
+
+    # Internal-only: hidden from public OpenAPI, recorded as hidden paths.
+    openapi_paths = set(app.openapi().get("paths", {}))
+    assert not (VAULT_PATHS & openapi_paths)
+    assert VAULT_PATHS <= set(app.state.supported_profile_hidden_paths)
+
+
+def test_feature_flag_false_disables_vault_route(load_guardian_api) -> None:
+    guardian_api = load_guardian_api("v1-local-core-web-mcp", flag="false")
+    app = guardian_api.app
+
+    assert "memory_vault" not in app.state.supported_profile_enabled_labels
+    assert not (VAULT_PATHS & _mounted_paths(app))
+
+
+def test_quarantine_outranks_feature_flag(load_guardian_api) -> None:
+    guardian_api = load_guardian_api("v1-user-profile-accent-proof", flag="true")
+    app = guardian_api.app
+
+    assert "memory_vault" not in app.state.supported_profile_enabled_labels
+    assert not (VAULT_PATHS & _mounted_paths(app))
+
+
+def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
+    guardian_api = load_guardian_api("v1-local-core-web-mcp")
+    app = guardian_api.app
+
+    # The list path is a multi-method route (GET + POST after C6).
+    # Multiple FastAPI route entries may share the same ``path`` attribute
+    # when the same URL exposes multiple HTTP methods, so we collect
+    # methods across all such entries for each path.
+    methods_by_path: dict[str, set[str]] = {}
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if path in VAULT_PATHS:
+            methods_by_path.setdefault(path, set()).update(
+                m.upper() for m in route.methods or []
+            )
+
+    assert set(methods_by_path) == VAULT_PATHS
+    for path in VAULT_GET_PATHS - {VAULT_LIST_PATH}:
+        assert methods_by_path[path] == {"GET"}
+    assert methods_by_path[VAULT_LIST_PATH] == VAULT_LIST_METHODS
+    for path in VAULT_PATCH_PATHS:
+        assert methods_by_path[path] == {"PATCH"}
