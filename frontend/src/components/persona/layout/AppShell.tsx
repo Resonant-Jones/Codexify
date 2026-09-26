@@ -1490,6 +1490,7 @@ export default function AppShell({
     };
   }, []);
   const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem(WALLPAPER_STORAGE_KEY)));
+  const selectedWallpaperMedia = useRenderableMediaSrc(wallpaper);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
@@ -2065,7 +2066,7 @@ export default function AppShell({
     return { background: `linear-gradient(to bottom, ${start}, ${end})` } as React.CSSProperties;
   })();
   const backgroundStyle: React.CSSProperties = (() => {
-    if (!wallpaper) return bgStyleNoWallpaper;
+    if (!wallpaper || !selectedWallpaperMedia.src) return bgStyleNoWallpaper;
     // Overlay gradient with alpha to bias the scene per theme
     const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
     const f = clamp(fade);
@@ -2082,7 +2083,7 @@ export default function AppShell({
       end = `rgba(255,255,255,${(d * 0.25).toFixed(3)})`;
     }
     return {
-      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${wallpaper})`,
+      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${selectedWallpaperMedia.src})`,
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -2827,6 +2828,7 @@ export default function AppShell({
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
   }, [wallpaper, gallery]);
+  const activeWallpaperMedia = useRenderableMediaSrc(activeWallpaper);
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }
@@ -3479,7 +3481,7 @@ export default function AppShell({
       {/* Global outer glass skin */}
       <div className="absolute inset-0 -z-10 pointer-events-none rounded-[var(--viewport-radius)] overflow-hidden">
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--viewport-radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}

@@ -511,7 +511,7 @@ export default function GuardianChatWithSidebar({
   const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
   const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
-  const { wallpaperUrl } = useWallpaperUrl();
+  const { renderableWallpaperUrl } = useWallpaperUrl();
   const {
     ready: routeCapabilitiesReady,
     states: routeCapabilityStates,
@@ -1922,7 +1922,7 @@ export default function GuardianChatWithSidebar({
         onNavigateApplicationView?.(nextView)
       }
       returnFocusRef={mobileSidebarTriggerRef}
-      wallpaperUrl={wallpaperUrl}
+      wallpaperUrl={renderableWallpaperUrl}
     >
       <SidebarRoot
         threads={threads}
@@ -1995,7 +1995,7 @@ export default function GuardianChatWithSidebar({
           >
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={wallpaperUrl}
+                wallpaperUrl={renderableWallpaperUrl}
                 className="h-full w-full rounded-[var(--card-radius)]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}

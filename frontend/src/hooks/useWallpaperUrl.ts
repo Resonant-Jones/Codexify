@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import {
   setWallpaperPreference,
   WALLPAPER_CHANGE_EVENT,
@@ -36,7 +37,13 @@ export function useWallpaperUrl() {
     setWallpaperPreference(src);
   }, []);
 
-  return { wallpaperUrl, setWallpaper } as const;
+  const renderableWallpaper = useRenderableMediaSrc(wallpaperUrl);
+
+  return {
+    wallpaperUrl,
+    renderableWallpaperUrl: renderableWallpaper.src || null,
+    setWallpaper,
+  } as const;
 }
 
 export default useWallpaperUrl;
