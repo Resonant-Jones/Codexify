@@ -4,17 +4,21 @@
 
 ## Context and evidence boundary
 
-Guardian account sessions and Hosted Room guest sessions are separate credential
-classes. Current account login issues a signed token whose `subject` is the
-canonical user ID, then stores that token with its user ID in the session store.
+Guardian account sessions, API-key-exchanged operator sessions, and Hosted Room
+guest sessions are separate credential classes. Current account login issues a
+signed token whose `subject` is the canonical user ID, then stores that token
+with its user ID in the session store.
 That signed payload has no explicit account-purpose claim. The current guest
 token uses `subject=hosted_room_guest_session` as its purpose marker and binds
-one room, participant, and invitation. Both token families use the configured
-Guardian session-signing secret. Generic remote signed-token validation checks
-signature and a nonempty subject without consistently checking credential
-class. This is a **static token-purpose separation concern**, not proof of a
-live account-authentication bypass; private-preview account authentication
-also requires a stored session for an approved account.
+one room, participant, and invitation. These token families use the configured
+Guardian session-signing secret. The admin session endpoints use the same
+signer to exchange `GUARDIAN_API_KEY` for a token with `subject="web"`, without
+a canonical user ID or account-session-store entry. Generic remote
+signed-token validation checks signature and a nonempty subject without
+consistently checking credential class. This is a **static token-purpose
+separation concern**, not proof of a live account-authentication bypass;
+private-preview account authentication also requires a stored session for an
+approved account.
 
 ADR-091 supplies durable `backend_task_id -> ChatCompletionAttempt -> thread_id`
 authority, and the shared thread-read policy accepts an already-authenticated
@@ -37,11 +41,16 @@ public-ingress boundary is closed.
   `HostedRoomGuestPrincipal` for exactly one room, participant, and invitation.
   Current session expiry and durable room, invitation, and participant
   eligibility checks remain authoritative.
+- The **operator lane** uses configured Guardian API-key authority or its
+  signed `operator_session` derivative only on explicitly operator-authorized
+  surfaces. It does not resolve a canonical user or a `RequestUserScope`.
+  `X-Admin-Token` and private-preview account-admin checks remain separate
+  additional gates wherever the route currently requires them.
 
-The lanes are not interchangeable. A guest credential never resolves an
-account principal; an account credential never resolves a guest principal.
+The lanes are not interchangeable. A credential from one lane never resolves
+a principal in either other lane.
 Neither a cookie name nor the first decoder attempted is authority to change
-class. A failed validation in one lane cannot fall back to the other.
+class. A failed validation in one lane cannot fall back to another.
 
 ### Signed-token class and purpose
 
@@ -55,12 +64,29 @@ For **remote signed account credentials**, the explicit account-authentication
 purpose is `purpose=account_session`. The existing account `subject` (or JWT
 `sub`) continues to identify the account subject; it must not be overloaded as
 the class marker. Account validation must require this exact purpose and reject
-guest-purpose tokens, even when their signature is valid or they arrive through
-`Authorization` or `gc_session`. Guest validation must continue to require the
-existing exact `subject=hosted_room_guest_session` domain and its bound claims;
-it must reject account-purpose credentials. Conflicting class claims fail
-closed. The future runtime task must register any new contract-bearing values
-in the appropriate canonical token domain before using them in code.
+guest- and operator-purpose tokens, even when their signature is valid or they
+arrive through `Authorization` or `gc_session`. Guest validation must continue
+to require the existing exact `subject=hosted_room_guest_session` domain and
+its bound claims; it must reject account- and operator-purpose credentials. A signed
+API-key-exchanged operator credential must carry exactly
+`purpose=operator_session`; operator validation must reject account and guest
+credentials. Raw Guardian API-key material is operator credential material,
+not a signed account session. Conflicting class claims fail closed. The future
+runtime task must register any new contract-bearing values in the appropriate
+canonical token domain before using them in code.
+
+| Signed credential class | Account validator | Operator validator | Hosted Room guest validator |
+|---|---|---|---|
+| `account_session` | Account checks required | Reject | Reject |
+| `operator_session` | Reject | Operator checks required | Reject |
+| Hosted Room guest session | Reject | Reject | Room, invitation, participant, and lifecycle checks required |
+
+The shared `issue_session_token` signer may remain shared only with an explicit,
+mandatory purpose input (or an equivalent typed API) and **no default
+purpose**. Canonical account login must request `account_session`; the
+API-key-exchange endpoints must request `operator_session`. `subject="web"` is
+legacy subject data, not the operator-class authority. A future unclassified
+caller blocks implementation rather than inheriting a purpose from the signer.
 
 Current login issues a signed account token containing `subject`, `exp`, and
 `nonce`, but no `purpose`; it stores the token-to-user mapping with a TTL and
@@ -128,6 +154,45 @@ does not authorize a legacy-token acceptance window to bridge versions.
 This amendment defines the cutover contract only: no issuer, validator,
 session, deployment, or live credential is changed here.
 
+### API-key-exchanged operator credential
+
+The `/auth/session` and `/auth/session/cookie` endpoints in
+`guardian/routes/admin.py` exchange the
+configured `GUARDIAN_API_KEY` for a signed `subject="web"` token; the cookie
+endpoint places that token in `gc_session`. Neither endpoint authenticates a
+canonical `User` or writes an account-session-store mapping. This credential
+is an **operator_session**: a short-lived representation of the authority of
+the API key that minted it. It is not an administrator *user*, an impersonated
+user, an account session, or a Hosted Room guest. It creates no account ID,
+membership, project, thread, document ownership, or guest participation.
+The separate `require_admin` gate still requires its existing admin token,
+private-preview account-admin principal, or bounded local debug condition;
+an operator session does not satisfy that extra gate by itself.
+
+Current consumer inventory, based on the production call graph, is:
+
+| Current surface | Classification and observed behavior | Target authority |
+|---|---|---|
+| `guardian/routes/admin.py` `/auth/session` and `/auth/session/cookie` | API-key exchange; the only production `subject="web"` issuers. The resulting token is not stored as an account session. | Operator issuance only, with explicit `operator_session` purpose. |
+| `guardian/core/dependencies.py::verify_api_key` / `require_api_key` in generic remote mode | Accepts any valid native session or compatible JWT signature before class validation. Consumers include operator/control routes **and** account-owned chat, projects, documents, Persona, task/event, and other application routes. | An operator token may pass only a route explicitly admitting operator authority. Its current generic acceptance on user-owned routes is implementation debt, not permission. |
+| `guardian/core/dependencies.py::get_request_user_id`, `get_request_user_scope`, and `verify_api_key` in private preview | Private preview requires a stored approved account session, so the unstored admin-issued web token does not satisfy that path as issued. Generic multi-user subject parsing can otherwise treat a signed `web` subject as user context. | Operator purpose must fail account resolution before session-store or subject mapping. |
+| `guardian/core/auth.py::require_auth` / `require_user` | Accepts a signed `web` token as a generic session and accepts raw `GUARDIAN_API_KEY`/`X-Guardian-Key` material; `require_user` can then construct user context. Account-export and federation-context routes consume that helper. | Operator purpose or raw key must not produce user identity. Current acceptance is implementation debt. |
+| `guardian/core/auth_dependencies.py` store resolver and its callers | Account login stores user-bound tokens; admin issuance does not. Store-only resolution is used by private-preview, WebSocket, dashboard, account-observability, logout, and other consumers. | Validate account purpose before resolving account identity; a store hit cannot convert operator purpose into account authority. |
+| `guardian/core/hosted_room_session.py` guest decoder | Requires exact `subject=hosted_room_guest_session`; rejects a `subject="web"` token. | Guest-only, with current room, invitation, participant, and lifecycle checks. |
+| Public entry points and local API-key mode | Public endpoints grant no principal from a web token. Deliberately local/single-user API-key handling is governed by its existing runtime-mode contract. | No implicit account or guest authority; local behavior remains separate. |
+
+This table classifies consumers of the signed web token, including the broad
+`require_api_key` route family; it does not grant operator authority to every
+route that currently uses that generic helper. In particular, ordinary
+account-owned application routes and task/event routes must not admit an
+operator token merely because its signature passes. The operator lane is
+limited to surfaces explicitly authorized for Guardian/API-key control-plane
+operations. No current route proves purpose-specific operator-session
+validation; the admin diagnostic gate still uses its own `X-Admin-Token` or
+private-preview account-admin check. The current generic remote acceptance and
+subject-only user construction must be narrowed in a later runtime task; this
+document is not live bypass proof or enforcement.
+
 ### Hosted Room completion-event observation
 
 A currently eligible Hosted Room guest may observe task lifecycle events for
@@ -145,19 +210,36 @@ reconnect; it does not change task-event payloads or transport semantics.
 
 ### Mixed-lane requests
 
-There is **no precedence** between account and Hosted Room guest credentials.
-On a protected request that can receive these credential selectors, nonempty
-account-side authentication material (`Authorization` or `gc_session`) together
-with a nonempty
-`codexify_hosted_room_session` credential is a mixed-lane request. Detect
-presence before validating either credential or looking up any protected
-resource. This includes malformed, stale, or otherwise invalid material; an
-invalid account credential cannot silently become a valid guest request, or
-vice versa. The client must intentionally present one principal lane.
-An `X-API-Key` presented alongside the guest credential at a remote
-multi-principal boundary is also conflicting material and must be rejected;
-it does not become a remote account principal. Deliberately local/single-user
-API-key behavior remains outside this decision.
+There is **no precedence** between account, Hosted Room guest, and operator
+credentials. A protected request that presents nonempty credential material
+from more than one principal lane is mixed, whether the combination is
+account + guest, account + operator, guest + operator, or all three. Detect
+presence before validating any credential or looking up a protected resource.
+This includes malformed, stale, or otherwise invalid material; failed
+validation in one lane cannot fall back to another. The client must
+intentionally present one principal lane.
+
+At a remote multi-principal boundary, `Authorization` and `gc_session` may
+carry either a signed account or operator credential. Classify signed material
+by its explicit purpose when needed to distinguish those two lanes. An
+unverified purpose is presence evidence only, never authority. An absent,
+malformed, or conflicting purpose establishes neither lane and cannot be
+treated as an account credential by default. The separate
+`codexify_hosted_room_session` selector is guest-lane material. Its presence
+with any nonempty `Authorization` or `gc_session` material is mixed even if
+that signed material is malformed or expired. Nonempty raw
+`X-API-Key` or `X-Guardian-Key` material is operator-lane material wherever it
+could establish Guardian/API-key authority. Its presence alongside an account
+credential or guest selector is mixed even if either credential is invalid; it
+does not become a remote account principal. Raw key plus signed operator token
+is two selectors in the same lane, not automatically a cross-principal mix;
+this ADR does not add precedence between those selectors or permit either to
+establish account or guest authority. Distinguishing account and operator purposes
+presented through separate signed selectors must not perform identity,
+session-store, guest, or protected-resource lookup.
+Deliberately local/single-user API-key identity resolution remains governed by
+the local runtime-mode contract and is outside this remote multi-principal
+rule; this is not a remote credential fallback.
 
 The canonical mixed-lane response is **HTTP 400** with machine-readable error
 `mixed_principal_credentials` and a generic message such as `Conflicting
@@ -169,7 +251,7 @@ registered under the runtime protocol-token rules before use.
 | Request state | Result before protected data access |
 |---|---|
 | No credential, or one lane with an invalid credential | Existing authentication failure semantics, normally HTTP 401 in remote mode. |
-| Both credential lanes present | HTTP 400 `mixed_principal_credentials`, regardless of either credential's validity. |
+| More than one principal lane present | HTTP 400 `mixed_principal_credentials`, regardless of credential validity. |
 | Valid principal without resource access | Existing thread or Hosted Room authorization response. |
 | Unknown protected resource after authentication | Existing non-disclosing not-found response. |
 
@@ -187,8 +269,10 @@ lookups. This ADR does not change precedence between multiple mechanisms
    authorize its canonical thread through the shared policy, and only then
    consume Redis events. A missing durable attempt fails closed.
 
-Implementation must prove account and guest cross-class rejection, mixed
-presence with valid and invalid material, anonymous denial before resource
+Implementation must prove account, guest, and operator cross-class rejection;
+operator-purpose rejection by account and guest validators; account- and
+guest-purpose rejection by the operator validator; raw-key mixed presence;
+mixed presence with valid and invalid material; anonymous denial before resource
 lookup, same-room guest access, wrong-room and ineligible-guest denial, and
 zero Redis consumption on denied task-event requests. The legacy account-token
 transition and any resulting client cookie-coexistence effects require
@@ -205,7 +289,8 @@ presented in only one lane.
 ## Relationship to governing decisions and current truth
 
 - **ADR-039:** Account users and infrastructure operators remain distinct;
-  neither role grants guest or task authority by itself.
+  neither role grants guest or task authority by itself. An API-key-derived
+  operator session is not a canonical user account.
 - **ADR-053:** Guest sessions remain room-, participant-, invitation-, and
   lifecycle-scoped. This ADR classifies same-room completion-event observation
   as a bounded Hosted Room operation without making the guest a general user.
@@ -215,7 +300,10 @@ presented in only one lane.
   Redis transports events and never decides ownership.
 
 This decision extends those boundaries without superseding them. Intentional
-local/single-user defaults remain separate and unchanged. No token issuance,
-validation, SSE, Cloudflare, or release behavior is changed by this document.
+local/single-user defaults remain separate and unchanged. The operator class,
+purpose-aware shared issuance, strict class validation, and three-lane mixed
+rejection are accepted contracts, **not yet runtime-enforced**. No token
+issuance, validation, SSE, Cloudflare, or release behavior is changed by this
+document.
 The task-event SSE repair and full public-ingress requalification remain
 pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status.
