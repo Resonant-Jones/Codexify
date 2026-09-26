@@ -62,14 +62,71 @@ it must reject account-purpose credentials. Conflicting class claims fail
 closed. The future runtime task must register any new contract-bearing values
 in the appropriate canonical token domain before using them in code.
 
-Current issued account tokens lack the new purpose claim. Once purpose
-enforcement is activated, absence of that claim must **not** mean `account`.
-Activation therefore requires an explicit legacy-session transition or
-re-authentication decision and corresponding compatibility proof. This ADR
-does not choose or implement that rollout and does not invalidate current
-sessions by itself. Account activation capabilities under ADR-088 remain
-separate, purpose-bound bootstrap credentials; redemption still leads to
-ordinary login rather than an automatic session.
+Current login issues a signed account token containing `subject`, `exp`, and
+`nonce`, but no `purpose`; it stores the token-to-user mapping with a TTL and
+returns the token to the client. The same token can be presented through a
+Bearer header or `gc_session`. Private preview additionally requires the
+stored session and approved account. No current account issuer or validator
+enforces `purpose=account_session` yet. Account activation capabilities under
+ADR-088 remain separate, purpose-bound bootstrap credentials; redemption still
+leads to ordinary login rather than an automatic session.
+
+### Legacy remote account-session transition
+
+A remote signed account credential without the exact
+`purpose=account_session` claim is a **legacy purpose-less credential**,
+regardless of whether it is presented through Bearer or `gc_session`. When
+strict purpose enforcement activates, it fails account authentication under
+the existing invalid-account-credential response semantics. Neither a valid
+signature, an account-shaped `subject`, nor a still-live token-to-user record
+repairs the missing claim. It is not rewritten, re-signed, or converted in
+place. No grace mode may interpret missing purpose as account purpose, even
+when a persisted account session exists. A wrong-purpose credential likewise
+fails account authentication. A rejected legacy token is never retried in the
+Hosted Room guest lane, and a guest token is never retried as an account token.
+ADR-092's presence-based mixed-lane HTTP 400 rule remains unchanged when both
+credential classes are presented.
+
+The transition is **reauthentication through the canonical account login**.
+The user supplies their existing account login credential and receives a newly
+issued token with `purpose=account_session` for the same canonical `User`.
+Reauthentication does not delete or recreate the account or migrate ownership.
+The account ID, projects, threads, messages, account admission and approval
+state, activation history, and unrelated durable session or audit history
+remain under their existing authority. Existing Redis session records need
+not be deleted as a prerequisite; after enforcement they cannot authenticate
+without the required signed purpose and may expire by their ordinary TTL.
+Only the validity of the old credential changes. Local/single-user API-key
+operation is outside this remote-session transition.
+
+**Activation is one coordinated issuer-and-validator deployment unit.** The
+implementation sequence is:
+
+1. Make every remote account-session issuer emit the exact
+   `purpose=account_session` claim while retaining its canonical account
+   subject binding.
+2. Prove a newly issued account token authenticates through the supported
+   Bearer and `gc_session` transports, including private-preview stored-session
+   and approval checks.
+3. Prove a valid Hosted Room guest token cannot authenticate through the
+   account lane.
+4. Enable strict account-purpose validation only when all serving account
+   issuers are purpose-aware. Do not serve a strict validator beside an old
+   purpose-less issuer or expose an intermediate half-upgraded backend.
+5. Prove pre-transition purpose-less account tokens fail closed even when
+   validly signed, unexpired, and still present in the session store.
+6. Prove canonical login issues a purpose-tagged replacement for the same
+   account and restores authorized access to its existing data.
+
+The current private-preview Compose topology declares one backend service,
+with no repository-defined rolling multi-version backend pool. Its cutover
+gate is to make the issuer and strict validator available together in the
+same backend replacement before that backend accepts requests. If a future
+deployment serves multiple backend versions concurrently, it needs a
+separately reviewed coordination plan before strict enforcement; this ADR
+does not authorize a legacy-token acceptance window to bridge versions.
+This amendment defines the cutover contract only: no issuer, validator,
+session, deployment, or live credential is changed here.
 
 ### Hosted Room completion-event observation
 
@@ -135,7 +192,15 @@ presence with valid and invalid material, anonymous denial before resource
 lookup, same-room guest access, wrong-room and ineligible-guest denial, and
 zero Redis consumption on denied task-event requests. The legacy account-token
 transition and any resulting client cookie-coexistence effects require
-explicit compatibility qualification before enforcement is activated.
+explicit compatibility qualification before enforcement is activated. In
+particular, executable tests must cover purpose-tagged login issuance through
+Bearer and `gc_session`; validly signed, unexpired, purpose-less legacy token
+rejection with a live session-store row; valid guest and wrong-purpose token
+rejection in the account lane; normal-login replacement after legacy denial;
+same-account owned-data readback after replacement; mixed-lane HTTP 400
+`mixed_principal_credentials` before either decoder or resource lookup; and
+ordinary authentication failure for a malformed, expired, or unknown token
+presented in only one lane.
 
 ## Relationship to governing decisions and current truth
 
