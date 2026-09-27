@@ -137,6 +137,7 @@ class FakeSession {
             process.env.PI_FAKE_PRE_EXISTING_ASYNC_ONPAYLOAD === "1";
         this.agent = {
             state: { messages: [], tools: [] },
+            toolExecution: "parallel",
             onPayload: preExistingAsyncHook
                 ? async (payload, _model) => {
                     // Mimic the maintained Pi 0.82.1 default: the
@@ -146,6 +147,9 @@ class FakeSession {
                 }
                 : null,
         };
+        if (process.env.PI_FAKE_NO_TOOL_EXECUTION_SETTING === "1") {
+            delete this.agent.toolExecution;
+        }
         this._subscribers = [];
     }
 
@@ -176,6 +180,22 @@ class FakeSession {
     }
 
     _buildFirstPayload() {
+        if (process.env.PI_PROVIDER === "deepseek") {
+            return {
+                model: process.env.PI_MODEL,
+                messages: [{ role: "user", content: "synthetic" }],
+                stream: true,
+                tools: ["read", "bash", "edit", "write"].map((name) => ({
+                    type: "function", function: { name },
+                })),
+                thinking: {
+                    type: process.env.PI_THINKING === "off" ? "disabled" : "enabled",
+                },
+                ...(process.env.PI_THINKING === "off" ? {} : {
+                    reasoning_effort: process.env.PI_THINKING || "medium",
+                }),
+            };
+        }
         // The fake advertises tool names. The naming convention is
         // selected by the test via PI_FAKE_ADVERTISE_CASING.
         const casing = process.env.PI_FAKE_ADVERTISE_CASING || "lowercase";
@@ -222,7 +242,17 @@ class FakeSession {
         // (or the wrapper's own async hook) is resolved before the
         // fake inspects the projected payload.
         const params = this._buildFirstPayload();
+        if (
+            process.env.PI_FAKE_REQUIRE_DEEPSEEK_SERIAL === "1" &&
+            this.agent.toolExecution !== "sequential"
+        ) {
+            throw new Error("fake Pi: DeepSeek required write was not serialized");
+        }
         let onPayload = this.agent.onPayload;
+        const modelArg = {
+            provider: process.env.PI_PROVIDER || "anthropic",
+            id: process.env.PI_MODEL || "claude-sonnet-4-6",
+        };
 
         if (process.env.PI_FAKE_SIMULATE_CONTEXT_OVERFLOW === "1") {
             // Bounded behavioral simulation: simulate a context-overflow
@@ -254,10 +284,7 @@ class FakeSession {
             const firstTurnPayload = this._buildFirstPayload();
             let firstTurnProjected = firstTurnPayload;
             if (typeof onPayload === "function") {
-                const projected = await onPayload(firstTurnPayload, {
-                    provider: "anthropic",
-                    id: "claude-sonnet-4-6",
-                });
+                const projected = await onPayload(firstTurnPayload, modelArg);
                 if (projected !== undefined && projected !== null) {
                     firstTurnProjected = projected;
                 }
@@ -354,14 +381,20 @@ class FakeSession {
 
         for (let turn = 0; turn < 2; turn += 1) {
             if (typeof onPayload === "function") {
-                const projected = await onPayload(params, {
-                    provider: "anthropic",
-                    id: "claude-sonnet-4-6",
-                });
+                const projected = await onPayload(params, modelArg);
                 if (projected !== undefined && projected !== null) {
                     params.model = projected.model || params.model;
                     params.tools = projected.tools || params.tools;
                     params.tool_choice = projected.tool_choice;
+                }
+            }
+            if (process.env.PI_FAKE_REQUIRE_DEEPSEEK_SERIAL === "1" && turn === 0) {
+                if (
+                    params.thinking?.type !== "disabled" ||
+                    params.tool_choice?.type !== "function" ||
+                    params.tool_choice?.function?.name !== "write"
+                ) {
+                    throw new Error("fake Pi: DeepSeek required write payload malformed");
                 }
             }
             if (this.behavior === "hang-after-payload" && turn === 0) {

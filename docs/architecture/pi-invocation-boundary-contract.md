@@ -30,7 +30,7 @@ The current seam does not:
 - replace ADR-020 doctrine.
 
 Purpose: Define Codexify's bounded architecture contract for future Pi-like coding-agent harness invocation while preserving Guardian authority, lineage, and sovereignty boundaries.
-Last updated: 2026-09-08 (reconciled implementation status with the bounded Guardian/Pi runtime seam and the canonical required-tool selection slice)
+Last updated: 2026-09-27 (added provider-free DeepSeek non-thinking required-write projection; live CE-L1 remains open)
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/chat-runtime-contract.md
@@ -519,10 +519,9 @@ ADR.
   with `runner_call_count=0`. `REQUIRED_TOOL_DOES_NOT_GRANT_PERMISSION=true`.
 - **Pi maps the requirement into provider mechanics** through a bounded
   per-session `Agent.onPayload` hook installed by the canonical
-  Guardian-authorized Pi wrapper. Pi emits a hard
-  `tool_choice={"type":"tool","name":<exact advertised name>}` on the
-  first provider request only; the continuation turn returns to
-  ordinary provider selection.
+  Guardian-authorized Pi wrapper. The first provider request receives a
+  provider-shaped named hard `tool_choice`; the continuation turn returns
+  to ordinary provider selection.
 
 ### One-shot first-turn-only invariant
 
@@ -537,13 +536,29 @@ fails closed with `wrapper_protocol_failed` / `tool_selection`.
 
 ### Bounded support boundary (initial slice)
 
-- Initial supported provider for required-tool projection: `anthropic`.
+- Supported providers for required-tool projection: `anthropic`, and
+  `deepseek` only with explicit reasoning effort `off`.
 - Initial supported required tool: `write`.
 - Anthropic API-key-shaped request advertises `write`; the wrapper
   emits `tool_choice={"type":"tool","name":"write"}`.
 - Anthropic OAuth-shaped request advertises `Write`; the wrapper emits
   `tool_choice={"type":"tool","name":"Write"}` (matching is
   case-insensitive, but the exact advertised casing is preserved).
+- DeepSeek's Pi 0.82.1 Chat Completions builder advertises function tools.
+  With Guardian-selected effort `off`, the wrapper requires the outbound
+  payload to positively contain `thinking={"type":"disabled"}` and no
+  `reasoning_effort` field, then emits
+  `tool_choice={"type":"function","function":{"name":"write"}}`.
+  A positive effort, absent disabled-thinking evidence, missing/duplicate
+  `write`, or conflicting choice fails before provider handoff. [DeepSeek's
+  Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/)
+  rejects named tool choice in thinking mode; this
+  implementation does not silently change the selected effort.
+- For this authorized DeepSeek required-write run, the wrapper sets and
+  verifies Pi's local `toolExecution="sequential"` before prompting.
+  The current DeepSeek Chat Completions contract does not document a
+  parallel-tool-disable request field. Ordinary Pi sessions and other
+  providers retain their existing execution posture.
 - Adaptive thinking and `output_config.effort` are preserved through
   the projection; the helper never rewrites `model`, `messages`,
   `system`, `thinking`, `output_config`, `tools`, `max_tokens`,
@@ -604,6 +619,11 @@ mutates no global state. It is the sole authority for adding or
 verifying `tool_choice` on a provider payload; the wrapper chains it
 with any preexisting session-level `onPayload` and applies it on the
 first provider request only.
+
+The 2026-09-27 DeepSeek extension is provider-free implementation and
+focused test evidence only. It does not prove DeepSeek accepted a live
+request, executed `write`, or satisfied CE-L1. The next live CE-L1 attempt
+remains a separate human authority gate.
 
 ### Authority chain (unchanged from ADR-068)
 

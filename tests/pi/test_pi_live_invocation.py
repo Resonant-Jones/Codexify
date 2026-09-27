@@ -1111,6 +1111,60 @@ def test_assistant_telemetry_string_event_types_with_invalid_member_fails_closed
 # ---------------------------------------------------------------------------
 
 
+def test_deepseek_required_write_rejects_positive_effort_before_subprocess(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    def forbidden_subprocess(*_args, **_kwargs):
+        raise AssertionError("DeepSeek positive-effort required write launched Pi")
+
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", forbidden_subprocess)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
+        AgentExecutionIdentity(
+            provider_id="deepseek",
+            model_id="deepseek-v4-pro",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=False,
+        reasoning_effort="high",
+        required_tool_name="write",
+    )
+    assert result.status == "error"
+    assert result.failure_stage == "reasoning_effort"
+
+
+def test_deepseek_required_write_projects_explicit_off_to_wrapper(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    captured = []
+
+    def capture_subprocess(*_args, **kwargs):
+        captured.append(kwargs["env"])
+        raise FileNotFoundError("provider-free launch sentinel")
+
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", capture_subprocess)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
+        AgentExecutionIdentity(
+            provider_id="deepseek",
+            model_id="deepseek-v4-pro",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=False,
+        reasoning_effort="off",
+        required_tool_name="write",
+    )
+    assert result.failure_stage == "wrapper_launch"
+    assert len(captured) == 1
+    assert captured[0]["PI_PROVIDER"] == "deepseek"
+    assert captured[0]["PI_MODEL"] == "deepseek-v4-pro"
+    assert captured[0]["PI_THINKING"] == "off"
+    assert captured[0]["PI_GUARDIAN_REQUIRED_TOOL"] == "write"
+    assert captured[0]["PI_DISABLE_TOOLS"] == "0"
+
+
 def test_default_invocation_reaches_runner_with_no_required_tool(tmp_path: Path) -> None:
     """Default invocation: no required tool reaches the runner."""
     _fixture_tree(tmp_path)

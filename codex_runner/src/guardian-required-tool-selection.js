@@ -8,13 +8,13 @@
  * max_tokens/stream/metadata; it only adds or validates a `tool_choice`
  * block on the first provider payload of the first authorized turn.
  *
- * Initial supported provider: anthropic.
+ * Supported providers: anthropic, and deepseek in non-thinking mode.
  * Initial supported required tool: "write".
  *
  * The exact advertised outbound spelling of the required tool (e.g. the
  * lower-case "write" emitted by the API-key branch, or the Claude-Code
  * casing "Write" emitted by the OAuth compatibility layer) is preserved
- * in the resulting `tool_choice.name`.
+ * in the provider-specific `tool_choice` name.
  *
  * The maintained Anthropic `ToolChoiceTool` provider request contract
  * places `disable_parallel_tool_use` INSIDE the same `tool_choice`
@@ -30,6 +30,11 @@
  *         disable_parallel_tool_use: true,
  *     }
  *
+ * DeepSeek Chat Completions uses a nested function name and accepts named
+ * choice only with thinking disabled. Pi locally serializes tool execution
+ * for that authorized run because DeepSeek does not document a wire-level
+ * parallel disable field on this transport.
+ *
  * A root-level `disable_parallel_tool_use` is NOT the maintained
  * provider wire shape; emitting it at the request root would not
  * match the maintained Anthropic contract and may be silently
@@ -39,7 +44,7 @@
  * (type, name, AND the NESTED parallel-tool-disable posture).
  */
 
-const SUPPORTED_PROVIDERS = new Set(["anthropic"]);
+const SUPPORTED_PROVIDERS = new Set(["anthropic", "deepseek"]);
 const SUPPORTED_REQUIRED_TOOLS = new Set(["write"]);
 
 const ERR = {
@@ -50,6 +55,7 @@ const ERR = {
 	CONFLICTING_CHOICE: "guard.required_tool_selection.conflicting_choice",
 	UNSUPPORTED_PROVIDER: "guard.required_tool_selection.unsupported_provider",
 	UNSUPPORTED_TOOL: "guard.required_tool_selection.unsupported_required_tool",
+	INCOMPATIBLE_REASONING: "guard.required_tool_selection.incompatible_reasoning_effort",
 };
 
 class RequiredToolSelectionError extends Error {
@@ -64,7 +70,7 @@ function _asObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function _findAdvertisedRequiredTool(tools, requiredToolLower) {
+function _findAdvertisedRequiredTool(tools, requiredToolLower, providerId) {
 	// Case-insensitive match preserving first-occurrence order. The
 	// canonical required tool is the unique advertised tool whose
 	// lowercased name equals the required tool token. Returns the
@@ -78,7 +84,9 @@ function _findAdvertisedRequiredTool(tools, requiredToolLower) {
 		if (!_asObject(tool)) {
 			continue;
 		}
-		const name = tool.name;
+		const name = providerId === "deepseek"
+			? (tool.type === "function" && _asObject(tool.function) ? tool.function.name : null)
+			: tool.name;
 		if (typeof name !== "string" || name.length === 0) {
 			continue;
 		}
@@ -112,9 +120,9 @@ function _findAdvertisedRequiredTool(tools, requiredToolLower) {
  * - requiredToolName must be a non-empty string in
  *   `SUPPORTED_REQUIRED_TOOLS`.
  * - payload must be a plain object with a `tools` array.
- * - exactly one advertised tool must match the required tool
- *   case-insensitively; multiple matches fail closed.
- * - if `payload.tool_choice` is already present, it must:
+ * - exactly one provider-shaped advertised tool must match the required
+ *   tool case-insensitively; multiple matches fail closed.
+ * - if Anthropic `payload.tool_choice` is already present, it must:
  *     - be a plain object (not a string, number, array, or null);
  *     - have `type === "tool"` (a HARD selection — anything else
  *       such as `"auto"` or `"any"` is a non-hard selection and
@@ -124,6 +132,8 @@ function _findAdvertisedRequiredTool(tools, requiredToolLower) {
  *   otherwise the helper fails closed with
  *   `guard.required_tool_selection.conflicting_choice` and never
  *   silently overwrites the existing caller/provider-hook state.
+ * - DeepSeek requires `thinking.type === "disabled"`, no
+ *   `reasoning_effort` field, and the named function choice shape.
  * - the helper returns a NEW shallow-copied payload with the
  *   `tool_choice` set; it never mutates the input.
  */
@@ -147,7 +157,10 @@ export function applyGuardianRequiredToolSelection({
 	if (!Array.isArray(payload.tools)) {
 		throw new RequiredToolSelectionError(ERR.MISSING_TOOLS);
 	}
-	const result = _findAdvertisedRequiredTool(payload.tools, requiredToolName);
+	const result = _findAdvertisedRequiredTool(payload.tools, requiredToolName, providerId);
+	if (result === null) {
+		throw new RequiredToolSelectionError(ERR.MISSING_REQUIRED);
+	}
 	if (result.kind === "missing") {
 		throw new RequiredToolSelectionError(ERR.MISSING_REQUIRED);
 	}
@@ -156,6 +169,37 @@ export function applyGuardianRequiredToolSelection({
 	}
 	const advertised = result.advertised;
 	const copied = { ...payload };
+	if (providerId === "deepseek") {
+		// DeepSeek Chat Completions rejects named tool_choice in thinking
+		// mode. The maintained Pi builder must positively emit disabled
+		// thinking for Guardian's explicit `off` selection. Absence is
+		// unsafe because DeepSeek defaults to thinking enabled.
+		if (
+			!_asObject(copied.thinking) ||
+			copied.thinking.type !== "disabled" ||
+			Object.keys(copied.thinking).length !== 1 ||
+			Object.prototype.hasOwnProperty.call(copied, "reasoning_effort")
+		) {
+			throw new RequiredToolSelectionError(ERR.INCOMPATIBLE_REASONING);
+		}
+		const expected = { type: "function", function: { name: advertised } };
+		if (Object.prototype.hasOwnProperty.call(copied, "tool_choice")) {
+			const existing = copied.tool_choice;
+			if (
+				!_asObject(existing) ||
+				existing.type !== expected.type ||
+				Object.keys(existing).length !== 2 ||
+				!_asObject(existing.function) ||
+				Object.keys(existing.function).length !== 1 ||
+				existing.function.name !== advertised
+			) {
+				throw new RequiredToolSelectionError(ERR.CONFLICTING_CHOICE);
+			}
+			return copied;
+		}
+		copied.tool_choice = expected;
+		return copied;
+	}
 	if (Object.prototype.hasOwnProperty.call(copied, "tool_choice")) {
 		// An existing `tool_choice` is accepted only when it is
 		// already the exact hard selection the runtime requires.
