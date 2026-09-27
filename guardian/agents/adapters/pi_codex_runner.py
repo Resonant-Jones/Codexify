@@ -146,8 +146,8 @@ class PiCodexRunnerAdapter:
             )
 
         # Required-tool support boundary:
-        # - only the canonical supported provider (anthropic) currently
-        #   admits the bounded required-tool projection. Any other
+        # - only the supported Anthropic and DeepSeek provider lanes
+        #   admit the bounded required-tool projection. Any other
         #   provider must fail closed before subprocess.
         # - the normalizer returns three states: python None (no
         #   required tool), the canonical string "write" (supported),
@@ -169,7 +169,9 @@ class PiCodexRunnerAdapter:
                 failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
                 failure_stage="tool_selection",
             )
-        if normalized_required is not None and identity.provider_id != "anthropic":
+        if normalized_required is not None and identity.provider_id not in {
+            "anthropic", "deepseek"
+        }:
             return AgentRunEnvelope(
                 status="error",
                 summary=(
@@ -178,6 +180,20 @@ class PiCodexRunnerAdapter:
                 ),
                 failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
                 failure_stage="tool_selection",
+            )
+        if (
+            normalized_required is not None
+            and identity.provider_id == "deepseek"
+            and reasoning_effort != "off"
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary=(
+                    "DeepSeek required-tool selection needs explicit off "
+                    "reasoning effort on Pi Chat Completions"
+                ),
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="reasoning_effort",
             )
 
         wrapper_path = _get_pi_wrapper_path()

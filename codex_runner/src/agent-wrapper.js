@@ -508,6 +508,19 @@ async function runAgent() {
 			requiredToolName = rawRequired;
 		}
 	}
+	if (
+		guardianAuthorizedMode && model.provider === "deepseek" &&
+		requiredToolName !== null && OPTIONS.thinking !== "off"
+	) {
+		// DeepSeek Chat Completions rejects a named required tool in
+		// thinking mode. Never turn positive effort off implicitly.
+		emitAuthorizedFailure("wrapper_protocol_failed", "reasoning_effort", {
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+			provider_request_started: false,
+		});
+		return;
+	}
 
 	// Check API key availability
 	try {
@@ -671,6 +684,29 @@ async function runAgent() {
 				provider_request_started: false,
 			});
 			return;
+		}
+		if (model.provider === "deepseek" && requiredToolName !== null) {
+			// DeepSeek Chat Completions does not provide a documented
+			// parallel-tool-disable request field. The maintained Pi agent
+			// defaults to parallel execution; serialize this authorized
+			// required-tool run locally before any provider prompt.
+			try {
+				if (typeof session?.agent?.toolExecution !== "string") {
+					throw new Error("tool execution setting unavailable");
+				}
+				session.agent.toolExecution = "sequential";
+				if (session.agent.toolExecution !== "sequential") {
+					throw new Error("tool execution setting ineffective");
+				}
+			} catch (_toolExecutionError) {
+				emitAuthorizedFailure("wrapper_protocol_failed", "tool_selection", {
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+					session_initialized: true,
+					provider_request_started: false,
+				});
+				return;
+			}
 		}
 		reasoningEffortEvidence = { requested: OPTIONS.thinking, effective };
 		emitAuthorizedPhase("session_initialized", effective);
