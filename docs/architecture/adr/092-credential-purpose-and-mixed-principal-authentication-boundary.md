@@ -54,6 +54,39 @@ a principal in either other lane.
 Neither a cookie name nor the first decoder attempted is authority to change
 class. A failed validation in one lane cannot fall back to another.
 
+Human administrative account-observability actions use the **account lane** as
+their sole principal. The exact-purpose `account_session` resolves the
+canonical human and audit actor; Guardian-owned admin permission authorizes
+that account. A route-required service key is a separate, non-principal
+capability gate and cannot resolve a user, grant admin status, or become an
+`operator_session`. The implemented dashboard viewer snapshot uses the same
+one-principal/service-capability distinction, but remains available to its
+current authorized admin and guest viewers; admin authorization is required
+for admin-only operations, not for that viewer projection.
+
+The same configured raw Guardian key can have different route-bounded roles:
+`require_operator_auth` treats it as operator-principal material on an
+explicit operator/control-plane route, while a dedicated service-capability
+dependency treats it only as capability proof on an explicitly designated
+human-account route. The selected dependency contract, not the key bytes,
+determines its meaning. A route must never evaluate the same key as both a
+service capability and an operator principal. The service-capability
+dependency must validate only the required key, return no account or operator
+principal, perform no account lookup or admin check, and provide no fallback
+authentication. Generic `require_api_key` and `require_operator_auth` are not
+that dependency on human account-observability routes.
+
+| Route pattern | Sole principal | Additional gates | Example and boundary |
+|---|---|---|---|
+| Machine/operator control plane | Exact-purpose `operator_session` or raw key admitted by `require_operator_auth` | Route-specific operator controls, if any | Continuity operator routes; no canonical human audit actor is inferred. |
+| Human administrative account observability | Exact-purpose `account_session` for the canonical human | Admin authorization on that account; non-principal service capability where required | Invite, retention, and future account-observability admin routes; no `operator_session` is accepted. |
+
+The current dashboard viewer snapshot also has one account principal and a
+service-capability gate, but admits its authorized guest as well as admin
+viewer; it is not an admin-only route. Its generic router dependency and the
+account-observability wrapper still need migration. These rows describe the
+target authority contract, not current full runtime enforcement.
+
 ### Signed-token class and purpose
 
 A token signed by a trusted Codexify signing key is valid only for the
@@ -228,10 +261,11 @@ reconnect; it does not change task-event payloads or transport semantics.
 ### Mixed-lane requests
 
 There is **no precedence** between account, Hosted Room guest, and operator
-credentials. A protected request that presents nonempty credential material
-from more than one principal lane is mixed, whether the combination is
-account + guest, account + operator, guest + operator, or all three. Detect
-presence before validating any credential or looking up a protected resource.
+credentials. A protected request that presents nonempty material from more
+than one **principal-establishing credential lane** is mixed, whether the
+combination is account + guest, account + operator, guest + operator, or all
+three. Detect presence before validating any credential or looking up a
+protected resource.
 This includes malformed, stale, or otherwise invalid material; failed
 validation in one lane cannot fall back to another. The client must
 intentionally present one principal lane.
@@ -246,10 +280,17 @@ treated as an account credential by default. The separate
 with any nonempty `Authorization` or `gc_session` material is mixed even if
 that signed material is malformed or expired. Nonempty raw
 `X-API-Key` or `X-Guardian-Key` material is operator-lane material wherever it
-could establish Guardian/API-key authority. Its presence alongside an account
-credential or guest selector is mixed even if either credential is invalid; it
-does not become a remote account principal. Raw key plus signed operator token
-is two selectors in the same lane, not automatically a cross-principal mix;
+is validated by an operator-authentication seam. Its presence alongside an
+account credential or guest selector at that seam is mixed even if either
+credential is invalid; it does not become a remote account principal. On a
+route explicitly requiring a non-principal service capability, that same raw
+key is capability material only; its presence beside one account session is
+not mixed-principal authentication. A missing or invalid service capability
+denies that route and never falls back to operator or account authentication.
+Signed `operator_session` remains principal material even on such a route:
+`account_session` plus `operator_session` is always mixed and rejected.
+On an operator-auth route, raw key plus signed operator token is two selectors
+in the same lane, not automatically a cross-principal mix;
 this ADR does not add precedence between those selectors or permit either to
 establish account or guest authority. Distinguishing account and operator purposes
 presented through separate signed selectors must not perform identity,
@@ -269,12 +310,15 @@ registered under the runtime protocol-token rules before use.
 |---|---|
 | No credential, or one lane with an invalid credential | Existing authentication failure semantics, normally HTTP 401 in remote mode. |
 | More than one principal lane present | HTTP 400 `mixed_principal_credentials`, regardless of credential validity. |
+| One account principal plus a route-required non-principal service capability | Not mixed; each account, authorization, and capability gate must pass independently. |
 | Valid principal without resource access | Existing thread or Hosted Room authorization response. |
 | Unknown protected resource after authentication | Existing non-disclosing not-found response. |
 
 Authentication and mixed-lane rejection precede task, thread, room, and Redis
 lookups. This ADR does not change precedence between multiple mechanisms
-*within* the account lane.
+*within* the account lane. Each route must declare whether a raw key is an
+operator selector or a service-capability factor before classifying credential
+presence; the same key cannot fill both roles on that route.
 
 ## Implementation order and proof obligation
 
@@ -288,7 +332,10 @@ lookups. This ADR does not change precedence between multiple mechanisms
 
 Implementation must prove account, guest, and operator cross-class rejection;
 operator-purpose rejection by account and guest validators; account- and
-guest-purpose rejection by the operator validator; raw-key mixed presence;
+guest-purpose rejection by the operator validator; raw operator-key mixed
+presence on operator-auth routes; account-session plus service-capability
+admission only on routes expressly requiring that capability; denial of
+service-key-only, non-admin, and invalid-session fallback cases;
 mixed presence with valid and invalid material; anonymous denial before resource
 lookup, same-room guest access, wrong-room and ineligible-guest denial, and
 zero Redis consumption on denied task-event requests. The legacy account-token
