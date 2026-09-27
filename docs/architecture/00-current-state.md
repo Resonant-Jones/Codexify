@@ -125,6 +125,7 @@ This file is authoritative for:
   UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
   UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
   UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
+  UMS-05C8-Q GOVERNANCE-STATE MIGRATION QUALIFICATION: CLOSED
   UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: AUTHORIZED
   UMS-05C10 REVIEW / LIFECYCLE MUTATION WRITERS: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
@@ -1073,6 +1074,41 @@ This file is authoritative for:
   schema, route, or token was added by C7. Branch-local only; not merged
   into the current `main`, not deployed, not a release claim. See the
   [UMS-05C7 remaining mutation authority revalidation proof](./proofs/runtime/2026-09-27-ums05c7-remaining-mutation-authority-revalidation-proof.md).
+
+- **UMS-05C8-Q (Memory governance-state migration qualification,
+  qualified on `feature/ums-continued`)**: the dedicated PostgreSQL
+  qualification that C7 recorded as missing for the C8 governance-state
+  seam is now closed. The new
+  `tests/migration/test_memory_governance_state_migration.py` proves
+  revision `8c2f4a6d9b10` (parent `7e5a5fccf253`) on disposable
+  PostgreSQL: clean migration to head; ORM/Alembic parity for
+  `memory_records.review_state` and `memory_records.lifecycle_state`
+  (both `character varying` NOT NULL, defaults `'pending'` / `'dormant'`,
+  constrained by `memory_records_review_state_check` and
+  `memory_records_lifecycle_state_check`); a populated pre-C8 upgrade
+  proving the exact deterministic backfill (`reviewed_at` NULL →
+  `pending`/`dormant`; reviewed-only → `approved`/`dormant`; reviewed +
+  activated → `approved`/`active`) with **zero** manufactured
+  `rejected`, `disputed`, or `retired` rows; preservation of every field
+  C8 does not own including content, `pinned`, `held`, `extensions`,
+  timestamps, and provenance; Personal Facts specialized authority left
+  untouched and the governance columns proven absent from
+  `personal_facts`; all 12 canonical review × lifecycle combinations
+  accepted while out-of-vocabulary tokens, `archived`, and `inactive`
+  are rejected at the database boundary; and repeatability across two
+  independently created disposable databases. C8-Q is proof hardening
+  only — it changed no runtime, migration, ORM, route, token, Personal
+  Facts, export, restore, or frontend file. Two pre-existing failures
+  in `tests/services/test_account_export_unified_memory.py`
+  (`test_explicit_v4_serializes_exact_canonical_graph_and_manifest`,
+  `test_v4_restore_remains_unsupported`) were captured unchanged as the
+  **C9 entry baseline**; neither references the governance columns and
+  neither was repaired here. C7's persistence classification remains in
+  force. UMS-05C9 (ordinary-memory content revision persistence +
+  UMS-04 portability) is the sole next authorized slice; UMS-05C10+
+  remain NOT AUTHORIZED. Branch-local only; not merged into the current
+  `main`, not deployed, not a release claim. See the
+  [UMS-05C8-Q governance-state migration qualification proof](./proofs/runtime/2026-09-27-ums05c8-q-governance-state-migration-qualification-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
