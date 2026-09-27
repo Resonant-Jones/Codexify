@@ -4792,6 +4792,7 @@ ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
     "memory_records",
     "memory_persona_links",
     "memory_provenance",
+    "memory_revisions",
 )
 
 
@@ -5285,6 +5286,19 @@ def fetch_account_export_bundle_for_user(
                     """,
                     (user_id,),
                 )
+                bundles["memory_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        revision_id, memory_id, user_id, revision_number,
+                        old_text_content, new_text_content, created_at
+                    FROM memory_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             revision_id ASC
+                    """,
+                    (user_id,),
+                )
 
                 project_ids = _append_unique(
                     project_ids,
@@ -5516,6 +5530,12 @@ def fetch_account_export_memory_provenance_for_user(
     return _unified_memory_bundle_family_rows(user_id, "memory_provenance")
 
 
+def fetch_account_export_memory_revisions_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "memory_revisions")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
     *,
@@ -5643,6 +5663,11 @@ def iter_account_export_payloads_for_user(
                 "memory_provenance",
                 "entities/memory_provenance.json",
                 "fetch_account_export_memory_provenance_for_user",
+            ),
+            (
+                "memory_revisions",
+                "entities/memory_revisions.json",
+                "fetch_account_export_memory_revisions_for_user",
             ),
         )
     for family, path, _reader_name in payload_order:

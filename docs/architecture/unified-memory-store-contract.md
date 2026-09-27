@@ -1459,6 +1459,73 @@ semantics for ordinary memories. There is no
 multiple lineage records by source would erase the very
 revision evidence the table exists to preserve.
 
+#### 4.16.5 Content revision table — `memory_revisions`
+
+Added by UMS-05C9. `memory_revisions` is the canonical
+append-only **content** history for ordinary memory. It is
+distinct from `memory_provenance`, which records source
+identity and non-authority receipt extensions, and from
+`personal_fact_revisions`, which remains the specialized
+Personal Facts revision authority.
+
+`memory_records.text_content` remains the current content
+authority. `memory_revisions` preserves each exact prior and
+resulting authored text so a correction is reconstructable.
+
+| Column              | Type                       | Null    | Default | Authority meaning |
+|---------------------|----------------------------|---------|---------|-------------------|
+| `revision_id`       | `String(36)` (UUID) PK     | NOT NULL | —      | Stable revision identity |
+| `memory_id`         | `String(36)`               | NOT NULL | —      | Parent canonical memory |
+| `user_id`           | `String(255)`              | NOT NULL | —      | Account of the parent memory |
+| `revision_number`   | `Integer`                  | NOT NULL | —      | Per-memory sequence, dense `1..N` |
+| `old_text_content`  | `Text`                     | NOT NULL | —      | Exact prior canonical text |
+| `new_text_content`  | `Text`                     | NOT NULL | —      | Exact resulting canonical text |
+| `created_at`        | `TIMESTAMP(timezone=True)` | NOT NULL | `now()`| Immutable revision creation time |
+
+DB-enforced invariants:
+
+- `FOREIGN KEY (memory_id, user_id) REFERENCES
+  memory_records(memory_id, user_id) ON DELETE CASCADE` — a
+  revision binds to its parent's account identity and never
+  outlives the parent memory under legitimate erasure.
+- `UNIQUE (memory_id, revision_number)` — per-memory ordering
+  is explicit and a sequence slot cannot be occupied twice.
+- `CHECK (revision_number >= 1)`.
+- `CHECK (old_text_content <> new_text_content)` — an exact
+  byte comparison; a row with identical prior and resulting text
+  is not a semantic revision. No trimming, no collation.
+
+Row semantics:
+
+- **Append-only.** A correction inserts a row; it never rewrites
+  an earlier row.
+- **Exact text.** Leading/trailing whitespace, newlines, Unicode,
+  and punctuation are preserved byte-exactly.
+- **Chain continuity.** For sequential revisions,
+  `revision[n].new_text_content == revision[n+1].old_text_content`.
+- **Reconciliation.** Where history exists, the final
+  `new_text_content` equals the parent `memory_records.text_content`.
+- **No fabricated history.** Migration creates the relation and
+  backfills zero synthetic rows. An existing memory is not given
+  invented history.
+- **Species boundary.** This family is for ordinary
+  `episodic_semantic_memory` text. A revision attached to a
+  specialized Personal Facts parent is rejected at restore
+  preflight; Personal Facts keep using `personal_fact_revisions`.
+  PostgreSQL does not encode the parent species; the boundary is
+  enforced in restore preflight and in future service authority
+  rather than through a trigger.
+
+Portability: `memory_revisions` is the sixth canonical family in
+`account-export.v5` alongside `persona_subjects`,
+`persona_subject_bindings`, `memory_records`,
+`memory_persona_links`, and `memory_provenance`. It is portable
+and must round-trip distinctly; `account-export.v4` keeps its
+existing five-family meaning and is not redefined.
+
+No runtime content-correction writer exists yet. This section
+persists the prerequisite; it does not authorize editing.
+
 #### 4.16.5 Payload strategy decision
 
 The UMS-03A deferred question "shared typed columns vs.

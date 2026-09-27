@@ -126,7 +126,8 @@ This file is authoritative for:
   UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
   UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
   UMS-05C8-Q GOVERNANCE-STATE MIGRATION QUALIFICATION: CLOSED
-  UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: AUTHORIZED
+  UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
+  UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: AUTHORIZED
   UMS-05C10 REVIEW / LIFECYCLE MUTATION WRITERS: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1109,6 +1110,48 @@ This file is authoritative for:
   remain NOT AUTHORIZED. Branch-local only; not merged into the current
   `main`, not deployed, not a release claim. See the
   [UMS-05C8-Q governance-state migration qualification proof](./proofs/runtime/2026-09-27-ums05c8-q-governance-state-migration-qualification-proof.md).
+
+- **UMS-05C9 (Ordinary-memory content revision persistence and
+  portability, qualified on `feature/ums-continued`)**: the shared
+  persistence prerequisite C7 identified for ordinary-memory content
+  correction now exists and is portable. A new canonical
+  `memory_revisions` family (Alembic `c3d9f4e6a1b2`, parent
+  `8c2f4a6d9b10`, single head) preserves one exact authored-text
+  transition per row: server-generated `revision_id`, composite
+  `(memory_id, user_id)` FK to `memory_records` with
+  `ON DELETE CASCADE`, typed `old_text_content` / `new_text_content`
+  text, an explicit per-memory `revision_number` with
+  `UNIQUE (memory_id, revision_number)`, and DB-level rejection of
+  both a sub-1 sequence number and a byte-identical no-op transition.
+  `memory_records.text_content` remains the current content
+  authority; `memory_revisions` is append-only canonical history and
+  remains strictly separate from `memory_provenance` (source identity
+  plus non-authority receipt extensions) and from
+  `personal_fact_revisions` (still the specialized Personal Facts
+  authority). Migration fabricates **zero** synthetic rows: no
+  existing memory is given invented history. Portability required a
+  new export schema version rather than widening the existing one:
+  `account-export.v5` is the six-family canonical graph
+  (`persona_subjects`, `persona_subject_bindings`, `memory_records`,
+  `memory_persona_links`, `memory_provenance`, `memory_revisions`),
+  while `account-export.v4` keeps its exact five-family meaning and
+  its historical `restore_supported: false` posture. v5 restore
+  validates revision ownership, ordering, chain continuity, and
+  final-content reconciliation against the parent record, and fails
+  closed on each; replay is idempotent and semantic conflicts roll
+  back. A revision attached to a specialized Personal Facts parent is
+  rejected at restore preflight, so C9 did not create a second
+  Personal Facts revision authority. C9 also repaired a real
+  pre-existing defect: canonical-memory restore trimmed authored
+  `text_content`, which silently rewrote user whitespace and made
+  revision reconciliation impossible. **Content correction itself is
+  still not implemented** — no Memory Vault writer, route, retrieval
+  change, or UI exists. C9 is persistence and portability only;
+  UMS-05C9-W is the sole next authorized slice. Two known
+  explicit-v4 export test failures remain unchanged baseline debt.
+  Branch-local only; not merged into the current `main`, not
+  deployed, not a release claim. See the
+  [UMS-05C9 memory revision portability proof](./proofs/runtime/2026-09-27-ums05c9-memory-revision-portability-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

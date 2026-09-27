@@ -7021,3 +7021,66 @@ class MemoryProvenance(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryRevision(Base):
+    """Append-only canonical text-revision history for a canonical memory.
+
+    Added by UMS-05C9 to satisfy the frozen requirement that a direct
+    content correction preserve durable prior canonical text.
+
+    This is canonical persistence, not audit evidence. It is deliberately
+    distinct from ``memory_provenance`` (which records source identity and
+    mutation receipts, and whose ``extensions`` are explicitly
+    non-authoritative) and from ``personal_fact_revisions`` (which remains
+    the specialized Personal Facts revision authority).
+
+    ``memory_records.text_content`` stays the current content authority.
+    Each row preserves one exact text transition for one memory, ordered by
+    ``revision_number``. Rows are immutable: a correction appends, it never
+    rewrites. ``ON DELETE CASCADE`` through the composite
+    ``(memory_id, user_id)`` foreign key ties a revision to the legitimate
+    erasure lifetime of its parent memory, and the composite key binds
+    revision account identity to canonical-memory account identity.
+    """
+
+    __tablename__ = "memory_revisions"
+
+    revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    new_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="memory_revisions_number_check",
+        ),
+        # A row whose prior and resulting text are byte-identical is not a
+        # semantic revision. Comparison is exact: no trimming, no collation.
+        CheckConstraint(
+            "old_text_content <> new_text_content",
+            name="memory_revisions_change_check",
+        ),
+        Index("ix_memory_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}

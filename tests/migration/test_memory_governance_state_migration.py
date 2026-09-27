@@ -117,15 +117,29 @@ def _fresh_disposable_postgres(base_url: str, prefix: str) -> tuple:
 
 
 def _drop_disposable_postgres(admin_url: str, database_name: str) -> None:
+    """Drop the disposable child database.
+
+    ``pg_terminate_backend`` needs a privilege the dedicated test role may
+    not hold. Terminating backends is therefore best-effort, and the drop
+    falls back to ``WITH (FORCE)`` (PostgreSQL 13+) so teardown completes
+    without escalating privileges.
+    """
     connection = psycopg.connect(admin_url, autocommit=True)
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = %s",
-                (database_name,),
-            )
-            cursor.execute(f"DROP DATABASE IF EXISTS {database_name}")
+            try:
+                cursor.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = %s",
+                    (database_name,),
+                )
+            except psycopg.Error:
+                # Not privileged to terminate backends; rely on FORCE below.
+                pass
+            try:
+                cursor.execute(f"DROP DATABASE IF EXISTS {database_name} WITH (FORCE)")
+            except psycopg.Error:
+                cursor.execute(f"DROP DATABASE IF EXISTS {database_name}")
     finally:
         connection.close()
 
@@ -240,15 +254,38 @@ def test_clean_migration_applies_and_materializes_governance_columns(
         assert REVIEW_CHECK in names
         assert LIFECYCLE_CHECK in names
 
-        # Alembic must remain at a single head.
+        # Alembic must remain at a single head, and the C8 revision must
+        # still be part of that lineage. UMS-05C9 intentionally added a
+        # later revision on top of C8, so the head value itself advances;
+        # the invariant under test is single-head topology plus C8 ancestry.
         heads = connection_heads(config)
-        assert heads == [UMS_05C8_REVISION]
+        assert len(heads) == 1
+        assert _is_ancestor_revision(config, UMS_05C8_REVISION, heads[0])
 
 
 def connection_heads(config) -> list[str]:
     from alembic.script import ScriptDirectory
 
     return list(ScriptDirectory.from_config(config).get_heads())
+
+
+def _is_ancestor_revision(config, ancestor: str, head: str) -> bool:
+    """Return True when ``ancestor`` is ``head`` or precedes it in lineage."""
+    from alembic.script import ScriptDirectory
+
+    if ancestor == head:
+        return True
+    script = ScriptDirectory.from_config(config)
+    seen: set[str] = set()
+    current: str | None = head
+    while current and current not in seen:
+        seen.add(current)
+        current = script.get_revision(current).down_revision
+        if isinstance(current, (tuple, list)):  # merge point; follow the first
+            current = current[0] if current else None
+        if current == ancestor:
+            return True
+    return False
 
 
 def test_orm_metadata_matches_live_schema_for_governance_columns(
@@ -625,6 +662,8 @@ def test_governance_migration_is_repeatable_on_independent_databases(
                 {"m": mid},
             ).fetchone()
             assert row == ("approved", "dormant")
-            assert connection_heads(config) == [UMS_05C8_REVISION]
+            heads = connection_heads(config)
+            assert len(heads) == 1
+            assert _is_ancestor_revision(config, UMS_05C8_REVISION, heads[0])
     finally:
         _drop_disposable_postgres(admin_url, database_name)
