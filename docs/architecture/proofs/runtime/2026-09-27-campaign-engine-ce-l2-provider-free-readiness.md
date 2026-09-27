@@ -77,6 +77,16 @@ authentication available, one preflight call, zero retry, zero fallback,
 `session_initialized=false`, and `provider_request_started=false`.
 The file bytes and disposable Git HEAD were unchanged before and after.
 
+After implementation commit
+`91cd53a72b5346b0cf8751e63eb43c83e951fdb8`, readiness was repeated
+against the final Campaign input hash
+`1cf93d6f0bf42bf95f8ecdec12f52aeade01107a732e9b52ffbde6e49408e10a`.
+Both roles again returned `auth_available`, exact
+`deepseek / deepseek-v4-pro / pi-coding-agent@0.82.1` identity, zero
+retry/fallback, no session, no provider request, unchanged target bytes,
+and unchanged disposable Git HEAD. The locked efforts were `off` and
+`medium`, respectively; readiness did not claim either as effective.
+
 Readiness establishes provider/model/harness resolution and authentication
 availability only. It creates no Pi session and cannot establish effective
 runtime reasoning effort; that must be checked by each authorized live
