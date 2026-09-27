@@ -147,6 +147,9 @@ class FakeOutcome:
     runtime_identity_established: bool = True
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
+    effective_reasoning_effort: str | None = None
     oauth_available: bool | None = None
     receipt: FakeReceipt | None = None
     harness_result: FakeHarnessResult | None = None
@@ -179,6 +182,9 @@ class FakeOutcome:
             "runtime_identity_established": self.runtime_identity_established,
             "session_initialized": self.session_initialized,
             "provider_request_started": self.provider_request_started,
+            "observed_execution_phases": self.observed_execution_phases,
+            "highest_observed_execution_phase": self.highest_observed_execution_phase,
+            "effective_reasoning_effort": self.effective_reasoning_effort,
             "oauth_available": self.oauth_available,
             "receipt": self.receipt.to_payload() if self.receipt else None,
             "harness_result": self.harness_result.to_payload() if self.harness_result else None,
@@ -2627,6 +2633,95 @@ def _make_fake_outcome(*, ok=True, receipt_id="pi-receipt-ct-test", harness_resu
             harness_version="0.82.1",
         ),
     )
+
+
+def test_real_invoker_selects_explicit_medium_effort(monkeypatch) -> None:
+    """CE-L1 requests its existing bounded effort instead of ambient Pi state."""
+    from guardian.pi import invocation as guardian_invocation
+
+    calls = []
+    monkeypatch.setattr(
+        guardian_invocation,
+        "invoke_guardian_authorized_pi",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    live_executor._real_invoker(
+        envelope=object(),
+        decision=object(),
+        prompt="fixture",
+        cwd=pathlib.Path("/tmp"),
+        timeout_seconds=30,
+        required_tool_name="write",
+    )
+    assert len(calls) == 1
+    assert calls[0]["reasoning_effort"] == "medium"
+    assert calls[0]["required_tool_name"] == "write"
+
+
+def test_timeout_phase_evidence_survives_campaign_error(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed one-call CE-L1 run retains only bounded phase evidence."""
+    campaign_path, target, clock = _setup_simple_canonical_inputs(tmp_path)
+    preparation = prepare_live_executor_campaign(campaign_path, target, clock=clock)
+    envelope = _make_envelope_for_prep(preparation)
+    decision = _make_decision_for_envelope(envelope)
+    phases = (
+        "wrapper_started",
+        "runtime_identity_established",
+        "session_initialized",
+        "provider_request_started",
+    )
+    calls = []
+
+    def timeout_invoker(**kwargs):
+        calls.append(kwargs)
+        return FakeOutcome(
+            ok=False,
+            failure_reason="adapter_execution_failure",
+            diagnostic_class="adapter_timeout",
+            diagnostic_stage="adapter_execution",
+            observed_execution_phases=phases,
+            highest_observed_execution_phase="provider_request_started",
+            effective_reasoning_effort="medium",
+            runtime_identity_established=True,
+            session_initialized=True,
+            provider_request_started=True,
+        )
+
+    monkeypatch.setattr(live_executor, "_invoker", timeout_invoker)
+    with pytest.raises(CampaignLiveExecutorError) as raised:
+        run_live_executor_campaign(
+            preparation,
+            tmp_path / "output",
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=30,
+            campaign_path=campaign_path,
+        )
+    evidence = raised.value.to_payload()
+    assert len(calls) == 1
+    assert calls[0]["required_tool_name"] == "write"
+    assert evidence["diagnostic_class"] == "adapter_timeout"
+    assert evidence["runner_call_count"] == 1
+    assert evidence["retry_count"] == 0
+    assert evidence["fallback_count"] == 0
+    assert evidence["observed_execution_phases"] == list(phases)
+    assert evidence["highest_observed_execution_phase"] == phases[-1]
+    assert evidence["effective_reasoning_effort"] == "medium"
+
+
+def test_malformed_timeout_phase_evidence_is_not_serialized() -> None:
+    error = CampaignLiveExecutorError(
+        "bounded failure",
+        observed_execution_phases=("wrapper_started", "untrusted-content"),
+        highest_observed_execution_phase="untrusted-content",
+        effective_reasoning_effort="untrusted-content",
+    )
+    evidence = error.to_payload()
+    assert evidence["observed_execution_phases"] is None
+    assert evidence["highest_observed_execution_phase"] is None
+    assert evidence["effective_reasoning_effort"] is None
 
 
 def test_required_tool_full_campaign_engine_invariants(tmp_path) -> None:

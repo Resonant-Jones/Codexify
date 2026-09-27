@@ -126,6 +126,7 @@ def _real_invoker(
         cwd=cwd,
         timeout_seconds=timeout_seconds,
         required_tool_name=required_tool_name,
+        reasoning_effort="medium",
     )
 
 
@@ -1343,6 +1344,11 @@ def run_live_executor_campaign(
             runner_call_count=int(outcome_payload.get("runner_call_count", 0) or 0),
             retry_count=int(outcome_payload.get("retry_count", 0) or 0),
             fallback_count=int(outcome_payload.get("fallback_count", 0) or 0),
+            observed_execution_phases=outcome_payload.get("observed_execution_phases"),
+            highest_observed_execution_phase=outcome_payload.get(
+                "highest_observed_execution_phase"
+            ),
+            effective_reasoning_effort=outcome_payload.get("effective_reasoning_effort"),
             **kwargs,
         )
 
