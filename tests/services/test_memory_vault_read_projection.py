@@ -31,6 +31,7 @@ import json
 import os
 import uuid
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import sqlalchemy as sa
@@ -70,6 +71,24 @@ from guardian.services.memory_vault_read import (
 
 ACCOUNT_A = "ums05b1-account-a"
 ACCOUNT_B = "ums05b1-account-b"
+
+
+def test_list_queries_bound_each_source_before_projection() -> None:
+    """A one-item page never starts with an unbounded authority query."""
+    session = Mock()
+    query = session.query.return_value
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.limit.return_value = query
+    query.all.return_value = []
+
+    service = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+    assert service.list_items(limit=1) == []
+
+    # Canonical records, legacy entries, and Personal Facts each receive the
+    # requested candidate-window bound before any row is projected.
+    assert query.limit.call_count == 3
+    query.limit.assert_called_with(1)
 
 
 def _admin_url() -> str:
