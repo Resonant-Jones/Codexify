@@ -237,6 +237,12 @@ over diagnostic evidence. This observation does not alter Guardian authority,
 provider/model/harness verification, retry/fallback policy, Campaign Engine
 semantics, or CE-L0 qualification.
 
+For a CE-L1 live Executor call, the Campaign Engine's bounded failure object
+copies the validated phase prefix, highest observed phase, and allowed
+effective-effort token from the Guardian outcome. It serializes no raw stderr
+or provider content. A missing or malformed phase trail remains unknown and
+does not become an Attempt, Receipt, or successful gate exit.
+
 ## Identity and Sovereignty Boundaries
 
 - Identity remains user-owned.
