@@ -11,7 +11,7 @@ The current implemented runtime seam includes, at minimum:
 - bounded live tool-execution and bounded assistant-response telemetry are observed through `tool_telemetry` and propagated as evidence-only fields;
 - the pre-execution drift gate revalidates the canonical required-tool requirement from the `LIVE_EXECUTOR_REQUIRED_TOOL_NAME` constant before any provider-mechanics authority is engaged.
 
-This seam remains supervised and internal, and the live provider-backed CE-L1 qualification gate (live provider/model execution, terminal durable result, source-thread readback) remains open.  See `docs/architecture/00-current-state.md` for current release status; this document does not widen the release claim.
+This seam remains supervised and internal. The Campaign's DeepSeek CE-L1 Executor gate is accepted complete; CE-L2's independent live Evaluator remains unproven. See `docs/architecture/00-current-state.md` for release status; this document does not widen the release claim.
 
 As of 2026-09-06, a separate bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that lets the supervising agent choose an exact provider/model pair from Pi's current `pi --list-models` registry.  That skill is dev-tooling only — it is not the Guardian runtime seam described above, introduces no provider-routing change, and carries no release-claim change.  Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`.  The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable.  Codex/Astra remains the supervising agent; the selected Pi worker remains bounded and untrusted.  The legacy DeepSeek names are retained for compatibility with repository proof surfaces.
 
@@ -30,7 +30,7 @@ The current seam does not:
 - replace ADR-020 doctrine.
 
 Purpose: Define Codexify's bounded architecture contract for future Pi-like coding-agent harness invocation while preserving Guardian authority, lineage, and sovereignty boundaries.
-Last updated: 2026-09-27 (added provider-free DeepSeek non-thinking required-write projection; live CE-L1 remains open)
+Last updated: 2026-09-27 (added bounded CE-L2 Evaluator verdict return and provider-free lifecycle continuation)
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/chat-runtime-contract.md
@@ -55,9 +55,9 @@ Source anchors:
   - Account export + restore contract
   - Existing identity/IDDB policy and Persona Studio identity-boundary rules
 - Brief reason:
-  - This contract defines a bounded architecture seam for Pi-like harness invocation and clarifies provider-lane separation (including Minimax).  A bounded internal runtime invocation seam is now implemented under Guardian authority for the canonical Campaign Engine required-tool selection slice (ADR-068).  The seam remains supervised and internal; provider-backed CE-L1 qualification remains open.
+  - This contract defines a bounded architecture seam for Pi-like harness invocation and clarifies provider-lane separation (including Minimax). A bounded internal runtime invocation seam is implemented under Guardian authority for the canonical Campaign Engine required-tool selection and read-only Evaluator slices (ADR-068). The seam remains supervised and internal.
 
-Implementation status: Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts exist under `guardian/pi/`.  A bounded internal runtime invocation seam is now implemented: the canonical `invoke_guardian_authorized_pi` reaches the maintained Pi 0.82.1 wrapper through the bounded authorized path; the wrapper exposes bounded coding-tool surface activation, session lifecycle, and the maintained Pi 0.82.1 session-level `onPayload` chain; the Campaign Engine canonical `required_tool_name="write"` requirement is projected onto the first provider-request payload by the wrapper.  All of this is supervised by Guardian, gated by Guardian permission resolution, and limited to the live Executor slice.  Provider-backed CE-L1 qualification (live provider/model execution, terminal durable result, source-thread readback) remains open; the implementation path does not widen the supported beta release promise and does not change provider routing ownership.
+Implementation status: Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts exist under `guardian/pi/`. The canonical `invoke_guardian_authorized_pi` reaches the maintained Pi 0.82.1 wrapper through the bounded authorized path. The live Executor's required `write` selection is projected onto the first provider-request payload. The CE-L2 implementation adds a separate read-only Evaluator result contract that returns only a bounded canonical verdict and criterion judgments. Provider-free tests cover that continuation; a live CE-L2 lifecycle has not yet been proven. The implementation does not widen the supported beta release promise or change provider routing ownership.
 
 ## Purpose and Problem Statement
 
@@ -140,7 +140,38 @@ The Campaign Engine live path does not bypass any invariant already enforced by 
 - Pi-like harnesses must not redefine runtime protocol tokens;
 - Pi-like harnesses must not become an autonomous recursive execution loop through this contract.
 
-The Campaign Engine live path is one bounded live invocation under Guardian authorization; it is not a loop and it is not autonomous.
+Each Campaign Engine live role invocation is bounded and separately Guardian-authorized. CE-L2 uses one Executor call followed by one independent Evaluator call in the same fresh Campaign; it is not an autonomous loop.
+
+### CE-L2 bounded Evaluator continuation
+
+For a fresh single-Task Campaign whose Auditor, Executor, and Evaluator
+RoleBindings were locked before execution, the live Executor output is an
+immutable checkpoint, not the completed CE-L2 lifecycle. The CE-L2 path
+validates the checkpoint's Attempt, Pi Receipt, Harness Result, boundary
+validation, and unchanged locked bindings. It constructs a bounded Evaluator
+packet from the Task objective and acceptance criteria, source-context
+reference, Executor Attempt and identity evidence, changed-file list, a
+size-limited disposable-target diff and snapshot, and validation output.
+
+For the fresh CE-L2 proof, live RoleBindings explicitly record the selected
+harness identity and reasoning effort. The Executor invocation rejects
+authorization or effort that differs from its locked binding before reaching
+Pi; the Evaluator preparation rejects a configuration mismatch before its
+separate call.
+
+The Evaluator has a separate Guardian authorization, `files.read` only within
+the declared disposable scope, no tools enabled, no required `write`, and an
+explicit reasoning effort. The wrapper projects only the canonical verdict,
+short summary, and bounded criterion judgments into the authorized terminal
+result. Guardian and Campaign Engine validate those fields again. Raw model
+response, reasoning content, and tool arguments are not persisted. A valid
+result produces a live Evaluation, Receipt, and CampaignState linked to the
+same immutable Executor Attempt. A malformed result fails closed without a
+second invocation, fallback, rebinding, or repair.
+
+This implementation and its focused tests are provider-free evidence. The
+separately authorized live Executor and live Evaluator calls required for
+`CE-L2_EXIT=SINGLE_TASK_SUPERVISED_USABLE` have not occurred in this slice.
 
 ## Minimax Provider Separation
 
@@ -175,7 +206,7 @@ Result Return Path metadata must preserve:
 
 This contract aligns with message-versus-attempt doctrine and must not collapse authored turns into execution attempts.
 
-This contract is forward-compatible with existing reinjection and one-turn reentry doctrine.  A bounded internal Pi execution seam is now implemented under Guardian authority; this contract does not claim that the seam is Beta Supported, that provider-backed CE-L1 qualification has been established, or that the live provider/model execution, terminal durable result, or source-thread readback gates are open.
+This contract is forward-compatible with existing reinjection and one-turn reentry doctrine. A bounded internal Pi execution seam is implemented under Guardian authority. It does not claim Beta Supported status or a proven live CE-L2 lifecycle.
 
 ### Authorized wrapper subprocess framing
 
@@ -406,7 +437,7 @@ or prompt; it never produces assistant content.
 
 The current implementation remains bounded; this contract does not:
 
-- claim provider-backed CE-L1 qualification (live provider/model execution, terminal durable result, source-thread readback);
+- claim provider-backed CE-L2 qualification before a separate live Evaluator proof;
 - claim Beta Supported status for the implemented Pi execution seam;
 - implement Minimax provider integration (Minimax remains a Provider Lane concern only);
 - grant provider-routing authority to Pi (provider/model choice remains governed by existing provider/config contracts);
@@ -447,9 +478,8 @@ What is true now:
 
 What is not yet true by this task:
 
-- No provider-backed CE-L1 qualification has been established.
-  Live provider/model execution, terminal durable CE-L1 result, and
-  source-thread readback remain open.
+- The fresh CE-L2 Campaign's live Executor and independent live Evaluator
+  have not been invoked. CE-L2 remains open.
 - No Minimax provider change is made.
 - No autonomous coding-agent runtime is enabled.
 - No worker orchestration or sandbox execution is added.

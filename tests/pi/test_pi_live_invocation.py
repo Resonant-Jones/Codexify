@@ -210,6 +210,59 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
     assert outcome.fallback_count == 0
 
 
+def test_bounded_read_only_evaluator_result_crosses_guardian_once(tmp_path: Path) -> None:
+    from guardian.pi.tokens import PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+
+    envelope = _envelope()
+    decision = _decision(envelope)
+    verdict = {
+        "verdict": "passed", "summary": "The bounded fixture satisfies the criterion.",
+        "structured_acceptance_results": [{
+            "criterion_id": "fixture", "verdict": "pass",
+            "evidence_refs": ["changed-files"], "basis": "The bounded diff shows the marker.",
+        }],
+    }
+    runner = _RecordingRunner(evidence=replace(_evidence(), evaluator_result=verdict))
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=decision, prompt="Read only evaluation.",
+        cwd=tmp_path, timeout_seconds=15, harness_runner=runner,
+        reasoning_effort="medium",
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert outcome.ok
+    assert len(runner.calls) == 1
+    assert runner.calls[0].read_only is True
+    assert runner.calls[0].reasoning_effort == "medium"
+    assert runner.calls[0].evaluator_result_contract == PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+    assert outcome.evaluator_result == verdict
+    assert outcome.retry_count == outcome.fallback_count == 0
+
+
+def test_bounded_evaluator_result_fails_closed_before_or_after_runner(tmp_path: Path) -> None:
+    from guardian.pi.tokens import PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+
+    write = _write_permission("proof_target.txt")
+    envelope = _envelope(requested_permissions=(_read_permission(), write), granted_permissions=(_read_permission(), write))
+    decision = _decision(envelope)
+    runner = _RecordingRunner()
+    blocked = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=decision, prompt="Evaluate.", cwd=tmp_path,
+        timeout_seconds=15, harness_runner=runner,
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert not blocked.ok and blocked.runner_call_count == 0 and runner.calls == []
+
+    envelope = _envelope()
+    runner = _RecordingRunner(evidence=_evidence())
+    missing = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=_decision(envelope), prompt="Evaluate.", cwd=tmp_path,
+        timeout_seconds=15, harness_runner=runner,
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert not missing.ok and missing.runner_call_count == 1
+    assert missing.receipt is None and missing.harness_result is None
+
+
 @pytest.mark.parametrize(
     ("behavior", "expected_phases", "provider_started", "effort"),
     [

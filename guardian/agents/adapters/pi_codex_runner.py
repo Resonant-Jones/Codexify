@@ -15,12 +15,14 @@ from guardian.agents.adapters.base import (
 )
 from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
     PI_AUTHORIZED_EXECUTION_PHASES,
     PI_AUTHORIZED_PHASE_SENTINEL,
     PI_AUTHORIZED_REASONING_EFFORTS,
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
 )
+from guardian.pi.evaluator_result import validate_evaluator_result
 
 
 def _get_pi_wrapper_path() -> Path:
@@ -108,6 +110,7 @@ class PiCodexRunnerAdapter:
         read_only: bool,
         reasoning_effort: str = "medium",
         required_tool_name: str | None = None,
+        evaluator_result_contract: str | None = None,
     ) -> AgentRunEnvelope:
         """Execute exactly one Guardian-authorized Pi task.
 
@@ -143,6 +146,18 @@ class PiCodexRunnerAdapter:
                 summary="Guardian-authorized Pi reasoning effort is unsupported",
                 failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
                 failure_stage="reasoning_effort",
+            )
+
+        if evaluator_result_contract is not None and (
+            evaluator_result_contract != PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+            or not read_only
+            or required_tool_name is not None
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary="Evaluator result contract requires read-only execution",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="evaluation_result",
             )
 
         # Required-tool support boundary:
@@ -201,6 +216,7 @@ class PiCodexRunnerAdapter:
         # Always strip ambient selection so only the validated argument
         # can grant or force behavior.
         env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
+        env.pop("PI_GUARDIAN_RESULT_CONTRACT", None)
         env.update(
             {
                 "PI_PROVIDER": identity.provider_id,
@@ -214,6 +230,8 @@ class PiCodexRunnerAdapter:
         )
         if normalized_required is not None:
             env["PI_GUARDIAN_REQUIRED_TOOL"] = normalized_required
+        if evaluator_result_contract is not None:
+            env["PI_GUARDIAN_RESULT_CONTRACT"] = evaluator_result_contract
         cmd = ["node", str(wrapper_path), "guardian-authorized-task", request.prompt]
 
         try:
@@ -231,6 +249,7 @@ class PiCodexRunnerAdapter:
                 require_tool_telemetry=True,
                 required_tool_name=normalized_required,
                 expected_reasoning_effort=reasoning_effort,
+                evaluator_result_contract=evaluator_result_contract,
             )
         except subprocess.TimeoutExpired as exc:
             phases, effort = _parse_authorized_timeout_phases(exc.stderr)
@@ -331,6 +350,7 @@ class PiCodexRunnerAdapter:
         require_tool_telemetry: bool = False,
         required_tool_name: str | None = None,
         expected_reasoning_effort: str | None = None,
+        evaluator_result_contract: str | None = None,
     ) -> AgentRunEnvelope:
         """Parse subprocess result into AgentRunEnvelope.
 
@@ -582,6 +602,20 @@ class PiCodexRunnerAdapter:
                         hard_tool_selection_applied=selection_evidence[1],
                         hard_tool_selection_application_count=selection_evidence[2],
                     )
+                evaluator_result = None
+                if evaluator_result_contract is not None:
+                    try:
+                        evaluator_result = validate_evaluator_result(
+                            data.get("evaluator_result")
+                        )
+                    except (TypeError, ValueError):
+                        return AgentRunEnvelope(
+                            status="error",
+                            summary="Pi wrapper omitted a valid bounded Evaluator result",
+                            failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                            failure_stage="evaluation_result",
+                            runtime_identity_established=runtime_identity_established,
+                        )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
                     summary=data.get(
@@ -646,6 +680,7 @@ class PiCodexRunnerAdapter:
                     hard_tool_selection_application_count=(
                         selection_evidence[2] if required_tool_name is not None else None
                     ),
+                    evaluator_result=evaluator_result,
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:

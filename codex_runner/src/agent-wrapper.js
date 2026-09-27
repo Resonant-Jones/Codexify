@@ -27,6 +27,10 @@ import {
 	applyGuardianRequiredToolSelection,
 	RequiredToolSelectionError,
 } from "./guardian-required-tool-selection.js";
+import {
+	EVALUATOR_RESULT_CONTRACT,
+	projectGuardianEvaluatorResult,
+} from "./guardian-evaluator-result.js";
 
 // Parse command line args
 const args = process.argv.slice(2);
@@ -502,11 +506,25 @@ async function runAgent() {
 	// creation) so the createAgentSession call below can pass a
 	// retry-disabled SettingsManager when a required tool is in scope.
 	let requiredToolName = null;
+	const evaluatorResultContract = guardianAuthorizedMode
+		? (process.env.PI_GUARDIAN_RESULT_CONTRACT || "").trim()
+		: "";
 	if (guardianAuthorizedMode) {
 		const rawRequired = (process.env.PI_GUARDIAN_REQUIRED_TOOL || "").trim();
 		if (rawRequired.length > 0) {
 			requiredToolName = rawRequired;
 		}
+	}
+	if (evaluatorResultContract !== "" && (
+		evaluatorResultContract !== EVALUATOR_RESULT_CONTRACT
+		|| !OPTIONS.disableTools || requiredToolName !== null
+	)) {
+		emitAuthorizedFailure("wrapper_protocol_failed", "evaluation_result", {
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+			provider_request_started: false,
+		});
+		return;
 	}
 	if (
 		guardianAuthorizedMode && model.provider === "deepseek" &&
@@ -937,6 +955,21 @@ async function runAgent() {
 	// Print final output
 	if (guardianAuthorizedMode) {
 		const response = extractJsonResponse(session.agent.state.messages);
+		let evaluatorResult = null;
+		if (evaluatorResultContract === EVALUATOR_RESULT_CONTRACT) {
+			try {
+				evaluatorResult = projectGuardianEvaluatorResult(response);
+			} catch (_error) {
+				emitAuthorizedFailure("wrapper_protocol_failed", "evaluation_result", {
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+					session_initialized: true,
+					provider_request_started: true,
+					tool_telemetry: toolTelemetry,
+				});
+				return;
+			}
+		}
 		// A successful authorized execution with a required tool MUST have
 		// applied hard selection exactly once. If the session reached the
 		// success terminal without a selection, the wrapper fails closed
@@ -977,6 +1010,9 @@ async function runAgent() {
 			reasoning_effort: reasoningEffortEvidence,
 			automatic_retries_disabled: true,
 		};
+		if (evaluatorResult !== null) {
+			terminalPayload.evaluator_result = evaluatorResult;
+		}
 		// Bounded required-tool selection evidence is exposed in a
 		// separate top-level key (never inside the ten-field
 		// tool_telemetry object).
