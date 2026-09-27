@@ -7,29 +7,13 @@ import WorkspaceShelfPanel from "../components/WorkspaceShelfPanel";
 import { isAgentUpdatedWorkspaceItem } from "../workspaceArtifactSignals";
 
 vi.mock("@/components/ui/PreviewTile", () => ({
-  default: ({
-    children,
-    onClick,
-    className,
-  }: {
-    children?: React.ReactNode;
-    onClick?: () => void;
-    className?: string;
-  }) => (
-    <button type="button" className={className} onClick={onClick}>
-      {children}
-    </button>
+  default: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
   ),
 }));
 
 vi.mock("@/components/documents/DocumentTile", () => ({
-  default: ({
-    file,
-    onClick,
-  }: {
-    file: { name?: string; ext?: string };
-    onClick?: () => void;
-  }) => (
+  default: ({ file, onClick }: { file: { name?: string; ext?: string }; onClick?: () => void }) => (
     <button type="button" onClick={onClick} data-testid="document-tile">
       {file?.name || "Untitled"}
     </button>
@@ -70,12 +54,8 @@ describe("WorkspaceShelfPanel", () => {
     });
 
     it("is case-insensitive and ignores unknown or empty source tags", () => {
-      expect(
-        isAgentUpdatedWorkspaceItem({ source_tag: "  Assistant-Update  " })
-      ).toBe(true);
-      expect(
-        isAgentUpdatedWorkspaceItem({ source_tag: "user-uploaded" })
-      ).toBe(false);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "  Assistant-Update  " })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "user-uploaded" })).toBe(false);
       expect(isAgentUpdatedWorkspaceItem({ source_tag: "" })).toBe(false);
       expect(isAgentUpdatedWorkspaceItem({ source_tag: null })).toBe(false);
       expect(isAgentUpdatedWorkspaceItem(undefined)).toBe(false);
@@ -105,13 +85,9 @@ describe("WorkspaceShelfPanel", () => {
 
       render(<WorkspaceShelfPanel threadIdentity="123" projectId={null} />);
 
-      expect(screen.getByTestId("workspace-shelf-status")).toHaveTextContent(
-        /loading/i
-      );
+      expect(screen.getByTestId("workspace-shelf-status")).toHaveTextContent(/loading/i);
 
-      expect(
-        await screen.findByText(/No items linked to this context yet/i)
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/No items linked to this context yet/i)).toBeInTheDocument();
     });
 
     it("shows offline message when fetch fails", async () => {
@@ -120,9 +96,7 @@ describe("WorkspaceShelfPanel", () => {
 
       render(<WorkspaceShelfPanel threadIdentity="123" projectId={null} />);
 
-      expect(
-        await screen.findByText(/Failed to load shelf/i)
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/Failed to load shelf/i)).toBeInTheDocument();
     });
   });
 
@@ -266,9 +240,7 @@ describe("WorkspaceShelfPanel", () => {
       expect(await screen.findByTestId("workspace-shelf-thread-label")).toHaveTextContent(
         /thread/i
       );
-      expect(screen.getByTestId("workspace-shelf-project-label")).toHaveTextContent(
-        /project/i
-      );
+      expect(screen.getByTestId("workspace-shelf-project-label")).toHaveTextContent(/project/i);
       expect(screen.getByText("thread-doc.pdf")).toBeInTheDocument();
       expect(screen.getByText("project-doc.pdf")).toBeInTheDocument();
     });
@@ -284,9 +256,7 @@ describe("WorkspaceShelfPanel", () => {
         images: [],
       };
       const threadImgs = {
-        images: [
-          { id: "img-1", filename: "img1.png", src_url: "/media/images/img-1.png" },
-        ],
+        images: [{ id: "img-1", filename: "img1.png", src_url: "/media/images/img-1.png" }],
       };
 
       globalFetch.mockResolvedValueOnce({
@@ -332,11 +302,7 @@ describe("WorkspaceShelfPanel", () => {
 
       const onItemClick = vi.fn();
       render(
-        <WorkspaceShelfPanel
-          threadIdentity="123"
-          projectId={null}
-          onItemClick={onItemClick}
-        />
+        <WorkspaceShelfPanel threadIdentity="123" projectId={null} onItemClick={onItemClick} />
       );
 
       await user.click(await screen.findByText("thread-doc.pdf"));
@@ -345,6 +311,47 @@ describe("WorkspaceShelfPanel", () => {
         expect.objectContaining({
           kind: "document",
           item: expect.objectContaining({ id: "doc-1" }),
+        })
+      );
+    });
+
+    it("calls onItemClick with the backend image record when its tile is clicked", async () => {
+      const user = userEvent.setup();
+      globalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ documents: [] }),
+      });
+      globalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            images: [
+              {
+                id: "image-1",
+                filename: "diagram.png",
+                src_url: "/media/images/diagram.png",
+                created_at: "2026-09-20T12:00:00Z",
+                project_id: 7,
+              },
+            ],
+          }),
+      });
+
+      const onItemClick = vi.fn();
+      render(
+        <WorkspaceShelfPanel threadIdentity="123" projectId={null} onItemClick={onItemClick} />
+      );
+
+      await user.click(await screen.findByRole("img", { name: "diagram.png" }));
+
+      expect(onItemClick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "image",
+          item: expect.objectContaining({
+            id: "image-1",
+            src_url: "/media/images/diagram.png",
+            project_id: 7,
+          }),
         })
       );
     });
@@ -376,11 +383,7 @@ describe("WorkspaceShelfPanel", () => {
 
       const onItemClick = vi.fn();
       render(
-        <WorkspaceShelfPanel
-          threadIdentity="123"
-          projectId={null}
-          onItemClick={onItemClick}
-        />
+        <WorkspaceShelfPanel threadIdentity="123" projectId={null} onItemClick={onItemClick} />
       );
 
       expect(
@@ -403,17 +406,28 @@ describe("WorkspaceShelfPanel", () => {
   it("shows a saved generated Note through the normal document artifact path", async () => {
     globalFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ documents: [{
-        id: "note-1", artifact_type: "generated", title: "Guardian Notes",
-        format: "md", filename: null, src_url: null, thread_id: 42, project_id: 7,
-      }] }),
+      json: () =>
+        Promise.resolve({
+          documents: [
+            {
+              id: "note-1",
+              artifact_type: "generated",
+              title: "Guardian Notes",
+              format: "md",
+              filename: null,
+              src_url: null,
+              thread_id: 42,
+              project_id: 7,
+            },
+          ],
+        }),
     });
     globalFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ images: [] }) });
     render(<WorkspaceShelfPanel threadIdentity={42} />);
     expect(await screen.findByText("Guardian Notes.md")).toBeInTheDocument();
     expect(globalFetch).toHaveBeenCalledWith(
-      "/api/media/document-artifacts?thread_id=42", expect.any(Object)
+      "/api/media/document-artifacts?thread_id=42",
+      expect.any(Object)
     );
   });
-
 });

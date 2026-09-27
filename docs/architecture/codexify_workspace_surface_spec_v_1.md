@@ -159,6 +159,31 @@ Inspector shows the currently selected object in a lightweight contextual previe
 - dismissing Inspector does not clear Shelf or Scratchpad
 - changing selection should update Inspector without collapsing other workspace state
 
+### Workspace document and image inspection
+
+- Inspector remains read-only and selection-driven. Opening Workspace does not
+  select an item; explicitly choosing a Shelf document or image activates
+  Inspector without changing the current Chat Thread or Project.
+- Document metadata stays compact above a scrollable body. Inspector displays
+  non-empty canonical `content` first, then uploaded `parsed_text`; it may read
+  those fields from the existing document-artifact detail response when the
+  Shelf listing contains metadata only.
+- Safe PDF URLs may use the browser's embedded PDF presentation when extracted
+  text is unavailable. `Open original` remains available for supported source
+  URLs; mounting an embedded viewer does not prove that a browser rendered the
+  PDF successfully.
+- Unsupported documents with no available text show a truthful unavailable
+  preview and may offer `Open original` when the backend URL is safe. Inspector
+  does not convert or edit documents.
+- Inspector renders Shelf images from the same backend-provided `src_url`,
+  preserves aspect ratio, and keeps zoom controls available in the Workspace.
+  The image viewport scrolls when zoom exceeds its bounds.
+- Expand opens a viewport-level Codexify lightbox with bounded zoom, Escape and
+  Close controls, focus restoration, and a visible image error state. This is
+  an application overlay; it does not call the browser Fullscreen API.
+- Unsafe URL schemes are rejected before a URL reaches an image, PDF viewer, or
+  original link. Rendering errors do not mutate Shelf records or media state.
+
 ---
 
 ## Workspace Modes
@@ -250,16 +275,19 @@ Recommended V1 behavior:
 ### Default view behavior
 
 #### Dashboard
+
 - Workspace allowed by default
 - ideal home for Shelf-first experience
 - right-side drawer pattern is primary
 
 #### Guardian
+
 - Workspace available as optional companion surface
 - should not interfere with message lane readability
 - Scratchpad and Inspector are highest-value here
 
 #### Documents
+
 - Workspace available as optional secondary card
 - Inspector and Shelf are highest-value here
 - Scratchpad remains accessible but not dominant
@@ -285,14 +313,17 @@ Workspace V1 uses a tabbed internal model.
 ### Empty-state policy
 
 #### Shelf empty state
+
 - encourage pinning docs, projects, or artifacts
 - offer quick actions to add current selection
 
 #### Scratchpad empty state
+
 - blank ready-to-type state
 - optional tiny hint text
 
 #### Inspector empty state
+
 - “Select something to preview” style message
 - should not feel like an error
 
@@ -307,6 +338,7 @@ Workspace state must persist across view navigation.
 ### 1. Shell state
 
 Persist:
+
 - collapsed / peek / open / focused
 - last active tab
 - last drawer width mode if width presets are used
@@ -314,6 +346,7 @@ Persist:
 ### 2. Shelf state
 
 Persist:
+
 - pinned items
 - recent items list
 - grouping preference if added
@@ -321,6 +354,7 @@ Persist:
 ### 3. Scratchpad state
 
 Persist:
+
 - current text
 - updated timestamp
 - project binding if present
@@ -687,18 +721,23 @@ Workspace V1 is successful when:
 ## Recommended Delivery Sequence
 
 ## Phase 1
+
 Workspace shell + tabs + local persisted UI state
 
 ## Phase 2
+
 Scratchpad with autosave
 
 ## Phase 3
+
 Shelf with pinned and recent items
 
 ## Phase 4
+
 Inspector renderers for documents, images, projects, and thread-linked artifacts
 
 ## Phase 5
+
 View-level tuning for Dashboard, Guardian, and Documents
 
 ---
