@@ -1333,6 +1333,20 @@ def run_live_executor_campaign(
         campaign_path=campaign_path,
         source_context_path=None,
     )
+    locked_live = validate_role_binding_semantics(
+        parse_json_strict(campaign_path)
+    )["executor"]["live_role_binding"]
+    envelope_payload = _to_payload(envelope)
+    if (
+        ("reasoning_effort" in locked_live and locked_live["reasoning_effort"] != reasoning_effort)
+        or ("harness_id" in locked_live and locked_live["harness_id"] != envelope_payload.get("harness_id"))
+        or ("harness_version" in locked_live and locked_live["harness_version"] != envelope_payload.get("harness_version"))
+    ):
+        raise CampaignLiveExecutorError(
+            "locked Executor harness or effort differs from authorization",
+            failure_reason="locked_executor_configuration_mismatch",
+            diagnostic_stage="pre_invocation_drift",
+        )
 
     # 3. Live execution via the canonical Guardian/Pi rail.
     outcome = _run_live_attempt(
@@ -1411,6 +1425,15 @@ def run_live_executor_campaign(
         raise CampaignLiveExecutorError(
             "actual identity model does not match locked Executor binding",
             failure_reason="identity_model_mismatch",
+            diagnostic_stage="post_invocation",
+        )
+    if (
+        ("harness_id" in locked_live and actual_harness != locked_live["harness_id"])
+        or ("harness_version" in locked_live and actual_harness_version != locked_live["harness_version"])
+    ):
+        raise CampaignLiveExecutorError(
+            "actual harness differs from locked Executor binding",
+            failure_reason="locked_executor_harness_mismatch",
             diagnostic_stage="post_invocation",
         )
 

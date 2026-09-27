@@ -250,6 +250,45 @@ class CampaignLiveExecutorError(CampaignEngineError):
         }
 
 
+class CampaignLiveEvaluatorError(CampaignEngineError):
+    """Credential-safe CE-L2 failure; never carries raw model output."""
+
+    def __init__(
+        self, reason: str, *, runner_call_count: int = 0,
+        retry_count: int = 0, fallback_count: int = 0,
+        diagnostic_class: str | None = None, diagnostic_stage: str | None = None,
+        observed_execution_phases: tuple[str, ...] | None = None,
+        highest_observed_execution_phase: str | None = None,
+        effective_reasoning_effort: str | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.runner_call_count = runner_call_count
+        self.retry_count = retry_count
+        self.fallback_count = fallback_count
+        self.diagnostic_class = diagnostic_class
+        self.diagnostic_stage = diagnostic_stage
+        self.observed_execution_phases = observed_execution_phases
+        self.highest_observed_execution_phase = highest_observed_execution_phase
+        self.effective_reasoning_effort = effective_reasoning_effort
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "failure_reason": self.reason,
+            "runner_call_count": self.runner_call_count,
+            "retry_count": self.retry_count,
+            "fallback_count": self.fallback_count,
+            "diagnostic_class": self.diagnostic_class,
+            "diagnostic_stage": self.diagnostic_stage,
+            "observed_execution_phases": (
+                list(self.observed_execution_phases)
+                if self.observed_execution_phases is not None else None
+            ),
+            "highest_observed_execution_phase": self.highest_observed_execution_phase,
+            "effective_reasoning_effort": self.effective_reasoning_effort,
+        }
+
+
 def format_issues(issues: list[Any]) -> str:
     """Render a bounded issue list as one line, capped for CLI readability."""
     rendered = "; ".join(str(issue) for issue in issues[:12])

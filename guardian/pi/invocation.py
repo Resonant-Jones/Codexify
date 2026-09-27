@@ -23,7 +23,9 @@ from guardian.pi.contracts import (
     PiInvocationReceipt,
     PiProviderLane,
 )
+from guardian.pi.evaluator_result import validate_evaluator_result
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
     PI_AUTHORIZED_REASONING_EFFORTS,
     PiAuthorizedFailureClass,
     PiHarnessResultClass,
@@ -42,6 +44,7 @@ _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",
         "authorization",
+        "evaluation_result",
         "cookie",
         "credential",
         "password",
@@ -110,6 +113,7 @@ class PiAuthorizedHarnessRequest:
     # Guardian permits this value only inside an already-authorized
     # `files.write` grant.
     required_tool_name: str | None = None
+    evaluator_result_contract: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +158,7 @@ class PiHarnessRuntimeEvidence:
     required_tool_name: str | None = None
     hard_tool_selection_applied: bool | None = None
     hard_tool_selection_application_count: int | None = None
+    evaluator_result: dict[str, Any] | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -202,6 +207,7 @@ class PiLiveInvocationOutcome:
     required_tool_name: str | None = None
     hard_tool_selection_applied: bool | None = None
     hard_tool_selection_application_count: int | None = None
+    evaluator_result: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +244,7 @@ def invoke_guardian_authorized_pi(
     harness_runner: PiAuthorizedHarnessRunner | None = None,
     required_tool_name: str | None = None,
     reasoning_effort: str = "medium",
+    evaluator_result_contract: str | None = None,
 ) -> PiLiveInvocationOutcome:
     """Authorize and invoke one Pi harness call without durable side effects.
 
@@ -313,6 +320,18 @@ def invoke_guardian_authorized_pi(
             diagnostic_stage="tool_selection",
         )
 
+    if evaluator_result_contract is not None and (
+        evaluator_result_contract != PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+        or bool(write_roots)
+        or normalized_required_tool is not None
+    ):
+        return _blocked(
+            PiValidationFailureReason.MUTATION_SCOPE_VIOLATION,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="evaluation_result",
+        )
+
     if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
         return _blocked(
             PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
@@ -330,6 +349,7 @@ def invoke_guardian_authorized_pi(
         read_only=not write_roots,
         reasoning_effort=reasoning_effort,
         required_tool_name=normalized_required_tool,
+        evaluator_result_contract=evaluator_result_contract,
     )
     runner = harness_runner or _run_with_pi_adapter
     evidence: PiHarnessRuntimeEvidence | None = None
@@ -401,6 +421,18 @@ def invoke_guardian_authorized_pi(
             diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
             diagnostic_stage=("authorized_retry_suppression" if retry_mismatch else "reasoning_effort"),
         )
+
+    evaluator_result = None
+    if evaluator_result_contract is not None:
+        try:
+            evaluator_result = validate_evaluator_result(evidence.evaluator_result)
+        except (TypeError, ValueError):
+            return _blocked(
+                PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+                runner_call_count=1,
+                diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                diagnostic_stage="evaluation_result",
+            )
 
     artifact_ref = f"pi://guardian-authorized/{envelope.invocation_id}/result"
     # Bounded selection evidence (separate from the ten-field telemetry).
@@ -578,6 +610,7 @@ def invoke_guardian_authorized_pi(
             if selection_evidence is not None
             else None
         ),
+        evaluator_result=evaluator_result,
     )
 
 
@@ -606,6 +639,7 @@ def _run_with_pi_adapter(
         read_only=request.read_only,
         reasoning_effort=request.reasoning_effort,
         required_tool_name=request.required_tool_name,
+        evaluator_result_contract=request.evaluator_result_contract,
     )
     return PiHarnessRuntimeEvidence(
         status=result.status,
@@ -647,6 +681,7 @@ def _run_with_pi_adapter(
         hard_tool_selection_application_count=(
             result.hard_tool_selection_application_count
         ),
+        evaluator_result=result.evaluator_result,
     )
 
 

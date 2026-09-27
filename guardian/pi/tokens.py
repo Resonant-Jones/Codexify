@@ -55,6 +55,10 @@ PI_AUTHORIZED_REASONING_EFFORTS: frozenset[str] = frozenset(
     {"off", "minimal", "low", "medium", "high", "xhigh"}
 )
 
+# Explicit, Guardian-owned bounded result projection for the ADR-068 live
+# Evaluator. None retains the existing content-omitting authorized path.
+PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT = "campaign-evaluator-v0"
+
 # Ordered, evidence-only phases for a single authorized wrapper invocation.
 PI_AUTHORIZED_PHASE_SENTINEL = "CODEXIFY_PI_AUTHORIZED_PHASE_V1:"
 PI_AUTHORIZED_EXECUTION_PHASES: tuple[str, ...] = (
