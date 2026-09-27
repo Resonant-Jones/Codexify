@@ -83,6 +83,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Start Here
 
+For native agent harnesses, channel-versus-model identity, future Auto/explicit selection, or cross-channel thread continuity, start with [Proposed ADR-090: Native Execution Channel and Inference Routing Contract](./adr/090-native-execution-channel-and-inference-routing-contract.md) and its [Execution Channel Capability Matrix](./execution-channel-capability-matrix.md). These are architecture and external research only; they do not establish Codexify channel support or change current release truth.
+
 If you are working on Persona Studio, Persona Profile portability, revision semantics, profile-to-thread binding, connector or retrieval references, voice configuration, capability requests, or Project/participant scope, start with [ADR-082: Persona Profile Manifest and Binding Authority](./adr/082-persona-profile-manifest-and-binding-authority.md), then read the [Persona Studio Spec](./persona-studio-spec.md). Read historical C07 artifacts only as time-bounded proof; they do not define current persistence truth or environmental authority.
 
 Start here first when you need current-state interpretation rather than structural architecture: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.

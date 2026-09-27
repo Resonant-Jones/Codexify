@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note defines how Codexify represents what each provider, runtime, or model path can actually do.
+This note defines how Codexify represents what providers, models, execution channels, and their compatible combinations can do.
 
 It is contract planning only. It does not implement provider discovery, routing, validation, UI, health probes, or capability enforcement.
 
@@ -147,6 +147,24 @@ The record is conceptual only. It does not prescribe the final storage layer.
 - If a capability is missing, the router should fail closed unless the workflow explicitly allows a safe fallback.
 - If a capability is declared but not verified, the UI should make that distinction visible.
 - If a capability is verified but policy-disallowed, it should still be excluded from effective routing.
+
+## Execution Channel and Inference Route Capabilities
+
+For future multi-harness routing, a provider capability record is not an execution-channel record. Keep these related capability domains distinct:
+
+| Domain | Scope |
+|---|---|
+| Provider/model | Inference features attributed to a provider route and, where necessary, a specific model. |
+| Execution channel | Native agent-loop, tool, event, session, permission, workspace, and execution features exposed by a harness. |
+| Channel × inference route | Compatibility evidence for one channel, route, and optional model combination, including limitations. |
+| Authentication/entitlement | Credential source/type, required user or operator entitlement, scopes, and validity posture; never secret values. |
+| Environment | Host operating system, process/runtime version, local or remote placement, workspace, network, and sandbox/policy constraints. |
+
+Each domain retains declared, verified, and effective states. Vendor documentation or harness self-description is declared evidence. Verified evidence must identify the Codexify check and its scope. Effective capability is the intersection after policy, credential and entitlement, environment, and task requirements are applied.
+
+Routing evaluates a concrete binding across these domains. It must not assume one provider equals one harness, one harness equals one provider, or that a declared capability creates a valid Cartesian product of all providers, models, and channels. Only a compatible binding whose effective capabilities satisfy the requested task is eligible.
+
+The future capability model should permit separate capability records and compatibility evidence to evolve without equating execution-channel identity with provider/model identity or funding/entitlement identity. Credentials and bearer values are not part of capability records. This extension remains declarative and planning-only: it does not implement a runtime registry, channel discovery, composer selection, Auto routing, authentication, billing, or adapter behavior.
 
 ## Whoosh'd Position
 
