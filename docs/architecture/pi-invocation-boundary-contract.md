@@ -559,6 +559,11 @@ fails closed with `wrapper_protocol_failed` / `tool_selection`.
   The current DeepSeek Chat Completions contract does not document a
   parallel-tool-disable request field. Ordinary Pi sessions and other
   providers retain their existing execution posture.
+- The CE-L1 caller passes its explicitly selected effort through the
+  Campaign Engine live Executor invocation to Guardian. The historical
+  default remains `medium`; an operator-selected DeepSeek proof supplies
+  `off` explicitly. Guardian/Pi still validates the selected and effective
+  effort before accepting the invocation result.
 - Adaptive thinking and `output_config.effort` are preserved through
   the projection; the helper never rewrites `model`, `messages`,
   `system`, `thinking`, `output_config`, `tools`, `max_tokens`,

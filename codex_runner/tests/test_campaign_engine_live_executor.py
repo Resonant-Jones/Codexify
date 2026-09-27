@@ -907,7 +907,10 @@ def test_successful_invocation_occurs_exactly_once(
         )
 
     # Wrap _invoker with the fake harness side effect.
+    observed_invocations: list[dict[str, Any]] = []
+
     def _combined(**kwargs: Any) -> FakeOutcome:
+        observed_invocations.append(kwargs)
         _fake_harness(types.SimpleNamespace(cwd=pathlib.Path(kwargs["cwd"])))
         return outcome
 
@@ -921,11 +924,14 @@ def test_successful_invocation_occurs_exactly_once(
         decision=decision,
         timeout_seconds=30,
         campaign_path=campaign_path,
+        reasoning_effort="off",
     )
     monkeypatch.undo()
     # Single invocation only.
     assert result.classification == LIVE_EXECUTOR_CLASSIFICATION
     assert result.provider_calls == 1
+    assert len(observed_invocations) == 1
+    assert observed_invocations[0]["reasoning_effort"] == "off"
     assert result.commit_performed is False
     # Validate target write landed.
     assert (target / "proof_target.txt").read_text() == expected_post
@@ -2635,8 +2641,9 @@ def _make_fake_outcome(*, ok=True, receipt_id="pi-receipt-ct-test", harness_resu
     )
 
 
-def test_real_invoker_selects_explicit_medium_effort(monkeypatch) -> None:
-    """CE-L1 requests its existing bounded effort instead of ambient Pi state."""
+@pytest.mark.parametrize("effort", ["medium", "off"])
+def test_real_invoker_selects_explicit_effort(monkeypatch, effort: str) -> None:
+    """CE-L1 forwards the operator-selected effort instead of ambient Pi state."""
     from guardian.pi import invocation as guardian_invocation
 
     calls = []
@@ -2652,9 +2659,10 @@ def test_real_invoker_selects_explicit_medium_effort(monkeypatch) -> None:
         cwd=pathlib.Path("/tmp"),
         timeout_seconds=30,
         required_tool_name="write",
+        reasoning_effort=effort,
     )
     assert len(calls) == 1
-    assert calls[0]["reasoning_effort"] == "medium"
+    assert calls[0]["reasoning_effort"] == effort
     assert calls[0]["required_tool_name"] == "write"
 
 
@@ -2766,8 +2774,10 @@ def test_required_tool_full_campaign_engine_invariants(tmp_path) -> None:
         cwd,
         timeout_seconds,
         required_tool_name=None,
+        reasoning_effort="medium",
     ):
         captured["required_tool_name"] = required_tool_name
+        captured["reasoning_effort"] = reasoning_effort
         return _make_fake_outcome(ok=True)
 
     real_invoker = live_executor._invoker
@@ -2780,9 +2790,11 @@ def test_required_tool_full_campaign_engine_invariants(tmp_path) -> None:
             envelope=envelope,
             decision=decision,
             timeout_seconds=120,
+            reasoning_effort="off",
         )
         assert result.ok is True
         assert captured["required_tool_name"] == "write"
+        assert captured["reasoning_effort"] == "off"
     finally:
         live_executor._invoker = real_invoker
 
