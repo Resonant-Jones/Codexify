@@ -196,6 +196,20 @@ uses its own `X-Admin-Token` or private-preview account-admin check. Remaining
 generic remote acceptance and subject-only user construction must be narrowed
 in later runtime work; this document is not live bypass proof or enforcement.
 
+### Bounded PostgreSQL qualification
+
+At commit `1598b9dbd30a1c156d70c6d44ffe02c57afa0d72`, the first explicit
+`operator_session` consumer—the six-route Continuity operator surface—passed
+the eight PostgreSQL integration cases, the complete 67-case Continuity
+operator suite, and the focused 35-test operator/authentication regression
+against an isolated disposable PostgreSQL target. The evidence is recorded in
+[`2026-09-26-continuity-operator-auth-postgres-proof.md`](../proofs/runtime/2026-09-26-continuity-operator-auth-postgres-proof.md).
+This qualifies only that consumer and does not mean ADR-092 is fully
+runtime-enforced. Remaining operator-route migration, strict generic
+account-purpose validation, `auth_dependencies.py` bypass closure, legacy
+account-token rejection, mixed-principal enforcement, task-event SSE
+authorization, and public-ingress qualification remain deferred.
+
 ### Hosted Room completion-event observation
 
 A currently eligible Hosted Room guest may observe task lifecycle events for
