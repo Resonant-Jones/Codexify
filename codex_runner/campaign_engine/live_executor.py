@@ -105,6 +105,7 @@ class _Invoker(Protocol):
         cwd: Any,
         timeout_seconds: int,
         required_tool_name: str | None = None,
+        reasoning_effort: str = "medium",
     ) -> Any: ...
 
 
@@ -116,7 +117,9 @@ def _real_invoker(
     cwd: Any,
     timeout_seconds: int,
     required_tool_name: str | None = None,
+    reasoning_effort: str = "medium",
 ) -> Any:
+    """Pass the caller's explicit effort to the canonical Guardian/Pi rail."""
     from guardian.pi.invocation import invoke_guardian_authorized_pi
 
     return invoke_guardian_authorized_pi(
@@ -126,7 +129,7 @@ def _real_invoker(
         cwd=cwd,
         timeout_seconds=timeout_seconds,
         required_tool_name=required_tool_name,
-        reasoning_effort="medium",
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -971,6 +974,7 @@ def _run_live_attempt(
     envelope: Any,
     decision: Any,
     timeout_seconds: int,
+    reasoning_effort: str = "medium",
 ) -> Any:
     """Internal single-call invocation. Returns the
     :class:`PiLiveInvocationOutcome` from the canonical rail.
@@ -984,6 +988,7 @@ def _run_live_attempt(
         cwd=target_path,
         timeout_seconds=timeout_seconds,
         required_tool_name=preparation.required_tool_name,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -1291,13 +1296,16 @@ def run_live_executor_campaign(
     decision: Any,
     timeout_seconds: int,
     campaign_path: Path | None = None,
+    reasoning_effort: str = "medium",
 ) -> LiveExecutorRunResult:
     """Execute one Guardian-authorized live Executor Campaign run.
 
     Re-derives every material value, fails closed on drift, invokes the
     canonical Guardian/Pi rail exactly once, records one schema-valid
     live Attempt and one non-independent interim Evaluation, publishes
-    bounded evidence, and returns the structured run envelope.
+    bounded evidence, and returns the structured run envelope. The caller
+    may select a bounded reasoning effort for this invocation; Guardian/Pi
+    validates the selected and effective values before accepting a result.
     """
 
     if not isinstance(preparation, LiveExecutorPreparation):
@@ -1332,6 +1340,7 @@ def run_live_executor_campaign(
         envelope=envelope,
         decision=decision,
         timeout_seconds=timeout_seconds,
+        reasoning_effort=reasoning_effort,
     )
     outcome_payload: dict[str, Any] = _to_payload(outcome)
 
