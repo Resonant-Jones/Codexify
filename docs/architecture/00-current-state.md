@@ -125,8 +125,9 @@ This file is authoritative for:
   UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
   UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
   UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
-  UMS-05C9 ORDINARY MEMORY CONTENT CORRECTION: AUTHORIZED
-  UMS-05C10+: NOT AUTHORIZED
+  UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: AUTHORIZED
+  UMS-05C10 REVIEW / LIFECYCLE MUTATION WRITERS: NOT AUTHORIZED
+  UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
   UMS-06+: NOT AUTHORIZED
@@ -1043,6 +1044,35 @@ This file is authoritative for:
   implement review actions or retire/restore services — those slices
   remain blocked on this prerequisite having landed. See the
   [UMS-05C8 ordinary-memory governance persistence proof](./proofs/runtime/2026-09-25-ums05c8-ordinary-memory-governance-persistence-proof.md).
+
+- **UMS-05C7 (Remaining Memory Vault mutation authority revalidation,
+  re-run 2026-09-27, qualified on `feature/ums-continued`)**: the
+  earlier 2026-09-25 C7 classification is superseded. Ordinary-memory
+  `approve`/`reject`/`dispute` and `retire`/`restore` are now
+  `CURRENT_PERSISTENCE_SUFFICIENT`, because UMS-05C8 gave
+  `memory_records` the typed `review_state`
+  (`pending | approved | rejected | disputed`) and `lifecycle_state`
+  (`active | dormant | retired`) canonical authority, both NOT NULL,
+  CHECK-constrained, and carried by `account-export.v4`. Ordinary-memory
+  **content correction** is the one remaining category that is
+  `NEW_CANONICAL_PERSISTENCE_REQUIRED`: `memory_provenance` has no
+  typed prior-content column (every typed column is source identity),
+  and its `extensions` field is explicitly non-authority and may not
+  become a content-version store, so prior canonical text is not
+  durably recoverable after an in-place correction. The repository
+  contains no ordinary-memory revision family — only
+  `personal_fact_revisions` (with typed `old_value`/`new_value`) and
+  `persona_profile_revisions`. All six Personal Facts mutations are
+  `CURRENT_PERSISTENCE_SUFFICIENT_WITH_SPECIALIZED_DELEGATION` against
+  the existing `personal_facts.status` / `is_active` /
+  `personal_fact_revisions` authority, with no second writable truth.
+  The sole authorized successor is therefore **UMS-05C9 Ordinary Memory
+  Content Revision Persistence + UMS-04 Portability**, not content
+  correction implementation. Review/lifecycle mutation writers stay
+  `NOT AUTHORIZED` despite being persistence-sufficient. No runtime,
+  schema, route, or token was added by C7. Branch-local only; not merged
+  into the current `main`, not deployed, not a release claim. See the
+  [UMS-05C7 remaining mutation authority revalidation proof](./proofs/runtime/2026-09-27-ums05c7-remaining-mutation-authority-revalidation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
