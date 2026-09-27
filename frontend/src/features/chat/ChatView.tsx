@@ -14,6 +14,7 @@ import React, {
 import ContextMenu from "@/components/ui/ContextMenu";
 import { CHAT_LANE_INLINE_PADDING, CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 import ChatBubble from "@/features/chat/components/ChatBubble";
+import GuardianPresence from "@/features/chat/components/GuardianPresence";
 import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import type {
@@ -34,6 +35,8 @@ import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import { resolveMessageLaneBottomPad } from "@/components/persona/layout/mobileBottomEdgeContract";
+import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
+import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -229,6 +232,7 @@ export function ChatView({
   onLoadOlderMessages,
   reloadVersion: _reloadVersion = 0,
   completionState,
+  providerRuntimeState = null,
   endCompletion: _endCompletion,
   className,
   bottomPadding = 0,
@@ -261,6 +265,7 @@ export function ChatView({
   onLoadOlderMessages?: () => Promise<unknown> | unknown;
   reloadVersion?: number;
   completionState: CompletionState;
+  providerRuntimeState?: ProviderRuntimeState | null;
   endCompletion: () => void;
   className?: string;
   bottomPadding?: number;
@@ -326,6 +331,13 @@ export function ChatView({
 
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
+  const activeRuntimeVisualState =
+    isCompletingForThread && completionState.requestState
+      ? mapRuntimeToVisualState(
+          completionState.requestState,
+          providerRuntimeState ?? undefined
+        )
+      : null;
 
   const activeInferenceState = useMemo(() => {
     if (inferenceState.threadId === threadId) {
@@ -977,7 +989,37 @@ export function ChatView({
                       messageAudioStatus === "ready" &&
                       Boolean(messageAudioUrl)
                     ? "playing"
-                    : "idle";
+                  : "idle";
+            const renderedMessageBubble = (
+              <ChatBubble
+                message={{
+                  id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
+                  authorId: message.role === "user" ? "me" : "bot",
+                  authorName:
+                    message.role === "user"
+                      ? humanAuthorName
+                      : assistantAuthorName,
+                  content: message.content ?? "",
+                  createdAt: normalizeMessageTimestamp(message.created_at),
+                  attachments: message.attachments?.map((attachment) => ({
+                    id: attachment.id,
+                    kind: attachment.kind,
+                    src: attachment.src_url,
+                    name: attachment.filename,
+                  })),
+                  execution: message.execution,
+                }}
+                isGuardian={message.role !== "user"}
+                showPlay={showPlay}
+                playing={playState === "playing"}
+                playState={playState}
+                isPhoneShell={mobileShellProfile.active}
+                onPlay={() => {
+                  if (!Number.isFinite(messageId)) return;
+                  handlePlayClick(message);
+                }}
+              />
+            );
 
             return (
                 <div
@@ -1002,34 +1044,16 @@ export function ChatView({
                     {humanAuthorName}
                   </div>
                 ) : null}
-                <ChatBubble
-                  message={{
-                    id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
-                    authorId: message.role === "user" ? "me" : "bot",
-                    authorName:
-                      message.role === "user"
-                        ? humanAuthorName
-                        : assistantAuthorName,
-                    content: message.content ?? "",
-                    createdAt: normalizeMessageTimestamp(message.created_at),
-                    attachments: message.attachments?.map((attachment) => ({
-                      id: attachment.id,
-                      kind: attachment.kind,
-                      src: attachment.src_url,
-                      name: attachment.filename,
-                    })),
-                    execution: message.execution,
-                  }}
-                  isGuardian={message.role !== "user"}
-                  showPlay={showPlay}
-                  playing={playState === "playing"}
-                  playState={playState}
-                  isPhoneShell={mobileShellProfile.active}
-                  onPlay={() => {
-                    if (!Number.isFinite(messageId)) return;
-                    handlePlayClick(message);
-                  }}
-                />
+                {message.role === "user" ? (
+                  renderedMessageBubble
+                ) : (
+                  <div className="flex min-w-0 max-w-full items-end gap-[var(--card-pad)]">
+                    <GuardianPresence guardianName={guardianName} />
+                    <div className="min-w-0 flex-1">
+                      {renderedMessageBubble}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1053,18 +1077,24 @@ export function ChatView({
               className="w-full flex justify-start min-w-0"
               data-testid="chat-streaming-draft"
             >
-              <div className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 opacity-90">
-                <ChatBubble
-                  message={{
-                    id: `${threadId}-streaming-draft`,
-                    authorId: "bot",
-                    authorName: guardianName || "Guardian",
-                    content: streamingDraftText,
-                    createdAt: streamingDraft?.updatedAt ?? null,
-                  }}
-                  isGuardian
-                  isPhoneShell={mobileShellProfile.active}
+              <div className="flex min-w-0 max-w-full items-end gap-[var(--card-pad)]">
+                <GuardianPresence
+                  guardianName={guardianName}
+                  visualState={activeRuntimeVisualState}
                 />
+                <div className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 flex-1 opacity-90">
+                  <ChatBubble
+                    message={{
+                      id: `${threadId}-streaming-draft`,
+                      authorId: "bot",
+                      authorName: guardianName || "Guardian",
+                      content: streamingDraftText,
+                      createdAt: streamingDraft?.updatedAt ?? null,
+                    }}
+                    isGuardian
+                    isPhoneShell={mobileShellProfile.active}
+                  />
+                </div>
               </div>
             </div>
           ) : null}
@@ -1074,19 +1104,27 @@ export function ChatView({
               className="w-full flex justify-start"
               data-testid="chat-completing-indicator"
             >
-              <div
-                className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 rounded-[22px] px-4 py-3 shadow-sm"
-                style={{
-                  background:
-                    "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
-                  color: "var(--text)",
-                }}
-              >
-                <InferenceStatusBanner
-                  state={activeInferenceState}
-                  onCancel={onCancelInference}
-                  onSwitchToFast={onSwitchToFast}
-                />
+              <div className="flex min-w-0 max-w-full items-end gap-[var(--card-pad)]">
+                {!showStreamingDraft && isCompletingForThread ? (
+                  <GuardianPresence
+                    guardianName={guardianName}
+                    visualState={activeRuntimeVisualState}
+                  />
+                ) : null}
+                <div
+                  className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 flex-1 rounded-[22px] px-4 py-3 shadow-sm"
+                  style={{
+                    background:
+                      "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <InferenceStatusBanner
+                    state={activeInferenceState}
+                    onCancel={onCancelInference}
+                    onSwitchToFast={onSwitchToFast}
+                  />
+                </div>
               </div>
             </div>
           ) : null}
