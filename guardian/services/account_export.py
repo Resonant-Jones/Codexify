@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "account-export.v3"
 STAGED_MANIFEST_SCHEMA_VERSION = "account-export.v4"
+#: UMS-05C9. The canonical Unified Memory graph gained a sixth family,
+#: ``memory_revisions``. Adding an entity family changes canonical payload
+#: semantics, so this is a NEW schema version. v4 semantics are preserved
+#: exactly: v4 remains the five-family canonical graph and keeps its
+#: ``restore_mode: unsupported`` posture.
+REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v5"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -155,6 +161,23 @@ STAGED_PAYLOAD_FAMILIES = tuple(entry[0] for entry in STAGED_PAYLOAD_ORDER)
 UNIFIED_MEMORY_PAYLOAD_FAMILIES = tuple(
     entry[0] for entry in UNIFIED_MEMORY_PAYLOAD_ORDER
 )
+
+#: UMS-05C9. v5 is the v4 canonical graph plus the ordinary-memory content
+#: revision family. ``memory_revisions`` is appended last so a consumer that
+#: walks families in order always has its parent ``memory_records`` first.
+REVISION_MEMORY_PAYLOAD_ORDER = UNIFIED_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_revisions",
+        "entities/memory_revisions.json",
+        "fetch_account_export_memory_revisions_for_user",
+    ),
+)
+REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in REVISION_MEMORY_PAYLOAD_ORDER
+)
+FULL_PAYLOAD_ORDER = PAYLOAD_ORDER + REVISION_MEMORY_PAYLOAD_ORDER
+FULL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in FULL_PAYLOAD_ORDER)
+
 HISTORICAL_PAYLOAD_ORDER = PAYLOAD_ORDER[:-3]
 HISTORICAL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in HISTORICAL_PAYLOAD_ORDER)
 PAYLOAD_ORDER_BY_SCHEMA = {
@@ -162,10 +185,12 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     "account-export.v2": HISTORICAL_PAYLOAD_ORDER,
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
+    REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
+    REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
 }
 BINARY_FAMILIES = {
     "uploaded_documents",
@@ -456,6 +481,15 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "extensions",
         "created_at",
     },
+    "memory_revisions": {
+        "revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_text_content",
+        "new_text_content",
+        "created_at",
+    },
 }
 
 _UNIFIED_MEMORY_ID_FIELDS = {
@@ -464,6 +498,7 @@ _UNIFIED_MEMORY_ID_FIELDS = {
     "memory_records": "memory_id",
     "memory_persona_links": "link_id",
     "memory_provenance": "provenance_id",
+    "memory_revisions": "revision_id",
 }
 
 _UNIFIED_MEMORY_SORT_KEYS = {
@@ -474,6 +509,7 @@ _UNIFIED_MEMORY_SORT_KEYS = {
         "binding_id",
     ),
     "memory_records": ("memory_id",),
+    "memory_revisions": ("memory_id", "revision_number", "revision_id"),
     "memory_persona_links": (
         "memory_id",
         "persona_subject_id",
@@ -493,8 +529,15 @@ def _validate_unified_memory_export(
     *,
     user_id: str,
 ) -> None:
-    """Fail closed unless the staged v4 graph is account-scoped and closed."""
+    """Fail closed unless the canonical graph is account-scoped and closed.
+
+    A family is validated only when the archive actually carries it.
+    ``memory_revisions`` is a v5-only family: a v4 archive omits it and must
+    not be rejected for that omission.
+    """
     for family, required_fields in _UNIFIED_MEMORY_REQUIRED_FIELDS.items():
+        if family not in rows_by_family:
+            continue
         seen: set[str] = set()
         identity_field = _UNIFIED_MEMORY_ID_FIELDS[family]
         for row in rows_by_family[family]:
@@ -563,6 +606,16 @@ def _validate_unified_memory_export(
         ):
             raise RuntimeError("memory_persona_link_export_graph_mismatch")
 
+    # UMS-05C9: every revision must belong to the exporting account and to a
+    # memory present in this same archive. A v4 archive has no revision
+    # family and is skipped entirely.
+    for row in rows_by_family.get("memory_revisions", ()):
+        if (
+            _identity(row.get("user_id")) != user_id
+            or _identity(row.get("memory_id")) not in memories_by_id
+        ):
+            raise RuntimeError("memory_revision_export_graph_mismatch")
+
     provenance_memory_ids: set[str] = set()
     for row in rows_by_family["memory_provenance"]:
         memory_id = _identity(row.get("memory_id"))
@@ -594,7 +647,11 @@ def _validate_unified_memory_export(
     if set(memories_by_id) - provenance_memory_ids:
         raise RuntimeError("memory_provenance_export_missing")
 
+    # Deterministic canonical ordering. Families absent from this archive
+    # (a v4 archive has no memory_revisions) are skipped.
     for family, sort_keys in _UNIFIED_MEMORY_SORT_KEYS.items():
+        if family not in rows_by_family:
+            continue
         rows_by_family[family].sort(
             key=lambda row, keys=sort_keys: tuple(
                 _identity(row.get(key)) for key in keys
@@ -897,7 +954,24 @@ def _build_manifest(
         )
     )
 
-    if schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+    if schema_version == REVISION_MANIFEST_SCHEMA_VERSION:
+        # v5 is the six-family canonical graph. Unlike v4 it is restorable.
+        compatibility = {
+            "reader": "account_export.v5",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v5 serialization: the v4 five-family canonical Unified Memory graph plus the memory_revisions family.",
+            "memory_records.text_content remains the current content authority; memory_revisions preserves exact prior/new text transitions.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
         compatibility = {
             "reader": "account_export.v4",
             "restore_mode": "unsupported",
@@ -967,7 +1041,10 @@ def build_account_export_zip(
     resolved_schema_version = _resolve_export_schema_version(schema_version)
     payload_order = EXPORT_PAYLOAD_ORDER_BY_SCHEMA[resolved_schema_version]
     payload_families = tuple(entry[0] for entry in payload_order)
-    include_unified_memory = resolved_schema_version == STAGED_MANIFEST_SCHEMA_VERSION
+    include_unified_memory = resolved_schema_version in (
+        STAGED_MANIFEST_SCHEMA_VERSION,
+        REVISION_MANIFEST_SCHEMA_VERSION,
+    )
     rows_by_family = _load_rows_by_family(
         db,
         user,

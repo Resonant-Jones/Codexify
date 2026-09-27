@@ -360,14 +360,17 @@ def test_default_and_explicit_v3_remain_v3(tmp_path: Path, schema_version: str |
 
 
 def test_unsupported_export_schema_fails_closed(tmp_path: Path):
+    # UMS-05C9 introduced ``account-export.v5`` as the supported six-family
+    # canonical graph, so the unknown-version example is now a later token.
+    # The fail-closed guardrail itself is unchanged.
     with pytest.raises(
         RuntimeError,
-        match="unsupported_account_export_schema_version:account-export.v5",
+        match="unsupported_account_export_schema_version:account-export.v99",
     ):
         _archive_bytes(
             StagedExportDB(),
             tmp_path,
-            schema_version="account-export.v5",
+            schema_version="account-export.v99",
         )
 
 
