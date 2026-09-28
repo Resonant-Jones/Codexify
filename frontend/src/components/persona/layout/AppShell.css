@@ -221,3 +221,183 @@
 .material-slider:focus-visible {
   outline: none;
 }
+
+/* The compositor only allocates space. The existing AppShell stays mounted in
+   its pane, so its wallpaper, cards, navigation, and view state remain intact. */
+.unified-desktop {
+  --desktop-divider-width: 12px;
+  --desktop-codexify-min: 420px;
+  --desktop-browser-min: 320px;
+  position: relative;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.unified-desktop__codexify {
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  container: codexify-pane / inline-size;
+}
+
+.unified-desktop[data-browser-open="true"] .unified-desktop__codexify {
+  min-width: var(--desktop-codexify-min);
+}
+
+.unified-desktop__codexify > .codexify-app-viewport {
+  width: 100%;
+  height: 100%;
+  min-width: 0 !important;
+}
+
+.unified-desktop__open {
+  position: absolute;
+  z-index: 30;
+  top: 50%;
+  right: var(--edge-chrome);
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--shell-gap) / 2);
+  transform: translateY(-50%);
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-tile);
+  background: var(--surface-sheet);
+  color: var(--text);
+  box-shadow: 0 4px 18px color-mix(in oklab, var(--panel-bg) 35%, transparent);
+  cursor: pointer;
+}
+
+.unified-desktop__open:hover,
+.unified-desktop__open:focus-visible {
+  background: var(--chip-bg);
+}
+
+.unified-desktop__divider {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 var(--desktop-divider-width);
+  min-height: 0;
+  cursor: col-resize;
+  touch-action: none;
+  background: color-mix(in oklab, var(--panel-border) 45%, transparent);
+}
+
+.unified-desktop__divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--panel-border-strong);
+}
+
+.unified-desktop__divider:hover::after,
+.unified-desktop__divider:focus-visible::after {
+  background: var(--accent-strong);
+}
+
+.unified-desktop__browser {
+  display: flex;
+  flex-basis: 0;
+  flex-shrink: 1;
+  flex-direction: column;
+  min-width: var(--desktop-browser-min);
+  min-height: 0;
+  margin: var(--edge-chrome);
+  margin-left: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--viewport-radius);
+  background: var(--surface-sheet);
+  color: var(--text);
+}
+
+.unified-desktop__browser-chrome {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: calc(var(--shell-gap) / 2);
+  min-width: 0;
+  padding: calc(var(--shell-gap) / 2);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.unified-desktop__location {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--chip-border);
+  border-radius: var(--radius-micro);
+  background: var(--chip-bg);
+  color: var(--muted);
+}
+
+.unified-desktop__close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-micro);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.unified-desktop__close:hover,
+.unified-desktop__close:focus-visible {
+  background: var(--chip-bg);
+}
+
+.unified-desktop__browser-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--shell-gap) / 2);
+  min-height: 0;
+  padding: var(--card-pad);
+  text-align: center;
+  color: var(--muted);
+}
+
+.unified-desktop__browser-content h2 {
+  color: var(--text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+@container codexify-pane (max-width: 850px) {
+  .codexify-shell__top-chrome {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .codexify-shell__top-chrome > [data-testid="app-shell-nav-anchor"],
+  .codexify-shell__top-chrome > [data-testid="app-shell-utility-cluster"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .codexify-dock,
+  .codexify-dock__rail {
+    max-width: 100% !important;
+  }
+
+  .codexify-dock__rail {
+    overflow-x: auto;
+  }
+}

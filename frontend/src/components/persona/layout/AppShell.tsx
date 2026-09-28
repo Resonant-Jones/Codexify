@@ -47,6 +47,7 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
+import UnifiedDesktopCompositor from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -3434,8 +3435,9 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <UnifiedDesktopCompositor enabled={!isPhoneShell} shellStyle={styleVars as React.CSSProperties}>
     <div
-      className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
+      className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
@@ -4291,5 +4293,6 @@ export default function AppShell({
         />
       )}
     </div>
+    </UnifiedDesktopCompositor>
   );
 }
