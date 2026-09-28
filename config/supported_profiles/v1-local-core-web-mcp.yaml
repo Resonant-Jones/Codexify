@@ -52,6 +52,7 @@ route_posture:
     - notion_setup
     - google_drive_setup
   quarantined:
+    - llm_overrides
     - neo
     - iddb
     - backfill

@@ -57,6 +57,7 @@ route_posture:
     - coding_work_orders
     - command_bus
   quarantined:
+    - llm_overrides
     - neo
     - imprint
     - system_prompt

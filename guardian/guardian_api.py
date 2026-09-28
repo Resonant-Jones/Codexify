@@ -524,8 +524,6 @@ def _retrieval_proof_state(
     )
 
 
-from backend import llm_overrides
-
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import (
     account_observability,
@@ -550,6 +548,7 @@ from guardian.routes import (
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
+from guardian.routes import llm_overrides
 from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
 from guardian.routes import hosted_room_guest, hosted_rooms

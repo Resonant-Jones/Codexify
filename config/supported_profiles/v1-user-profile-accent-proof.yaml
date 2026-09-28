@@ -53,6 +53,7 @@ route_posture:
     - google_drive_setup
     - user_profile
   quarantined:
+    - llm_overrides
     - neo
     - iddb
     - backfill
