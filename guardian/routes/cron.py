@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from guardian.core.db import GuardianDB
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.core.egress import require_egress_allowed
 from guardian.cron.models import (
     CronJobCreateRequest,
@@ -24,7 +24,7 @@ from guardian.db import models as db_models
 router = APIRouter(
     prefix="/api/cron",
     tags=["Cron"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 _db: GuardianDB | None = None

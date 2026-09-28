@@ -32,24 +32,24 @@ from guardian.agents.work_order_store import (
 from guardian.agents.work_orders import WORK_ORDER_STATUSES, WorkOrderCreate
 from guardian.agents.worktree_lease_store import WorktreeLeaseStore
 from guardian.command_bus.store import CommandBusStore
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.db.models import WorkOrderResultReceipt
 from guardian.protocol_tokens import ErrorCode
 
 router = APIRouter(
     prefix="/api/coding/work-orders",
     tags=["Coding Work Orders"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 campaign_runner_router = APIRouter(
     prefix="/api/coding/campaign-runner",
     tags=["Campaign Runner"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 orchestrator_router = APIRouter(
     prefix="/api/coding/orchestrator",
     tags=["Coding Orchestrator"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 _store = WorkOrderStore(db=None)

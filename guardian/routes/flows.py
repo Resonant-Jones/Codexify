@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from guardian.cognition.system_profiles.resolver import (
     persist_flow_profile_override,
 )
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.flows.compiler import compile_flow
 from guardian.flows.runner import run_flow
 from guardian.flows.spec import FlowRun, FlowSpec
@@ -19,7 +19,7 @@ from guardian.flows.spec import FlowRun, FlowSpec
 router = APIRouter(
     prefix="/api/flows",
     tags=["Flows"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 _FLOWS: dict[str, FlowSpec] = {}

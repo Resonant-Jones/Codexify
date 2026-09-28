@@ -26,14 +26,17 @@ from guardian.agents.coding_agent_contracts import (
 )
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
-from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.core.dependencies import (
+    get_current_user,
+    require_api_key,
+    require_operator_auth,
+)
 from guardian.protocol_tokens import AcceptanceStatus
 from guardian.queue import task_events
 
 router = APIRouter(
     prefix="/api/agents",
     tags=["Agent Orchestration"],
-    dependencies=[Depends(require_api_key)],
 )
 chat_router = APIRouter(
     tags=["Agent Orchestration"],
@@ -134,7 +137,7 @@ def build_coding_execution_task_payload(
     return payload
 
 
-@router.post("/plans")
+@router.post("/plans", dependencies=[Depends(require_operator_auth)])
 async def create_plan(body: AgentPlanRequest) -> dict[str, Any]:
     spec = {
         "prompt": body.prompt,
@@ -150,7 +153,7 @@ async def create_plan(body: AgentPlanRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/deployments")
+@router.post("/deployments", dependencies=[Depends(require_operator_auth)])
 async def create_deployment(body: AgentDeploymentRequest) -> dict[str, Any]:
     spec = dict(body.spec or {})
     spec_hash = body.spec_hash or _stable_hash(spec)
@@ -164,7 +167,10 @@ async def create_deployment(body: AgentDeploymentRequest) -> dict[str, Any]:
     return {"ok": True, "deployment": deployment}
 
 
-@router.post("/deployments/{deployment_id}/runs")
+@router.post(
+    "/deployments/{deployment_id}/runs",
+    dependencies=[Depends(require_operator_auth)],
+)
 async def start_run(
     deployment_id: str,
     body: AgentRunStartRequest = Body(default_factory=AgentRunStartRequest),
@@ -210,7 +216,7 @@ async def start_run(
     return {"ok": True, "run": run}
 
 
-@router.post("/coding/execute")
+@router.post("/coding/execute", dependencies=[Depends(require_api_key)])
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
     current_user: str | None = Depends(get_current_user),
@@ -375,7 +381,7 @@ async def execute_coding_task(
     }
 
 
-@router.post("/pi-invocation/dry-run")
+@router.post("/pi-invocation/dry-run", dependencies=[Depends(require_operator_auth)])
 async def pi_invocation_dry_run(
     body: dict[str, Any],
 ) -> dict[str, Any]:
@@ -444,7 +450,7 @@ def _safe_permission_summary(envelope: Any) -> str | None:
         return None
 
 
-@router.post("/runs/{run_id}/cancel")
+@router.post("/runs/{run_id}/cancel", dependencies=[Depends(require_api_key)])
 async def cancel_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
@@ -462,7 +468,7 @@ async def cancel_run(
     return {"ok": True, "run_id": run_id, "status": "canceled"}
 
 
-@router.get("/runs/{run_id}/coding")
+@router.get("/runs/{run_id}/coding", dependencies=[Depends(require_api_key)])
 async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
@@ -474,7 +480,7 @@ async def get_coding_run(
     return {"ok": True, "run": run}
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", dependencies=[Depends(require_api_key)])
 async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
@@ -486,7 +492,7 @@ async def get_run(
     return {"ok": True, "run": run}
 
 
-@router.get("/runs/{run_id}/events")
+@router.get("/runs/{run_id}/events", dependencies=[Depends(require_api_key)])
 async def stream_run_events(
     request: Request,
     run_id: str,
@@ -535,7 +541,9 @@ async def stream_run_events(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.get("/chat/{thread_id}/agent-runs")
+@router.get(
+    "/chat/{thread_id}/agent-runs", dependencies=[Depends(require_api_key)]
+)
 async def list_thread_runs(thread_id: int) -> dict[str, Any]:
     runs = _store.list_runs_for_thread(thread_id)
     return {"ok": True, "thread_id": thread_id, "runs": runs}
