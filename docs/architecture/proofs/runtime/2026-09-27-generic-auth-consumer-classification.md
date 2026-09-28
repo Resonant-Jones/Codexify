@@ -339,3 +339,87 @@ This correction supersedes the `llm_overrides` mounting claim in the route table
 All five current supported-profile manifests explicitly list `llm_overrides` as `quarantined`. The route is therefore **not mounted in a supported profile**, including the local Beta, tester, private-preview, and test-continuity profiles. An unprofiled legacy application bootstrap can mount the same canonical router behind its existing chat-route flag; this is not a supported-profile or Beta exposure claim. The focused route test proves quarantine under every declared profile, compatibility-router identity, and the canonical route contract with operator authentication in isolation.
 
 The operator classification remains **64** registrations and the original frozen operator migration inventory remains **56 registrations across 12 files**. This prerequisite resolves **4 registrations in 1 canonical file** separately as quarantined operator routes. The **remaining migration qualification set is 52 registrations across 11 files**: `guardian/guardian_api.py` (2), `guardian/routes/agent_orchestration.py` (4), `guardian/routes/backfill.py` (1), `guardian/routes/coding_work_orders.py` (13), `guardian/routes/cron.py` (7), `guardian/routes/delegations.py` (4), `guardian/routes/flows.py` (9), `guardian/routes/graph.py` (1), `guardian/routes/guardian_delegations.py` (5), `guardian/routes/obsidian.py` (4), and `guardian/routes/worktrees.py` (2). This 52-registration set includes its previously classified unmounted and default-off declarations; it is a migration inventory, not a claim that all 52 are mounted. The broader operator migration remains uncommitted and unqualified. Other auth classes, the 379-registration classification total, and `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` are unchanged.
+
+### 2026-09-28 activation-state freeze for the 52 declared operator migrations
+
+**PASS, static topology classification only.** At baseline `91b437f87e567a55fbcf539376d0450f83ae24ec` on `codex/restore-conversation-import-pipeline`, the pending 52-registration operator-auth migration is still uncommitted. The inventory is **52 declarations in 11 files**, not 52 simultaneously mounted routes. Four canonical `guardian/routes/llm_overrides.py` operator declarations remain separate and quarantined by all five supported profiles: **52 + 4 = 56** total declarations in the frozen operator migration accounting. No route, profile, feature flag, authentication dependency, or release-support claim changed in this activation freeze.
+
+`guardian/guardian_api.py::_include_router` is the router bootstrap authority. It checks the active supported-profile route status before the route flag: `quarantined` skips inclusion; `enabled` includes when the flag permits; `internal_only` includes when the flag permits but hides the route from OpenAPI. Its default flag value is `true` unless a call supplies `default_enabled=False`. `CODEXIFY_BETA_CORE_ONLY=true` can additionally suppress non-core routes, subject to the existing `internal_only` exception. The classifications below describe a possible current intended supported-profile topology with its existing flags in their permitting posture, not a claim that every deployment currently runs every enabled route. Direct `@app.get` registrations are mounted without this router-label gate. Profile quarantine takes precedence over an enabled environment flag.
+
+The profile shorthand is **L** = `v1-local-core-web-mcp`, **U** = `v1-user-profile-accent-proof`, **T** = `test-continuity`, **F** = `v1-friends-family-web`, and **P** = `v1-whooshd-deepseek-web`. “All” means these five current manifests. A profile's `internal_only` status is a mounted, schema-hidden topology, not a Beta Supported claim. No supported profile enables the rows marked `mounted_default_off`; some have an unprofiled legacy bootstrap path, which does not change the supported-profile classification. Isolated router tests do not by themselves establish an accepted supported-profile enablement.
+
+| Source file | Declared | `mounted_enabled` | `mounted_default_off` | `unmounted_declared` | Canonical inclusion / existing gate | Supported-profile treatment |
+|---|---:|---:|---:|---:|---|---|
+| `guardian/guardian_api.py` | 2 | 2 | 0 | 0 | Direct `@app.get` on the canonical app; no router-label flag | Registered in the app for all profiles; separate middleware and runtime policy still apply |
+| `guardian/routes/agent_orchestration.py` | 4 | 4 | 0 | 0 | `_include_router("agent_orchestration")` → `app.include_router(agent_orchestration.router)`; `CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES`, default true | Enabled L/U; quarantined T/F/P |
+| `guardian/routes/backfill.py` | 1 | 0 | 1 | 0 | `_include_router("backfill")` → `app.include_router(backfill.router)`; `CODEXIFY_ENABLE_BACKFILL_ROUTES`, default true | Quarantined All |
+| `guardian/routes/coding_work_orders.py` | 13 | 13 | 0 | 0 | `_include_router("coding_work_orders")` → `app.include_router` of `router`, `orchestrator_router`, `campaign_runner_router`; `CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES`, default true | Internal only All; mounted but hidden from OpenAPI |
+| `guardian/routes/cron.py` | 7 | 0 | 7 | 0 | `_include_router("cron")` → `app.include_router(cron_routes.router)`; `CODEXIFY_ENABLE_CRON_ROUTES`, default true | Quarantined All |
+| `guardian/routes/delegations.py` | 4 | 0 | 4 | 0 | `_include_router("delegations")` → `app.include_router(delegations.router)`; `CODEXIFY_ENABLE_DELEGATION_ROUTES`, default true | Unlisted, therefore quarantined All |
+| `guardian/routes/flows.py` | 9 | 0 | 9 | 0 | `_include_router("flows")` → `app.include_router(flows_router)`; `CODEXIFY_ENABLE_FLOW_ROUTES`, default true | Quarantined All |
+| `guardian/routes/graph.py` | 1 | 0 | 0 | 1 | Declares `router.get("/graph")`; canonical app does not include this router | No supported-profile mount; duplicate of the separately mounted `guardian_api.py::get_graph` path |
+| `guardian/routes/guardian_delegations.py` | 5 | 0 | 5 | 0 | `_include_router("guardian_delegations")` → `app.include_router(guardian_delegations.router)`; `CODEXIFY_ENABLE_GUARDIAN_DELEGATIONS_ROUTES`, default **false** | Unlisted, therefore quarantined All; flag also defaults off |
+| `guardian/routes/obsidian.py` | 4 | 4 | 0 | 0 | `_include_router("obsidian")` → `app.include_router(obsidian_router)`; `CODEXIFY_ENABLE_OBSIDIAN_ROUTES`, default true | Enabled All |
+| `guardian/routes/worktrees.py` | 2 | 0 | 2 | 0 | `_include_router("worktrees")` → `app.include_router(worktrees_router)`; `CODEXIFY_ENABLE_WORKTREE_ROUTES`, default **false** | Unlisted, therefore quarantined All; flag also defaults off |
+| **Total** | **52** | **23** | **28** | **1** | | |
+
+Each registration below inherits its source file's exact inclusion path, feature/config gate, and supported-profile treatment from the table above. The path is the declared full route path; the class is assigned to the declaration, not inferred from a successful HTTP response.
+
+| Source file | HTTP method and declared path | Handler | Activation class |
+|---|---|---|---|
+| `guardian/guardian_api.py` | `GET /api/events` | `stream_events` | `mounted_enabled` |
+| `guardian/guardian_api.py` | `GET /graph` | `get_graph` | `mounted_enabled` |
+| `guardian/routes/agent_orchestration.py` | `POST /api/agents/plans` | `create_plan` | `mounted_enabled` |
+| `guardian/routes/agent_orchestration.py` | `POST /api/agents/deployments` | `create_deployment` | `mounted_enabled` |
+| `guardian/routes/agent_orchestration.py` | `POST /api/agents/deployments/{deployment_id}/runs` | `start_run` | `mounted_enabled` |
+| `guardian/routes/agent_orchestration.py` | `POST /api/agents/pi-invocation/dry-run` | `pi_invocation_dry_run` | `mounted_enabled` |
+| `guardian/routes/backfill.py` | `GET /backfill/status` | `backfill_status` | `mounted_default_off` |
+| `guardian/routes/coding_work_orders.py` | `POST /api/coding/campaign-runner/goals` | `create_campaign_goal` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/campaign-runner/goals/{goal_id}` | `get_campaign_goal` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `POST /api/coding/campaign-runner/campaigns` | `create_campaign` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/campaign-runner/campaigns/{campaign_id}` | `get_campaign_detail` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `POST /api/coding/work-orders` | `create_work_order` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/work-orders` | `list_work_orders` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/work-orders/{work_order_id}` | `get_work_order` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `POST /api/coding/work-orders/{work_order_id}/cancel` | `cancel_work_order` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/work-orders/{work_order_id}/latest-run` | `get_work_order_latest_run` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `POST /api/coding/work-orders/{work_order_id}/receipts` | `create_work_order_receipt` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/work-orders/{work_order_id}/receipts` | `list_work_order_receipts` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/work-orders/{work_order_id}/receipts/{receipt_id}` | `get_work_order_receipt` | `mounted_enabled` |
+| `guardian/routes/coding_work_orders.py` | `GET /api/coding/orchestrator/next` | `get_next_work_order_recommendations` | `mounted_enabled` |
+| `guardian/routes/cron.py` | `POST /api/cron/jobs` | `create_cron_job` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `GET /api/cron/jobs` | `list_cron_jobs` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `GET /api/cron/jobs/{job_id}` | `get_cron_job` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `PATCH /api/cron/jobs/{job_id}` | `update_cron_job` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `DELETE /api/cron/jobs/{job_id}` | `delete_cron_job` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `POST /api/cron/jobs/{job_id}/trigger` | `trigger_cron_job` | `mounted_default_off` |
+| `guardian/routes/cron.py` | `GET /api/cron/jobs/{job_id}/runs` | `list_cron_runs` | `mounted_default_off` |
+| `guardian/routes/delegations.py` | `POST /api/delegations/draft` | `create_delegation_draft` | `mounted_default_off` |
+| `guardian/routes/delegations.py` | `POST /api/delegations/{packet_id}/approve` | `approve_delegation_packet` | `mounted_default_off` |
+| `guardian/routes/delegations.py` | `GET /api/delegations/{delegation_id}/events` | `stream_delegation_events` | `mounted_default_off` |
+| `guardian/routes/delegations.py` | `POST /api/delegations/{delegation_id}/cancel` | `cancel_delegation` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `POST /api/flows` | `create_flow` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `GET /api/flows` | `list_flows` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `GET /api/flows/{flow_id}` | `get_flow` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `POST /api/flows/import` | `import_flow` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `PATCH /api/flows/{flow_id}` | `patch_flow` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `POST /api/flows/{flow_id}/validate` | `validate_flow` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `POST /api/flows/{flow_id}/run` | `run_flow_now` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `GET /api/flows/{flow_id}/runs` | `list_flow_runs` | `mounted_default_off` |
+| `guardian/routes/flows.py` | `GET /api/flows/runs/{run_id}` | `get_flow_run` | `mounted_default_off` |
+| `guardian/routes/graph.py` | `GET /graph` | `get_graph` | `unmounted_declared` |
+| `guardian/routes/guardian_delegations.py` | `POST /api/guardian/delegations` | `create_guardian_delegation` | `mounted_default_off` |
+| `guardian/routes/guardian_delegations.py` | `POST /api/guardian/delegations/{intent_id}/approve` | `approve_guardian_delegation` | `mounted_default_off` |
+| `guardian/routes/guardian_delegations.py` | `POST /api/guardian/delegations/{intent_id}/cancel` | `cancel_guardian_delegation` | `mounted_default_off` |
+| `guardian/routes/guardian_delegations.py` | `GET /api/guardian/delegations/{intent_id}` | `get_guardian_delegation` | `mounted_default_off` |
+| `guardian/routes/guardian_delegations.py` | `GET /api/guardian/delegations/{intent_id}/transcript` | `get_guardian_delegation_transcript` | `mounted_default_off` |
+| `guardian/routes/obsidian.py` | `GET /api/obsidian/config` | `get_config` | `mounted_enabled` |
+| `guardian/routes/obsidian.py` | `PUT /api/obsidian/config` | `put_config` | `mounted_enabled` |
+| `guardian/routes/obsidian.py` | `POST /api/obsidian/preview` | `preview` | `mounted_enabled` |
+| `guardian/routes/obsidian.py` | `POST /api/obsidian/index` | `index` | `mounted_enabled` |
+| `guardian/routes/worktrees.py` | `GET /api/worktrees/lanes` | `list_worktree_lanes` | `mounted_default_off` |
+| `guardian/routes/worktrees.py` | `POST /api/worktrees/refresh` | `refresh_worktree_lanes` | `mounted_default_off` |
+
+**Reconciliation:** `mounted_enabled = 23`, `mounted_default_off = 28`, `unmounted_declared = 1`; **23 + 28 + 1 = 52**. The duplicate `guardian/routes/graph.py::get_graph` has no canonical app inclusion. The `guardian/guardian_api.py::get_graph` registration at the same path is independently mounted. The unmounted declaration remains in the structural migration inventory; it is not evidence of an accessible duplicate endpoint.
+
+**Normative qualification method:** The operator migration succeeds structurally when all **52 declared migration registrations** use `require_operator_auth`, regardless of activation state. For `mounted_enabled`, subsequent qualification requires structural authentication proof and applicable route-level focused/runtime regression proof in a topology that actually mounts the route. For `mounted_default_off`, it requires structural proof plus evidence that the accepted default-off profile/flag behavior remains unchanged; route-level execution is required only if an existing legitimate test topology already enables the route. No production enablement is required. For `unmounted_declared`, it requires structural proof and evidence that the current canonical application does not mount it; HTTP success is neither required nor expected. Qualification must be activation-aware and must not require all 52 registrations to be simultaneously mounted or enabled. None of these classes establishes Beta Supported status or closes `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD`.
