@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from codex_runner.campaign_engine.live_executor import (
     prepare_live_executor_campaign,
     run_live_executor_campaign,
 )
+from codex_runner.campaign_engine.identity import document_hash
 from codex_runner.campaign_engine.validation import validate_campaign_document
 from codex_runner.tests.test_campaign_engine_live_executor import (
     FakeIdentity, FakeOutcome, _build_envelope_and_decision,
@@ -85,8 +87,8 @@ class EvaluatorOutcome:
     diagnostic_stage: str | None = None
     observed_execution_phases: tuple[str, ...] | None = None
     highest_observed_execution_phase: str | None = None
-    requested_reasoning_effort: str = "medium"
-    effective_reasoning_effort: str = "medium"
+    requested_reasoning_effort: str = "high"
+    effective_reasoning_effort: str = "high"
     automatic_retries_disabled: bool = True
     actual_identity: FakeIdentity = FakeIdentity("deepseek", "deepseek-v4-pro", "pi-coding-agent", "0.82.1")
 
@@ -103,11 +105,13 @@ def _verdict() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def prepared_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _prepare_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, evaluator_effort: str,
+    campaign_id: str = "campaign-ce-l2-provider-free-test-001",
+):
     campaign_path, target, handle = _make_canonical_live_campaign(
         tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
-        campaign_id="campaign-ce-l2-provider-free-test-001",
+        campaign_id=campaign_id,
     )
     campaign = json.loads(campaign_path.read_text())
     campaign["tasks"][0]["objective"] = "Write CE-L2-EXACT-MARKER followed by one newline to proof_target.txt."
@@ -127,7 +131,7 @@ def prepared_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "live_role_binding": {
             "provider_identity_proof": "identity-proof-ce-l2-provider-free",
             "harness_id": "pi-coding-agent", "harness_version": "0.82.1",
-            "reasoning_effort": "medium",
+            "reasoning_effort": evaluator_effort,
             "target_repository_identity": str(target),
             "allowed_file_paths": ["proof_target.txt"],
             "requested_permissions": ["files.read", "network.provider.allowed"],
@@ -198,6 +202,11 @@ def prepared_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
 
 
+@pytest.fixture
+def prepared_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    return _prepare_lifecycle(tmp_path, monkeypatch, evaluator_effort="high")
+
+
 def test_provider_free_single_task_lifecycle(prepared_lifecycle, tmp_path, monkeypatch) -> None:
     prep, envelope, decision, receipt, harness, checkpoint, target = prepared_lifecycle
     before_checkpoint = {rel: (checkpoint / rel).read_bytes() for rel, _ in prep.checkpoint_hashes}
@@ -210,12 +219,14 @@ def test_provider_free_single_task_lifecycle(prepared_lifecycle, tmp_path, monke
     monkeypatch.setattr(live_evaluator, "_invoker", fake_evaluator)
     output = run_live_evaluator_campaign(
         prep, tmp_path / "final", envelope=envelope, decision=decision,
-        timeout_seconds=30, reasoning_effort="medium",
+        timeout_seconds=30, reasoning_effort="high",
     )
     assert len(calls) == 1
     assert calls[0]["required_tool_name"] is None
     assert calls[0]["evaluator_result_contract"] == "campaign-evaluator-v0"
-    assert calls[0]["reasoning_effort"] == "medium"
+    assert calls[0]["reasoning_effort"] == "high"
+    assert prep.expected_reasoning_effort == "high"
+    assert prep.authorization_metadata()["reasoning_effort"] == "high"
     assembled = json.loads((output / "campaign-input.json").read_text())
     validate_campaign_document(assembled, "provider-free CE-L2 final")
     assert assembled["campaign"]["state"] == "completed"
@@ -234,6 +245,154 @@ def test_provider_free_single_task_lifecycle(prepared_lifecycle, tmp_path, monke
         for path in output.rglob("*.json")
         for token in ("Bearer abcdefgh12345678", "sk-abcdefghijklmnop")
     )
+
+
+def test_locked_deepseek_medium_rejected_before_evaluator_invocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        _prepare_lifecycle(tmp_path, monkeypatch, evaluator_effort="medium")
+    assert exc.value.reason == "evaluator_effort_unsupported"
+    assert exc.value.runner_call_count == 0
+
+
+def test_changed_locked_effort_changes_campaign_input_identity(tmp_path: Path) -> None:
+    campaign_path, _, _ = _make_canonical_live_campaign(
+        tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
+    )
+    campaign = json.loads(campaign_path.read_text())
+    evaluator = campaign["role_bindings"][2]
+    evaluator["live_role_binding"] = {
+        "provider_identity_proof": "identity-proof-ce-l2-effort-hash",
+        "harness_id": "pi-coding-agent", "harness_version": "0.82.1",
+        "reasoning_effort": "medium",
+        "target_repository_identity": str(tmp_path),
+        "allowed_file_paths": ["proof_target.txt"],
+        "requested_permissions": ["files.read", "network.provider.allowed"],
+        "granted_permissions": ["files.read"],
+        "operator_consent_reference": "ce-l2-effort-hash-test",
+    }
+    evaluator.update({
+        "provider_id": "deepseek", "model_id": "deepseek-v4-pro",
+        "adapter_id": "pi-provider-broker", "execution_mode": "live",
+        "redaction_status": "redacted",
+    })
+    validate_campaign_document(campaign, "medium locked Campaign")
+    medium_hash = document_hash(campaign)
+    campaign["role_bindings"][2]["live_role_binding"]["reasoning_effort"] = "high"
+    validate_campaign_document(campaign, "high locked Campaign")
+    assert document_hash(campaign) != medium_hash
+
+
+def test_execution_effort_drift_blocks_before_invocation(
+    prepared_lifecycle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, envelope, decision, _, _, _, _ = prepared_lifecycle
+    monkeypatch.setattr(
+        live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "blocked-effort", envelope=envelope, decision=decision,
+            timeout_seconds=30, reasoning_effort="medium",
+        )
+    assert exc.value.reason == "evaluator_reasoning_effort_mismatch"
+    assert exc.value.runner_call_count == 0
+
+
+def test_guardian_effort_metadata_drift_blocks_before_invocation(
+    prepared_lifecycle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    prep, envelope, decision, _, _, _, _ = prepared_lifecycle
+    stale_metadata = prep.authorization_metadata()
+    stale_metadata["reasoning_effort"] = "medium"
+    envelope = replace(
+        envelope, validation_metadata={"campaign_engine": stale_metadata},
+    )
+    monkeypatch.setattr(
+        live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "blocked-authorization", envelope=envelope,
+            decision=decision, timeout_seconds=30, reasoning_effort="high",
+        )
+    assert exc.value.reason == "evaluator_authorization_drifted"
+    assert exc.value.runner_call_count == 0
+
+
+def test_locked_campaign_effort_drift_blocks_before_invocation(
+    prepared_lifecycle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, envelope, decision, _, _, _, _ = prepared_lifecycle
+    campaign = json.loads(prep.campaign_path.read_text())
+    campaign["role_bindings"][2]["live_role_binding"]["reasoning_effort"] = "medium"
+    prep.campaign_path.write_text(json.dumps(campaign))
+    monkeypatch.setattr(
+        live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "blocked-campaign-drift", envelope=envelope,
+            decision=decision, timeout_seconds=30, reasoning_effort="high",
+        )
+    assert exc.value.reason == "role_bindings_drifted"
+    assert exc.value.runner_call_count == 0
+
+
+def test_unresolved_pi_model_blocks_provider_free() -> None:
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        live_evaluator._verify_locked_evaluator_effort(
+            "deepseek", "missing-model", "0.82.1", "high",
+        )
+    assert exc.value.reason == "evaluator_model_unresolved"
+    assert exc.value.runner_call_count == 0
+
+
+def test_supported_label_cannot_map_to_different_positive_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = {
+        "harnessVersion": "0.82.1", "providerId": "deepseek",
+        "modelId": "deepseek-v4-pro", "supportedEfforts": ["high"],
+        "hasEffortMapping": True, "mappedEffort": "medium",
+    }
+    monkeypatch.setattr(
+        live_evaluator.subprocess, "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=json.dumps(capability),
+        ),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        live_evaluator._verify_locked_evaluator_effort(
+            "deepseek", "deepseek-v4-pro", "0.82.1", "high",
+        )
+    assert exc.value.reason == "evaluator_effort_unsupported"
+    assert exc.value.runner_call_count == 0
+
+
+def test_effective_effort_mismatch_fails_closed(
+    prepared_lifecycle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, envelope, decision, receipt, harness, _, _ = prepared_lifecycle
+    monkeypatch.setattr(
+        live_evaluator, "_invoker",
+        lambda **kwargs: EvaluatorOutcome(
+            receipt, harness, _verdict(), effective_reasoning_effort="medium",
+        ),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as exc:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "blocked-effective", envelope=envelope,
+            decision=decision, timeout_seconds=30, reasoning_effort="high",
+        )
+    assert exc.value.reason == "evaluator_effort_or_retry_posture_invalid"
+    assert not (tmp_path / "blocked-effective").exists()
 
 
 @pytest.mark.parametrize("fault,reason", [
@@ -256,7 +415,7 @@ def test_evaluator_fails_closed(prepared_lifecycle, tmp_path, monkeypatch, fault
         changes["actual_identity"] = FakeIdentity("other", "deepseek-v4-pro", "pi-coding-agent", "0.82.1")
     monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: EvaluatorOutcome(receipt, harness, **changes))
     with pytest.raises(CampaignLiveEvaluatorError) as exc:
-        run_live_evaluator_campaign(prep, tmp_path / "failed", envelope=envelope, decision=decision, timeout_seconds=30)
+        run_live_evaluator_campaign(prep, tmp_path / "failed", envelope=envelope, decision=decision, timeout_seconds=30, reasoning_effort="high")
     assert exc.value.reason == reason
     assert not (tmp_path / "failed").exists()
 
@@ -269,7 +428,7 @@ def test_write_grant_blocks_before_invocation(prepared_lifecycle, tmp_path, monk
     decision = replace(decision, requested_permissions=envelope.requested_permissions, granted_permissions=envelope.granted_permissions)
     monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"))
     with pytest.raises(CampaignLiveEvaluatorError) as exc:
-        run_live_evaluator_campaign(prep, tmp_path / "failed", envelope=envelope, decision=decision, timeout_seconds=30)
+        run_live_evaluator_campaign(prep, tmp_path / "failed", envelope=envelope, decision=decision, timeout_seconds=30, reasoning_effort="high")
     assert exc.value.reason == "evaluator_mutation_permission_forbidden"
 
 
@@ -289,7 +448,7 @@ def test_all_canonical_verdicts_publish_consistent_state(
     monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: EvaluatorOutcome(receipt, harness, result))
     output = run_live_evaluator_campaign(
         prep, tmp_path / "final-verdict", envelope=envelope, decision=decision,
-        timeout_seconds=30,
+        timeout_seconds=30, reasoning_effort="high",
     )
     document = json.loads((output / "campaign-input.json").read_text())
     validate_campaign_document(document, "CE-L2 verdict state")
@@ -316,7 +475,7 @@ def test_timeout_preserves_only_bounded_phase_diagnostics(
     with pytest.raises(CampaignLiveEvaluatorError) as exc:
         run_live_evaluator_campaign(
             prep, tmp_path / "failed-timeout", envelope=envelope, decision=decision,
-            timeout_seconds=30,
+            timeout_seconds=30, reasoning_effort="high",
         )
     payload = exc.value.to_payload()
     assert payload["failure_reason"] == "evaluator_invocation_failed"

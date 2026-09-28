@@ -11,6 +11,7 @@ import copy
 import difflib
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -19,7 +20,10 @@ from typing import Any, Callable
 
 from guardian.pi.contracts import PiHarnessResult, PiInvocationReceipt
 from guardian.pi.evaluator_result import validate_evaluator_result
-from guardian.pi.tokens import PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+from guardian.pi.tokens import (
+    PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    PI_AUTHORIZED_REASONING_EFFORTS,
+)
 from guardian.pi.validation import (
     validate_harness_result_against_receipt,
     validate_policy_decision_against_envelope,
@@ -32,7 +36,6 @@ from .identity import binding_identity_hash, canonical_json, document_hash, sha2
 from .live_executor import _contains_sensitive_key, _read_git_head, _to_payload
 from .validation import parse_json_strict, validate_campaign_document, validate_path_component, validate_role_binding_semantics
 
-EVALUATOR_EFFORT = "medium"
 _EVIDENCE_IDS = frozenset({
     "task-objective", "acceptance-criteria", "source-context", "executor-attempt",
     "changed-files", "bounded-diff", "target-snapshot", "validation-output", "executor-identity",
@@ -55,6 +58,33 @@ _CREDENTIAL_SHAPE = re.compile(
     r"(?:api[_-]?key|password|secret)\s*[:=]\s*\S{8,}",
     re.IGNORECASE,
 )
+
+_PI_CAPABILITY_PROBE = """
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const [packageRoot, providerId, modelId, effort, authPath] = process.argv.slice(1);
+const codingAgent = await import(pathToFileURL(join(packageRoot, 'dist/index.js')).href);
+const piModels = await import(pathToFileURL(join(packageRoot,
+  'node_modules/@earendil-works/pi-ai/dist/models.js')).href);
+const runtime = await codingAgent.ModelRuntime.create({
+  allowModelNetwork: false,
+  authPath,
+});
+const model = runtime.getModel(providerId, modelId);
+const hasEffortMapping = model != null && Object.prototype.hasOwnProperty.call(
+  model.thinkingLevelMap ?? {}, effort);
+const packageInfo = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+console.log(JSON.stringify({
+  harnessVersion: packageInfo.version,
+  providerId: model?.provider ?? null,
+  modelId: model?.id ?? null,
+  supportedEfforts: model ? piModels.getSupportedThinkingLevels(model) : [],
+  hasEffortMapping,
+  mappedEffort: hasEffortMapping ? model.thinkingLevelMap[effort] : null,
+}));
+"""
 
 
 def _fail(reason: str, *, calls: int = 0) -> None:
@@ -86,6 +116,58 @@ def _load(path: Path) -> dict[str, Any]:
     except Exception:
         _fail("evaluator_input_invalid")
     return value
+
+
+def _verify_locked_evaluator_effort(
+    provider_id: str, model_id: str, harness_version: str, effort: str,
+) -> None:
+    """Check Pi's current local model metadata without a session or provider request.
+
+    Pi's own supported-level resolver handles explicit unsupported levels. The
+    probe disables model-network refresh and uses an empty auth path; it emits
+    only bounded capability tokens, never credentials or model response data.
+    """
+    if effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+        _fail("evaluator_reasoning_effort_invalid")
+    package_root = Path(__file__).resolve().parents[1] / "vendor/pi-coding-agent"
+    try:
+        probe = subprocess.run(
+            [
+                "node", "--input-type=module", "--eval", _PI_CAPABILITY_PROBE,
+                str(package_root), provider_id, model_id, effort, os.devnull,
+            ],
+            cwd=package_root,
+            env={**os.environ, "PI_OFFLINE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        capability = json.loads(probe.stdout) if probe.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        capability = None
+    if not isinstance(capability, dict):
+        _fail("evaluator_capability_unavailable")
+    if capability.get("harnessVersion") != harness_version:
+        _fail("evaluator_harness_unresolved")
+    if (capability.get("providerId"), capability.get("modelId")) != (
+        provider_id, model_id,
+    ):
+        _fail("evaluator_model_unresolved")
+    supported = capability.get("supportedEfforts")
+    if not isinstance(supported, list) or len(supported) > 8 or not all(
+        isinstance(value, str) and 0 < len(value) <= 16 for value in supported
+    ):
+        _fail("evaluator_capability_unavailable")
+    if effort not in supported:
+        _fail("evaluator_effort_unsupported")
+    # A nominally supported level must not be silently mapped to a different
+    # positive Pi effort. Provider-specific representations of "off" are
+    # allowed, but no positive effort may be clamped or upgraded here.
+    if effort != "off" and capability.get("hasEffortMapping") is True and (
+        capability.get("mappedEffort") != effort
+    ):
+        _fail("evaluator_effort_unsupported")
 
 
 def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
@@ -153,6 +235,7 @@ class LiveEvaluatorPreparation:
     expected_model_id: str
     expected_harness_id: str
     expected_harness_version: str
+    expected_reasoning_effort: str
     configuration_hash: str
     operator_consent_reference: str
     source_context_reference: str
@@ -180,6 +263,7 @@ class LiveEvaluatorPreparation:
             "role_binding_id": self.evaluator_binding_id,
             "binding_revision": self.evaluator_binding_revision,
             "configuration_hash": self.configuration_hash,
+            "reasoning_effort": self.expected_reasoning_effort,
             "source_context_reference": self.source_context_reference,
             "target_repository_identity": self.target_repository_identity,
             "allowed_file_paths": list(self.allowed_file_paths),
@@ -240,9 +324,13 @@ def prepare_live_evaluator_campaign(
     if (
         live.get("harness_id") != harness_id
         or live.get("harness_version") != harness_version
-        or live.get("reasoning_effort") != EVALUATOR_EFFORT
     ):
         _fail("evaluator_binding_configuration_mismatch")
+    locked_effort = live.get("reasoning_effort")
+    _verify_locked_evaluator_effort(
+        evaluator["provider_id"], evaluator["model_id"], harness_version,
+        locked_effort,
+    )
     if Path(live["target_repository_identity"]).resolve() != target_path:
         _fail("evaluator_target_identity_mismatch")
     permissions = tuple(live["requested_permissions"]) + tuple(live["granted_permissions"])
@@ -370,6 +458,7 @@ def prepare_live_evaluator_campaign(
         evaluator_binding_revision=evaluator["binding_revision"],
         expected_provider_id=evaluator["provider_id"], expected_model_id=evaluator["model_id"],
         expected_harness_id=harness_id, expected_harness_version=harness_version,
+        expected_reasoning_effort=locked_effort,
         configuration_hash=evaluator["configuration_hash"],
         operator_consent_reference=live["operator_consent_reference"],
         source_context_reference=receipt["source_context_reference"],
@@ -445,10 +534,10 @@ def run_live_evaluator_campaign(
     envelope: Any,
     decision: Any,
     timeout_seconds: int,
-    reasoning_effort: str = EVALUATOR_EFFORT,
+    reasoning_effort: str,
 ) -> Path:
     """Invoke exactly one authorized read-only Evaluator and publish final v0 records."""
-    if reasoning_effort != EVALUATOR_EFFORT:
+    if reasoning_effort != preparation.expected_reasoning_effort:
         _fail("evaluator_reasoning_effort_mismatch")
     if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 300:
         _fail("evaluator_timeout_bound_invalid")
@@ -497,7 +586,7 @@ def run_live_evaluator_campaign(
         preparation.expected_harness_id, preparation.expected_harness_version,
     ):
         _fail("evaluator_actual_identity_mismatch", calls=1)
-    if (outcome.requested_reasoning_effort, outcome.effective_reasoning_effort, outcome.automatic_retries_disabled) != (EVALUATOR_EFFORT, EVALUATOR_EFFORT, True):
+    if (outcome.requested_reasoning_effort, outcome.effective_reasoning_effort, outcome.automatic_retries_disabled) != (reasoning_effort, reasoning_effort, True):
         _fail("evaluator_effort_or_retry_posture_invalid", calls=1)
     if outcome.receipt is None or outcome.harness_result is None or not all((
         validate_receipt_against_envelope(envelope, outcome.receipt).ok,
@@ -603,7 +692,7 @@ def run_live_evaluator_campaign(
             "actual_evaluator_model_id": identity.model_id,
             "actual_evaluator_harness_id": identity.harness_id,
             "actual_evaluator_harness_version": identity.harness_version,
-            "requested_evaluator_reasoning_effort": EVALUATOR_EFFORT,
+            "requested_evaluator_reasoning_effort": reasoning_effort,
             "effective_evaluator_reasoning_effort": outcome.effective_reasoning_effort,
             "provider_calls_performed": 2, "retry_count": 0, "fallback_count": 0,
             "source_mutations_performed": attempt["source_mutation_count"],
@@ -621,6 +710,6 @@ def run_live_evaluator_campaign(
 
 
 __all__ = [
-    "EVALUATOR_EFFORT", "LiveEvaluatorPreparation", "prepare_live_evaluator_campaign",
+    "LiveEvaluatorPreparation", "prepare_live_evaluator_campaign",
     "preflight_live_evaluator", "run_live_evaluator_campaign", "_invoker",
 ]
