@@ -25,6 +25,7 @@ from guardian.services.account_export import (
     PAYLOAD_FAMILIES,
     PAYLOAD_ORDER,
     PAYLOAD_ORDER_BY_SCHEMA,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     REVISION_MANIFEST_SCHEMA_VERSION,
     STAGED_MANIFEST_SCHEMA_VERSION,
     STAGED_PAYLOAD_FAMILIES,
@@ -38,6 +39,7 @@ SUPPORTED_SCHEMA_VERSIONS = {
     MANIFEST_SCHEMA_VERSION,
     STAGED_MANIFEST_SCHEMA_VERSION,
     REVISION_MANIFEST_SCHEMA_VERSION,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
 }
 
 # Restore order is dependency-safe for the current schema. It differs from the
@@ -101,6 +103,7 @@ def _restore_order_for_schema(schema_version: str | None) -> tuple[str, ...]:
     if schema_version in (
         STAGED_MANIFEST_SCHEMA_VERSION,
         REVISION_MANIFEST_SCHEMA_VERSION,
+        REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     ):
         return RESTORE_ORDER
     return HISTORICAL_RESTORE_ORDER
@@ -159,6 +162,13 @@ def _canonical_family_counts(
         return (
             result.revision_created_count,
             result.revision_identical_count,
+            0,
+            0,
+        )
+    if family == "memory_review_revisions":
+        return (
+            result.review_revision_created_count,
+            result.review_revision_identical_count,
             0,
             0,
         )
@@ -1894,6 +1904,7 @@ class AccountRestoreService:
             MANIFEST_SCHEMA_VERSION,
             STAGED_MANIFEST_SCHEMA_VERSION,
             REVISION_MANIFEST_SCHEMA_VERSION,
+            REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
         ):
             ordered_rows.update(
                 {
@@ -2490,6 +2501,12 @@ def _restore_connection(conn: Any | None, db: Any):
 UNIFIED_MEMORY_RESTORE_LINK_KINDS: frozenset[str] = frozenset(
     {"captured_under", "suggested_by", "associated_with"}
 )
+#: UMS-05C10A-P. Canonical ordinary review vocabulary used to validate typed
+#: review-transition history. A vocabulary check only: it does not encode a
+#: legal-transition policy, which remains unresolved.
+_REVIEW_REVISION_STATES: frozenset[str] = frozenset(
+    {"pending", "approved", "rejected", "disputed"}
+)
 UNIFIED_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
     "persona_subjects",
     "persona_subject_bindings",
@@ -2506,11 +2523,22 @@ REVISION_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
     "memory_revisions",
 )
 
+#: UMS-05C10A-P. v6 adds the ordinary-memory review-transition family. It is
+#: planned last so review rows always validate against a fully planned memory
+#: set, and are persisted only after their parent memory row exists.
+REVIEW_REVISION_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
+    *REVISION_MEMORY_RESTORE_PLAN_FAMILIES,
+    "memory_review_revisions",
+)
+
 #: Revision families are only planned for the six-family v5 graph. A v4
 #: archive carries no revision family and keeps exactly v4 semantics.
 RESTORE_PLAN_FAMILIES_BY_SCHEMA = {
     STAGED_MANIFEST_SCHEMA_VERSION: UNIFIED_MEMORY_RESTORE_PLAN_FAMILIES,
     REVISION_MANIFEST_SCHEMA_VERSION: REVISION_MEMORY_RESTORE_PLAN_FAMILIES,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
+        REVIEW_REVISION_MEMORY_RESTORE_PLAN_FAMILIES
+    ),
 }
 _UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "persona_subjects": (
@@ -2585,6 +2613,17 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "new_text_content",
         "created_at",
     ),
+    # UMS-05C10A-P: ordinary-memory review-transition history.
+    "memory_review_revisions": (
+        "review_revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_review_state",
+        "new_review_state",
+        "actor_account_id",
+        "created_at",
+    ),
 }
 _UNIFIED_MEMORY_SORT_KEYS: dict[str, tuple[str, ...]] = {
     "persona_subjects": ("persona_subject_id",),
@@ -2602,6 +2641,11 @@ _UNIFIED_MEMORY_SORT_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "memory_provenance": ("memory_id", "provenance_id"),
     "memory_revisions": ("memory_id", "revision_number", "revision_id"),
+    "memory_review_revisions": (
+        "memory_id",
+        "revision_number",
+        "review_revision_id",
+    ),
 }
 
 
@@ -2693,6 +2737,21 @@ class PlannedMemoryRevision:
 
 
 @dataclass(slots=True)
+class PlannedMemoryReviewRevision:
+    """UMS-05C10A-P. One validated ordinary review-state transition."""
+
+    source_review_revision_id: str
+    target_review_revision_id: str
+    target_memory_id: str
+    target_account_id: str
+    revision_number: int
+    old_review_state: str
+    new_review_state: str
+    actor_account_id: str
+    created_at: str
+
+
+@dataclass(slots=True)
 class PlannedMemoryProvenance:
     source_provenance_id: str
     target_provenance_id: str
@@ -2730,6 +2789,7 @@ class CanonicalMemoryRestorePlan:
     memory_persona_links: tuple[PlannedPersonaLink, ...]
     memory_provenance: tuple[PlannedMemoryProvenance, ...]
     memory_revisions: tuple[PlannedMemoryRevision, ...] = ()
+    memory_review_revisions: tuple[PlannedMemoryReviewRevision, ...] = ()
 
 
 def _preflight_identity_str(value: Any, *, field: str) -> str:
@@ -3015,6 +3075,38 @@ def _preflight_memory_revision_owner_matches(
                 "expected": expected_account,
             },
         )
+
+
+def _preflight_memory_review_revision_owner_matches(
+    row: dict[str, Any], *, expected_account: str
+) -> None:
+    """UMS-05C10A-P: fail closed when a review revision leaves the account."""
+    user_id = _preflight_identity_str(
+        row.get("user_id"), field="memory_review_revisions.user_id"
+    )
+    if user_id != expected_account:
+        raise _preflight_error(
+            "memory_review_revision_account_mismatch",
+            "memory_review_revisions row references an account outside the "
+            "restored account",
+            details={
+                "review_revision_id": row.get("review_revision_id"),
+                "actual": user_id,
+                "expected": expected_account,
+            },
+        )
+
+
+def _preflight_review_state_str(value: Any, *, field: str) -> str:
+    """UMS-05C10A-P: typed ordinary review vocabulary, exact token match."""
+    text = str(value or "").strip() if value is not None else ""
+    if text not in _REVIEW_REVISION_STATES:
+        raise _preflight_error(
+            "memory_review_revision_invalid_state",
+            f"{field} must be one of the canonical review states",
+            details={"field": field},
+        )
+    return text
 
 
 def _preflight_link_kind(row: dict[str, Any]) -> str:
@@ -3620,6 +3712,169 @@ class UnifiedMemoryRestorePreflight:
                         },
                     )
 
+        # Phase 5c (UMS-05C10A-P): validate ordinary-memory review-transition
+        # history. Only present for the seven-family v6 graph; v4 and v5
+        # archives carry no review family and keep exactly their semantics.
+        #
+        # This validates history *shape* only. It never decides whether a
+        # source->target pair is a legal mutation: the review writer remains
+        # frozen because the legal transition graph is unresolved.
+        planned_review_revisions: list[PlannedMemoryReviewRevision] = []
+        if "memory_review_revisions" in payload_rows:
+            seen_review_ids: set[str] = set()
+            seen_review_numbers: set[tuple[str, int]] = set()
+            review_by_memory: dict[str, list[PlannedMemoryReviewRevision]] = {}
+            for raw_row in payload_rows["memory_review_revisions"]:
+                row = _preflight_dict_copy(raw_row)
+                _preflight_required_fields_present(row, "memory_review_revisions")
+                review_id = _preflight_identity_str(
+                    row.get("review_revision_id"),
+                    field="memory_review_revisions.review_revision_id",
+                )
+                if review_id in seen_review_ids:
+                    raise _preflight_error(
+                        "memory_review_revision_duplicate",
+                        "memory_review_revisions row is duplicated by "
+                        "review_revision_id",
+                        details={"review_revision_id": review_id},
+                    )
+                seen_review_ids.add(review_id)
+
+                memory_id = _preflight_memory_id(row, family="memory_review_revisions")
+                if memory_id not in planned_memories:
+                    raise _preflight_error(
+                        "memory_review_revision_orphan",
+                        "memory_review_revisions row references a memory_id "
+                        "that is not in the planned memory set",
+                        details={
+                            "review_revision_id": review_id,
+                            "memory_id": memory_id,
+                        },
+                    )
+                _preflight_memory_review_revision_owner_matches(
+                    row, expected_account=self._source_account_id
+                )
+                actor_account_id = _preflight_identity_str(
+                    row.get("actor_account_id"),
+                    field="memory_review_revisions.actor_account_id",
+                )
+                if actor_account_id != self._source_account_id:
+                    raise _preflight_error(
+                        "memory_review_revision_actor_mismatch",
+                        "memory_review_revisions.actor_account_id must stay "
+                        "inside the owning account boundary",
+                        details={"review_revision_id": review_id},
+                    )
+
+                raw_number = row.get("revision_number")
+                if isinstance(raw_number, bool) or not isinstance(raw_number, int):
+                    raise _preflight_error(
+                        "memory_review_revision_number_invalid",
+                        "memory_review_revisions.revision_number must be an " "integer",
+                        details={"review_revision_id": review_id},
+                    )
+                if raw_number < 1:
+                    raise _preflight_error(
+                        "memory_review_revision_number_invalid",
+                        "memory_review_revisions.revision_number must be >= 1",
+                        details={"review_revision_id": review_id},
+                    )
+                sequence_key = (memory_id, raw_number)
+                if sequence_key in seen_review_numbers:
+                    raise _preflight_error(
+                        "memory_review_revision_number_conflict",
+                        "two memory_review_revisions rows claim the same "
+                        "(memory_id, revision_number)",
+                        details={
+                            "memory_id": memory_id,
+                            "revision_number": raw_number,
+                        },
+                    )
+                seen_review_numbers.add(sequence_key)
+
+                old_state = _preflight_review_state_str(
+                    row.get("old_review_state"),
+                    field="memory_review_revisions.old_review_state",
+                )
+                new_state = _preflight_review_state_str(
+                    row.get("new_review_state"),
+                    field="memory_review_revisions.new_review_state",
+                )
+                if old_state == new_state:
+                    raise _preflight_error(
+                        "memory_review_revision_noop",
+                        "memory_review_revisions row has identical old and new "
+                        "review state and is therefore not a transition",
+                        details={"review_revision_id": review_id},
+                    )
+
+                created_at = _preflight_identity_str(
+                    row.get("created_at"),
+                    field="memory_review_revisions.created_at",
+                )
+                planned = PlannedMemoryReviewRevision(
+                    source_review_revision_id=review_id,
+                    target_review_revision_id=review_id,
+                    target_memory_id=memory_id,
+                    target_account_id=self._target_account_id,
+                    revision_number=raw_number,
+                    old_review_state=old_state,
+                    new_review_state=new_state,
+                    actor_account_id=actor_account_id,
+                    created_at=created_at,
+                )
+                planned_review_revisions.append(planned)
+                review_by_memory.setdefault(memory_id, []).append(planned)
+
+            for memory_id, ordered in review_by_memory.items():
+                ordered.sort(
+                    key=lambda plan: (
+                        plan.revision_number,
+                        _sort_text(plan.source_review_revision_id),
+                    )
+                )
+                numbers = [plan.revision_number for plan in ordered]
+                if numbers != list(range(1, len(numbers) + 1)):
+                    raise _preflight_error(
+                        "memory_review_revision_sequence_gap",
+                        "memory_review_revisions numbering must be a dense "
+                        "1..N sequence per memory",
+                        details={"memory_id": memory_id},
+                    )
+                for previous, following in zip(ordered, ordered[1:]):
+                    if previous.new_review_state != following.old_review_state:
+                        raise _preflight_error(
+                            "memory_review_revision_chain_mismatch",
+                            "consecutive memory_review_revisions rows do not "
+                            "chain: previous new_review_state must equal "
+                            "next old_review_state",
+                            details={"memory_id": memory_id},
+                        )
+                parent_state = planned_memories[memory_id].review_state
+                if ordered[-1].new_review_state != parent_state:
+                    raise _preflight_error(
+                        "memory_review_revision_final_state_mismatch",
+                        "final memory_review_revisions new_review_state does "
+                        "not equal the parent memory_records.review_state",
+                        details={"memory_id": memory_id},
+                    )
+
+                # Ordinary review history must not attach to a specialized
+                # Personal Facts parent. Personal Facts keep using
+                # personal_fact_revisions.
+                parent_species = planned_memories[memory_id].semantic_species
+                if parent_species != "episodic_semantic_memory":
+                    raise _preflight_error(
+                        "memory_review_revision_unsupported_parent_species",
+                        "memory_review_revisions is the ordinary-memory "
+                        "review history family and cannot carry a specialized "
+                        "Personal Facts parent",
+                        details={
+                            "memory_id": memory_id,
+                            "semantic_species": parent_species,
+                        },
+                    )
+
         # Phase 6: archive closure. Every planned memory must have at least
         # one provenance row, mirroring the export-side closure rule.
         provenance_memory_ids = {row.target_memory_id for row in planned_provenance}
@@ -3675,6 +3930,16 @@ class UnifiedMemoryRestorePreflight:
                         _sort_text(plan.target_memory_id),
                         plan.revision_number,
                         _sort_text(plan.source_revision_id),
+                    ),
+                )
+            ),
+            memory_review_revisions=tuple(
+                sorted(
+                    planned_review_revisions,
+                    key=lambda plan: (
+                        _sort_text(plan.target_memory_id),
+                        plan.revision_number,
+                        _sort_text(plan.source_review_revision_id),
                     ),
                 )
             ),
@@ -3774,6 +4039,16 @@ _UNIFIED_MEMORY_REVISION_FIELDS: tuple[str, ...] = (
     "new_text_content",
     "created_at",
 )
+_UNIFIED_MEMORY_REVIEW_REVISION_FIELDS: tuple[str, ...] = (
+    "review_revision_id",
+    "memory_id",
+    "user_id",
+    "revision_number",
+    "old_review_state",
+    "new_review_state",
+    "actor_account_id",
+    "created_at",
+)
 _UNIFIED_MEMORY_PROVENANCE_FIELDS: tuple[str, ...] = (
     "provenance_id",
     "memory_id",
@@ -3824,6 +4099,9 @@ class CanonicalMemoryRestoreClassification:
     provenance_identical_ids: tuple[str, ...]
     revision_create_ids: tuple[str, ...] = ()
     revision_identical_ids: tuple[str, ...] = ()
+    # UMS-05C10A-P: ordinary review-transition history.
+    review_revision_create_ids: tuple[str, ...] = ()
+    review_revision_identical_ids: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -3849,6 +4127,8 @@ class CanonicalMemoryRestoreResult:
     provenance_identical_count: int
     revision_created_count: int = 0
     revision_identical_count: int = 0
+    review_revision_created_count: int = 0
+    review_revision_identical_count: int = 0
 
 
 def _executor_iso(value: Any) -> str | None:
@@ -4305,6 +4585,83 @@ class CanonicalMemoryRestoreExecutor:
                 )
             revision_identical.append(revision_id)
 
+        # UMS-05C10A-P: review-transition history classification. Identity is
+        # the stable review_revision_id; semantic identity also covers
+        # (memory_id, revision_number) so a differing ID cannot quietly
+        # occupy an already-populated sequence slot.
+        review_revision_create: list[str] = []
+        review_revision_identical: list[str] = []
+        review_revision_ids = tuple(
+            r.target_review_revision_id for r in plan.memory_review_revisions
+        )
+        existing_review_revisions = _executor_select_by_ids(
+            conn,
+            table="memory_review_revisions",
+            id_column="review_revision_id",
+            ids=review_revision_ids,
+        )
+        existing_review_sequences: dict[tuple[str, int], str] = {}
+        if existing_review_revisions:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT memory_id, revision_number, review_revision_id "
+                    "FROM memory_review_revisions WHERE user_id = %s",
+                    (plan.target_account_id,),
+                )
+                for seq_row in cur.fetchall():
+                    existing_review_sequences[(str(seq_row[0]), int(seq_row[1]))] = str(
+                        seq_row[2]
+                    )
+
+        for planned in plan.memory_review_revisions:
+            review_id = planned.target_review_revision_id
+            plan_values = {
+                "review_revision_id": review_id,
+                "memory_id": planned.target_memory_id,
+                "user_id": planned.target_account_id,
+                "revision_number": planned.revision_number,
+                "old_review_state": planned.old_review_state,
+                "new_review_state": planned.new_review_state,
+                "actor_account_id": planned.actor_account_id,
+                "created_at": planned.created_at,
+            }
+            existing = existing_review_revisions.get(review_id)
+            if existing is None:
+                occupant = existing_review_sequences.get(
+                    (planned.target_memory_id, planned.revision_number)
+                )
+                if occupant is not None and occupant != review_id:
+                    raise UnifiedMemoryRestoreConflictError(
+                        message="memory_review_revision_sequence_conflict",
+                        code="memory_review_revision_sequence_conflict",
+                        details={
+                            "memory_id": planned.target_memory_id,
+                            "revision_number": planned.revision_number,
+                            "expected_review_revision_id": review_id,
+                            "existing_review_revision_id": occupant,
+                        },
+                    )
+                review_revision_create.append(review_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_UNIFIED_MEMORY_REVIEW_REVISION_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_review_revision_conflict",
+                    code="memory_review_revision_conflict",
+                    details={
+                        "review_revision_id": review_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _UNIFIED_MEMORY_REVIEW_REVISION_FIELDS
+                        },
+                    },
+                )
+            review_revision_identical.append(review_id)
+
         return CanonicalMemoryRestoreClassification(
             target_account_id=plan.target_account_id,
             source_account_id=plan.source_account_id,
@@ -4320,6 +4677,8 @@ class CanonicalMemoryRestoreExecutor:
             provenance_identical_ids=tuple(provenance_identical),
             revision_create_ids=tuple(revision_create),
             revision_identical_ids=tuple(revision_identical),
+            review_revision_create_ids=tuple(review_revision_create),
+            review_revision_identical_ids=tuple(review_revision_identical),
         )
 
     # ------------------------------------------------------------------
@@ -4342,6 +4701,9 @@ class CanonicalMemoryRestoreExecutor:
         # UMS-05C9: revisions persist last so their parent memory_records row
         # already exists inside the same transaction.
         self._insert_revisions(conn, plan, classification)
+        # UMS-05C10A-P: review-transition history persists after the parent
+        # memory_records row, inside the same transaction.
+        self._insert_review_revisions(conn, plan, classification)
 
         return CanonicalMemoryRestoreResult(
             target_account_id=plan.target_account_id,
@@ -4358,6 +4720,12 @@ class CanonicalMemoryRestoreExecutor:
             provenance_identical_count=len(classification.provenance_identical_ids),
             revision_created_count=len(classification.revision_create_ids),
             revision_identical_count=len(classification.revision_identical_ids),
+            review_revision_created_count=len(
+                classification.review_revision_create_ids
+            ),
+            review_revision_identical_count=len(
+                classification.review_revision_identical_ids
+            ),
         )
 
     def _insert_subjects(
@@ -4550,6 +4918,60 @@ class CanonicalMemoryRestoreExecutor:
                 code="memory_revision_insert_failed",
                 details={
                     "revision_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_review_revisions(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        """UMS-05C10A-P. Persist review-transition history last so the parent
+        ``memory_records`` row already exists inside the same transaction.
+        """
+        if not classification.review_revision_create_ids:
+            return
+        create_ids = set(classification.review_revision_create_ids)
+        rows = [
+            r
+            for r in plan.memory_review_revisions
+            if r.target_review_revision_id in create_ids
+        ]
+        rows.sort(
+            key=lambda r: (
+                r.target_memory_id,
+                r.revision_number,
+                r.target_review_revision_id,
+            )
+        )
+        try:
+            with conn.cursor() as cur:
+                for r in rows:
+                    cur.execute(
+                        'INSERT INTO "memory_review_revisions" '
+                        "(review_revision_id, memory_id, user_id, "
+                        "revision_number, old_review_state, new_review_state, "
+                        "actor_account_id, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            r.target_review_revision_id,
+                            r.target_memory_id,
+                            r.target_account_id,
+                            r.revision_number,
+                            r.old_review_state,
+                            r.new_review_state,
+                            r.actor_account_id,
+                            r.created_at,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="memory_review_revision_insert_failed",
+                code="memory_review_revision_insert_failed",
+                details={
+                    "review_revision_ids": sorted(create_ids),
                     "reason": str(exc),
                 },
             ) from exc

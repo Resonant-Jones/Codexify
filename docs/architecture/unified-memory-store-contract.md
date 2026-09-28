@@ -1675,6 +1675,70 @@ columns extend the existing provenance family; `extensions` cannot become
 evidence, review, or disposition authority. Candidate evidence remains linked
 to candidate `memory_id` after promotion and follows candidate erasure.
 
+#### 4.16.5b Review-transition revision table — `memory_review_revisions`
+
+Added by UMS-05C10A-P to discharge the §3.3 revision
+requirement that UMS-05C10A-R found unimplemented for
+ordinary `review_state` transitions.
+
+Three truth surfaces remain strictly separate and are
+never merged:
+
+| Surface | Authority meaning |
+| --- | --- |
+| `memory_records.review_state` | current review authority (present posture) |
+| `memory_revisions` | authored **content** transition history |
+| `memory_review_revisions` | review-authority **transition** history |
+| `memory_provenance` | intent / source / audit evidence; `extensions` non-authority |
+
+`memory_review_revisions` is append-only and immutable. It
+records *that* a typed review state changed, in order, with
+an accountable actor and an immutable transition timestamp.
+
+| Column | Type | Null | Authority meaning |
+|---|---|---|---|
+| `review_revision_id` | `String(36)` PK | NOT NULL | Stable review-revision identity |
+| `memory_id` | `String(36)` | NOT NULL | Parent canonical memory |
+| `user_id` | `String(255)` | NOT NULL | Canonical account owner |
+| `revision_number` | `Integer` | NOT NULL | Per-memory sequence within this family, `>= 1`, `UNIQUE (memory_id, revision_number)` |
+| `old_review_state` | `String(32)` | NOT NULL | Prior typed review token |
+| `new_review_state` | `String(32)` | NOT NULL | Resulting typed review token |
+| `actor_account_id` | `String(255)` | NOT NULL | Accountable actor, constrained to the owning account |
+| `created_at` | `TIMESTAMP(timezone=True)` | NOT NULL | Immutable transition timestamp; no `updated_at` |
+
+Review tokens are `pending`, `approved`, `rejected`, `disputed`.
+The parent is bound by composite FK
+`(memory_id, user_id) → memory_records(memory_id, user_id)` with
+`ON DELETE CASCADE`, so review history may not outlive
+legitimate permanent erasure of its parent memory.
+`actor_account_id = user_id` keeps accountable actor authority
+inside the owning account boundary for the currently governed
+ordinary-memory model.
+
+**No legal transition graph is encoded.** The database accepts
+any *unequal* pair of valid review tokens and forbids no
+source-to-target combination. `old_review_state <>
+new_review_state` is a historical-transition constraint (a row
+with identical states is not a transition), not a mutation
+policy. Persistence capability is not mutation authorization:
+whether a given transition may be performed is a writer and
+contract concern, and remains unresolved
+(`TRANSITION_GRAPH: NOT EXPLICIT`).
+
+Existing memories receive **zero** synthetic review history;
+the migration never infers history from a current
+`review_state`. `memory_records.review_state` remains the
+canonical present value: history reconciles to it and never
+overrides it. Personal Facts keep `personal_fact_revisions`;
+this family never becomes an alternate Personal Facts history
+path. PostgreSQL does not encode the parent species, so the
+boundary is enforced in export validation, restore preflight,
+and future service authority rather than through a trigger.
+
+Portability: `memory_review_revisions` is the seventh canonical
+family in `account-export.v6`. `account-export.v5` keeps its
+exact six-family meaning and is not redefined.
+
 #### 4.16.5 Payload strategy decision
 
 The UMS-03A deferred question "shared typed columns vs.

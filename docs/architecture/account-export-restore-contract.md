@@ -96,6 +96,50 @@ do not contain and must not fabricate Persona Profile state. Required-file,
 family, count, and checksum validation is selected by schema version and remains
 fail-closed.
 
+### UMS canonical schema versions (UMS-04 → UMS-05C10A-P)
+
+Each addition of a canonical UMS entity family introduces a new, immutable
+schema version. An existing version's family set is never widened.
+
+| Schema version | Canonical UMS families | Introduced by |
+| --- | --- | --- |
+| `account-export.v4` | `persona_subjects`, `persona_subject_bindings`, `memory_records`, `memory_persona_links`, `memory_provenance` | UMS-04B (restore not supported) |
+| `account-export.v5` | the five above plus `memory_revisions` | UMS-05C9 |
+| `account-export.v6` | the six above plus `memory_review_revisions` | UMS-05C10A-P |
+
+`account-export.v6` is the current seven-family canonical UMS account schema.
+`account-export.v5` retains its exact six-family meaning; a v5 archive never
+carries `memory_review_revisions`, and a v5 restore never fabricates review
+history for a memory that has none.
+
+`memory_review_revisions` is canonical ordinary-memory review-transition
+history: ordered, typed old/new review state, accountable actor, and immutable
+transition timestamp. It is a different truth surface from `memory_revisions`
+(content history) and from `memory_provenance` (intent / source / audit
+evidence). None of the three substitutes for another.
+
+Required v6 behavior:
+
+- deterministic ordering by `memory_id`, then `revision_number`, then
+  `review_revision_id`, with numeric (not lexicographic) sequence ordering;
+- an exact `memory_review_revisions` row count in `entity_counts`;
+- a memory, or a whole account, with zero review revisions is valid, and
+  absence of history is never filled in;
+- export fails closed on malformed canonical review history — orphan parent,
+  account mismatch, actor mismatch, unsupported parent species, invalid review
+  token, no-op transition, non-positive or duplicate sequence, sequence gap,
+  broken chain, and terminal-state mismatch — and never repairs it, including
+  by consulting provenance extensions;
+- restore validates the same shape before any write, persists
+  `memory_records` before `memory_review_revisions` inside one transaction, and
+  treats the restored `memory_records.review_state` as canonical present truth
+  that history reconciles to but never overrides;
+- an identical replay creates zero rows, and a semantic conflict or
+  sequence-occupancy conflict fails closed with the whole restore rolled back.
+
+A v6 archive records review transitions; it does not authorize them. No legal
+review-transition graph is encoded in the schema or in export/restore.
+
 ## Required Export Surface
 
 All IDs, metadata, and relationships in the following families must be explicit in the export. No family may depend on implicit joins during restore.
