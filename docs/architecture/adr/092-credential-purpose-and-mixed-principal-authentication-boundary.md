@@ -257,6 +257,17 @@ account-purpose validation, `auth_dependencies.py` bypass closure, legacy
 account-token rejection, global mixed-principal enforcement, task-event SSE
 authorization, and public-ingress qualification remain deferred.
 
+The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
+exact signed `purpose=account_session` before consulting the approved session
+store. It rejects a missing or different purpose, an expired or malformed
+token, an absent session mapping, and a mapping that disagrees with the signed
+subject. Both query and first-auth-frame credential transports use this seam;
+private-preview approval still follows the mapping, while the local API-key
+lane remains available in local posture. Focused WebSocket and auth regressions
+qualified this bounded code path. This does not close the generic
+`auth_dependencies.py` resolver, the remaining account-route migration, or
+the public-ingress proof.
+
 ### Hosted Room completion-event observation
 
 A currently eligible Hosted Room guest may observe task lifecycle events for

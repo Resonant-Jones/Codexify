@@ -501,3 +501,33 @@ observability tests passed **76 tests**; operator and auth regressions passed
 Channels, Hosted Room guest, or task-event SSE authority was migrated here.
 This is not live ingress proof or a release-support claim.
 `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.
+
+### 2026-09-28 WebSocket account-purpose prerequisite
+
+**PASS, focused code-path qualification.** The frozen account-purpose table
+contains two `WEBSOCKET /api/ws/rpc` declarations: the mounted
+`guardian/routes/websocket.py::websocket_rpc` and the unmounted
+`guardian/ws/router.py::websocket_rpc`. Both use
+`guardian/ws/auth.py::authenticate_websocket`. In the implementation commit
+`Enforce WebSocket account session purpose`, that shared helper checks the
+canonical signed `account_session` purpose before its existing approved-session
+lookup, requires the stored ID to equal the signed subject, and retains the
+private-preview email/role allowlist afterward. It rejects purpose-less,
+operator, Hosted Room guest, unrelated-purpose, malformed, and expired
+credentials before store lookup. Query `api_key`/`token` and first-frame
+`api_key`/`token` share the decision. The explicit local API-key path is
+unchanged.
+
+Validation:
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -v tests/identity/test_websocket_account_session_purpose.py` | 95 passed |
+| `.venv/bin/pytest -v tests/realtime/test_websocket_auth_handshake.py tests/realtime/test_websocket_protocol_validation.py tests/realtime/test_websocket_route_audit.py tests/realtime/test_websocket_rpc_methods.py tests/realtime/test_ws_idle_timeout.py tests/realtime/test_ws_rate_limit.py` | 11 passed |
+| `.venv/bin/pytest -v tests/identity/test_operator_session_boundary.py tests/identity/test_account_observability_service_capability.py tests/auth/test_auth_flow.py tests/auth/test_private_preview_access.py tests/identity/test_identity_boundary_contract.py` | 105 passed |
+
+The original 238-registration inventory is unchanged; the
+remaining **236** account-purpose registrations have not been migrated by this
+WebSocket prerequisite. The separately frozen generic session-resolver seam,
+mixed-principal presence enforcement, task-event SSE object authorization,
+and public-ingress proof remain deferred. `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD`.
