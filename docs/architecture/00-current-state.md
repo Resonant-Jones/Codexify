@@ -129,7 +129,10 @@ This file is authoritative for:
   UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
   UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: CLOSED
   UMS-05C10: OPEN
-  UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: AUTHORIZED
+  UMS-05C10A-R REVIEW-TRANSITION HISTORY REVALIDATION: CLOSED
+  UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: FROZEN
+  UMS-05C10A-P REVIEW-TRANSITION REVISION PERSISTENCE
+                   + UMS-04 PORTABILITY: AUTHORIZED
   UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1185,6 +1188,44 @@ This file is authoritative for:
   unimplemented. Branch-local only; not merged into the current `main`,
   not deployed, not a release claim. See the
   [UMS-05C9-W memory content correction proof](./proofs/runtime/2026-09-28-ums05c9-w-memory-content-correction-proof.md).
+
+- **UMS-05C10A-R (Ordinary-memory review-transition history authority
+  revalidation, qualified on `feature/ums-continued`)**: before any
+  approve / reject / dispute writer may exist, the branch-current
+  architecture was inspected for whether a `review_state` transition
+  needs canonical history beyond current state plus its intent
+  receipt. Result: **`REVIEW_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED`**.
+  Unified Memory Store contract §3.3 still requires that *every*
+  authority-changing transition produce **a revision and an intent
+  receipt**, and §5.3 already applies that posture to non-content
+  authority changes such as Project scope and Persona attribution.
+  C9's `memory_revisions` is defined by §4.16.5 as **content** history
+  and does not discharge §3.3 for `review_state` or `lifecycle_state`;
+  Personal Facts' generic `personal_fact_revisions` — which records
+  review transitions as typed `field_changed` / `old_value` /
+  `new_value` — remains the specialized equivalent that ordinary memory
+  does not have. `memory_provenance` receipts and their `extensions`
+  remain audit/evidence and explicitly non-authority. For the test
+  sequence `pending → approved → disputed → approved → rejected`,
+  **0 of 5** reconstructable facts (per-transition old state, new
+  state, sequence, time, intent identity) are recoverable today. A
+  second independent finding: **`TRANSITION_GRAPH: NOT EXPLICIT`** —
+  no current contract states which review transitions are legal, and
+  §5.3 has no row for approve / reject / dispute, so a writer must not
+  invent one. Both findings block the C10A **writer**, which stays
+  frozen; the single authorized successor is **UMS-05C10A-P** (ordinary
+  review-transition revision persistence + UMS-04 portability, which
+  would add a seventh canonical family beyond `account-export.v5`'s
+  six). This slice changed documentation only: no runtime, schema,
+  migration, export/restore, test, or frontend change, and no release
+  claim expansion. A wording divergence between Memory Vault contract
+  §5.1 (review rows list a receipt, not a receipt + revision) and
+  §3.3 is recorded in the proof as an open documentation inconsistency;
+  it was deliberately not repaired here, because choosing between two
+  current normative statements is contract resolution, not
+  revalidation. Branch-local only; not merged into the current `main`,
+  not deployed, not a release claim. See the
+  [UMS-05C10A-R review-transition history revalidation proof](./proofs/runtime/2026-09-28-ums05c10a-r-review-transition-history-revalidation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

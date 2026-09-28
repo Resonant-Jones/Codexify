@@ -1523,8 +1523,43 @@ Portability: `memory_revisions` is the sixth canonical family in
 and must round-trip distinctly; `account-export.v4` keeps its
 existing five-family meaning and is not redefined.
 
-No runtime content-correction writer exists yet. This section
-persists the prerequisite; it does not authorize editing.
+The runtime content-correction writer landed in UMS-05C9-W
+(`MemoryVaultMutationService.correct_content`, internal route
+`PATCH /api/memory-vault/items/canonical/{memory_id}/content`).
+It appends to `memory_revisions` only when authored content
+actually changes.
+
+##### 4.16.5a `memory_revisions` does not discharge §3.3 for authority transitions
+
+`memory_revisions` is **content** history. It stores typed
+`old_text_content` / `new_text_content`, carries the authored-text
+chain and no-op constraints described above, and is semantically
+inapplicable to a `review_state` or `lifecycle_state` transition,
+which has no authored-text dimension.
+
+The contract uses "revisioned" for at least three distinct
+obligations, and C9 satisfied only the first:
+
+| Obligation | Governing text | Family that satisfies it | Satisfied by `memory_revisions`? |
+| --- | --- | --- | --- |
+| Authored content transitions | §4.16.5 | `memory_revisions` | yes |
+| Non-content ordinary authority changes (Project scope, Persona attribution) | §5.3 | none yet for review / lifecycle | no |
+| Personal Fact field transitions | §3.4 | `personal_fact_revisions` | no — specialized species |
+
+Therefore §3.3's "every authority-changing transition produces a
+revision and intent receipt" remains **unimplemented for ordinary
+`review_state` and `lifecycle_state` transitions**. No ordinary
+authority-transition revision family exists at this commit.
+`memory_provenance` receipts and their `extensions` remain
+audit/evidence and explicitly non-authority, and may not be
+repurposed as canonical review-transition state.
+
+This section records the boundary. It does not choose a table
+design, does not select a legal review-transition graph, and does
+not authorize a review writer. UMS-05C10A-R classified the gap
+(`REVIEW_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED`,
+`TRANSITION_GRAPH: NOT EXPLICIT`); UMS-05C10A-P is the authorized
+persistence successor.
 
 #### 4.16.5 Payload strategy decision
 
