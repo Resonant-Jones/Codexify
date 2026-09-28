@@ -448,6 +448,58 @@ def test_sharded_dat_jsonl_groups_per_message_records(
     ]
 
 
+def test_sharded_dat_jsonl_detects_minimal_per_message_records(tmp_path: Path) -> None:
+    part = tmp_path / "conversations__minimal.part-0001"
+    part.mkdir()
+    (part / "file_0000000000000001.dat").write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in (
+                {"conversation_id": "minimal-thread", "role": "user", "content": "hello"},
+                {"conversation_id": "minimal-thread", "role": "assistant", "content": "hi"},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = OpenAIExportDetector().scan(tmp_path)
+    assert inventory.detected_format == "sharded"
+    assert inventory.files[0].conversation_candidate is True
+
+    conversations = list(OpenAIShardedExportAdapter().iter_conversations(inventory))
+    assert len(conversations) == 1
+    assert conversations[0]["conversation_id"] == "minimal-thread"
+    messages = [node["message"] for node in conversations[0]["mapping"].values()]
+    assert [message["author"]["role"] for message in messages] == [
+        "user",
+        "assistant",
+    ]
+    assert [message["content"]["parts"] for message in messages] == [
+        ["hello"],
+        ["hi"],
+    ]
+
+
+def test_unrelated_dat_jsonl_is_not_a_conversation_candidate(tmp_path: Path) -> None:
+    part = tmp_path / "conversations__unrelated.part-0001"
+    part.mkdir()
+    (part / "file_0000000000000002.dat").write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in (
+                {"event": "view", "role": "user", "content": "ordinary log"},
+                {"conversation_id": "generic-key", "content": "missing author"},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = OpenAIExportDetector().scan(tmp_path)
+    assert inventory.files[0].detected_kind == "jsonl"
+    assert inventory.files[0].conversation_candidate is False
+    assert inventory.detected_format == "unknown"
+
+
 def test_binary_and_unknown_dat_are_orphan_assets_without_crashing(
     tmp_path: Path,
     import_store: OpenAIImportStore,
