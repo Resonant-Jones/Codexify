@@ -197,6 +197,41 @@ revision / audit / intent receipt, and fail-closed cases.
 For Personal Facts, every action above delegates to the Personal Facts
 service rather than mutating competing envelope state.
 
+#### 5.1.1 Review-transition gate (UMS-05C10A-R)
+
+The Approve / Reject / dispute rows above are **admitted but not
+implemented**. No ordinary review writer, route, or service method
+exists at this commit; `review_state` is written only at creation.
+
+Two prerequisites are open, and the C10A writer stays frozen until
+both are closed:
+
+1. **Review-transition history persistence.** Unified Memory Store
+   contract §3.3 requires that every authority-changing transition
+   produce a revision **and** an intent receipt, and §5.3 already
+   requires that posture for Project scope and Persona attribution.
+   No canonical family can currently record old/new `review_state`.
+   UMS-05C10A-R classified this
+   `REVIEW_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED` and authorized
+   **UMS-05C10A-P** (persistence + UMS-04 portability).
+2. **Legal review-transition graph.** No current contract states which
+   transitions among `pending`, `approved`, `rejected`, and `disputed`
+   are legal. UMS-05C10A-R recorded `TRANSITION_GRAPH: NOT EXPLICIT`.
+   A writer must not invent it.
+
+**Reading the table above.** The `Receipt` column enumerates durable
+evidence per action; it is not a complete statement of revision
+requirements. The revision requirement for authority-changing
+transitions is governed by Unified Memory Store contract §3.3, and
+`memory_revisions` (UMS-05C9) satisfies it for authored content only,
+not for `review_state` or `lifecycle_state`. The Approve / Reject /
+dispute rows must therefore **not** be read as permitting a review
+transition without a revision.
+
+This gate records status only. It deliberately does not repair the
+`§5.1` versus `§3.3` wording divergence, and does not select a legal
+transition graph; both belong to a separately authorized successor.
+
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
 | Capability | Deferred to |
