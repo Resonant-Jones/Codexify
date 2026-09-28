@@ -201,6 +201,30 @@ the public OpenAPI document by that same profile mechanism, and
 `tests/routes/test_memory_vault_activation.py` now asserts the new PATCH path is admitted
 internally, hidden from OpenAPI, and quarantined in non-admitted profiles.
 
+Failure details are the existing shared strings, so no new message surface was introduced:
+
+| Status | Detail |
+|---|---|
+| `404` | `Memory not available` |
+| `409` (stale CAS) | `Memory changed since it was read` |
+| `409` (unsupported/integrity) | `Memory content correction unavailable` |
+| `422` | `Content must be a non-empty string` |
+
+### 7.1 Control-plane delta
+
+Route inventory was taken at the opening C9 baseline and again at the close of this slice, rather
+than reusing an older hardcoded count.
+
+| Inventory | C9 baseline (`6ba33498`) | C9-W close (`2c21cd0e`) | Delta |
+|---|---|---|---|
+| Route decorators (methods) | 8 | 9 | **+1** |
+| Distinct path templates | 7 | 8 | **+1** |
+| New template | — | `/items/canonical/{memory_id}/content` (`PATCH`) | +1 |
+
+The only control-plane delta is the one internal PATCH route on the one new content-correction
+path template. No existing Vault path or method was removed, re-pathed, or re-methoded, and no
+new feature flag was created.
+
 ---
 
 ## 8. Regression evidence
@@ -215,6 +239,7 @@ parallel disposable-child-DB contention produces spurious errors.
 | `tests/routes/test_memory_vault_content_correction.py` | **16 passed** |
 | `tests/routes/test_memory_vault_activation.py` | **7 passed** |
 | `tests/services/test_account_export_memory_revisions.py` + `tests/services/test_account_restore_memory_revisions.py` (C9 portability) | **23 passed** |
+| `tests/migration/test_memory_governance_state_migration.py` + `tests/migration/test_memory_revision_persistence_migration.py` (serial) | **17 passed** |
 | Serial Vault sweep: creation + mutation + read projection + routes + activation + correction (service) + correction (route) | **215 passed, 0 failed** |
 
 The serial sweep count is the prior 180-test Vault baseline plus the 35 new correction tests
@@ -297,12 +322,18 @@ Campaign transition:
 
 ```text
 UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: CLOSED
-UMS-05C10 ORDINARY MEMORY REVIEW TRANSITION WRITER:   AUTHORIZED
+UMS-05C10: OPEN
+UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER:   AUTHORIZED
 UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER:          NOT AUTHORIZED
 UMS-05C11+: NOT AUTHORIZED
 UMS-05D+:  NOT AUTHORIZED
 UMS-06+:   NOT AUTHORIZED
 ```
+
+`UMS-05C10A` is the sole successor. The review family (`approve`, `reject`, `dispute`) and the
+lifecycle family (`retire`, `restore`) are deliberately **not** authorized simultaneously: C7
+classified both as persistence-sufficient, but they are separate authorities and splitting them
+keeps the blast radius of each slice honest. UMS-05C10A has not been begun.
 
 Gitleaks was skipped narrowly: the sandbox cannot bootstrap the Go toolchain. Every other
 executable pre-commit hook ran. `gitleaks` is required at branch integration.
