@@ -223,11 +223,13 @@ route that currently uses that generic helper. In particular, ordinary
 account-owned application routes and task/event routes must not admit an
 operator token merely because its signature passes. The operator lane is
 limited to surfaces explicitly authorized for Guardian/API-key control-plane
-operations. `continuity_operator.py` is the first migrated consumer with
-purpose-specific operator-session validation; the admin diagnostic gate still
-uses its own `X-Admin-Token` or private-preview account-admin check. Remaining
-generic remote acceptance and subject-only user construction must be narrowed
-in later runtime work; this document is not live bypass proof or enforcement.
+operations. `continuity_operator.py` was the first migrated consumer with
+purpose-specific operator-session validation. The frozen operator-only route
+set was subsequently migrated through that same explicit seam at
+`0731a02a60811093a70128e461b4a55c8f56a13c`. The admin diagnostic gate
+still uses its own `X-Admin-Token` or private-preview account-admin check.
+Remaining generic remote acceptance and subject-only user construction must be
+narrowed in later runtime work; this document is not live bypass proof.
 
 ### Bounded PostgreSQL qualification
 
@@ -238,9 +240,15 @@ operator suite, and the focused 35-test operator/authentication regression
 against an isolated disposable PostgreSQL target. The evidence is recorded in
 [`2026-09-26-continuity-operator-auth-postgres-proof.md`](../proofs/runtime/2026-09-26-continuity-operator-auth-postgres-proof.md).
 This qualifies only that consumer and does not mean ADR-092 is fully
-runtime-enforced. Remaining operator-route migration, strict generic
-account-purpose validation, `auth_dependencies.py` bypass closure, legacy
-account-token rejection, mixed-principal enforcement, task-event SSE
+runtime-enforced. At `0731a02a60811093a70128e461b4a55c8f56a13c`, the
+separate frozen operator-only migration passed its activation-aware test
+qualification: 52/52 declared migrations structurally use
+`require_operator_auth`; 23 enabled declarations passed applicable route proof;
+28 default-off declarations retained their profile/flag posture; one graph
+declaration remained unmounted; and four separately quarantined model-override
+declarations remained qualified. Strict generic account-purpose validation,
+service-capability separation, `auth_dependencies.py` bypass closure, legacy
+account-token rejection, global mixed-principal enforcement, task-event SSE
 authorization, and public-ingress qualification remain deferred.
 
 ### Hosted Room completion-event observation
@@ -364,10 +372,11 @@ presented in only one lane.
   Redis transports events and never decides ownership.
 
 This decision extends those boundaries without superseding them. Intentional
-local/single-user defaults remain separate and unchanged. The operator class,
-purpose-aware shared issuance, strict class validation, and three-lane mixed
-rejection are accepted contracts, **not yet runtime-enforced**. No token
-issuance, validation, SSE, Cloudflare, or release behavior is changed by this
-document.
+local/single-user defaults remain separate and unchanged. The explicit
+operator-session seam, qualified Continuity operator consumer, and frozen
+operator-only route migration are implemented and test-qualified on their
+bounded surfaces. Global account-purpose strictness and three-lane mixed
+rejection remain accepted contracts that are **not yet runtime-enforced**.
+This document itself changes no token, SSE, Cloudflare, or release behavior.
 The task-event SSE repair and full public-ingress requalification remain
 pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status.

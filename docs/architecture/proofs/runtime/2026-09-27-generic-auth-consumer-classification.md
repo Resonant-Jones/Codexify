@@ -423,3 +423,58 @@ Each registration below inherits its source file's exact inclusion path, feature
 **Reconciliation:** `mounted_enabled = 23`, `mounted_default_off = 28`, `unmounted_declared = 1`; **23 + 28 + 1 = 52**. The duplicate `guardian/routes/graph.py::get_graph` has no canonical app inclusion. The `guardian/guardian_api.py::get_graph` registration at the same path is independently mounted. The unmounted declaration remains in the structural migration inventory; it is not evidence of an accessible duplicate endpoint.
 
 **Normative qualification method:** The operator migration succeeds structurally when all **52 declared migration registrations** use `require_operator_auth`, regardless of activation state. For `mounted_enabled`, subsequent qualification requires structural authentication proof and applicable route-level focused/runtime regression proof in a topology that actually mounts the route. For `mounted_default_off`, it requires structural proof plus evidence that the accepted default-off profile/flag behavior remains unchanged; route-level execution is required only if an existing legitimate test topology already enables the route. No production enablement is required. For `unmounted_declared`, it requires structural proof and evidence that the current canonical application does not mount it; HTTP success is neither required nor expected. Qualification must be activation-aware and must not require all 52 registrations to be simultaneously mounted or enabled. None of these classes establishes Beta Supported status or closes `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD`.
+
+### 2026-09-28 activation-aware operator migration qualification
+
+**PASS, focused test and code-path proof at implementation commit `0731a02a60811093a70128e461b4a55c8f56a13c`.** The branch is `codex/restore-conversation-import-pipeline`; qualification began from ledger commit `13451934b9c08315f5a3b6a49e89979dc9e5863a`. The frozen 52 declarations in 11 files remain exactly 23 `mounted_enabled`, 28 `mounted_default_off`, and 1 `unmounted_declared`. The four canonical model-override declarations remain a separate, supported-profile-quarantined set: **52 + 4 = 56** accounted operator declarations.
+
+The fixed expected-method/path/handler manifest in `tests/identity/test_operator_route_auth_migration.py` matched all 56 declarations, proved `require_operator_auth` and absence of transitive `require_api_key` on each, and left **zero frozen generic operator declarations**. Thus the migration result is **52/52 structurally migrated**, with the separately reconciled four model overrides also using the explicit operator seam. The credential matrix accepted the configured raw API key and exact-purpose `operator_session`; it rejected `account_session`, Hosted Room guest, purpose-less, wrong-purpose, expired, and malformed signed credentials.
+
+The local supported-profile topology test found all **23 enabled declarations mounted** and returned HTTP 401 for an account-purpose credential at each route before the handler's business path. Existing focused route tests supplied post-auth behavior for the applicable agent, coding work-order, Obsidian, and outbox surfaces. The profile assertions kept all **28 default-off declarations quarantined across the five current manifests**; `guardian_delegations` and `worktrees` also retained `default_enabled=False`. The unmounted `guardian/routes/graph.py::get_graph` declaration remained absent from the canonical app; the distinct `guardian_api.py::get_graph` declaration remained mounted. No default-off route was enabled to manufacture HTTP success. All five profiles still quarantine the four model-override declarations.
+
+The agent regression initially had one stale fixture: `adapter_kind="codex"` was rejected by the current `CodingAgentAdapterKind` contract. Its success and rejection-seed inputs now use the canonical `pi_codex_runner` value; the production request model was unchanged. The four Guardian-delegation contract modules initially had **57 SQLite setup errors** when canonical PostgreSQL `personal_facts.guardrail_metadata` used `JSONB`. Their module-local fixtures now use the repository's `TEST_DATABASE_URL` disposable-PostgreSQL pattern and canonical SQLAlchemy metadata. Each module receives an isolated, uniquely named disposable database, and each test begins with clean tables; no production model, migration, or shared fixture was changed. Qualification used a separate loopback `postgres:15` container with inert test credentials; it did not connect to private-preview PostgreSQL.
+
+Commands and results (repository root; the PostgreSQL URL below belonged only to the disposable test container):
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -v --tb=short tests/identity/test_operator_route_auth_migration.py` | 16 passed; 52/52 structural, 23 mounted account-token denial, 28 default-off, 1 graph absence, 4 model overrides |
+| `.venv/bin/pytest -v guardian/tests/routes/test_agent_orchestration_events.py` | 18 passed after fixture alignment; initial run 1 failed / 17 passed |
+| `TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv/bin/pytest -v --tb=short tests/contracts/test_guardian_delegation_phase2a_contract.py` | 22 passed |
+| `TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv/bin/pytest -v --tb=short tests/contracts/test_guardian_delegation_phase3_delivery_contract.py` | 15 passed |
+| `TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv/bin/pytest -v --tb=short tests/contracts/test_guardian_delegation_approval_cancel_contract.py` | 13 passed |
+| `TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv/bin/pytest -v --tb=short tests/contracts/test_guardian_delegation_command_center_transcript_contract.py` | 12 passed |
+| `.venv/bin/pytest -v tests/identity/test_operator_session_boundary.py` | 6 passed |
+| `.venv/bin/pytest -v tests/auth/test_auth_flow.py tests/auth/test_private_preview_access.py tests/identity/test_identity_boundary_contract.py` | 12 passed |
+| `.venv/bin/pytest -v guardian/tests/test_llm_model_overrides_routes.py` | 2 passed |
+| `.venv/bin/pytest -v tests/core/test_supported_profile_quarantine.py` | 13 passed |
+
+The complete focused route command, with `TEST_DATABASE_URL` pointing to the same disposable container, was:
+
+```bash
+TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv/bin/pytest -v --tb=short \
+  guardian/tests/test_events_outbox.py \
+  guardian/tests/routes/test_agent_orchestration_events.py \
+  tests/routes/test_pi_invocation_dry_run_route.py \
+  guardian/tests/routes/test_coding_work_orders.py \
+  tests/routes/test_coding_work_order_latest_run_readback.py \
+  tests/routes/test_work_order_result_receipts.py \
+  tests/routes/test_work_order_result_receipt_readback.py \
+  tests/routes/test_work_order_latest_receipt_linkage.py \
+  tests/routes/test_obsidian_routes.py \
+  tests/routes/test_cron_routes.py \
+  tests/routes/test_delegations_routes.py \
+  tests/test_flows_core.py \
+  tests/contracts/test_guardian_delegation_phase2a_contract.py \
+  tests/contracts/test_guardian_delegation_phase3_delivery_contract.py \
+  tests/contracts/test_guardian_delegation_approval_cancel_contract.py \
+  tests/contracts/test_guardian_delegation_command_center_transcript_contract.py \
+  tests/routes/test_worktrees_route.py \
+  tests/routes/test_worktrees_guardian_api_registration.py \
+  tests/core/test_supported_profile_quarantine.py \
+  tests/identity/test_operator_route_auth_migration.py
+```
+
+Result: **217 passed, 2 pre-existing skips, 0 failed, 0 errors**. A supplemental `guardian/tests/routes/test_health_supported_profile.py` run failed three tests because that separate health fixture hard-codes `LOCAL_BASE_URL=http://host.docker.internal:11434/v1` while its selected supported profile requires `...:8000/v1`; an external environment override did not change the fixture value. It is outside the frozen operator-route group and the authorized fixture-repair paths, so it remains unmodified and unqualified here.
+
+No Channel, service-capability, account-purpose, local/dev, session-resolver, Hosted Room guest, or task-event SSE authority code changed. The `guardian_api.py` diff affects only `GET /api/events` and the direct `GET /graph` operator dependencies; task-event SSE logic remains unchanged. This is focused test evidence for the committed implementation, **not live public-ingress proof or a release-support claim**. The separate dirty public-ingress proof receipt was untouched and unstaged. `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.
