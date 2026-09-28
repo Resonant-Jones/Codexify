@@ -127,8 +127,9 @@ This file is authoritative for:
   UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
   UMS-05C8-Q GOVERNANCE-STATE MIGRATION QUALIFICATION: CLOSED
   UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
-  UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: AUTHORIZED
-  UMS-05C10 REVIEW / LIFECYCLE MUTATION WRITERS: NOT AUTHORIZED
+  UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: CLOSED
+  UMS-05C10 ORDINARY MEMORY REVIEW TRANSITION WRITER: AUTHORIZED
+  UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
@@ -1144,14 +1145,45 @@ This file is authoritative for:
   Personal Facts revision authority. C9 also repaired a real
   pre-existing defect: canonical-memory restore trimmed authored
   `text_content`, which silently rewrote user whitespace and made
-  revision reconciliation impossible. **Content correction itself is
-  still not implemented** — no Memory Vault writer, route, retrieval
-  change, or UI exists. C9 is persistence and portability only;
-  UMS-05C9-W is the sole next authorized slice. Two known
+  revision reconciliation impossible. C9 was persistence and
+  portability only; **content correction itself remained unimplemented**
+  at the close of C9 and was closed by UMS-05C9-W below. Two known
   explicit-v4 export test failures remain unchanged baseline debt.
   Branch-local only; not merged into the current `main`, not
   deployed, not a release claim. See the
   [UMS-05C9 memory revision portability proof](./proofs/runtime/2026-09-27-ums05c9-memory-revision-portability-proof.md).
+
+- **UMS-05C9-W (Ordinary-memory content correction writer, qualified on
+  `feature/ums-continued`)**: authenticated direct correction of
+  canonical ordinary episodic memory now exists as
+  `MemoryVaultMutationService.correct_content`, exposed internally as
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/content`. A
+  changed correction atomically produces the new
+  `memory_records.text_content`, exactly one append-only
+  `memory_revisions` row holding the exact prior and resulting text,
+  exactly one existing-format `memory-vault-mutation.v1` receipt, and
+  one new database-authored `memory_records.updated_at` CAS token; any
+  failure rolls all four back. A byte-identical no-op creates neither a
+  revision nor a receipt and leaves the CAS unchanged, while a stale
+  token conflicts even when the requested text equals current content.
+  Accepted content is never trimmed — blankness is judged on the
+  stripped form only, so whitespace, newlines, Unicode, punctuation, and
+  casing survive exactly. The existing revision tail is validated for
+  contiguity and for reconciliation against canonical content before
+  append; malformed history fails closed and is never repaired. The
+  receipt references revision identity and number only and never carries
+  authored old/new text. Authority stays constructor-bound, only
+  `episodic_semantic_memory` is writable, and Personal Facts are refused
+  rather than delegated. The route is a thin adapter: no SQL, no
+  revision-number calculation, no CAS comparison, no row locking, no
+  read-before-write. It is internal-only and hidden from public OpenAPI
+  under the existing `memory_vault` profile posture. No migration, no
+  schema change, no export-schema change, no retrieval change, no
+  frontend, and no release claim expansion. Review/lifecycle writers,
+  Personal Fact correction, and any revision browsing or read API remain
+  unimplemented. Branch-local only; not merged into the current `main`,
+  not deployed, not a release claim. See the
+  [UMS-05C9-W memory content correction proof](./proofs/runtime/2026-09-28-ums05c9-w-memory-content-correction-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

@@ -412,7 +412,7 @@ The implementation boundary for UMS-05 is frozen by this matrix.
 | Stable Persona attribution inspection | Live in UMS-05B | canonical `memory_persona_links` against `persona_subjects` | UMS-05B | No | never derives from display names |
 | Direct Vault creation (user-authored) | Live in UMS-05C | canonical user-authored memory service | UMS-05C | Yes | enters approved + active per UMS contract for explicit user-authored memory |
 | Review action (approve / reject / dispute) | Live in UMS-05C | subtype-specific review service (Personal Facts review for fact species) | UMS-05C | Yes | Personal Facts delegates |
-| Content correction | Live in UMS-05C | canonical revision service | UMS-05C | Yes | revisioned; previous values in receipt |
+| Content correction | Live in UMS-05C9-W | canonical revision service (`MemoryVaultMutationService.correct_content`) | UMS-05C9-W | Yes | one `memory_revisions` row + one receipt per change; exact prior/new text |
 | Project scope change | Live in UMS-05C | canonical scope mutation service | UMS-05C | Yes | provenance noted |
 | Persona attribution change | Live in UMS-05C | canonical Persona link service | UMS-05C | Yes | stable Persona subject only |
 | Pin / unpin | Live in UMS-05C | canonical pin service | UMS-05C | Yes | affects priority only |

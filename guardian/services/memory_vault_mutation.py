@@ -42,10 +42,15 @@ from guardian.db.models import (
     MemoryPersonaLink,
     MemoryProvenance,
     MemoryRecord,
+    MemoryRevision,
     PersonaSubject,
     Project,
 )
-from guardian.protocol_tokens import MemoryPersonaLinkKind, PersonaSubjectLifecycle
+from guardian.protocol_tokens import (
+    MemoryPersonaLinkKind,
+    MemorySemanticSpecies,
+    PersonaSubjectLifecycle,
+)
 from guardian.services.memory_vault_read import (
     MemoryVaultReadService,
     VaultIdentity,
@@ -62,6 +67,7 @@ ACTION_SET_PROJECT_SCOPE = "set_project_scope"
 ACTION_CLEAR_PROJECT_SCOPE = "clear_project_scope"
 ACTION_ADD_PERSONA_ATTRIBUTION = "add_persona_attribution"
 ACTION_REMOVE_PERSONA_ATTRIBUTION = "remove_persona_attribution"
+ACTION_CONTENT_CORRECTION = "content_correction"
 
 #: Stable receipt schema marker stored in provenance extensions.
 RECEIPT_SCHEMA = "memory-vault-mutation.v1"
@@ -75,6 +81,11 @@ MUTATION_SOURCE = "vault"
 #: mutate. Kept explicitly closed; there is no dynamic caller-selected field
 #: mutation.
 _GOVERNANCE_FIELDS = frozenset({"pinned", "held"})
+
+#: The single canonical semantic species the generic content-correction
+#: writer may mutate. Personal Fact species remain specialized and are
+#: owned by ``personal_fact_revisions`` plus the Personal Facts service.
+_CORRECTABLE_SPECIES = MemorySemanticSpecies.EPISODIC_SEMANTIC_MEMORY.value
 
 #: Closed vocabulary of canonical Persona-link token values. Mirrors
 #: ``MemoryPersonaLinkKind`` for internal normalization; the canonical enum
@@ -125,12 +136,61 @@ class MemoryVaultPersonaSubjectLifecycleConflict(MemoryVaultMutationError):
     """
 
 
+class MemoryVaultContentCorrectionInvalid(MemoryVaultMutationError):
+    """Authored content is missing, non-string, or whitespace-only.
+
+    This is ordinary request validation rather than an integrity failure,
+    so the HTTP layer maps it to 422 instead of the sanitized 409 family.
+    """
+
+
+class MemoryVaultContentCorrectionUnsupported(MemoryVaultMutationError):
+    """The target canonical memory is not writable by the generic writer.
+
+    Raised when the target is a specialized Personal Fact species. The
+    generic Vault writer does not own Personal Facts content; that
+    authority remains ``personal_fact_revisions`` plus the Personal Facts
+    service. The HTTP layer maps this to the same sanitized 409 family as
+    other integrity failures so no species detail leaks.
+    """
+
+
+class MemoryVaultContentCorrectionIntegrityError(MemoryVaultMutationError):
+    """Existing revision history is not consistent with canonical content.
+
+    Raised when the existing ``memory_revisions`` tail for the target
+    memory is gapped or diverges from current canonical
+    ``memory_records.text_content``. The writer refuses to append onto
+    malformed history and never repairs it.
+    """
+
+
 @dataclass(frozen=True)
 class VaultMutationResult:
     """Outcome of one Vault governance mutation attempt."""
 
     changed: bool
     receipt_id: str | None
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItem
+
+
+@dataclass(frozen=True)
+class VaultContentCorrectionResult:
+    """Outcome of one direct ordinary-memory content correction.
+
+    Extends the shared Vault mutation result with the canonical revision
+    identity created by a changed correction. For an exact no-op both
+    ``receipt_id`` and ``revision_id`` are ``None`` and
+    ``revision_number`` is ``None``: no revision and no receipt are
+    created when content did not change.
+    """
+
+    changed: bool
+    receipt_id: str | None
+    revision_id: str | None
+    revision_number: int | None
     previous_updated_at: datetime
     resulting_updated_at: datetime
     item: VaultItem
@@ -592,6 +652,218 @@ class MemoryVaultMutationService:
             item=item,
         )
 
+    def correct_content(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        content: str,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultContentCorrectionResult:
+        """Correct the canonical text of one ordinary memory (UMS-05C9-W).
+
+        A changed correction atomically produces all of:
+
+        1. the new canonical ``memory_records.text_content``;
+        2. exactly one append-only ``memory_revisions`` row preserving the
+           exact prior and resulting text;
+        3. exactly one ``memory-vault-mutation.v1`` receipt that references
+           the created revision without duplicating authored content;
+        4. one new database-authored ``memory_records.updated_at`` token.
+
+        An exact no-op (requested text identical to current canonical text,
+        with a fresh CAS token) creates neither a revision nor a receipt and
+        does not advance the CAS. A stale token conflicts even when the
+        requested text happens to equal current text.
+
+        Only canonical ordinary ``episodic_semantic_memory`` is writable
+        here. Personal Facts remain specialized and are never corrected
+        through this generic writer.
+        """
+        self._validate_memory_id(memory_id)
+        self._validate_cas_token(expected_updated_at)
+        validated_content = self._validate_authored_content(content)
+
+        row = self._load_authorized_memory(memory_id)
+        self._require_fresh_token(row, expected_updated_at)
+
+        if row.semantic_species != _CORRECTABLE_SPECIES:
+            self._session.rollback()
+            raise MemoryVaultContentCorrectionUnsupported(
+                "canonical memory is not writable by the generic content writer"
+            )
+
+        previous_updated_at = row.updated_at
+        previous_text = row.text_content
+
+        if previous_text == validated_content:
+            # Exact no-op. Stale tokens already conflicted above, so this
+            # branch is only reachable with a genuinely fresh token.
+            item = self._readback(memory_id)
+            self._session.rollback()
+            return VaultContentCorrectionResult(
+                changed=False,
+                receipt_id=None,
+                revision_id=None,
+                revision_number=None,
+                previous_updated_at=previous_updated_at,
+                resulting_updated_at=previous_updated_at,
+                item=item,
+            )
+
+        next_revision_number = self._next_revision_number(
+            memory_id=memory_id,
+            current_text=previous_text,
+        )
+
+        try:
+            new_token = self._session.execute(
+                update(MemoryRecord)
+                .where(
+                    MemoryRecord.memory_id == memory_id,
+                    MemoryRecord.user_id == self._account,
+                    MemoryRecord.updated_at == expected_updated_at,
+                )
+                .values(
+                    text_content=validated_content,
+                    updated_at=func.clock_timestamp(),
+                )
+                .returning(MemoryRecord.updated_at)
+            ).scalar_one()
+        except NoResultFound as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationConflict(
+                "memory item changed; expected_updated_at is stale"
+            ) from exc
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError("memory mutation failed") from exc
+
+        revision = MemoryRevision(
+            revision_id=str(uuid.uuid4()),
+            memory_id=memory_id,
+            user_id=self._account,
+            revision_number=next_revision_number,
+            old_text_content=previous_text,
+            new_text_content=validated_content,
+        )
+        self._session.add(revision)
+
+        try:
+            self._session.flush()
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultContentCorrectionIntegrityError(
+                "memory content correction transaction failed"
+            ) from exc
+
+        # The receipt is audit evidence only. It references the created
+        # revision and never duplicates authored old/new text.
+        receipt = self._build_receipt(
+            memory_id=memory_id,
+            action=ACTION_CONTENT_CORRECTION,
+            field_name="revision_number",
+            previous_value=next_revision_number - 1,
+            new_value=next_revision_number,
+            expected_updated_at=expected_updated_at,
+            resulting_updated_at=new_token,
+            reason=reason,
+            request_ref=request_ref,
+        )
+        receipt.extensions = {
+            **dict(receipt.extensions or {}),
+            "revision_id": revision.revision_id,
+            "new_values": {
+                "revision_id": revision.revision_id,
+                "revision_number": revision.revision_number,
+                "content_changed": True,
+            },
+        }
+        self._session.add(receipt)
+
+        try:
+            self._session.flush()
+        except Exception as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationError(
+                "memory mutation transaction failed"
+            ) from exc
+
+        self._session.commit()
+
+        item = self._readback(memory_id)
+        if item.content != validated_content:
+            raise MemoryVaultMutationError("canonical readback mismatch after mutation")
+        if item.updated_at != new_token:
+            raise MemoryVaultMutationError(
+                "canonical readback timestamp mismatch after mutation"
+            )
+
+        return VaultContentCorrectionResult(
+            changed=True,
+            receipt_id=receipt.provenance_id,
+            revision_id=revision.revision_id,
+            revision_number=revision.revision_number,
+            previous_updated_at=previous_updated_at,
+            resulting_updated_at=new_token,
+            item=item,
+        )
+
+    def _next_revision_number(
+        self,
+        *,
+        memory_id: str,
+        current_text: str | None,
+    ) -> int:
+        """Return the next contiguous revision number after validating the tail.
+
+        Fails closed when existing history is gapped or when its tail no
+        longer reconciles with current canonical content. Malformed
+        history is never repaired here.
+        """
+        rows = (
+            self._session.execute(
+                select(MemoryRevision)
+                .where(
+                    MemoryRevision.memory_id == memory_id,
+                    MemoryRevision.user_id == self._account,
+                )
+                .order_by(MemoryRevision.revision_number.asc())
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return 1
+        numbers = [r.revision_number for r in rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            self._session.rollback()
+            raise MemoryVaultContentCorrectionIntegrityError(
+                "existing memory revision history is not contiguous"
+            )
+        latest = rows[-1]
+        if latest.new_text_content != current_text:
+            self._session.rollback()
+            raise MemoryVaultContentCorrectionIntegrityError(
+                "existing memory revision tail diverges from canonical content"
+            )
+        return latest.revision_number + 1
+
+    @staticmethod
+    def _validate_authored_content(value: object) -> str:
+        """Validate authored text and return it unchanged.
+
+        Blankness is judged on the stripped form, but the original
+        unstripped string is what gets persisted so exact whitespace,
+        line breaks, Unicode, punctuation, and casing survive.
+        """
+        if not isinstance(value, str):
+            raise MemoryVaultContentCorrectionInvalid("content must be a string")
+        if not value.strip():
+            raise MemoryVaultContentCorrectionInvalid("content is required")
+        return value
+
     # -- Helpers ----------------------------------------------------------
 
     def _readback(self, memory_id: str) -> VaultItem:
@@ -824,6 +1096,7 @@ __all__ = [
     "ACTION_CLEAR_PROJECT_SCOPE",
     "ACTION_ADD_PERSONA_ATTRIBUTION",
     "ACTION_REMOVE_PERSONA_ATTRIBUTION",
+    "ACTION_CONTENT_CORRECTION",
     "MemoryVaultMutationConflict",
     "MemoryVaultMutationError",
     "MemoryVaultMutationNotAvailable",
@@ -831,7 +1104,11 @@ __all__ = [
     "MemoryVaultProjectAuthorityConflict",
     "MemoryVaultPersonaSubjectNotAvailable",
     "MemoryVaultPersonaSubjectLifecycleConflict",
+    "MemoryVaultContentCorrectionInvalid",
+    "MemoryVaultContentCorrectionUnsupported",
+    "MemoryVaultContentCorrectionIntegrityError",
     "MemoryVaultMutationService",
     "RECEIPT_SCHEMA",
     "VaultMutationResult",
+    "VaultContentCorrectionResult",
 ]
