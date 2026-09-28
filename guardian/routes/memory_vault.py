@@ -53,6 +53,9 @@ from guardian.services.memory_vault_creation import (
     MemoryVaultCreationService,
 )
 from guardian.services.memory_vault_mutation import (
+    MemoryVaultContentCorrectionIntegrityError,
+    MemoryVaultContentCorrectionInvalid,
+    MemoryVaultContentCorrectionUnsupported,
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
@@ -211,6 +214,18 @@ class _VaultMutationRequest(BaseModel):
         return value
 
 
+class VaultContentCorrectionRequest(_VaultMutationRequest):
+    """Request body for direct user-authored content correction.
+
+    Only the explicitly human-authored ``content`` text and the shared
+    governance mutation fields are accepted. Caller account, Project,
+    Persona, semantic species, review/lifecycle state, revision identity,
+    and revision numbering are never request authority.
+    """
+
+    content: Annotated[str, Field(strict=True, min_length=1)]
+
+
 class VaultPinRequest(_VaultMutationRequest):
     """Request body for canonical pin/unpin mutation."""
 
@@ -270,6 +285,23 @@ class VaultCreationResponse(BaseModel):
     """Serialized Vault direct creation result (UMS-05C6)."""
 
     receipt_id: str
+    item: VaultItemResponse
+
+
+class VaultContentCorrectionResponse(BaseModel):
+    """Serialized direct content-correction result (UMS-05C9-W).
+
+    ``revision_id`` / ``revision_number`` and ``receipt_id`` are all
+    ``None`` for an exact no-op. Full old authored text is never exposed
+    separately from the canonical current item.
+    """
+
+    changed: bool
+    receipt_id: str | None
+    revision_id: str | None
+    revision_number: int | None
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
     item: VaultItemResponse
 
 
@@ -762,6 +794,64 @@ def create_vault_item(
     )
 
 
+_CONTENT_CORRECTION_UNAVAILABLE_DETAIL = "Memory content correction unavailable"
+_CONTENT_CORRECTION_INVALID_DETAIL = "Content must be a non-empty string"
+
+
+@router.patch(
+    "/items/canonical/{memory_id}/content",
+    response_model=VaultContentCorrectionResponse,
+)
+def patch_canonical_vault_item_content(
+    memory_id: str,
+    body: VaultContentCorrectionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultContentCorrectionResponse:
+    """Direct authenticated correction of ordinary-memory content.
+
+    Thin adapter only: it performs no SQL, no revision-number
+    calculation, no CAS comparison, no row locking, no old/new text
+    comparison, and no receipt construction. Account authority comes
+    exclusively from ``RequestUserScope.account_id`` through the
+    existing mutation-service dependency.
+    """
+    try:
+        result = service.correct_content(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            content=body.content,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultContentCorrectionInvalid:
+        # Ordinary request validation, not an integrity failure.
+        raise HTTPException(status_code=422, detail=_CONTENT_CORRECTION_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultContentCorrectionUnsupported,
+        MemoryVaultContentCorrectionIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Sanitized: no species, SQL, constraint, chain, or content detail.
+        raise HTTPException(
+            status_code=409, detail=_CONTENT_CORRECTION_UNAVAILABLE_DETAIL
+        )
+
+    return VaultContentCorrectionResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        revision_id=result.revision_id,
+        revision_number=result.revision_number,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -777,6 +867,8 @@ __all__ = [
     "VaultProjectScopeRequest",
     "VaultPersonaAttributionRequest",
     "VaultCreateMemoryRequest",
+    "VaultContentCorrectionRequest",
+    "VaultContentCorrectionResponse",
     "VaultMutationResponse",
     "VaultCreationResponse",
     "MemoryCompatibilitySourceRefResponse",
