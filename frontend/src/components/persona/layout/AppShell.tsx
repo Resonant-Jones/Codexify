@@ -47,7 +47,7 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
-import UnifiedDesktopCompositor from "@/components/persona/layout/UnifiedDesktopCompositor";
+import UnifiedDesktopCompositor, { type BrowserPresentation } from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -1377,6 +1377,19 @@ export default function AppShell({
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
+  const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
+  const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
+  const [focusedSidebarPinned, setFocusedSidebarPinned] = useState(false);
+  const handleBrowserPresentationChange = useCallback((next: BrowserPresentation) => {
+    setBrowserPresentation(next);
+    const focused = next === "focused";
+    setFocusedSidebarOpen(focused);
+    setFocusedSidebarPinned(focused);
+  }, []);
+  const setFocusedSidebarVisibility = useCallback((open: boolean) => {
+    setFocusedSidebarOpen(open);
+    if (!open) setFocusedSidebarPinned(false);
+  }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
       () => isPrimaryMobileApplicationView(view) && view !== "guardian"
@@ -2134,6 +2147,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const isFocusedBrowser = browserPresentation === "focused" && !isPhoneShell;
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -2145,6 +2159,7 @@ export default function AppShell({
     isPhoneFrameFirstShell && view === "guardian";
   const isNonGuardianPhoneFrameShell =
     isPhoneFrameFirstShell && view !== "guardian";
+  const showFocusedAppSidebar = isFocusedBrowser && view !== "guardian";
   useEffect(() => {
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
@@ -3248,7 +3263,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     view === "documents" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3281,15 +3296,23 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     <MobileAppSidebarDrawer
-      isOpen={isPhoneSidebarOpen}
-      onClose={() => setIsPhoneSidebarOpen(false)}
+      isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
+      onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
+      presentation={showFocusedAppSidebar ? "shelf" : "modal"}
+      pinned={showFocusedAppSidebar && focusedSidebarPinned}
+      onPinnedChange={(pinned) => {
+        setFocusedSidebarPinned(pinned);
+        if (pinned) setFocusedSidebarOpen(true);
+      }}
+      onShelfPointerLeave={showFocusedAppSidebar && !focusedSidebarPinned ? () => setFocusedSidebarVisibility(false) : undefined}
+      shellStyle={showFocusedAppSidebar ? styleVars as React.CSSProperties : undefined}
       isApplicationNavigationExpanded={isApplicationNavigationExpanded}
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={view as MobileApplicationView}
+      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
@@ -3435,7 +3458,15 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
-    <UnifiedDesktopCompositor enabled={!isPhoneShell} shellStyle={styleVars as React.CSSProperties}>
+    <UnifiedDesktopCompositor
+      enabled={!isPhoneShell}
+      shellStyle={styleVars as React.CSSProperties}
+      presentation={browserPresentation}
+      onPresentationChange={handleBrowserPresentationChange}
+      focusedSidebarOpen={focusedSidebarOpen}
+      focusedSidebarPinned={focusedSidebarPinned}
+      onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
+    >
     <div
       className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
@@ -4031,6 +4062,15 @@ export default function AppShell({
                         }
                         frameFirstMobile={isNarrowGuardianFrameShell}
                         mobileFramePrelude={guardianMobileFramePrelude}
+                        browserFocused={isFocusedBrowser}
+                        focusedSidebarOpen={focusedSidebarOpen}
+                        focusedSidebarPinned={focusedSidebarPinned}
+                        onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
+                        onFocusedSidebarPinnedChange={(pinned) => {
+                          setFocusedSidebarPinned(pinned);
+                          if (pinned) setFocusedSidebarOpen(true);
+                        }}
+                        focusedShelfStyle={styleVars as React.CSSProperties}
                       />
                     </ErrorBoundary>
                   </div>

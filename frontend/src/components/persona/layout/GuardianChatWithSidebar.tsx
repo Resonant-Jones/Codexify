@@ -345,6 +345,12 @@ type GuardianChatWithSidebarProps = {
   onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
   frameFirstMobile?: boolean;
   mobileFramePrelude?: React.ReactNode;
+  browserFocused?: boolean;
+  focusedSidebarOpen?: boolean;
+  focusedSidebarPinned?: boolean;
+  onFocusedSidebarOpenChange?: (open: boolean) => void;
+  onFocusedSidebarPinnedChange?: (pinned: boolean) => void;
+  focusedShelfStyle?: React.CSSProperties;
 };
 
 export default function GuardianChatWithSidebar({
@@ -371,6 +377,12 @@ export default function GuardianChatWithSidebar({
   onApplicationNavigationExpandedChange,
   frameFirstMobile = false,
   mobileFramePrelude,
+  browserFocused = false,
+  focusedSidebarOpen = false,
+  focusedSidebarPinned = false,
+  onFocusedSidebarOpenChange,
+  onFocusedSidebarPinnedChange,
+  focusedShelfStyle,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -411,7 +423,7 @@ export default function GuardianChatWithSidebar({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
-  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
+  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split" && !browserFocused;
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const projectListRef = React.useRef(projectCache.projectList);
@@ -767,13 +779,17 @@ export default function GuardianChatWithSidebar({
   const guardianPresentationMode = isPromptFirstStart
     ? "landing"
     : "conversation";
-  const isSidebarOpen = isDesktopLayout
+  const isSidebarOpen = browserFocused
+    ? focusedSidebarOpen
+    : isDesktopLayout
     ? guardianPresentationMode === "landing"
       ? isLandingSidebarOpen
       : isSidebarVisible
     : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
-  const guardianLayoutMode = mobileShellProfile.guardian.singleLane
+  const guardianLayoutMode = browserFocused
+    ? "collapsed_drawer"
+    : mobileShellProfile.guardian.singleLane
     ? "single_lane"
     : isDesktopLayout
       ? "split"
@@ -781,7 +797,9 @@ export default function GuardianChatWithSidebar({
 
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
-      if (isDesktopLayout) {
+      if (browserFocused) {
+        onFocusedSidebarOpenChange?.(next);
+      } else if (isDesktopLayout) {
         if (guardianPresentationMode === "landing") {
           setIsLandingSidebarOpen(next);
         } else {
@@ -791,7 +809,7 @@ export default function GuardianChatWithSidebar({
         setIsMobileSidebarOpen(next);
       }
     },
-    [guardianPresentationMode, isDesktopLayout]
+    [browserFocused, guardianPresentationMode, isDesktopLayout, onFocusedSidebarOpenChange]
   );
 
   const closeMobileToolsMenu = React.useCallback(() => {
@@ -1859,6 +1877,11 @@ export default function GuardianChatWithSidebar({
       }
       returnFocusRef={mobileSidebarTriggerRef}
       wallpaperUrl={wallpaperUrl}
+      presentation={browserFocused ? "shelf" : "modal"}
+      pinned={browserFocused && focusedSidebarPinned}
+      onPinnedChange={onFocusedSidebarPinnedChange}
+      onShelfPointerLeave={browserFocused && !focusedSidebarPinned ? closeSidebar : undefined}
+      shellStyle={browserFocused ? focusedShelfStyle : undefined}
     >
       <SidebarRoot
         threads={threads}

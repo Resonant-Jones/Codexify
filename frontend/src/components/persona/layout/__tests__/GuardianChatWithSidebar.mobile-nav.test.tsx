@@ -11,6 +11,7 @@ import GuardianChatWithSidebar, {
 const guardianPropsSpy = vi.hoisted(() => vi.fn());
 const sidebarPropsSpy = vi.hoisted(() => vi.fn());
 const sessionSpineInstances = vi.hoisted(() => [] as any[]);
+const sessionThreadId = vi.hoisted(() => ({ value: undefined as string | undefined }));
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -165,7 +166,7 @@ vi.mock("@/state/session/hooks", () => ({
     tabs: [
       {
         tabId: "tab-1",
-        threadId: undefined,
+        threadId: sessionThreadId.value,
         title: "New Thread",
         pendingThread: true,
       },
@@ -174,7 +175,7 @@ vi.mock("@/state/session/hooks", () => ({
   }),
   useSessionActiveTab: () => ({
     tabId: "tab-1",
-    threadId: undefined,
+    threadId: sessionThreadId.value,
     title: "New Thread",
     pendingThread: true,
   }),
@@ -235,6 +236,7 @@ describe("Guardian mobile application navigation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionSpineInstances.length = 0;
+    sessionThreadId.value = undefined;
     localStorage.clear();
     window.history.pushState({}, "", "/chat");
     setViewportWidth(430);
@@ -368,6 +370,49 @@ describe("Guardian mobile application navigation", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
     });
+  });
+
+  it("projects the same Guardian thread and project into the focused Browser shelf", async () => {
+    setViewportWidth(1440);
+    window.history.pushState({}, "", "/chat/7");
+    sessionThreadId.value = "7";
+    localStorage.setItem("cfy.lastProjectId", "2");
+    const common = { guardianName: "Guardian", userName: "User" };
+    const { rerender } = render(<GuardianChatWithSidebar {...common} />);
+
+    await waitFor(() => {
+      expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.threads).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "7", title: "Thread Seven" })])
+      );
+    });
+    const desktopState = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+    const primaryFrame = screen.getByTestId("guardian-primary-frame");
+    expect(desktopState?.projectId).toBe("2");
+    expect(desktopState?.activeId).toBe("7");
+
+    rerender(
+      <GuardianChatWithSidebar
+        {...common}
+        browserFocused
+        focusedSidebarOpen
+        focusedSidebarPinned
+        onFocusedSidebarOpenChange={() => {}}
+        onFocusedSidebarPinnedChange={() => {}}
+      />
+    );
+    const shelf = screen.getByRole("complementary", { name: "Application navigation and workspace" });
+    const focusedState = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+    expect(shelf).toContainElement(screen.getByTestId("sidebar-root-mock"));
+    expect(screen.getAllByTestId("sidebar-root-mock")).toHaveLength(1);
+    expect(focusedState?.threads).toEqual(desktopState?.threads);
+    expect(focusedState?.projectId).toBe(desktopState?.projectId);
+    expect(focusedState?.activeId).toBe(desktopState?.activeId);
+    expect(screen.getByTestId("guardian-primary-frame")).toBe(primaryFrame);
+
+    rerender(<GuardianChatWithSidebar {...common} />);
+    expect(screen.queryByRole("complementary", { name: "Application navigation and workspace" })).not.toBeInTheDocument();
+    expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.activeId).toBe("7");
+    expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.projectId).toBe("2");
   });
 
   it("does not render or expose mobile destination controls in the desktop sidebar contract", async () => {
