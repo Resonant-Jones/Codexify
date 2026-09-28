@@ -618,6 +618,8 @@ The four primary-settings families are U01, U02, U04 and U05. The five primarily
 
 ## Guidance for a later All Settings directory
 
+Operator-facing read-only inspection planning is tracked in [Configuration Operator Inspection Plan](./configuration-operator-inspection-plan.md); this catalog remains an inventory, not the inspection or mutation authority.
+
 Keep the existing Settings panel as the short path for common choices. A secondary directory can be a plain, searchable list of names and behavioral descriptions, grouped by scope and owner. Each entry may show a small information control with: what changes, who may change it, where it persists, when a change takes effect, and where to manage it. Show an effective value only when the owning subsystem can safely report the value that actually won; otherwise say that it is unavailable. Never display a credential value or treat a health observation as a configured value.
 
 Directory rows may link to Settings, the composer, Persona Studio, Connections, a document control, or an operator guide. Links preserve the owning mutation surface. Read-only entries must be visibly read-only. A catalog row must not create a new backend API, generic connector mutation route, provider selection owner, profile binding authority or runtime settings store. ADR-071/072 govern Connections and Settings route projections; ADR-074 governs provider posture, operator model selection, Compose transport and live inventory.
