@@ -133,7 +133,8 @@ This file is authoritative for:
   UMS-05C10A-P REVIEW-TRANSITION REVISION PERSISTENCE
                    + UMS-04 PORTABILITY: CLOSED
   UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: FROZEN
-  UMS-05C10A-C REVIEW-TRANSITION CONTRACT RESOLUTION: AUTHORIZED
+  UMS-05C10A-C REVIEW-TRANSITION CONTRACT RESOLUTION: CLOSED
+  UMS-05C10A-W ORDINARY MEMORY REVIEW TRANSITION WRITER: AUTHORIZED
   UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1272,6 +1273,39 @@ This file is authoritative for:
   only; not merged into the current `main`, not deployed, not a release
   claim. See the
   [UMS-05C10A-P review revision portability proof](./proofs/runtime/2026-09-28-ums05c10a-p-review-revision-portability-proof.md).
+
+- **ADR-088 (Ordinary Memory Review Transition Semantics, accepted on
+  `feature/ums-continued`)**: the legal ordinary-memory review transition
+  graph is now frozen, closing the `TRANSITION_GRAPH: NOT EXPLICIT` finding
+  that UMS-05C10A-R recorded. Aligned with ADR-084 and does not modify or
+  supersede it. Exactly three direct review actions exist — `approve`,
+  `reject`, `dispute` — with an explicit legal matrix over `pending`,
+  `approved`, `rejected`, `disputed`; the only non-transitions are
+  same-state requests, which are no-ops after successful CAS validation
+  (no review revision, no receipt, no `updated_at` advance) while a stale
+  token still conflicts. **No direct action targets `pending`**: a reviewed
+  memory is never reset, because `pending` means authoritative review has
+  not occurred, and reusing it as a reset would make one token mean both
+  never-reviewed and review-invalidated. Review and lifecycle independence
+  is explicit — approval does not activate, rejection or dispute does not
+  retire, and retire/restore do not change review state — so rejected and
+  disputed memory becomes ambient-ineligible without any lifecycle
+  mutation. `reviewed_at` is frozen as the timestamp of **first
+  authoritative approval** and is preserved on re-approval and never
+  cleared; transition timing belongs to
+  `memory_review_revisions.created_at`. Every changed transition requires
+  one canonical review revision plus one `memory-vault-mutation.v1` intent
+  receipt, and neither substitutes for the other. Personal Facts remain
+  specialized, suggestions cannot self-approve, and explicit `approved`
+  direct creation stays distinct from a review transition. This also
+  resolved the Memory Vault contract §5.1 review rows, which previously
+  listed a receipt without a revision. **No review writer exists yet** —
+  `approve`, `reject`, and `dispute` remain unimplemented — so the sole
+  authorized successor is UMS-05C10A-W. Architecture only: no runtime,
+  schema, migration, export, test, frontend, retrieval, or release claim
+  change. Branch-local only; not merged into the current `main`, not
+  deployed, not a release claim. See the
+  [UMS-05C10A-C review transition contract proof](./proofs/runtime/2026-09-28-ums05c10a-c-review-transition-contract-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

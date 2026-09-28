@@ -122,6 +122,69 @@ For ordinary memories:
 There is no separate `archived` ordinary-memory lifecycle. `retired` is the
 single reversible soft-removal state.
 
+#### 3.3.1 Ordinary-memory review state machine
+
+Frozen by [ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md).
+This subsection is normative. It resolves the `TRANSITION_GRAPH: NOT EXPLICIT`
+finding recorded by UMS-05C10A-R and implements nothing by itself.
+
+**State meanings.** `pending` is an ingress / unreviewed state meaning the
+proposition has received no authoritative user review decision; it is not a user
+review outcome. `approved` means the authenticated user accepted the proposition
+as memory authority. `rejected` means the user explicitly rejected it as memory
+authority. `disputed` means the user explicitly marked it contested or not
+presently reliable; it is distinct from both `pending` and `rejected`.
+
+**Direct review actions.** Exactly three: `approve`, `reject`, `dispute`. There
+is no direct `set_pending`, `reset_review`, or `unreview` action.
+
+**Legal transition matrix.**
+
+| Current state | `approve` | `reject` | `dispute` |
+| --- | --- | --- | --- |
+| `pending` | → `approved` | → `rejected` | → `disputed` |
+| `approved` | no-op | → `rejected` | → `disputed` |
+| `rejected` | → `approved` | no-op | → `disputed` |
+| `disputed` | → `approved` | → `rejected` | no-op |
+
+No other transition is legal, and **no direct review action targets
+`pending`**. A reviewed memory is not reset to `pending`; a workflow that must
+invalidate a prior review because the proposition changed materially must define
+its own authority semantics explicitly.
+
+**Same-state requests.** A request whose target equals the current state is a
+semantic no-op, not a transition. It creates no review revision, creates no
+mutation receipt, and does not advance `memory_records.updated_at`. CAS is still
+validated first: a stale token conflicts even when the target equals current
+state.
+
+**Review / lifecycle independence.** Review and lifecycle remain independent
+axes. Approval does not activate; rejection does not retire; dispute does not
+retire; retire and restore do not change review state. `approved + active`,
+`approved + dormant`, and `approved + retired` are all valid combinations. The
+existing ambient-eligibility law is unchanged, so `pending`, `rejected`, and
+`disputed` ordinary memory is ambient-ineligible without any lifecycle mutation.
+
+**`reviewed_at` semantics.** `reviewed_at` is the timestamp of **first
+authoritative approval** and nothing else. It is not the latest transition time,
+not a current-state timestamp, and not review-history authority. First approval
+sets it when `NULL`; a later re-approval preserves it; transition to `rejected`
+or `disputed` never clears or rewrites it. Transition timing belongs to
+`memory_review_revisions.created_at`.
+
+**History requirement.** Every changed legal transition produces exactly one
+`memory_review_revisions` row and exactly one `memory-vault-mutation.v1` intent
+receipt. The receipt is not canonical history and the revision is not a receipt;
+neither substitutes for the other.
+
+**Actor and capture boundaries.** The authoritative actor is the authenticated
+account principal. A model, importer, classifier, assistant, web result, or tool
+result may not promote a pending ordinary memory to approved authority. Explicit
+user-authored direct creation may still create an `approved` record where this
+contract allows it; that initial creation is not a `pending → approved`
+transition and must not be given a fabricated review revision. UMS-05C6 creation
+semantics are unchanged.
+
 ### 3.4 Personal Facts authority
 
 For Personal Facts:
@@ -1558,8 +1621,10 @@ This section records the boundary. It does not choose a table
 design, does not select a legal review-transition graph, and does
 not authorize a review writer. UMS-05C10A-R classified the gap
 (`REVIEW_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED`,
-`TRANSITION_GRAPH: NOT EXPLICIT`); UMS-05C10A-P is the authorized
-persistence successor.
+`TRANSITION_GRAPH: NOT EXPLICIT`); UMS-05C10A-P closed the
+persistence half, and UMS-05C10A-C closed the graph half by freezing
+the state machine in §3.3.1 and
+[ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md).
 
 #### 4.16.5b Review-transition revision table — `memory_review_revisions`
 
@@ -1607,9 +1672,11 @@ source-to-target combination. `old_review_state <>
 new_review_state` is a historical-transition constraint (a row
 with identical states is not a transition), not a mutation
 policy. Persistence capability is not mutation authorization:
-whether a given transition may be performed is a writer and
-contract concern, and remains unresolved
-(`TRANSITION_GRAPH: NOT EXPLICIT`).
+whether a given transition may be performed is a writer concern
+governed by §3.3.1 and
+[ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md),
+not a storage fact. Storage permissiveness is therefore correct
+and must not be read as permission to mutate.
 
 Existing memories receive **zero** synthetic review history;
 the migration never infers history from a current

@@ -184,8 +184,8 @@ revision / audit / intent receipt, and fail-closed cases.
 | Action | Authority owner | Resulting mutation | Receipt |
 | --- | --- | --- | --- |
 | Direct Vault creation of a user-authored canonical memory | canonical user-authored memory service | new canonical `memory_records` row with `source_subject_kind = 'vault'` and `authentication_principal = account_user` | durable mutation receipt + revision |
-| Approve (where the subtype permits) | subtype-specific authority (e.g. Personal Facts review service) | canonical review-state transition | durable mutation receipt |
-| Reject / dispute (where the subtype permits) | subtype-specific authority | canonical review-state transition | durable mutation receipt |
+| Approve (where the subtype permits) | subtype-specific authority (e.g. Personal Facts review service) | canonical `memory_records.review_state` transition, plus one `memory_review_revisions` row for ordinary memory | durable mutation receipt + canonical review revision |
+| Reject / dispute (where the subtype permits) | subtype-specific authority | canonical `memory_records.review_state` transition, plus one `memory_review_revisions` row for ordinary memory | durable mutation receipt + canonical review revision |
 | Correct / edit user-governed content | canonical revision service for the subtype | new canonical revision, audit-trailed | durable mutation receipt |
 | Change Project scope (within the calling account) | canonical scope mutation service | canonical `memory_records.project_id` change with provenance note | durable mutation receipt |
 | Add / remove stable Persona attribution | canonical Persona link service | canonical `memory_persona_links` insert / delete | durable mutation receipt |
@@ -197,40 +197,49 @@ revision / audit / intent receipt, and fail-closed cases.
 For Personal Facts, every action above delegates to the Personal Facts
 service rather than mutating competing envelope state.
 
-#### 5.1.1 Review-transition gate (UMS-05C10A-R)
+#### 5.1.1 Review-transition semantics (UMS-05C10A-C)
 
-The Approve / Reject / dispute rows above are **admitted but not
+The Approve / Reject / dispute rows above are **contracted but not
 implemented**. No ordinary review writer, route, or service method
 exists at this commit; `review_state` is written only at creation.
 
-Two prerequisites are open, and the C10A writer stays frozen until
-both are closed:
+Both prerequisites that UMS-05C10A-R identified are now closed:
 
-1. **Review-transition history persistence.** Unified Memory Store
-   contract §3.3 requires that every authority-changing transition
-   produce a revision **and** an intent receipt, and §5.3 already
-   requires that posture for Project scope and Persona attribution.
-   No canonical family can currently record old/new `review_state`.
-   UMS-05C10A-R classified this
-   `REVIEW_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED` and authorized
-   **UMS-05C10A-P** (persistence + UMS-04 portability).
-2. **Legal review-transition graph.** No current contract states which
-   transitions among `pending`, `approved`, `rejected`, and `disputed`
-   are legal. UMS-05C10A-R recorded `TRANSITION_GRAPH: NOT EXPLICIT`.
-   A writer must not invent it.
+1. **Review-transition history persistence.** Closed by UMS-05C10A-P,
+   which added the canonical `memory_review_revisions` family and
+   carried it through `account-export.v6`. The table rows above now
+   state the review-revision requirement explicitly.
+2. **Legal review-transition graph.** Closed by
+   [ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md),
+   which freezes the ordinary-memory state machine; it is normative in
+   Unified Memory Store contract §3.3.1.
+
+The later Memory Vault review writer is authorized separately as
+UMS-05C10A-W. Its contracted behavior, restated here so the operator
+surface is self-describing:
+
+| Aspect | Contracted behavior |
+| --- | --- |
+| Direct actions | `approve`, `reject`, `dispute` only |
+| Legal targets | `approved`, `rejected`, `disputed` — never `pending` |
+| Same-state request | no-op **after** successful CAS validation: no review revision, no receipt, no `updated_at` advance |
+| Stale CAS | conflicts, even when the target equals current state |
+| Changed transition | one `memory_review_revisions` row **and** one `memory-vault-mutation.v1` receipt |
+| Approval | does not activate |
+| Rejection / dispute | does not retire |
+| `reviewed_at` | first authoritative approval only; preserved on re-approval; never cleared |
+| Actor | authenticated account principal; suggestions cannot self-approve |
+| Personal Facts | delegate to the Personal Facts service; the ordinary writer refuses specialized species |
 
 **Reading the table above.** The `Receipt` column enumerates durable
-evidence per action; it is not a complete statement of revision
-requirements. The revision requirement for authority-changing
-transitions is governed by Unified Memory Store contract §3.3, and
-`memory_revisions` (UMS-05C9) satisfies it for authored content only,
-not for `review_state` or `lifecycle_state`. The Approve / Reject /
-dispute rows must therefore **not** be read as permitting a review
-transition without a revision.
+evidence per action. The §5.1-versus-§3.3 wording divergence recorded by
+UMS-05C10A-R is now resolved in the direction of the normative §3.3
+rule: a review transition that changes state produces a revision
+*and* a receipt, never a receipt alone.
 
-This gate records status only. It deliberately does not repair the
-`§5.1` versus `§3.3` wording divergence, and does not select a legal
-transition graph; both belong to a separately authorized successor.
+This section records contracted future behavior. It does not implement
+the writer, does not create routes, and does not claim any review
+action is live.
 
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
