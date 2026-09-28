@@ -28,6 +28,7 @@ This file is authoritative for:
 - Fixed the newest-message history window and canonicalized inline chat-document context; the continuity probe keeps reported runtime symptoms unlocalized.
 - Merged Guardian/Persona surface and canonical UI-geometry repairs with focused frontend tests; no release claim widened.
 - The 2026-09-24 mainline accounting log records no same-day implementation or qualification work.
+- On `feature/ums-continued`, UMS-05A through UMS-05C6 are closed: the branch adds the internal Memory Vault read surface and qualified pin, hold, Project-scope, Persona-attribution, and direct-creation mutations. UMS-05C7 is authorized; UMS-05C8+, UMS-05D+, and UMS-06+ remain unauthorized. These results are branch-local and do not change current-`main`, Preview, Beta, or release qualification.
 
 ## Current supported reality
 

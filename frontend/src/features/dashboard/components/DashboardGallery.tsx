@@ -10,6 +10,7 @@ import {
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { setWallpaperPreference } from "@/lib/wallpaperPreference";
 import {
   getDashboardGalleryBadgeStyle,
   getDashboardGalleryTileActiveStyle,
@@ -236,6 +237,12 @@ export default function DashboardGallery({
   const buildMenuItems = React.useCallback(
     (entry: NonNullable<typeof menu>): ContextMenuItem[] => {
       const items: ContextMenuItem[] = [
+        {
+          label: "Set as wallpaper",
+          onSelect: () => {
+            setWallpaperPreference(entry.resolvedSrc);
+          },
+        },
         {
           label: "Add to Thread",
           onSelect: () => {

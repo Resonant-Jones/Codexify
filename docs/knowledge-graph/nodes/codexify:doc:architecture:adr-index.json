@@ -13,15 +13,15 @@
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "ADR-089 was added to the canonical index; source routing and accepted decision identity were re-reviewed. This verifies documentation metadata only, not runtime behavior or release support.",
+    "reason": "ADR-089 index entry and governed ADR source were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
     "state": "current",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "verified_at": "2026-09-24T20:44:47Z",
-    "verified_commit": "cac2e9b2dbeffcb7d0d098482773adf7e75a0d9f"
+    "verified_at": "2026-09-24T20:46:58Z",
+    "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
