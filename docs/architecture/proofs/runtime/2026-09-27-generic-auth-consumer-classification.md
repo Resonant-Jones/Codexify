@@ -478,3 +478,26 @@ TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv
 Result: **217 passed, 2 pre-existing skips, 0 failed, 0 errors**. A supplemental `guardian/tests/routes/test_health_supported_profile.py` run failed three tests because that separate health fixture hard-codes `LOCAL_BASE_URL=http://host.docker.internal:11434/v1` while its selected supported profile requires `...:8000/v1`; an external environment override did not change the fixture value. It is outside the frozen operator-route group and the authorized fixture-repair paths, so it remains unmodified and unqualified here.
 
 No Channel, service-capability, account-purpose, local/dev, session-resolver, Hosted Room guest, or task-event SSE authority code changed. The `guardian_api.py` diff affects only `GET /api/events` and the direct `GET /graph` operator dependencies; task-event SSE logic remains unchanged. This is focused test evidence for the committed implementation, **not live public-ingress proof or a release-support claim**. The separate dirty public-ingress proof receipt was untouched and unstaged. `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.
+
+### 2026-09-28 five-route service-capability migration follow-up
+
+**PASS, focused code-path qualification only.** The frozen `service_capability`
+set is **5/5 migrated** in `guardian/routes/account_observability.py`:
+`create_operator_invite`, `list_operator_invites`,
+`disable_operator_invite`, `revoke_operator_invite`, and
+`trigger_retention_cleanup`. The historical `_operator_dependencies` entries
+above record the earlier classification baseline; the current five-route
+composition is `_account_admin_capability_dependencies`.
+
+The route-owned human gate verifies exact `purpose=account_session` before
+approved-session lookup, resolves the persisted canonical `User`, checks its
+`admin` role and current private-preview approval where applicable, and then
+validates `X-API-Key` through `require_service_capability`. That dependency
+returns no principal and cannot turn the key into account or operator
+authority. Invite audit attribution remains the canonical human account.
+The focused authorization matrix passed **87 tests**. Existing account-
+observability tests passed **76 tests**; operator and auth regressions passed
+**34 tests**. No dashboard, generic account-auth, session-resolver,
+Channels, Hosted Room guest, or task-event SSE authority was migrated here.
+This is not live ingress proof or a release-support claim.
+`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.

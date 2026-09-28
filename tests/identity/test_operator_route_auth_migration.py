@@ -340,7 +340,10 @@ def test_non_operator_sentinels_retain_their_existing_auth_dependencies():
         route for route in account_observability.router.routes
         if isinstance(route, APIRoute) and route.endpoint.__name__ == "create_operator_invite"
     )
-    assert require_api_key in set(_calls(service_route))
+    from guardian.core.dependencies import require_service_capability
+
+    assert require_service_capability in set(_calls(service_route))
+    assert require_api_key not in set(_calls(service_route))
     assert require_operator_auth not in set(_calls(service_route))
 
     account_route = _find("guardian.routes.agent_orchestration", "POST", "/api/agents/coding/execute")

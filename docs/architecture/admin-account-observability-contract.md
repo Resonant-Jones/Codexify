@@ -3,7 +3,7 @@
 > Classification: architecture contract
 > Status: accepted; implementation in progress
 > Privacy sensitivity: high
-> Implementation status: Slices 1–3 are implemented as an internal Guardian capability; Slices 4–7 remain unimplemented.
+> Implementation status: Slices 1–3 are implemented as an internal Guardian capability; the five invite/retention human-admin routes have a focused qualified capability gate; Slices 4–7 remain unimplemented.
 > Release claim: this branch-local capability does not widen the supported beta release promise.
 > Last updated: 2026-07-27
 
@@ -58,6 +58,7 @@ This contract explicitly does **not** cover:
 - `POST /api/account-observability/heartbeat` delegates to `guardian.account_observability.presence.record_heartbeat`. Authenticated identity comes from the signed Guardian session seam. Guest identity comes from the server-issued `codexify_guest_attribution` cookie and is accepted only when the corresponding canonical guest row exists and is not deleted.
 - Presence is approximate within the five-minute active window. The client calls the route only while foregrounded; the server does not infer browser visibility. Repeated heartbeats coalesce into one open subject lease, and thirty-minute idle expiry remains authoritative.
 - `POST /api/operator/account-observability/retention/cleanup` invokes `guardian.account_observability.retention.run_cleanup`. It supports dry-run receipts, expires idle sessions at 30 minutes, deletes presence rows older than 30 days in bounded batches, and soft-deletes unconverted/unreferenced guest lineage older than 90 days.
+- The five invite/retention admin operations require an exact-purpose `account_session`, approved session and persisted canonical `User` with `role=admin`, plus a separate non-principal service capability from `X-API-Key`. Private preview also applies its current account approval and role mapping. This focused route boundary is not a general account-auth cutover.
 - Guest rows referenced by converted-account metadata are explicitly deferred so canonical first-touch attribution survives. Invite definitions are never deleted by cleanup.
 
 ### What is not yet true
@@ -342,25 +343,27 @@ One invite link per campaign or placement. Examples of operator-authored placeme
 The implemented `create_operator_invite`, `list_operator_invites`,
 `disable_operator_invite`, `revoke_operator_invite`, and
 `trigger_retention_cleanup` routes are human administrative operations. Their
-canonical future gate order is:
+implemented gate order is:
 
-1. Classify presented principal lanes and reject mixed principals before any
-   protected-resource lookup.
-2. Validate exactly one `account_session` and resolve its canonical human
-   account.
-3. Require that account's Guardian-owned admin authorization.
-4. Validate the route-required service capability without establishing a
+1. Validate exact `purpose=account_session` before looking up the approved
+   session and canonical persisted human account.
+2. Require that account's Guardian-owned `admin` role and current private-preview
+   approval/role where applicable.
+3. Validate the route-required `X-API-Key` service capability without establishing a
    second principal.
-5. Perform the protected operation and attribute its audit actor to the
+4. Perform the protected operation and attribute its audit actor to the
    canonical human account.
+
+General mixed-principal detection remains deferred under ADR-092. These five
+routes cannot reinterpret an operator or guest token as the required account
+session, and an API key cannot supply the human principal.
 
 The raw service key grants no user or operator identity, ownership,
 `RequestUserScope`, or admin permission. `subject="web"`, an
 `operator_session` pseudo-user, and a local fallback are never audit actors.
-A separate future `require_service_capability` dependency (or an equally
-narrow existing service-key verifier) must validate only that capability,
-return no principal, perform no account or admin resolution, and provide no
-fallback to another lane. These routes must not use generic `require_api_key`
+A separate `require_service_capability` dependency validates only that capability,
+returns no principal, performs no account or admin resolution, and provides no
+fallback to another lane. These routes no longer use generic `require_api_key`
 or `require_operator_auth` as their service-capability dependency. The same
 configured raw key can be operator-principal material on an explicit
 `require_operator_auth` control route or non-principal capability material on
@@ -382,12 +385,11 @@ An account session plus a key validated solely as this route's service
 capability is one principal plus one capability, not mixed-principal
 authentication. An invalid account session plus a valid service key cannot
 become an operator; a missing account session cannot become an account; and a
-non-admin account cannot be elevated by the key. The current
-`_operator_dependencies` wrapper still combines generic `require_api_key`,
-`require_admin`, and `get_current_user`; this future gate is not yet
-implemented. The current local/debug and private-preview behavior must be
-qualified separately during migration rather than treated as proof that the
-strict remote contract already holds.
+non-admin account cannot be elevated by the key. The prior
+`_operator_dependencies` wrapper has been replaced for these five operations
+by the route-scoped account-admin/capability composition. Focused tests qualify
+this boundary; live public-ingress proof and strict account-purpose enforcement
+across other routes remain separate work.
 
 ## Snapshot/API Ownership
 

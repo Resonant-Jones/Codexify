@@ -786,6 +786,17 @@ def require_service_api_key(
     raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def require_service_capability(
+    _service_key: str = Depends(require_service_api_key),
+) -> None:
+    """Validate the raw service key as a non-principal capability.
+
+    The underlying verifier reads only ``X-API-Key``. Its matching key is not
+    returned as an account, operator, or request scope.
+    """
+    return None
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -1261,6 +1272,7 @@ __all__ = [
     "require_api_key",
     "require_operator_auth",
     "require_service_api_key",
+    "require_service_capability",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",

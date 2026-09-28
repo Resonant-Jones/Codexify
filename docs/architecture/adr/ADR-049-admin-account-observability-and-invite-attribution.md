@@ -18,7 +18,7 @@ aliases:
 
 ## Status
 
-Accepted; Slices 1–3 implemented internally
+Accepted; Slices 1–3 implemented internally; five-route human-admin capability gate qualified by focused tests
 
 The runtime heartbeat and retention slice implemented on top of this ADR is
 contract-aligned and does not authorize the deferred operator snapshot,
@@ -103,10 +103,12 @@ identity, ownership, or `RequestUserScope` and cannot authorize by itself.
 
 This pattern governs the implemented operator invite and retention routes and
 the deferred account-observability snapshot and active-account projections.
-The canonical future admission order is: reject mixed-principal material,
-validate the account-purpose session, resolve the human account, check that
-account's admin authorization, validate the required service capability, then
-perform the operation. A non-admin
+The five implemented invite and retention operations validate the exact
+`account_session` purpose before resolving its approved session and persisted
+`User`, require that account's `admin` role (and current private-preview
+approval where applicable), then validate the separate `X-API-Key` service
+capability before performing the operation. General mixed-principal rejection
+remains a separate ADR-092 migration obligation. A non-admin
 account cannot be elevated by the service key or by an admin token alone.
 Audit attribution remains the canonical human account, never the key,
 `subject="web"`, an operator-session pseudo-user, or a local fallback.
@@ -118,9 +120,10 @@ capability for these human-account routes. Presenting it together with an
 The same raw Guardian key may serve as operator authority only at an explicit
 operator-auth dependency, or as a non-principal capability only at an explicit
 service-capability dependency. One request boundary must not interpret it as
-both. The account-observability routes need the latter dependency when their
-current generic-auth wrapper is migrated; this paragraph does not claim that
-the migration or strict account-purpose validation has occurred.
+both. The five account-observability invite and retention operations now use
+`require_service_capability` for that non-principal gate. This route-scoped
+qualification does not establish strict account-purpose validation on other
+routes or live public-ingress qualification.
 
 The existing `GET /api/dashboard/snapshot` is a per-viewer projection for
 both admin and guest accounts. It requires a human session and service key but
