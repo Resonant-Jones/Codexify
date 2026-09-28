@@ -190,7 +190,15 @@ def test_fresh_migration_creates_memory_revisions_with_orm_parity(
 
     from alembic.script import ScriptDirectory
 
-    assert list(ScriptDirectory.from_config(config).get_heads()) == [UMS_05C9_REVISION]
+    # UMS-05C10A-P adds a descendant migration, so the repository no longer
+    # terminates at C9. Assert the topology instead of a terminal value:
+    # there is exactly one head, and C9 is in its intentional lineage.
+    script = ScriptDirectory.from_config(config)
+    heads = list(script.get_heads())
+    assert len(heads) == 1
+    assert UMS_05C9_REVISION in {
+        revision.revision for revision in script.iterate_revisions(heads[0], "base")
+    }
 
 
 def test_migration_constraints_exist(temporary_postgres) -> None:

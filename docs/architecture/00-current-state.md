@@ -130,9 +130,10 @@ This file is authoritative for:
   UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: CLOSED
   UMS-05C10: OPEN
   UMS-05C10A-R REVIEW-TRANSITION HISTORY REVALIDATION: CLOSED
-  UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: FROZEN
   UMS-05C10A-P REVIEW-TRANSITION REVISION PERSISTENCE
-                   + UMS-04 PORTABILITY: AUTHORIZED
+                   + UMS-04 PORTABILITY: CLOSED
+  UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: FROZEN
+  UMS-05C10A-C REVIEW-TRANSITION CONTRACT RESOLUTION: AUTHORIZED
   UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1226,6 +1227,51 @@ This file is authoritative for:
   revalidation. Branch-local only; not merged into the current `main`,
   not deployed, not a release claim. See the
   [UMS-05C10A-R review-transition history revalidation proof](./proofs/runtime/2026-09-28-ums05c10a-r-review-transition-history-revalidation-proof.md).
+
+- **UMS-05C10A-P (Ordinary-memory review-transition revision persistence
+  and portability, qualified on `feature/ums-continued`)**: the canonical
+  persistence UMS-05C10A-R found missing now exists. A new
+  `memory_review_revisions` family (Alembic `a7c3e91d4b60`, parent
+  `c3d9f4e6a1b2`, single head) records ordinary review-state transitions:
+  server-generated `review_revision_id`, composite
+  `(memory_id, user_id)` FK to `memory_records` with `ON DELETE CASCADE`,
+  typed `old_review_state` / `new_review_state` over
+  `pending` / `approved` / `rejected` / `disputed`, an
+  `actor_account_id` constrained to the owning account, per-memory
+  `revision_number` with `UNIQUE (memory_id, revision_number)`, and
+  DB-level rejection of a sub-1 sequence, an unknown token, and a
+  no-op transition. Rows are immutable with no `updated_at`. Migration
+  fabricates **zero** synthetic history and leaves every existing
+  canonical row, content `memory_revisions`, provenance, and Personal
+  Facts untouched. Four truth surfaces stay separate: current review
+  authority is `memory_records.review_state`, `memory_revisions` is
+  content history, `memory_review_revisions` is review-transition
+  history, and `memory_provenance` remains intent/source/audit evidence
+  with non-authority extensions. **No legal transition graph is
+  encoded** — the database accepts any unequal pair of valid review
+  tokens, proven by a test that persists `disputed → approved`,
+  `approved → rejected`, and `rejected → pending`, the pairs a premature
+  policy would likely have forbidden. Persistence capability is not
+  mutation authorization. Portability required a new schema rather
+  than widening an old one: `account-export.v6` is the seven-family
+  canonical graph, while `account-export.v5` keeps its exact six-family
+  meaning and a v5 archive is never treated as invalid for lacking
+  review history. v6 export fails closed on malformed review history and
+  never repairs it, including from provenance extensions; v6 restore
+  validates ownership, actor, typed vocabulary, numbering, chain
+  continuity, and reconciliation with the parent's current
+  `review_state` before any write, persists parent before child in one
+  transaction, is idempotent on identical replay, and rolls the whole
+  restore back on semantic conflict, sequence-occupancy conflict, or a
+  late persistence failure. **No review writer exists** — `approve`,
+  `reject`, and `dispute` remain unimplemented, and which transitions
+  are legal remains unresolved, so the C10A writer stays frozen. The
+  sole next slice is UMS-05C10A-C contract resolution. Documentation
+  only beyond the additive schema and export change: no route, service
+  method, frontend, retrieval, or release claim change. Branch-local
+  only; not merged into the current `main`, not deployed, not a release
+  claim. See the
+  [UMS-05C10A-P review revision portability proof](./proofs/runtime/2026-09-28-ums05c10a-p-review-revision-portability-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

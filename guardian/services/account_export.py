@@ -33,6 +33,12 @@ STAGED_MANIFEST_SCHEMA_VERSION = "account-export.v4"
 #: exactly: v4 remains the five-family canonical graph and keeps its
 #: ``restore_mode: unsupported`` posture.
 REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v5"
+#: UMS-05C10A-P. The canonical Unified Memory graph gains a seventh family,
+#: ``memory_review_revisions`` (ordinary-memory review-transition history).
+#: Adding an entity family changes canonical payload semantics, so this is a
+#: NEW schema version. v5 semantics are frozen exactly: v5 remains the
+#: six-family canonical graph and is never widened to carry review history.
+REVIEW_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v6"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -175,6 +181,22 @@ REVISION_MEMORY_PAYLOAD_ORDER = UNIFIED_MEMORY_PAYLOAD_ORDER + (
 REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
     entry[0] for entry in REVISION_MEMORY_PAYLOAD_ORDER
 )
+#: UMS-05C10A-P. v6 is the v5 canonical graph plus the ordinary-memory
+#: review-transition revision family. ``memory_review_revisions`` is appended
+#: last so a consumer walking families in order always has its parent
+#: ``memory_records`` first.
+REVIEW_REVISION_MEMORY_PAYLOAD_ORDER = REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_review_revisions",
+        "entities/memory_review_revisions.json",
+        "fetch_account_export_memory_review_revisions_for_user",
+    ),
+)
+REVIEW_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+)
+# NOTE: FULL_PAYLOAD_ORDER stays bound to v5. Widening it would silently
+# redefine the v5 canonical graph, which is immutable.
 FULL_PAYLOAD_ORDER = PAYLOAD_ORDER + REVISION_MEMORY_PAYLOAD_ORDER
 FULL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in FULL_PAYLOAD_ORDER)
 
@@ -186,11 +208,17 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
     REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
     REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
 }
 BINARY_FAMILIES = {
     "uploaded_documents",
@@ -417,6 +445,11 @@ def _validate_persona_profile_export(
             raise RuntimeError("persona_profile_export_current_revision_missing")
 
 
+#: UMS-05C10A-P. Canonical ordinary review vocabulary. Used to validate typed
+#: review-transition history. This is a vocabulary check only; it does not
+#: encode a legal-transition policy.
+_REVIEW_STATES = frozenset({"pending", "approved", "rejected", "disputed"})
+
 _UNIFIED_MEMORY_REQUIRED_FIELDS = {
     "persona_subjects": {
         "persona_subject_id",
@@ -490,6 +523,18 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "new_text_content",
         "created_at",
     },
+    # UMS-05C10A-P: ordinary-memory review-transition history. Canonical
+    # history only; intent/receipt evidence stays in memory_provenance.
+    "memory_review_revisions": {
+        "review_revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_review_state",
+        "new_review_state",
+        "actor_account_id",
+        "created_at",
+    },
 }
 
 _UNIFIED_MEMORY_ID_FIELDS = {
@@ -499,6 +544,7 @@ _UNIFIED_MEMORY_ID_FIELDS = {
     "memory_persona_links": "link_id",
     "memory_provenance": "provenance_id",
     "memory_revisions": "revision_id",
+    "memory_review_revisions": "review_revision_id",
 }
 
 _UNIFIED_MEMORY_SORT_KEYS = {
@@ -510,6 +556,11 @@ _UNIFIED_MEMORY_SORT_KEYS = {
     ),
     "memory_records": ("memory_id",),
     "memory_revisions": ("memory_id", "revision_number", "revision_id"),
+    # NOTE: memory_review_revisions is intentionally absent here. It is sorted
+    # with numeric awareness in
+    # _validate_memory_review_revision_export, because the generic loop above
+    # compares sort keys as strings and would order revision_number 10 before
+    # 2. v5 ordering is unchanged.
     "memory_persona_links": (
         "memory_id",
         "persona_subject_id",
@@ -616,6 +667,16 @@ def _validate_unified_memory_export(
         ):
             raise RuntimeError("memory_revision_export_graph_mismatch")
 
+    # UMS-05C10A-P: review-transition history is canonical and must itself be
+    # well-formed. Malformed history fails closed; it is never repaired, and
+    # provenance extensions are never consulted to repair it.
+    # A v5 or v4 archive carries no review family and is skipped entirely.
+    _validate_memory_review_revision_export(
+        rows_by_family.get("memory_review_revisions", ()),
+        user_id=user_id,
+        memories_by_id=memories_by_id,
+    )
+
     provenance_memory_ids: set[str] = set()
     for row in rows_by_family["memory_provenance"]:
         memory_id = _identity(row.get("memory_id"))
@@ -657,6 +718,85 @@ def _validate_unified_memory_export(
                 _identity(row.get(key)) for key in keys
             )
         )
+
+
+def _validate_memory_review_revision_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+    memories_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Fail closed on malformed canonical ordinary review-transition history.
+
+    UMS-05C10A-P. This is a history *shape* validator, not a legal-transition
+    policy: it checks ownership, species, typed vocabulary, inequality,
+    contiguous numbering, chain continuity, and reconciliation with the parent
+    memory's current ``review_state``. It never asserts that a particular
+    source->target pair is a legal runtime mutation.
+    """
+    if not rows:
+        return
+
+    by_memory: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        memory_id = _identity(row.get("memory_id"))
+        parent = memories_by_id.get(memory_id)
+        if parent is None:
+            raise RuntimeError("memory_review_revision_export_orphan")
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("memory_review_revision_export_account_mismatch")
+        if _identity(row.get("actor_account_id")) != user_id:
+            raise RuntimeError("memory_review_revision_export_actor_mismatch")
+        # Ordinary memory only. Personal Facts keep personal_fact_revisions.
+        if parent.get("semantic_species") != "episodic_semantic_memory":
+            raise RuntimeError(
+                "memory_review_revision_export_unsupported_parent_species"
+            )
+
+        old_state = _identity(row.get("old_review_state"))
+        new_state = _identity(row.get("new_review_state"))
+        if old_state not in _REVIEW_STATES or new_state not in _REVIEW_STATES:
+            raise RuntimeError("memory_review_revision_export_invalid_state")
+        if old_state == new_state:
+            raise RuntimeError("memory_review_revision_export_noop_transition")
+
+        raw_number = row.get("revision_number")
+        if isinstance(raw_number, bool) or not isinstance(raw_number, int):
+            raise RuntimeError("memory_review_revision_export_number_invalid")
+        if raw_number < 1:
+            raise RuntimeError("memory_review_revision_export_number_invalid")
+        by_memory.setdefault(memory_id, []).append(row)
+
+    for memory_id, memory_rows in by_memory.items():
+        # Numeric ordering, not string ordering.
+        memory_rows.sort(
+            key=lambda row: (
+                int(row["revision_number"]),
+                _identity(row.get("review_revision_id")),
+            )
+        )
+        numbers = [int(row["revision_number"]) for row in memory_rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise RuntimeError("memory_review_revision_export_sequence_gap")
+        for previous, following in zip(memory_rows, memory_rows[1:]):
+            if _identity(previous["new_review_state"]) != _identity(
+                following["old_review_state"]
+            ):
+                raise RuntimeError("memory_review_revision_export_chain_mismatch")
+        final_state = _identity(memory_rows[-1]["new_review_state"])
+        parent_state = _identity(memories_by_id[memory_id].get("review_state"))
+        if final_state != parent_state:
+            raise RuntimeError("memory_review_revision_export_final_state_mismatch")
+
+    # Deterministic export ordering: memory_id ASC, revision_number ASC,
+    # review_revision_id ASC.
+    rows.sort(
+        key=lambda row: (
+            _identity(row.get("memory_id")),
+            int(row["revision_number"]),
+            _identity(row.get("review_revision_id")),
+        )
+    )
 
 
 def _family_rows(
@@ -954,7 +1094,26 @@ def _build_manifest(
         )
     )
 
-    if schema_version == REVISION_MANIFEST_SCHEMA_VERSION:
+    if schema_version == REVIEW_REVISION_MANIFEST_SCHEMA_VERSION:
+        # v6 is the seven-family canonical graph.
+        compatibility = {
+            "reader": "account_export.v6",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v6 serialization: the v5 six-family canonical Unified Memory graph plus the memory_review_revisions family.",
+            "memory_records.review_state remains the current review authority; memory_review_revisions preserves typed review-transition history.",
+            "memory_revisions remains content history only; memory_provenance remains intent/source/audit evidence.",
+            "No legal review-transition graph is encoded: this archive records transitions, it does not authorize them.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == REVISION_MANIFEST_SCHEMA_VERSION:
         # v5 is the six-family canonical graph. Unlike v4 it is restorable.
         compatibility = {
             "reader": "account_export.v5",
@@ -1044,6 +1203,7 @@ def build_account_export_zip(
     include_unified_memory = resolved_schema_version in (
         STAGED_MANIFEST_SCHEMA_VERSION,
         REVISION_MANIFEST_SCHEMA_VERSION,
+        REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     )
     rows_by_family = _load_rows_by_family(
         db,

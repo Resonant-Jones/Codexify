@@ -7084,3 +7084,94 @@ class MemoryRevision(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryReviewRevision(Base):
+    """Append-only canonical review-transition history for ordinary memory.
+
+    Added by UMS-05C10A-P to satisfy the frozen requirement that every
+    authority-changing transition produce a revision and an intent receipt.
+
+    This family is deliberately separate from the three other truth surfaces:
+
+    * ``memory_records.review_state`` remains the *current* review authority;
+    * ``memory_revisions`` remains *content* history only;
+    * ``memory_provenance`` remains intent / source / audit evidence whose
+      ``extensions`` are explicitly non-authority; and
+    * ``personal_fact_revisions`` remains the specialized Personal Facts
+      revision authority, which this table never duplicates.
+
+    Rows are immutable and append-only. ``created_at`` is the transition
+    timestamp; there is deliberately no ``updated_at``.
+
+    This table records *that* a typed review state changed. It does **not**
+    decide whether a given source-to-target pair is a legal mutation. The
+    legal review-transition graph is unresolved (UMS-05C10A-R), so the
+    database accepts any unequal pair of valid review tokens and enforces no
+    transition policy. Persistence capability is not mutation authorization.
+
+    ``ON DELETE CASCADE`` through the composite ``(memory_id, user_id)``
+    foreign key ties a review revision to the legitimate erasure lifetime of
+    its parent memory, and ``actor_account_id = user_id`` keeps accountable
+    actor authority inside the owning account boundary for the currently
+    governed ordinary-memory model.
+    """
+
+    __tablename__ = "memory_review_revisions"
+
+    review_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_review_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_review_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="memory_review_revisions_number_check",
+        ),
+        # Typed review vocabulary. Tokens are revision-local and immutable so
+        # historical Alembic replay stays reproducible without runtime access.
+        CheckConstraint(
+            "old_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_new_state_check",
+        ),
+        # A row whose old and new state are identical is not a transition.
+        # This is a historical-transition constraint, NOT a legal-transition
+        # policy: no source->target pair is privileged or forbidden here.
+        CheckConstraint(
+            "old_review_state <> new_review_state",
+            name="memory_review_revisions_change_check",
+        ),
+        # Accountable actor authority stays inside the owning account boundary.
+        # No delegated or system actor model is introduced in this slice.
+        CheckConstraint(
+            "actor_account_id = user_id",
+            name="memory_review_revisions_actor_account_check",
+        ),
+        Index("ix_memory_review_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}

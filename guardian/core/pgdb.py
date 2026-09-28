@@ -4793,6 +4793,7 @@ ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
     "memory_persona_links",
     "memory_provenance",
     "memory_revisions",
+    "memory_review_revisions",
 )
 
 
@@ -5299,6 +5300,23 @@ def fetch_account_export_bundle_for_user(
                     """,
                     (user_id,),
                 )
+                # UMS-05C10A-P: ordinary-memory review-transition history.
+                # Deterministic export ordering, independent of the content
+                # revision family.
+                bundles["memory_review_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        review_revision_id, memory_id, user_id,
+                        revision_number, old_review_state, new_review_state,
+                        actor_account_id, created_at
+                    FROM memory_review_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             review_revision_id ASC
+                    """,
+                    (user_id,),
+                )
 
                 project_ids = _append_unique(
                     project_ids,
@@ -5536,6 +5554,13 @@ def fetch_account_export_memory_revisions_for_user(
     return _unified_memory_bundle_family_rows(user_id, "memory_revisions")
 
 
+def fetch_account_export_memory_review_revisions_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """UMS-05C10A-P: ordinary-memory review-transition history rows."""
+    return _unified_memory_bundle_family_rows(user_id, "memory_review_revisions")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
     *,
@@ -5668,6 +5693,11 @@ def iter_account_export_payloads_for_user(
                 "memory_revisions",
                 "entities/memory_revisions.json",
                 "fetch_account_export_memory_revisions_for_user",
+            ),
+            (
+                "memory_review_revisions",
+                "entities/memory_review_revisions.json",
+                "fetch_account_export_memory_review_revisions_for_user",
             ),
         )
     for family, path, _reader_name in payload_order:
