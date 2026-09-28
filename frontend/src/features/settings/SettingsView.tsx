@@ -784,7 +784,6 @@ export function SettingsView({
       const url = String(rd.result || "");
       setWallpaper(url);
       if (typeof window !== "undefined") {
-        localStorage.setItem("cfy.wallpaper", url);
         // Mark that the user has uploaded a file at least once
         localStorage.setItem("cfy.hasUserUpload", "true");
       }
@@ -796,7 +795,6 @@ export function SettingsView({
   function clearWallpaper() {
     setWallpaper(null);
     setFileLabel("");
-    if (typeof window !== "undefined") localStorage.removeItem("cfy.wallpaper");
     if (fileRef.current) fileRef.current.value = "";
   }
 
