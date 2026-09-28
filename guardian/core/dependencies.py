@@ -30,7 +30,11 @@ from sqlalchemy.orm import sessionmaker
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
-from guardian.core.auth import verify_session_token
+from guardian.core.auth import (
+    OPERATOR_SESSION_PURPOSE,
+    verify_session_token,
+    verify_session_token_for_purpose,
+)
 from guardian.core.auth_dependencies import (
     extract_session_token,
     resolve_session_user_id,
@@ -792,6 +796,72 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     return api_key
 
 
+def require_operator_auth(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> str:
+    """Require explicit operator authority without resolving an account.
+
+    The route may use the configured Guardian API key as operator authority,
+    or a current-format signed token carrying the exact operator purpose.
+    A valid token of another class is rejected before considering API-key
+    fallback, so account and guest credentials cannot be reinterpreted.
+    """
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    cookie_token = _coerce_text(gc_session)
+    presented_token = bearer or cookie_token
+
+    if presented_token:
+        if verify_session_token_for_purpose(
+            presented_token, OPERATOR_SESSION_PURPOSE
+        ):
+            return "operator-session"
+        if _is_valid_remote_token(presented_token) or cookie_token:
+            raise HTTPException(
+                status_code=401, detail="Operator authentication required"
+            )
+
+    candidates: list[str] = []
+    if x_api_key:
+        candidate = x_api_key.strip()
+        if candidate:
+            candidates.append(candidate)
+    # Preserve the local operator route's existing Bearer API-key lane.
+    if bearer and not verify_session_token(bearer)[0]:
+        candidates.append(bearer)
+
+    allowed: list[str] = []
+    try:
+        settings = get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                item.strip()
+                for item in raw_multi.replace(";", ",").split(",")
+                if item.strip()
+            )
+    except Exception:
+        pass
+    env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+    if env_key and env_key not in allowed:
+        allowed.append(env_key)
+
+    if any(
+        hmac.compare_digest(candidate, key)
+        for candidate in candidates
+        for key in allowed
+    ):
+        return "operator-api-key"
+
+    raise HTTPException(status_code=401, detail="Operator authentication required")
+
+
 def get_current_user(
     api_key: str = Depends(require_api_key),
     request: Request = None,
@@ -1189,6 +1259,7 @@ __all__ = [
     # Authentication
     "verify_api_key",
     "require_api_key",
+    "require_operator_auth",
     "require_service_api_key",
     "get_current_user",
     "get_request_user_scope",

@@ -22,6 +22,10 @@ from typing import Any, Optional, Tuple
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 
+ACCOUNT_SESSION_PURPOSE = "account_session"
+OPERATOR_SESSION_PURPOSE = "operator_session"
+
+
 @dataclass(frozen=True)
 class AuthenticatedUser:
     """Minimal auth context returned by dependencies."""
@@ -58,13 +62,20 @@ def _session_secret() -> bytes:
 
 
 def issue_session_token(
-    subject: str = "web", ttl_seconds: int = 24 * 3600
+    subject: str = "web",
+    ttl_seconds: int = 24 * 3600,
+    *,
+    purpose: str,
 ) -> tuple[str, int]:
     """
     Issue an HMAC-signed opaque session token.
 
     Returns `(token, expires_at_epoch_seconds)`.
     """
+    purpose_value = str(purpose or "").strip()
+    if not purpose_value:
+        raise ValueError("purpose is required")
+
     now = int(time.time())
     exp = now + int(ttl_seconds)
     nonce = secrets.token_urlsafe(10)
@@ -73,6 +84,7 @@ def issue_session_token(
             "subject": subject,
             "exp": exp,
             "nonce": nonce,
+            "purpose": purpose_value,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -86,6 +98,54 @@ def issue_session_token(
         )
     )
     return packed, exp
+
+
+def verify_session_token_for_purpose(
+    token: str, expected_purpose: str
+) -> bool:
+    """Validate a current-format signed session token for one exact purpose.
+
+    Unlike the compatibility verifier below, this validator requires the
+    canonical two-part HMAC format and all current claims, including nonce
+    and purpose. Legacy purpose-less tokens cannot cross this boundary.
+    """
+    try:
+        packed = (token or "").strip()
+        if not packed or packed.count(".") != 1:
+            return False
+        payload_b64, sig_b64 = packed.split(".", 1)
+
+        def decode(raw_text: str) -> bytes | None:
+            padded = raw_text + ("=" * (-len(raw_text) % 4))
+            try:
+                return base64.urlsafe_b64decode(padded.encode("ascii"))
+            except Exception:
+                return None
+
+        payload = decode(payload_b64)
+        signature = decode(sig_b64)
+        if payload is None or signature is None:
+            return False
+        expected_signature = hmac.new(
+            _session_secret(), payload, hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(signature, expected_signature):
+            return False
+
+        claims = json.loads(payload.decode("utf-8"))
+        subject = str(claims.get("subject") or "").strip()
+        nonce = str(claims.get("nonce") or "").strip()
+        purpose = str(claims.get("purpose") or "").strip()
+        expires_at = int(claims.get("exp") or 0)
+        return bool(
+            subject
+            and nonce
+            and purpose
+            and purpose == expected_purpose
+            and expires_at >= int(time.time())
+        )
+    except Exception:
+        return False
 
 
 def verify_session_token(token: str) -> tuple[bool, str | None]:

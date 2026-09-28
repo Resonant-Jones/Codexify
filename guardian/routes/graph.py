@@ -12,7 +12,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from neo4j import GraphDatabase
 
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ router = APIRouter(tags=["Graph"])
 @router.get("/graph", summary="Return graph data from Neo4j")
 def get_graph(
     scope: str = "codexify",
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ):
     """
     Fetch graph data from Neo4j and return nodes and links.

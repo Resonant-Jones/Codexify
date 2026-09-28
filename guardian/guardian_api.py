@@ -85,6 +85,7 @@ from guardian.core.dependencies import (
     init_database,
     init_services,
     require_api_key,
+    require_operator_auth,
 )
 from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
@@ -479,8 +480,6 @@ def _retrieval_proof_state(
     )
 
 
-from backend import llm_overrides
-
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
@@ -501,6 +500,8 @@ from guardian.routes import (
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
+from guardian.routes import llm_overrides
+from guardian.routes import memory, migration
 from guardian.routes import (
     hosted_room_guest,
     hosted_rooms,
@@ -1505,7 +1506,7 @@ async def stream_events(
     request: Request,
     last_id_query: int = Query(0, alias="last_id"),
     last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ):
     """
     Stream domain events from the durable events_outbox as Server-Sent Events.
@@ -1691,7 +1692,7 @@ async def request_task_cancel(
 @app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])
 def get_graph(
     scope: str = "codexify",
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ):
     """
     Fetch graph data from Neo4j for visualization.

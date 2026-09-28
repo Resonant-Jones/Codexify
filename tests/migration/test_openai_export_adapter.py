@@ -13,8 +13,61 @@ import pytest
 
 from backend.rag.openai_export_adapter import (
     OpenAIExportDetector,
+    OpenAILegacyExportAdapter,
+    OpenAIShardedExportAdapter,
     import_openai_export_path,
 )
+
+
+def test_sharded_adapter_yields_before_reading_next_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    part = tmp_path / "conversations__stream"
+    part.mkdir()
+    for index in range(3):
+        (part / f"conversations-{index:03d}.json").write_text(
+            json.dumps([{"id": f"thread-{index}", "mapping": {}}]),
+            encoding="utf-8",
+        )
+    inventory = OpenAIExportDetector().scan(tmp_path)
+    import backend.rag.openai_export_adapter as module
+
+    visited: list[str] = []
+    original = module._iter_json_payloads
+
+    def observed(record):
+        visited.append(record.path)
+        yield from original(record)
+
+    monkeypatch.setattr(module, "_iter_json_payloads", observed)
+    iterator = OpenAIShardedExportAdapter().iter_conversations(inventory)
+    assert next(iterator)["id"] == "thread-0"
+    assert len(visited) == 1
+    assert [item["id"] for item in iterator] == ["thread-1", "thread-2"]
+
+
+def test_legacy_array_groups_message_records_across_elements(tmp_path: Path) -> None:
+    source = tmp_path / "conversations.json"
+    source.write_text(json.dumps([
+        {"conversation_id": "shared", "message_id": "first", "role": "user",
+         "content": "one", "create_time": 1},
+        {"conversation_id": "shared", "message_id": "second", "role": "assistant",
+         "content": "two", "create_time": 2},
+    ]), encoding="utf-8")
+    inventory = OpenAIExportDetector().scan(tmp_path)
+    conversations = list(OpenAILegacyExportAdapter().iter_conversations(inventory))
+    assert len(conversations) == 1
+    assert conversations[0]["id"] == "shared"
+    assert list(conversations[0]["mapping"]) == ["first", "second"]
+
+
+def test_malformed_array_is_reported_as_invalid_json(tmp_path: Path) -> None:
+    source = tmp_path / "conversations.json"
+    source.write_text('[{"id":"first","mapping":{}}, broken]', encoding="utf-8")
+    inventory = OpenAIExportDetector().scan(tmp_path)
+    assert inventory.files[0].detected_kind == "invalid_json"
+    assert inventory.files[0].parse_success is False
+    assert inventory.files[0].parse_error
 
 
 class OpenAIImportModules(NamedTuple):

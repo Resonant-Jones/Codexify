@@ -12,6 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any, BinaryIO, Callable, Sequence
 
 from sqlalchemy.orm import Session
@@ -322,9 +323,56 @@ class OpenAIAccountImportService:
             return self.serialize_job(job)
 
     def get_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
+        job = OpenAIAccountImportJob
         with self.db.get_session() as session:
-            job = self._require_job(session, job_id, user_id)
-            return self.serialize_job(job)
+            row = (
+                session.query(
+                    job.id,
+                    job.source_system,
+                    job.source_export_fingerprint,
+                    job.status,
+                    job.total_file_count,
+                    job.total_byte_count,
+                    job.uploaded_file_count,
+                    job.uploaded_byte_count,
+                    job.imported_thread_count,
+                    job.imported_message_count,
+                    job.imported_media_count,
+                    job.duplicate_count,
+                    job.skipped_count,
+                    job.warning_count,
+                    job.failure_count,
+                    job.warning_details,
+                    job.error_details,
+                    job.checkpoint["imported_document_count"].as_integer().label(
+                        "imported_document_count"
+                    ),
+                    job.checkpoint["canonical_duplicate_count"].as_integer().label(
+                        "canonical_duplicate_count"
+                    ),
+                    job.checkpoint["source_summary"].label("source_summary"),
+                    job.created_at,
+                    job.queued_at,
+                    job.started_at,
+                    job.updated_at,
+                    job.completed_at,
+                )
+                .filter(job.id == str(job_id), job.user_id == str(user_id))
+                .first()
+            )
+            if row is None:
+                raise AccountImportError(
+                    "Account import job was not found.",
+                    code="account_import_not_found",
+                    status_code=404,
+                )
+            values = dict(row._mapping)
+            values["checkpoint"] = {
+                "imported_document_count": values["imported_document_count"] or 0,
+                "canonical_duplicate_count": values["canonical_duplicate_count"] or 0,
+                "source_summary": values["source_summary"] or {},
+            }
+            return self.serialize_job(SimpleNamespace(**values))
 
     def get_worker_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:
@@ -2031,7 +2079,7 @@ class OpenAIAccountImportService:
 
     @staticmethod
     def serialize_job(
-        job: OpenAIAccountImportJob,
+        job: OpenAIAccountImportJob | SimpleNamespace,
         *,
         include_internal: bool = False,
     ) -> dict[str, Any]:

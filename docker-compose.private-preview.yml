@@ -16,7 +16,53 @@ x-private-preview-chroma-mount: &private_preview_chroma_mount
   volume:
     nocopy: true
 
+# This deployment owns the Guardian posture; it is deliberately not sourced
+# from the operator's local-runtime env file. Keep the backend and startup
+# guard on one mapping so they cannot drift independently.
+x-private-preview-guardian-posture: &private_preview_guardian_posture
+  CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+  GUARDIAN_EXPOSURE_MODE: "private_preview"
+  GUARDIAN_AUTH_MODE: "remote"
+  CODEXIFY_MULTI_USER_ENABLED: "true"
+
 services:
+  private-preview-auth-posture:
+    image: codexify-backend-runtime:latest
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+      network: host
+    working_dir: /app
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import os
+        import sys
+
+        expected = {
+            "GUARDIAN_EXPOSURE_MODE": "private_preview",
+            "GUARDIAN_AUTH_MODE": "remote",
+            "CODEXIFY_SUPPORTED_PROFILE": "v1-whooshd-deepseek-web",
+            "CODEXIFY_MULTI_USER_ENABLED": "true",
+        }
+        invalid = {
+            key: os.environ.get(key, "<missing>")
+            for key, value in expected.items()
+            if os.environ.get(key) != value
+        }
+        if invalid:
+            print(
+                "private-preview Guardian posture is invalid: "
+                + ", ".join(sorted(invalid)),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print("private-preview Guardian posture: PASS")
+    environment: *private_preview_guardian_posture
+    restart: "no"
+
   db:
     ports: !reset []
     # Recover the persistent database after an engine or container restart.
@@ -33,6 +79,9 @@ services:
   backend:
     ports: !reset []
     restart: unless-stopped
+    depends_on:
+      private-preview-auth-posture:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/health', timeout=2).read()"]
       interval: 5s
@@ -41,8 +90,7 @@ services:
     volumes:
       - *private_preview_chroma_mount
     environment:
-      <<: *private_preview_chroma_env
-      CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      <<: [*private_preview_chroma_env, *private_preview_guardian_posture]
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
@@ -56,9 +104,6 @@ services:
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
-      GUARDIAN_EXPOSURE_MODE: "private_preview"
-      GUARDIAN_AUTH_MODE: "remote"
-      CODEXIFY_MULTI_USER_ENABLED: "true"
       GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?set GUARDIAN_SESSION_SECRET in .env.private-preview}"
       GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?set GUARDIAN_JWT_SECRET in .env.private-preview}"
       CODEXIFY_PREVIEW_APPROVED_EMAILS: "${CODEXIFY_PREVIEW_APPROVED_EMAILS:?set approved preview emails}"

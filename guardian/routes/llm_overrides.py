@@ -5,12 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 
-from guardian.core.dependencies import chatlog_db, require_api_key
+from guardian.core.dependencies import chatlog_db, require_operator_auth
 
 router = APIRouter(
     prefix="/api/llm",
     tags=["LLM Overrides"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 

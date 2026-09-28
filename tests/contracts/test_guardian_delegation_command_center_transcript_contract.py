@@ -2,23 +2,28 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import json
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import JSON, Integer
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import Engine
 
 from guardian.db.models import (
     AgentEvent,
     AgentRun,
+    Base,
     ChatMessage,
     GuardianDelegationIntent,
 )
 from guardian.routes import guardian_delegations
 from tests.contracts.test_guardian_delegation_approval_cancel_contract import (
     _create_manual_intent,
+)
+from tests.contracts.test_guardian_delegation_phase2a_contract import (
+    _clear_disposable_tables,
+    _disposable_postgres_engine,
 )
 from tests.contracts.test_guardian_delegation_phase3_delivery_contract import (
     _TestDB as _Phase3TestDB,
@@ -31,49 +36,21 @@ from tests.contracts.test_guardian_delegation_phase3_delivery_contract import (
 
 
 class _TranscriptTestDB(_Phase3TestDB):
-    def __init__(self) -> None:
-        super().__init__()
-        self._transcript_original_types = {
-            AgentEvent.__table__.c.id: AgentEvent.__table__.c.id.type,
-            AgentEvent.__table__.c.run_id: AgentEvent.__table__.c.run_id.type,
-            AgentEvent.__table__.c.run_step_id: (
-                AgentEvent.__table__.c.run_step_id.type
-            ),
-            AgentEvent.__table__.c.attempt_id: (
-                AgentEvent.__table__.c.attempt_id.type
-            ),
-            AgentEvent.__table__.c.payload: (
-                AgentEvent.__table__.c.payload.type
-            ),
-        }
-        self._transcript_original_defaults = {
-            AgentEvent.__table__.c.payload: (
-                AgentEvent.__table__.c.payload.server_default
-            ),
-        }
-        for column, original in self._transcript_original_types.items():
-            if column.name in {"id", "run_id", "run_step_id", "attempt_id"}:
-                column.type = Integer()
-            elif column.name == "payload":
-                column.type = JSON().with_variant(JSONB, "postgresql")
-        AgentEvent.__table__.c.payload.server_default = None
-        AgentEvent.__table__.create(bind=self._engine, checkfirst=True)
+    def __init__(self, engine: Engine) -> None:
+        super().__init__(engine)
 
-    def close(self) -> None:
-        for column, original in self._transcript_original_types.items():
-            column.type = original
-        for column, original in self._transcript_original_defaults.items():
-            column.server_default = original
-        super().close()
+
+@pytest.fixture(scope="module")
+def _postgres_engine() -> Iterator[Engine]:
+    with _disposable_postgres_engine() as engine:
+        Base.metadata.create_all(bind=engine)
+        yield engine
 
 
 @pytest.fixture
-def db() -> _TranscriptTestDB:
-    test_db = _TranscriptTestDB()
-    try:
-        yield test_db
-    finally:
-        test_db.close()
+def db(_postgres_engine: Engine) -> _TranscriptTestDB:
+    _clear_disposable_tables(_postgres_engine)
+    return _TranscriptTestDB(_postgres_engine)
 
 
 @pytest.fixture

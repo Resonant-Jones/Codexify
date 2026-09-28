@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
+
 import ActivateAccountPage, {
   ACTIVATION_UNAVAILABLE_MESSAGE,
 } from "../login/ActivateAccountPage";
@@ -36,6 +38,119 @@ describe("one-time account activation page", () => {
     expect(window.location.hash).toBe("");
     expect(document.body.textContent).not.toContain(RAW_TOKEN);
   });
+
+  it("keeps the initial token through Strict Mode initialization", () => {
+    render(
+      <StrictMode>
+        <ActivateAccountPage />
+      </StrictMode>
+    );
+
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(window.location.hash).toBe("");
+  });
+
+  it("accepts an activation fragment opened on the already-mounted page", async () => {
+    loadActivationUrl(null);
+    const user = userEvent.setup();
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({
+      data: { ok: true },
+    } as never);
+    const storageSpy = vi.spyOn(Storage.prototype, "setItem");
+    render(
+      <StrictMode>
+        <ActivateAccountPage />
+      </StrictMode>
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      ACTIVATION_UNAVAILABLE_MESSAGE
+    );
+
+    await act(async () => {
+      window.location.hash = `token=${RAW_TOKEN}`;
+    });
+
+    const password = await screen.findByLabelText("New password");
+    expect(window.location.hash).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.type(password, "chosen-password");
+    await user.type(screen.getByLabelText("Confirm password"), "chosen-password");
+    await user.click(screen.getByRole("button", { name: "CREATE ACCOUNT" }));
+    await waitFor(() =>
+      expect(postSpy).toHaveBeenCalledWith("/auth/activate", {
+        token: RAW_TOKEN,
+        password: "chosen-password",
+      })
+    );
+    expect(storageSpy).not.toHaveBeenCalled();
+  });
+
+  it("recovers from a rejected link when a replacement fragment arrives", async () => {
+    const user = userEvent.setup();
+    const postSpy = vi
+      .spyOn(api, "post")
+      .mockRejectedValueOnce(new Error("activation unavailable"))
+      .mockResolvedValueOnce({ data: { ok: true } } as never);
+    render(<ActivateAccountPage />);
+    await user.type(screen.getByLabelText("New password"), "first-password");
+    await user.type(screen.getByLabelText("Confirm password"), "first-password");
+    await user.click(screen.getByRole("button", { name: "CREATE ACCOUNT" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    const replacement = "replacement-activation-token";
+    await act(async () => {
+      window.location.hash = `token=${replacement}`;
+    });
+
+    const password = await screen.findByLabelText("New password");
+    expect(password).toHaveValue("");
+    expect(screen.getByLabelText("Confirm password")).toHaveValue("");
+    expect(window.location.hash).toBe("");
+    await user.type(password, "replacement-password");
+    await user.type(
+      screen.getByLabelText("Confirm password"),
+      "replacement-password"
+    );
+    await user.click(screen.getByRole("button", { name: "CREATE ACCOUNT" }));
+    expect(postSpy).toHaveBeenLastCalledWith("/auth/activate", {
+      token: replacement,
+      password: "replacement-password",
+    });
+    expect(await screen.findByText("Your account is ready")).toBeInTheDocument();
+  });
+
+  it.each(["success", "failure"])(
+    "ignores an earlier submission's late %s after replacing its fragment",
+    async (outcome) => {
+      const user = userEvent.setup();
+      let finishRequest!: () => void;
+      const request = new Promise<never>((resolve, reject) => {
+        finishRequest = () =>
+          outcome === "success"
+            ? resolve({ data: { ok: true } } as never)
+            : reject(new Error("activation unavailable"));
+      });
+      vi.spyOn(api, "post").mockReturnValueOnce(request);
+      render(<ActivateAccountPage />);
+      await user.type(screen.getByLabelText("New password"), "first-password");
+      await user.type(screen.getByLabelText("Confirm password"), "first-password");
+      await user.click(screen.getByRole("button", { name: "CREATE ACCOUNT" }));
+
+      await act(async () => {
+        window.location.hash = "token=replacement-activation-token";
+      });
+      await waitFor(() =>
+        expect(screen.getByLabelText("New password")).toHaveValue("")
+      );
+      await act(async () => finishRequest());
+
+      expect(screen.getByLabelText("New password")).toBeInTheDocument();
+      expect(screen.queryByText("Your account is ready")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(window.location.hash).toBe("");
+    }
+  );
 
   it("never writes token or password to browser persistence", async () => {
     const user = userEvent.setup();

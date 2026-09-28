@@ -1330,6 +1330,28 @@ class ChatThread(Base):
     )
 
 
+class ChatCompletionAttempt(Base):
+    """Durable identity and thread binding for one queued chat completion."""
+
+    __tablename__ = "chat_completion_attempts"
+
+    request_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    backend_task_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True
+    )
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
 class ChatMessage(Base):
     """Individual messages within threads."""
 
