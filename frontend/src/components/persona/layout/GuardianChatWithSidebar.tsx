@@ -74,7 +74,7 @@ import {
   type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
-import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getShellViewportProfile, useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { getMobileNavigationControlStyle } from "./mobileNavigationContract";
 import type {
@@ -361,6 +361,8 @@ type GuardianChatWithSidebarProps = {
   onFocusedSidebarOpenChange?: (open: boolean) => void;
   onFocusedSidebarPinnedChange?: (pinned: boolean) => void;
   focusedShelfStyle?: React.CSSProperties;
+  focusedShelfReturnFocusRef?: React.RefObject<HTMLButtonElement | null>;
+  layoutPaneWidth?: number;
 };
 
 export default function GuardianChatWithSidebar({
@@ -393,6 +395,8 @@ export default function GuardianChatWithSidebar({
   onFocusedSidebarOpenChange,
   onFocusedSidebarPinnedChange,
   focusedShelfStyle,
+  focusedShelfReturnFocusRef,
+  layoutPaneWidth,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -440,7 +444,10 @@ export default function GuardianChatWithSidebar({
       localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
-  const shellViewportProfile = useShellViewportProfile();
+  const physicalShellViewportProfile = useShellViewportProfile();
+  const shellViewportProfile = layoutPaneWidth == null
+    ? physicalShellViewportProfile
+    : getShellViewportProfile(Math.max(layoutPaneWidth, 768));
   const mobileShellProfile = useMemo(
     () => getMobileShellProfile(shellViewportProfile),
     [shellViewportProfile]
@@ -1939,7 +1946,7 @@ export default function GuardianChatWithSidebar({
       onNavigateApplicationView={(nextView) =>
         onNavigateApplicationView?.(nextView)
       }
-      returnFocusRef={mobileSidebarTriggerRef}
+      returnFocusRef={browserFocused ? focusedShelfReturnFocusRef : mobileSidebarTriggerRef}
       wallpaperUrl={renderableWallpaperUrl}
       presentation={browserFocused ? "shelf" : "modal"}
       pinned={browserFocused && focusedSidebarPinned}

@@ -33,9 +33,9 @@ function Harness() {
 
 function setDesktopGeometry() {
   const root = screen.getByTestId("unified-desktop");
-  Object.defineProperty(root, "clientWidth", { configurable: true, value: 1200 });
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: 1600 });
   fireEvent(window, new Event("resize"));
-  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1200 } as DOMRect);
+  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1600 } as DOMRect);
   return root;
 }
 
@@ -59,7 +59,7 @@ describe("UnifiedDesktopCompositor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
     expect(root).toHaveAttribute("data-browser-state", "docked");
     const browser = screen.getByTestId("unified-desktop-browser");
-    dragDivider(600, 800);
+    dragDivider(800, 1060);
     expect(screen.getByRole("separator")).toHaveAttribute("aria-valuenow", "67");
 
     fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
@@ -95,6 +95,16 @@ describe("UnifiedDesktopCompositor", () => {
     expect(screen.queryByRole("separator")).not.toBeInTheDocument();
   });
 
+  it("starts focused rather than creating a 200px content strip near 1024px", () => {
+    render(<Harness />);
+    const root = setDesktopGeometry();
+    Object.defineProperty(root, "clientWidth", { configurable: true, value: 1024 });
+    fireEvent(window, new Event("resize"));
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    expect(root).toHaveAttribute("data-browser-state", "focused");
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+  });
+
   it("transitions at both drag edges and can reveal a dismissed focused shelf", () => {
     render(<Harness />);
     const root = setDesktopGeometry();
@@ -110,7 +120,18 @@ describe("UnifiedDesktopCompositor", () => {
     expect(root).toHaveAttribute("data-browser-state", "closed");
 
     fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
-    dragDivider(600, 1100);
+    dragDivider(800, 1500);
     expect(root).toHaveAttribute("data-browser-state", "closed");
+  });
+
+  it("returns focus to Codexify after Browser closes", async () => {
+    render(<Harness />);
+    setDesktopGeometry();
+    const codexifyControl = screen.getByRole("button", { name: "Dismiss shelf" });
+    codexifyControl.focus();
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close browser preview" }));
+    await vi.waitFor(() => expect(codexifyControl).toHaveFocus());
   });
 });

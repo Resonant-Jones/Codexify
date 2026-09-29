@@ -18,7 +18,7 @@ type MobileAppSidebarDrawerProps = React.PropsWithChildren<{
   onClose: () => void;
   isApplicationNavigationExpanded: boolean;
   onApplicationNavigationExpandedChange: (expanded: boolean) => void;
-  activeApplicationView: MobileApplicationView;
+  activeApplicationView: MobileApplicationView | null;
   applicationDestinations: readonly MobileApplicationDestination[];
   onNavigateApplicationView: (view: MobileApplicationView) => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
@@ -57,6 +57,7 @@ export default function MobileAppSidebarDrawer({
     [shellViewportProfile]
   );
   const drawerRef = React.useRef<HTMLElement | null>(null);
+  const shelfHadFocusRef = React.useRef(false);
   const closeRef = React.useRef<HTMLButtonElement | null>(null);
   const applicationNavigationTriggerRef = React.useRef<HTMLButtonElement | null>(
     null
@@ -84,9 +85,25 @@ export default function MobileAppSidebarDrawer({
   }, [isOpen, isShelf, returnFocusRef]);
 
   React.useEffect(() => {
+    if (!isOpen || !isShelf) return undefined;
+    return () => {
+      if (!shelfHadFocusRef.current) return;
+      shelfHadFocusRef.current = false;
+      queueMicrotask(() => {
+        const reveal = returnFocusRef?.current;
+        const target = reveal?.isConnected && !reveal.closest("[inert]")
+          ? reveal
+          : document.querySelector<HTMLElement>(".unified-desktop__location");
+        target?.focus();
+      });
+    };
+  }, [isOpen, isShelf, returnFocusRef]);
+
+  React.useEffect(() => {
     if (!isOpen || typeof window === "undefined") return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (isShelf && !drawerRef.current?.contains(event.target as Node)) return;
       event.preventDefault();
       if (isApplicationNavigationExpanded) {
         onApplicationNavigationExpandedChange(false);
@@ -100,6 +117,7 @@ export default function MobileAppSidebarDrawer({
   }, [
     isApplicationNavigationExpanded,
     isOpen,
+    isShelf,
     onApplicationNavigationExpandedChange,
     onClose,
   ]);
@@ -212,6 +230,12 @@ export default function MobileAppSidebarDrawer({
         aria-modal={isShelf ? undefined : "true"}
         aria-label="Application navigation and workspace"
         onKeyDown={containFocus}
+        onFocusCapture={() => { shelfHadFocusRef.current = true; }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            shelfHadFocusRef.current = false;
+          }
+        }}
         onPointerLeave={isShelf && !pinned ? onShelfPointerLeave : undefined}
         style={{
           pointerEvents: "auto",

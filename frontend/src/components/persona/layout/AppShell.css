@@ -225,7 +225,7 @@
 /* Browser presentation changes geometry while the existing AppShell stays mounted. */
 .unified-desktop {
   --desktop-divider-width: 12px;
-  --desktop-edge-hit-area: 18px;
+  --desktop-edge-hit-area: 20px;
   position: relative;
   display: flex;
   width: 100vw;
@@ -270,14 +270,14 @@
 .unified-desktop__sidebar-edge button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 52px;
+  width: 32px;
+  height: 44px;
   flex: 0 0 auto;
   border: 1px solid var(--panel-border-strong);
   border-radius: var(--radius-tile);
   background: var(--surface-sheet);
   color: var(--text);
-  box-shadow: 0 4px 18px color-mix(in oklab, var(--panel-bg) 35%, transparent);
+  box-shadow: 0 4px 14px color-mix(in oklab, var(--panel-bg) 28%, transparent);
   cursor: pointer;
   opacity: 0;
   transition: opacity 150ms ease, transform 150ms ease;
@@ -294,6 +294,14 @@
   transform: translateX(0);
 }
 
+@media (hover: none) {
+  .unified-desktop__edge-summon button,
+  .unified-desktop__sidebar-edge button {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .unified-desktop__divider {
   position: relative;
   z-index: 20;
@@ -301,7 +309,7 @@
   min-height: 0;
   cursor: col-resize;
   touch-action: none;
-  background: color-mix(in oklab, var(--panel-border) 45%, transparent);
+  background: color-mix(in oklab, var(--panel-border) 25%, transparent);
 }
 
 .unified-desktop__divider::after {
@@ -310,7 +318,7 @@
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 2px;
+  width: 1px;
   transform: translateX(-50%);
   background: var(--panel-border-strong);
 }
@@ -339,7 +347,7 @@
 .unified-desktop[data-browser-state="focused"] .unified-desktop__browser {
   position: absolute;
   z-index: 10;
-  inset: var(--edge-chrome);
+  inset: calc(var(--edge-chrome) + 2px);
   margin: 0;
   width: auto;
   background: var(--surface-sheet);
@@ -349,16 +357,16 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: calc(var(--shell-gap) / 2);
+  gap: calc(var(--shell-gap) / 3);
   min-width: 0;
-  padding: calc(var(--shell-gap) / 2);
-  border-bottom: 1px solid var(--panel-border);
+  padding: 6px 8px;
+  border-bottom: 1px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
 }
 
 .unified-desktop__location {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid var(--chip-border);
   border-radius: var(--radius-micro);
   background: var(--chip-bg);
@@ -369,8 +377,8 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-micro);
   color: var(--text);
   cursor: pointer;

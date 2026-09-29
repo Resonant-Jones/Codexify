@@ -1,13 +1,13 @@
 import { ArrowDownLeft, Globe2, Maximize2, Pin, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PropsWithChildren } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PropsWithChildren, type RefObject } from "react";
 
 export type BrowserPresentation = "closed" | "docked" | "focused";
 
 const DEFAULT_DOCKED_RATIO = 0.52;
 const DIVIDER_WIDTH = 12;
 const CLOSE_BROWSER_WIDTH = 140;
-const FOCUS_CODEXIFY_WIDTH = 640;
-const MIN_USABLE_CODEXIFY_WIDTH = 500;
+const FOCUS_CODEXIFY_WIDTH = 760;
+const MIN_USABLE_CODEXIFY_WIDTH = 650;
 
 function focusThreshold(width: number) {
   return Math.max(MIN_USABLE_CODEXIFY_WIDTH, Math.min(FOCUS_CODEXIFY_WIDTH, width * 0.42));
@@ -21,6 +21,8 @@ type Props = PropsWithChildren<{
   focusedSidebarOpen: boolean;
   focusedSidebarPinned: boolean;
   onFocusedSidebarReveal: () => void;
+  focusedSidebarRevealRef?: RefObject<HTMLButtonElement | null>;
+  onCodexifyPaneWidthChange?: (width: number) => void;
 }>;
 
 export default function UnifiedDesktopCompositor({
@@ -31,9 +33,13 @@ export default function UnifiedDesktopCompositor({
   focusedSidebarOpen,
   focusedSidebarPinned,
   onFocusedSidebarReveal,
+  focusedSidebarRevealRef,
+  onCodexifyPaneWidthChange,
   children,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const lastCodexifyFocusRef = useRef<HTMLElement | null>(null);
+  const restoreCodexifyFocusRef = useRef(false);
   const [dockedRatio, setDockedRatio] = useState(DEFAULT_DOCKED_RATIO);
   const [containerWidth, setContainerWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth
@@ -41,16 +47,39 @@ export default function UnifiedDesktopCompositor({
   const availableWidth = Math.max(1, containerWidth - DIVIDER_WIDTH);
 
   useEffect(() => {
-    if (enabled && presentation === "docked" && availableWidth * dockedRatio <= focusThreshold(availableWidth)) {
-      onPresentationChange("focused");
+    if (presentation !== "closed" || !restoreCodexifyFocusRef.current) return;
+    restoreCodexifyFocusRef.current = false;
+    queueMicrotask(() => {
+      const pane = rootRef.current?.querySelector<HTMLElement>(".unified-desktop__codexify");
+      if (!pane) return;
+      const previous = lastCodexifyFocusRef.current;
+      const target = previous?.isConnected && pane.contains(previous)
+        ? previous
+        : pane.querySelector<HTMLElement>("[data-testid='app-shell-nav-anchor'] button, button:not([disabled])") ?? pane;
+      target.focus();
+    });
+  }, [presentation]);
+
+  const changePresentation = useCallback((next: BrowserPresentation) => {
+    if (next === "closed" && presentation !== "closed") restoreCodexifyFocusRef.current = true;
+    onPresentationChange(next);
+  }, [onPresentationChange, presentation]);
+
+  useEffect(() => {
+    const measuredWidth = rootRef.current?.clientWidth || containerWidth;
+    const measuredAvailableWidth = Math.max(1, measuredWidth - DIVIDER_WIDTH);
+    if (enabled && presentation === "docked" && measuredAvailableWidth * dockedRatio <= focusThreshold(measuredAvailableWidth)) {
+      changePresentation("focused");
     }
-  }, [availableWidth, dockedRatio, enabled, onPresentationChange, presentation]);
+  }, [changePresentation, containerWidth, dockedRatio, enabled, presentation]);
 
   useEffect(() => {
     if (!enabled || !rootRef.current) return;
     const root = rootRef.current;
     const updateWidth = () => {
       if (root.clientWidth > 0) setContainerWidth(root.clientWidth);
+      const paneWidth = root.querySelector<HTMLElement>(".unified-desktop__codexify")?.clientWidth;
+      if (paneWidth && paneWidth > 0) onCodexifyPaneWidthChange?.(paneWidth);
     };
     updateWidth();
     if (typeof ResizeObserver === "undefined") {
@@ -59,8 +88,10 @@ export default function UnifiedDesktopCompositor({
     }
     const observer = new ResizeObserver(updateWidth);
     observer.observe(root);
+    const pane = root.querySelector<HTMLElement>(".unified-desktop__codexify");
+    if (pane) observer.observe(pane);
     return () => observer.disconnect();
-  }, [enabled]);
+  }, [enabled, onCodexifyPaneWidthChange]);
 
   const resizeTo = useCallback((clientX: number) => {
     const rect = rootRef.current?.getBoundingClientRect();
@@ -68,15 +99,15 @@ export default function UnifiedDesktopCompositor({
     const width = rect.width - DIVIDER_WIDTH;
     const codexifyWidth = clientX - rect.left;
     if (codexifyWidth <= focusThreshold(width)) {
-      onPresentationChange("focused");
+      changePresentation("focused");
       return;
     }
     if (width - codexifyWidth <= CLOSE_BROWSER_WIDTH) {
-      onPresentationChange("closed");
+      changePresentation("closed");
       return;
     }
     setDockedRatio(Math.max(0, Math.min(1, codexifyWidth / width)));
-  }, [onPresentationChange]);
+  }, [changePresentation]);
 
   if (!enabled) return <>{children}</>;
 
@@ -93,6 +124,8 @@ export default function UnifiedDesktopCompositor({
         className="unified-desktop__codexify"
         data-testid="unified-desktop-codexify"
         inert={presentation === "focused"}
+        tabIndex={-1}
+        onFocusCapture={(event) => { lastCodexifyFocusRef.current = event.target as HTMLElement; }}
         style={{ flexGrow: presentation === "docked" ? dockedRatio : 1 }}
       >
         {children}
@@ -144,7 +177,7 @@ export default function UnifiedDesktopCompositor({
               className="unified-desktop__chrome-action"
               aria-label={presentation === "focused" ? "Restore docked browser" : "Focus browser"}
               title={presentation === "focused" ? "Restore docked browser" : "Focus browser"}
-              onClick={() => onPresentationChange(presentation === "focused" ? "docked" : "focused")}
+              onClick={() => changePresentation(presentation === "focused" ? "docked" : "focused")}
             >
               {presentation === "focused" ? <ArrowDownLeft size={18} aria-hidden="true" /> : <Maximize2 size={18} aria-hidden="true" />}
             </button>
@@ -153,7 +186,7 @@ export default function UnifiedDesktopCompositor({
               className="unified-desktop__chrome-action"
               aria-label="Close browser preview"
               title="Close browser preview"
-              onClick={() => onPresentationChange("closed")}
+              onClick={() => changePresentation("closed")}
             >
               <X size={18} aria-hidden="true" />
             </button>
@@ -171,7 +204,7 @@ export default function UnifiedDesktopCompositor({
             type="button"
             aria-label="Open browser preview"
             title="Open browser preview"
-            onClick={() => onPresentationChange("docked")}
+            onClick={() => changePresentation("docked")}
           >
             <Globe2 size={18} aria-hidden="true" />
           </button>
@@ -183,7 +216,7 @@ export default function UnifiedDesktopCompositor({
           data-testid="focused-sidebar-edge"
           onPointerEnter={onFocusedSidebarReveal}
         >
-          <button type="button" aria-label="Reveal Codexify sidebar" onClick={onFocusedSidebarReveal}>
+          <button ref={focusedSidebarRevealRef} type="button" aria-label="Reveal Codexify sidebar" onClick={onFocusedSidebarReveal}>
             <Pin size={16} aria-hidden="true" />
           </button>
         </div>

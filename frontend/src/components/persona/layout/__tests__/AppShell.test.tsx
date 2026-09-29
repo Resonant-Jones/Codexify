@@ -728,6 +728,18 @@ describe("AppShell logo wordmark color contract", () => {
     );
   });
 
+  it("leaves focused shelf destinations unselected on unsupported views", async () => {
+    setRoutePath("/flow-builder");
+    render(<AppShell />);
+    await screen.findByTestId("flow-builder-page");
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand application navigation" }));
+    for (const destination of ["guardian", "documents", "gallery", "dashboard", "settings"]) {
+      expect(screen.getByTestId(`mobile-app-sidebar-destination-${destination}`)).not.toHaveAttribute("aria-current");
+    }
+  });
+
   it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
@@ -1016,6 +1028,29 @@ describe("AppShell Guardian mobile navigation seam", () => {
             }),
           ]),
         })
+      );
+    });
+  });
+
+  it("hydrates shared threads when a direct desktop Dashboard route opens the focused shelf", async () => {
+    setViewportWidth(1440);
+    setRoutePath("/dashboard");
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/chat/threads") {
+        return { data: { threads: [{ id: 31, title: "Desktop shelf thread" }] } };
+      }
+      return { data: {} };
+    });
+    render(<AppShell />);
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/api/chat/threads", {
+        params: { limit: 50, offset: 0 },
+      });
+      expect(documentsSidebarPropsSpy.mock.calls.at(-1)?.[0]?.threads).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "31", title: "Desktop shelf thread" })])
       );
     });
   });
@@ -1756,6 +1791,31 @@ describe("AppShell workspace drawer shell", () => {
     expect(window.location.pathname).toBe("/chat");
   });
 
+  it("uses the measured docked pane for nested layout without entering phone shell", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRoutePath("/chat");
+    setViewportWidth(1280);
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    const pane = screen.getByTestId("unified-desktop-codexify");
+    Object.defineProperty(pane, "clientWidth", { configurable: true, value: 660 });
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent(window, new Event("resize"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+        "data-shell-viewport-class", "small_tablet"
+      );
+    });
+    expect(screen.getByTestId("unified-desktop")).toHaveAttribute("data-browser-state", "docked");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.layoutPaneWidth).toBe(660);
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.layoutPaneWidth).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Restore docked browser" }));
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.layoutPaneWidth).toBe(660);
+  });
+
   it("does not render workspace controls on dashboard", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
     setRoutePath("/dashboard");
@@ -2360,6 +2420,30 @@ describe("AppShell documents sidebar posture", () => {
     expect(sidebarToggle).toHaveAttribute("data-state", "active");
   });
 
+  it("gives compact docked Documents the full primary pane and a reachable sidebar drawer", async () => {
+    localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
+    setViewportWidth(1600);
+    render(<AppShell />);
+    await screen.findByTestId("documents-primary-frame");
+    const pane = screen.getByTestId("unified-desktop-codexify");
+    Object.defineProperty(pane, "clientWidth", { configurable: true, value: 694 });
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent(window, new Event("resize"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("documents-primary-frame")).toBeInTheDocument();
+    const edge = screen.getByTestId("documents-sidebar-edge-affordance");
+    expect(edge).toHaveStyle({ opacity: "1" });
+    fireEvent.click(edge);
+    expect(screen.getByRole("dialog", { name: "Application navigation and workspace" })).toBeInTheDocument();
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close application navigation and workspace sidebar" }));
+    await waitFor(() => expect(edge).toHaveFocus());
+  });
+
   it("uses the shared application drawer on mobile instead of a permanent sidebar", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
@@ -2512,5 +2596,28 @@ describe("AppShell Room route", () => {
       expect(window.location.pathname).toBe("/chat");
     });
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+  });
+
+  it("keeps the focused shelf reachable on a hosted room with Guardian selected", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    render(<AppShell />);
+    await screen.findByTestId("room-mode-mock");
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+
+    expect(screen.getByRole("complementary", { name: "Application navigation and workspace" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reveal Codexify sidebar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin Codexify sidebar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore docked browser" }));
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    expect(screen.getByTestId("mobile-sidebar-overlay")).toHaveAttribute("data-sidebar-pinned", "false");
+    const location = screen.getByRole("textbox", { name: "Browser location" });
+    location.focus();
+    fireEvent.keyDown(location, { key: "Escape" });
+    expect(screen.getByRole("complementary", { name: "Application navigation and workspace" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Codexify sidebar" }));
+    expect(screen.getByRole("button", { name: "Reveal Codexify sidebar" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/rooms/room-owner-1");
   });
 });

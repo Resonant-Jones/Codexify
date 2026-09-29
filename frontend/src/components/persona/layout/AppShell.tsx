@@ -38,7 +38,7 @@ import {
 } from "@/components/persona/layout/mobileMotionContract";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
-import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getShellViewportProfile, useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import {
   setWallpaperPreference,
@@ -1366,13 +1366,22 @@ export default function AppShell({
   }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
+  const [codexifyPaneWidth, setCodexifyPaneWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth
+  );
   const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
   const [focusedSidebarPinned, setFocusedSidebarPinned] = useState(false);
+  const focusedSidebarRevealRef = useRef<HTMLButtonElement | null>(null);
+  const hasFocusedBrowserRef = useRef(false);
   const handleBrowserPresentationChange = useCallback((next: BrowserPresentation) => {
     setBrowserPresentation(next);
-    const focused = next === "focused";
-    setFocusedSidebarOpen(focused);
-    setFocusedSidebarPinned(focused);
+    if (next === "focused") {
+      setFocusedSidebarOpen(true);
+      if (!hasFocusedBrowserRef.current) {
+        setFocusedSidebarPinned(true);
+        hasFocusedBrowserRef.current = true;
+      }
+    }
   }, []);
   const setFocusedSidebarVisibility = useCallback((open: boolean) => {
     setFocusedSidebarOpen(open);
@@ -1383,6 +1392,7 @@ export default function AppShell({
       () => isPrimaryMobileApplicationView(view) && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const compactDocumentsSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -1577,7 +1587,7 @@ export default function AppShell({
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
-  const phoneSidebarHydrationAttemptedRef = useRef(false);
+  const sharedSidebarHydrationAttemptedRef = useRef(false);
   const [documentsScope, setDocumentsScope] = useState<DocumentsScope>(() =>
     selectDocumentsProject(null)
   );
@@ -2146,13 +2156,18 @@ export default function AppShell({
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
-  const shellViewportProfile = useShellViewportProfile();
+  const physicalShellViewportProfile = useShellViewportProfile();
+  const shellViewportProfile = browserPresentation === "docked"
+    ? getShellViewportProfile(Math.max(codexifyPaneWidth, 768))
+    : physicalShellViewportProfile;
   const mobileShellProfile = useMemo(
-    () => getMobileShellProfile(shellViewportProfile),
-    [shellViewportProfile]
+    () => getMobileShellProfile(physicalShellViewportProfile),
+    [physicalShellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
   const isFocusedBrowser = browserPresentation === "focused" && !isPhoneShell;
+  const showCompactDocumentsSidebar = browserPresentation === "docked" &&
+    !isPhoneShell && codexifyPaneWidth < 850 && view === "documents";
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -2164,7 +2179,7 @@ export default function AppShell({
     isPhoneFrameFirstShell && view === "guardian";
   const isNonGuardianPhoneFrameShell =
     isPhoneFrameFirstShell && view !== "guardian";
-  const showFocusedAppSidebar = isFocusedBrowser && view !== "guardian";
+  const showFocusedAppSidebar = isFocusedBrowser && (view !== "guardian" || activeRoomId != null);
   useEffect(() => {
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
@@ -2179,18 +2194,20 @@ export default function AppShell({
     }
   }, [isPhoneShell, view]);
   useEffect(() => {
+    const needsSharedSidebarThreads =
+      (isPhoneShell && isPrimaryMobileApplicationView(view) && view !== "guardian") ||
+      showFocusedAppSidebar ||
+      showCompactDocumentsSidebar;
     if (
-      !isPhoneShell ||
-      !isPrimaryMobileApplicationView(view) ||
-      view === "guardian" ||
+      !needsSharedSidebarThreads ||
       guardianSidebarSnapshot != null ||
-      phoneSidebarHydrationAttemptedRef.current ||
-      !checkAuthGate(auth, "phone sidebar threads load")
+      sharedSidebarHydrationAttemptedRef.current ||
+      !checkAuthGate(auth, "shared sidebar threads load")
     ) {
       return;
     }
 
-    phoneSidebarHydrationAttemptedRef.current = true;
+    sharedSidebarHydrationAttemptedRef.current = true;
     let cancelled = false;
     void api
       .get(buildChatThreadsPath(), { params: { limit: 50, offset: 0 } })
@@ -2215,14 +2232,14 @@ export default function AppShell({
       })
       .catch((error) => {
         if (!cancelled) {
-          console.warn("[app-shell] failed to hydrate phone sidebar threads", error);
-          phoneSidebarHydrationAttemptedRef.current = false;
+          console.warn("[app-shell] failed to hydrate shared sidebar threads", error);
+          sharedSidebarHydrationAttemptedRef.current = false;
         }
       });
     return () => {
       cancelled = true;
       if (guardianSidebarSnapshot == null) {
-        phoneSidebarHydrationAttemptedRef.current = false;
+        sharedSidebarHydrationAttemptedRef.current = false;
       }
     };
   }, [
@@ -2231,6 +2248,8 @@ export default function AppShell({
     auth.status,
     guardianSidebarSnapshot,
     isPhoneShell,
+    showFocusedAppSidebar,
+    showCompactDocumentsSidebar,
     view,
   ]);
   const viewportInsets = useViewportInsets(isPhoneShell);
@@ -2699,7 +2718,7 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
     return raw === "false" ? false : true;
   });
-  const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
+  const documentsSidebarVisible = !isPhoneShell && !showCompactDocumentsSidebar && documentsSidebarOpen;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2710,11 +2729,11 @@ export default function AppShell({
     if (view !== "documents") return;
     if (isPhoneShell) return;
     if (workspaceLayoutMode !== "workspace_focus") return;
-    const vw = window.innerWidth;
+    const vw = browserPresentation === "docked" ? codexifyPaneWidth : window.innerWidth;
     if (vw < 1200 && documentsSidebarOpen) {
       setDocumentsSidebarOpen(false);
     }
-  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
+  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen, browserPresentation, codexifyPaneWidth]);
 
   const toggleDocumentsSidebar = useCallback(() => {
     setDocumentsSidebarOpen((prev) => !prev);
@@ -3259,7 +3278,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar || showCompactDocumentsSidebar ? (
     view === "documents" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3292,7 +3311,7 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar || showCompactDocumentsSidebar ? (
     <MobileAppSidebarDrawer
       isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
       onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
@@ -3308,10 +3327,14 @@ export default function AppShell({
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
+      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : null}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
-      returnFocusRef={phoneSidebarTriggerRef}
+      returnFocusRef={showFocusedAppSidebar
+        ? focusedSidebarRevealRef
+        : showCompactDocumentsSidebar
+          ? compactDocumentsSidebarTriggerRef
+          : phoneSidebarTriggerRef}
       wallpaperUrl={activeWallpaper}
     >
       {phoneSidebarWorkspace}
@@ -3462,6 +3485,8 @@ export default function AppShell({
       focusedSidebarOpen={focusedSidebarOpen}
       focusedSidebarPinned={focusedSidebarPinned}
       onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
+      focusedSidebarRevealRef={focusedSidebarRevealRef}
+      onCodexifyPaneWidthChange={setCodexifyPaneWidth}
     >
     <div
       className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
@@ -3876,13 +3901,17 @@ export default function AppShell({
                     )}
                     {!isPhoneShell && !documentsSidebarVisible && (
                       <button
+                        ref={showCompactDocumentsSidebar ? compactDocumentsSidebarTriggerRef : undefined}
                         type="button"
                         className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
                         data-testid="documents-sidebar-edge-affordance"
                         aria-label="Show sidebar"
                         title="Show sidebar"
-                        onClick={toggleDocumentsSidebar}
-                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
+                        onClick={showCompactDocumentsSidebar ? () => setIsPhoneSidebarOpen(true) : toggleDocumentsSidebar}
+                        style={{
+                          background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)",
+                          opacity: showCompactDocumentsSidebar ? 1 : undefined,
+                        }}
                       >
                         <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
                       </button>
@@ -4060,6 +4089,8 @@ export default function AppShell({
                           if (pinned) setFocusedSidebarOpen(true);
                         }}
                         focusedShelfStyle={styleVars as React.CSSProperties}
+                        focusedShelfReturnFocusRef={focusedSidebarRevealRef}
+                        layoutPaneWidth={browserPresentation === "docked" ? codexifyPaneWidth : undefined}
                       />
                     </ErrorBoundary>
                   </div>

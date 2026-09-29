@@ -262,6 +262,60 @@ describe("MobileAppSidebarDrawer", () => {
     expect(screen.queryByRole("complementary", { name: "Application navigation and workspace" })).not.toBeInTheDocument();
   });
 
+  it("keeps Browser Escape local and restores focus after shelf dismissal and navigation", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    function ShelfKeyboardHarness() {
+      const [open, setOpen] = React.useState(true);
+      const [expanded, setExpanded] = React.useState(true);
+      const revealRef = React.useRef<HTMLButtonElement | null>(null);
+      return (
+        <>
+          <input aria-label="Browser location" className="unified-desktop__location" readOnly />
+          {!open && <button ref={revealRef} type="button" onClick={() => setOpen(true)}>Reveal shelf</button>}
+          <MobileAppSidebarDrawer
+            isOpen={open}
+            onClose={() => setOpen(false)}
+            presentation="shelf"
+            isApplicationNavigationExpanded={expanded}
+            onApplicationNavigationExpandedChange={setExpanded}
+            activeApplicationView="guardian"
+            applicationDestinations={DESTINATIONS}
+            onNavigateApplicationView={navigate}
+            returnFocusRef={revealRef}
+          >
+            <StatefulWorkspace />
+          </MobileAppSidebarDrawer>
+        </>
+      );
+    }
+    render(<ShelfKeyboardHarness />);
+    const location = screen.getByRole("textbox", { name: "Browser location" });
+    location.focus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Application destinations" })).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole("complementary")).toContainElement(document.activeElement as HTMLElement);
+    await user.tab({ shift: true });
+    expect(location).toHaveFocus();
+
+    const shelf = screen.getByRole("complementary");
+    within(shelf).getByRole("button", { name: "Dismiss Codexify sidebar" }).focus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Application destinations" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reveal shelf" })).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Reveal shelf" }));
+    await user.click(screen.getByRole("button", { name: "Expand application navigation" }));
+    await user.click(screen.getByTestId("mobile-app-sidebar-destination-documents"));
+    expect(navigate).toHaveBeenCalledWith("documents");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reveal shelf" })).toHaveFocus());
+  });
+
   it("dismisses from the view-neutral scrim affordance", async () => {
     const user = userEvent.setup();
     render(<DrawerHarness />);
