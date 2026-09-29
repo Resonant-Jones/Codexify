@@ -77,7 +77,7 @@ from guardian.core.chat_completion_service import (
 )
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
+    get_account_user_scope as get_request_user_scope,
     get_single_user_id,
 )
 from guardian.core.thread_access import require_thread_read_access
@@ -424,8 +424,8 @@ try:
         _vector_store,
         chatlog_db,
         event_bus,
-        require_api_key,
-        verify_api_key,
+        require_account_session as require_api_key,
+        verify_account_session as verify_api_key,
     )
 except ImportError as e:
     logger.error(

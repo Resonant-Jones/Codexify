@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 try:
     from guardian.core.dependencies import (
         chatlog_db,
-        get_request_user_id,
+        get_account_user_id as get_request_user_id,
         init_database,
-        require_api_key,
+        require_account_session as require_api_key,
     )
 except Exception:  # pragma: no cover - fallback for import issues
     chatlog_db = None  # type: ignore[assignment]

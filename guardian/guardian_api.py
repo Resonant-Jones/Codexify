@@ -84,6 +84,7 @@ from guardian.core.dependencies import (
     get_vector_store,
     init_database,
     init_services,
+    require_account_session,
     require_api_key,
     require_operator_auth,
 )
@@ -1677,7 +1678,7 @@ async def stream_task_events(
 @app.post("/api/tasks/{task_id}/cancel", tags=["Tasks"])
 async def request_task_cancel(
     task_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_account_session),
 ):
     """Mark a queued or running task as cancelled."""
     _ = api_key

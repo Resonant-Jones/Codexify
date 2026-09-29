@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core import auth_dependencies as auth_dependencies_module
 from guardian.core.session_store import SessionStore
+from guardian.core import session_store as session_store_module
 from guardian.routes import chat
 
 
@@ -80,6 +81,7 @@ def _remote_chat_client(monkeypatch) -> tuple[TestClient, SessionStore]:
         "get_session_store",
         lambda: session_store,
     )
+    monkeypatch.setattr(session_store_module, "get_session_store", lambda: session_store)
 
     app = FastAPI()
     app.include_router(chat.api_chat_router)
@@ -92,9 +94,7 @@ def test_remote_thread_creation_requires_session_or_jwt(monkeypatch):
     response = client.post("/api/chat/threads", json={"title": "Remote thread"})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == (
-        "Remote mode requires session/JWT auth; X-API-Key is local-only"
-    )
+    assert response.json()["detail"] == "Account session required"
 
 
 def test_remote_thread_creation_accepts_bearer_session(monkeypatch):
@@ -102,6 +102,7 @@ def test_remote_thread_creation_accepts_bearer_session(monkeypatch):
     token, _expires = issue_session_token(
         subject="remote-thread-user",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
     session_store.store(token, "remote-thread-user", 60)
 

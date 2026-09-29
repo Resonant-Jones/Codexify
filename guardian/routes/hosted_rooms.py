@@ -57,7 +57,7 @@ from guardian.core.default_project import (
     canonicalize_default_project,
     resolve_project_id_or_default,
 )
-from guardian.core.dependencies import RequestUserScope, get_request_user_scope
+from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
 from guardian.db.models import (
     ChatThread,
     HostedRoom,

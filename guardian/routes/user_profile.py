@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import RequestUserScope, get_request_user_scope
+from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
 from guardian.db.models import User, UserProfile
 from guardian.user_profile_tokens import (
     DEFAULT_USER_ACCENT_COLOR,

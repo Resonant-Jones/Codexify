@@ -21,7 +21,11 @@ from guardian.core.auth import (
     OPERATOR_SESSION_PURPOSE,
     issue_session_token,
 )
-from guardian.core.dependencies import require_api_key, require_operator_auth
+from guardian.core.dependencies import (
+    require_account_session,
+    require_api_key,
+    require_operator_auth,
+)
 from guardian.core.hosted_room_session import issue_guest_session_token
 from guardian.core.supported_profile import load_supported_profile
 
@@ -330,10 +334,10 @@ def test_each_operator_file_uses_exact_purpose_gate(module_name, monkeypatch):
         ).status_code == 401
 
 
-def test_non_operator_sentinels_retain_their_existing_auth_dependencies():
+def test_non_operator_sentinels_keep_distinct_auth_dependencies():
     from guardian.routes import account_observability, channels, connectors
 
-    assert require_api_key in set(_calls(_find("guardian.routes.channels", "GET", "/api/channels/configs")))
+    assert require_account_session in set(_calls(_find("guardian.routes.channels", "GET", "/api/channels/configs")))
     assert require_operator_auth not in set(_calls(_find("guardian.routes.channels", "GET", "/api/channels/configs")))
 
     service_route = next(
@@ -347,7 +351,7 @@ def test_non_operator_sentinels_retain_their_existing_auth_dependencies():
     assert require_operator_auth not in set(_calls(service_route))
 
     account_route = _find("guardian.routes.agent_orchestration", "POST", "/api/agents/coding/execute")
-    assert require_api_key in set(_calls(account_route))
+    assert require_account_session in set(_calls(account_route))
     assert require_operator_auth not in set(_calls(account_route))
 
     local_route = next(

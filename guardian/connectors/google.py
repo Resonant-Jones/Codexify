@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from guardian.connectors.oauth_crypto import decrypt_token, encrypt_token
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import get_current_user
+from guardian.core.dependencies import get_account_user as get_current_user
 
 router = APIRouter(prefix="/api/connect/google", tags=["connectors"])
 

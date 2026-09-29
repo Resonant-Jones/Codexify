@@ -64,9 +64,9 @@ try:
     from guardian.core.dependencies import (
         RequestUserScope,
         chatlog_db,
-        get_request_user_scope,
+        get_account_user_scope as get_request_user_scope,
         get_single_user_id,
-        require_api_key,
+        require_account_session as require_api_key,
     )
 except ImportError:
     chatlog_db = None

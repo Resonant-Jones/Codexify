@@ -148,6 +148,27 @@ def verify_session_token_for_purpose(
         return False
 
 
+def resolve_account_session_subject(token: str) -> str:
+    """Validate an account credential before consulting its session mapping.
+
+    A stored mapping is evidence of session approval, never a substitute for
+    the signed subject or the exact account-session purpose.
+    """
+    if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    valid, subject = verify_session_token(token)
+    if not valid or not subject:
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    from guardian.core.session_store import get_session_store
+
+    stored_user_id = get_session_store().verify(token)
+    if stored_user_id and stored_user_id != subject:
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    return subject
+
+
 def verify_session_token(token: str) -> tuple[bool, str | None]:
     """
     Validate an opaque session token issued by `issue_session_token`.
@@ -238,6 +259,21 @@ def require_auth(
 
     Returns the identity descriptor string on success, raises 401 on failure.
     """
+    from guardian.core.dependencies import _auth_mode
+    from guardian.core.preview_access import is_private_preview, role_for_preview_email
+
+    if is_private_preview() or _auth_mode() == "remote":
+        from guardian.core.auth_dependencies import extract_session_token
+
+        token = extract_session_token(authorization, gc_session)
+        subject = resolve_account_session_subject(token or "")
+        if is_private_preview():
+            from guardian.core.session_store import get_session_store
+
+            if get_session_store().verify(token) != subject or not role_for_preview_email(subject):
+                raise HTTPException(status_code=401, detail="Private preview account required")
+        return f"session:{subject}"
+
     candidate_key = x_api_key or x_guardian_key
     ident = extract_auth_identity(candidate_key, authorization, gc_session)
     if ident:
@@ -260,7 +296,15 @@ def require_user(
     - Optionally allows a user identifier to be supplied via the
       `X-Guardian-Identity` header; otherwise falls back to the auth identity.
     """
-    user_id = identity or auth_identity
+    from guardian.core.dependencies import _auth_mode
+    from guardian.core.preview_access import is_private_preview
+
+    if is_private_preview() or _auth_mode() == "remote":
+        # require_auth has already validated the exact account purpose and
+        # preview policy. Caller-supplied identity cannot replace that subject.
+        user_id = auth_identity.removeprefix("session:")
+    else:
+        user_id = identity or auth_identity
     return AuthenticatedUser(id=user_id, kind=auth_identity)
 
 

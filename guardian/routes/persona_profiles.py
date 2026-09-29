@@ -27,8 +27,8 @@ from guardian.cognition.system_profiles.store import (
 )
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
-    require_api_key,
+    get_account_user_scope as get_request_user_scope,
+    require_account_session as require_api_key,
 )
 
 router = APIRouter(
