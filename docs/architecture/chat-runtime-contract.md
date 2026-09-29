@@ -145,6 +145,18 @@ model execution and again immediately before assistant persistence. Public
 invocation routes expose acceptance only; they do not imply execution or
 assistant persistence.
 
+### Task-event SSE authorization
+
+`GET /api/tasks/{task_id}/events` treats `{task_id}` as the backend task ID.
+Before creating the SSE response, the route authenticates an eligible local or
+account principal, or a purpose-scoped Hosted Room guest principal; resolves
+the exact ID through `ChatCompletionAttempt.backend_task_id`; and authorizes
+the attempt's canonical `thread_id` with `require_thread_read_access`. Redis
+remains event transport and is reached only after that policy allows access.
+Unknown, Redis-only, request-ID-as-task-ID, and inaccessible resources fail
+closed. This route-specific guard does not change generic local-first auth
+defaults or establish live public-ingress qualification.
+
 ## Canonical Provider States
 
 ```ts
