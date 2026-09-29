@@ -397,6 +397,8 @@ aliases:
 1. [[001-queue-model|ADR-001 Queue Model]]
 2. [Current state](../00-current-state.md)
 
+[Docker documentation](https://docs.docker.com/reference/ "Docker reference")
+
 | Field | Meaning |
 | --- | --- |
 | Status | \`Accepted\` |
@@ -414,6 +416,8 @@ const safe = true;
   assert.match(rendered, /<h1 id="adr-index">ADR <strong>Index<\/strong><\/h1>/);
   assert.match(rendered, /<ol><li value="1"><a href="#" data-markdown-href="001-queue-model\.md">ADR-001 Queue Model<\/a><\/li>/);
   assert.match(rendered, /data-markdown-href="\.\.\/00-current-state\.md"/);
+  assert.match(rendered, /<a href="https:\/\/docs\.docker\.com\/reference\/" target="_blank" rel="noopener noreferrer" title="Docker reference">Docker documentation<\/a>/);
+  assert.doesNotMatch(rendered, /data-markdown-href="https:/);
   assert.match(rendered, /class="markdown-table-wrap"/);
   assert.match(rendered, /<blockquote>/);
   assert.match(rendered, /<pre><code class="language-js">const safe = true;/);
@@ -421,6 +425,11 @@ const safe = true;
   assert.doesNotMatch(rendered, /<script>|javascript:/);
 });
 
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
 test("repository links to non-Markdown files bypass the document reader", () => {
   const rendered = M.renderMarkdown(
     "[Protocol tokens](../../guardian/protocol_tokens.py) and [ADR index](adr/adr-index.md)",
@@ -429,6 +438,23 @@ test("repository links to non-Markdown files bypass the document reader", () => 
   assert.match(rendered, /href="file:\/\/\/repo\/guardian\/protocol_tokens\.py"/);
   assert.doesNotMatch(rendered, /data-markdown-href="\.\.\/\.\.\/guardian\/protocol_tokens\.py"/);
   assert.match(rendered, /data-markdown-href="adr\/adr-index\.md"/);
+<<<<<<< ours
+=======
+=======
+>>>>>>> theirs
+test("Markdown rendering preserves nested list hierarchy", () => {
+  const rendered = M.renderMarkdown(`- Parent
+  - Child
+    1. Nested step
+  - Second child
+- Sibling`);
+  assert.equal(rendered, '<ul><li>Parent<ul><li>Child<ol><li value="1">Nested step</li></ol></li><li>Second child</li></ul></li><li>Sibling</li></ul>');
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 });
 
 test("full-document loading supports offline sources and preserves original access", () => {
@@ -543,13 +569,15 @@ test("Codexify material, Galaxy transition, and reduced motion contracts remain 
   assert.match(html, /reducedMotion\(\) \? 0 : 540/);
 });
 
-test("Galaxy gate isolates Atlas focus and restores it on every close path", () => {
+test("Galaxy gate and active Galaxy isolate Atlas focus until the return completes", () => {
   const gate = html.match(/function setGalaxyGate\(open, restoreFocus = true\)[\s\S]*?(?=    function enterGalaxy)/)[0];
   const enterGalaxy = html.match(/function enterGalaxy\(\)[\s\S]*?(?=    function exitGalaxy)/)[0];
-  assert.match(gate, /els\.app\.inert = open/);
+  const exitGalaxy = html.match(/function exitGalaxy\(\)[\s\S]*?(?=\n\n    document\.addEventListener)/)[0];
+  assert.match(gate, /els\.app\.inert = open \|\| Boolean\(state\.galaxyReturn\)/);
   assert.match(gate, /if \(open\) \$\("#stayLocal"\)\.focus\(\)/);
   assert.match(gate, /else if \(restoreFocus\) \$\("#galaxyButton"\)\.focus\(\)/);
   assert.match(enterGalaxy, /setGalaxyGate\(false, false\)/);
+  assert.match(exitGalaxy, /state\.galaxyReturn = null; els\.app\.inert = false; renderAll\(\); \$\("#galaxyButton"\)\.focus\(\)/);
   assert.match(html, /#stayLocal"\)\.addEventListener\("click", \(\) => setGalaxyGate\(false\)\)/);
   assert.match(html, /galaxyGate\.classList\.contains\("open"\)\) setGalaxyGate\(false\)/);
 });
