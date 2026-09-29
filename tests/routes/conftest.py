@@ -70,6 +70,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
+        "active_profile_id": None,
+        "active_profile_revision": None,
         "project_name": "Imports",
         "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,

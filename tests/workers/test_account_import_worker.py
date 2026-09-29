@@ -43,6 +43,8 @@ class FakeWorkerService:
         )
         self.raise_materialize: Exception | None = None
         self.raise_complete: Exception | None = None
+        self.handoff_failures = 0
+        self.checkpoint_ids = ["already-committed"]
 
     def mark_running(self, **kwargs):
         self.calls.append(("running", kwargs))
@@ -54,14 +56,23 @@ class FakeWorkerService:
             raise self.raise_materialize
         return {
             "checkpoint": {
-                "conversation_ids": ["already-committed"],
+                "conversation_ids": list(self.checkpoint_ids),
                 "media_paths": ["media/already.png"],
-            }
+            },
+            "source_system": "openai",
         }
 
     def record_conversation_batch(self, **kwargs):
         self.calls.append(("conversation-batch", kwargs["batch"]))
+        self.checkpoint_ids.extend(kwargs["batch"].get("conversation_ids", []))
         return {}
+
+    def enqueue_pending_import_embeddings(self, **kwargs):
+        self.calls.append(("embedding-handoff", kwargs))
+        if self.handoff_failures and kwargs.get("conversation_ids") is not None:
+            self.handoff_failures -= 1
+            raise RuntimeError("temporary import-embed queue failure")
+        return 1
 
     def record_source_summary(self, **kwargs):
         self.calls.append(("source-summary", kwargs["summary"]))
@@ -77,6 +88,29 @@ class FakeWorkerService:
         return {
             "path": path,
             "media_id": f"media:{path}",
+            "created": True,
+            "duplicate": False,
+        }
+
+    def import_pdf_record(self, **kwargs):
+        path = kwargs["record"].path
+        self.calls.append(("document", path))
+        return {
+            "path": path,
+            "media_id": f"document:{path}",
+            "media_kind": "document",
+            "text_extracted": True,
+            "created": True,
+            "duplicate": False,
+        }
+
+    def import_text_document_record(self, **kwargs):
+        path = kwargs["path"]
+        self.calls.append(("text-document", path))
+        return {
+            "path": path,
+            "media_id": f"document:{path}",
+            "media_kind": "document",
             "created": True,
             "duplicate": False,
         }
@@ -112,6 +146,7 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
             _record("media/already.png", "image_png"),
             _record("media/new.png", "image_png"),
             _record("attachments/manual.pdf", "pdf"),
+            _record("attachments/archive.zip", "zip"),
         ],
         legacy_detected=True,
         sharded_detected=False,
@@ -177,6 +212,18 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
 
     assert result is True
     assert observed_completed_ids == [{"already-committed"}]
+    handoffs = [payload for name, payload in service.calls if name == "embedding-handoff"]
+    assert handoffs == [
+        {"job_id": "job-1", "user_id": "account-a", "conversation_ids": None},
+        {
+            "job_id": "job-1",
+            "user_id": "account-a",
+            "conversation_ids": ["new-conversation"],
+        },
+    ]
+    names = [name for name, _ in service.calls]
+    assert names.index("conversation-batch") < names.index("embedding-handoff", 4)
+    assert names.index("embedding-handoff", 4) < names.index("complete")
     assert (
         "source-summary",
         {
@@ -199,9 +246,14 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
         and batch["warnings"][0]["code"] == "image_provenance_unclassified"
         for batch in media_batches
     )
+    assert ("document", "attachments/manual.pdf") in service.calls
     assert any(
-        batch["skipped"]
-        and batch["skipped"][0]["path"] == "attachments/manual.pdf"
+        batch["results"]
+        and any(item.get("media_kind") == "document" for item in batch["results"])
+        for batch in media_batches
+    )
+    assert any(
+        any(item["path"] == "attachments/archive.zip" for item in batch["skipped"])
         for batch in media_batches
     )
     assert service.calls[-1][0] == "complete"
@@ -232,6 +284,47 @@ def test_worker_failure_is_persisted_with_bounded_error_code():
             "user_id": "account-a",
             "code": "staged_file_integrity_failed",
             "message": "staged bytes were corrupted",
+        }
+    ]
+
+
+def test_worker_openai_database_error_diagnostic_fails_job(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeWorkerService()
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[],
+        legacy_detected=True,
+        sharded_detected=False,
+        detected_format="legacy",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        lambda _root, **_kwargs: SimpleNamespace(
+            errors=["Import failed: synthetic database failure"],
+        ),
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {"type": TASK_TYPE, "job_id": "job-db-failure", "user_id": "account-a"},
+        service=service,
+    )
+
+    assert result is False
+    assert not any(name == "complete" for name, _ in service.calls)
+    assert [payload for name, payload in service.calls if name == "failed"] == [
+        {
+            "job_id": "job-db-failure",
+            "user_id": "account-a",
+            "code": "account_import_worker_failed",
+            "message": "Import failed: synthetic database failure",
         }
     ]
 
@@ -296,11 +389,117 @@ def test_worker_records_zero_write_completion_as_terminal_failure(
     ) in service.calls
 
 
+def test_unrecognized_dat_and_image_bytes_do_not_enter_media_import(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeWorkerService()
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[
+            _record("Unassigned/opaque.dat", "unknown_binary"),
+            _record("workspace/image.dat", "image_png"),
+        ],
+        legacy_detected=False,
+        sharded_detected=False,
+        detected_format="unknown",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+
+    assert not account_import_worker.process_account_import_task(
+        {"type": TASK_TYPE, "job_id": "job-no-conversations", "user_id": "account-a"},
+        service=service,
+    )
+    assert not any(name in {"image", "media-batch", "complete"} for name, _ in service.calls)
+    assert any(
+        name == "failed" and value["code"] == "unrecognized_export_structure"
+        for name, value in service.calls
+    )
+
+
 def test_worker_startup_requeues_queued_and_running_jobs():
     service = FakeWorkerService()
     assert account_import_worker.requeue_incomplete_jobs(service) == 2
     assert ("enqueue", ("queued-job", "account-a")) in service.calls
     assert ("enqueue", ("running-job", "account-a")) in service.calls
+
+
+def test_committed_batch_handoff_failure_keeps_job_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeWorkerService()
+    service.checkpoint_ids = []
+    service.handoff_failures = 1
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[],
+        legacy_detected=True,
+        sharded_detected=False,
+        detected_format="legacy",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "build_openai_export_image_evidence_index",
+        lambda _inventory: {},
+    )
+
+    def import_conversations(_root, **kwargs):
+        if "source-1" not in kwargs["completed_conversation_ids"]:
+            try:
+                kwargs["on_batch_committed"](
+                    {
+                        "conversation_ids": ["source-1"],
+                        "conversation_counts": [
+                            {"conversation_id": "source-1", "message_count": 1}
+                        ],
+                        "threads_imported": 1,
+                        "messages_imported": 1,
+                    }
+                )
+            except account_import_worker.AccountImportEmbeddingHandoffRetryable:
+                # The production importer converts callback exceptions to
+                # diagnostics; the worker must retain retryable classification.
+                return SimpleNamespace(errors=["handoff failed"])
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=1,
+            conversations_accepted=1,
+            conversations_skipped_title=0,
+            conversations_skipped_limit=0,
+            conversations_skipped_duplicate=0,
+            conversations_skipped_checkpoint=0,
+            conversations_failed=0,
+            text_import_complete=True,
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        import_conversations,
+    )
+    payload = {"type": TASK_TYPE, "job_id": "job-1", "user_id": "account-a"}
+
+    with pytest.raises(account_import_worker.AccountImportEmbeddingHandoffRetryable):
+        account_import_worker.process_account_import_task(payload, service=service)
+    assert service.checkpoint_ids == ["source-1"]
+    assert not any(name in {"failed", "complete"} for name, _ in service.calls)
+
+    assert account_import_worker.process_account_import_task(payload, service=service)
+    handoffs = [value for name, value in service.calls if name == "embedding-handoff"]
+    assert handoffs[-1] == {
+        "job_id": "job-1",
+        "user_id": "account-a",
+        "conversation_ids": None,
+    }
+    assert service.calls[-1][0] == "complete"
 
 
 def test_zip_traversal_is_rejected_before_extraction(tmp_path: Path):
@@ -358,9 +557,13 @@ def test_worker_dispatches_anthropic_source_to_anthropic_adapter(
         return SimpleNamespace(
             errors=[],
             conversations_discovered=2,
+            conversations_accepted=2,
             conversations_imported=2,
             messages_imported=2,
+            canonical_duplicate_count=0,
             conversations_failed=0,
+            documents=[],
+            reference_only_count=0,
         )
 
     # Guard against any OpenAI-specific imports leaking into the Anthropic
@@ -422,6 +625,39 @@ def test_worker_dispatches_anthropic_source_to_anthropic_adapter(
     )
 
 
+def test_worker_imports_claude_text_documents_and_reports_missing_originals(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeAnthropicService(source_system="anthropic")
+    document = SimpleNamespace(
+        path="anthropic/attachments/d1.txt",
+        source_filename="source.pdf",
+        content="recoverable text",
+        source_thread_id="source-conversation",
+        source_message_id="source-message",
+        source_project_id=None,
+        source_document_id=None,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_anthropic_export_conversations",
+        lambda _root, **_kwargs: SimpleNamespace(
+            errors=[], conversations_discovered=1, conversations_accepted=1,
+            conversations_imported=1, messages_imported=1,
+            canonical_duplicate_count=0, conversations_failed=0,
+            documents=[document], reference_only_count=1,
+        ),
+    )
+    assert account_import_worker.process_account_import_task(
+        {"type": TASK_TYPE, "job_id": "claude-docs", "user_id": "account-a"},
+        service=service,
+    )
+    assert ("text-document", document.path) in service.calls
+    batches = [payload for name, payload in service.calls if name == "media-batch"]
+    assert any(batch["results"] and batch["results"][0]["media_kind"] == "document" for batch in batches)
+    assert any(batch["skipped"] and batch["skipped"][0]["code"] == "source_binary_unavailable" for batch in batches)
+
+
 def test_worker_anthropic_credits_writer_committed_totals_before_completion(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -437,9 +673,13 @@ def test_worker_anthropic_credits_writer_committed_totals_before_completion(
         return SimpleNamespace(
             errors=[],
             conversations_discovered=4,
+            conversations_accepted=3,
             conversations_imported=3,
             messages_imported=12,
+            canonical_duplicate_count=0,
             conversations_failed=0,
+            documents=[],
+            reference_only_count=0,
         )
 
     monkeypatch.setattr(
@@ -475,6 +715,7 @@ def test_worker_anthropic_credits_writer_committed_totals_before_completion(
             "user_id": "account-a",
             "threads_imported": 3,
             "messages_imported": 12,
+            "canonical_duplicate_count": 0,
             "phase_key": "anthropic_conversations",
         }
     ]

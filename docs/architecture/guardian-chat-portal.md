@@ -43,6 +43,20 @@ The current portal is a single-user browser surface around a thread timeline. It
 | Mobile overlay portal | runtime-active | `MobileAppSidebarDrawer` supplies the shared portal, scrim, frame, disclosure, focus, and Escape presentation used by Guardian and primary non-Guardian phone views. |
 | RAG trace panel | gated | The trace viewer is available when the RAG trace flag or route capability enables it. |
 
+### Guardian Runtime Presence
+
+Guardian chat renders a small presence bubble beside persisted assistant turns
+and beside the current streaming draft or completion status. Persisted assistant
+turns use the neutral resting presentation. The one live bubble derives its
+color treatment from the existing canonical request/provider visual-state
+mapping while that completion remains active. Color supplements the existing
+textual runtime status; it does not replace it.
+
+The bubble is presentation-only. It does not own runtime state, Persona
+identity, provider selection, retries, transport recovery, or persistence. The
+UI theme currently has no dedicated warning token, so warming and delayed
+states use the closest existing accent treatment.
+
 ## How the Portal Is Wired
 
 ```mermaid
@@ -196,7 +210,7 @@ Use this sequence when you are learning or debugging the portal:
 
 - not a public-facing SaaS portal
 - not a separate group-room protocol
-- not a collaboration server with presence or membership semantics
+- not a collaboration server with shared presence or membership semantics
 - not the source of truth for account identity
 - not the place where runtime provider support is widened
 

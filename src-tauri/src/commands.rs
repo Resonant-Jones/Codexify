@@ -1759,14 +1759,8 @@ fn materialize_packaged_setup_env(
         ),
         ("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
         ("LOCAL_PROVIDER_VENDOR", "whooshd"),
-        (
-            "LOCAL_LLM_MODEL",
-            "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        ),
-        (
-            "LOCAL_CHAT_MODEL",
-            "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        ),
+        ("LOCAL_LLM_MODEL", "local-chat"),
+        ("LOCAL_CHAT_MODEL", "local-chat"),
         ("LOCAL_COMPAT_FIRST", "1"),
         ("LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK", "0"),
         ("VAULTNODE_BASE_URL", "http://host.docker.internal:8000"),

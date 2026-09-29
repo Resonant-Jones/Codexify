@@ -41,6 +41,7 @@ from guardian.core.chat_completion_service import (
     enqueue_chat_completion,
 )
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.thread_access import require_thread_read_access
 from guardian.hosted_rooms.actor_tokens import (
     GUARDIAN_DISPLAY,
     GUARDIAN_REF,
@@ -823,10 +824,13 @@ def get_room(
     room_id: str,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    account_id = _resolve_account_id(request_user_scope)
+    _resolve_account_id(request_user_scope)
     db = _require_db()
     with db.get_session() as session:
-        room = _require_room_ownership(session, room_id, account_id)
+        room = require_thread_read_access(
+            None, request_user_scope, session=session, room_id=room_id
+        ).room
+        assert room is not None
         return _room_detail(room).model_dump(mode="json")
 
 
@@ -1178,8 +1182,7 @@ def owner_list_messages(
     limit: int = _DEFAULT_PAGE_LIMIT,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> list[dict[str, Any]]:
-    account_id = _resolve_account_id(request_user_scope)
-
+    _resolve_account_id(request_user_scope)
     if limit < 1 or limit > _MAX_PAGE_LIMIT:
         raise HTTPException(
             status_code=422,
@@ -1196,7 +1199,10 @@ def owner_list_messages(
 
     db = _require_db()
     with db.get_session() as session:
-        room = _require_room_ownership(session, room_id, account_id)
+        room = require_thread_read_access(
+            None, request_user_scope, session=session, room_id=room_id
+        ).room
+        assert room is not None
         if room.status != "active":
             raise HTTPException(
                 status_code=409,

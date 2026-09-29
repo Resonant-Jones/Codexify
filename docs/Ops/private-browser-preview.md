@@ -3,8 +3,31 @@
 This is an opt-in friends-and-family demonstration lane, not a new supported
 public product surface. Its supported profile is
 `v1-whooshd-deepseek-web`: local Whoosh'd remains the default provider and
-DeepSeek V4 Flash is the only admitted cloud lane. The global beta posture
+DeepSeek is the only admitted cloud lane. The selector reads DeepSeek's live
+chat-model roster while the configured model remains the degraded-discovery
+fallback. The global beta posture
 remains local-first and local-only.
+
+## Mandatory private-preview authentication posture
+
+Generic Codexify defaults remain local-first: a deliberately local runtime may
+use local API-key authentication and the single-user identity fallback.
+Private preview must not inherit those defaults. The Compose overlay supplies
+one fixed Guardian posture to the backend:
+`GUARDIAN_EXPOSURE_MODE=private_preview`, `GUARDIAN_AUTH_MODE=remote`,
+`CODEXIFY_MULTI_USER_ENABLED=true`, and the existing
+`v1-whooshd-deepseek-web` profile.
+
+Before the backend starts, the `private-preview-auth-posture` one-shot service
+checks those exact values. The backend depends on that service completing
+successfully; missing, empty, or local auth/exposure values stop backend and
+therefore the public origin from starting. This check does not change generic
+Guardian defaults or create another identity authority.
+
+Cloudflare Tunnel terminating at loopback does not make a request local for
+Guardian authorization. Remote Guardian session authentication remains
+mandatory, and Cloudflare Access remains enabled pending separate
+public-ingress qualification. This task does not remove or reconfigure Access.
 
 ## Persona Profile route admission
 
@@ -23,6 +46,17 @@ Persona branch/profile has not yet been lineage-qualified, and live Persona
 Studio browser save/backend readback remains pending. Qualify the running
 lineage and route before resuming authenticated browser persistence proof;
 this admission does not advance general Beta support.
+
+## People direct messaging route admission
+
+`v1-whooshd-deepseek-web` also admits the existing `direct_messages` route for
+authenticated, same-node People messaging. The profile manifest is the route
+gate; the existing route-registration flag defaults on, so no additional
+environment variable is required. Direct messaging uses the current private
+preview account boundary and does not enable federation or Guardian
+execution. The separate `share` route remains quarantined, so link creation
+and the Share Sheet's send-a-link flow stay unavailable in this profile. This
+admission does not widen default Beta support.
 
 ## Provider and network posture
 
@@ -95,14 +129,73 @@ CODEXIFY_EGRESS_ALLOWLIST=deepseek
 These values belong only to this named preview lane. Do not copy them into
 `v1-local-core-web-mcp`.
 
-Provision each allowlisted account. The password is read interactively:
+For new-human onboarding, first authorize the recipient in the existing
+private-preview access configuration. Then issue a one-time ADR-088 activation
+URL from the running backend:
 
 ```bash
-docker compose --env-file .env.private-preview \
+docker compose -p codexify_private_preview \
+  --env-file .env.private-preview \
   -f docker-compose.yml -f docker-compose.private-preview.yml \
-  exec backend python -m guardian.cli.private_preview_provision \
-  --email guest@example.com
+  exec backend python -m guardian.cli.private_preview_account_activation \
+  issue \
+  --email guest@example.com \
+  --actor-user-id operator@example.com \
+  --base-url https://preview.codexify.space
 ```
+
+The command accepts only the canonical private-preview posture. It resolves
+the recipient's role from `CODEXIFY_PREVIEW_ADMIN_EMAILS` and
+`CODEXIFY_PREVIEW_APPROVED_EMAILS`; callers cannot supply or override the role.
+Deliver the single emitted activation URL out of band. The recipient chooses
+their password on the activation page, Guardian creates the canonical `User`
+on successful redemption, and the recipient then logs in normally.
+
+For a recipient who has not yet passed Cloudflare Access, send these steps
+with the invitation:
+
+1. Open `https://preview.codexify.space/login` and complete Cloudflare Access
+   sign-in. Stop at the Codexify login page; no Codexify account exists yet.
+2. In the **same browser**, open the full activation URL from the invitation
+   again. Choose a password, then use the ordinary Codexify login.
+
+The activation bearer is in the URL fragment (`#token=...`). Browsers do not
+send fragments with HTTP requests. A first-time Cloudflare Access sign-in can
+return the recipient to `/activate` without that fragment. An already-admitted
+operator browser can redeem the same link in one step, which is not a
+first-time recipient proof. If the recipient instead lands on `/activate` with
+an unavailable-link message after the Access check, reopen the original
+invitation before revoking or reissuing.
+
+The onboarding authority flow is:
+
+```text
+operator authorizes recipient in private-preview access configuration
+→ operator issues ADR-088 activation URL
+→ recipient chooses password
+→ canonical User created on redemption
+→ recipient logs in normally
+```
+
+To revoke an unconsumed activation, use its durable activation ID:
+
+```bash
+docker compose -p codexify_private_preview \
+  --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  exec backend python -m guardian.cli.private_preview_account_activation \
+  revoke \
+  --activation-id ACTIVATION_ID \
+  --actor-user-id operator@example.com
+```
+
+`python -m guardian.cli.private_preview_provision --email <email>` remains the
+legacy operator credential-create/reset path. It reads the password
+interactively and is not the preferred workflow for onboarding a new person.
+
+Repository and focused-test qualification cover only the entrypoint and its
+authority boundary. Live private-preview migration, disposable activation,
+redemption, replay, and recipient login remain a separate operator proof.
 
 ## Render, start, and inspect
 

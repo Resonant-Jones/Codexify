@@ -61,7 +61,9 @@ UI
         -> Redis turn lock / stale-lock recovery
         -> canonical Persona selection capture
         -> optional participant prepare
+        -> Postgres completion-attempt commit (request/task/thread)
         -> Redis chat queue
+        -> Postgres accepted_at update (degraded receipt if unavailable)
         -> optional participant commit
         -> best-effort task.created breadcrumb
         -> accepted or accepted_degraded result
@@ -76,6 +78,15 @@ UI
 ```
 
 ## Step-by-Step Flow
+
+Ordinary chat and Hosted Room owner/guest invocation all enter the same
+`enqueue_chat_completion` acceptance service after their existing authority
+checks. The service acquires the turn lock, commits a durable attempt bound to
+the canonical thread, then enqueues. A persistence failure prevents enqueue and
+releases the lock. Queue failure retains the attempt with null `accepted_at`
+while preserving ephemeral-participant rollback and lock cleanup. A failure to
+record `accepted_at` after successful enqueue is logged and reported as degraded
+acceptance; it cannot undo work already visible to a worker.
 
 1. User message is persisted.
    - `POST /api/chat/{thread_id}/messages` writes the user message to Postgres and emits best-effort side effects such as domain events and chat-embed enqueue.

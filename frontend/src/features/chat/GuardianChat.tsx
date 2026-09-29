@@ -131,6 +131,7 @@ import {
 import {
   loadDocumentContentById,
   serializeDocumentContextMessage,
+  documentIdentityKey,
   type DocumentContextTile,
   type DocumentContextContent,
 } from "@/lib/documentContext";
@@ -168,9 +169,19 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
-const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+const UNSET_PREFERRED_NAME_VALUES = new Set(["guest", "unknown", "user", "you"]);
+const PERSONALIZED_LANDING_GREETINGS: ReadonlyArray<(name: string) => string> = [
+  (name) => `Welcome back, ${name}.`,
+  (name) => `Good to see you, ${name}.`,
+  (name) => `What are we making today, ${name}?`,
+  (name) => `Where should we begin, ${name}?`,
+];
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
+
+function randomLandingGreetingIndex(): number {
+  return Math.floor(Math.random() * PERSONALIZED_LANDING_GREETINGS.length);
+}
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -272,11 +283,12 @@ function RuntimeStatusStrip({
     inferenceState.phase === "completed" ||
     inferenceState.phase === "failed" ||
     inferenceState.phase === "cancelled";
+  const isQueued = inferenceState.statusText === "Queued…";
 
-  // Only show when provider is not in the default ready state,
-  // or when an active inference is in progress.
+  // Queue acceptance is diagnostic state; keep it in lifecycle records but
+  // do not surface it as a user-facing runtime status.
   const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
-  const showRequestState = isActive || isTerminal;
+  const showRequestState = (isActive || isTerminal) && !isQueued;
 
   if (!showProviderState && !showRequestState) {
     return null;
@@ -901,8 +913,9 @@ function dedupeDocumentContextTiles(
   const next: DocumentContextTile[] = [];
   for (const tile of tiles) {
     const id = String(tile?.id ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
+    const identity = documentIdentityKey(tile);
+    if (!id || seen.has(identity)) continue;
+    seen.add(identity);
     next.push(tile);
   }
   return next;
@@ -938,6 +951,7 @@ export function GuardianChat({
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
+  sidebarRevealAttention = false,
   presentationMode,
   bare = false,
   sessionTabs = [],
@@ -986,6 +1000,7 @@ export function GuardianChat({
   onArchiveThread?: (threadId: number) => Promise<void> | void;
   onSidebarToggle?: () => void;
   isSidebarVisible?: boolean;
+  sidebarRevealAttention?: boolean;
   /** Presentation is owned by the shell; standalone consumers retain legacy inference. */
   presentationMode?: "landing" | "conversation";
   onBack?: () => void;
@@ -1010,6 +1025,9 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const [landingGreetingIndex, setLandingGreetingIndex] = useState(
+    randomLandingGreetingIndex
+  );
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -1323,7 +1341,7 @@ export function GuardianChat({
     () =>
       catalogProviders.map((provider) => ({
         value: provider.id,
-        label: provider.displayName,
+        label: provider.runtime?.displayName ?? provider.displayName,
         description: (() => {
           const chatModels = provider.models.filter(isChatSelectableModel);
           if (!provider.available) {
@@ -2074,6 +2092,18 @@ export function GuardianChat({
     presentationMode ?? (effectiveThreadId == null ? "landing" : "conversation");
   const isLandingPresentation =
     resolvedPresentationMode === "landing" && effectiveThreadId == null;
+  const wasLandingPresentation = useRef(isLandingPresentation);
+
+  useEffect(() => {
+    if (isLandingPresentation && !wasLandingPresentation.current) {
+      setLandingGreetingIndex(randomLandingGreetingIndex());
+    }
+    wasLandingPresentation.current = isLandingPresentation;
+  }, [isLandingPresentation]);
+
+  const landingGreeting = preferredName
+    ? PERSONALIZED_LANDING_GREETINGS[landingGreetingIndex](preferredName)
+    : "What should we work on?";
   const {
     dispatchErrors: codingLoopDispatchErrors,
     registerAcceptedRun: registerCodingLoopRun,
@@ -3352,16 +3382,15 @@ export function GuardianChat({
 
       const loaded: DocumentContextContent[] = await Promise.all(
         tiles.map(async (tile) => {
-          const record = await loadDocumentContentById(tile.id);
+          const record = await loadDocumentContentById(tile.id, tile.artifactType);
           const content = String(record.content ?? "").trim();
           if (!content) {
             throw new Error(`Document "${tile.title}" has no readable content.`);
           }
           return {
             tile: {
-              ...tile,
-              title: tile.title || record.title || "Untitled",
-              ext: tile.ext || record.ext,
+              ...record.tile,
+              preview: tile.preview,
             },
             content,
           };
@@ -4241,10 +4270,22 @@ export function GuardianChat({
           className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
           >
           <div className="flex items-center gap-2 shrink-0">
+            <style>{`
+              @keyframes guardian-sidebar-glint {
+                0%, 100% { color: var(--muted); }
+                50% { color: var(--text); }
+              }
+              @media (prefers-reduced-motion: no-preference) {
+                .guardian-sidebar-reveal[data-sidebar-attention="intro"] svg {
+                  animation: guardian-sidebar-glint 700ms ease-in-out 2;
+                }
+              }
+            `}</style>
             {onSidebarToggle && (
               <button
                 type="button"
-                className="icon-inline"
+                className="icon-inline guardian-sidebar-reveal"
+                data-sidebar-attention={sidebarRevealAttention && !isSidebarVisible ? "intro" : undefined}
                 aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
                 onClick={onSidebarToggle}
                 disabled={!onSidebarToggle}
@@ -4397,28 +4438,43 @@ export function GuardianChat({
         effectiveThreadId={effectiveThreadId}
       />
 
-      {/* Conversation remains flow-based; landing anchors the Composer in the
-          usable post-chrome region and positions the greeting independently. */}
+      {/* Conversation remains flow-based; landing keeps the greeting and Composer
+          together as one centered prompt-first unit. */}
       <div
         data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
         className={
           isLandingPresentation
-            ? "relative flex min-h-0 flex-1 items-center justify-center"
+            ? "relative flex min-h-0 min-w-0 flex-1 items-center justify-center"
             : "contents"
+        }
+        style={
+          isLandingPresentation
+            ? { paddingInline: "max(var(--page-pad, 0px), var(--shell-gap, 12px))" }
+            : undefined
         }
       >
         <div
+          data-testid={isLandingPresentation ? "guardian-landing-unit" : undefined}
           className={
             isLandingPresentation
-              ? "relative flex w-full flex-col items-center"
+              ? `relative mx-auto flex w-full flex-col items-stretch gap-[var(--shell-gap)] ${CHAT_LANE_MAX_WIDTH_CLASS}`
               : "contents"
+          }
+          style={
+            isLandingPresentation
+              ? {
+                  maxWidth: CHAT_LANE_MAX_WIDTH,
+                  zIndex: 20,
+                  transform: "translateY(-50%)",
+                }
+              : undefined
           }
         >
       {/* Messages region - Flex 1, scrolls independently */}
       <div
         className={
           isLandingPresentation
-            ? "absolute bottom-full mb-[var(--shell-gap)] flex w-full shrink-0 flex-col items-center"
+            ? "relative flex w-full shrink-0 flex-col items-start"
             : "relative flex flex-1 min-h-0 flex-col overflow-hidden"
         }
       >
@@ -4440,6 +4496,7 @@ export function GuardianChat({
               onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
               reloadVersion={chatReloadVersion}
               completionState={completionState}
+              providerRuntimeState={providerRuntimeState}
               endCompletion={endCompletion}
               className="flex flex-col flex-1 min-h-0"
               bottomPadding={composerShellReserve}
@@ -4466,11 +4523,11 @@ export function GuardianChat({
         ) : (
           <div
             data-testid="guardian-prompt-first-surface"
-            className={`flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
+            className="flex w-full flex-col items-center justify-end px-[var(--card-pad)] text-center"
             style={{ color: "var(--muted)" }}
           >
-            <h1 className="text-lg font-medium text-[color:var(--text)]">
-              What should we work on?
+            <h1 className="w-full text-center text-lg font-medium text-[color:var(--text)]">
+              {landingGreeting}
             </h1>
           </div>
         )}

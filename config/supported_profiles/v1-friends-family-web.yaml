@@ -56,7 +56,9 @@ route_posture:
   internal_only:
     - coding_work_orders
     - command_bus
+    - memory_vault
   quarantined:
+    - llm_overrides
     - neo
     - imprint
     - system_prompt

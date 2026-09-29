@@ -130,15 +130,15 @@ LOCAL_DOCKER_FALLBACK_BASE_URL=http://host.docker.internal:8000/v1
 LOCAL_API_KEY=local
 LOCAL_PROVIDER_DISPLAY_NAME=Whoosh'd
 LOCAL_PROVIDER_VENDOR=whooshd
-LOCAL_LLM_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit
-LOCAL_CHAT_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit
+LOCAL_LLM_MODEL=local-chat
+LOCAL_CHAT_MODEL=local-chat
 LOCAL_EMBED_MODEL=/models/bge-large-en-v1.5
 LOCAL_EMBEDDINGS_REQUIRED=0
 LOCAL_COMPAT_FIRST=1
 LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK=0
 
 # Runtime preset swap examples:
-# Ollama: LOCAL_RUNTIME_PRESET=ollama, LOCAL_BASE_URL=http://host.docker.internal:11434/v1, LOCAL_PROVIDER_DISPLAY_NAME=Ollama, LOCAL_PROVIDER_VENDOR=ollama, LOCAL_CHAT_MODEL=llama3.2:latest
+# Ollama: LOCAL_RUNTIME_PRESET=ollama, LOCAL_BASE_URL=http://host.docker.internal:11434/v1, LOCAL_PROVIDER_DISPLAY_NAME=Ollama, LOCAL_PROVIDER_VENDOR=ollama, LOCAL_CHAT_MODEL=<operator-configured-model-or-alias>
 # LM Studio: LOCAL_RUNTIME_PRESET=lmstudio, LOCAL_BASE_URL=http://host.docker.internal:1234/v1, LOCAL_PROVIDER_DISPLAY_NAME=LM Studio, LOCAL_PROVIDER_VENDOR=lmstudio, LOCAL_CHAT_MODEL=<model-id-from-/v1/models>
 VAULTNODE_BASE_URL=http://host.docker.internal:8000
 VAULTNODE_HEALTH_ENDPOINTS=/v1/models,/api/tags

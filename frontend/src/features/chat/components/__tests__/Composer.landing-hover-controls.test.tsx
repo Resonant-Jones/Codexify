@@ -88,14 +88,24 @@ describe("landing inference disclosure", () => {
   it("reserves fixed internal geometry with reduced-motion styles and only three selectors", () => {
     mount({ projectOptions: [{ value: "1", label: "Project" }], onProjectChange: vi.fn() });
     const row = screen.getByTestId("composer-landing-control-row"), rowClass = row.className;
+    const cluster = screen.getByTestId("composer-landing-control-cluster");
     const textarea = screen.getByTestId("composer-textarea"), textareaStyle = textarea.getAttribute("style");
     const actions = screen.getByRole("button", { name: "Open composer actions" });
     const send = screen.getByRole("button", { name: "Send" });
-    expect(row.children[1]).toBe(zone()); expect(zone()).toHaveStyle({ height: "32px", minWidth: "0" });
+    expect(row).toHaveClass("flex"); expect(row).not.toHaveClass("grid");
+    expect(cluster).toContainElement(actions); expect(cluster).toContainElement(zone());
+    expect(zone()).toHaveStyle({ height: "32px", minWidth: "0" });
     expect(strip()).toHaveClass("absolute", "motion-reduce:transition-none", "motion-reduce:!transform-none");
+    expect(strip()).toHaveClass("justify-start"); expect(strip()).not.toHaveClass("justify-center");
     expect(within(strip()).getAllByRole("button")).toHaveLength(3);
     expect(within(strip()).queryByRole("button", { name: "Select project" })).toBeNull();
     expect(within(strip()).queryByRole("button", { name: "Toggle Coding Loop mode" })).toBeNull();
+    for (const name of ["Select provider", "Select model", "Select inference mode"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "data-composer-select-trigger-variant",
+        "chip"
+      );
+    }
     fireEvent.pointerEnter(zone()); expect(row.className).toBe(rowClass);
     expect(textarea.getAttribute("style")).toBe(textareaStyle);
     expect(screen.getByRole("button", { name: "Open composer actions" })).toBe(actions);
@@ -113,6 +123,12 @@ describe("landing inference disclosure", () => {
     expect(screen.getByTestId("composer-controls-strip")).toBeVisible();
     for (const name of ["Select provider", "Select model", "Select inference mode", "Toggle Coding Loop mode", "Open composer actions"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    for (const name of ["Select provider", "Select model", "Select inference mode"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "data-composer-select-trigger-variant",
+        "bare"
+      );
     }
   });
 });

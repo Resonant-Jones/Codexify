@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,6 +24,9 @@ const taskEventSources = vi.hoisted(() => ({
   instances: [] as MockGuardianEventSource[],
 }));
 const composerSendResolvedSpy = vi.hoisted(() => vi.fn());
+const liveEventsMock = vi.hoisted(() => ({
+  subscribe: vi.fn(() => () => {}),
+}));
 
 const chatState = vi.hoisted(() => ({
   messages: [
@@ -126,14 +136,17 @@ vi.mock("@/lib/guardianEventSource", () => {
   return { GuardianEventSource: MockGuardianEventSource };
 });
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
-    subscribe: () => () => {},
-  }),
-}));
+vi.mock("@/hooks/useLiveEvents", () => {
+  const hookValue = {
+    subscribe: liveEventsMock.subscribe,
+  };
+  return {
+    useLiveEvents: () => hookValue,
+  };
+});
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  const hookValue = {
     messages: chatState.messages,
     loading: false,
     error: null,
@@ -157,8 +170,11 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-  }),
-}));
+  };
+  return {
+    default: () => hookValue,
+  };
+});
 
 vi.mock("@/features/chat/hooks/useLlmCatalog", () => {
   const providers = [
@@ -194,21 +210,27 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => {
     },
   ];
 
+  const hookValue = {
+    providers,
+    getProviderById: (providerId: string | null | undefined) =>
+      providers.find((provider) => provider.id === providerId) ?? null,
+    getModelById: (modelId: string | null | undefined) =>
+      providers
+        .flatMap((provider) => provider.models)
+        .find((model) => model.id === modelId) ?? null,
+    findProviderForModel: (modelId: string | null | undefined) =>
+      providers.find((provider) =>
+        provider.models.some((model) => model.id === modelId)
+      ) ?? null,
+  };
+
   return {
     describeModelCapability: () => "Chat model",
-    isChatSelectableModel: (model: { supportsChat?: boolean; modelKind?: string } | null | undefined) =>
+    isChatSelectableModel: (
+      model: { supportsChat?: boolean; modelKind?: string } | null | undefined
+    ) =>
       Boolean(model && model.supportsChat !== false && model.modelKind !== "utility"),
-    useLlmCatalog: () => ({
-      providers,
-      getProviderById: (providerId: string | null | undefined) =>
-        providers.find((provider) => provider.id === providerId) ?? null,
-      getModelById: (modelId: string | null | undefined) =>
-        providers.flatMap((provider) => provider.models).find((model) => model.id === modelId) ?? null,
-      findProviderForModel: (modelId: string | null | undefined) =>
-        providers.find((provider) =>
-          provider.models.some((model) => model.id === modelId)
-        ) ?? null,
-    }),
+    useLlmCatalog: () => hookValue,
   };
 });
 
@@ -367,9 +389,8 @@ function emitTaskEvent(
 
 async function startTrackedRequest() {
   fireEvent.click(screen.getByTestId("composer-send"));
-  await screen.findByText("Queued…");
-
   await advanceTimers(100);
+  expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
   expect(taskEventSources.instances).toHaveLength(1);
 
   return taskEventSources.instances[0];
@@ -451,6 +472,13 @@ describe("GuardianChat lifecycle timing", () => {
   });
 
   afterEach(() => {
+    cleanup();
+    for (const source of taskEventSources.instances) {
+      expect(source.close).toHaveBeenCalledTimes(1);
+      expect(source.readyState).toBe(2);
+    }
+    taskEventSources.instances.length = 0;
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 

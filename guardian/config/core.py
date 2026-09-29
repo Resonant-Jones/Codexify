@@ -152,8 +152,11 @@ class Settings(BaseSettings):
 
     # Ollama (Local LLM)
     OLLAMA_MODEL: str = Field(
-        "gemma3n:e2b-it-q4_K_M",
-        description="Ollama model tag (e.g. 'gemma3b:e4b-it-q4_K_M', 'gemma3n:e4b-it-q8_0', 'gemma3n:e4b-it-fp16')",
+        "local-chat",
+        description=(
+            "Provider-owned logical local-chat route. Configure an exact "
+            "Ollama tag explicitly when the provider has no such alias."
+        ),
     )
     OLLAMA_HOST: str = Field(
         "http://localhost:11434", description="Ollama server URL"
@@ -165,7 +168,7 @@ class Settings(BaseSettings):
     )
     HYBRID_ENABLED: bool = Field(True, description="Enable hybrid routing")
     LOCAL_MODEL_NAME: str = Field(
-        "gemma3n", description="Default local model name"
+        "local-chat", description="Provider-owned logical local model route"
     )
     LOCAL_API_HOST: str = Field(
         "http://localhost:11434", description="Local API host"

@@ -80,6 +80,7 @@ from guardian.core.dependencies import (
     get_request_user_scope,
     get_single_user_id,
 )
+from guardian.core.thread_access import require_thread_read_access
 from guardian.core.event_graph import get_event_writer
 from guardian.core.graph_write_inspection_store import (
     get_latest_graph_write_inspection as _get_latest_graph_write_inspection,
@@ -195,16 +196,14 @@ def _require_thread_account_scope(
     *,
     thread: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    thread_record = thread or _get_thread_or_404(thread_id)
-    if request_user_scope.multi_user_enabled:
-        account_id = _request_account_id(request_user_scope)
-        owner_id = str(thread_record.get("user_id") or "").strip()
-        if owner_id != account_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Thread does not belong to the authenticated account",
-            )
-    return thread_record
+    access = require_thread_read_access(
+        thread_id,
+        request_user_scope,
+        thread_lookup=chatlog_db.get_chat_thread,
+        thread=thread or None,
+    )
+    assert access.thread is not None
+    return access.thread
 
 
 def _require_existing_thread_account_scope(

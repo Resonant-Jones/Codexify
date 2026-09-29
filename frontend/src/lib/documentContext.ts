@@ -1,5 +1,6 @@
 import api from "@/lib/api";
 import type { DocumentLike } from "@/types/documents";
+import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 export type DocumentContextTile = {
   id: string;
@@ -7,6 +8,11 @@ export type DocumentContextTile = {
   preview?: string;
   ext?: string;
   type: "document";
+  artifactType?: "uploaded" | "generated";
+  mimeType?: string;
+  embeddingStatus?: string;
+  embeddingError?: string;
+  srcUrl?: string;
 };
 
 export type DocumentContextContent = {
@@ -19,6 +25,11 @@ type EncodedDocumentTile = {
   title: string;
   preview?: string;
   ext?: string;
+  artifactType?: "uploaded" | "generated";
+  mimeType?: string;
+  embeddingStatus?: string;
+  embeddingError?: string;
+  srcUrl?: string;
 };
 
 type EncodedDocumentContent = {
@@ -125,6 +136,12 @@ export function createDocumentContextTile(
   };
   const ext = normalizeString((doc as { ext?: unknown }).ext).replace(/^\./, "");
   if (ext) tile.ext = ext.toLowerCase();
+  const source = doc as DocumentLike;
+  tile.artifactType = source.artifactType === "generated" ? "generated" : "uploaded";
+  tile.mimeType = source.mimeType || source.mime_type;
+  tile.embeddingStatus = source.embeddingStatus;
+  tile.embeddingError = source.embeddingError;
+  tile.srcUrl = source.src_url || source.srcUrl || source.src || source.url;
   const normalizedPreview = normalizePreview(preview);
   if (normalizedPreview) tile.preview = normalizedPreview;
   return tile;
@@ -136,6 +153,11 @@ function buildTileMarker(tile: DocumentContextTile): string {
     title: tile.title,
     preview: tile.preview,
     ext: tile.ext,
+    artifactType: tile.artifactType,
+    mimeType: tile.mimeType,
+    embeddingStatus: tile.embeddingStatus,
+    embeddingError: tile.embeddingError,
+    srcUrl: tile.srcUrl,
   };
   return `<!-- ${DOC_TILE_MARKER_PREFIX}:${encodePayload(payload)} -->`;
 }
@@ -171,6 +193,11 @@ function extractDocumentContentBlocks(
       preview: payload.preview || undefined,
       ext: payload.ext || undefined,
       type: "document",
+      artifactType: payload.artifactType === "generated" ? "generated" : "uploaded",
+      mimeType: payload.mimeType || undefined,
+      embeddingStatus: payload.embeddingStatus || undefined,
+      embeddingError: payload.embeddingError || undefined,
+      srcUrl: payload.srcUrl || undefined,
     });
     return "";
   });
@@ -240,6 +267,7 @@ export async function loadDocumentContentById(
   title: string;
   ext?: string;
   content: string;
+  tile: DocumentContextTile;
 }> {
   const normalizedId = normalizeString(documentId);
   if (!normalizedId) {
@@ -267,7 +295,83 @@ export async function loadDocumentContentById(
     title: normalizeString(payload.title) || normalizeString(payload.filename) || "Untitled",
     ext: normalizeString(payload.ext) || normalizeString(payload.format) || undefined,
     content,
+    tile: documentTileFromApiPayload(payload, normalizedId, artifactType || "uploaded"),
   };
+}
+
+export function documentContextToDocumentFile(tile: DocumentContextTile): DocumentFile {
+  return {
+    id: tile.id,
+    name: tile.title,
+    ext: tile.ext,
+    type: "file",
+    artifactType: tile.artifactType || "uploaded",
+    embeddingStatus: tile.embeddingStatus,
+    embeddingError: tile.embeddingError,
+    src_url: tile.srcUrl,
+  };
+}
+
+function documentTileFromApiPayload(
+  payload: Record<string, unknown>,
+  requestedId: string,
+  requestedType: "uploaded" | "generated" | "any"
+): DocumentContextTile {
+  const id = normalizeString(payload.id);
+  const artifactType = normalizeString(payload.artifact_type) || requestedType;
+  if (id !== requestedId || !["uploaded", "generated"].includes(artifactType) ||
+      (requestedType !== "any" && artifactType !== requestedType)) {
+    throw new Error("Document identity mismatch");
+  }
+  return {
+    id,
+    title: normalizeString(payload.title) || normalizeString(payload.filename) || "Untitled",
+    ext: normalizeString(payload.format) || normalizeString(payload.ext) || undefined,
+    type: "document",
+    artifactType: artifactType as "uploaded" | "generated",
+    mimeType: normalizeString(payload.mime_type) || undefined,
+    embeddingStatus: normalizeString(payload.embedding_status) || undefined,
+    embeddingError: normalizeString(payload.embedding_error) || undefined,
+    srcUrl: normalizeString(payload.src_url) || undefined,
+  };
+}
+
+export async function loadCanonicalDocumentTile(
+  id: string,
+  artifactType: "uploaded" | "generated" | "any"
+): Promise<DocumentContextTile> {
+  const normalizedId = normalizeString(id);
+  if (!normalizedId) throw new Error("Document id is required");
+  const response = artifactType !== "uploaded"
+    ? await api.get(`/media/document-artifacts/${encodeURIComponent(normalizedId)}`, {
+        ...(artifactType === "generated" ? { params: { artifact_type: "generated" } } : {}),
+      })
+    : await api.get(`/media/documents/${encodeURIComponent(normalizedId)}`);
+  return documentTileFromApiPayload(response?.data ?? {}, normalizedId, artifactType);
+}
+
+export function parseCanonicalDocumentHref(
+  href: string
+): { id: string; artifactType: "uploaded" | "any" } | null {
+  if (!href || /[?#]/.test(href)) return null;
+  let path = href;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const url = new URL(href);
+      if (typeof window === "undefined" || url.origin !== window.location.origin) return null;
+      path = url.pathname;
+    } catch { return null; }
+  }
+  const match = path.match(/^\/(?:api\/)?media\/(document-artifacts|documents)\/([A-Za-z0-9_-]+)\/?$/);
+  if (!match) return null;
+  return {
+    id: match[2],
+    artifactType: match[1] === "document-artifacts" ? "any" : "uploaded",
+  };
+}
+
+export function documentIdentityKey(tile: Pick<DocumentContextTile, "id" | "artifactType">): string {
+  return `${tile.artifactType || "uploaded"}:${tile.id}`;
 }
 
 export function getDocumentContextPreviewText(content: string): string {

@@ -143,6 +143,12 @@ vi.mock("@/state/session/SessionStateStore", () => ({
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
     hydrate = vi.fn(async () => null);
+    getActiveTab = vi.fn(() => ({
+      tabId: "tab-1",
+      threadId: sessionThreadId.value,
+      title: "New Thread",
+      pendingThread: true,
+    }));
     getActiveCompletion = vi.fn(() => null);
     isComposerBlocked = vi.fn(() => false);
     cancelActiveCompletion = vi.fn();

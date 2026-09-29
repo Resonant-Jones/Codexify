@@ -3,20 +3,18 @@
  * ---------------------------------------------------------------------------
  * Purpose
  *  - Provide a single, reusable shell for cards/tiles/panels that guarantees:
- *    • One source-of-truth corner radius (from `--card-radius`, e.g. 19px)
+ *    • One source-of-truth corner radius (from `--card-radius`, e.g. 20px)
  *    • No phantom square corners at high blur (hard clipping on decorative layers)
- *    • Depth that scales predictably via tokens, not hard-coded numbers
+ *    • Depth that scales predictably via tokens
  *    • Optional accent ring for selected/active state
- *  - This component is intentionally light on numbers and heavy on tokens, so
- *    you can theme everything in AppShell.
  *
- * How it connects to AppShell.tsx
- *  - AppShell publishes CSS variables on a top-level wrapper. FrameCard *reads*
- *    them—no duplication. Update tokens in AppShell and every FrameCard reacts.
+ * How it connects to the theme registry
+ *  - The registry publishes static geometry. AppShell projects responsive
+ *    layout and active material colors; FrameCard reads the resulting variables.
  *
- * Tokens consumed (expected to be defined in AppShell)
- *  - Geometry:  --card-radius (→ typically points to --radius-tile: 19px)
- *  - Chrome:    --bezel (px), --rim (px), --lip-w (px)
+ * Tokens consumed
+ *  - Geometry:  --card-radius (→ typically points to --radius-tile: 20px)
+ *  - Chrome:    --bezel (px), --frame (px), --rim (px), --card-pad (px)
  *  - Material:  --panel-bg, --panel-border, --panel-bezel, --tile-blur (px)
  *  - Elevation: --depth-scale (multiplier, 0.75–1.25 typical)
  *  - Accents:   --accent-strong (used when data-selected="true")
@@ -30,8 +28,8 @@
  *  - ariaLabel?: string   → accessible label for the card region
  *
  * Usage examples
- *  <FrameCard className="p-3">…</FrameCard>
- *  <FrameCard selected depth={1.2} className="p-3">…</FrameCard>
+ *  <FrameCard>…</FrameCard>
+ *  <FrameCard selected depth={1.2}>…</FrameCard>
  *  <FrameCard hoverPop={false} depth={0.9}>…</FrameCard>
  *
  * Design rules (important)
@@ -78,12 +76,11 @@ export type FrameCardProps = PropsWithChildren<{
   shimmerMode?: "subtle" | "strong" | "ambient";
   /**
    * Whether to show the liquid bezel ring.
-   * Always true by default to render a 3px liquid rim unless explicitly false.
+   * The accent uses the canonical rim and can be hidden independently.
    */
   liquidBezel?: boolean;
   /**
-   * Width of the liquid bezel ring in pixels.
-   * Defaults to 3.
+   * Deprecated compatibility prop. Rim geometry is owned by --rim.
    */
   liquidBezelWidth?: number;
   /**
@@ -111,13 +108,13 @@ export default function FrameCard({
   refractiveFallback = false,
   shimmerMode = "subtle",
   liquidBezel = true,
-  liquidBezelWidth = 3,
   fill = true,
   ["data-testid"]: dataTestId,
 }: FrameCardProps) {
   const d = clamp(depth, 0.5, 1.75, 1);
 
   const rootStyle: React.CSSProperties = {
+    ["--bezel" as any]: "1.5px",
     ...(style || {}),
     boxSizing: "border-box",
     ...(refractiveFallback
@@ -137,8 +134,11 @@ export default function FrameCard({
       : {}),
     // Local depth multiplier for this instance only (multiplies --depth-scale)
     ["--fc-depth" as any]: String(d),
-    // Always set liquid bezel width variable for rim presence
-    ["--liquid-bezel-w" as any]: `${liquidBezelWidth}px`,
+    // The frame layer owns thickness even when older callers pass a root border.
+    borderTopWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderLeftWidth: 0,
     // Conditionally set height and width to avoid double-layer glass when nested inside another FrameCard
     height: fill ? "100%" : "auto",
     width: fill ? "100%" : "auto",
@@ -146,7 +146,7 @@ export default function FrameCard({
 
   return (
     <div
-      className={clsx("fc-root relative rounded-[var(--card-radius)] border bg-[var(--panel-bg)] p-4 shadow-sm", className)}
+      className={clsx("fc-root relative rounded-[var(--card-radius)] bg-[var(--panel-bg)] shadow-sm", className)}
       style={rootStyle}
       role="group"
       aria-label={ariaLabel}
@@ -163,7 +163,6 @@ export default function FrameCard({
           className={clsx("fc-liquid", shimmerMode && `shimmer-${shimmerMode}`)}
           aria-hidden
           style={{
-            padding: "var(--liquid-bezel-w, 3px)",
             WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
             WebkitMaskComposite: "xor",
             maskComposite: "exclude",
@@ -172,8 +171,12 @@ export default function FrameCard({
       )}
 
       {/* Inner content face (scroll-safe wrapper) */}
-      <div className="fc-inner-clip">
-        <div className="fc-inner relative">{children}</div>
+      <div className="fc-frame">
+        <div className="fc-rim">
+          <div className="fc-inner-clip">
+            <div className="fc-inner relative">{children}</div>
+          </div>
+        </div>
       </div>
 
       {/* Strict CSS (scoped) */}
@@ -188,7 +191,8 @@ export default function FrameCard({
           flex-direction: column;
         }
         .fc-root {
-          border-radius: var(--card-radius, 19px); /* reads 19px via AppShell */
+          border-radius: var(--card-radius);
+          padding: var(--bezel);
           isolation: isolate; /* prevent backdrop bleed */
           display: flex;
           flex-direction: column;
@@ -205,9 +209,11 @@ export default function FrameCard({
           flex: 1 1 auto;
           min-height: 0;
           box-sizing: border-box;
-          padding: 8px;
+          padding: var(--card-pad);
         }
         .fc-bezel,
+        .fc-frame,
+        .fc-rim,
         .fc-liquid,
         .fc-inner {
           border-radius: inherit; /* exact match: no phantom corners */
@@ -226,7 +232,7 @@ export default function FrameCard({
 
         /* Bezel: translucent ring + depth shadow that scales by depth vars */
         .fc-bezel {
-          border: var(--bezel, 4px) solid var(--panel-bezel, rgba(255,255,255,0.16));
+          border: var(--bezel) solid var(--panel-bezel, rgba(255,255,255,0.16));
           backdrop-filter: saturate(140%) blur(var(--tile-blur, 8px));
           -webkit-backdrop-filter: saturate(140%) blur(var(--tile-blur, 8px));
           box-shadow:
@@ -238,9 +244,28 @@ export default function FrameCard({
           transition: box-shadow 160ms ease;
         }
 
-        /* Liquid accent ring: neutral by default, accent when selected */
+        .fc-frame,
+        .fc-rim {
+          display: flex;
+          flex: 1 1 auto;
+          flex-direction: column;
+          min-height: 0;
+        }
+        .fc-frame {
+          padding: var(--frame);
+          background: transparent;
+        }
+        .fc-rim {
+          /* Frame and rim share one edge footprint instead of adding widths. */
+          margin: calc(-1 * var(--frame));
+          padding: var(--rim);
+          background: transparent;
+        }
+
+        /* Liquid accent follows the canonical rim without adding an inset. */
         .fc-liquid {
-          border: var(--rim, 3px) solid transparent; /* sits just outside the inner face */
+          inset: var(--bezel);
+          border: var(--rim) solid transparent;
           background:
             linear-gradient(var(--fc-accent, rgba(255,255,255,0.06)), var(--fc-accent, rgba(255,255,255,0.06))) padding-box,
             linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)) border-box;
@@ -251,8 +276,6 @@ export default function FrameCard({
         /* Inner content face: scroll-safe, compositor-safe */
         .fc-inner {
           position: relative;
-          margin: var(--liquid-bezel-w, 3px);
-          border: 1px solid var(--panel-border, rgba(255,255,255,0.10));
           background: var(--panel-bg, rgba(17,24,39,0.86));
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.06),

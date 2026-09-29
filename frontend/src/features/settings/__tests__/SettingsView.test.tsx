@@ -241,7 +241,7 @@ describe("SettingsView", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
     expect(scrollBody).toHaveClass("overflow-auto", "justify-center");
     expect(scrollBody.parentElement).toHaveStyle({
@@ -266,25 +266,25 @@ describe("SettingsView", () => {
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     for (const tabName of ["Appearance", "Imprint", "Connectors", "Personal Facts"]) {
       await user.click(screen.getByRole("tab", { name: tabName }));
       expect(scrollBody).toBeInTheDocument();
       expect(
-        screen.queryByRole("button", { name: "Import ChatGPT history" })
+        screen.queryByRole("button", { name: "Import Conversation History" })
       ).not.toBeInTheDocument();
     }
   });
@@ -313,7 +313,7 @@ describe("SettingsView", () => {
       screen.queryByText(/project corpus lane/i)
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
   });
 
@@ -388,39 +388,93 @@ describe("SettingsView", () => {
     );
   });
 
-  test("orders Material Controls between File Type Colors and Dashboard Layout", () => {
+  test("keeps System Accent and primary controls ahead of Advanced Appearance", () => {
     const props = createSettingsViewProps();
     const { container } = render(<SettingsView {...props} />);
 
-    const surface = container.querySelector(
-      '[data-testid="settings-appearance-surface"]'
-    );
-    expect(surface).not.toBeNull();
-    if (!surface) return;
+    const surface = screen.getByTestId("settings-appearance-surface");
+    const primaryGrid = screen.getByTestId("settings-appearance-grid");
+    const disclosure = screen.getByRole("button", { name: "Advanced Appearance" });
 
-    const fileTypeTitle = screen.getByText("File Type Colors");
-    const materialTitle = screen.getByText("Material Controls");
-    const dashboardTitle = screen.getByText("Dashboard Layout");
+    expect(screen.getByText("Theme")).toBeInTheDocument();
+    expect(screen.getByText("Wallpaper")).toBeInTheDocument();
+    expect(screen.getByText("System Accent")).toBeInTheDocument();
+    expect(screen.getByText("Material Controls")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+    expect(surface).toContainElement(primaryGrid);
+    expect(surface).toContainElement(disclosure);
+    expect(
+      primaryGrid.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      container.querySelectorAll('[data-testid="settings-appearance-surface"]')
+    ).toHaveLength(1);
+  });
 
-    const fileTypeSection = fileTypeTitle.closest("div[class*='space-y']");
-    const materialSection = materialTitle.closest(
-      '[data-testid="material-controls-section"]'
-    );
-    const dashboardSection = dashboardTitle.closest("div[class*='space-y']");
+  test("uses System Accent for the existing baseColor picker", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
 
-    expect(fileTypeSection).not.toBeNull();
-    expect(materialSection).not.toBeNull();
-    expect(dashboardSection).not.toBeNull();
-    if (!fileTypeSection || !materialSection || !dashboardSection) return;
+    expect(screen.getByText("System Accent")).toBeInTheDocument();
+    expect(screen.queryByText("Background Accents")).not.toBeInTheDocument();
+    const colorInput = screen.getByLabelText("System Accent");
+    expect(colorInput).toHaveAttribute("type", "color");
+    expect(colorInput).toHaveValue(props.baseColor);
 
-    const position =
-      fileTypeSection.compareDocumentPosition(materialSection) &
-      Node.DOCUMENT_POSITION_FOLLOWING;
-    const materialFollowsDashboard =
-      materialSection.compareDocumentPosition(dashboardSection) &
-      Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(position).toBeTruthy();
-    expect(materialFollowsDashboard).toBeTruthy();
+    fireEvent.change(colorInput, { target: { value: "#123456" } });
+    expect(props.setBaseColor).toHaveBeenCalledWith("#123456");
+  });
+
+  test("reveals existing advanced controls only while expanded", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    const { container } = render(<SettingsView {...props} />);
+    const disclosure = screen.getByRole("button", { name: "Advanced Appearance" });
+    const contentId = "settings-advanced-appearance-content";
+    const advancedContent = screen.getByTestId("settings-advanced-appearance-content");
+
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure).toHaveAttribute("aria-controls", contentId);
+    expect(advancedContent).toHaveAttribute("id", contentId);
+    expect(advancedContent).toHaveAttribute("hidden");
+    expect(screen.queryByText("File Type Colors")).not.toBeInTheDocument();
+    expect(screen.queryByText("Background Treatment")).not.toBeInTheDocument();
+    expect(container.querySelector("#color-pdf")).toBeNull();
+    expect(screen.queryByTestId("depth-slider")).not.toBeInTheDocument();
+
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(advancedContent).not.toHaveAttribute("hidden");
+    expect(advancedContent).toHaveTextContent("File Type Colors");
+    expect(advancedContent).toHaveTextContent("Background Treatment");
+    for (const extension of [
+      "pdf", "doc", "md", "png", "sketch", "txt", "docx", "jpeg", "codex",
+    ]) {
+      expect(advancedContent.querySelector(`#color-${extension}`)).toHaveAttribute(
+        "type", "color"
+      );
+    }
+    expect(advancedContent).toContainElement(screen.getByTestId("depth-slider"));
+    expect(advancedContent).toContainElement(screen.getByTestId("fade-slider"));
+
+    fireEvent.change(advancedContent.querySelector("#color-pdf")!, {
+      target: { value: "#123456" },
+    });
+    expect(props.setExtColors).toHaveBeenCalledWith({
+      ...props.extColors,
+      pdf: "#123456",
+    });
+
+    fireEvent.change(screen.getByTestId("depth-slider"), { target: { value: "0.6" } });
+    fireEvent.change(screen.getByTestId("fade-slider"), { target: { value: "0.3" } });
+    expect(props.setDepth).toHaveBeenCalledWith(0.6);
+    expect(props.setFade).toHaveBeenCalledWith(0.3);
+
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(advancedContent).toHaveAttribute("hidden");
+    expect(container.querySelector("#color-pdf")).toBeNull();
+    expect(screen.queryByTestId("depth-slider")).not.toBeInTheDocument();
   });
 
   test("does not retain the legacy Surface Tuning heading", () => {
@@ -494,23 +548,26 @@ describe("SettingsView", () => {
 
     // Start on Appearance (canvas variant) — verify import button not present
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
+      screen.getByRole("button", { name: "Import Conversation History" })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     expect(
-      screen.queryByRole("button", { name: "Import ChatGPT history" })
+      screen.queryByRole("button", { name: "Import Conversation History" })
     ).not.toBeInTheDocument();
   });
 
-  test("all five Appearance sliders use the canonical SettingsRangeControl with var(--accent)", () => {
+  test("all five Appearance sliders use the canonical SettingsRangeControl with var(--accent)", async () => {
+    const user = userEvent.setup();
     const props = createSettingsViewProps();
     render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "Advanced Appearance" }));
 
     const sliderTestIds = [
       "surface-depth-slider",
@@ -529,9 +586,12 @@ describe("SettingsView", () => {
     }
   });
 
-  test("groups Depth and Fade under Background Treatment", () => {
+  test("groups Depth and Fade under Background Treatment", async () => {
+    const user = userEvent.setup();
     const props = createSettingsViewProps();
     render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "Advanced Appearance" }));
 
     const bgSection = screen.getByTestId("background-treatment-section");
     expect(bgSection).toBeInTheDocument();

@@ -23,6 +23,7 @@ import {
   type WorkspaceLayoutMode,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
 import api from "@/lib/api";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -463,7 +464,23 @@ vi.mock("@/components/ui/ToastPortal", () => ({
 }));
 
 vi.mock("@/components/ui/ContextMenu", () => ({
-  default: () => null,
+  default: ({ items, onClose }: {
+    items: Array<{ label: string; onClick: () => void }>;
+    onClose: () => void;
+  }) => (
+    <div role="menu">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          onClick={() => { item.onClick(); onClose(); }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/modals/ImageGenModal", () => ({
@@ -545,6 +562,44 @@ function setViewportWidth(width: number) {
   });
   window.dispatchEvent(new Event("resize"));
 }
+
+describe("AppShell canonical desktop geometry", () => {
+  it("inherits the canonical registry without desktop geometry overrides", async () => {
+    const { injectCssVars } = await vi.importActual<typeof import("@/theme")>("@/theme");
+    injectCssVars();
+    installMatchMedia(false);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setViewportWidth(1280);
+
+    const { container } = render(<AppShell />);
+    const shell = container.firstElementChild as HTMLElement;
+    const root = document.documentElement.style;
+    const expected = {
+      "--radius-micro": "12px",
+      "--radius-tile": "20px",
+      "--card-radius": "var(--radius-tile)",
+      "--edge-chrome": "6px",
+      "--shell-gap": "16px",
+      "--viewport-radius": "var(--radius-tile)",
+      "--card-pad": "12px",
+      "--frame": "1.5px",
+      "--bezel": "6px",
+      "--rim": "var(--frame)",
+      "--dock-radius": "var(--radius-tile)",
+      "--dock-padding": "0.35rem",
+      "--dock-border": "var(--frame)",
+    };
+
+    for (const [token, value] of Object.entries(expected)) {
+      expect(root.getPropertyValue(token)).toBe(value);
+      expect(shell.style.getPropertyValue(token)).toBe("");
+    }
+    expect(root.getPropertyValue("--tile-radius")).toBe("var(--radius-tile)");
+    expect(root.getPropertyValue("--radius")).toBe("var(--tile-radius)");
+    expect(root.getPropertyValue("--board-edge")).toBe("var(--edge-chrome)");
+    expect(root.getPropertyValue("--gutter")).toBe("var(--shell-gap)");
+  });
+});
 
 beforeEach(() => {
   setViewportWidth(1280);
@@ -1362,6 +1417,32 @@ describe("AppShell shared gallery persistence truth", () => {
       expect(persistedGallery).toHaveLength(1);
       expect(persistedGallery[0]?.prompt).toBe("Persisted image");
     });
+  });
+
+  it("sets the global gallery image as wallpaper and updates the scene immediately", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/global-wallpaper.png?sig=stable", prompt: "Global wallpaper" },
+      ])
+    );
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+    const image = await screen.findByRole("img", { name: "Global wallpaper" });
+    fireEvent.contextMenu(image);
+
+    expect(screen.getByRole("menuitem", { name: "Generate Prompt" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+
+    const wallpaper = normalizeMediaUrl("/media/images/global-wallpaper.png?sig=stable");
+    expect(localStorage.getItem("cfy.wallpaper")).toBe(wallpaper);
+    expect(document.querySelector(".codexify-shell")).toHaveStyle({
+      backgroundImage: expect.stringContaining(wallpaper),
+    });
+    expect(screen.queryByRole("menuitem", { name: "Generate Prompt" })).not.toBeInTheDocument();
   });
 
   it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {

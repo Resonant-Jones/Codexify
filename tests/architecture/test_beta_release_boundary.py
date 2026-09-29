@@ -3,8 +3,8 @@
 This test file proves the canonical Beta support boundary contract established
 by ADR-069 without requiring any runtime behavior change. It uses the existing
 Product Architecture Assertion JSON Schema, the existing ontology concept
-vocabulary, the default supported profile, and the canonical
-`00-current-state.md` text as its binding surfaces.
+vocabulary, ADR-069, the default supported profile, and the canonical
+`00-current-state.md` text as their respective binding surfaces.
 
 It must NOT assert entire Markdown file equals a static string. All
 current-state assertions are structural: they look for required phrases in
@@ -409,67 +409,97 @@ def test_active_continuity_assertion_includes_anthropic_conversation_import_boun
 
 
 # ---------------------------------------------------------------------------
-# 14-16. 00-current-state.md structural assertions
+# 14-16. Release-boundary doctrine and current-state operational truth
 # ---------------------------------------------------------------------------
 
 
-def test_current_state_contains_the_five_release_classes():
-    text = _read(CURRENT_STATE_PATH)
-    for heading in RELEASE_CLASS_HEADINGS:
-        assert heading in text, (
-            f"00-current-state.md must contain the release class heading: {heading!r}"
-        )
-
-
-def test_current_state_places_tts_voice_outside_beta():
-    text = _read(CURRENT_STATE_PATH)
-    # Must explicitly call TTS / voice Out of Beta (not just absent, not just qualification-pending).
+def _section_between(text: str, start: str, end: str) -> str:
     pattern = re.compile(
-        r"TTS\s*/\s*voice[\s\S]{0,200}Out of Beta",
-        re.IGNORECASE,
+        rf"^{re.escape(start)}\s*$\n(?P<body>[\s\S]+?)^{re.escape(end)}\s*$",
+        re.MULTILINE,
     )
-    assert pattern.search(text), (
-        "00-current-state.md must explicitly place TTS / voice outside Beta"
-    )
+    match = pattern.search(text)
+    assert match is not None, f"Missing canonical section between {start!r} and {end!r}"
+    return match.group("body")
 
 
-def test_current_state_places_federation_outside_beta():
-    text = _read(CURRENT_STATE_PATH)
-    pattern = re.compile(
-        r"federation[\s\S]{0,200}Out of Beta",
-        re.IGNORECASE,
-    )
-    assert pattern.search(text), (
-        "00-current-state.md must explicitly place federation outside Beta"
-    )
-
-
-def test_current_state_names_coding_loop_and_hosted_rooms_qualification_pending():
-    text = _read(CURRENT_STATE_PATH)
-    # Coding Loop and Hosted Rooms must be recorded as qualification-pending,
-    # not silently promoted to supported. The current-state document puts them
-    # under a "Qualification Pending" section heading and gives each a named
-    # remaining gate. We assert both: (a) the surface is listed inside the
-    # Qualification Pending section, and (b) it carries a "remaining gate"
-    # annotation. We do NOT require the literal phrase "Qualification Pending"
-    # to appear within a fixed character window after the surface name.
-    section = re.search(
-        r"###\s+Qualification Pending[\s\S]+?(?=###\s|\Z)",
+def test_adr_069_contains_the_five_release_classes():
+    text = _read(ADR_069_PATH)
+    release_classes = _section_between(
         text,
-        re.IGNORECASE,
+        "## Release Classes",
+        "## Evidence vs Support Doctrine",
     )
-    assert section is not None, (
-        "00-current-state.md must contain a 'Qualification Pending' section"
+    for heading in RELEASE_CLASS_HEADINGS:
+        assert f"**{heading}**" in release_classes, (
+            f"ADR-069 must define the release class: {heading!r}"
+        )
+
+
+def test_adr_069_places_tts_voice_outside_beta():
+    text = _read(ADR_069_PATH)
+    out_of_beta = _section_between(
+        text,
+        "### Out of Beta",
+        "## Promotion and Demotion Rules",
     )
-    section_text = section.group(0)
+    assert re.search(r"^\s*- TTS\s*/\s*voice execution\s*$", out_of_beta, re.MULTILINE), (
+        "ADR-069 must explicitly place TTS / voice execution Out of Beta"
+    )
+
+
+def test_adr_069_places_federation_outside_beta():
+    text = _read(ADR_069_PATH)
+    out_of_beta = _section_between(
+        text,
+        "### Out of Beta",
+        "## Promotion and Demotion Rules",
+    )
+    assert re.search(r"^\s*- federation\s*$", out_of_beta, re.MULTILINE), (
+        "ADR-069 must explicitly place federation Out of Beta"
+    )
+
+
+def test_adr_069_names_coding_loop_and_hosted_rooms_qualification_pending():
+    text = _read(ADR_069_PATH)
+    section = _section_between(
+        text,
+        "## Qualification-Pending Doctrine",
+        "### Out of Beta",
+    )
     for surface in ("Coding Loop", "Hosted Rooms"):
-        assert surface in section_text, (
-            f"00-current-state.md Qualification Pending section must list {surface!r}"
+        pattern = re.compile(
+            rf"^\s*- \*\*{re.escape(surface)}\*\*\s+—\s+open gate:",
+            re.MULTILINE,
         )
-        # Named-remaining-gate annotation requirement.
-        assert "remaining gate" in section_text.lower(), (
-            "Qualification Pending section must name the remaining gate for each entry"
+        assert pattern.search(section), (
+            f"ADR-069 must keep {surface!r} Qualification Pending with a named open gate"
         )
+
+
+def test_current_state_preserves_supported_path_hold_and_active_blockers():
+    text = _read(CURRENT_STATE_PATH)
+    current_phase = _section_between(
+        text,
+        "## Current phase",
+        "## What changed recently",
+    )
+    supported_reality = _section_between(
+        text,
+        "## Current supported reality",
+        "## Not yet true / do not assume",
+    )
+    active_blockers = _section_between(
+        text,
+        "## Active blockers",
+        "## This week's priorities",
+    )
+
+    assert "local-first Beta hardening" in current_phase
+    assert "`HOLD`" in current_phase
+    assert "local Docker Compose" in supported_reality
+    assert "`v1-local-core-web-mcp`" in supported_reality
+    assert "Governing static validation remains open" in active_blockers
 
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,7 @@ from guardian.core.chat_completion_service import (
     enqueue_chat_completion,
 )
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.thread_access import require_thread_read_access
 from guardian.db.models import (
     HostedRoom,
     HostedRoomInvite,
@@ -604,16 +605,13 @@ def guest_list_messages(
 
     db = _require_db()
     with db.get_session() as session:
-        room, participant = validate_guest_messaging_access(
-            session,
-            principal.room_id,
-            principal.participant_id,
-            principal.invitation_id,
-        )
+        access = require_thread_read_access(None, principal, session=session)
+        room = access.room
+        assert room is not None
 
         messages = list_room_messages(
             session,
-            room.backing_thread_id,
+            access.thread_id,
             after_id=after_id if after_id and after_id > 0 else None,
             limit=limit,
         )

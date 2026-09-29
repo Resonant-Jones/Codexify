@@ -335,6 +335,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
       );
     });
     getDraft = vi.fn(() => "");
+    getActiveTab = vi.fn(() => sessionHooksState.activeTab);
     getActiveCompletion = vi.fn(() => this.__activeCompletion ?? null);
     isComposerBlocked = vi.fn(() => Boolean(this.__composerBlocked));
     cancelActiveCompletion = vi.fn((options?: any) => {
@@ -500,12 +501,13 @@ describe("GuardianChatWithSidebar stability contract", () => {
       },
       configurable: true,
     });
+    const presentationStorage = new Map<string, string>();
     Object.defineProperty(window, "sessionStorage", {
       value: {
-        getItem: vi.fn(() => null),
-        setItem: vi.fn(),
-        removeItem: vi.fn(),
-        clear: vi.fn(),
+        getItem: vi.fn((key: string) => presentationStorage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => { presentationStorage.set(key, value); }),
+        removeItem: vi.fn((key: string) => { presentationStorage.delete(key); }),
+        clear: vi.fn(() => presentationStorage.clear()),
       },
       configurable: true,
     });
@@ -1203,6 +1205,157 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(window.localStorage.getItem("cfy.sidebarVisible")).toBe("true");
   });
 
+  const latestGuardian = () => guardianPropsSpy.mock.calls.at(-1)?.[0];
+  function seedActiveSession(threadId?: string) {
+    const tab = {
+      tabId: "tab-1", threadId, pendingThread: !threadId,
+      title: threadId ? "Thread 11" : "New Thread", modelId: "default",
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    sessionHooksState.railSlice = { tabs: [tab], activeTabId: "tab-1" };
+    sessionHooksState.activeTab = tab;
+  }
+
+  it.each(["/", "/chat"])("keeps a fresh %s entry quiet without mutating a persisted thread", async (path) => {
+    seedActiveSession("11");
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    window.history.replaceState({}, "", path);
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian()).toMatchObject({ presentationMode: "landing", isSidebarVisible: false });
+    expect(sessionSpineInstances[0].tabSetThread).not.toHaveBeenCalled();
+  });
+
+  it("persists the single-lane introduction across re-entry, then acknowledges it once", async () => {
+    window.localStorage.setItem("cfy.sidebarVisible", "true");
+    seedActiveSession();
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    let view = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    act(() => latestGuardian().onThreadPersisted(11, "Thread 11"));
+    expect(latestGuardian()).toMatchObject({
+      presentationMode: "conversation", isSidebarVisible: false, sidebarRevealAttention: true,
+      activeThread: expect.objectContaining({ id: "11" }),
+    });
+    expect(window.localStorage.getItem("cfy.sidebarVisible")).toBe("true");
+    expect(window.sessionStorage.getItem("cfy.guardian.presentation")).toBe("conversation");
+    expect(window.sessionStorage.getItem("cfy.guardian.sidebarIntro")).toBe("suppressed");
+
+    view.unmount();
+    window.history.replaceState({}, "", "/dashboard");
+    window.history.replaceState({}, "", "/chat");
+    guardianPropsSpy.mockClear();
+    view = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("11"));
+    expect(guardianPropsSpy.mock.calls.every(([props]) => props.presentationMode === "conversation")).toBe(true);
+    expect(latestGuardian()).toMatchObject({ isSidebarVisible: false, sidebarRevealAttention: false });
+    expect(window.location.pathname).toBe("/chat/11");
+    expect(sessionSpineInstances.at(-1).tabOpen).not.toHaveBeenCalled();
+    expect(sessionSpineInstances.at(-1).tabSetThread.mock.calls.every((args: any[]) => args[1] === "11")).toBe(true);
+
+    act(() => latestGuardian().onSidebarToggle());
+    expect(latestGuardian()).toMatchObject({ isSidebarVisible: true, sidebarRevealAttention: false });
+    expect(window.sessionStorage.getItem("cfy.guardian.sidebarIntro")).toBe("acknowledged");
+    act(() => latestGuardian().onSidebarToggle());
+    expect(latestGuardian()).toMatchObject({ isSidebarVisible: false, sidebarRevealAttention: false });
+    expect(window.localStorage.getItem("cfy.sidebarVisible")).toBe("false");
+    view.unmount();
+    window.history.replaceState({}, "", "/chat");
+    view = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("11"));
+    expect(latestGuardian()).toMatchObject({ isSidebarVisible: false, sidebarRevealAttention: false });
+
+    act(() => latestGuardian().onNewChat());
+    expect(latestGuardian()).toMatchObject({ presentationMode: "landing", isSidebarVisible: false });
+    expect(window.sessionStorage.getItem("cfy.guardian.presentation")).toBe("new-chat");
+    expect(sessionSpineInstances.at(-1).tabOpen).toHaveBeenCalledWith(undefined, "New Thread");
+    view.unmount();
+    // Even a still-hydrating prior active tab must not override explicit New Chat.
+    view = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian().presentationMode).toBe("landing");
+    act(() => latestGuardian().onThreadPersisted(11, "Thread 11"));
+    expect(latestGuardian()).toMatchObject({ presentationMode: "conversation", sidebarRevealAttention: false });
+    view.unmount();
+
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat");
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian()).toMatchObject({ presentationMode: "landing", isSidebarVisible: false });
+    expect(sessionSpineInstances.at(-1).tabSetThread).not.toHaveBeenCalled();
+  });
+
+  it("does not hint after the sidebar was discovered on landing", async () => {
+    seedActiveSession();
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    act(() => latestGuardian().onSidebarToggle());
+    act(() => latestGuardian().onThreadPersisted(11, "Thread 11"));
+    expect(latestGuardian()).toMatchObject({ presentationMode: "conversation", sidebarRevealAttention: false });
+  });
+
+  it("establishes continuity from an explicit thread route", async () => {
+    seedActiveSession("11");
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    window.history.replaceState({}, "", "/chat/11");
+    const view = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("11"));
+    expect(latestGuardian()).toMatchObject({ presentationMode: "conversation", sidebarRevealAttention: false });
+    expect(window.sessionStorage.getItem("cfy.guardian.presentation")).toBe("conversation");
+    view.unmount();
+    window.history.replaceState({}, "", "/chat");
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("11"));
+    expect(latestGuardian().presentationMode).toBe("conversation");
+  });
+
+  it("honors an explicit thread URL over a different hydrated active tab", async () => {
+    seedActiveSession("22");
+    setupThreadApi({ all: { 0: { threads: [t(11), t(22)], has_more: false } } });
+    window.history.replaceState({}, "", "/chat/11");
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("11"));
+    expect(window.location.pathname).toBe("/chat/11");
+    expect(sessionHooksState.activeTab.threadId).toBe("11");
+    act(() => {
+      window.history.pushState({}, "", "/chat/22");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("22"));
+    expect(sessionHooksState.activeTab.threadId).toBe("22");
+    expect(latestGuardian().presentationMode).toBe("conversation");
+  });
+
+  it("restores the SessionSpine thread even when the sidebar page omits it", async () => {
+    seedActiveSession("22");
+    window.sessionStorage.setItem("cfy.guardian.presentation", "conversation");
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: true } } });
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    await waitFor(() => expect(latestGuardian().activeThread.id).toBe("22"));
+    expect(window.location.pathname).toBe("/chat/22");
+    expect(latestGuardian().presentationMode).toBe("conversation");
+    expect(sessionSpineInstances[0].tabOpen).not.toHaveBeenCalled();
+    expect(sessionSpineInstances[0].tabSetThread.mock.calls.every((args: any[]) => args[1] === "22")).toBe(true);
+  });
+
+  it("does not infer an active thread from the list during engaged re-entry", async () => {
+    window.sessionStorage.setItem("cfy.guardian.presentation", "conversation");
+    seedActiveSession();
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian()).toMatchObject({ presentationMode: "landing", activeThread: expect.objectContaining({ id: "temp" }) });
+    expect(sessionSpineInstances[0].tabSetThread).not.toHaveBeenCalled();
+  });
+
   it("clears stale session tab thread ids that are missing from loaded threads", async () => {
     setupThreadApi({
       all: {
@@ -1626,12 +1779,13 @@ describe("GuardianChatWithSidebar auth banner", () => {
       },
       configurable: true,
     });
+    const presentationStorage = new Map<string, string>();
     Object.defineProperty(window, "sessionStorage", {
       value: {
-        getItem: vi.fn(() => null),
-        setItem: vi.fn(),
-        removeItem: vi.fn(),
-        clear: vi.fn(),
+        getItem: vi.fn((key: string) => presentationStorage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => { presentationStorage.set(key, value); }),
+        removeItem: vi.fn((key: string) => { presentationStorage.delete(key); }),
+        clear: vi.fn(() => presentationStorage.clear()),
       },
       configurable: true,
     });

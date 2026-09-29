@@ -1,6 +1,6 @@
 # ADR-084: Unified Account-Owned Memory Store
 
-**Status:** Accepted — design frozen
+**Status:** Accepted — candidate authority amended 2026-09-25
 
 **Date:** 2026-09-04
 
@@ -92,19 +92,36 @@ provider context. Models and clients cannot write an `ambient_eligible` result.
 ### Personal Facts remain specialized
 
 Personal Facts remain a specialized memory subtype with one authority per
-dimension.
+dimension. The pre-promotion candidate and the promoted fact are distinct
+authority stages within the same UMS, with explicit lineage between them.
 
-- `personal_facts.status` remains authoritative for Personal Fact review
-  meaning until an intentionally governed migration changes it.
+- The single UMS `candidate_unreviewed_fact` record owns raw proposal,
+  evidence links, guardrail disposition, quarantine, and account-user review
+  before promotion. It may retain an intact raw key that is ineligible for the
+  bounded promoted key. No `personal_facts` row is required for candidate
+  review or quarantine.
+- `personal_facts.status` remains authoritative for **promoted** Personal Fact
+  review meaning. Legacy pre-promotion rows continue to be read through the
+  existing compatibility path until a separately authorized, verified
+  migration reconciles them into the UMS candidate authority.
 - `personal_facts.is_active` remains authoritative for Personal Fact activation
   until an intentionally governed migration changes it.
-- Any unified Memory Store view of Personal Fact review or activation is
-  derived from the Personal Facts service and is not independently editable.
-- Personal Fact transitions, evidence, revisions, and guardrails remain
-  transactionally governed by the Personal Facts service.
+- The Personal Facts service governs the candidate-to-fact transition and
+  promoted-fact transitions transactionally; service ownership does not place
+  pre-promotion state in `personal_facts`.
+- A candidate's approved, bounded canonical key may be promoted into
+  `personal_facts`; the candidate and its evidence remain traceable lineage,
+  never a second active fact or ambient recall authority.
 
 One logical Memory Store does not require one physical table or duplicated
 mutable truth.
+
+This is a narrow amendment to the review-authority boundary. The exact
+candidate fields, replay identity, evidence linkage, promotion, migration,
+portability, and erasure rules live in the
+[Unified Memory Store Contract](../unified-memory-store-contract.md). The
+currently installed UMS schema, compatibility readers, and Personal Facts
+runtime behavior have not been migrated to this amended target.
 
 ### Canonical and derived state
 

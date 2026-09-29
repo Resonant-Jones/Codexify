@@ -17,7 +17,7 @@ from guardian.worktrees.model import WorktreeDiscovery, WorktreeLane
 def _make_app(discovery: WorktreeDiscovery) -> FastAPI:
     app = FastAPI()
     app.include_router(worktrees_routes.router)
-    app.dependency_overrides[worktrees_routes.require_api_key] = lambda: "key"
+    app.dependency_overrides[worktrees_routes.require_operator_auth] = lambda: "key"
     worktrees_routes.discover_worktree_lanes = lambda *args, **kwargs: discovery
     return app
 

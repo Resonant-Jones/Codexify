@@ -48,7 +48,7 @@ This contract explicitly does **not** cover:
 - The current supported release posture remains bounded by `docs/architecture/00-current-state.md`.
 - The `User` model carries `id`, `username`, `password_hash`, `role` (constrained to `admin`/`guest`), and `created_at` (server-default `now()`).
 - A `POST /auth/register` route exists but is gated behind private-preview checks.
-- The dashboard snapshot (`GET /api/dashboard/snapshot`) requires dual authority: service API key plus authenticated human Guardian session.
+- The dashboard snapshot (`GET /api/dashboard/snapshot`) requires two gates with one human principal: service API key capability plus authenticated Guardian session.
 - Admin routes use `X-Admin-Token` header-based authorization.
 
 ### Implemented internal capability (Slices 1–3)
@@ -323,16 +323,71 @@ One invite link per campaign or placement. Examples of operator-authored placeme
 
 1. Guardian owns the analytics snapshot and all authorization decisions.
 2. Codexify.Space or another web presentation layer owns rendering and server-side transport only.
-3. The account-observability snapshot requires:
-   - An authenticated Guardian human session.
-   - Explicit operator/admin authorization.
-   - The existing server-held Guardian service credential where the current dashboard boundary requires it (dual authority).
+3. Human-operated account-observability actions use one `account_session`
+   principal and two independent admission gates:
+   - Guardian resolves the session to a canonical human account and checks
+     that account's admin authorization.
+   - A server-held service key, where required by the route, satisfies a
+     separate non-principal capability gate.
+   This is **dual-gate, single-principal** access, including the deferred
+   operator snapshot. Admin status is authorization on the human account,
+   not a second principal.
 4. A service credential alone must not impersonate a human operator.
-5. A human session alone must not bypass the server-side service boundary where dual authority is required.
+5. A human session alone must not bypass the server-side capability gate where the route requires it.
 6. Browser JavaScript must not call Guardian with `GUARDIAN_API_KEY`.
 7. Frontend code must not maintain an independent list of admin emails or roles.
 8. Client-provided `X-User-Id`, display names, or query parameters must not grant admin access.
 9. Every successful or denied snapshot access should produce a bounded security audit record containing operator identity, route, decision, timestamp, and request ID, but not the response body.
+
+The implemented `create_operator_invite`, `list_operator_invites`,
+`disable_operator_invite`, `revoke_operator_invite`, and
+`trigger_retention_cleanup` routes are human administrative operations. Their
+canonical future gate order is:
+
+1. Classify presented principal lanes and reject mixed principals before any
+   protected-resource lookup.
+2. Validate exactly one `account_session` and resolve its canonical human
+   account.
+3. Require that account's Guardian-owned admin authorization.
+4. Validate the route-required service capability without establishing a
+   second principal.
+5. Perform the protected operation and attribute its audit actor to the
+   canonical human account.
+
+The raw service key grants no user or operator identity, ownership,
+`RequestUserScope`, or admin permission. `subject="web"`, an
+`operator_session` pseudo-user, and a local fallback are never audit actors.
+A separate future `require_service_capability` dependency (or an equally
+narrow existing service-key verifier) must validate only that capability,
+return no principal, perform no account or admin resolution, and provide no
+fallback to another lane. These routes must not use generic `require_api_key`
+or `require_operator_auth` as their service-capability dependency. The same
+configured raw key can be operator-principal material on an explicit
+`require_operator_auth` control route or non-principal capability material on
+an explicitly designated human route, never both on one request boundary.
+No new runtime secret is required by this contract.
+
+| Presented material for a human admin route | Decision |
+|---|---|
+| Valid admin `account_session` + valid required service capability | Allow, subject to the operation's other policy checks. |
+| Valid non-admin `account_session` + valid service capability | Deny: capability does not grant admin permission. |
+| Valid admin `account_session` + missing or invalid service capability | Deny: human authority does not bypass the capability gate. |
+| Valid service capability only | Deny: no human account principal. |
+| Signed `operator_session` only | Deny: not an account session or service-capability substitute. |
+| `account_session` + `operator_session` | Reject as `mixed_principal_credentials` under ADR-092, regardless of either credential's validity. |
+| Hosted Room guest credential + service capability | Deny: no human account principal. |
+| Anonymous request + service capability | Deny: no human account principal. |
+
+An account session plus a key validated solely as this route's service
+capability is one principal plus one capability, not mixed-principal
+authentication. An invalid account session plus a valid service key cannot
+become an operator; a missing account session cannot become an account; and a
+non-admin account cannot be elevated by the key. The current
+`_operator_dependencies` wrapper still combines generic `require_api_key`,
+`require_admin`, and `get_current_user`; this future gate is not yet
+implemented. The current local/debug and private-preview behavior must be
+qualified separately during migration rather than treated as proof that the
+strict remote contract already holds.
 
 ## Snapshot/API Ownership
 

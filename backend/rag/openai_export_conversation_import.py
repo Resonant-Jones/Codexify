@@ -13,12 +13,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from tempfile import TemporaryDirectory
+from typing import Any, Callable, Iterator
 
 from backend.rag.openai_export_adapter import (
     OpenAIExportDetector,
@@ -357,6 +360,51 @@ def _compute_latest_timestamp(
     return None
 
 
+@contextmanager
+def _conversation_spool(
+    adapter: OpenAILegacyExportAdapter | OpenAIShardedExportAdapter,
+    inventory: Any,
+    diagnostic_dir: Path,
+) -> Iterator[sqlite3.Connection]:
+    """Rebuildable, job-local ordering scratch; never a checkpoint authority."""
+    with TemporaryDirectory(prefix="openai-order-", dir=diagnostic_dir) as scratch:
+        with sqlite3.connect(Path(scratch) / "conversations.sqlite3") as db:
+            db.execute("PRAGMA journal_mode=OFF")
+            db.execute("PRAGMA temp_store=FILE")
+            db.execute("PRAGMA cache_size=-8192")
+            db.execute(
+                "CREATE TABLE conversations (ordinal INTEGER PRIMARY KEY, "
+                "create_key REAL, update_key REAL, payload TEXT NOT NULL)"
+            )
+            source = adapter.iter_conversations(inventory, scratch_dir=Path(scratch))
+            for ordinal, conversation in enumerate(source):
+                db.execute(
+                    "INSERT INTO conversations VALUES (?, ?, ?, ?)",
+                    (ordinal, _source_timestamp(conversation, "create_time"),
+                     _source_timestamp(conversation, "update_time"),
+                     json.dumps(conversation, ensure_ascii=False)),
+                )
+            db.execute(
+                "CREATE INDEX conversations_created ON conversations(create_key, ordinal)"
+            )
+            db.execute(
+                "CREATE INDEX conversations_updated ON conversations(update_key, ordinal)"
+            )
+            yield db
+
+
+def _ordered_rows(db: sqlite3.Connection, order: str) -> sqlite3.Cursor:
+    if order in {"newest", "updated"}:
+        clause = "update_key DESC, ordinal ASC"
+    elif order == "oldest":
+        clause = "create_key ASC, ordinal ASC"
+    else:
+        clause = "ordinal ASC"
+    return db.execute(
+        f"SELECT ordinal, payload FROM conversations ORDER BY {clause}"
+    )
+
+
 def import_openai_export_conversations(
     root_path: str | Path,
     *,
@@ -456,101 +504,87 @@ def import_openai_export_conversations(
         return diagnostics
 
     try:
-        all_conversations = adapter.extract_conversations(inventory)
-    except Exception as exc:
-        diagnostics.errors.append(f"Conversation extraction failed: {exc}")
-        diagnostics.completed_at = datetime.now(timezone.utc).isoformat()
-        _write_diagnostics(diagnostics, diag_dir)
-        return diagnostics
-
-    diagnostics.conversations_discovered = len(all_conversations)
-
-    # --- Sort by order ---
-    all_conversations = _sort_conversations(all_conversations, order)
-
-    # --- Apply title filter ---
-    if title_contains:
-        filtered: list[dict[str, Any]] = []
-        for conv in all_conversations:
-            if _matches_title_filter(conv, title_contains):
-                filtered.append(conv)
-            else:
-                diagnostics.conversations_skipped_title += 1
-                diagnostics.skipped_records.append(
-                    {
-                        "conversation_id": str(
-                            conv.get("conversation_id")
-                            or conv.get("id")
-                            or ""
-                        ),
+        with _conversation_spool(adapter, inventory, diag_dir) as db:
+            diagnostics.conversations_discovered = db.execute(
+                "SELECT COUNT(*) FROM conversations"
+            ).fetchone()[0]
+            db.execute(
+                "CREATE TABLE selected (position INTEGER PRIMARY KEY, ordinal INTEGER NOT NULL)"
+            )
+            latest: float | None = None
+            for ordinal, payload in _ordered_rows(db, order):
+                conv = json.loads(payload)
+                conversation_id = str(conv.get("conversation_id") or conv.get("id") or "")
+                if title_contains and not _matches_title_filter(conv, title_contains):
+                    diagnostics.conversations_skipped_title += 1
+                    diagnostics.skipped_records.append({
+                        "conversation_id": conversation_id,
                         "title": str(conv.get("title", ""))[:100],
                         "reason": f"title_does_not_contain:{title_contains}",
-                    }
-                )
-        all_conversations = filtered
-
-    # --- Apply limit ---
-    if limit is not None and limit > 0:
-        if len(all_conversations) > limit:
-            skipped = all_conversations[limit:]
-            all_conversations = all_conversations[:limit]
-            diagnostics.conversations_skipped_limit = len(skipped)
-            for conv in skipped:
-                diagnostics.skipped_records.append(
-                    {
-                        "conversation_id": str(
-                            conv.get("conversation_id")
-                            or conv.get("id")
-                            or ""
-                        ),
+                    })
+                    continue
+                if limit is not None and limit > 0 and diagnostics.conversations_accepted >= limit:
+                    diagnostics.conversations_skipped_limit += 1
+                    diagnostics.skipped_records.append({
+                        "conversation_id": conversation_id,
                         "title": str(conv.get("title", ""))[:100],
                         "reason": "limit_exceeded",
-                    }
+                    })
+                    continue
+                db.execute(
+                    "INSERT INTO selected VALUES (?, ?)",
+                    (diagnostics.conversations_accepted, ordinal),
                 )
+                diagnostics.conversations_accepted += 1
+                diagnostics.messages_discovered += _count_messages_in_conversation(conv)
+                for key in ("create_time", "update_time"):
+                    value = conv.get(key)
+                    if isinstance(value, (int, float)):
+                        timestamp = float(value)
+                        if timestamp > 1_000_000_000_000:
+                            timestamp /= 1000.0
+                        if latest is None or timestamp > latest:
+                            latest = timestamp
+            if latest is not None:
+                diagnostics.latest_source_timestamp = datetime.fromtimestamp(
+                    latest, timezone.utc
+                ).isoformat()
 
-    # --- Count messages discovered ---
-    diagnostics.conversations_accepted = len(all_conversations)
-    for conv in all_conversations:
-        msg_count = _count_messages_in_conversation(conv)
-        diagnostics.messages_discovered += msg_count
+            if not dry_run and diagnostics.conversations_accepted:
+                def selected_conversations() -> Iterator[dict[str, Any]]:
+                    for (payload,) in db.execute(
+                        "SELECT c.payload FROM selected s JOIN conversations c "
+                        "ON c.ordinal = s.ordinal ORDER BY s.position"
+                    ):
+                        yield json.loads(payload)
 
-    diagnostics.latest_source_timestamp = _compute_latest_timestamp(
-        all_conversations
-    )
+                try:
+                    _import_with_checkpoints(
+                        all_conversations=selected_conversations(),
+                        total=diagnostics.conversations_accepted,
+                        user_id=user_id,
+                        embedding_mode=embedding_mode,
+                        diagnostics=diagnostics,
+                        ckpt=ckpt,
+                        batch_size=max(1, batch_conversations),
+                        disable_personal_facts=disable_personal_facts,
+                        messages_only=messages_only,
+                        completed_conversation_ids=set(completed_conversation_ids or ()),
+                        on_batch_committed=on_batch_committed,
+                    )
+                except Exception as exc:
+                    diagnostics.errors.append(f"Import failed: {exc}")
+                    logger.exception("Import process failed")
+    except Exception as exc:
+        diagnostics.errors.append(f"Conversation extraction failed: {exc}")
+        logger.exception("Conversation extraction failed")
 
-    # --- Dry run: skip DB writes ---
     if dry_run:
-        diagnostics.completed_at = datetime.now(timezone.utc).isoformat()
-        _write_diagnostics(diagnostics, diag_dir)
         logger.info(
             "Dry run complete: %d conversations, %d messages would be imported",
-            len(all_conversations),
+            diagnostics.conversations_accepted,
             diagnostics.messages_discovered,
         )
-        return diagnostics
-
-    # --- Import into DB with checkpointing ---
-    if not all_conversations:
-        diagnostics.completed_at = datetime.now(timezone.utc).isoformat()
-        _write_diagnostics(diagnostics, diag_dir)
-        return diagnostics
-
-    try:
-        _import_with_checkpoints(
-            all_conversations=all_conversations,
-            user_id=user_id,
-            embedding_mode=embedding_mode,
-            diagnostics=diagnostics,
-            ckpt=ckpt,
-            batch_size=max(1, batch_conversations),
-            disable_personal_facts=disable_personal_facts,
-            messages_only=messages_only,
-            completed_conversation_ids=set(completed_conversation_ids or ()),
-            on_batch_committed=on_batch_committed,
-        )
-    except Exception as exc:
-        diagnostics.errors.append(f"Import failed: {exc}")
-        logger.exception("Import process failed")
 
     diagnostics.elapsed_seconds = round(time.monotonic() - start_ts, 3)
     diagnostics.completed_at = datetime.now(timezone.utc).isoformat()
@@ -571,7 +605,8 @@ def import_openai_export_conversations(
 
 def _import_with_checkpoints(
     *,
-    all_conversations: list[dict[str, Any]],
+    all_conversations: Iterator[dict[str, Any]],
+    total: int,
     user_id: str,
     embedding_mode: str,
     diagnostics: ImportDiagnostics,
@@ -583,11 +618,13 @@ def _import_with_checkpoints(
     on_batch_committed: Callable[[dict[str, Any]], None] | None,
 ) -> None:
     """Import conversations in bounded batches with checkpointing."""
-    total = len(all_conversations)
     batch_count = (total + batch_size - 1) // batch_size
 
     for batch_idx in range(0, total, batch_size):
-        batch = all_conversations[batch_idx : batch_idx + batch_size]
+        batch = [
+            conversation
+            for _, conversation in zip(range(batch_size), all_conversations)
+        ]
         batch_num = (batch_idx // batch_size) + 1
 
         # Filter out already-completed conversations when resuming

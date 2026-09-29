@@ -547,8 +547,8 @@ describe("GuardianChat inference rail", () => {
 
   async function startTrackedRequest() {
     fireEvent.click(screen.getByTestId("composer-send"));
-    await screen.findByText("Queued…");
     await advanceTimers(100);
+    expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
     expect(eventSources.instances).toHaveLength(1);
     return eventSources.instances[0];
   }

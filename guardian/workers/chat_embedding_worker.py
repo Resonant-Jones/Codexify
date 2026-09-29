@@ -15,6 +15,7 @@ from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB
 from guardian.db.models import ChatMessage
 from guardian.queue.redis_queue import (
+    CHAT_IMPORT_EMBED_TASK_TYPE,
     dequeue_chat_embed,
     dequeue_chat_import_embed,
 )
@@ -168,7 +169,12 @@ def process_chat_embed_task(
 
     store = vector_store or VectorStore()
     try:
-        store.add_texts([{"text": content, "meta": meta}])
+        item: dict[str, Any] = {"text": content, "meta": meta}
+        if payload.get("type") == CHAT_IMPORT_EMBED_TASK_TYPE and message_id_str:
+            # The account-import handoff may replay after a crash or an
+            # uncertain Redis enqueue. Upsert the same derived record.
+            item["id"] = f"chat-import-message:{message_id_str}"
+        store.add_texts([item])
         if db is not None and message_id_str:
             completed_at = datetime.now(timezone.utc)
             _update_embedding_status(

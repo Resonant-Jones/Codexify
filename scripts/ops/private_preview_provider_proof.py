@@ -672,9 +672,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--local-model",
-        default=os.getenv(
-            "PRIVATE_PREVIEW_LOCAL_MODEL", "qwen3.8-27b-4bit"
-        ),
+        default=os.getenv("PRIVATE_PREVIEW_LOCAL_MODEL", "local-chat"),
     )
     parser.add_argument(
         "--deepseek-model",
