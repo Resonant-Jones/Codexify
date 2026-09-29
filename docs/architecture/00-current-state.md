@@ -134,7 +134,10 @@ This file is authoritative for:
                    + UMS-04 PORTABILITY: CLOSED
   UMS-05C10A ORDINARY MEMORY REVIEW TRANSITION WRITER: FROZEN
   UMS-05C10A-C REVIEW-TRANSITION CONTRACT RESOLUTION: CLOSED
-  UMS-05C10A-W ORDINARY MEMORY REVIEW TRANSITION WRITER: AUTHORIZED
+  UMS-05C10A-W ORDINARY MEMORY REVIEW TRANSITION WRITER: CLOSED
+  UMS-05C10A: CLOSED
+  UMS-05C10B-R ORDINARY MEMORY LIFECYCLE MUTATION
+                   AUTHORITY / HISTORY REVALIDATION: AUTHORIZED
   UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1306,6 +1309,45 @@ This file is authoritative for:
   change. Branch-local only; not merged into the current `main`, not
   deployed, not a release claim. See the
   [UMS-05C10A-C review transition contract proof](./proofs/runtime/2026-09-28-ums05c10a-c-review-transition-contract-proof.md).
+
+- **UMS-05C10A-W (Ordinary-memory review transition writer, qualified on
+  `feature/ums-continued`)**: ADR-088's frozen state machine is now
+  implemented on the internal Memory Vault surface as
+  `MemoryVaultMutationService.transition_review` plus
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/review`. Only
+  `approve`, `reject`, and `dispute` are admitted, and the request model
+  forbids extra fields, so a caller cannot supply a raw `review_state`,
+  account, actor, revision, or lifecycle authority — `pending` is
+  therefore unreachable as a target. Each **changed** transition commits,
+  in one transaction, the `memory_records.review_state` update, the
+  `reviewed_at` first-approval update when required, the database-authored
+  CAS advance, exactly one `memory_review_revisions` row, and exactly one
+  `memory-vault-mutation.v1` intent receipt; any failure rolls all of them
+  back. Parent-row `SELECT ... FOR UPDATE` serializes concurrent review
+  mutations, and CAS is validated **before** the no-op decision, so a stale
+  token conflicts even when the action would otherwise change nothing. A
+  same-state action under a fresh token is a no-op: no review revision, no
+  receipt, no `updated_at` advance, and no `reviewed_at` backfill. Review
+  history is validated for contiguity and for reconciliation with the
+  parent's current `review_state` before append, and malformed history
+  fails closed rather than being repaired. Review/lifecycle independence
+  is preserved: approval does not activate, rejection and dispute do not
+  retire, and lifecycle, content, pin, hold, Project, and Persona state are
+  unchanged. Qualification confirmed two current-truth gates: direct
+  creation already satisfies ADR-088 first-approval semantics by writing
+  `review_state="approved"` and `reviewed_at=now()` together, and ambient
+  eligibility is computed at read time with no stored or indexed
+  derivative, so no review change can leave stale authoritative retrieval
+  state. The route is a thin adapter performing no SQL, locking, CAS
+  comparison, no-op decision, revision numbering, or `reviewed_at`
+  decision, and remains internal-only and hidden from public OpenAPI
+  under the existing `memory_vault` posture. No schema, migration,
+  export/restore, frontend, retrieval, or release-claim change. **No
+  lifecycle writer exists**, and the sole next Campaign slice is
+  UMS-05C10B-R lifecycle mutation authority / history revalidation.
+  Branch-local only; not merged into the current `main`, not deployed, not
+  a release claim. See the
+  [UMS-05C10A-W review transition writer proof](./proofs/runtime/2026-09-28-ums05c10a-w-review-transition-writer-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

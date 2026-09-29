@@ -42,6 +42,7 @@ from guardian.db.models import (
     MemoryPersonaLink,
     MemoryProvenance,
     MemoryRecord,
+    MemoryReviewRevision,
     MemoryRevision,
     PersonaSubject,
     Project,
@@ -68,6 +69,27 @@ ACTION_CLEAR_PROJECT_SCOPE = "clear_project_scope"
 ACTION_ADD_PERSONA_ATTRIBUTION = "add_persona_attribution"
 ACTION_REMOVE_PERSONA_ATTRIBUTION = "remove_persona_attribution"
 ACTION_CONTENT_CORRECTION = "content_correction"
+
+#: UMS-05C10A-W / ADR-088. The three admitted direct ordinary-memory review
+#: actions. There is deliberately no ``set_pending`` / reset / unreview
+#: action: ``pending`` is an ingress state, not a user review outcome.
+ACTION_APPROVE = "approve"
+ACTION_REJECT = "reject"
+ACTION_DISPUTE = "dispute"
+
+#: Frozen action -> target-state mapping from ADR-088. A caller can never
+#: request a raw ``review_state``; it can only request one of these actions.
+REVIEW_ACTION_TARGETS: dict[str, str] = {
+    ACTION_APPROVE: "approved",
+    ACTION_REJECT: "rejected",
+    ACTION_DISPUTE: "disputed",
+}
+
+#: Canonical ordinary review vocabulary. A persisted ``review_state`` outside
+#: this set is treated as integrity corruption, never repaired.
+_REVIEW_STATES: frozenset[str] = frozenset(
+    {"pending", "approved", "rejected", "disputed"}
+)
 
 #: Stable receipt schema marker stored in provenance extensions.
 RECEIPT_SCHEMA = "memory-vault-mutation.v1"
@@ -191,6 +213,40 @@ class VaultContentCorrectionResult:
     receipt_id: str | None
     revision_id: str | None
     revision_number: int | None
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItem
+
+
+class MemoryVaultReviewTransitionInvalid(MemoryVaultMutationError):
+    """The requested review action is not one of ADR-088's admitted actions."""
+
+
+class MemoryVaultReviewTransitionUnsupported(MemoryVaultMutationError):
+    """The canonical memory is not writable by the generic review writer."""
+
+
+class MemoryVaultReviewTransitionIntegrityError(MemoryVaultMutationError):
+    """Existing review history or persisted review state is not trustworthy."""
+
+
+@dataclass(slots=True)
+class VaultReviewTransitionResult:
+    """Outcome of one direct ordinary-memory review transition (UMS-05C10A-W).
+
+    For an ADR-088 same-state no-op, ``changed`` is ``False`` and
+    ``receipt_id`` / ``review_revision_id`` / ``review_revision_number`` are
+    ``None``: no review revision, no receipt, and no CAS advance occur when
+    the requested action would not change the current review state.
+    """
+
+    changed: bool
+    action: str
+    receipt_id: str | None
+    review_revision_id: str | None
+    review_revision_number: int | None
+    previous_review_state: str
+    resulting_review_state: str
     previous_updated_at: datetime
     resulting_updated_at: datetime
     item: VaultItem
@@ -810,6 +866,246 @@ class MemoryVaultMutationService:
             item=item,
         )
 
+    def transition_review(
+        self,
+        *,
+        memory_id: str,
+        expected_updated_at: datetime,
+        action: str,
+        reason: str | None = None,
+        request_ref: str | None = None,
+    ) -> VaultReviewTransitionResult:
+        """Apply one ADR-088 direct review transition to ordinary memory.
+
+        A changed transition atomically produces all of:
+
+        1. the new canonical ``memory_records.review_state``;
+        2. ``reviewed_at`` set only on first authoritative approval;
+        3. exactly one append-only ``memory_review_revisions`` row;
+        4. exactly one ``memory-vault-mutation.v1`` intent receipt; and
+        5. one new database-authored ``memory_records.updated_at`` CAS token.
+
+        Any failure rolls all of them back.
+
+        A same-state action under a fresh CAS token is a semantic no-op: it
+        creates neither a review revision nor a receipt and does not advance
+        the CAS. A stale token conflicts even when the action would otherwise
+        be a no-op — CAS is validated before the no-op decision.
+
+        ``action`` must be one of ``approve``, ``reject``, or ``dispute``.
+        There is no path that targets ``pending``: ADR-088 defines
+        ``pending`` as an ingress state, not a user review outcome.
+        """
+        self._validate_memory_id(memory_id)
+        self._validate_cas_token(expected_updated_at)
+        normalized_action = self._validate_review_action(action)
+
+        row = self._load_authorized_memory(memory_id)
+        # CAS authority is established before any no-op determination.
+        self._require_fresh_token(row, expected_updated_at)
+
+        if row.semantic_species != _CORRECTABLE_SPECIES:
+            self._session.rollback()
+            raise MemoryVaultReviewTransitionUnsupported(
+                "canonical memory is not writable by the generic review writer"
+            )
+
+        current_state = str(row.review_state or "")
+        if current_state not in _REVIEW_STATES:
+            self._session.rollback()
+            raise MemoryVaultReviewTransitionIntegrityError(
+                "persisted review state is outside the canonical vocabulary"
+            )
+
+        target_state = REVIEW_ACTION_TARGETS[normalized_action]
+        previous_updated_at = row.updated_at
+
+        if current_state == target_state:
+            # ADR-088 same-state no-op. Reachable only with a fresh token,
+            # because the stale check above already conflicted.
+            item = self._readback(memory_id)
+            self._session.rollback()
+            return VaultReviewTransitionResult(
+                changed=False,
+                action=normalized_action,
+                receipt_id=None,
+                review_revision_id=None,
+                review_revision_number=None,
+                previous_review_state=current_state,
+                resulting_review_state=current_state,
+                previous_updated_at=previous_updated_at,
+                resulting_updated_at=previous_updated_at,
+                item=item,
+            )
+
+        next_revision_number = self._next_review_revision_number(
+            memory_id=memory_id,
+            current_state=current_state,
+        )
+
+        # ADR-088: reviewed_at is the timestamp of FIRST authoritative
+        # approval. First approval sets it; re-approval preserves it;
+        # rejection and dispute never clear or rewrite it.
+        reviewed_at_value: object = MemoryRecord.reviewed_at
+        if target_state == "approved" and row.reviewed_at is None:
+            reviewed_at_value = func.clock_timestamp()
+
+        try:
+            new_token = self._session.execute(
+                update(MemoryRecord)
+                .where(
+                    MemoryRecord.memory_id == memory_id,
+                    MemoryRecord.user_id == self._account,
+                    MemoryRecord.updated_at == expected_updated_at,
+                )
+                .values(
+                    review_state=target_state,
+                    reviewed_at=reviewed_at_value,
+                    updated_at=func.clock_timestamp(),
+                )
+                .returning(MemoryRecord.updated_at)
+            ).scalar_one()
+        except NoResultFound as exc:
+            self._session.rollback()
+            raise MemoryVaultMutationConflict(
+                "memory item changed; expected_updated_at is stale"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            self._session.rollback()
+            raise MemoryVaultMutationError("memory mutation failed") from exc
+
+        review_revision = MemoryReviewRevision(
+            review_revision_id=str(uuid.uuid4()),
+            memory_id=memory_id,
+            user_id=self._account,
+            revision_number=next_revision_number,
+            old_review_state=current_state,
+            new_review_state=target_state,
+            actor_account_id=self._account,
+        )
+        self._session.add(review_revision)
+
+        try:
+            self._session.flush()
+        except Exception as exc:  # noqa: BLE001
+            self._session.rollback()
+            raise MemoryVaultReviewTransitionIntegrityError(
+                "memory review transition transaction failed"
+            ) from exc
+
+        # The receipt is intent/audit evidence only. It references the created
+        # review revision and never duplicates canonical review history.
+        receipt = self._build_receipt(
+            memory_id=memory_id,
+            action=normalized_action,
+            field_name="review_state",
+            previous_value=current_state,
+            new_value=target_state,
+            expected_updated_at=expected_updated_at,
+            resulting_updated_at=new_token,
+            reason=reason,
+            request_ref=request_ref,
+        )
+        receipt.extensions = {
+            **dict(receipt.extensions or {}),
+            "review_revision_id": review_revision.review_revision_id,
+            "new_values": {
+                "review_state": target_state,
+                "review_revision_id": review_revision.review_revision_id,
+                "review_revision_number": review_revision.revision_number,
+            },
+        }
+        self._session.add(receipt)
+
+        try:
+            self._session.flush()
+        except Exception as exc:  # noqa: BLE001
+            self._session.rollback()
+            raise MemoryVaultMutationError(
+                "memory mutation transaction failed"
+            ) from exc
+
+        self._session.commit()
+
+        item = self._readback(memory_id)
+        # ``review_posture`` is the canonical read projection of
+        # ``memory_records.review_state``.
+        if item.review_posture != target_state:
+            raise MemoryVaultMutationError(
+                "canonical readback mismatch after review transition"
+            )
+        if item.updated_at != new_token:
+            raise MemoryVaultMutationError(
+                "canonical readback timestamp mismatch after review transition"
+            )
+
+        return VaultReviewTransitionResult(
+            changed=True,
+            action=normalized_action,
+            receipt_id=receipt.provenance_id,
+            review_revision_id=review_revision.review_revision_id,
+            review_revision_number=review_revision.revision_number,
+            previous_review_state=current_state,
+            resulting_review_state=target_state,
+            previous_updated_at=previous_updated_at,
+            resulting_updated_at=new_token,
+            item=item,
+        )
+
+    @staticmethod
+    def _validate_review_action(action: object) -> str:
+        """Accept only ADR-088's three admitted direct review actions."""
+        if not isinstance(action, str):
+            raise MemoryVaultReviewTransitionInvalid("review action must be a string")
+        normalized = action.strip()
+        if normalized not in REVIEW_ACTION_TARGETS:
+            raise MemoryVaultReviewTransitionInvalid(
+                "review action must be approve, reject, or dispute"
+            )
+        return normalized
+
+    def _next_review_revision_number(
+        self,
+        *,
+        memory_id: str,
+        current_state: str,
+    ) -> int:
+        """Return the next contiguous review revision number.
+
+        Fails closed when existing review history is gapped or when its tail
+        no longer reconciles with the parent's current ``review_state``.
+        Malformed history is never renumbered, repaired, or reconstructed
+        from provenance extensions.
+        """
+        rows = (
+            self._session.execute(
+                select(MemoryReviewRevision)
+                .where(
+                    MemoryReviewRevision.memory_id == memory_id,
+                    MemoryReviewRevision.user_id == self._account,
+                )
+                .order_by(MemoryReviewRevision.revision_number.asc())
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return 1
+        numbers = [r.revision_number for r in rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            self._session.rollback()
+            raise MemoryVaultReviewTransitionIntegrityError(
+                "existing memory review history is not contiguous"
+            )
+        latest = rows[-1]
+        if latest.new_review_state != current_state:
+            self._session.rollback()
+            raise MemoryVaultReviewTransitionIntegrityError(
+                "existing memory review history tail diverges from canonical "
+                "review state"
+            )
+        return latest.revision_number + 1
+
     def _next_revision_number(
         self,
         *,
@@ -1097,6 +1393,10 @@ __all__ = [
     "ACTION_ADD_PERSONA_ATTRIBUTION",
     "ACTION_REMOVE_PERSONA_ATTRIBUTION",
     "ACTION_CONTENT_CORRECTION",
+    "ACTION_APPROVE",
+    "ACTION_REJECT",
+    "ACTION_DISPUTE",
+    "REVIEW_ACTION_TARGETS",
     "MemoryVaultMutationConflict",
     "MemoryVaultMutationError",
     "MemoryVaultMutationNotAvailable",
@@ -1107,8 +1407,12 @@ __all__ = [
     "MemoryVaultContentCorrectionInvalid",
     "MemoryVaultContentCorrectionUnsupported",
     "MemoryVaultContentCorrectionIntegrityError",
+    "MemoryVaultReviewTransitionInvalid",
+    "MemoryVaultReviewTransitionUnsupported",
+    "MemoryVaultReviewTransitionIntegrityError",
     "MemoryVaultMutationService",
     "RECEIPT_SCHEMA",
     "VaultMutationResult",
     "VaultContentCorrectionResult",
+    "VaultReviewTransitionResult",
 ]
