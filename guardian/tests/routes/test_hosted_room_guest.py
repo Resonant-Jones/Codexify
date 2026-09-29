@@ -636,8 +636,10 @@ def test_inspect_session_tampered_cookie_returns_401(client):
 
 def test_inspect_session_wrong_purpose_token_fails(client):
     """An account session token must not work as a room guest session."""
-    from guardian.core.auth import issue_session_token
-    account_token, _ = issue_session_token(subject="web")
+    from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+    account_token, _ = issue_session_token(
+        subject="web", purpose=ACCOUNT_SESSION_PURPOSE
+    )
     resp = client.get(
         "/api/hosted-room-session",
         cookies={_SESSION_COOKIE_NAME: account_token},
@@ -931,8 +933,10 @@ def test_logout_preserves_invitation_acceptance(client, test_engine):
 
 def test_account_session_token_rejected(client):
     """An account session token (subject='web') must be rejected."""
-    from guardian.core.auth import issue_session_token
-    account_token, _ = issue_session_token(subject="web")
+    from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+    account_token, _ = issue_session_token(
+        subject="web", purpose=ACCOUNT_SESSION_PURPOSE
+    )
 
     resp = client.get(
         "/api/hosted-room-session",

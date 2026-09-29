@@ -27,8 +27,8 @@ from guardian.agents.coding_agent_contracts import (
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
 from guardian.core.dependencies import (
-    get_current_user,
-    require_api_key,
+    get_account_user as get_current_user,
+    require_account_session as require_api_key,
     require_operator_auth,
 )
 from guardian.protocol_tokens import AcceptanceStatus

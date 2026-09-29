@@ -15,8 +15,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from guardian.core.dependencies import get_request_user_id
-from guardian.core.dependencies import require_api_key as core_require_api_key
+from guardian.core.dependencies import get_account_user_id as get_request_user_id
+from guardian.core.dependencies import require_account_session as core_require_api_key
 
 logger = logging.getLogger(__name__)
 

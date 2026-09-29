@@ -49,11 +49,11 @@ def _app(monkeypatch, db: _TestDb) -> tuple[FastAPI, TestClient]:
 
     app = FastAPI()
     app.include_router(routes.router)
-    app.dependency_overrides[routes._operator_dependencies] = lambda: (
-        "service",
-        "admin_token",
-        "operator",
-    )
+    # Business-contract tests isolate the five-route authority boundary,
+    # which is exercised separately by the focused identity suite.
+    app.dependency_overrides[
+        routes._account_admin_capability_dependencies
+    ] = lambda: "operator"
     monkeypatch.setattr(routes, "load_guardian_db_from_env", lambda: db)
     monkeypatch.setattr(routes, "_session_cookie_secure_flag", lambda: True)
     return app, TestClient(app)
@@ -73,8 +73,7 @@ def _auth_user(db: _TestDb) -> None:
         session.commit()
 
 
-def test_operator_authorization_is_required(monkeypatch):
-    from guardian.core.dependencies import require_api_key
+def test_account_session_is_required(monkeypatch):
     from guardian.routes import account_observability as routes
 
     monkeypatch.setenv("GUARDIAN_API_KEY", "service-key")
@@ -83,18 +82,16 @@ def test_operator_authorization_is_required(monkeypatch):
     db = _TestDb()
     app = FastAPI()
     app.include_router(routes.router)
-    app.dependency_overrides[require_api_key] = lambda: "service-key"
     monkeypatch.setattr(routes, "load_guardian_db_from_env", lambda: db)
 
     response = TestClient(app).get(
         "/api/operator/account-observability/invites",
         headers={"X-API-Key": "service-key"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_service_credential_alone_cannot_impersonate_operator(monkeypatch):
-    from guardian.core.dependencies import require_api_key
+def test_service_credential_alone_cannot_impersonate_account(monkeypatch):
     from guardian.routes import account_observability as routes
 
     monkeypatch.setenv("GUARDIAN_API_KEY", "service-key")
@@ -103,7 +100,6 @@ def test_service_credential_alone_cannot_impersonate_operator(monkeypatch):
     db = _TestDb()
     app = FastAPI()
     app.include_router(routes.router)
-    app.dependency_overrides[require_api_key] = lambda: "service-key"
     monkeypatch.setattr(routes, "load_guardian_db_from_env", lambda: db)
 
     response = TestClient(app).post(
@@ -111,7 +107,7 @@ def test_service_credential_alone_cannot_impersonate_operator(monkeypatch):
         headers={"X-API-Key": "service-key"},
         json={"name": "Wave"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_creation_returns_raw_token_once_and_list_redacts_it(monkeypatch):

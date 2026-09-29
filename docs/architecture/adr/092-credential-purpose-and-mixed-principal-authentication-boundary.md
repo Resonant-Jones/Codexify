@@ -83,9 +83,11 @@ that dependency on human account-observability routes.
 
 The current dashboard viewer snapshot also has one account principal and a
 service-capability gate, but admits its authorized guest as well as admin
-viewer; it is not an admin-only route. Its generic router dependency and the
-account-observability wrapper still need migration. These rows describe the
-target authority contract, not current full runtime enforcement.
+viewer; it is not an admin-only route. Its generic router dependency still
+needs migration. The five account-observability invite and retention operations
+now use exact-purpose account sessions, persisted account admin authorization,
+and a non-principal service-capability gate. These rows do not claim full
+runtime enforcement across other account consumers.
 
 ### Signed-token class and purpose
 
@@ -246,10 +248,25 @@ qualification: 52/52 declared migrations structurally use
 `require_operator_auth`; 23 enabled declarations passed applicable route proof;
 28 default-off declarations retained their profile/flag posture; one graph
 declaration remained unmounted; and four separately quarantined model-override
-declarations remained qualified. Strict generic account-purpose validation,
-service-capability separation, `auth_dependencies.py` bypass closure, legacy
+declarations remained qualified. The five-route account-observability
+service-capability separation is now qualified by focused tests:
+`require_service_capability` returns no principal, and the route-owned human
+gate checks exact `account_session` purpose, the approved session, and the
+persisted admin account before capability validation. Strict generic
+account-purpose validation, `auth_dependencies.py` bypass closure, legacy
 account-token rejection, global mixed-principal enforcement, task-event SSE
 authorization, and public-ingress qualification remain deferred.
+
+The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
+exact signed `purpose=account_session` before consulting the approved session
+store. It rejects a missing or different purpose, an expired or malformed
+token, an absent session mapping, and a mapping that disagrees with the signed
+subject. Both query and first-auth-frame credential transports use this seam;
+private-preview approval still follows the mapping, while the local API-key
+lane remains available in local posture. Focused WebSocket and auth regressions
+qualified this bounded code path. This does not close the generic
+`auth_dependencies.py` resolver, the remaining account-route migration, or
+the public-ingress proof.
 
 ### Hosted Room completion-event observation
 

@@ -32,6 +32,7 @@ from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
 from guardian.core.auth import (
     OPERATOR_SESSION_PURPOSE,
+    resolve_account_session_subject,
     verify_session_token,
     verify_session_token_for_purpose,
 )
@@ -786,6 +787,17 @@ def require_service_api_key(
     raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def require_service_capability(
+    _service_key: str = Depends(require_service_api_key),
+) -> None:
+    """Validate the raw service key as a non-principal capability.
+
+    The underlying verifier reads only ``X-API-Key``. Its matching key is not
+    returned as an account, operator, or request scope.
+    """
+    return None
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -874,6 +886,64 @@ def get_current_user(
     """
     _ = api_key
     return get_request_user_id(request, x_user_id, authorization, gc_session)
+
+
+def verify_account_session(
+    request: Request = None,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> str:
+    """Authenticate a frozen account route without changing other auth lanes."""
+    if not is_private_preview() and _auth_mode() != "remote":
+        return verify_api_key(request, x_api_key, authorization, gc_session)
+
+    token = extract_session_token(authorization, gc_session)
+    if not token:
+        raise HTTPException(status_code=401, detail="Account session required")
+    subject = resolve_account_session_subject(token)
+    if is_private_preview():
+        principal = require_preview_principal(request)
+        if principal.email != subject:
+            raise HTTPException(status_code=401, detail="Account session mismatch")
+        return principal.email
+    return token
+
+
+def require_account_session(
+    credential: str = Depends(verify_account_session),
+) -> str:
+    return credential
+
+
+def _account_scope_gate(
+    request: Request = None,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> None:
+    if is_private_preview() or _auth_mode() == "remote":
+        verify_account_session(request, None, authorization, gc_session)
+
+
+def get_account_user_id(
+    _account_gate: None = Depends(_account_scope_gate),
+    user_id: str = Depends(get_request_user_id),
+) -> str:
+    return user_id
+
+
+def get_account_user_scope(
+    _account_gate: None = Depends(_account_scope_gate),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> RequestUserScope:
+    return request_user_scope
+
+
+def get_account_user(
+    _account_gate: None = Depends(_account_scope_gate),
+    current_user: str = Depends(get_current_user),
+) -> str:
+    return current_user
 
 
 # =========================
@@ -1261,6 +1331,7 @@ __all__ = [
     "require_api_key",
     "require_operator_auth",
     "require_service_api_key",
+    "require_service_capability",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",

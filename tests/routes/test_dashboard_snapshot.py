@@ -15,8 +15,9 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.core import auth_dependencies as auth_dependencies_module
 from guardian.core import dependencies
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.session_store import SessionStore
+from guardian.core import session_store as session_store_module
 from guardian.db.models import User, UserProfile
 from guardian.routes import dashboard
 from guardian.routes import user_profile as user_profile_routes
@@ -131,6 +132,11 @@ def _client(db: _DashboardDb | None = None):
             return_value=session_store,
         ),
         patch.object(
+            session_store_module,
+            "get_session_store",
+            return_value=session_store,
+        ),
+        patch.object(
             user_profile_routes,
             "load_guardian_db_from_env",
             return_value=db,
@@ -145,7 +151,9 @@ def _client(db: _DashboardDb | None = None):
 def _session_cookie(
     session_store: SessionStore, user_id: str
 ) -> tuple[str, dict[str, str]]:
-    token, _ = issue_session_token(subject=user_id, ttl_seconds=60)
+    token, _ = issue_session_token(
+        subject=user_id, ttl_seconds=60, purpose=ACCOUNT_SESSION_PURPOSE
+    )
     session_store.store(token, user_id, 60)
     return token, {"gc_session": token}
 

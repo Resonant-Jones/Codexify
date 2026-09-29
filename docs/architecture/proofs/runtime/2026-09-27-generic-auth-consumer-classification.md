@@ -478,3 +478,56 @@ TEST_DATABASE_URL=postgresql://codexify_test@127.0.0.1:62594/codexify_test .venv
 Result: **217 passed, 2 pre-existing skips, 0 failed, 0 errors**. A supplemental `guardian/tests/routes/test_health_supported_profile.py` run failed three tests because that separate health fixture hard-codes `LOCAL_BASE_URL=http://host.docker.internal:11434/v1` while its selected supported profile requires `...:8000/v1`; an external environment override did not change the fixture value. It is outside the frozen operator-route group and the authorized fixture-repair paths, so it remains unmodified and unqualified here.
 
 No Channel, service-capability, account-purpose, local/dev, session-resolver, Hosted Room guest, or task-event SSE authority code changed. The `guardian_api.py` diff affects only `GET /api/events` and the direct `GET /graph` operator dependencies; task-event SSE logic remains unchanged. This is focused test evidence for the committed implementation, **not live public-ingress proof or a release-support claim**. The separate dirty public-ingress proof receipt was untouched and unstaged. `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.
+
+### 2026-09-28 five-route service-capability migration follow-up
+
+**PASS, focused code-path qualification only.** The frozen `service_capability`
+set is **5/5 migrated** in `guardian/routes/account_observability.py`:
+`create_operator_invite`, `list_operator_invites`,
+`disable_operator_invite`, `revoke_operator_invite`, and
+`trigger_retention_cleanup`. The historical `_operator_dependencies` entries
+above record the earlier classification baseline; the current five-route
+composition is `_account_admin_capability_dependencies`.
+
+The route-owned human gate verifies exact `purpose=account_session` before
+approved-session lookup, resolves the persisted canonical `User`, checks its
+`admin` role and current private-preview approval where applicable, and then
+validates `X-API-Key` through `require_service_capability`. That dependency
+returns no principal and cannot turn the key into account or operator
+authority. Invite audit attribution remains the canonical human account.
+The focused authorization matrix passed **87 tests**. Existing account-
+observability tests passed **76 tests**; operator and auth regressions passed
+**34 tests**. No dashboard, generic account-auth, session-resolver,
+Channels, Hosted Room guest, or task-event SSE authority was migrated here.
+This is not live ingress proof or a release-support claim.
+`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains.
+
+### 2026-09-28 WebSocket account-purpose prerequisite
+
+**PASS, focused code-path qualification.** The frozen account-purpose table
+contains two `WEBSOCKET /api/ws/rpc` declarations: the mounted
+`guardian/routes/websocket.py::websocket_rpc` and the unmounted
+`guardian/ws/router.py::websocket_rpc`. Both use
+`guardian/ws/auth.py::authenticate_websocket`. In the implementation commit
+`Enforce WebSocket account session purpose`, that shared helper checks the
+canonical signed `account_session` purpose before its existing approved-session
+lookup, requires the stored ID to equal the signed subject, and retains the
+private-preview email/role allowlist afterward. It rejects purpose-less,
+operator, Hosted Room guest, unrelated-purpose, malformed, and expired
+credentials before store lookup. Query `api_key`/`token` and first-frame
+`api_key`/`token` share the decision. The explicit local API-key path is
+unchanged.
+
+Validation:
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -v tests/identity/test_websocket_account_session_purpose.py` | 95 passed |
+| `.venv/bin/pytest -v tests/realtime/test_websocket_auth_handshake.py tests/realtime/test_websocket_protocol_validation.py tests/realtime/test_websocket_route_audit.py tests/realtime/test_websocket_rpc_methods.py tests/realtime/test_ws_idle_timeout.py tests/realtime/test_ws_rate_limit.py` | 11 passed |
+| `.venv/bin/pytest -v tests/identity/test_operator_session_boundary.py tests/identity/test_account_observability_service_capability.py tests/auth/test_auth_flow.py tests/auth/test_private_preview_access.py tests/identity/test_identity_boundary_contract.py` | 105 passed |
+
+The original 238-registration inventory is unchanged; the
+remaining **236** account-purpose registrations have not been migrated by this
+WebSocket prerequisite. The separately frozen generic session-resolver seam,
+mixed-principal presence enforcement, task-event SSE object authorization,
+and public-ingress proof remain deferred. `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD`.
