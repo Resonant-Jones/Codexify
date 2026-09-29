@@ -14,6 +14,8 @@ This lane gathers evidence. It does not authorize automatic synchronization, rem
 
 Tailscale or another private transport may be present. Transport is not Git authority.
 
+Zac's existing execution-node and append-only event-log experiments may be useful observations here, but they are not automatically Codexify architecture or authority. Describe what exists; do not silently promote the experiment into the product contract.
+
 ## First Bounded Slice
 
 Choose two trusted machines that already participate in the development environment. Give them neutral aliases in the report; do not publish private addresses or credentials.
@@ -34,6 +36,23 @@ Then answer three real read-only questions using the environment you already hav
 
 Finally, deliberately observe one unavailable/stale condition: disconnect a peer from the test path or use an already unavailable state without destroying work. Record what a truthful system should say instead of treating the peer as empty.
 
+## Feedback Intake
+
+Do not try to narrate this like an architecture document while testing it.
+
+Tell Luna what you tried, what surprised you, what was annoying, what required a weird workaround, what you could not tell, and what you think might matter.
+
+Luna should translate that into the field-report structure using `feedback-translator-template.md`.
+
+The translation must distinguish:
+
+- observed machine/repository facts;
+- Zac's interpretation;
+- hypotheses about what Codexify should do;
+- unresolved questions.
+
+If the JSONL/event-log experiment is relevant, record it as an observed mechanism with its role and limits. Do not call it canonical Codexify state unless repository authority establishes that.
+
 ## Evidence Artifact
 
 Create:
@@ -48,7 +67,8 @@ Include:
 - what metadata was sufficient or missing;
 - stale/offline behavior;
 - moments where the workflow tempted you to mutate rather than observe;
-- any difference between what Tailscale/network reachability tells you and what Git repository truth tells you.
+- any difference between what Tailscale/network reachability tells you and what Git repository truth tells you;
+- translated feedback records for important friction or ambiguity.
 
 If the evidence implies a useful change to #796, add a final **Contract Delta Proposal** section. Do not implement the bridge in this lane.
 
