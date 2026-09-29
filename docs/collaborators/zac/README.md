@@ -1,7 +1,7 @@
 # Zac Collaborator RAG Source
 
 **For:** Zac and Zac's agent  
-**Last updated:** 2026-09-29  
+**Last updated:** 2026-09-29
 **Status:** Active — orientation resources plus bounded execution handoffs
 
 ## Purpose
