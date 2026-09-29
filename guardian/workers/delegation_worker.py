@@ -173,6 +173,7 @@ def _build_failure_summary(
     message: str,
     error_code: str,
     failure_class: str,
+    failure_kind: str | None = None,
     request: CodexifyExecutorRequest | None = None,
 ) -> tuple[ExecutorFailure, dict[str, Any]]:
     lineage = _delegation_lineage(job, task, request)
@@ -185,7 +186,7 @@ def _build_failure_summary(
         source_message_id=lineage["source_message_id"],
         project_id=lineage["project_id"],
         executor_id=lineage["executor_id"],
-        kind=failure_class,
+        kind=failure_kind or failure_class,
         details={
             "delegation_id": job.delegation_id,
             "task_id": job.task_id,
@@ -276,7 +277,10 @@ def process_delegation_task(
         request: CodexifyExecutorRequest | None = None
         try:
             registry_entry = get_executor_entry(job.executor)
-            executor = svc.resolve_executor(registry_entry.executor_id)
+            executor = svc.resolve_executor(
+                registry_entry.executor_id,
+                context=job.context,
+            )
             request = svc.build_executor_request(
                 job,
                 packet=packet,
@@ -311,8 +315,13 @@ def process_delegation_task(
                 job=job,
                 task=task,
                 message=message,
-                error_code=ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value,
+                error_code=getattr(
+                    exc,
+                    "error_code",
+                    ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value,
+                ),
                 failure_class=exc.__class__.__name__,
+                failure_kind=getattr(exc, "failure_kind", None),
             )
             svc.mark_job_failed(
                 task.delegation_id,

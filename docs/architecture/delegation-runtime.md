@@ -69,6 +69,17 @@ If any one of those layers is missing, the operator should treat the run as degr
 - `docs/architecture/runtime-protocol-token-contract.md` already defines canonical runtime tokens for acceptance, task events, and machine-readable errors.
 - `docs/architecture/account-export-restore-contract.md` already requires provenance and lineage to survive export and restore cycles.
 
+### Bounded Codex App Server interface (branch-local)
+
+- This branch adds an explicit `execution_interface=app_server` choice inside the existing `codex` execution channel. Omitting the choice continues to resolve `CodexExecutor` and `codex exec`.
+- The App Server adapter starts one local process over stdio, performs the v2 initialization handshake, starts one native thread and one turn, consumes the matching terminal notification, then closes stdin and waits for process exit. It does not resume or reuse native sessions.
+- The first adapter slice sets the native thread sandbox to `read-only`. It does not map broader Guardian permission profiles or expose write access.
+- Native Codex thread, session, and turn IDs are stored as subordinate metadata. The Guardian result retains the Codexify request, delegation, task, thread, source-message, project, and executor identities.
+- Provider evidence comes from the App Server thread response. A model is marked observed only when a per-turn reroute notification supplies it; otherwise a thread model is configured-only. The protocol exchange does not establish the funding or entitlement route, which remains unknown.
+- Deterministic protocol tests pass, and a worker test proves that an explicit App Server result follows the existing Guardian terminal-summary path while retaining Codexify lineage.
+- **Live proof, 2026-09-29:** one run through `DelegationService` and `delegation_worker` used `codex-cli 0.153.3`. The App Server completed initialization, thread start, and turn start, then returned a terminal failure: configured model `gpt-6-luna` is unsupported with the authenticated ChatGPT account. Guardian recorded a failed summary with the original Codexify source IDs; provider `openai` was observed, per-turn model identity was unavailable, and funding remained unknown. The App Server exited cleanly. The disposable fixture hash and Git status were unchanged. The run used an in-memory delegation service and captured task-event publisher, so it did not prove Postgres or Redis readback.
+- Live inference remains **NEXT_PROOF_NEEDED** for one account-supported Codex model. This failed turn does not establish successful inference or Codexify runtime support. OpenAI currently labels the App Server command experimental and says it is unsupported for production workloads ([App Server documentation](https://developers.openai.com/codex/app-server/)). The implementation follows the documented [v2 thread-start](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ThreadStartParams.ts), [v2 turn-start](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/TurnStartParams.ts), and [sandbox mode](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/SandboxMode.ts) shapes.
+
 ### Inferred delegation posture
 
 - `Inference:` Delegation should inherit the same split between acceptance, execution, and visibility that the chat runtime already uses.
