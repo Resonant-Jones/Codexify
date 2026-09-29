@@ -41,6 +41,28 @@ No ADR impact
 
 No post-C10A-W authority-changing work exists. Nothing required classification.
 
+### 2.1 Post-C10A-W commit discovered during this slice
+
+One commit sits between C10A-W and this slice's closeout:
+
+```text
+f4fc22b8e chore: add repo0qydupms
+```
+
+It was **not present** when lineage was first verified, and surfaced during
+staging. Classification: **non-authority tooling noise.** Its entire contents
+are `.precommit_cache/` and `.precommit_home/` plumbing entries created by
+`pre-commit`'s sandbox-local `PRE_COMMIT_HOME`. It touches no `guardian/`
+path, no `docs/architecture/` path, and no migration.
+
+Because it alters no lifecycle, review, content, schema, export, or restore
+authority, **no classification in this proof changes**, and no drift
+re-investigation was required. It is recorded here so the audit trail shows
+the commit was seen and adjudicated rather than silently ignored. Note that
+`PRE_COMMIT_HOME` was deliberately pointed inside the repository, which is
+what allowed this commit to be created; that is a known sandbox artifact,
+consistent with the pre-existing preserved `.precommit_*` dirt.
+
 ---
 
 ## 3. Canonical lifecycle vocabulary and present authority
