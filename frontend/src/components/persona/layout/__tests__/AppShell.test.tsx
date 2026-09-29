@@ -1724,6 +1724,38 @@ describe("AppShell workspace drawer shell", () => {
     }
   );
 
+  it("preserves the selected Guardian view and open Workspace through browser focus, restore, and close", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRoutePath("/chat");
+    render(<AppShell />);
+
+    const guardian = await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+    const workspace = await screen.findByTestId("workspace-drawer");
+    const root = screen.getByTestId("unified-desktop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open browser preview" }));
+    expect(root).toHaveAttribute("data-browser-state", "docked");
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    expect(root).toHaveAttribute("data-browser-state", "focused");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.browserFocused).toBe(true);
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBe(guardian);
+    expect(screen.getByTestId("workspace-drawer")).toBe(workspace);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore docked browser" }));
+    expect(root).toHaveAttribute("data-browser-state", "docked");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.browserFocused).toBe(false);
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBe(guardian);
+    expect(screen.getByTestId("workspace-drawer")).toBe(workspace);
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus browser" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close browser preview" }));
+    expect(root).toHaveAttribute("data-browser-state", "closed");
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBe(guardian);
+    expect(screen.getByTestId("workspace-drawer")).toBe(workspace);
+    expect(window.location.pathname).toBe("/chat");
+  });
+
   it("does not render workspace controls on dashboard", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
     setRoutePath("/dashboard");

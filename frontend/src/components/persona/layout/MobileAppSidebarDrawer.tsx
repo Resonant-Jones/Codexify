@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Pin, X } from "lucide-react";
 
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
@@ -23,6 +23,11 @@ type MobileAppSidebarDrawerProps = React.PropsWithChildren<{
   onNavigateApplicationView: (view: MobileApplicationView) => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
   wallpaperUrl?: string | null;
+  presentation?: "modal" | "shelf";
+  pinned?: boolean;
+  onPinnedChange?: (pinned: boolean) => void;
+  onShelfPointerLeave?: () => void;
+  shellStyle?: React.CSSProperties;
 }>;
 
 const FOCUSABLE_CONTROLS =
@@ -38,8 +43,14 @@ export default function MobileAppSidebarDrawer({
   onNavigateApplicationView,
   returnFocusRef,
   wallpaperUrl = null,
+  presentation = "modal",
+  pinned = false,
+  onPinnedChange,
+  onShelfPointerLeave,
+  shellStyle,
   children,
 }: MobileAppSidebarDrawerProps) {
+  const isShelf = presentation === "shelf";
   const shellViewportProfile = useShellViewportProfile();
   const mobileShellProfile = React.useMemo(
     () => getMobileShellProfile(shellViewportProfile),
@@ -53,14 +64,16 @@ export default function MobileAppSidebarDrawer({
   const portalTarget =
     typeof document === "undefined"
       ? null
-      : document.getElementById("cfy-portal-root") ??
-        document.getElementById("app") ??
-        document.getElementById("root") ??
-        document.body ??
-        document.documentElement;
+      : isShelf
+        ? document.body
+        : document.getElementById("cfy-portal-root") ??
+          document.getElementById("app") ??
+          document.getElementById("root") ??
+          document.body ??
+          document.documentElement;
 
   React.useEffect(() => {
-    if (!isOpen || typeof document === "undefined") return undefined;
+    if (!isOpen || isShelf || typeof document === "undefined") return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeRef.current?.focus();
@@ -68,7 +81,7 @@ export default function MobileAppSidebarDrawer({
       document.body.style.overflow = previousOverflow;
       returnFocusRef?.current?.focus();
     };
-  }, [isOpen, returnFocusRef]);
+  }, [isOpen, isShelf, returnFocusRef]);
 
   React.useEffect(() => {
     if (!isOpen || typeof window === "undefined") return undefined;
@@ -93,7 +106,7 @@ export default function MobileAppSidebarDrawer({
 
   const containFocus = React.useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
-      if (event.key !== "Tab") return;
+      if (isShelf || event.key !== "Tab") return;
       const drawer = drawerRef.current;
       if (!drawer) return;
       const focusableControls = Array.from(
@@ -123,7 +136,7 @@ export default function MobileAppSidebarDrawer({
         firstControl.focus();
       }
     },
-    []
+    [isShelf]
   );
 
   const primaryDestinations = React.useMemo(
@@ -170,13 +183,17 @@ export default function MobileAppSidebarDrawer({
   return createPortal(
     <div
       data-testid="mobile-sidebar-overlay"
+      data-sidebar-presentation={presentation}
+      data-sidebar-pinned={pinned ? "true" : "false"}
       style={{
         position: "fixed",
         inset: 0,
         zIndex: "var(--shell-overlay-z, 2000)",
+        pointerEvents: isShelf ? "none" : undefined,
+        ...shellStyle,
       }}
     >
-      <button
+      {!isShelf && <button
         type="button"
         data-testid="mobile-sidebar-scrim"
         className="absolute inset-0 border-0 p-0"
@@ -186,16 +203,18 @@ export default function MobileAppSidebarDrawer({
         }}
         aria-label="Dismiss application navigation and workspace sidebar"
         onClick={onClose}
-      />
+      />}
       <aside
         ref={drawerRef}
         data-testid="mobile-sidebar-drawer"
         className="absolute left-0 top-0 h-full overflow-hidden"
-        role="dialog"
-        aria-modal="true"
+        role={isShelf ? "complementary" : "dialog"}
+        aria-modal={isShelf ? undefined : "true"}
         aria-label="Application navigation and workspace"
         onKeyDown={containFocus}
+        onPointerLeave={isShelf && !pinned ? onShelfPointerLeave : undefined}
         style={{
+          pointerEvents: "auto",
           width: mobileShellProfile.guardian.drawerWidth,
           zIndex: "calc(var(--shell-overlay-z, 2000) + 1)",
         }}
@@ -258,11 +277,21 @@ export default function MobileAppSidebarDrawer({
                     className="block h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] shrink-0 object-contain"
                   />
                 </button>
+                {isShelf && <button
+                  type="button"
+                  className="icon-inline shrink-0"
+                  aria-label={pinned ? "Unpin Codexify sidebar" : "Pin Codexify sidebar"}
+                  aria-pressed={pinned}
+                  onClick={() => onPinnedChange?.(!pinned)}
+                  style={getMobileNavigationControlStyle(true, { square: true })}
+                >
+                  <Pin aria-hidden="true" className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]" fill={pinned ? "currentColor" : "none"} />
+                </button>}
                 <button
                   ref={closeRef}
                   type="button"
                   className="icon-inline shrink-0"
-                  aria-label="Close application navigation and workspace sidebar"
+                  aria-label={isShelf ? "Dismiss Codexify sidebar" : "Close application navigation and workspace sidebar"}
                   onClick={onClose}
                   style={getMobileNavigationControlStyle(true, { square: true })}
                 >

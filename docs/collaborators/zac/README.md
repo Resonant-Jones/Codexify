@@ -1,7 +1,7 @@
 # Zac Collaborator RAG Source
 
 **For:** Zac and Zac's agent  
-**Last updated:** 2026-09-28  
+**Last updated:** 2026-09-29
 **Status:** Active — orientation resources plus bounded execution handoffs
 
 ## Purpose
@@ -33,6 +33,16 @@ Current handoff:
 
 The rule is simple: **one primary lane at a time, evidence before expansion**.
 
+## Feedback Does Not Need To Be Formal
+
+Zac does not need to remember the report schema while using Codexify.
+
+He can complain, narrate, voice-dump, paste screenshots, or describe what felt wrong in ordinary language. His assistant can translate that raw feedback into the project format afterward using:
+
+- `handoffs/2026-09-28/feedback-translator-template.md`
+
+The translator must preserve uncertainty and must not invent reproduction steps, causes, severity, or product intent. The human experience is the source material; formatting is an agent task.
+
 ## Authority Order
 
 For any Codexify claim or task, use this order:
@@ -59,16 +69,19 @@ If these conflict, stop and surface the conflict instead of reconciling it by as
 | `report-output-templates.md` | Standard report shapes. |
 | `reports/` | Learning-artifact archive. |
 | `handoffs/` | Dated execution packets with outcomes, evidence gates, and stop conditions. |
+| `handoffs/2026-09-28/feedback-translator-template.md` | Agent template for turning informal Zac feedback into evidence without requiring Zac to format it. |
 
 ## Execution Checkpoint Format
 
-For an active handoff, keep status updates compact:
+For an active handoff, the saved checkpoint should be compact:
 
 - **Current truth** — what is true now.
 - **What changed** — what was actually completed.
 - **Evidence** — screenshot, trace, report, commit, test output, or runtime proof.
 - **Blocker / ambiguity** — only if one exists.
 - **Next move** — the next bounded action.
+
+Zac does not need to speak in this format. His assistant may translate an informal update into it.
 
 Do not replace evidence with an activity log.
 
