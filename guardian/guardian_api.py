@@ -87,7 +87,9 @@ from guardian.core.dependencies import (
     require_account_session,
     require_api_key,
     require_operator_auth,
+    require_task_event_read_principal,
 )
+from guardian.core.task_event_access import authorize_task_event_read
 from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
     normalize_outbox_tenant_id,
@@ -1613,7 +1615,7 @@ async def stream_task_events(
     task_id: str,
     last_id_query: str = Query("0-0", alias="last_id"),
     last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
-    api_key: str = Depends(require_api_key),
+    principal: Any = Depends(require_task_event_read_principal),
 ):
     """
     Stream task events from Redis by task_id as Server-Sent Events.
@@ -1623,6 +1625,10 @@ async def stream_task_events(
     - Stops streaming on task completion, failure, or cancellation.
     """
     from starlette.responses import StreamingResponse
+
+    # Authenticate, resolve the durable backend-task mapping, and authorize
+    # its canonical thread before constructing a response or reaching Redis.
+    authorize_task_event_read(task_id, principal, chatlog_db=chatlog_db)
 
     async def event_stream() -> AsyncGenerator[str, None]:
         last_id = str(last_event_id_header or last_id_query or "0-0")

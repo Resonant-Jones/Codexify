@@ -51,6 +51,11 @@ from guardian.core.preview_access import (
     is_private_preview,
     require_preview_principal,
 )
+from guardian.core.hosted_room_session import (
+    HostedRoomGuestPrincipal,
+    decode_principal as decode_hosted_room_guest_principal,
+    extract_session_token_from_request as extract_hosted_room_guest_session,
+)
 # NOTE: The legacy SQLite-backed `guardian.memory.query_memory.MemoryStore` import
 # was previously eager on this line:
 #     from guardian.memory.query_memory import memory_store as _memory_store
@@ -944,6 +949,48 @@ def require_account_session(
     return credential
 
 
+def require_task_event_read_principal(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> RequestUserScope | HostedRoomGuestPrincipal:
+    """Authenticate a task-event reader in an existing thread-read lane.
+
+    This is a narrow resource-specific composition of existing credential
+    resolvers. It does not authenticate a guest as an account or treat remote
+    operator credentials as user authority.
+    """
+    remote_boundary = is_private_preview() or _auth_mode() == "remote"
+    reject_mixed_principal_credentials(
+        request,
+        enabled=True,
+        authorization=authorization,
+        gc_session=gc_session,
+        operator_key_values=(x_api_key,) if remote_boundary else (),
+    )
+
+    guest_token = extract_hosted_room_guest_session(request)
+    if guest_token:
+        return decode_hosted_room_guest_principal(guest_token)
+
+    if remote_boundary:
+        # Require the exact account-session class before resolving account
+        # identity. Operator sessions and raw API keys cannot become users.
+        verify_account_session(request, x_api_key, authorization, gc_session)
+    else:
+        # Preserve local API-key/session operation, but do not allow a
+        # supplemental X-User-Id header to establish the local principal.
+        verify_api_key(request, x_api_key, authorization, gc_session)
+
+    return get_request_user_scope(
+        request=request,
+        x_user_id=None,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
+
+
 def _account_scope_gate(
     request: Request = None,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -1358,6 +1405,7 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "require_operator_auth",
+    "require_task_event_read_principal",
     "require_service_api_key",
     "require_service_capability",
     "get_current_user",
