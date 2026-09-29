@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.core.guardian_delegation_service import (
     GuardianDelegationError,
     GuardianDelegationService,
@@ -20,7 +20,7 @@ from guardian.protocol_tokens import (
 router = APIRouter(
     prefix="/api/guardian/delegations",
     tags=["Guardian Delegations"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 _service = GuardianDelegationService()

@@ -8,6 +8,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
@@ -17,6 +18,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PARENT_REVISION = "7e5a5fccf253"
@@ -142,6 +144,68 @@ def migration_database(
                 (database_name,),
             )
             connection.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
+
+
+@pytest.mark.integration
+def test_redemption_orders_user_insert_before_capability_foreign_key(
+    migration_database: tuple[Config, Engine],
+) -> None:
+    from guardian.account_activation.service import (
+        ActivationUnavailableError,
+        issue_activation,
+        redeem_activation,
+    )
+    from guardian.core.passwords import hash_password, verify_password
+    from guardian.db.models import AccountActivationCapability, User
+
+    config, engine = migration_database
+    command.upgrade(config, ACTIVATION_REVISION)
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="operator@example.com",
+                username="operator@example.com",
+                email="operator@example.com",
+                role="admin",
+                password_hash=hash_password("operator-test-password"),
+                created_at=now,
+            )
+        )
+        session.commit()
+        issued = issue_activation(
+            session,
+            recipient_email="recipient@example.com",
+            intended_role="guest",
+            created_by_user_id="operator@example.com",
+            expires_at=now + timedelta(days=7),
+            now=now,
+        )
+        activation_id = issued.capability.activation_id
+        session.commit()
+
+    with Session(engine) as session:
+        user = redeem_activation(
+            session,
+            raw_token=issued.raw_token,
+            password="recipient-test-password",
+            now=now + timedelta(minutes=1),
+        )
+        assert verify_password("recipient-test-password", user.password_hash)
+        session.commit()
+
+    with Session(engine) as session:
+        assert session.get(User, "recipient@example.com") is not None
+        capability = session.get(AccountActivationCapability, activation_id)
+        assert capability.resulting_user_id == "recipient@example.com"
+        assert capability.consumed_at is not None
+        with pytest.raises(ActivationUnavailableError):
+            redeem_activation(
+                session,
+                raw_token=issued.raw_token,
+                password="replay-password",
+                now=now + timedelta(minutes=2),
+            )
 
 
 def _user_rows(engine: Engine) -> list[tuple[str, str, str | None, str]]:

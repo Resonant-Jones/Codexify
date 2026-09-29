@@ -25,7 +25,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import chatlog_db, require_api_key
+from guardian.core.dependencies import chatlog_db, require_account_session as require_api_key
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import ChatMessage, MessageAudioAsset
 from guardian.queue import task_events

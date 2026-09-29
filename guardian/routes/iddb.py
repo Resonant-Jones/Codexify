@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.core.dependencies import get_account_user as get_current_user, require_account_session as require_api_key
 from guardian.services import iddb_settings_service
 
 router = APIRouter(

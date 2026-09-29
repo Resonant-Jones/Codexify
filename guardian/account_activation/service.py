@@ -285,6 +285,9 @@ def redeem_activation(
         created_at=current,
     )
     session.add(user)
+    # Persist the user before the capability's immediate foreign key points at
+    # it. This is a flush, not a commit: redemption remains one transaction.
+    session.flush()
     capability.consumed_at = current
     capability.resulting_user_id = user.id
     _record_activation_audit(

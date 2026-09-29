@@ -86,6 +86,8 @@ introduces live retrieval behavior changes in this task.
 - `stop condition`
   - The point where the router should stop widening retrieval.
 
+Coverage obligation is a separate axis governed by the [Document Recall Contract](./document-recall-contract.md). `targeted_recall`, `cross_document_synthesis`, and `exhaustive_review` describe what the request must consider before making a coverage claim; `shallow`, `normal`, and `deep` describe budget posture. The existing router remains the canonical control-plane entrypoint for intent, scope, graph allowance, escalation, and stopping. An eventual exhaustive path must enumerate authorized sources and account for each one; neither `deep` nor a larger semantic `topK` provides that behavior. Coverage-mode runtime integration is deferred.
+
 ## Canonical Decision Table
 
 | Intent | Retrieval Needed | Default Scope | Time Mode | Graph Allowance | Depth Bias | Escalation Order | Stop Condition |

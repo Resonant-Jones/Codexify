@@ -29,7 +29,7 @@ from guardian.connections.catalog import (
     get_connection,
 )
 from guardian.connections.notion import credentials as notion_credentials
-from guardian.core.dependencies import get_request_user_id, require_api_key
+from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
     ConnectionCategory,

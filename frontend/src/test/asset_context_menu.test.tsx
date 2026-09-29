@@ -26,6 +26,7 @@ describe("asset context menu", () => {
   beforeEach(() => {
     downloadAsset.mockReset();
     deleteAsset.mockReset();
+    localStorage.clear();
   });
 
   it("opens and dismisses the shared document menu from right-click", () => {
@@ -128,5 +129,37 @@ describe("asset context menu", () => {
     );
     expect(onDeleted).toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it("sets a gallery image as wallpaper using its normalized asset URL", () => {
+    render(
+      <MediaTile
+        id="tile-wallpaper"
+        src="/media/images/wallpaper.png?sig=stable"
+        alt="Wallpaper image"
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByLabelText("Wallpaper image"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+
+    expect(localStorage.getItem("cfy.wallpaper")).toBe(
+      "http://backend.test/media/images/wallpaper.png?sig=stable"
+    );
+  });
+
+  it("never persists a transient object URL as wallpaper", () => {
+    render(
+      <MediaTile
+        id="tile-blob"
+        src="blob:temporary-image"
+        alt="Temporary image"
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByLabelText("Temporary image"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
   });
 });

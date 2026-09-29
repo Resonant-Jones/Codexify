@@ -15,9 +15,9 @@ from guardian.core.ai_router import chat_with_ai
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
+    get_account_user_scope as get_request_user_scope,
     get_single_user_id,
-    require_api_key,
+    require_account_session as require_api_key,
 )
 from guardian.db import models
 

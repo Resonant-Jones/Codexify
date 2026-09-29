@@ -27,6 +27,7 @@ from backend.rag.anthropic_export_adapter import (
     AnthropicExtractedConversation,
     AnthropicImportResult,
     extract_anthropic_conversations,
+    extract_anthropic_text_documents,
     import_anthropic_export_path,
     scan_anthropic_export_root,
 )
@@ -193,6 +194,47 @@ def test_positive_anthropic_root_detection(tmp_path: Path):
     assert inventory.reason == "anthropic_chat_messages_payload_found"
     paths = {record.path for record in inventory.conversation_files}
     assert "conversations.json" in paths
+
+
+def test_whole_export_discovers_recoverable_text_and_reports_missing_binaries(
+    tmp_path: Path,
+):
+    export_folder = tmp_path / "anthropic-export"
+    export_folder.mkdir()
+    conversation = _anthropic_conversation(
+        conv_uuid="c-docs", name="Documents", messages=[
+            _anthropic_message(
+                sender="human", text="attached", message_uuid="m-docs",
+                files=[{"file_uuid": "source-file", "file_name": "original.pdf"}],
+                attachments=[{
+                    "file_name": "original.pdf", "file_type": "pdf",
+                    "extracted_content": "recoverable text",
+                }],
+            ),
+        ],
+    )
+    _write_anthropic_export(export_folder, conversations=[conversation])
+    project_file = next((export_folder / "projects").glob("*.json"))
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["docs"] = [{
+        "uuid": "source-project-doc", "filename": "notes.md",
+        "content": "source project text",
+    }]
+    project_file.write_text(json.dumps(project), encoding="utf-8")
+
+    inventory = scan_anthropic_export_root(tmp_path)
+    conversations = extract_anthropic_conversations(inventory)
+    documents, missing_binary_count = extract_anthropic_text_documents(
+        inventory, conversations
+    )
+    assert missing_binary_count == 1
+    assert len(documents) == 2
+    attachment = next(item for item in documents if item.source_message_id)
+    assert attachment.source_thread_id == "c-docs"
+    assert attachment.content == "recoverable text"
+    project_doc = next(item for item in documents if item.source_project_id)
+    assert project_doc.source_document_id == "source-project-doc"
+    assert project_doc.content == "source project text"
 
 
 def test_misleading_non_anthropic_json_is_rejected(tmp_path: Path):

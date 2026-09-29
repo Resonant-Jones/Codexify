@@ -41,9 +41,9 @@ from guardian.core.default_project import (
 )
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
+    get_account_user_scope as get_request_user_scope,
     get_single_user_id,
-    verify_api_key,
+    verify_account_session as verify_api_key,
 )
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.project_ownership import (

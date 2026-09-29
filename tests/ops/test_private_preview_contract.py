@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,12 @@ EXPECTED_ENV = {
     "DEEPSEEK_MODEL_DISCOVERY_URL": "",
     "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS": "3",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
+}
+EXPECTED_GUARDIAN_POSTURE = {
+    "CODEXIFY_SUPPORTED_PROFILE": "v1-whooshd-deepseek-web",
+    "GUARDIAN_EXPOSURE_MODE": "private_preview",
+    "GUARDIAN_AUTH_MODE": "remote",
+    "CODEXIFY_MULTI_USER_ENABLED": "true",
 }
 CHROMA_CONSUMERS = (
     "backend",
@@ -150,6 +157,30 @@ def _published_ports(config: dict[str, Any]) -> list[tuple[str, int, int]]:
     return publications
 
 
+def _run_guardian_posture_check(
+    config: dict[str, Any], overrides: dict[str, str | None] | None = None
+) -> subprocess.CompletedProcess[str]:
+    service = config["services"]["private-preview-auth-posture"]
+    command = service["command"]
+    assert isinstance(command, list) and len(command) == 1
+    environment = {
+        "PATH": os.environ.get("PATH", ""),
+        **service["environment"],
+    }
+    for key, value in (overrides or {}).items():
+        if value is None:
+            environment.pop(key, None)
+        else:
+            environment[key] = value
+    return subprocess.run(
+        [sys.executable, "-c", command[0]],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_private_preview_compose_selects_dual_provider_contract() -> None:
     config = _render_compose()
 
@@ -162,6 +193,61 @@ def test_private_preview_compose_selects_dual_provider_contract() -> None:
     assert config["services"]["worker-chat"]["environment"][
         "CHAT_WORKER_CONCURRENCY"
     ] == "1"
+
+
+def test_private_preview_guard_blocks_backend_until_posture_is_verified() -> None:
+    config = _render_compose()
+    backend = config["services"]["backend"]
+    posture_guard = config["services"]["private-preview-auth-posture"]
+
+    assert {
+        key: str(backend["environment"].get(key, ""))
+        for key in EXPECTED_GUARDIAN_POSTURE
+    } == EXPECTED_GUARDIAN_POSTURE
+    assert {
+        key: str(posture_guard["environment"].get(key, ""))
+        for key in EXPECTED_GUARDIAN_POSTURE
+    } == EXPECTED_GUARDIAN_POSTURE
+    assert backend["depends_on"]["private-preview-auth-posture"][
+        "condition"
+    ] == "service_completed_successfully"
+    assert posture_guard["restart"] == "no"
+
+    result = _run_guardian_posture_check(config)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "private-preview Guardian posture: PASS"
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    (
+        ("GUARDIAN_EXPOSURE_MODE", None),
+        ("GUARDIAN_AUTH_MODE", None),
+        ("GUARDIAN_EXPOSURE_MODE", ""),
+        ("GUARDIAN_AUTH_MODE", ""),
+        ("GUARDIAN_EXPOSURE_MODE", "local_safe"),
+        ("GUARDIAN_AUTH_MODE", "local"),
+    ),
+    ids=(
+        "missing-exposure",
+        "missing-auth",
+        "empty-exposure",
+        "empty-auth",
+        "local-exposure",
+        "local-auth",
+    ),
+)
+def test_private_preview_startup_guard_rejects_missing_or_local_posture(
+    variable: str, value: str | None
+) -> None:
+    config = _render_compose()
+
+    result = _run_guardian_posture_check(config, {variable: value})
+
+    assert result.returncode == 1
+    assert "private-preview Guardian posture is invalid" in result.stderr
+    assert variable in result.stderr
+    assert "local" not in result.stdout
 
 
 @pytest.mark.parametrize("redirection_source", ("none", "environment", "env_file"))
@@ -280,7 +366,8 @@ def test_private_preview_chroma_keeps_optional_profile_activation(
     preview = _render_compose(profiles=profiles)
 
     assert set(preview["services"]) == set(base["services"]) | {
-        "private-preview-origin"
+        "private-preview-origin",
+        "private-preview-auth-posture",
     }
     for service_name, profile in (
         ("obsidian-ingest", "cli"),

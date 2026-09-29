@@ -61,19 +61,25 @@ from guardian.account_observability.tokens import (
     AccountObservabilityInviteAuditAction,
     AccountObservabilityInvitePublicError,
 )
+from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
+    verify_session_token,
+    verify_session_token_for_purpose,
+)
 from guardian.core.auth_dependencies import (
     extract_session_token,
     resolve_session_user_id,
 )
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
-    get_current_user,
     get_request_user_id,
-    require_api_key,
+    require_service_capability,
     verify_api_key,
 )
+from guardian.core.preview_access import is_private_preview, role_for_preview_email
 from guardian.core.request_correlation import normalize_request_id
-from guardian.routes.admin import _session_cookie_secure_flag, require_admin
+from guardian.db.models import User
+from guardian.routes.admin import _session_cookie_secure_flag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Account Observability"])
@@ -138,13 +144,48 @@ def _audit_best_effort(
         )
 
 
-def _operator_dependencies(
-    api_key: str = Depends(require_api_key),
-    access_method: str = Depends(require_admin),
-    current_user: str = Depends(get_current_user),
-) -> tuple[str, str, str]:
-    """Require service auth plus the existing operator/admin boundary."""
-    return api_key, access_method, current_user
+def _require_account_admin(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    gc_session: str | None = Cookie(default=None, alias="gc_session"),
+) -> str:
+    """Resolve a current account session and its canonical admin permission."""
+    token = extract_session_token(authorization, gc_session)
+    if not token or not verify_session_token_for_purpose(
+        token, ACCOUNT_SESSION_PURPOSE
+    ):
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    valid, subject = verify_session_token(token)
+    account_id = resolve_session_user_id(authorization, gc_session)
+    if not valid or not subject or not account_id or subject != account_id:
+        raise HTTPException(
+            status_code=401, detail="Invalid or expired account session"
+        )
+
+    db = _db_or_503()
+    with db.get_session() as session:
+        account = session.get(User, account_id)
+        if account is None:
+            raise HTTPException(status_code=401, detail="Account session unavailable")
+        actor_id = account.id
+        is_admin = account.role == "admin"
+
+    if is_private_preview():
+        preview_role = role_for_preview_email(actor_id)
+        if preview_role is None:
+            raise HTTPException(status_code=401, detail="Account not approved")
+        is_admin = is_admin and preview_role == "admin"
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return actor_id
+
+
+def _account_admin_capability_dependencies(
+    actor_id: str = Depends(_require_account_admin),
+    _capability: None = Depends(require_service_capability),
+) -> str:
+    """Require one human admin principal and an independent service lock."""
+    return actor_id
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +201,9 @@ def _operator_dependencies(
 def create_operator_invite(
     body: InviteCreateRequest,
     request: Request,
-    operator: tuple[str, str, str] = Depends(_operator_dependencies),
+    actor_id: str = Depends(_account_admin_capability_dependencies),
 ) -> InviteCreateResponse:
     db = _db_or_503()
-    _, _, actor_id = operator
     try:
         with db.get_session() as session:
             row, raw_token = create_invite(
@@ -202,9 +242,9 @@ def create_operator_invite(
     response_model=InviteListResponse,
 )
 def list_operator_invites(
-    operator: tuple[str, str, str] = Depends(_operator_dependencies),
+    actor_id: str = Depends(_account_admin_capability_dependencies),
 ) -> InviteListResponse:
-    _ = operator
+    _ = actor_id
     db = _db_or_503()
     with db.get_session() as session:
         rows = list_invites(session)
@@ -221,10 +261,9 @@ def _transition_invite(
     *,
     action: str,
     transition: Any,
-    operator: tuple[str, str, str],
+    actor_id: str,
 ) -> InviteMetadataResponse:
     db = _db_or_503()
-    _, _, actor_id = operator
     try:
         with db.get_session() as session:
             row = transition(session, invite_id)
@@ -254,14 +293,14 @@ def _transition_invite(
 def disable_operator_invite(
     invite_id: str,
     request: Request,
-    operator: tuple[str, str, str] = Depends(_operator_dependencies),
+    actor_id: str = Depends(_account_admin_capability_dependencies),
 ) -> InviteMetadataResponse:
     return _transition_invite(
         invite_id,
         request,
         action=AccountObservabilityInviteAuditAction.DISABLED.value,
         transition=disable_invite,
-        operator=operator,
+        actor_id=actor_id,
     )
 
 
@@ -272,14 +311,14 @@ def disable_operator_invite(
 def revoke_operator_invite(
     invite_id: str,
     request: Request,
-    operator: tuple[str, str, str] = Depends(_operator_dependencies),
+    actor_id: str = Depends(_account_admin_capability_dependencies),
 ) -> InviteMetadataResponse:
     return _transition_invite(
         invite_id,
         request,
         action=AccountObservabilityInviteAuditAction.REVOKED.value,
         transition=revoke_invite,
-        operator=operator,
+        actor_id=actor_id,
     )
 
 
@@ -458,14 +497,14 @@ def submit_heartbeat(
 def trigger_retention_cleanup(
     request: Request,
     dry_run: bool = False,
-    operator: tuple[str, str, str] = Depends(_operator_dependencies),
+    actor_id: str = Depends(_account_admin_capability_dependencies),
 ) -> RetentionCleanupReceipt:
     """Trigger deterministic retention cleanup.
 
-    Requires operator authentication (API key + admin session).
+    Requires a human admin account session and the service capability.
     Supports dry_run=True for inspection without mutation.
     """
-    _ = operator
+    _ = actor_id
     db = _db_or_503()
     try:
         with db.get_session() as session:

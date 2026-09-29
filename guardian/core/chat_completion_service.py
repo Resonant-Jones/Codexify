@@ -63,6 +63,10 @@ from guardian.context.retrieval_router_policy import (
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
+from guardian.core.db import (
+    create_chat_completion_attempt,
+    mark_chat_completion_attempt_accepted,
+)
 from guardian.core.ai_router import (
     _encode_image_url_to_base64,
     _image_turn_vision_unsupported_detail,
@@ -688,7 +692,7 @@ def enqueue_chat_completion(
     """Accept one canonical chat completion task into the chat execution lane."""
 
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
-    if task_identity is None:
+    if task_identity is None or task.thread_id != thread_id:
         raise ChatCompletionEnqueueError("task_identity_invalid")
 
     task.task_id = task_identity
@@ -846,6 +850,33 @@ def enqueue_chat_completion(
         raise
 
     try:
+        create_chat_completion_attempt(
+            dependencies.chatlog_db,
+            request_id=task.request_id,
+            backend_task_id=task_identity,
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+    except Exception as exc:
+        if participant is not None and participant_prepared:
+            _rollback_acceptance_participant(
+                participant,
+                thread_id=thread_id,
+                task_id=task_identity,
+                turn_id=turn_id,
+            )
+        _best_effort_release_turn_lock(thread_id, locked)
+        logger.error(
+            "[chat.complete] attempt persistence failed thread_id=%s task_id=%s cause_class=%s",
+            thread_id,
+            task_identity,
+            type(exc).__name__,
+        )
+        raise ChatCompletionEnqueueError(
+            "attempt_persistence_unavailable", cause_class=type(exc).__name__
+        ) from None
+
+    try:
         run_with_redis_timeout(
             lambda: enqueue(task, CHAT_COMPLETION_QUEUE_NAME)
         )
@@ -884,6 +915,20 @@ def enqueue_chat_completion(
             cause_class=type(exc).__name__,
         ) from exc
 
+    attempt_acceptance_recorded = True
+    try:
+        mark_chat_completion_attempt_accepted(
+            dependencies.chatlog_db, backend_task_id=task_identity
+        )
+    except Exception as exc:
+        attempt_acceptance_recorded = False
+        logger.error(
+            "[chat.complete] queued task acceptance record failed thread_id=%s task_id=%s cause_class=%s",
+            thread_id,
+            task_identity,
+            type(exc).__name__,
+        )
+
     participant_commit_succeeded = True
     if participant is not None:
         participant_commit_succeeded = _commit_acceptance_participant(
@@ -921,6 +966,8 @@ def enqueue_chat_completion(
             COMPLETION_ACCEPTANCE_WARNING_PARTICIPANT_COMMIT_FAILED,
             *acceptance_warnings,
         )
+    if not attempt_acceptance_recorded:
+        acceptance_status = AcceptanceStatus.ACCEPTED_DEGRADED.value
     return ChatCompletionEnqueueResult(
         task=task,
         task_id=task_identity,

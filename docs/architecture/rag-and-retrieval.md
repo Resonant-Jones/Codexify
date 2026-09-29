@@ -40,6 +40,8 @@ When text extraction fails or embedding fails, the row remains visible with the 
 
 The broker treats `uploaded_documents.embedding_status` as the source of truth for document availability.
 
+Project knowledge membership and retrieval readiness are distinct under the [Document Recall Contract](./document-recall-contract.md). There is no architectural fixed Project document-count ceiling; real storage and ingestion capacity remains finite and separate from recall semantics. Each request still uses bounded retrieval. The Document Recall Contract governs coverage obligations, evidence-stage accounting, and future recall receipts without changing the lifecycle tokens or this uploaded-document gate.
+
 Rules:
 - `ready` documents may be serialized into project/thread document buckets
 - `pending`, `processing`, and `failed` documents are excluded from broker-visible document retrieval

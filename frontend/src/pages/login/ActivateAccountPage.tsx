@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
@@ -14,20 +14,49 @@ function captureActivationToken(): string | null {
   const fragment = window.location.hash.startsWith("#")
     ? window.location.hash.slice(1)
     : window.location.hash;
-  const token = new URLSearchParams(fragment).get("token")?.trim() || null;
+  return new URLSearchParams(fragment).get("token")?.trim() || null;
+}
+
+function removeActivationTokenFromUrl(): void {
+  if (typeof window === "undefined") return;
   const cleanUrl = `${window.location.pathname}${window.location.search}`;
   window.history.replaceState(window.history.state, "", cleanUrl);
-  return token;
 }
 
 export default function ActivateAccountPage() {
-  const [token] = useState<string | null>(captureActivationToken);
+  const [token, setToken] = useState<string | null>(captureActivationToken);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [loading, setLoading] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [unavailable, setUnavailable] = useState(token === null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const activationVersion = useRef(0);
+
+  useEffect(() => {
+    // Opening another activation link may change only the fragment, without
+    // remounting this page. Capture it before clearing the browser-visible URL.
+    function acceptActivationFragment() {
+      if (!window.location.hash) return;
+      const nextToken = captureActivationToken();
+      removeActivationTokenFromUrl();
+      activationVersion.current += 1;
+      setToken(nextToken);
+      setPassword("");
+      setConfirmation("");
+      setLoading(false);
+      setSucceeded(false);
+      setUnavailable(nextToken === null);
+      setValidationError(null);
+    }
+
+    window.addEventListener("hashchange", acceptActivationFragment);
+    acceptActivationFragment();
+    return () => {
+      window.removeEventListener("hashchange", acceptActivationFragment);
+      activationVersion.current += 1;
+    };
+  }, []);
 
   const canSubmit = useMemo(
     () =>
@@ -48,15 +77,17 @@ export default function ActivateAccountPage() {
 
     setLoading(true);
     setValidationError(null);
+    const submittedVersion = activationVersion.current;
     try {
       await api.post("/auth/activate", { token, password });
+      if (submittedVersion !== activationVersion.current) return;
       setSucceeded(true);
       setPassword("");
       setConfirmation("");
     } catch {
-      setUnavailable(true);
+      if (submittedVersion === activationVersion.current) setUnavailable(true);
     } finally {
-      setLoading(false);
+      if (submittedVersion === activationVersion.current) setLoading(false);
     }
   }
 
@@ -95,6 +126,13 @@ export default function ActivateAccountPage() {
           ) : unavailable ? (
             <div className="login-threshold__error" role="alert">
               {ACTIVATION_UNAVAILABLE_MESSAGE}
+              {token === null ? (
+                <>
+                  <br />
+                  If you just completed the private workspace access check,
+                  reopen the original invitation link in this browser.
+                </>
+              ) : null}
             </div>
           ) : (
             <form className="login-threshold__form" onSubmit={handleSubmit}>

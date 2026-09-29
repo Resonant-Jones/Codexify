@@ -14,8 +14,9 @@ import hashlib
 import json
 import os
 import uuid
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 # Ensure DEV_MODE so the session secret falls back to dev-secret in tests
 os.environ.setdefault("DEV_MODE", "true")
@@ -36,15 +37,20 @@ from guardian.core.hosted_room_session import (
     issue_guest_session_token,
 )
 from guardian.db.models import (
+    ChatCompletionAttempt,
     ChatMessage,
     ChatThread,
     HostedRoom,
     HostedRoomInvite,
     HostedRoomParticipant,
+    PersonaProfile,
+    PersonaProfileRevision,
     Project,
+    ThreadSpaceNode,
     User,
     UserProfile,
 )
+from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 
 
 @compiles(JSONB, "sqlite")
@@ -73,9 +79,13 @@ def test_engine():
 
     for table in (
         User.__table__,
+        ThreadSpaceNode.__table__,
         UserProfile.__table__,
         Project.__table__,
+        PersonaProfile.__table__,
+        PersonaProfileRevision.__table__,
         ChatThread.__table__,
+        ChatCompletionAttempt.__table__,
         HostedRoom.__table__,
         HostedRoomInvite.__table__,
         HostedRoomParticipant.__table__,
@@ -137,6 +147,28 @@ class _MockGuardianDB:
 
     def get_session(self):
         return self._session_factory()
+
+    @contextmanager
+    def _sa_session(self):
+        session = self._session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_chat_thread(self, thread_id):
+        with self._sa_session() as session:
+            thread = session.get(ChatThread, thread_id)
+            if thread is None:
+                return None
+            return {
+                "active_profile_id": thread.active_profile_id,
+                "active_profile_revision": thread.active_profile_revision,
+            }
 
     def ensure_default_project(self):
         return None
@@ -604,8 +636,10 @@ def test_inspect_session_tampered_cookie_returns_401(client):
 
 def test_inspect_session_wrong_purpose_token_fails(client):
     """An account session token must not work as a room guest session."""
-    from guardian.core.auth import issue_session_token
-    account_token, _ = issue_session_token(subject="web")
+    from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+    account_token, _ = issue_session_token(
+        subject="web", purpose=ACCOUNT_SESSION_PURPOSE
+    )
     resp = client.get(
         "/api/hosted-room-session",
         cookies={_SESSION_COOKIE_NAME: account_token},
@@ -899,8 +933,10 @@ def test_logout_preserves_invitation_acceptance(client, test_engine):
 
 def test_account_session_token_rejected(client):
     """An account session token (subject='web') must be rejected."""
-    from guardian.core.auth import issue_session_token
-    account_token, _ = issue_session_token(subject="web")
+    from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+    account_token, _ = issue_session_token(
+        subject="web", purpose=ACCOUNT_SESSION_PURPOSE
+    )
 
     resp = client.get(
         "/api/hosted-room-session",
@@ -1133,7 +1169,9 @@ def test_guest_message_no_credentials_leaked(client):
         assert "bound_account_id" not in data["sender"]
 
 
-def test_guest_explicit_guardian_invocation_returns_async_acceptance(client, monkeypatch):
+def test_guest_explicit_guardian_invocation_returns_async_acceptance(
+    client, mock_db, test_engine, monkeypatch
+):
     room_resp = client.post(
         "/api/hosted-rooms",
         json={
@@ -1164,20 +1202,52 @@ def test_guest_explicit_guardian_invocation_returns_async_acceptance(client, mon
     assert source_resp.status_code == 201
     message_id = source_resp.json()["id"]
 
-    import guardian.routes.hosted_room_guest as hrg
+    from guardian.core import chat_completion_service as service
 
     captured = {}
 
-    def _enqueue(task, **kwargs):
-        captured["task"] = task
-        captured["kwargs"] = kwargs
-        return SimpleNamespace(
-            task_id="task-9f-guest",
-            acceptance_status="accepted_with_warnings",
-            acceptance_warnings=("queue_degraded",),
+    def _acquire(
+        thread_id, owner_task_id, *, turn_id, source, ttl_seconds, return_envelope
+    ):
+        assert return_envelope is True
+        return build_turn_lock_envelope(
+            thread_id,
+            owner_task_id,
+            turn_id=turn_id,
+            source=source,
+            ttl_seconds=ttl_seconds,
+            acquired_at="2026-09-26T12:00:00+00:00",
+            lease_token="hosted-guest-test-lease",
         )
 
-    monkeypatch.setattr(hrg, "enqueue_chat_completion", _enqueue)
+    def _renew(thread_id, lock, *, ttl_seconds, return_envelope):
+        assert isinstance(lock, TurnLockEnvelope)
+        assert thread_id == lock.thread_id
+        assert return_envelope is True
+        renewed_at = datetime.fromisoformat(lock.acquired_at) + timedelta(seconds=10)
+        return replace(
+            lock,
+            renewed_at=renewed_at.isoformat(),
+            lease_expires_at=(renewed_at + timedelta(seconds=ttl_seconds)).isoformat(),
+            lease_ttl_seconds=ttl_seconds,
+        )
+
+    def _enqueue(task, queue_name):
+        with mock_db._sa_session() as session:
+            persisted = session.query(ChatCompletionAttempt).filter_by(
+                backend_task_id=task.task_id
+            ).one()
+            assert persisted.thread_id == task.thread_id
+            assert persisted.request_id == task.request_id
+            assert persisted.accepted_at is None
+        captured["task"] = task
+        captured["queue_name"] = queue_name
+
+    monkeypatch.setattr(service.dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(service, "acquire_turn_lock", _acquire)
+    monkeypatch.setattr(service, "renew_turn_lock", _renew)
+    monkeypatch.setattr(service, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(service, "enqueue", _enqueue)
     response = client.post(
         f"/api/hosted-room-session/actors/{guardian['id']}/invoke",
         headers={"X-Request-ID": "request-9f-guest"},
@@ -1188,9 +1258,9 @@ def test_guest_explicit_guardian_invocation_returns_async_acceptance(client, mon
     assert response.status_code == 202
     data = response.json()
     assert data["request_id"] == "request-9f-guest"
-    assert data["acceptance_status"] == "accepted_with_warnings"
-    assert data["acceptance_warnings"] == ["queue_degraded"]
-    assert data["task_id"] == "task-9f-guest"
+    assert data["acceptance_status"] == "accepted"
+    assert data["acceptance_warnings"] == []
+    assert data["task_id"] == captured["task"].task_id
     assert data["room_id"] == room_id
     assert data["source_message_id"] == message_id
     assert data["actor_participant_id"] == guardian["id"]
@@ -1199,7 +1269,26 @@ def test_guest_explicit_guardian_invocation_returns_async_acceptance(client, mon
     assert "content" not in data
     assert captured["task"].hosted_room_invocation.requester_authority == "guest"
     assert captured["task"].hosted_room_invocation.requester_participant_id
-    assert captured["kwargs"]["turn_id"]
+    assert captured["queue_name"] == "codexify:queue:chat"
+    assert captured["task"].turn_id
+    with test_engine.connect() as connection:
+        attempts = connection.execute(
+            ChatCompletionAttempt.__table__.select().where(
+                ChatCompletionAttempt.backend_task_id == data["task_id"]
+            )
+        ).mappings().all()
+        room = connection.execute(
+            HostedRoom.__table__.select().where(HostedRoom.id == room_id)
+        ).mappings().one()
+        thread = connection.execute(
+            ChatThread.__table__.select().where(ChatThread.id == data["thread_id"])
+        ).mappings().one()
+    assert len(attempts) == 1
+    assert attempts[0]["backend_task_id"] == data["task_id"]
+    assert attempts[0]["request_id"] == data["request_id"]
+    assert attempts[0]["thread_id"] == room["backing_thread_id"] == data["thread_id"]
+    assert attempts[0]["accepted_at"] is not None
+    assert thread["user_id"] == room["owner_account_id"] == captured["task"].user_id
 
 
 def test_guest_explicit_invocation_body_is_exactly_message_id(client):

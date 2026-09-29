@@ -240,11 +240,17 @@ def process_account_import_task(
                     )
                 source_summary = {
                     "conversations_discovered": anthropic_result.conversations_discovered,
-                    "conversations_accepted": anthropic_result.conversations_discovered,
-                    "conversations_skipped": 0,
+                    "conversations_accepted": anthropic_result.conversations_accepted,
+                    "conversations_skipped": max(
+                        0,
+                        anthropic_result.conversations_discovered
+                        - anthropic_result.conversations_accepted
+                        - anthropic_result.conversations_failed,
+                    ),
                     "conversations_failed": anthropic_result.conversations_failed,
                     "conversation_transactions_committed": (
                         anthropic_result.conversations_imported > 0
+                        or anthropic_result.canonical_duplicate_count > 0
                     ),
                 }
                 service.record_source_summary(
@@ -263,14 +269,61 @@ def process_account_import_task(
                     user_id=user_id,
                     threads_imported=anthropic_result.conversations_imported,
                     messages_imported=anthropic_result.messages_imported,
+                    canonical_duplicate_count=anthropic_result.canonical_duplicate_count,
                     phase_key="anthropic_conversations",
                 )
-                # Anthropic corpus only writes chat thread/message rows; the
-                # existing account-import contract treats media ingestion as
-                # an OpenAI-specific flow. Per source-family policy, the
-                # adapter never ingests media bytes for Anthropic exports
-                # (file references carry no recoverable binaries in the
-                # inspected export), so we skip the image path entirely.
+                completed_media_paths = {
+                    str(value) for value in checkpoint.get("media_paths", [])
+                }
+                documents = [
+                    item for item in anthropic_result.documents
+                    if item.path not in completed_media_paths
+                ]
+                for start in range(0, len(documents), service.limits.media_batch_size):
+                    results: list[dict[str, Any]] = []
+                    skipped: list[dict[str, Any]] = []
+                    for item in documents[start:start + service.limits.media_batch_size]:
+                        try:
+                            results.append(service.import_text_document_record(
+                                job_id=job_id,
+                                user_id=user_id,
+                                path=item.path,
+                                source_filename=item.source_filename,
+                                content=item.content,
+                                source_thread_id=item.source_thread_id,
+                                source_message_id=item.source_message_id,
+                                source_project_id=item.source_project_id,
+                                source_document_id=item.source_document_id,
+                            ))
+                        except Exception as exc:
+                            logger.warning(
+                                "[account-import] Claude text document skipped job_id=%s path=%s error=%s",
+                                job_id, item.path, exc,
+                            )
+                            skipped.append({
+                                "path": item.path,
+                                "code": "document_import_failed",
+                                "message": str(exc) or exc.__class__.__name__,
+                            })
+                    service.record_media_batch(
+                        job_id=job_id, user_id=user_id,
+                        results=results, skipped=skipped,
+                    )
+                missing_originals = [
+                    {
+                        "path": f"anthropic/reference-only/{index}",
+                        "code": "source_binary_unavailable",
+                        "message": "Source export contained a file reference without original bytes.",
+                    }
+                    for index in range(anthropic_result.reference_only_count)
+                    if f"anthropic/reference-only/{index}" not in completed_media_paths
+                ]
+                for start in range(0, len(missing_originals), service.limits.media_batch_size):
+                    service.record_media_batch(
+                        job_id=job_id, user_id=user_id,
+                        results=[],
+                        skipped=missing_originals[start:start + service.limits.media_batch_size],
+                    )
                 service.complete_job(job_id=job_id, user_id=user_id)
                 return True
 
@@ -317,6 +370,11 @@ def process_account_import_task(
                     raise handoff_failure
                 if diagnostics.errors:
                     raise RuntimeError("; ".join(diagnostics.errors[:5]))
+                if diagnostics.conversations_discovered == 0:
+                    raise AccountImportError(
+                        "No conversations were found in the selected OpenAI export.",
+                        code="unrecognized_export_structure",
+                    )
                 source_summary = {
                     "conversations_discovered": diagnostics.conversations_discovered,
                     "conversations_accepted": diagnostics.conversations_accepted,
@@ -329,6 +387,11 @@ def process_account_import_task(
                     "conversations_failed": diagnostics.conversations_failed,
                     "conversation_transactions_committed": diagnostics.text_import_complete,
                 }
+            if source_summary["conversations_discovered"] == 0:
+                raise AccountImportError(
+                    "No conversations were found in the selected OpenAI export.",
+                    code="unrecognized_export_structure",
+                )
             service.record_source_summary(
                 job_id=job_id,
                 user_id=user_id,
@@ -339,51 +402,65 @@ def process_account_import_task(
             completed_media_paths = {
                 str(value) for value in checkpoint.get("media_paths", [])
             }
-            supported_image_records = [
+            supported_asset_records = [
                 record
                 for record in inventory.files
                 if record.detected_kind
-                in {"image_png", "image_jpeg", "image_gif", "image_webp"}
+                in {"image_png", "image_jpeg", "image_gif", "image_webp", "pdf"}
             ]
-            image_records = [
+            asset_records = [
                 record
-                for record in supported_image_records
+                for record in supported_asset_records
                 if record.path not in completed_media_paths
             ]
-            for start in range(0, len(image_records), service.limits.media_batch_size):
+            for start in range(0, len(asset_records), service.limits.media_batch_size):
                 results: list[dict[str, Any]] = []
                 skipped: list[dict[str, Any]] = []
                 warnings: list[dict[str, Any]] = []
-                for record in image_records[
+                for record in asset_records[
                     start : start + service.limits.media_batch_size
                 ]:
                     try:
                         evidence = resolve_openai_export_image_evidence(
                             record.path, evidence_index
                         )
-                        results.append(
-                            service.import_image_record(
-                                job_id=job_id,
-                                user_id=user_id,
-                                record=record,
-                                evidence=evidence,
-                            )
+                        importer = (
+                            service.import_pdf_record
+                            if record.detected_kind == "pdf"
+                            else service.import_image_record
                         )
+                        outcome = importer(
+                            job_id=job_id,
+                            user_id=user_id,
+                            record=record,
+                            evidence=evidence,
+                        )
+                        results.append(outcome)
                         if evidence.source_tag == "unclassified":
                             warnings.append(
                                 {
                                     "path": record.path,
-                                    "code": "image_provenance_unclassified",
+                                    "code": (
+                                        "document_provenance_unclassified"
+                                        if record.detected_kind == "pdf"
+                                        else "image_provenance_unclassified"
+                                    ),
                                     "message": (
-                                        "Image retained without provable uploaded "
+                                        "Asset retained without provable uploaded "
                                         "or generated provenance."
                                     ),
                                     "evidence_kind": evidence.evidence_kind,
                                 }
                             )
+                        if record.detected_kind == "pdf" and not outcome.get("text_extracted", True):
+                            warnings.append({
+                                "path": record.path,
+                                "code": "document_text_unavailable",
+                                "message": "PDF retained, but no searchable text could be extracted.",
+                            })
                     except Exception as exc:
                         logger.warning(
-                            "[account-import] image skipped job_id=%s path=%s error=%s",
+                            "[account-import] asset skipped job_id=%s path=%s error=%s",
                             job_id,
                             record.path,
                             exc,
@@ -391,7 +468,7 @@ def process_account_import_task(
                         skipped.append(
                             {
                                 "path": record.path,
-                                "code": "image_import_failed",
+                                "code": "document_import_failed" if record.detected_kind == "pdf" else "image_import_failed",
                                 "message": str(exc) or exc.__class__.__name__,
                             }
                         )
@@ -411,6 +488,7 @@ def process_account_import_task(
                 }
                 for record in inventory.attachment_files
                 if not record.detected_kind.startswith("image_")
+                and record.detected_kind != "pdf"
                 and record.path not in completed_media_paths
             ]
             if unsupported:

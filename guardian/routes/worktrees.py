@@ -18,7 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.worktrees.service import (
     REPO_PATH_ENV,
     discover_worktree_lanes,
@@ -111,7 +111,7 @@ async def list_worktree_lanes(
             "Repository path to inspect. Defaults to the " f"{REPO_PATH_ENV} env var."
         ),
     ),
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> WorktreeLanesResponse:
     """Return the current operational state of every worktree lane.
 
@@ -131,7 +131,7 @@ async def list_worktree_lanes(
 )
 async def refresh_worktree_lanes(
     repo_path: Optional[str] = Query(default=None),
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> WorktreeLanesResponse:
     """Explicit refresh action: re-run discovery and state collection.
 
