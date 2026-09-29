@@ -1,5 +1,5 @@
 Purpose: Define how Codexify creates and maintains runtime architecture diagrams without drift, duplication, or low-signal documentation sprawl.
-Last updated: 2026-08-09
+Last updated: 2026-09-29
 Source anchors:
 - docs/architecture/kb-validity-matrix.md
 - docs/architecture/runtime-diagrams-v1.md
@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-12 (ADR-087 accepted-task execution-deadline decision reviewed; logical runtime topology unchanged; implementation and runtime proof remain pending)
+Diagram Review Marker: 2026-09-29 (ADR-093 harness-selection architecture acceptance reviewed; runtime topology diagrams unchanged because no harness routing or placement implementation is authorized in this slice)
 
 ## Scope
 
