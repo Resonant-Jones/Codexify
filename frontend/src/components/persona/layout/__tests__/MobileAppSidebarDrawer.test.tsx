@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -212,6 +212,54 @@ describe("MobileAppSidebarDrawer", () => {
         name: "Collapse application navigation",
       })
     ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("reuses the drawer as a non-modal pinned or transient focused-browser shelf", async () => {
+    const user = userEvent.setup();
+    function ShelfHarness() {
+      const [open, setOpen] = React.useState(true);
+      const [pinned, setPinned] = React.useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Reveal shelf</button>
+          <MobileAppSidebarDrawer
+            isOpen={open}
+            onClose={() => { setOpen(false); setPinned(false); }}
+            presentation="shelf"
+            pinned={pinned}
+            onPinnedChange={setPinned}
+            onShelfPointerLeave={() => setOpen(false)}
+            isApplicationNavigationExpanded={false}
+            onApplicationNavigationExpandedChange={() => {}}
+            activeApplicationView="guardian"
+            applicationDestinations={DESTINATIONS}
+            onNavigateApplicationView={() => {}}
+            shellStyle={{ "--panel-bg": "navy" } as React.CSSProperties}
+          >
+            <StatefulWorkspace />
+          </MobileAppSidebarDrawer>
+        </>
+      );
+    }
+    render(<ShelfHarness />);
+    const shelf = screen.getByRole("complementary", { name: "Application navigation and workspace" });
+    expect(shelf.closest("[data-sidebar-presentation]")).toHaveAttribute("data-sidebar-pinned", "true");
+    expect(shelf.closest("[data-sidebar-presentation]")?.parentElement).toBe(document.body);
+    expect(screen.queryByTestId("mobile-sidebar-scrim")).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
+
+    await user.click(within(shelf).getByRole("button", { name: "Unpin Codexify sidebar" }));
+    expect(shelf.closest("[data-sidebar-presentation]")).toHaveAttribute("data-sidebar-pinned", "false");
+    fireEvent.pointerLeave(shelf);
+    expect(screen.queryByRole("complementary", { name: "Application navigation and workspace" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reveal shelf" }));
+    const transient = screen.getByRole("complementary", { name: "Application navigation and workspace" });
+    await user.click(within(transient).getByRole("button", { name: "Pin Codexify sidebar" }));
+    fireEvent.pointerLeave(transient);
+    expect(transient).toBeInTheDocument();
+    await user.click(within(transient).getByRole("button", { name: "Dismiss Codexify sidebar" }));
+    expect(screen.queryByRole("complementary", { name: "Application navigation and workspace" })).not.toBeInTheDocument();
   });
 
   it("dismisses from the view-neutral scrim affordance", async () => {
