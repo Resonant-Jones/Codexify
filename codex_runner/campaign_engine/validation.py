@@ -247,6 +247,17 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared task"
             )
+        else:
+            task = tasks[attempt["task_id"]]
+            if task.get("validation_command") and attempt.get("execution_mode") == "live":
+                if not attempt.get("validation_command_reference"):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} requires a validation_command_reference"
+                    )
+                if not attempt.get("validation_result_hash"):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} requires a validation_result_hash"
+                    )
         if attempt["role_binding_id"] not in bindings:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared role binding"
