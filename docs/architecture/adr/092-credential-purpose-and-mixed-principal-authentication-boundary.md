@@ -254,8 +254,13 @@ service-capability separation is now qualified by focused tests:
 gate checks exact `account_session` purpose, the approved session, and the
 persisted admin account before capability validation. Strict generic
 account-purpose validation, `auth_dependencies.py` bypass closure, legacy
-account-token rejection, global mixed-principal enforcement, task-event SSE
-authorization, and public-ingress qualification remain deferred.
+account-token rejection, task-event SSE object authorization, and
+public-ingress qualification remain deferred. Remote HTTP mixed-principal
+rejection is now implemented at the generic and strict account dependencies,
+the explicit operator-auth dependency, the account-observability human gate,
+and authenticated Hosted Room guest session-inspection, message, and invoke
+routes. It does not change local/single-user handling or establish task-event
+ownership.
 
 The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
 exact signed `purpose=account_session` before consulting the approved session
@@ -327,9 +332,14 @@ rule; this is not a remote credential fallback.
 The canonical mixed-lane response is **HTTP 400** with machine-readable error
 `mixed_principal_credentials` and a generic message such as `Conflicting
 authentication contexts`. It must reveal neither credential's validity nor
-the existence of a task, thread, or room. The error value is a contract for a
-future runtime implementation; it is not an emitted token today and must be
-registered under the runtime protocol-token rules before use.
+the existence of a task, thread, or room. The error is registered in
+`guardian/protocol_tokens.py` and emitted by the shared remote HTTP presence
+check. That check reads an unverified purpose claim only to classify account
+versus operator presence; it does not treat the claim as authority. Raw
+operator keys are classified only at the operator-auth seam, so a route's
+non-principal service-capability factor remains separate. The implementation
+does not change local/single-user behavior, WebSocket authentication, or
+task-event object authorization.
 
 | Request state | Result before protected data access |
 |---|---|

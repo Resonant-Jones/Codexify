@@ -936,6 +936,11 @@ def test_delegation_event_tokens() -> None:
 
 
 def test_error_code_tokens() -> None:
+    assert (
+        ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value
+        == "mixed_principal_credentials"
+    )
+    assert ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value in ERROR_CODES
     assert ErrorCode.QUEUE_ENQUEUE_FAILED.value == "QUEUE_ENQUEUE_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value == "CHAT_COMPLETE_ENQUEUE_FAILED"
@@ -1021,6 +1026,7 @@ def test_error_code_tokens() -> None:
         == "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
     )
     assert ERROR_CODES == {
+        "mixed_principal_credentials",
         "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",

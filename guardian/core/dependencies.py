@@ -32,6 +32,7 @@ from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
 from guardian.core.auth import (
     OPERATOR_SESSION_PURPOSE,
+    reject_mixed_principal_credentials,
     resolve_account_session_subject,
     verify_session_token,
     verify_session_token_for_purpose,
@@ -633,7 +634,16 @@ def verify_api_key(
 
     Note: GUARDIAN_EXPOSURE_MODE=public_allowlist always forces remote mode.
     """
-    if is_private_preview():
+    private_preview = is_private_preview()
+    remote_boundary = private_preview or _auth_mode() == "remote"
+    reject_mixed_principal_credentials(
+        request,
+        enabled=remote_boundary,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
+
+    if private_preview:
         # No static browser/API keys in a tunnelled preview.  The caller must
         # present a signed session for an allowlisted email.
         return require_preview_principal(request).email
@@ -812,6 +822,7 @@ def require_operator_auth(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+    request: Request = None,
 ) -> str:
     """Require explicit operator authority without resolving an account.
 
@@ -820,6 +831,14 @@ def require_operator_auth(
     A valid token of another class is rejected before considering API-key
     fallback, so account and guest credentials cannot be reinterpreted.
     """
+    reject_mixed_principal_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+        authorization=authorization,
+        gc_session=gc_session,
+        operator_key_values=(x_api_key,),
+    )
+
     bearer = ""
     if authorization and authorization.lower().startswith("bearer "):
         bearer = authorization[7:].strip()
@@ -895,14 +914,23 @@ def verify_account_session(
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """Authenticate a frozen account route without changing other auth lanes."""
-    if not is_private_preview() and _auth_mode() != "remote":
+    private_preview = is_private_preview()
+    remote_boundary = private_preview or _auth_mode() == "remote"
+    if not remote_boundary:
         return verify_api_key(request, x_api_key, authorization, gc_session)
+
+    reject_mixed_principal_credentials(
+        request,
+        enabled=True,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
 
     token = extract_session_token(authorization, gc_session)
     if not token:
         raise HTTPException(status_code=401, detail="Account session required")
     subject = resolve_account_session_subject(token)
-    if is_private_preview():
+    if private_preview:
         principal = require_preview_principal(request)
         if principal.email != subject:
             raise HTTPException(status_code=401, detail="Account session mismatch")

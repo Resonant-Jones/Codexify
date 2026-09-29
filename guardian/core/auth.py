@@ -21,9 +21,126 @@ from typing import Any, Optional, Tuple
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
+from guardian.protocol_tokens import ErrorCode
+
 
 ACCOUNT_SESSION_PURPOSE = "account_session"
 OPERATOR_SESSION_PURPOSE = "operator_session"
+
+
+def _unverified_session_purpose(token: object) -> str | None:
+    """Read a current session token's purpose as presence evidence only.
+
+    This parser deliberately does not verify the signature, expiry, subject,
+    or session-store approval. It is used only to reject requests that present
+    multiple credential classes before any credential or resource lookup.
+    """
+    if not isinstance(token, str):
+        return None
+    packed = token.strip()
+    if not packed or len(packed) > 16_384 or packed.count(".") != 1:
+        return None
+    payload_b64, _signature_b64 = packed.split(".", 1)
+    if not payload_b64:
+        return None
+
+    def reject_duplicate_claims(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        claims: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in claims:
+                raise ValueError("duplicate session claim")
+            claims[key] = value
+        return claims
+
+    try:
+        padded = payload_b64 + ("=" * (-len(payload_b64) % 4))
+        payload = base64.b64decode(
+            padded.encode("ascii"), altchars=b"-_", validate=True
+        )
+        claims = json.loads(
+            payload.decode("utf-8"), object_pairs_hook=reject_duplicate_claims
+        )
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(claims, dict):
+        return None
+    purpose = claims.get("purpose")
+    if isinstance(purpose, str) and purpose in {
+        ACCOUNT_SESSION_PURPOSE,
+        OPERATOR_SESSION_PURPOSE,
+    }:
+        return purpose
+    return None
+
+
+def reject_mixed_principal_credentials(
+    request: Request | None,
+    *,
+    enabled: bool,
+    authorization: str | None = None,
+    gc_session: str | None = None,
+    operator_key_values: tuple[object, ...] = (),
+) -> None:
+    """Reject cross-principal credential presence before validation/lookups.
+
+    The exact, unverified purpose claim is presence evidence only. Raw keys
+    count as operator material only when the caller is an operator-auth seam;
+    service-capability callers must leave ``operator_key_values`` empty.
+    """
+    if not enabled:
+        return
+
+    if request is not None:
+        if authorization is None:
+            authorization = request.headers.get("Authorization")
+        if gc_session is None:
+            gc_session = request.cookies.get("gc_session")
+
+    authorization_value = (
+        authorization.strip() if isinstance(authorization, str) else ""
+    )
+    session_cookie_value = (
+        gc_session.strip() if isinstance(gc_session, str) else ""
+    )
+    guest_selector_present = bool(
+        request is not None
+        and "codexify_hosted_room_session" in request.cookies
+    )
+
+    # A guest selector combined with any other session-selector material is
+    # mixed even when the other token is malformed or expired.
+    if guest_selector_present and (authorization_value or session_cookie_value):
+        _raise_mixed_principal_credentials()
+
+    lanes: set[str] = set()
+    if guest_selector_present:
+        lanes.add("guest")
+    bearer_token = ""
+    if authorization_value.lower().startswith("bearer "):
+        bearer_token = authorization_value[7:].strip()
+    for token in (bearer_token, session_cookie_value):
+        purpose = _unverified_session_purpose(token)
+        if purpose == ACCOUNT_SESSION_PURPOSE:
+            lanes.add("account")
+        elif purpose == OPERATOR_SESSION_PURPOSE:
+            lanes.add("operator")
+
+    if any(isinstance(value, str) and value.strip() for value in operator_key_values):
+        lanes.add("operator")
+
+    if len(lanes) > 1:
+        _raise_mixed_principal_credentials()
+
+
+def _raise_mixed_principal_credentials() -> None:
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value,
+            "message": "Conflicting authentication contexts",
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -263,6 +380,12 @@ def require_auth(
     from guardian.core.preview_access import is_private_preview, role_for_preview_email
 
     if is_private_preview() or _auth_mode() == "remote":
+        reject_mixed_principal_credentials(
+            request,
+            enabled=True,
+            authorization=authorization,
+            gc_session=gc_session,
+        )
         from guardian.core.auth_dependencies import extract_session_token
 
         token = extract_session_token(authorization, gc_session)
