@@ -137,8 +137,10 @@ This file is authoritative for:
   UMS-05C10A-W ORDINARY MEMORY REVIEW TRANSITION WRITER: CLOSED
   UMS-05C10A: CLOSED
   UMS-05C10B-R ORDINARY MEMORY LIFECYCLE MUTATION
-                   AUTHORITY / HISTORY REVALIDATION: AUTHORIZED
-  UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: NOT AUTHORIZED
+                   AUTHORITY / HISTORY REVALIDATION: CLOSED
+  UMS-05C10B-P ORDINARY MEMORY LIFECYCLE-TRANSITION REVISION PERSISTENCE
+                   + UMS-04 PORTABILITY: AUTHORIZED
+  UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: FROZEN
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
@@ -1348,6 +1350,48 @@ This file is authoritative for:
   Branch-local only; not merged into the current `main`, not deployed, not
   a release claim. See the
   [UMS-05C10A-W review transition writer proof](./proofs/runtime/2026-09-28-ums05c10a-w-review-transition-writer-proof.md).
+
+- **UMS-05C10B-R (Ordinary-memory lifecycle authority and history
+  revalidation, qualified on `feature/ums-continued`)**: lifecycle
+  mutation remains unimplemented, and the revalidation found the
+  prerequisite that blocks it. Result:
+  `LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED` with
+  `LIFECYCLE_TRANSITION_GRAPH: PARTIAL`. `memory_records.lifecycle_state`
+  is confirmed as the sole present lifecycle authority over `active`,
+  `dormant`, `retired`, and it is never mutated by any current
+  canonical code path. Unified Memory Store contract §3.3 requires a
+  revision and an intent receipt for every authority-changing
+  transition, and that requirement has not been narrowed to
+  receipt-only for lifecycle. No canonical family can record
+  lifecycle transitions: `memory_revisions` is content history,
+  `memory_review_revisions` is review-transition history, so neither
+  is semantically applicable, and provenance remains non-authority.
+  The load-bearing finding is the **restore posture**: §5.4 requires
+  restore to return a retired record to its *pre-retirement governed
+  posture*, but no field records it, so `active → retired → restore`
+  and `dormant → retired → restore` are indistinguishable in current
+  storage and the contractual rule is not implementable as written.
+  Two related contract-ahead-of-implementation gaps were recorded
+  without contradiction: §4.4 calls `dormant_at` / `retired_at`
+  canonical and §10 requires lifecycle transition timestamps in the
+  archive, yet neither column exists and `account-export.v6` carries
+  no lifecycle transition timestamp. Of seven historical facts in a
+  sample lifecycle sequence, **0 of 7** are reconstructable. The
+  transition graph is partial: `active → dormant` is explicit
+  governed policy forbidden while held, import creates `dormant` as
+  an ingress state, and retire/restore carry account-principal
+  authority — but retire source-state legality, the restore target
+  set, same-state behavior, and any `dormant → active` reactivation
+  edge are unresolved and were not invented. Review state *is*
+  answerable through retire/restore, since it is independent
+  present-state authority. Documentation only: no runtime, schema,
+  migration, export/restore, frontend, retrieval, or release-claim
+  change, and no ADR. The sole authorized successor is UMS-05C10B-P
+  lifecycle-transition revision persistence plus UMS-04
+  portability; the C10B writer stays frozen. Branch-local only; not
+  merged into the current `main`, not deployed, not a release claim.
+  See the
+  [UMS-05C10B-R lifecycle authority/history revalidation proof](./proofs/runtime/2026-09-29-ums05c10b-r-lifecycle-authority-history-revalidation-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

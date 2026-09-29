@@ -264,6 +264,59 @@ the same next review revision number.
 Lifecycle mutation is not implemented here and remains separately
 governed.
 
+#### 5.1.2 Lifecycle gate (UMS-05C10B-R)
+
+The Retire and Restore rows above are **admitted but not
+implemented**. No retire, restore, activate, reactivate, or decay
+writer, route, or service method exists; `lifecycle_state` is never
+mutated by any current canonical code path.
+
+UMS-05C10B-R revalidated lifecycle authority and history and
+recorded:
+
+```text
+LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
+LIFECYCLE_TRANSITION_GRAPH: PARTIAL
+```
+
+`memory_records.lifecycle_state` is the sole present lifecycle
+authority, and Unified Memory Store contract §3.3 requires a
+revision and an intent receipt for every authority-changing
+transition. No canonical family can record lifecycle transitions:
+`memory_revisions` is content history and `memory_review_revisions`
+is review-transition history, so neither is semantically
+applicable, and provenance remains non-authority.
+
+The decisive finding is the **restore posture**. §5.4 requires
+restore to return a retired record to its *pre-retirement governed
+posture*, but no field records that posture. `active → retired →
+restore` and `dormant → retired → restore` are therefore
+indistinguishable in current storage, so the contractual restore
+rule is not implementable without first persisting the history that
+records it. Relatedly, §4.4 calls `dormant_at` / `retired_at`
+canonical and §10 requires lifecycle transition timestamps in the
+archive; neither column exists and `account-export.v6` carries no
+lifecycle transition timestamp.
+
+The transition graph is **partial**: `active → dormant` is explicit
+governed policy (forbidden while held), import creates `dormant` as
+an ingress state, and retire/restore exist with account-principal
+authority — but retire source-state legality, the restore target
+set, same-state retire/restore behavior, and any `dormant → active`
+reactivation edge are all unresolved and are **not** invented here.
+
+**Open documentation inconsistency.** The Retire and Restore rows in
+§5.1 still list only a "durable mutation receipt" with no revision,
+diverging from the normative §3.3 rule. Unlike the review rows, this
+is deliberately **not** repaired here, because no lifecycle revision
+family exists yet and editing the table would promise persistence
+that has not been built.
+
+The missing prerequisite is **UMS-05C10B-P** (lifecycle-transition
+revision persistence + UMS-04 portability). The C10B writer remains
+frozen. The review writer above is complete, internal-only, and
+unaffected by this gate.
+
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
 | Capability | Deferred to |
