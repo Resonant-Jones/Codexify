@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from guardian.core.dependencies import chatlog_db, require_api_key
+from guardian.core.dependencies import chatlog_db, require_operator_auth
 from guardian.obsidian.indexer import (
     _normalize_tags,
     _resolve_allowed_paths,
@@ -48,7 +48,7 @@ class PreviewPayload(BaseModel):
 router = APIRouter(
     prefix="/api/obsidian",
     tags=["Obsidian"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 

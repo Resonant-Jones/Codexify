@@ -115,7 +115,6 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
     rd.onload = () => {
       const url = String(rd.result || "");
       setWallpaper(url);
-      if (typeof window !== "undefined") localStorage.setItem("cfy.wallpaper", url);
       setUploading(false);
     };
     rd.onerror = () => setUploading(false);
@@ -124,7 +123,6 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   function clearWallpaper() {
     setWallpaper(null);
     setFileLabel("");
-    if (typeof window !== "undefined") localStorage.removeItem("cfy.wallpaper");
     if (fileRef.current) fileRef.current.value = "";
   }
 

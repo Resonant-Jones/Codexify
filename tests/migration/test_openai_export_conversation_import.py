@@ -947,6 +947,95 @@ def test_order_flags_work_with_embedding_deferral(
     assert diag.conversations_imported == 2
 
 
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [
+        ("file", ["b", "c", "d", "a"]),
+        ("newest", ["b", "c", "a", "d"]),
+        ("updated", ["b", "c", "a", "d"]),
+        ("oldest", ["d", "b", "c", "a"]),
+    ],
+)
+def test_spooled_order_keeps_global_stable_ties_and_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    order: str, expected: list[str],
+) -> None:
+    import backend.rag.openai_export_conversation_import as module
+
+    root = tmp_path / "export"
+    rows = [
+        _build_mapping_conversation([("user", "A", 30)], conversation_id="a"),
+        _build_mapping_conversation([("user", "B", 10)], conversation_id="b"),
+        _build_mapping_conversation([("user", "C", 10)], conversation_id="c"),
+        _build_mapping_conversation([("user", "D", 0)], conversation_id="d"),
+    ]
+    rows[1]["update_time"] = 40
+    rows[2]["update_time"] = 40
+    rows[3].pop("create_time")
+    rows[3].pop("update_time")
+    _write_sharded_conversations(root, rows)
+
+    seen: list[str] = []
+    callbacks: list[tuple[int, int, list[str]]] = []
+
+    def fake_batch(*, conversations, **_kwargs):
+        seen.extend(str(item["id"]) for item in conversations)
+        return {"threads_imported": len(conversations), "messages_imported": len(conversations)}
+
+    monkeypatch.setattr(module, "_import_conversation_batch", fake_batch)
+    monkeypatch.setattr(module, "_confirmed_conversation_counts", lambda conversations, **_kwargs: {
+        str(item["id"]): 1 for item in conversations
+    })
+    diag = import_openai_export_conversations(
+        root, user_id="tester", order=order,
+        diagnostic_dir=tmp_path / "diagnostics", batch_conversations=2,
+        on_batch_committed=lambda batch: callbacks.append((
+            batch["batch_number"], batch["batch_total"], batch["conversation_ids"]
+        )),
+    )
+    assert diag.errors == []
+    assert seen == expected
+    assert callbacks == [(1, 2, expected[:2]), (2, 2, expected[2:])]
+    assert diag.conversations_discovered == 4
+    assert diag.conversations_accepted == 4
+    assert not list((tmp_path / "diagnostics").glob("openai-order-*"))
+
+
+def test_spooled_resume_uses_source_ids_across_batch_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import backend.rag.openai_export_conversation_import as module
+
+    root = tmp_path / "export"
+    _write_conversations_json(root, [
+        _build_mapping_conversation([("user", str(index), float(index))],
+                                    conversation_id=f"source-{index}")
+        for index in range(5)
+    ])
+    calls: list[list[str]] = []
+
+    def fake_batch(*, conversations, **_kwargs):
+        calls.append([str(item["id"]) for item in conversations])
+        return {"threads_imported": len(conversations), "messages_imported": len(conversations)}
+
+    monkeypatch.setattr(module, "_import_conversation_batch", fake_batch)
+    monkeypatch.setattr(module, "_confirmed_conversation_counts", lambda conversations, **_kwargs: {
+        str(item["id"]): 1 for item in conversations
+    })
+    kwargs = dict(user_id="tester", diagnostic_dir=tmp_path / "diagnostics",
+                  checkpoint_path=str(tmp_path / "checkpoint"),
+                  batch_conversations=2, resume=True)
+    first = import_openai_export_conversations(root, **kwargs)
+    assert first.errors == []
+    assert calls == [["source-0", "source-1"], ["source-2", "source-3"], ["source-4"]]
+    calls.clear()
+    replay = import_openai_export_conversations(root, **kwargs)
+    assert replay.errors == []
+    assert calls == []
+    assert replay.conversations_skipped_checkpoint == 5
+    assert replay.conversations_imported == 0
+
+
 def test_idempotent_rerun_with_deferred_embeddings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

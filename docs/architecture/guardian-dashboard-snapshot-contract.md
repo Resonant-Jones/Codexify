@@ -6,7 +6,7 @@ This contract defines one authenticated, read-only server projection. It does
 not add collaboration persistence, realtime presence, shared notes, mentions,
 host collectors, or collaboration tables.
 
-## Route and dual-authority model
+## Route and single-principal, dual-gate model
 
 `GET /api/dashboard/snapshot` is Guardian-owned and requires the existing
 `require_api_key` dependency plus a service API key and an authenticated human
@@ -14,20 +14,43 @@ Guardian session. The route is enabled in the local-core and friends/family
 supported profiles. It is a projection only; the existing Guardian health and
 sensor providers remain the sources of truth.
 
-The two authorities are intentionally distinct:
+The two gates are intentionally distinct. Only the human session establishes
+a request principal:
 
-- Service authority is the configured Guardian API key supplied in
-  `X-API-Key`. It proves the trusted service path is allowed to request the
-  projection.
-- Human authority is the signed `gc_session` (or the same Guardian session
-  carried as a bearer token). It determines the current viewer. In
+- The configured Guardian API key supplied in `X-API-Key` is a
+  **non-principal service capability** on this route. It proves the trusted
+  service path may request the projection. It supplies no viewer, account,
+  operator identity, ownership, or admin permission.
+- The signed `gc_session` (or the same Guardian session carried as a bearer
+  token) determines the sole human account principal and current viewer. In
   private-preview mode, Guardian resolves the signed session through the
   approved-email allowlist and its server-mapped `admin`/`guest` role policy.
+
+The canonical account-purpose contract requires an exact
+`purpose=account_session` for the human principal. The current session-store
+resolver has not yet been made purpose-strict, and the router still uses
+generic `require_api_key` alongside the dedicated
+`require_service_api_key` check. Those implementation gaps do not turn the
+service key into an account or operator principal. The same key may act as
+operator authority at an explicitly selected `require_operator_auth`
+control-plane route, but this dashboard request must never validate it as
+both service capability and operator principal. A signed
+`operator_session` cannot replace the human session; presenting it with an
+`account_session` is mixed-principal authentication under ADR-092.
 
 A valid API key without a valid Guardian session is rejected. A valid Guardian
 session without the service API key is rejected. `X-User-Id`, request bodies,
 query parameters, and other caller-controlled identity fields never determine
 the viewer.
+
+This **viewer** snapshot deliberately admits both authorized admin and guest
+accounts and shows each only their own canonical viewer projection. It does
+not require admin authorization. A future dashboard action or
+account-observability projection restricted to human administrators must add
+Guardian-owned admin authorization on the same account principal while
+preserving any required non-principal service capability. A genuinely
+machine/operator-only control route instead uses the separate operator lane
+and has no human viewer or account audit actor.
 
 Guardian owns identity and authorization. Codexify.Space transports the signed
 session and renders Guardian-owned projections. Codexify.Space must not

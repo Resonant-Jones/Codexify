@@ -8,6 +8,7 @@ from guardian.protocol_tokens import GuardianDelegationApprovalMode
 from guardian.routes import guardian_delegations
 from tests.contracts.test_guardian_delegation_phase2a_contract import (
     _TestDB,
+    _postgres_engine,
     _fetch_intent,
     _fetch_thread_messages,
     _make_store,

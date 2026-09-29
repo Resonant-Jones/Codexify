@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
-    from guardian.core.auth import issue_session_token, verify_session_token
+    from guardian.core.auth import (
+        OPERATOR_SESSION_PURPOSE,
+        issue_session_token,
+        verify_session_token,
+    )
     from guardian.core.dependencies import (
         DB_BACKEND,
         GUARDIAN_PROVIDER,
@@ -40,6 +44,7 @@ except ImportError as e:
     chatlog_db = None
     require_api_key = lambda x: x
     issue_session_token = None
+    OPERATOR_SESSION_PURPOSE = "operator_session"
     PG_DSN = None
     DB_BACKEND = "postgres"
     GUARDIAN_PROVIDER = "unknown"
@@ -268,7 +273,9 @@ def create_session(
             status_code=401, detail="API key required to mint session"
         )
     token, exp = issue_session_token(
-        subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600
+        subject="web",
+        ttl_seconds=body.ttl_seconds or 24 * 3600,
+        purpose=OPERATOR_SESSION_PURPOSE,
     )
     return {"token": token, "expires": exp}
 
@@ -300,7 +307,9 @@ def create_session_cookie(
             status_code=401, detail="API key required to mint session"
         )
     token, exp = issue_session_token(
-        subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600
+        subject="web",
+        ttl_seconds=body.ttl_seconds or 24 * 3600,
+        purpose=OPERATOR_SESSION_PURPOSE,
     )
     max_age = body.ttl_seconds or 24 * 3600
     secure_cookie = _session_cookie_secure_flag()

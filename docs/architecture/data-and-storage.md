@@ -25,7 +25,7 @@ Source anchors:
 
 | System | What it stores today | Key anchors |
 |---|---|---|
-| Postgres | Projects, threads, messages, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state, social identity, direct-message conversations/messages | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Postgres | Projects, threads, messages, durable chat completion-attempt identity and thread binding, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state, social identity, direct-message conversations/messages | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
 | Postgres account observability | Guardian-owned invite lineage, pseudonymous guest identities, account metadata, and content-free foreground presence sessions; presence rows and unconverted guest lineage are retention-governed | `guardian/db/models.py`, `guardian/account_observability/`, `guardian/db/migrations/versions/b2c3d4e5f6a7_add_account_observability_foundation.py` |
 | Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
@@ -305,6 +305,8 @@ invariant is established.
 
 - `chat_threads -> chat_messages`
   - assistant persistence, thread recency ordering, and thread deletion assume this FK remains intact.
+- `chat_threads -> chat_completion_attempts`
+  - each newly enqueued backend chat task has a committed Postgres attempt binding before Redis queue visibility. The bound thread supplies the resource for existing ordinary-chat or Hosted Room access policy; Redis task state and optional initiator provenance grant no access. Historical tasks have no inferred attempt rows.
 - `users -> hosted_rooms -> chat_threads`
   - the owner account scopes each room; each backing thread is unique to one room; deleting a room does not delete the referenced thread or its messages.
 - `hosted_rooms -> hosted_room_invites/hosted_room_participants`

@@ -16,8 +16,9 @@ Source anchors:
 
 ## Scope
 
-- Frontend and shared runtime-contract layer only.
-- No speculative backend redesign in this first pass.
+- Frontend and shared runtime vocabulary, with the implemented durable backend
+  completion-attempt identity and thread binding described below.
+- The full backend request/replay state machine remains unimplemented.
 
 ## Completion Acceptance Ownership
 
@@ -205,6 +206,13 @@ export type ChatRequestState =
 ```
 
 ## Message Identity vs Attempt Identity
+
+For newly enqueued backend completions, `requestId` is now persisted as the
+durable completion-attempt identity. `backendTaskId` remains the subordinate
+execution identifier. The attempt binds to a canonical chat thread in Postgres
+before queue visibility; ordinary chat and Hosted Room completion producers
+share this acceptance invariant. The complete request-state and replay model
+below is still a contract, not a fully persisted backend lifecycle.
 
 ```ts
 export interface ChatTurnMessage {

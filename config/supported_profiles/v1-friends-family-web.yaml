@@ -58,6 +58,7 @@ route_posture:
     - command_bus
     - memory_vault
   quarantined:
+    - llm_overrides
     - neo
     - imprint
     - system_prompt

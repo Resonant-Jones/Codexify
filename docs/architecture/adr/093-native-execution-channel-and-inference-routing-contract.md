@@ -1,4 +1,4 @@
-# ADR-090: Native Execution Channel and Inference Routing Contract
+# ADR-093: Native Execution Channel and Inference Routing Contract
 
 - Status: Proposed
 - Date: 2026-09-26
