@@ -20,12 +20,14 @@ from codex_runner.campaign_engine.live_executor import (
     prepare_live_executor_campaign,
     run_live_executor_campaign,
 )
-from codex_runner.campaign_engine.identity import document_hash
+from codex_runner.campaign_engine.identity import canonical_json, document_hash, sha256_text
 from codex_runner.campaign_engine.validation import validate_campaign_document
 from codex_runner.tests.test_campaign_engine_live_executor import (
     FakeIdentity, FakeOutcome, _build_envelope_and_decision,
+    _coding_loop_validation_authority,
     _make_canonical_live_campaign,
 )
+from guardian.agents.test_results import NormalizedTestResult
 from guardian.pi.contracts import (
     PiHarnessResult, PiInvocationArtifact, PiInvocationEnvelope,
     PiInvocationPolicyDecision, PiInvocationReceipt, PiPermissionGrant,
@@ -108,6 +110,8 @@ def _verdict() -> dict[str, Any]:
 def _prepare_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, evaluator_effort: str,
     campaign_id: str = "campaign-ce-l2-provider-free-test-001",
+    validation_command: str | None = None,
+    validation_result: NormalizedTestResult | None = None,
 ):
     campaign_path, target, handle = _make_canonical_live_campaign(
         tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
@@ -119,6 +123,8 @@ def _prepare_lifecycle(
         "criterion_id": "exact-marker",
         "description": "proof_target.txt contains exactly CE-L2-EXACT-MARKER followed by one newline; no other target file changed.",
     }]
+    if validation_command is not None:
+        campaign["tasks"][0]["validation_command"] = validation_command
     campaign["role_bindings"][1]["live_role_binding"].update({
         "harness_id": "pi-coding-agent", "harness_version": "0.82.1",
         "reasoning_effort": "off",
@@ -142,7 +148,32 @@ def _prepare_lifecycle(
     campaign_path.write_text(json.dumps(campaign, indent=2))
     validate_campaign_document(campaign, "fresh CE-L2 provider-free campaign")
     executor_prep = prepare_live_executor_campaign(campaign_path, target)
-    executor_envelope, executor_decision = _build_envelope_and_decision(executor_prep)
+    validation_authorization = None
+    validation_reference = None
+    if validation_command is not None:
+        validation_authorization = _coding_loop_validation_authority(executor_prep)
+        validation_reference = live_executor.validation_authorization_reference(
+            executor_prep, validation_authorization
+        )
+        if validation_result is None:
+            validation_result = NormalizedTestResult(
+                status="passed",
+                command=validation_command,
+                exit_code=0,
+                tests_total=1,
+                tests_passed=1,
+                tests_failed=0,
+                stdout_preview="1 passed",
+            )
+        monkeypatch.setattr(
+            live_executor,
+            "_task_validation_runner",
+            lambda **kwargs: validation_result,
+        )
+    executor_envelope, executor_decision = _build_envelope_and_decision(
+        executor_prep,
+        validation_command_reference=validation_reference,
+    )
     from dataclasses import replace
     executor_envelope = replace(
         executor_envelope, harness_version="0.82.1",
@@ -165,6 +196,7 @@ def _prepare_lifecycle(
         executor_prep, tmp_path / "executor-checkpoint",
         envelope=executor_envelope, decision=executor_decision,
         timeout_seconds=30, campaign_path=campaign_path, reasoning_effort="off",
+        validation_authorization=validation_authorization,
     )
     checkpoint = tmp_path / "executor-checkpoint" / handle["campaign_id"]
     preparation = prepare_live_evaluator_campaign(
@@ -528,3 +560,115 @@ def test_locked_executor_configuration_blocks_before_provider(
             reasoning_effort=effort,
         )
     assert exc.value.failure_reason == "locked_executor_configuration_mismatch"
+
+
+def test_evaluator_receives_bounded_task_validation_and_keeps_independent_verdict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = "python -m pytest -q"
+    normalized_result = NormalizedTestResult(
+        status="passed",
+        command=command,
+        exit_code=0,
+        tests_total=1,
+        tests_passed=1,
+        tests_failed=0,
+        stdout_preview="bounded-output " * 500,
+        stderr_preview="bounded-error " * 500,
+        duration_seconds=0.125,
+    )
+    prep, envelope, decision, receipt, harness, checkpoint, _ = _prepare_lifecycle(
+        tmp_path,
+        monkeypatch,
+        evaluator_effort="high",
+        validation_command=command,
+        validation_result=normalized_result,
+    )
+
+    packet = json.loads(prep.evidence_packet_json)
+    assert packet["task_validation"]["validation_command"] == command
+    assert packet["task_validation"]["validation_command_reference"]
+    bounded = packet["task_validation"]["validation_result"]
+    assert bounded["command"] == command
+    assert bounded["status"] == "passed"
+    assert bounded["tests_total"] == 1
+    assert len(bounded["stdout_preview"]) <= 2048
+    assert len(bounded["stderr_preview"]) <= 2048
+    assert "task-validation" in packet["evidence_ref_ids"]
+    assert "campaign_boundary_validation" in packet
+    assert "validation-output" not in packet["evidence_ref_ids"]
+
+    original_hash = prep.evidence_packet_sha256
+    changed_result = json.loads(prep.evidence_packet_json)
+    changed_result["task_validation"]["validation_result"]["status"] = "failed"
+    assert sha256_text(canonical_json(changed_result)) != original_hash
+    changed_command = json.loads(prep.evidence_packet_json)
+    changed_command["task_validation"]["validation_command"] = "python -m pytest -x"
+    changed_command["task_validation"]["validation_result"]["command"] = "python -m pytest -x"
+    assert sha256_text(canonical_json(changed_command)) != original_hash
+
+    calls: list[dict[str, Any]] = []
+    independent_result = {
+        "verdict": "repair_required",
+        "summary": "The independent criterion still requires a content change.",
+        "structured_acceptance_results": [{
+            "criterion_id": "exact-marker",
+            "verdict": "fail",
+            "evidence_refs": ["task-validation", "changed-files"],
+            "basis": "Validation passed, but the declared marker criterion remains unmet.",
+        }],
+    }
+
+    def fake_evaluator(**kwargs: Any) -> EvaluatorOutcome:
+        calls.append(kwargs)
+        assert command in kwargs["prompt"]
+        assert "bounded-output" in kwargs["prompt"]
+        assert "bounded-error" in kwargs["prompt"]
+        return EvaluatorOutcome(receipt, harness, independent_result)
+
+    monkeypatch.setattr(live_evaluator, "_invoker", fake_evaluator)
+    output = run_live_evaluator_campaign(
+        prep,
+        tmp_path / "final-validation-evidence",
+        envelope=envelope,
+        decision=decision,
+        timeout_seconds=30,
+        reasoning_effort="high",
+    )
+    assert len(calls) == 1
+    final_campaign = json.loads((output / "campaign-input.json").read_text())
+    assert final_campaign["evaluations"][0]["verdict"] == "repair_required"
+    assert final_campaign["evaluations"][0]["independent_model_judgment"] is True
+    assert (checkpoint / "execution/task-validation.json").is_file()
+
+
+def test_evaluator_rejects_task_validation_result_for_different_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = "python -m pytest -q"
+    prep, _, _, _, _, checkpoint, target = _prepare_lifecycle(
+        tmp_path,
+        monkeypatch,
+        evaluator_effort="high",
+        validation_command=command,
+    )
+    result_path = checkpoint / "execution/task-validation.json"
+    result = json.loads(result_path.read_text())
+    result["command"] = "python -m pytest -x"
+    result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    monkeypatch.setattr(
+        live_evaluator,
+        "_invoker",
+        lambda **kwargs: pytest.fail("evaluator provider seam reached"),
+    )
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        prepare_live_evaluator_campaign(
+            prep.campaign_path,
+            checkpoint,
+            target,
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        )
+    assert caught.value.reason == "task_validation_result_unproven"

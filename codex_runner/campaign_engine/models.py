@@ -237,9 +237,10 @@ class LiveExecutorPreparation:
     # and NOT provider authority. The initial supported value is "write".
     # `None` means no required-tool selection.
     required_tool_name: str | None = None
+    validation_command: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "campaign_id": self.campaign_id,
             "task_id": self.task_id,
             "run_id": self.run_id,
@@ -273,6 +274,9 @@ class LiveExecutorPreparation:
             "campaign_input_hash": self.campaign_input_hash,
             "required_tool_name": self.required_tool_name,
         }
+        if self.validation_command is not None:
+            payload["validation_command"] = self.validation_command
+        return payload
 
 
 @dataclass(frozen=True)

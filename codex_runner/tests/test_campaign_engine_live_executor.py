@@ -18,24 +18,20 @@ tests prove the contract but do not produce that token.
 
 from __future__ import annotations
 
-import copy
-import io
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 import types
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
 from codex_runner.campaign_engine import live_executor
 from codex_runner.campaign_engine.errors import CampaignLiveExecutorError
 from codex_runner.campaign_engine.live_executor import (
-    LIVE_EXECUTOR_CLASSIFICATION_VALUE,
     LiveExecutorPreparation,
     prepare_live_executor_campaign,
     run_live_executor_campaign,
@@ -45,6 +41,11 @@ from codex_runner.campaign_engine.models import (
     CampaignClock,
     FixedClock,
 )
+from guardian.agents.coding_agent_contracts import (
+    CodingAgentPermissionPolicy,
+    CodingAgentTaskEnvelope,
+)
+from guardian.agents.test_results import NormalizedTestResult
 
 
 # ---------------------------------------------------------------------------
@@ -248,20 +249,6 @@ def _make_canonical_live_campaign(
     if target_resolve == "<derived>":
         target_resolve = str(target.resolve())
 
-    provider_free_executor = {
-        "schema_version": "campaign-engine/v0",
-        "binding_id": "binding-executor-provider-free-test-001",
-        "created_at": "2026-08-26T13:00:00Z",
-        "role": "executor",
-        "provider_id": "provider-free-fixture",
-        "model_id": "synthetic-executor-model",
-        "adapter_id": "provider-free-adapter",
-        "binding_revision": 1,
-        "binding_state": "locked",
-        "configuration_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "selected_by": "operator:resonant-jones",
-        "selected_at": "2026-08-26T13:00:00Z",
-    }
     campaign = {
         "schema_version": "campaign-engine/v0",
         "campaign": {
@@ -363,10 +350,6 @@ def _make_canonical_live_campaign(
             "ordered_receipt_ids": [],
             "ordered_decision_gate_ids": [],
         },
-        "attempts": [],
-        "evaluations": [],
-        "receipts": [],
-        "decision_gates": [],
     }
     campaign_path = tmp_path / "campaign_live_test.json"
     campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
@@ -402,6 +385,7 @@ def _build_envelope_and_decision(
     *,
     granted_files_write_resource: str = "proof_target.txt",
     granted_files_read_resource: str = ".",
+    validation_command_reference: str | None = None,
 ) -> tuple[Any, Any]:
     """Build a canonical PiInvocationEnvelope + PiInvocationPolicyDecision keyed to preparation."""
     from guardian.pi.contracts import (
@@ -429,6 +413,9 @@ def _build_envelope_and_decision(
             "prompt_sha256": preparation.prompt_sha256,
         }
     }
+    if preparation.validation_command is not None:
+        metadata["campaign_engine"]["validation_command"] = preparation.validation_command
+        metadata["campaign_engine"]["validation_command_reference"] = validation_command_reference
     boundary = PiGuardianBoundary(
         owner_account_id="operator:test",
         metadata={"campaign_engine_campaign_id": preparation.campaign_id},
@@ -476,6 +463,55 @@ def _build_envelope_and_decision(
         redaction_state="redacted",
     )
     return envelope, decision
+
+
+def _campaign_with_task_validation(
+    tmp_path: pathlib.Path,
+    command: str = "python -m pytest -q",
+) -> tuple[pathlib.Path, pathlib.Path, dict[str, Any]]:
+    campaign_path, target, handle = _make_canonical_live_campaign(tmp_path)
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["tasks"][0]["validation_command"] = command
+    campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
+    return campaign_path, target, handle
+
+
+def _coding_loop_validation_authority(
+    preparation: LiveExecutorPreparation,
+    *,
+    command: str | None = None,
+    target: str | None = None,
+    campaign_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
+    allow_shell: bool = True,
+    max_validation_attempts: int = 1,
+    commit_after_validation: bool = False,
+) -> CodingAgentTaskEnvelope:
+    policy = CodingAgentPermissionPolicy(
+        allow_shell=allow_shell,
+        allow_network=False,
+        allow_write=False,
+        allowed_paths=preparation.allowed_file_paths,
+        max_runtime_seconds=30,
+    )
+    return CodingAgentTaskEnvelope(
+        coding_task_id=task_id or preparation.task_id,
+        thread_id="thread-task-validation-test",
+        source_message_id="message-task-validation-test",
+        attempt_id=attempt_id or preparation.attempt_id,
+        user_id="operator:test",
+        project_id=None,
+        adapter_kind="pi_sdk",
+        instructions="Run only the Guardian-approved validation command.",
+        repo_root=target or str(preparation.target_path),
+        context_summary=None,
+        permission_policy=policy,
+        campaign_id=campaign_id or preparation.campaign_id,
+        validation_command=preparation.validation_command if command is None else command,
+        max_validation_attempts=max_validation_attempts,
+        commit_after_validation=commit_after_validation,
+    )
 
 
 @pytest.fixture
@@ -677,10 +713,6 @@ def test_mismatched_metadata_blocks_before_invocation(
     # Build a fresh envelope whose campaign_engine metadata differs.
     from guardian.pi.contracts import (
         PiInvocationEnvelope as _E,
-        PiInvocationPolicyDecision as _D,
-        PiPermissionGrant as _P,
-        PiGuardianBoundary as _B,
-        PiProviderLane as _L,
     )
     boundary = envelope.guardian_boundary
     bad_metadata = dict(envelope.validation_metadata)
@@ -1459,6 +1491,330 @@ def test_provider_call_count_is_one_in_attempt(
     # record; reflect them in the result envelope:
     result_envelope = json.loads((output_root / handle["campaign_id"] / "run-result.json").read_text())
     assert result_envelope["provider_calls_performed"] == 1
+
+
+@pytest.mark.parametrize(
+    ("mismatch", "failure_reason"),
+    [
+        ("missing", "validation_authorization_missing"),
+        ("campaign", "validation_authorization_mismatch"),
+        ("task", "validation_authorization_mismatch"),
+        ("attempt", "validation_authorization_mismatch"),
+        ("target", "validation_authorization_mismatch"),
+        ("command", "validation_authorization_mismatch"),
+        ("shell", "validation_authorization_mismatch"),
+        ("attempt_budget", "validation_authorization_mismatch"),
+        ("commit", "validation_authorization_mismatch"),
+    ],
+)
+def test_task_validation_authority_mismatch_fails_before_executor_call(
+    mismatch: str,
+    failure_reason: str,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    campaign_path, target, _ = _campaign_with_task_validation(tmp_path)
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    authority = _coding_loop_validation_authority(preparation)
+    if mismatch == "campaign":
+        authority = replace(authority, campaign_id="other-campaign")
+    elif mismatch == "task":
+        authority = replace(authority, coding_task_id="other-task")
+    elif mismatch == "attempt":
+        authority = replace(authority, attempt_id="other-attempt")
+    elif mismatch == "target":
+        authority = replace(authority, repo_root=str(tmp_path / "other-target"))
+    elif mismatch == "command":
+        authority = replace(authority, validation_command="python -m pytest -x")
+    elif mismatch == "shell":
+        authority = replace(
+            authority,
+            permission_policy=replace(authority.permission_policy, allow_shell=False),
+        )
+    elif mismatch == "attempt_budget":
+        authority = replace(authority, max_validation_attempts=2)
+    elif mismatch == "commit":
+        authority = replace(authority, commit_after_validation=True)
+
+    envelope, decision = _build_envelope_and_decision(preparation)
+    provider_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(live_executor, "_invoker", lambda **kwargs: provider_calls.append(kwargs))
+    kwargs: dict[str, Any] = {}
+    if mismatch != "missing":
+        kwargs["validation_authorization"] = authority
+    with pytest.raises(CampaignLiveExecutorError) as caught:
+        run_live_executor_campaign(
+            preparation,
+            tmp_path / "executor-output",
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=30,
+            campaign_path=campaign_path,
+            reasoning_effort="off",
+            **kwargs,
+        )
+    assert caught.value.failure_reason == failure_reason
+    assert provider_calls == []
+
+
+def test_task_validation_command_is_in_immutable_campaign_input(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign_path, target, _ = _campaign_with_task_validation(tmp_path)
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    assert preparation.as_payload()["validation_command"] == preparation.validation_command
+    authority = _coding_loop_validation_authority(preparation)
+    reference = live_executor.validation_authorization_reference(preparation, authority)
+    envelope, decision = _build_envelope_and_decision(
+        preparation,
+        validation_command_reference=reference,
+    )
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["tasks"][0]["validation_command"] = "python -m pytest -x"
+    campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
+    provider_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        live_executor,
+        "_invoker",
+        lambda **kwargs: provider_calls.append(kwargs),
+    )
+    with pytest.raises(CampaignLiveExecutorError) as caught:
+        run_live_executor_campaign(
+            preparation,
+            tmp_path / "executor-output",
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=30,
+            campaign_path=campaign_path,
+            reasoning_effort="off",
+            validation_authorization=authority,
+        )
+    assert caught.value.failure_reason == "drift_after_authorization"
+    assert provider_calls == []
+
+
+def test_task_validation_runs_once_and_is_bound_to_attempt(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from codex_runner.campaign_engine.identity import sha256_canonical
+
+    command = "python -m pytest -q"
+    campaign_path, target, handle = _campaign_with_task_validation(tmp_path, command)
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    authority = _coding_loop_validation_authority(preparation)
+    reference = live_executor.validation_authorization_reference(preparation, authority)
+    envelope, decision = _build_envelope_and_decision(
+        preparation,
+        validation_command_reference=reference,
+    )
+    receipt = FakeReceipt(
+        receipt_id="pi-receipt-task-validation",
+        invocation_id=envelope.invocation_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    harness = FakeHarnessResult(
+        harness_result_id="pi-result-task-validation",
+        receipt_id=receipt.receipt_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    provider_calls: list[dict[str, Any]] = []
+    validation_calls: list[dict[str, Any]] = []
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        provider_calls.append(kwargs)
+        assert command not in kwargs["prompt"]
+        (target / "proof_target.txt").write_text("TASK-VALIDATED\n", encoding="utf-8")
+        return FakeOutcome(
+            ok=True,
+            actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+            receipt=receipt,
+            harness_result=harness,
+        )
+
+    def fake_validation(**kwargs: Any) -> NormalizedTestResult:
+        validation_calls.append(kwargs)
+        return NormalizedTestResult(
+            status="passed",
+            command=command,
+            exit_code=0,
+            tests_total=2,
+            tests_passed=2,
+            tests_failed=0,
+            stdout_preview="2 passed",
+            duration_seconds=0.02,
+        )
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    monkeypatch.setattr(live_executor, "_task_validation_runner", fake_validation)
+    output_root = tmp_path / "executor-output"
+    run_live_executor_campaign(
+        preparation,
+        output_root,
+        envelope=envelope,
+        decision=decision,
+        timeout_seconds=30,
+        campaign_path=campaign_path,
+        reasoning_effort="off",
+        validation_authorization=authority,
+    )
+
+    assert len(provider_calls) == 1
+    assert len(validation_calls) == 1
+    assert validation_calls[0] == {
+        "command": command,
+        "cwd": target.resolve(),
+        "timeout_seconds": 30,
+    }
+    final_dir = output_root / handle["campaign_id"]
+    attempt = json.loads(
+        (final_dir / "attempts" / f"{preparation.attempt_id}.json").read_text()
+    )
+    result = json.loads((final_dir / "execution/task-validation.json").read_text())
+    boundary = json.loads(
+        (final_dir / "execution/executor-boundary-validation.json").read_text()
+    )["boundary_validation_artifact"]
+    assert attempt["validation_command_reference"] == reference
+    assert attempt["validation_result_hash"] == sha256_canonical(result)
+    assert attempt["boundary_validation_hash"] == boundary["artifact_sha256"]
+    assert attempt["validation_result_hash"] != attempt["boundary_validation_hash"]
+    assert result["status"] == "passed"
+    assert result["command"] == command
+    assert len(result["stdout_preview"]) <= 2048
+
+
+def test_failed_task_validation_is_truthful_and_never_retried(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from codex_runner.campaign_engine.identity import sha256_canonical
+
+    campaign_path, target, handle = _campaign_with_task_validation(tmp_path)
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    authority = _coding_loop_validation_authority(preparation)
+    reference = live_executor.validation_authorization_reference(preparation, authority)
+    envelope, decision = _build_envelope_and_decision(
+        preparation,
+        validation_command_reference=reference,
+    )
+    receipt = FakeReceipt(
+        receipt_id="pi-receipt-task-validation-failed",
+        invocation_id=envelope.invocation_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    harness = FakeHarnessResult(
+        harness_result_id="pi-result-task-validation-failed",
+        receipt_id=receipt.receipt_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    provider_calls: list[dict[str, Any]] = []
+    validation_calls: list[dict[str, Any]] = []
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        provider_calls.append(kwargs)
+        (target / "proof_target.txt").write_text("TASK-VALIDATION-FAILED\n", encoding="utf-8")
+        return FakeOutcome(
+            ok=True,
+            actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+            receipt=receipt,
+            harness_result=harness,
+        )
+
+    def failed_validation(**kwargs: Any) -> NormalizedTestResult:
+        validation_calls.append(kwargs)
+        return NormalizedTestResult(
+            status="failed",
+            command=preparation.validation_command,
+            exit_code=1,
+            tests_total=1,
+            tests_passed=0,
+            tests_failed=1,
+            fail_signature="one test failed",
+            stderr_preview="FAILED test_required_marker",
+        )
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    monkeypatch.setattr(live_executor, "_task_validation_runner", failed_validation)
+    output_root = tmp_path / "executor-output"
+    with pytest.raises(CampaignLiveExecutorError) as caught:
+        run_live_executor_campaign(
+            preparation,
+            output_root,
+            envelope=envelope,
+            decision=decision,
+            timeout_seconds=30,
+            campaign_path=campaign_path,
+            reasoning_effort="off",
+            validation_authorization=authority,
+        )
+    assert caught.value.failure_reason == "task_validation_failed"
+    assert len(provider_calls) == 1
+    assert len(validation_calls) == 1
+    failure_dir = (
+        output_root / handle["campaign_id"] / "failed-validation" / preparation.attempt_id
+    )
+    attempt = json.loads(
+        (failure_dir / "attempts" / f"{preparation.attempt_id}.json").read_text()
+    )
+    result = json.loads((failure_dir / "task-validation.json").read_text())
+    assert attempt["state"] == "failed"
+    assert attempt["exit_classification"] == "failed_validation"
+    assert attempt["validation_result_hash"] == sha256_canonical(result)
+    assert result["status"] == "failed"
+
+
+def test_no_validation_attempt_keeps_boundary_hash_separate_and_omits_task_fields(
+    live_doc,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign_path, target, handle = live_doc
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    receipt = FakeReceipt(
+        receipt_id="pi-receipt-no-task-validation",
+        invocation_id=envelope.invocation_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    harness = FakeHarnessResult(
+        harness_result_id="pi-result-no-task-validation",
+        receipt_id=receipt.receipt_id,
+        harness_id="pi-coding-agent",
+        harness_version="0.72.1",
+    )
+    def mutate(**kwargs: Any) -> FakeOutcome:
+        (target / "proof_target.txt").write_text("NO-TASK-VALIDATION\n", encoding="utf-8")
+        return FakeOutcome(
+            ok=True,
+            actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+            receipt=receipt,
+            harness_result=harness,
+        )
+    monkeypatch.setattr(live_executor, "_invoker", mutate)
+    output_root = tmp_path / "executor-output-no-validation"
+    run_live_executor_campaign(
+        preparation,
+        output_root,
+        envelope=envelope,
+        decision=decision,
+        timeout_seconds=30,
+        campaign_path=campaign_path,
+        reasoning_effort="off",
+    )
+    attempt = json.loads(
+        (output_root / handle["campaign_id"] / "attempts" / f"{preparation.attempt_id}.json").read_text()
+    )
+    assert "validation_command_reference" not in attempt
+    assert "validation_result_hash" not in attempt
+    assert isinstance(attempt["boundary_validation_hash"], str)
 
 
 def test_retry_and_fallback_counts_zero(live_doc, tmp_path, invoker_factory) -> None:
@@ -2382,7 +2738,6 @@ def _setup_simple_canonical_inputs(tmp_path):
 
     Returns (campaign_path, target_path, fixed_clock).
     """
-    import shutil as _shutil
     import subprocess as _subprocess
     from datetime import datetime
 

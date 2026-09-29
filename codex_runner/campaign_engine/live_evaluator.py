@@ -38,8 +38,10 @@ from .validation import parse_json_strict, validate_campaign_document, validate_
 
 _EVIDENCE_IDS = frozenset({
     "task-objective", "acceptance-criteria", "source-context", "executor-attempt",
-    "changed-files", "bounded-diff", "target-snapshot", "validation-output", "executor-identity",
+    "changed-files", "bounded-diff", "target-snapshot",
+    "campaign-boundary-validation", "executor-identity",
 })
+_ALLOWED_EVIDENCE_IDS = _EVIDENCE_IDS | {"task-validation"}
 _CHECKPOINT_FILES = (
     "campaign-input.json",
     "run-result.json",
@@ -385,7 +387,13 @@ def prepare_live_evaluator_campaign(
         _fail("executor_actual_identity_mismatch")
     boundary = _load(checkpoint_dir / "execution/executor-boundary-validation.json").get("boundary_validation_artifact", {})
     if boundary.get("all_passed") is not True or not all(c.get("ok") is True for c in boundary.get("checks", [])):
-        _fail("executor_validation_unproven")
+        _fail("executor_boundary_validation_unproven")
+    boundary_validation_hash = boundary.get("artifact_sha256")
+    if (
+        attempt.get("boundary_validation_hash") is not None
+        and attempt.get("boundary_validation_hash") != boundary_validation_hash
+    ):
+        _fail("executor_boundary_validation_hash_mismatch")
     before = _load(checkpoint_dir / "execution/target-before.json")
     after = _load(checkpoint_dir / "execution/target-after.json")
     target_hashes = {
@@ -398,6 +406,73 @@ def prepare_live_evaluator_campaign(
         _fail("executor_target_drifted")
     receipt = checkpoint["receipts"][0]
     bounded_diff = _bounded_changed_file_diff(target_path, attempt.get("changed_files", []))
+    checkpoint_paths = list(_CHECKPOINT_FILES)
+    task_validation = None
+    evidence_ids = set(_EVIDENCE_IDS)
+    task_validation_command = task.get("validation_command")
+    checkpoint_task = checkpoint["tasks"][0]
+    if task_validation_command is not None:
+        if (
+            checkpoint_task.get("validation_command") != task_validation_command
+            or executor_prep.get("validation_command") != task_validation_command
+        ):
+            _fail("task_validation_command_drifted")
+        auth_artifact = _load(
+            checkpoint_dir / "authorization/task-validation-authorization.json"
+        )
+        auth = auth_artifact.get("coding_loop_authority")
+        validation_reference = auth_artifact.get("validation_command_reference")
+        if not isinstance(auth, dict) or not isinstance(validation_reference, str):
+            _fail("task_validation_authorization_missing")
+        policy = auth.get("permission_policy")
+        if (
+            auth.get("campaign_id") != original["campaign"]["campaign_id"]
+            or auth.get("task_id") != task["task_id"]
+            or auth.get("attempt_id") != attempt["attempt_id"]
+            or auth.get("target_repository_identity") != str(target_path)
+            or auth.get("repo_root") != str(target_path)
+            or auth.get("validation_command") != task_validation_command
+            or not isinstance(policy, dict)
+            or policy.get("allow_shell") is not True
+            or policy.get("allowed_paths") != executor_prep.get("allowed_file_paths")
+            or type(policy.get("max_runtime_seconds")) is not int
+            or policy.get("max_runtime_seconds", 0) < 1
+            or auth.get("max_validation_attempts") != 1
+            or auth.get("commit_after_validation") is not False
+            or validation_reference != sha256_canonical(auth)
+            or attempt.get("validation_command_reference") != validation_reference
+        ):
+            _fail("task_validation_authorization_mismatch")
+        task_validation_result = _load(
+            checkpoint_dir / "execution/task-validation.json"
+        )
+        if (
+            task_validation_result.get("command") != task_validation_command
+            or task_validation_result.get("status") != "passed"
+            or attempt.get("exit_classification") != "succeeded"
+            or attempt.get("validation_result_hash") != sha256_canonical(task_validation_result)
+        ):
+            _fail("task_validation_result_unproven")
+        task_validation = {
+            "validation_command": task_validation_command,
+            "validation_command_reference": validation_reference,
+            "validation_result": task_validation_result,
+            "validation_result_hash": attempt["validation_result_hash"],
+        }
+        checkpoint_paths.extend((
+            "authorization/task-validation-authorization.json",
+            "execution/task-validation.json",
+        ))
+        evidence_ids.add("task-validation")
+    else:
+        if "validation_command_reference" in attempt:
+            _fail("task_validation_evidence_without_task_command")
+        # Earlier CE checkpoints used validation_result_hash for boundary
+        # validation. Accept that historical no-task form only when it
+        # matches the separately retained boundary artifact hash.
+        legacy_boundary_hash = attempt.get("validation_result_hash")
+        if legacy_boundary_hash is not None and legacy_boundary_hash != boundary_validation_hash:
+            _fail("legacy_boundary_validation_hash_mismatch")
     packet = {
         "task_objective": task["objective"],
         "acceptance_criteria": criteria,
@@ -406,8 +481,11 @@ def prepare_live_evaluator_campaign(
         "changed_files": attempt.get("changed_files", []),
         "bounded_diff": bounded_diff,
         "target_snapshot": {"before": before["snapshot"], "after": after["snapshot"]},
-        "validation_command": "campaign-engine:executor-boundary-validation/v0",
-        "validation_output": {"all_passed": boundary["all_passed"], "checks": boundary["checks"]},
+        "campaign_boundary_validation": {
+            "validation_command": "campaign-engine:executor-boundary-validation/v0",
+            "validation_hash": boundary_validation_hash,
+            "validation_output": {"all_passed": boundary["all_passed"], "checks": boundary["checks"]},
+        },
         "executor_identity_evidence": {
             "provider_id": checkpoint_run["actual_provider_id"],
             "model_id": checkpoint_run["actual_model_id"],
@@ -417,8 +495,10 @@ def prepare_live_evaluator_campaign(
             "pi_harness_result_id": executor_harness.harness_result_id,
         },
         "evaluator_binding_id": evaluator["binding_id"],
-        "evidence_ref_ids": sorted(_EVIDENCE_IDS),
+        "evidence_ref_ids": sorted(evidence_ids),
     }
+    if task_validation is not None:
+        packet["task_validation"] = task_validation
     if _contains_sensitive_key(packet) or _CREDENTIAL_SHAPE.search(packet_json := canonical_json(packet)):
         _fail("credential_material_rejected")
     if len(packet_json.encode("utf-8")) > 32768:
@@ -442,7 +522,7 @@ def prepare_live_evaluator_campaign(
         ("interim_receipt_id", receipt["receipt_id"]),
     ):
         validate_path_component(component, label)
-    paths = list(_CHECKPOINT_FILES) + [
+    paths = checkpoint_paths + [
         f"attempts/{attempt['attempt_id']}.json",
         f"evaluations/{checkpoint['evaluations'][0]['evaluation_id']}.json",
         f"receipts/{receipt['receipt_id']}.json",
@@ -601,7 +681,7 @@ def run_live_evaluator_campaign(
     checkpoint = _load(preparation.checkpoint_dir / "campaign-input.json")
     criteria = original["tasks"][0]["acceptance_criteria"]
     if {x["criterion_id"] for x in verdict["structured_acceptance_results"]} != {x["criterion_id"] for x in criteria} or any(
-        ref not in _EVIDENCE_IDS for row in verdict["structured_acceptance_results"] for ref in row["evidence_refs"]
+        ref not in _ALLOWED_EVIDENCE_IDS for row in verdict["structured_acceptance_results"] for ref in row["evidence_refs"]
     ):
         _fail("evaluator_criterion_or_evidence_reference_invalid", calls=1)
     attempt = copy.deepcopy(checkpoint["attempts"][0])
