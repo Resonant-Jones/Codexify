@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-29 (ADR-093 harness-selection architecture acceptance reviewed; runtime topology diagrams unchanged because no harness routing or placement implementation is authorized in this slice)
+Diagram Review Marker: 2026-09-29 (proposed ADR-094 execution-credential authority reviewed; runtime topology diagrams unchanged because the credential contract is not accepted or implemented)
 
 ## Scope
 

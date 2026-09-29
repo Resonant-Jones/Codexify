@@ -85,6 +85,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 For native agent harnesses, invocation-scoped provider/model identity, `default`/`explicit` selection, optional future `auto` selection, or cross-harness Thread continuity, start with [Accepted ADR-093: Native Execution Channel and Inference Routing Contract](./adr/093-native-execution-channel-and-inference-routing-contract.md) and its [Execution Channel Capability Matrix](./execution-channel-capability-matrix.md). The accepted decision and external research do not establish Codexify channel support or change current release truth.
 
+For account-scoped execution credentials, read [Proposed ADR-094: Account-Scoped Execution Credential Authority](./adr/094-account-scoped-execution-credential-authority.md). It is pending human acceptance; the Guardian-to-worker-to-Pi credential binding remains unimplemented.
+
 If you are working on Persona Studio, Persona Profile portability, revision semantics, profile-to-thread binding, connector or retrieval references, voice configuration, capability requests, or Project/participant scope, start with [ADR-082: Persona Profile Manifest and Binding Authority](./adr/082-persona-profile-manifest-and-binding-authority.md), then read the [Persona Studio Spec](./persona-studio-spec.md). Read historical C07 artifacts only as time-bounded proof; they do not define current persistence truth or environmental authority.
 
 Start here first when you need current-state interpretation rather than structural architecture: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
