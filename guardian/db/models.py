@@ -7175,3 +7175,104 @@ class MemoryReviewRevision(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryLifecycleRevision(Base):
+    """Append-only canonical lifecycle-transition history for ordinary memory.
+
+    Added by UMS-05C10B-P to satisfy the frozen requirement that every
+    authority-changing transition produce a revision and an intent receipt.
+
+    UMS-05C10B-R proved this family must exist and must be distinct. Nothing
+    in current canonical storage could record that a record retired from
+    ``active`` and a record retired from ``dormant`` are different
+    histories, yet the governing contract requires restore to return a
+    retired record to its *pre-retirement governed posture*.
+
+    This family is the fourth independent truth surface:
+
+    - ``memory_records.lifecycle_state`` — present lifecycle authority;
+    - ``memory_revisions`` — authored **content** history;
+    - ``memory_review_revisions`` — review-authority history;
+    - ``memory_provenance`` — intent / source / audit evidence, whose
+      ``extensions`` are explicitly non-authority; and
+    - ``personal_fact_revisions`` — the specialized Personal Facts
+      revision authority, which this table never duplicates.
+
+    **Pre-retirement posture is preserved here, not in a parallel mutable
+    column.** A transition ``old_lifecycle_state -> retired`` records the
+    pre-retirement posture in ``old_lifecycle_state``: ``active ->
+    retired`` preserves ``active``, and ``dormant -> retired`` preserves
+    ``dormant``. No ``pre_retirement_state`` column exists or is needed.
+
+    **No legal transition graph is encoded.** The database accepts any
+    *unequal* pair of valid lifecycle tokens and forbids no source-to-target
+    combination. ``old_lifecycle_state <> new_lifecycle_state`` is a
+    historical transition-shape constraint, not a mutation policy.
+    Persistence capability is not mutation authorization: which lifecycle
+    transitions a writer may legally perform remains unresolved and is
+    owned by UMS-05C10B-C. The retire / restore writer stays frozen.
+
+    Actor, reason, request reference, and action identity are deliberately
+    **absent** from this family. They are intent/source evidence and belong
+    to the corresponding receipt layer; duplicating them here would make
+    revision authority a second evidence store. No delegated/system actor
+    vocabulary is introduced in this slice.
+
+    ``ON DELETE CASCADE`` through the composite ``(memory_id, user_id)``
+    foreign key ties lifecycle history to the legitimate erasure lifetime
+    of its parent memory.
+    """
+
+    __tablename__ = "memory_lifecycle_revisions"
+
+    lifecycle_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_lifecycle_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_lifecycle_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="memory_lifecycle_revisions_number_check",
+        ),
+        # Typed canonical lifecycle vocabulary. Token literals are
+        # revision-local and immutable so historical Alembic replay stays
+        # reproducible without runtime access.
+        CheckConstraint(
+            "old_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_new_state_check",
+        ),
+        # Historical transition-shape constraint only. No source->target
+        # pair is privileged or forbidden here; transition legality is
+        # owned by UMS-05C10B-C.
+        CheckConstraint(
+            "old_lifecycle_state <> new_lifecycle_state",
+            name="memory_lifecycle_revisions_change_check",
+        ),
+        Index("ix_memory_lifecycle_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}

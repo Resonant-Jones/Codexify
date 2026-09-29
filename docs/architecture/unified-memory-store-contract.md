@@ -1692,25 +1692,98 @@ Portability: `memory_review_revisions` is the seventh canonical
 family in `account-export.v6`. `account-export.v5` keeps its
 exact six-family meaning and is not redefined.
 
+#### 4.16.5c Lifecycle-transition revision table — `memory_lifecycle_revisions`
+
+Added by UMS-05C10B-P to discharge the §3.3 revision
+requirement that UMS-05C10B-R found unimplemented for ordinary
+lifecycle transitions.
+
+There are now four independent canonical history surfaces, and
+none substitutes for another:
+
+| Surface | History meaning |
+| --- | --- |
+| `memory_revisions` | authored **content** transitions (§4.16.5) |
+| `memory_review_revisions` | **review**-authority transitions (§4.16.5b) |
+| `memory_lifecycle_revisions` | **lifecycle**-authority transitions |
+| `memory_provenance` | intent / source / audit evidence; `extensions` non-authority |
+
+`memory_records.lifecycle_state` remains the sole present
+lifecycle authority. `memory_lifecycle_revisions` records ordered
+transitions with stable identity, a per-memory sequence, typed old
+and new lifecycle tokens, and an immutable transition timestamp. It
+is append-only: there is no `updated_at`.
+
+| Column | Type | Null | Authority meaning |
+|---|---|---|---|
+| `lifecycle_revision_id` | `String(36)` PK | NOT NULL | Stable revision identity |
+| `memory_id` | `String(36)` | NOT NULL | Parent canonical memory |
+| `user_id` | `String(255)` | NOT NULL | Canonical account owner |
+| `revision_number` | `Integer` | NOT NULL | Per-memory sequence within this family, `>= 1`, `UNIQUE (memory_id, revision_number)` |
+| `old_lifecycle_state` | `String(32)` | NOT NULL | Prior typed lifecycle token |
+| `new_lifecycle_state` | `String(32)` | NOT NULL | Resulting typed lifecycle token |
+| `created_at` | `TIMESTAMP(timezone=True)` | NOT NULL | Immutable transition timestamp |
+
+Lifecycle tokens are `active`, `dormant`, `retired`. The parent is
+bound by composite FK `(memory_id, user_id) → memory_records(memory_id,
+user_id)` with `ON DELETE CASCADE`, so lifecycle history may not
+outlive legitimate permanent erasure of its parent memory.
+
+**Pre-retirement posture is preserved in history, not in a parallel
+mutable column.** A transition `old_lifecycle_state → retired`
+carries the pre-retirement governed posture in its old state:
+`active → retired` preserves `active`, and `dormant → retired`
+preserves `dormant`. No `pre_retirement_state` column exists or is
+needed, and the two retirement postures remain distinguishable.
+
+**No legal transition graph is encoded.** The database accepts any
+*unequal* pair of valid lifecycle tokens and forbids no
+source-to-target combination. `old_lifecycle_state <> new_lifecycle_state`
+is a historical transition-shape constraint, not a mutation policy.
+Persistence capability is not mutation authorization. Which
+transitions a writer may legally perform remains **unresolved** and
+is owned by UMS-05C10B-C; the retire / restore writer stays frozen.
+
+**Absent by design.** This family carries no `actor_account_id`,
+`action`, `reason`, `request_ref`, `transition_kind`, `extensions`,
+or generic JSON metadata. Those are intent/source evidence and belong
+to the receipt layer; duplicating them here would make revision
+authority a second evidence store. No actor or source vocabulary is
+introduced by this slice.
+
+Existing memories receive **zero** synthetic lifecycle history. The
+migration never infers history from a current `lifecycle_state`, and
+a legacy `retired` record whose pre-retirement posture was never
+canonically recorded stays zero-history rather than being
+back-filled with a guess. Personal Facts keep
+`personal_fact_revisions`; this family never becomes an alternate
+Personal Facts history path. PostgreSQL does not encode the parent
+species, so the boundary is enforced in export validation, restore
+preflight, and future service authority rather than through a trigger.
+
+Portability: `memory_lifecycle_revisions` is the eighth canonical
+family in `account-export.v7`. `account-export.v6` keeps its exact
+seven-family meaning and is not redefined.
+
 #### 4.16.5c Lifecycle history is a third, distinct authority — not yet persisted
 
 UMS-05C10B-R revalidated ordinary-memory lifecycle mutation
-authority against current branch truth and recorded:
+authority and recorded:
 
 ```text
 LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
 LIFECYCLE_TRANSITION_GRAPH: PARTIAL
 ```
 
-The contract uses a third history concept that is **not** the
-content or review one, and that no current canonical family
-satisfies:
+UMS-05C10B-P closed the persistence half above. The graph
+remainder is still open. The historical record that UMS-05C10B-R
+found missing:
 
-| Surface | History meaning |
-| --- | --- |
-| `memory_revisions` | authored **content** transitions (§4.16.5) |
-| `memory_review_revisions` | review-authority transitions (§4.16.5b) |
-| *(none exists)* | **lifecycle**-authority transitions |
+The gap UMS-05C10B-R identified — that no canonical family
+could record a lifecycle transition, and that a retirement from
+`active` and a retirement from `dormant` were indistinguishable —
+is now closed by §4.16.5c. What remains open is the legal
+transition graph, which persistence deliberately does not encode.
 
 `memory_records.lifecycle_state` is the sole present lifecycle
 authority (§3.3), and §3.3 requires a revision and intent receipt

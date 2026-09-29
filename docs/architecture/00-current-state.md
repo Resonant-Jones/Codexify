@@ -139,7 +139,9 @@ This file is authoritative for:
   UMS-05C10B-R ORDINARY MEMORY LIFECYCLE MUTATION
                    AUTHORITY / HISTORY REVALIDATION: CLOSED
   UMS-05C10B-P ORDINARY MEMORY LIFECYCLE-TRANSITION REVISION PERSISTENCE
-                   + UMS-04 PORTABILITY: AUTHORIZED
+                   + UMS-04 PORTABILITY: CLOSED
+  UMS-05C10B-C ORDINARY MEMORY LIFECYCLE TRANSITION
+                   CONTRACT RESOLUTION: AUTHORIZED
   UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: FROZEN
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
@@ -1392,6 +1394,52 @@ This file is authoritative for:
   merged into the current `main`, not deployed, not a release claim.
   See the
   [UMS-05C10B-R lifecycle authority/history revalidation proof](./proofs/runtime/2026-09-29-ums05c10b-r-lifecycle-authority-history-revalidation-proof.md).
+
+- **UMS-05C10B-P (Ordinary-memory lifecycle-transition history
+  persistence and portability, qualified on `feature/ums-continued`)**:
+  the canonical persistence UMS-05C10B-R found missing now exists. A
+  new `memory_lifecycle_revisions` family (Alembic `b8e2f4a6c901`,
+  parent `a7c3e91d4b60`, single head) records ordered ordinary
+  lifecycle-state transitions: server-generated
+  `lifecycle_revision_id`, composite `(memory_id, user_id)` FK to
+  `memory_records` with `ON DELETE CASCADE`, typed
+  `old_lifecycle_state` / `new_lifecycle_state` over `active` /
+  `dormant` / `retired`, per-memory `revision_number` with
+  `UNIQUE (memory_id, revision_number)`, and an immutable
+  `created_at` with no `updated_at`. The family deliberately carries
+  **no** actor, reason, request reference, action, or extensions:
+  those are intent/source evidence and belong to the receipt layer,
+  and duplicating them would make revision authority a second
+  evidence store. Migration fabricates **zero** synthetic history —
+  a legacy `retired` record whose prior posture was never recorded
+  is left zero-history rather than guessed. The load-bearing
+  obligation is now met: **`active -> retired` preserves
+  `old_lifecycle_state = active` and `dormant -> retired` preserves
+  `dormant`**, proven at the DB, export, and restore layers, so the
+  two retirement postures the restore contract must distinguish can
+  no longer collapse. No parallel `pre_retirement_state` column was
+  added; history itself carries the fact. **No legal transition
+  graph is encoded**: the database accepts any unequal pair of valid
+  lifecycle tokens — a dedicated test persists all six, explicitly
+  stating that persistence representability is not runtime
+  authorization. Portability required a new schema rather than
+  widening an old one: `account-export.v7` is the eight-family
+  canonical graph while `account-export.v6` keeps its exact
+  seven-family meaning, and the global export default was
+  deliberately not advanced. A currently-`retired` memory with no
+  history stays exportable and restorable as zero-history; nothing
+  is fabricated. Qualification also found and fixed a real executor
+  defect: a sequence-occupancy scan gated on "a planned ID already
+  exists" let a wholly new stable ID occupy a taken
+  `(memory_id, revision_number)` slot and surface as a raw database
+  constraint error instead of a clean conflict. **No retire, restore,
+  activate, reactivate, or decay writer exists** — transition
+  legality remains unresolved, so the C10B writer stays frozen and
+  the sole next slice is UMS-05C10B-C contract resolution. No
+  frontend, retrieval, or release-claim change. Branch-local only;
+  not merged into the current `main`, not deployed, not a release
+  claim. See the
+  [UMS-05C10B-P lifecycle revision portability proof](./proofs/runtime/2026-09-29-ums05c10b-p-lifecycle-revision-portability-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
