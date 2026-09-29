@@ -4,9 +4,19 @@
 
 The June collaborator kit was deliberately optimized for exploration. That was useful for learning Codexify, but it did not create a strong completion loop.
 
-This packet is different. It contains three current lanes where a second human adds information that the existing Codex/operator loop cannot cheaply manufacture: independent product friction, real multi-node field reality, and independent live-client proof.
+This packet is different. It contains current lanes where a second human adds information that the existing Codex/operator loop cannot cheaply manufacture: independent product friction and genuinely separate physical-node evidence.
 
 This is **not a backlog buffet**. Choose one primary lane.
+
+## You Do Not Need To Write Formal Reports While Working
+
+Use Codexify normally. Complain normally. Talk to Luna normally.
+
+The structure is for the agent, not for you.
+
+Give Luna your raw reactions, screenshots, partial thoughts, annoyed commentary, or voice notes. Luna should translate them into the evidence format in `feedback-translator-template.md` without cleaning away what you actually meant.
+
+Unknown stays unknown. Luna must not invent a reproduction step, root cause, severity, or architectural conclusion just to make the report look complete.
 
 ## Current Recommendation
 
@@ -26,35 +36,39 @@ Use the real two-machine environment as a field laboratory for the read-only Git
 
 See `02-cross-node-field-lab.md`.
 
-### Lane 3 — Scout Live Continuity Proof
+## Parked — Scout
 
-**Best fit if you want a concrete iOS/Xcode runtime task with a hard pass/fail gate.**
+Scout exists as an iOS application shell, but the current product does not yet provide a usable connection path for a normal tester to point Scout at a Codexify/Guardian runtime.
 
-Exercise the first live authenticated Scout read described by GitHub #815 and capture a clean proof without changing Guardian authentication.
+That makes the previous Scout live-continuity lane premature. It is not an active Zac lane right now.
 
-See `03-scout-live-continuity-proof.md`.
+The connection/reachability path should be restored or defined through the governed Codex `/goal` development workflow first. After that exists as an actual user-operable surface, Scout live-continuity proof can return as a bounded human lane.
+
+See `03-scout-live-continuity-proof.md` for the parked status and the condition that would reactivate it.
 
 ## Selection Contract
 
-Before doing work, send back five things:
+Before doing work, send back five things. Luna may produce this from ordinary conversation:
 
-1. **Lane** — 1, 2, or 3.
+1. **Lane** — 1 or 2.
 2. **Outcome in your own words** — one or two sentences.
 3. **First bounded slice** — what you will do before expanding.
-4. **Environment / assets** — the machines, account, simulator, or Preview surface you expect to use.
+4. **Environment / assets** — the machines, account, or Preview surface you expect to use.
 5. **Evidence** — what artifact will prove that first slice happened.
 
 Once selected, stay in that lane until the proof gate is met or a real stop condition appears. Do not silently switch to a more interesting adjacent problem.
 
 ## Accountability Contract
 
-A checkpoint is not “worked on X.” Use:
+Saved checkpoints use:
 
 - **Current truth**
 - **What changed**
 - **Evidence**
 - **Blocker / ambiguity**
 - **Next move**
+
+Again: Zac does not need to remember this syntax. Luna may translate his informal status update into it.
 
 For implementation work, GitHub remains the implementation authority. For product/field testing, the report itself is the evidence artifact. Linear tracks the coordination outcome; it should not become a duplicate engineering history.
 
@@ -67,9 +81,10 @@ These are important but are poor uses of an independent collaborator right now b
 - Campaign Engine orchestration authority;
 - provider/authentication semantics;
 - branch convergence or automatic Git synchronization;
-- direct pushes to `main` or deployments.
+- direct pushes to `main` or deployments;
+- repairing Scout's missing connection surface as an ad hoc side quest.
 
-If one of the three lanes uncovers a problem in those areas, report it. Do not absorb it.
+If one of the active lanes uncovers a problem in those areas, report it. Do not absorb it.
 
 ## Context
 
