@@ -979,6 +979,148 @@ def test_successful_invocation_occurs_exactly_once(
     assert head_now == handle["head"]
 
 
+# A full snapshot is evidence of presence; only unequal hashes are mutations.
+def _boundary_for_snapshot(
+    snapshot: dict[str, tuple[str, str]],
+) -> dict[str, Any]:
+    """Exercise the pure boundary check with a full repository snapshot."""
+    preparation = types.SimpleNamespace(
+        allowed_file_paths=("Makefile",), target_baseline_git_head="baseline-head"
+    )
+    return live_executor._build_boundary_artifact(
+        preparation=preparation,
+        envelope_payload={"authorized": True},
+        outcome_payload={
+            "ok": True,
+            "runner_call_count": 1,
+            "retry_count": 0,
+            "fallback_count": 0,
+        },
+        target_post_head="baseline-head",
+        target_post_snapshot=snapshot,
+        receipt_id="pi-receipt-snapshot-test",
+        harness_result_id="pi-result-snapshot-test",
+        expected_provider="deepseek",
+        expected_model="deepseek-v4-pro",
+        actual_provider="deepseek",
+        actual_model="deepseek-v4-pro",
+    )["boundary_validation_artifact"]
+
+
+def test_boundary_scope_ignores_large_unchanged_out_of_scope_snapshot() -> None:
+    snapshot = {
+        f"src/unchanged-{index}.py": (f"hash-{index}", f"hash-{index}")
+        for index in range(256)
+    }
+    snapshot.update({
+        "README.md": ("readme-hash", "readme-hash"),
+        "docs/bar.md": ("docs-hash", "docs-hash"),
+        "Makefile": ("old-hash", "new-hash"),
+    })
+
+    assert live_executor._actual_changed_entries(snapshot) == {
+        "Makefile": ("old-hash", "new-hash")
+    }
+    boundary = _boundary_for_snapshot(snapshot)
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert boundary["all_passed"] is True
+    assert scope == {
+        "check": "changed_paths_within_allowed_scope",
+        "ok": True,
+        "out_of_scope": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "unexpected_hashes",
+    [("old", "new"), ("", "new"), ("old", "")],
+    ids=["modification", "creation", "deletion"],
+)
+def test_boundary_scope_rejects_actual_out_of_scope_mutations(
+    unexpected_hashes: tuple[str, str],
+) -> None:
+    snapshot = {
+        "Makefile": ("old", "new"),
+        "README.md": ("unchanged", "unchanged"),
+        "unexpected.txt": unexpected_hashes,
+    }
+
+    assert set(live_executor._actual_changed_entries(snapshot)) == {
+        "Makefile", "unexpected.txt"
+    }
+    boundary = _boundary_for_snapshot(snapshot)
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert boundary["all_passed"] is False
+    assert scope["ok"] is False
+    assert scope["out_of_scope"] == ["unexpected.txt"]
+
+
+def test_boundary_scope_distinguishes_no_mutation_from_snapshot_membership() -> None:
+    snapshot = {
+        "Makefile": ("same", "same"),
+        "README.md": ("same", "same"),
+    }
+    assert live_executor._actual_changed_entries(snapshot) == {}
+    scope = next(
+        check for check in _boundary_for_snapshot(snapshot)["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert scope["ok"] is True
+    assert scope["out_of_scope"] == []
+
+
+def test_allowed_mutation_with_unchanged_other_files_preserves_count_and_boundary(
+    live_doc, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign_path, target, handle = live_doc
+    for index in range(32):
+        path = target / "src" / f"unchanged-{index}.py"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"UNCHANGED-{index}\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-many-unchanged", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-many-unchanged", receipt_id="pi-receipt-many-unchanged", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        (pathlib.Path(kwargs["cwd"]) / "proof_target.txt").write_text(
+            "CHANGED\n", encoding="utf-8"
+        )
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    output_root = tmp_path / "out-many-unchanged"
+    result = run_live_executor_campaign(
+        preparation, output_root, envelope=envelope, decision=decision,
+        timeout_seconds=30, campaign_path=campaign_path,
+    )
+    final_dir = output_root / handle["campaign_id"]
+    attempt = json.loads(
+        (final_dir / "attempts" / f"{preparation.attempt_id}.json").read_text()
+    )
+    boundary = json.loads(
+        (final_dir / "execution/executor-boundary-validation.json").read_text()
+    )["boundary_validation_artifact"]
+    assert result.source_mutations == attempt["source_mutation_count"] == 1
+    assert [item["path"] for item in attempt["changed_files"]] == ["proof_target.txt"]
+    assert boundary["all_passed"] is True
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert scope["out_of_scope"] == []
+
+
 # 14. one allowed target mutation produces source_mutation_count=1.
 def test_one_allowed_mutation_produces_count_one(
     live_doc, tmp_path, invoker_factory
@@ -1143,6 +1285,41 @@ def test_out_of_scope_change_fails_closed(
         )
     monkeypatch.undo()
     assert exc_info.value.failure_reason == "out_of_scope_mutation"
+
+
+@pytest.mark.parametrize("mutation", ["modify", "create", "delete"])
+def test_runtime_rejects_each_out_of_scope_mutation(
+    live_doc, tmp_path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    campaign_path, target, _ = live_doc
+    unexpected = target / "unexpected.txt"
+    if mutation != "create":
+        unexpected.write_text("BEFORE\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-out-of-scope", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-out-of-scope", receipt_id="pi-receipt-out-of-scope", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        if mutation == "delete":
+            unexpected.unlink()
+        else:
+            unexpected.write_text("AFTER\n", encoding="utf-8")
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    with pytest.raises(CampaignLiveExecutorError) as exc_info:
+        run_live_executor_campaign(
+            preparation, tmp_path / f"out-{mutation}",
+            envelope=envelope, decision=decision,
+            timeout_seconds=30, campaign_path=campaign_path,
+        )
+    assert exc_info.value.failure_reason == "out_of_scope_mutation"
+    assert "unexpected.txt" in str(exc_info.value.issues)
 
 
 # 18. Git HEAD change fails closed.

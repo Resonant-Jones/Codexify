@@ -795,13 +795,24 @@ def _build_live_attempt_id(
     )[:24]
 
 
+def _actual_changed_entries(
+    snapshot: dict[str, tuple[str, str]],
+) -> dict[str, tuple[str, str]]:
+    """Select mutations from a full pre/post snapshot, including adds and deletes."""
+    return {
+        rel: (pre_hash, post_hash)
+        for rel, (pre_hash, post_hash) in snapshot.items()
+        if pre_hash != post_hash
+    }
+
+
 def _build_boundary_artifact(
     *,
     preparation: LiveExecutorPreparation,
     envelope_payload: dict[str, Any],
     outcome_payload: dict[str, Any],
     target_post_head: str | None,
-    target_post_changed: dict[str, tuple[str, str]],
+    target_post_snapshot: dict[str, tuple[str, str]],
     receipt_id: str | None,
     harness_result_id: str | None,
     expected_provider: str,
@@ -845,7 +856,7 @@ def _build_boundary_artifact(
     # Allowed scope agreement.
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     out_of_scope = [
-        rel for rel in target_post_changed.keys()
+        rel for rel in _actual_changed_entries(target_post_snapshot)
         if not _resource_within_allowed(rel, allowed_norm)
     ]
     checks.append({
@@ -1754,9 +1765,7 @@ def run_live_executor_campaign(
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     changed_files: list[dict[str, Any]] = []
     out_of_scope: list[str] = []
-    for rel, (pre_hash, post_hash) in sorted(snapshot.items()):
-        if pre_hash == post_hash:
-            continue
+    for rel, (_, post_hash) in sorted(_actual_changed_entries(snapshot).items()):
         if not _resource_within_allowed(rel, allowed_norm):
             out_of_scope.append(rel)
             continue
@@ -1784,7 +1793,7 @@ def run_live_executor_campaign(
         envelope_payload=_to_payload(envelope),
         outcome_payload=outcome_payload,
         target_post_head=target_post_head or None,
-        target_post_changed=snapshot,
+        target_post_snapshot=snapshot,
         receipt_id=receipt_id,
         harness_result_id=harness_result_id,
         expected_provider=preparation.expected_provider_id,
