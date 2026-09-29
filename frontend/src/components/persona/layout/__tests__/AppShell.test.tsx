@@ -1529,6 +1529,40 @@ describe("AppShell gallery demo content", () => {
     });
   });
 
+  it("keeps seeded content when a seeded gallery image is selected as wallpaper", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+
+    const seededImage = await screen.findByRole("img", {
+      name: "Abstract signal study",
+    });
+    fireEvent.contextMenu(seededImage);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+
+    expect(localStorage.getItem("cfy.wallpaper")).toBe(
+      `${window.location.origin}/peekaboo-demo/abstract-signal-study.png`
+    );
+    expect(
+      screen.getByRole("img", { name: "Abstract signal study" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Interface moodboard" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Field notes map" })
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ mock?: boolean }>;
+      expect(persistedGallery).toHaveLength(3);
+      expect(persistedGallery.every((item) => item.mock === true)).toBe(true);
+    });
+  });
+
   it("migrates cached localhost starter URLs to same-origin mock assets", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRoutePath("/gallery");

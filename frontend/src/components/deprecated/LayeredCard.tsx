@@ -147,9 +147,9 @@ export function LayeredRefractiveCard({
   children,
   ...rest
 }: Props & { wallpaperUrl?: string }) {
-  const { wallpaperUrl } = useWallpaperUrl();
+  const { renderableWallpaperUrl } = useWallpaperUrl();
   return (
-    <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className={cn("rounded-2xl", className)} style={style}>
+    <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={renderableWallpaperUrl} className={cn("rounded-2xl", className)} style={style}>
       <div className="p-[3px] rounded-2xl">
         <div className={cn("rounded-2xl", innerClassName)} style={innerStyle} {...rest}>
           {children}

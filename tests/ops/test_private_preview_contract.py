@@ -83,7 +83,16 @@ def _render_compose(
         "LOCAL_CHAT_MODEL": "local-chat",
         "NEO4J_PASS": "inert-neo4j-password",
     }
+<<<<<<< ours
     environment.update(environment_overrides or {})
+=======
+    command = ["docker", "compose"]
+    for profile in profiles:
+        command.extend(("--profile", profile))
+    for compose_file in compose_files:
+        command.extend(("-f", str(compose_file)))
+    command.extend(("config", "--format", "json"))
+>>>>>>> theirs
     temporary_env_file: str | None = None
     try:
         if runtime_env_file is None:
@@ -159,6 +168,7 @@ def test_private_preview_compose_selects_dual_provider_contract() -> None:
 def test_private_preview_chroma_topology_resists_redirection(
     redirection_source: str, tmp_path: Path
 ) -> None:
+<<<<<<< ours
     runtime_env_file = None
     environment_overrides = None
     if redirection_source == "environment":
@@ -173,6 +183,16 @@ def test_private_preview_chroma_topology_resists_redirection(
             encoding="utf-8",
         )
         runtime_env_file = str(env_file)
+=======
+    monkeypatch.setenv("CODEXIFY_VECTOR_STORE", "redirected-store")
+    monkeypatch.setenv("CODEXIFY_CHROMA_PATH", "/redirected/chroma")
+    monkeypatch.setenv("CODEXIFY_COLLECTION", "redirected-collection")
+
+    base_config = _render_compose(
+        compose_files=(COMPOSE_FILES[0],), profiles=("cli", "backfill")
+    )
+    config = _render_compose(profiles=("cli", "backfill"))
+>>>>>>> theirs
 
     config = _render_compose(
         runtime_env_file=runtime_env_file,
@@ -198,9 +218,31 @@ def test_private_preview_chroma_topology_resists_redirection(
     } == set(CHROMA_CONSUMERS)
 
     for service_name in CHROMA_CONSUMERS:
+        base_service = base_config["services"][service_name]
         service = config["services"][service_name]
+<<<<<<< ours
         mounts = [
             mount for mount in service["volumes"] if mount["target"] == "/app/.chroma"
+=======
+        assert service.get("profiles") == base_service.get("profiles")
+
+        base_unrelated_mounts = [
+            mount
+            for mount in base_service.get("volumes") or []
+            if mount.get("target") != "/app/.chroma"
+        ]
+        unrelated_mounts = [
+            mount
+            for mount in service.get("volumes") or []
+            if mount.get("target") != "/app/.chroma"
+        ]
+        assert unrelated_mounts == base_unrelated_mounts
+
+        chroma_mounts = [
+            mount
+            for mount in service.get("volumes") or []
+            if mount.get("target") == "/app/.chroma"
+>>>>>>> theirs
         ]
         # Exact equality rejects duplicate, host-bind, anonymous, subpath,
         # read-only, or image-seeded alternatives at the canonical target.
