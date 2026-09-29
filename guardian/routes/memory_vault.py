@@ -35,7 +35,7 @@ from datetime import datetime
 from typing import Annotated, Any, Iterator, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardian.core.dependencies import (
     RequestUserScope,
@@ -64,6 +64,9 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultPersonaSubjectNotAvailable,
     MemoryVaultProjectAuthorityConflict,
     MemoryVaultProjectNotAvailable,
+    MemoryVaultReviewTransitionIntegrityError,
+    MemoryVaultReviewTransitionInvalid,
+    MemoryVaultReviewTransitionUnsupported,
 )
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
@@ -796,6 +799,44 @@ def create_vault_item(
 
 _CONTENT_CORRECTION_UNAVAILABLE_DETAIL = "Memory content correction unavailable"
 _CONTENT_CORRECTION_INVALID_DETAIL = "Content must be a non-empty string"
+_REVIEW_TRANSITION_UNAVAILABLE_DETAIL = "Memory review transition unavailable"
+_REVIEW_TRANSITION_INVALID_DETAIL = "Action must be one of: approve, reject, dispute"
+
+
+class VaultReviewTransitionRequest(_VaultMutationRequest):
+    """ADR-088 direct review action.
+
+    Only the admitted action is accepted. A raw ``review_state`` is never
+    taken from the caller, so ``pending`` cannot be requested.
+
+    ``extra="forbid"`` is deliberate: caller-supplied authority fields
+    (account, actor, revision identity/number, lifecycle, Project, Persona)
+    are rejected outright rather than silently ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+
+
+class VaultReviewTransitionResponse(BaseModel):
+    """Serialized direct review-transition result (UMS-05C10A-W).
+
+    ``receipt_id`` / ``review_revision_id`` / ``review_revision_number`` are
+    all ``None`` for an ADR-088 same-state no-op. No separate copy of memory
+    content is exposed for review-history purposes.
+    """
+
+    changed: bool
+    action: str
+    receipt_id: str | None
+    review_revision_id: str | None
+    review_revision_number: int | None
+    previous_review_state: str
+    resulting_review_state: str
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItemResponse
 
 
 @router.patch(
@@ -852,6 +893,63 @@ def patch_canonical_vault_item_content(
     )
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/review",
+    response_model=VaultReviewTransitionResponse,
+)
+def patch_canonical_vault_item_review(
+    memory_id: str,
+    body: VaultReviewTransitionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultReviewTransitionResponse:
+    """Direct authenticated review transition for ordinary memory.
+
+    Thin adapter only: it performs no SQL, no parent lookup, no row
+    locking, no CAS comparison, no no-op determination, no state-machine
+    calculation, no review-revision numbering, no ``reviewed_at`` decision,
+    no receipt construction, and no read-before-write. Account authority
+    comes exclusively from ``RequestUserScope.account_id`` through the
+    existing mutation-service dependency.
+    """
+    try:
+        result = service.transition_review(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            action=body.action,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultReviewTransitionInvalid:
+        raise HTTPException(status_code=422, detail=_REVIEW_TRANSITION_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultReviewTransitionUnsupported,
+        MemoryVaultReviewTransitionIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Sanitized: no species, SQL, constraint, chain, or content detail.
+        raise HTTPException(
+            status_code=409, detail=_REVIEW_TRANSITION_UNAVAILABLE_DETAIL
+        )
+
+    return VaultReviewTransitionResponse(
+        changed=result.changed,
+        action=result.action,
+        receipt_id=result.receipt_id,
+        review_revision_id=result.review_revision_id,
+        review_revision_number=result.review_revision_number,
+        previous_review_state=result.previous_review_state,
+        resulting_review_state=result.resulting_review_state,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -869,6 +967,8 @@ __all__ = [
     "VaultCreateMemoryRequest",
     "VaultContentCorrectionRequest",
     "VaultContentCorrectionResponse",
+    "VaultReviewTransitionRequest",
+    "VaultReviewTransitionResponse",
     "VaultMutationResponse",
     "VaultCreationResponse",
     "MemoryCompatibilitySourceRefResponse",

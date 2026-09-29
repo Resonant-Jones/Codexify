@@ -197,11 +197,11 @@ revision / audit / intent receipt, and fail-closed cases.
 For Personal Facts, every action above delegates to the Personal Facts
 service rather than mutating competing envelope state.
 
-#### 5.1.1 Review-transition semantics (UMS-05C10A-C)
+#### 5.1.1 Review-transition semantics (UMS-05C10A-C, implemented by UMS-05C10A-W)
 
-The Approve / Reject / dispute rows above are **contracted but not
-implemented**. No ordinary review writer, route, or service method
-exists at this commit; `review_state` is written only at creation.
+The Approve / Reject / dispute rows above are **implemented** as the
+internal endpoint below. `review_state` is written at creation and,
+for ordinary episodic memory, by this writer.
 
 Both prerequisites that UMS-05C10A-R identified are now closed:
 
@@ -214,11 +214,26 @@ Both prerequisites that UMS-05C10A-R identified are now closed:
    which freezes the ordinary-memory state machine; it is normative in
    Unified Memory Store contract §3.3.1.
 
-The later Memory Vault review writer is authorized separately as
-UMS-05C10A-W. Its contracted behavior, restated here so the operator
-surface is self-describing:
+UMS-05C10A-W implements the frozen state machine as an internal
+endpoint on the existing `memory_vault` surface:
 
-| Aspect | Contracted behavior |
+```text
+PATCH /api/memory-vault/items/canonical/{memory_id}/review
+```
+
+Request: `action` (`approve` | `reject` | `dispute`),
+`expected_updated_at`, optional `reason`, optional `request_ref`. The
+request model forbids extra fields, so caller-supplied account, actor,
+revision, lifecycle, Project, or Persona authority is rejected rather
+than ignored. A raw `review_state` is never accepted, so `pending`
+cannot be requested.
+
+Response: `changed`, `action`, `receipt_id`, `review_revision_id`,
+`review_revision_number`, `previous_review_state`,
+`resulting_review_state`, `previous_updated_at`,
+`resulting_updated_at`, and the canonical `item`.
+
+| Aspect | Implemented behavior |
 | --- | --- |
 | Direct actions | `approve`, `reject`, `dispute` only |
 | Legal targets | `approved`, `rejected`, `disputed` — never `pending` |
@@ -229,7 +244,7 @@ surface is self-describing:
 | Rejection / dispute | does not retire |
 | `reviewed_at` | first authoritative approval only; preserved on re-approval; never cleared |
 | Actor | authenticated account principal; suggestions cannot self-approve |
-| Personal Facts | delegate to the Personal Facts service; the ordinary writer refuses specialized species |
+| Personal Facts | the ordinary writer refuses specialized species without writing generic review state; it does not delegate |
 
 **Reading the table above.** The `Receipt` column enumerates durable
 evidence per action. The §5.1-versus-§3.3 wording divergence recorded by
@@ -237,9 +252,17 @@ UMS-05C10A-R is now resolved in the direction of the normative §3.3
 rule: a review transition that changes state produces a revision
 *and* a receipt, never a receipt alone.
 
-This section records contracted future behavior. It does not implement
-the writer, does not create routes, and does not claim any review
-action is live.
+The writer enforces ADR-088 exactly and remains **internal-only and
+hidden from public OpenAPI** under the existing `memory_vault` profile
+posture. Each changed transition commits the current-state update, the
+`reviewed_at` first-approval update when required, the CAS advance, the
+review revision, and the intent receipt in a single transaction; any
+failure rolls all of them back. Parent-row `SELECT ... FOR UPDATE`
+serializes concurrent review mutations so two transitions cannot claim
+the same next review revision number.
+
+Lifecycle mutation is not implemented here and remains separately
+governed.
 
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
