@@ -115,6 +115,7 @@ from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import get_local_embed_model, require_local_embed_model
@@ -1010,6 +1011,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[ACCOUNT_AUTH_FAILURE_HEADER],
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
