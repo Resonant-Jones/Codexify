@@ -1739,6 +1739,58 @@ Portability: `memory_review_revisions` is the seventh canonical
 family in `account-export.v6`. `account-export.v5` keeps its
 exact six-family meaning and is not redefined.
 
+#### 4.16.5c Lifecycle history is a third, distinct authority — not yet persisted
+
+UMS-05C10B-R revalidated ordinary-memory lifecycle mutation
+authority against current branch truth and recorded:
+
+```text
+LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
+LIFECYCLE_TRANSITION_GRAPH: PARTIAL
+```
+
+The contract uses a third history concept that is **not** the
+content or review one, and that no current canonical family
+satisfies:
+
+| Surface | History meaning |
+| --- | --- |
+| `memory_revisions` | authored **content** transitions (§4.16.5) |
+| `memory_review_revisions` | review-authority transitions (§4.16.5b) |
+| *(none exists)* | **lifecycle**-authority transitions |
+
+`memory_records.lifecycle_state` is the sole present lifecycle
+authority (§3.3), and §3.3 requires a revision and intent receipt
+for every authority-changing transition. That requirement has
+**not** been narrowed to receipt-only for lifecycle, and it is
+not discharged by the existence of the content or review families:
+neither is semantically capable of representing a lifecycle
+transition.
+
+**Contract-ahead-of-implementation gap, not a contradiction.**
+§4.4 states that lifecycle transition timestamps such as
+`dormant_at` and `retired_at` "remain canonical", and §10 requires
+"lifecycle transition timestamps" in the account archive. Neither
+`dormant_at` nor `retired_at` exists as a column, and the
+`account-export.v6` `memory_records` field set carries no lifecycle
+transition timestamp. No two current documents disagree; the
+contract is simply ahead of storage.
+
+**The restore-posture obligation is currently unimplementable.**
+§5.4 requires restore to return a retired record to its
+*pre-retirement governed posture*. No field records that posture, so
+`active → retired → restore` and `dormant → retired → restore` are
+indistinguishable in current storage. The pre-retirement posture is
+therefore part of the historical authority the missing family must
+preserve.
+
+**This section records the gap only.** It does not choose a
+lifecycle revision schema, does not define a restore target, does
+not define any `dormant → active` reactivation edge, and does not
+decide whether governed automatic decay shares the human
+retire/restore history family. Those remain unresolved, and the
+C10B writer stays frozen behind UMS-05C10B-P.
+
 #### 4.16.5 Payload strategy decision
 
 The UMS-03A deferred question "shared typed columns vs.
