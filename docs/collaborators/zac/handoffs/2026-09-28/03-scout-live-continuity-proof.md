@@ -1,82 +1,45 @@
-# Lane 3 — Scout Live Continuity Proof
+# Parked Lane — Scout Live Continuity Proof
 
-## Outcome
+## Current Status
 
-Execute the first live authenticated Scout proof defined by GitHub #815 using the actual Scout app and an operator-approved Guardian endpoint.
+**Not currently assignable to Zac.**
 
-This lane is deliberately narrow. It proves one client/auth/runtime boundary; it does not attempt the whole iOS roadmap.
+Scout exists as an iOS application shell, but the present product does not provide a usable connection path for a normal tester to connect Scout to a Codexify/Guardian runtime.
 
-## Governing Issue
+The earlier handoff assumed that Zac could configure an operator-approved endpoint and authentication mode from Scout and then execute the first live read in GitHub #815. That assumption is not currently true from the user-facing product.
 
-GitHub #815 — Scout iOS Phase 1: prove live Vault continuity loop.
+## Why This Is Parked
 
-Phase 0 (#814) and the explicit authentication-mode prerequisite (#822) are already complete. Do not repeat them.
+A live continuity proof is meaningful only after the app has an actual connection/reachability path that a tester can use without reconstructing developer setup out-of-band.
 
-## Prerequisites
+Right now the missing prerequisite is earlier than the proof:
 
-Before sending any credential:
+```
+Scout app
+  -> usable connection configuration
+  -> reachable Guardian/Codexify runtime
+  -> explicit authentication
+  -> live continuity proof
+```
 
-- use a Scout build containing the #822 authentication-mode work;
-- use Xcode + an iOS Simulator or approved device;
-- identify the operator-approved Guardian endpoint;
-- verify that the endpoint supports the existing local/operator API-key contract;
-- use `localAPIKey` mode only for this slice;
-- enter the key through Scout's secure field / Keychain path.
+The first arrow is not yet a usable product path.
 
-The credential must not appear in chat, screenshots, shell history, logs, commits, or the proof report.
+## Governance Path
 
-## First Bounded Slice
+Do not ask Zac to repair this casually as part of the collaborator bundle.
 
-1. Make a protected thread-list request without authentication and record that it is rejected.
-2. Configure the approved endpoint and local API key through Scout.
-3. Make a fresh request from the actual Scout app.
-4. Confirm that the protected thread list is now readable.
-5. If a suitable existing thread is present, open it and observe persisted messages.
-6. Record reachability, authentication, and provider readiness as separate facts. Do not infer one from another.
+Use the governed Codex `/goal` development-operator workflow to recover or define the Scout connection path, keeping product authority with Chris and implementation sequencing inside the existing campaign/governance model.
 
-Do not move into thread creation, message sending, Guardian completion, or task SSE until this first proof is clean.
+Once that path exists and is proven usable, this lane can be reactivated and GitHub #815 can again supply the bounded live-continuity proof.
 
-## Evidence Artifact
+## Reactivation Gate
 
-Create:
+This lane becomes assignable only when:
 
-`docs/collaborators/zac/reports/YYYY-MM-DD-scout-live-auth-read-proof.md`
+- Scout exposes a user-operable way to identify/configure the intended Guardian/Codexify endpoint;
+- the supported authentication mode for that endpoint is explicit;
+- a tester can establish reachability without founder-only shell/repo knowledge;
+- the expected first protected read is defined from current repository truth;
+- credentials can be entered and retained through the intended secure path.
 
-Record:
-
-- Scout branch/commit used;
-- simulator/device class;
-- endpoint classification without embedding secrets;
-- explicit auth mode exercised;
-- unauthenticated protected-route result;
-- authenticated Scout result;
-- thread-list observation;
-- whether an existing thread opened;
-- screenshots/log excerpts with credentials and sensitive values removed;
-- any blocker exactly as observed.
-
-## Proof Gate
-
-Pass only when:
-
-- the unauthenticated protected request is rejected;
-- a fresh request from Scout using the approved local API-key mode succeeds;
-- the result is observed in the actual Scout UI/service path;
-- no silent auth-mode fallback occurs;
-- no credential leaks into evidence.
-
-A blocked result is still useful if the block is genuine and precisely evidenced.
-
-## Non-Goals
-
-- No remote-session implementation.
-- No Cloudflare Access bypass.
-- No Guardian auth changes.
-- No hosted-readiness claim.
-- No App Intents or Siri work.
-- No desktop parity work.
-- No weakening server policy to make the client pass.
-
-## Next Step
-
-After the first proof passes, return the evidence. The remaining #815 continuity sequence can then be split into the next bounded slice.
+Until then, report Scout connection-path observations to Chris and stop. Do not weaken auth, bypass infrastructure, or invent a parallel connection mechanism just to make the old proof script executable.
