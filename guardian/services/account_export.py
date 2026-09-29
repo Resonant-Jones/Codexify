@@ -39,6 +39,12 @@ REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v5"
 #: NEW schema version. v5 semantics are frozen exactly: v5 remains the
 #: six-family canonical graph and is never widened to carry review history.
 REVIEW_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v6"
+#: UMS-05C10B-P. The canonical Unified Memory graph gains an eighth
+#: family, ``memory_lifecycle_revisions``. Adding an entity family changes
+#: canonical payload semantics, so this is a NEW schema version. v6
+#: semantics are preserved exactly: v6 remains the seven-family canonical
+#: graph and is never widened to carry lifecycle history.
+LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v7"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -195,6 +201,19 @@ REVIEW_REVISION_MEMORY_PAYLOAD_ORDER = REVISION_MEMORY_PAYLOAD_ORDER + (
 REVIEW_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
     entry[0] for entry in REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
 )
+#: UMS-05C10B-P. v7 is the v6 canonical graph plus the ordinary-memory
+#: lifecycle-transition revision family. Appended last so a consumer walking
+#: families in order always has its parent ``memory_records`` first.
+LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER = REVIEW_REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_lifecycle_revisions",
+        "entities/memory_lifecycle_revisions.json",
+        "fetch_account_export_memory_lifecycle_revisions_for_user",
+    ),
+)
+LIFECYCLE_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+)
 # NOTE: FULL_PAYLOAD_ORDER stays bound to v5. Widening it would silently
 # redefine the v5 canonical graph, which is immutable.
 FULL_PAYLOAD_ORDER = PAYLOAD_ORDER + REVISION_MEMORY_PAYLOAD_ORDER
@@ -211,6 +230,9 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
     ),
+    LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
@@ -218,6 +240,9 @@ EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
     REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
     ),
 }
 BINARY_FAMILIES = {
@@ -535,6 +560,17 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "actor_account_id",
         "created_at",
     },
+    # UMS-05C10B-P: ordinary-memory lifecycle-transition history.
+    # old_lifecycle_state preserves the pre-retirement posture.
+    "memory_lifecycle_revisions": {
+        "lifecycle_revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_lifecycle_state",
+        "new_lifecycle_state",
+        "created_at",
+    },
 }
 
 _UNIFIED_MEMORY_ID_FIELDS = {
@@ -545,6 +581,7 @@ _UNIFIED_MEMORY_ID_FIELDS = {
     "memory_provenance": "provenance_id",
     "memory_revisions": "revision_id",
     "memory_review_revisions": "review_revision_id",
+    "memory_lifecycle_revisions": "lifecycle_revision_id",
 }
 
 _UNIFIED_MEMORY_SORT_KEYS = {
@@ -677,6 +714,16 @@ def _validate_unified_memory_export(
         memories_by_id=memories_by_id,
     )
 
+    # UMS-05C10B-P: lifecycle-transition history is canonical and must be
+    # well-formed when present. Malformed history fails closed; it is never
+    # repaired, and provenance extensions are never consulted to repair it.
+    # A v4/v5/v6 archive carries no lifecycle family and is skipped.
+    _validate_memory_lifecycle_revision_export(
+        rows_by_family.get("memory_lifecycle_revisions", ()),
+        user_id=user_id,
+        memories_by_id=memories_by_id,
+    )
+
     provenance_memory_ids: set[str] = set()
     for row in rows_by_family["memory_provenance"]:
         memory_id = _identity(row.get("memory_id"))
@@ -795,6 +842,90 @@ def _validate_memory_review_revision_export(
             _identity(row.get("memory_id")),
             int(row["revision_number"]),
             _identity(row.get("review_revision_id")),
+        )
+    )
+
+
+_LIFECYCLE_STATES = frozenset({"active", "dormant", "retired"})
+
+
+def _validate_memory_lifecycle_revision_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+    memories_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Fail closed on malformed canonical ordinary lifecycle history.
+
+    UMS-05C10B-P. This is a history *shape* validator, not a
+    legal-transition policy: it checks ownership, species, typed
+    vocabulary, inequality, contiguous numbering, chain continuity, and
+    reconciliation with the parent memory's current ``lifecycle_state``.
+
+    Absence of history is valid. A memory is never required to carry
+    lifecycle history just because it has a present lifecycle state, and a
+    legacy retired record whose pre-retirement posture was never canonically
+    recorded stays exportable without fabricated history.
+    """
+    if not rows:
+        return
+
+    by_memory: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        memory_id = _identity(row.get("memory_id"))
+        parent = memories_by_id.get(memory_id)
+        if parent is None:
+            raise RuntimeError("memory_lifecycle_revision_export_orphan")
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("memory_lifecycle_revision_export_account_mismatch")
+        # Ordinary memory only. Personal Facts keep personal_fact_revisions.
+        if parent.get("semantic_species") != "episodic_semantic_memory":
+            raise RuntimeError(
+                "memory_lifecycle_revision_export_unsupported_parent_species"
+            )
+
+        old_state = _identity(row.get("old_lifecycle_state"))
+        new_state = _identity(row.get("new_lifecycle_state"))
+        if old_state not in _LIFECYCLE_STATES or new_state not in _LIFECYCLE_STATES:
+            raise RuntimeError("memory_lifecycle_revision_export_invalid_state")
+        if old_state == new_state:
+            raise RuntimeError("memory_lifecycle_revision_export_noop_transition")
+
+        raw_number = row.get("revision_number")
+        if isinstance(raw_number, bool) or not isinstance(raw_number, int):
+            raise RuntimeError("memory_lifecycle_revision_export_number_invalid")
+        if raw_number < 1:
+            raise RuntimeError("memory_lifecycle_revision_export_number_invalid")
+        by_memory.setdefault(memory_id, []).append(row)
+
+    for memory_id, memory_rows in by_memory.items():
+        # Numeric ordering, not string ordering, so revision 10 follows 9.
+        memory_rows.sort(
+            key=lambda row: (
+                int(row["revision_number"]),
+                _identity(row.get("lifecycle_revision_id")),
+            )
+        )
+        numbers = [int(row["revision_number"]) for row in memory_rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise RuntimeError("memory_lifecycle_revision_export_sequence_gap")
+        for previous, following in zip(memory_rows, memory_rows[1:]):
+            if _identity(previous["new_lifecycle_state"]) != _identity(
+                following["old_lifecycle_state"]
+            ):
+                raise RuntimeError("memory_lifecycle_revision_export_chain_mismatch")
+        final_state = _identity(memory_rows[-1]["new_lifecycle_state"])
+        parent_state = _identity(memories_by_id[memory_id].get("lifecycle_state"))
+        if final_state != parent_state:
+            raise RuntimeError("memory_lifecycle_revision_export_final_state_mismatch")
+
+    # Deterministic export ordering: memory_id ASC, revision_number ASC,
+    # lifecycle_revision_id ASC.
+    rows.sort(
+        key=lambda row: (
+            _identity(row.get("memory_id")),
+            int(row["revision_number"]),
+            _identity(row.get("lifecycle_revision_id")),
         )
     )
 
@@ -1094,7 +1225,27 @@ def _build_manifest(
         )
     )
 
-    if schema_version == REVIEW_REVISION_MANIFEST_SCHEMA_VERSION:
+    if schema_version == LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION:
+        # v7 is the eight-family canonical graph.
+        compatibility = {
+            "reader": "account_export.v7",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v7 serialization: the v6 seven-family canonical Unified Memory graph plus the memory_lifecycle_revisions family.",
+            "memory_records.lifecycle_state remains the current lifecycle authority; memory_lifecycle_revisions preserves ordered lifecycle transitions.",
+            "A transition into retired preserves the pre-retirement governed posture in old_lifecycle_state.",
+            "No legal lifecycle transition graph is encoded: this archive records transitions, it does not authorize them.",
+            "Memory with no lifecycle history is exported without fabricated history, including a legacy retired record whose prior posture was never canonically recorded.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == REVIEW_REVISION_MANIFEST_SCHEMA_VERSION:
         # v6 is the seven-family canonical graph.
         compatibility = {
             "reader": "account_export.v6",
@@ -1204,6 +1355,7 @@ def build_account_export_zip(
         STAGED_MANIFEST_SCHEMA_VERSION,
         REVISION_MANIFEST_SCHEMA_VERSION,
         REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
+        LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
     )
     rows_by_family = _load_rows_by_family(
         db,

@@ -201,11 +201,13 @@ def test_fresh_migration_creates_memory_review_revisions_with_orm_parity(
 
     from alembic.script import ScriptDirectory
 
+    # UMS-05C10B-P adds a descendant migration, so the repository no longer
+    # terminates at C10A-P. Assert the topology instead of a terminal value:
+    # there is exactly one head, and C10A-P is in its intentional lineage.
     script = ScriptDirectory.from_config(config)
     heads = list(script.get_heads())
     assert len(heads) == 1
-    assert heads[0] == UMS_05C10A_P_REVISION
-    assert PREVIOUS_REVISION in {
+    assert UMS_05C10A_P_REVISION in {
         revision.revision for revision in script.iterate_revisions(heads[0], "base")
     }
 

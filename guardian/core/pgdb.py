@@ -4858,6 +4858,7 @@ ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
     "memory_provenance",
     "memory_revisions",
     "memory_review_revisions",
+    "memory_lifecycle_revisions",
 )
 
 
@@ -5382,6 +5383,24 @@ def fetch_account_export_bundle_for_user(
                     (user_id,),
                 )
 
+                # UMS-05C10B-P: ordinary-memory lifecycle-transition history.
+                # old_lifecycle_state preserves the pre-retirement posture
+                # required by the restore contract.
+                bundles["memory_lifecycle_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        lifecycle_revision_id, memory_id, user_id,
+                        revision_number, old_lifecycle_state,
+                        new_lifecycle_state, created_at
+                    FROM memory_lifecycle_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             lifecycle_revision_id ASC
+                    """,
+                    (user_id,),
+                )
+
                 project_ids = _append_unique(
                     project_ids,
                     [
@@ -5762,6 +5781,11 @@ def iter_account_export_payloads_for_user(
                 "memory_review_revisions",
                 "entities/memory_review_revisions.json",
                 "fetch_account_export_memory_review_revisions_for_user",
+            ),
+            (
+                "memory_lifecycle_revisions",
+                "entities/memory_lifecycle_revisions.json",
+                "fetch_account_export_memory_lifecycle_revisions_for_user",
             ),
         )
     for family, path, _reader_name in payload_order:
