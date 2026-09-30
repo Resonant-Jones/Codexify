@@ -151,7 +151,17 @@ validates the checkpoint's Attempt, Pi Receipt, Harness Result, boundary
 validation, and unchanged locked bindings. It constructs a bounded Evaluator
 packet from the Task objective and acceptance criteria, source-context
 reference, Executor Attempt and identity evidence, changed-file list, a
-size-limited disposable-target diff and snapshot, and validation output.
+complete bounded disposable-target diff, changed-file hash/size metadata,
+and validation output. File size does not determine change size: full file
+bytes are verified locally against the committed baseline, Executor readback,
+and Attempt hash. The packet contains only changed-file before/after SHA-256
+and byte sizes, with a complete unified diff bounded to 16,384 UTF-8 bytes.
+The full packet remains bounded to 32,768 UTF-8 bytes. Oversized actual change
+evidence fails closed; it is never silently truncated. Full repository hash
+snapshots remain in the immutable checkpoint and are checked locally, rather
+than copied into the model packet. Physical Git worktree `.git` pointers are
+accepted only with a verified worktree root and Git HEAD; symlinks and target
+drift remain rejected.
 
 For the fresh CE-L2 proof, live RoleBindings explicitly record the selected
 harness identity and reasoning effort. The Executor invocation rejects
