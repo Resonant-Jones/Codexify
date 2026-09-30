@@ -19,6 +19,8 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
+import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
@@ -157,6 +159,7 @@ type AppShellView =
   | "guardian"
   | "flowBuilder"
   | "settings"
+  | "configurationInspector"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
@@ -253,6 +256,7 @@ const APP_SHELL_VIEWS = [
   "guardian",
   "flowBuilder",
   "settings",
+  "configurationInspector",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
@@ -1364,6 +1368,11 @@ export default function AppShell({
     window.history.replaceState({}, "", "/chat");
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
+  const configurationSnapshotRequest = useRef<Promise<ConfigurationSnapshot> | null>(null);
+  useEffect(() => {
+    // The request belongs to one Inspector opening, never to a durable cache.
+    if (view !== "configurationInspector") configurationSnapshotRequest.current = null;
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
   const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
@@ -1672,7 +1681,8 @@ export default function AppShell({
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
-      if (typeof window === "undefined") return;
+      // The Inspector is internal to Settings; it has no URL route of its own.
+      if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(nextView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
@@ -4177,8 +4187,27 @@ export default function AppShell({
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
                     onStartFeedbackConversation={openFeedbackConversation}
+                    onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
+              </div>
+            </FrameCard>
+          )}
+          {!startupLocked && activeRoomId == null && view === "configurationInspector" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="mx-auto flex w-full min-w-0 min-h-0 max-h-full flex-col overflow-hidden"
+              data-testid="configuration-inspector-framecard"
+              style={settingsLayout}
+            >
+              <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
+                <ErrorBoundary>
+                  <ConfigurationInspectorView
+                    onBackToSettings={() => navigateToView("settings")}
+                    snapshotRequest={configurationSnapshotRequest}
                   />
                 </ErrorBoundary>
               </div>

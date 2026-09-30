@@ -87,7 +87,8 @@ type SettingsTab =
   | "connectors"
   | "data"
   | "connection"
-  | "personalFacts";
+  | "personalFacts"
+  | "operator";
 
 type SettingsTabDefinition = {
   value: SettingsTab;
@@ -103,6 +104,7 @@ const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "data", label: "Data" },
   { value: "connection", label: "Connection", requiresDesktop: true },
   { value: "personalFacts", label: "Personal Facts" },
+  { value: "operator", label: "Operator" },
 ];
 
 function getSettingsTabButtonId(tab: SettingsTab): string {
@@ -134,6 +136,7 @@ function normalizeSettingsTab(value: unknown): SettingsTab | null {
   if (compact === "data") return "data";
   if (compact === "connection") return "connection";
   if (compact === "personalfacts") return "personalFacts";
+  if (compact === "operator") return "operator";
   return null;
 }
 
@@ -333,6 +336,7 @@ export function SettingsView({
   surfaceWarmth,
   setSurfaceWarmth,
   onStartFeedbackConversation,
+  onOpenConfigurationInspector,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -364,6 +368,7 @@ export function SettingsView({
   surfaceWarmth: number;
   setSurfaceWarmth: (n: number) => void;
   onStartFeedbackConversation?: () => void;
+  onOpenConfigurationInspector?: () => void;
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<SettingsTab>(() => {
@@ -382,6 +387,7 @@ export function SettingsView({
     data: null,
     connection: null,
     personalFacts: null,
+    operator: null,
   });
   const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
   const tabScrollPositionsRef = useRef<Partial<Record<SettingsTab, number>>>({});
@@ -1867,6 +1873,31 @@ export function SettingsView({
             {connectionError && (
               <div className="text-xs" style={{ color: "var(--danger-text)" }}>{connectionError}</div>
             )}
+          </SettingsSectionCard>
+        )}
+
+        {tab === "operator" && (
+          <SettingsSectionCard
+            role="tabpanel"
+            id={getSettingsTabPanelId("operator")}
+            aria-labelledby={getSettingsTabButtonId("operator")}
+            data-layout-span="full"
+          >
+            <button
+              type="button"
+              onClick={onOpenConfigurationInspector}
+              disabled={!onOpenConfigurationInspector}
+              className="flex w-full min-w-0 items-center justify-between gap-3 rounded-[var(--radius-micro)] p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-50"
+              style={{ color: "var(--text)", background: "var(--panel-bg)" }}
+            >
+              <span className="min-w-0 space-y-1">
+                <span className="block text-sm font-semibold">Configuration Inspector</span>
+                <span className="block text-xs" style={{ color: "var(--muted)" }}>
+                  Read-only installation posture, owners, and evidence. No editing.
+                </span>
+              </span>
+              <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" data-testid="configuration-inspector-chevron" />
+            </button>
           </SettingsSectionCard>
         )}
 
