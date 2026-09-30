@@ -1,3 +1,4 @@
+import HelpAndLearning from "@/features/onboarding/HelpAndLearning";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -1037,6 +1038,7 @@ export function SettingsView({
               className="flex min-h-full w-full min-w-0 flex-col gap-[var(--shell-gap)]"
               style={{ maxWidth: SETTINGS_DENSITY.contentMaxWidth }}
             >
+            <HelpAndLearning />
             {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"

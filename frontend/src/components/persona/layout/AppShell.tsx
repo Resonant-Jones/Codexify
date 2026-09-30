@@ -1,3 +1,4 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -3455,6 +3456,7 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
     <UnifiedDesktopCompositor
       enabled={!isPhoneShell}
       shellStyle={styleVars as React.CSSProperties}
@@ -4325,5 +4327,6 @@ export default function AppShell({
       )}
     </div>
     </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }
