@@ -223,6 +223,30 @@ def _build_failure_summary(
     return failure, summary
 
 
+def _completed_payload(service: DelegationService, job: Any) -> dict[str, Any]:
+    """Publish accepted execution and independent delivery posture together."""
+    try:
+        summary = service.deliver_completed_result(job.delegation_id)
+        payload = summary.to_dict() if summary is not None else job.to_dict()
+        if summary is None:
+            payload["metadata"] = {
+                "delivery_ok": False,
+                "delivery_status": "degraded",
+                "delivery_reason": "guardian_delegation_lineage_incomplete",
+            }
+    except Exception:  # noqa: BLE001 - isolate transcript failures from execution
+        # Delivery/readback failures must never enter the executor failure path.
+        logger.warning("[delegation-worker] completed result delivery unavailable")
+        payload = job.to_dict()
+        payload["metadata"] = {
+            "delivery_ok": False,
+            "delivery_status": "degraded",
+            "delivery_reason": "delivery_database_unavailable",
+        }
+    _safe_publish(job.task_id, DelegationEventType.COMPLETED.value, payload)
+    return payload
+
+
 def process_delegation_task(
     task: DelegationTask,
     *,
@@ -236,6 +260,10 @@ def process_delegation_task(
         raise DelegationNotFoundError(
             f"delegation_not_found:{task.delegation_id}"
         )
+
+    if job.status == DelegationJobStatus.COMPLETED.value:
+        # A replay repairs delivery, never reruns successful inference.
+        return _completed_payload(svc, job)
 
     try:
         if is_cancelled(task.task_id):
@@ -344,6 +372,8 @@ def process_delegation_task(
                 task.task_id,
                 running_job.status,
             )
+            if running_job.status == DelegationJobStatus.COMPLETED.value:
+                return _completed_payload(svc, running_job)
             return running_job.to_dict()
 
         running_payload = {
@@ -445,14 +475,8 @@ def process_delegation_task(
             )
             return failed_payload
 
-        svc.mark_job_completed(task.delegation_id, summary=summary)
-        completed_payload = summary.to_dict()
-        _safe_publish(
-            task.task_id,
-            DelegationEventType.COMPLETED.value,
-            completed_payload,
-        )
-        return completed_payload
+        completed_job = svc.mark_job_completed(task.delegation_id, summary=summary)
+        return _completed_payload(svc, completed_job)
     except Exception as exc:
         logger.exception(
             "[delegation-worker] unexpected executor failure delegation_id=%s task_id=%s",

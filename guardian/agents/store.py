@@ -35,9 +35,16 @@ from guardian.db.models import (
     AgentRunStep,
     ChatMessage,
     ChatThread,
+    DelegationJob,
+    DelegationPacket,
+    DelegationSummary,
     GuardianDelegationIntent,
+    Project,
 )
 from guardian.protocol_tokens import (
+    CodexExecutionInterface,
+    DelegationJobStatus,
+    ExecutionEvidenceStatus,
     GuardianDelegationIntentStatus,
     GuardianDelegationVisibilityStatus,
 )
@@ -292,6 +299,37 @@ def _find_existing_coding_result_message(
     return None
 
 
+def _store_source_thread_result(
+    session: Any,
+    *,
+    thread: ChatThread,
+    delivery_key: str,
+    content: str,
+    extra_meta: dict[str, Any],
+) -> ChatMessage:
+    """Insert or recover a result under the caller's durable delivery lock.
+
+    Guardian callers validate lineage and hold their intent/job row lock until
+    the message and delivery receipt commit together. This helper never commits.
+    """
+    existing = _find_existing_coding_result_message(
+        session, thread_id=thread.id, delivery_key=delivery_key
+    )
+    if existing is not None:
+        return existing
+    message = ChatMessage(
+        thread_id=thread.id,
+        user_id=str(thread.user_id),
+        role="assistant",
+        content=content,
+        kind="coding_result",
+        extra_meta=extra_meta,
+    )
+    session.add(message)
+    session.flush()
+    return message
+
+
 @dataclass
 class AgentStore:
     """Durable store with SQLAlchemy-backed persistence and in-memory fallback."""
@@ -327,6 +365,257 @@ class AgentStore:
 
     def _has_db(self) -> bool:
         return bool(self.db is not None and hasattr(self.db, "get_session"))
+
+    def deliver_completed_delegation(self, delegation_id: str) -> dict[str, Any]:
+        """Return accepted DelegationService evidence without legacy run records."""
+        key = f"delegation:{delegation_id}:thread_result"
+        unavailable = {
+            "delivery_ok": False,
+            "delivery_status": "degraded",
+            "delivery_reason": "delivery_database_unavailable",
+            "delivery_key": key,
+            "result_message_id": None,
+        }
+        if not self._has_db():
+            return unavailable
+        try:
+            with self.db.get_session() as session:
+                job = (
+                    session.query(DelegationJob)
+                    .filter_by(delegation_id=delegation_id)
+                    .with_for_update()
+                    .first()
+                )
+                row = session.get(DelegationSummary, delegation_id)
+                if job is None or row is None:
+                    return {
+                        **unavailable,
+                        "delivery_reason": _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON,
+                    }
+                data = dict(row.summary_json or {})
+
+                def finish(
+                    message_id: int | None, reason: str | None
+                ) -> dict[str, Any]:
+                    receipt = {
+                        "delivery_ok": message_id is not None,
+                        "delivery_status": "delivered"
+                        if message_id is not None
+                        else "degraded",
+                        "delivery_reason": reason,
+                        "delivery_key": key,
+                        "result_message_id": message_id,
+                        "visibility_status": (
+                            GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                            if message_id is not None
+                            else GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                        ),
+                    }
+                    row.summary_json = {
+                        **data,
+                        "metadata": {**data.get("metadata", {}), **receipt},
+                    }
+                    session.commit()
+                    return receipt
+
+                if (
+                    job.status != DelegationJobStatus.COMPLETED.value
+                    or row.status != DelegationJobStatus.COMPLETED.value
+                    or data.get("status") != DelegationJobStatus.COMPLETED.value
+                ):
+                    return finish(None, _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON)
+                packet = session.get(DelegationPacket, job.packet_id)
+                context = dict(packet.context_json or {}) if packet else {}
+                thread_id = _coerce_positive_int(job.thread_id)
+                # Accept the service's existing source-ID spellings, but refuse
+                # ambiguous aliases instead of selecting a destination by order.
+                source_ids = {
+                    _coerce_positive_int(context[field])
+                    for field in ("source_message_id", "sourceMessageId", "message_id", "messageId")
+                    if context.get(field) is not None
+                }
+                source_id = next(iter(source_ids)) if len(source_ids) == 1 else None
+                project_id = _coerce_positive_int(job.project_id)
+                if not thread_id or not source_id or not project_id or packet is None:
+                    return finish(None, _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON)
+                expected = {
+                    "delegation_id": job.delegation_id,
+                    "task_id": job.task_id,
+                    "thread_id": thread_id,
+                    "source_message_id": source_id,
+                    "project_id": project_id,
+                    "executor_id": job.executor,
+                }
+                if packet.thread_id != thread_id or packet.project_id != project_id:
+                    return finish(None, _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON)
+                for field, value in expected.items():
+                    if str(data.get(field)) != str(value):
+                        return finish(None, _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON)
+                    for envelope in (
+                        data.get("result", {}),
+                        data.get("metadata", {}),
+                        data.get("lineage", {}),
+                    ):
+                        if field in envelope and str(envelope[field]) != str(value):
+                            return finish(
+                                None, _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
+                            )
+                thread = (
+                    session.query(ChatThread)
+                    .filter_by(id=thread_id)
+                    .with_for_update()
+                    .first()
+                )
+                if thread is None:
+                    return finish(None, "source_thread_missing")
+                source = (
+                    session.query(ChatMessage)
+                    .filter_by(id=source_id)
+                    .with_for_update()
+                    .first()
+                )
+                if source is None or source.thread_id != thread_id:
+                    return finish(None, "source_message_missing")
+                project = (
+                    session.query(Project)
+                    .filter_by(id=project_id)
+                    .with_for_update()
+                    .first()
+                )
+                if thread.project_id != project_id or project is None:
+                    return finish(None, "source_project_scope_mismatch")
+                if (
+                    str(source.user_id) != str(thread.user_id)
+                    or str(project.user_id) != str(thread.user_id)
+                    or (
+                        context.get("user_id") is not None
+                        and str(context["user_id"]) != str(thread.user_id)
+                    )
+                ):
+                    return finish(None, "source_thread_scope_mismatch")
+
+                # Whitelist identity evidence only; never copy transport, prompts,
+                # worker paths, or arbitrary executor/context metadata.
+                meta = {
+                    **expected,
+                    "source_thread_id": thread_id,
+                    "delivery_key": key,
+                    "delivery_kind": "guardian_delegation_result",
+                    "type": "coding_result",
+                    "status": DelegationJobStatus.COMPLETED.value,
+                    "coding_result_status": DelegationJobStatus.COMPLETED.value,
+                    "delivery_ok": True,
+                    "delivery_status": "delivered",
+                    "visibility_status": GuardianDelegationVisibilityStatus.RESULT_POSTED.value,
+                    "execution_channel": job.executor,
+                    "result_captured_by_guardian": True,
+                }
+                result = dict(data.get("result") or {})
+                if (
+                    context.get("execution_interface")
+                    == CodexExecutionInterface.APP_SERVER.value
+                ):
+                    meta[
+                        "execution_interface"
+                    ] = CodexExecutionInterface.APP_SERVER.value
+                for field in (
+                    "request_id",
+                    "native_codex_thread_id",
+                    "native_codex_session_id",
+                    "native_codex_turn_id",
+                ):
+                    value = (
+                        data.get(field) if field == "request_id" else result.get(field)
+                    )
+                    if isinstance(value, str) and re.fullmatch(
+                        r"[A-Za-z0-9_.:-]{1,128}", value
+                    ):
+                        safe = sanitize_guardian_validation_results_for_display(
+                            {"error_message": value}
+                        )
+                        if safe and safe.get("error_message") == value:
+                            meta[field] = value
+                for envelope, field in (
+                    ("inference_route", "provider_id"),
+                    ("model_identity", "actual_model_id"),
+                ):
+                    evidence = result.get(envelope) or {}
+                    value = evidence.get(field)
+                    if (
+                        evidence.get("evidence_status")
+                        == ExecutionEvidenceStatus.OBSERVED.value
+                        and isinstance(value, str)
+                        and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value)
+                    ):
+                        safe = sanitize_guardian_validation_results_for_display(
+                            {"error_message": value}
+                        )
+                        if safe and safe.get("error_message") == value:
+                            meta[field] = value
+
+                summary = str(data.get("summary") or "")
+                blocked = [str(source.content or ""), str(packet.task_prompt or "")]
+                # The canonical renderer handles secrets and hidden-context
+                # markers. Also suppress worker paths and environment dumps.
+                if re.search(
+                    r"(?<![A-Za-z0-9])(?:/[A-Za-z]|[A-Za-z]:[\\/])|\b[A-Z][A-Z0-9_]*\s*=",
+                    summary,
+                ):
+                    blocked.append(summary)
+                content = (
+                    build_guardian_delegation_result_message_content(
+                        intent_id=job.delegation_id,
+                        run_id=job.task_id,
+                        status=DelegationJobStatus.COMPLETED.value,
+                        summary=summary,
+                        files_changed=[],
+                        validation_results=None,
+                        commit_hash=None,
+                        blocked_literals=blocked,
+                    )
+                    .replace("**Intent ID**:", "**Delegation ID**:")
+                    .replace("**Run ID**:", "**Task ID**:")
+                )
+                message = _store_source_thread_result(
+                    session,
+                    thread=thread,
+                    delivery_key=key,
+                    content=content,
+                    extra_meta=meta,
+                )
+                return finish(int(message.id), None)
+        except Exception:  # noqa: BLE001 - isolate transcript failures from execution
+            # A transcript write cannot turn completed inference into failure.
+            # Rollback above leaves message+receipt atomic. Do not persist raw
+            # database exception text (which can contain SQL or credentials).
+            logger.warning(
+                "[delegation-delivery] source-thread write failed", exc_info=False
+            )
+            degraded = {
+                **unavailable,
+                "delivery_reason": "delivery_database_unavailable",
+            }
+            try:
+                with self.db.get_session() as session:
+                    session.query(DelegationJob).filter_by(
+                        delegation_id=delegation_id
+                    ).with_for_update().first()
+                    row = session.get(DelegationSummary, delegation_id)
+                    if row is not None:
+                        data = dict(row.summary_json or {})
+                        metadata = dict(data.get("metadata") or {})
+                        if metadata.get("delivery_ok"):
+                            return {k: metadata.get(k) for k in degraded}
+                        row.summary_json = {
+                            **data,
+                            "metadata": {**metadata, **degraded},
+                        }
+                        session.commit()
+            except Exception:  # noqa: BLE001 - isolate transcript failures from execution
+                logger.warning(
+                    "[delegation-delivery] delivery receipt unavailable", exc_info=False
+                )
+            return degraded
 
     def create_deployment(
         self,
@@ -2084,16 +2373,10 @@ class AgentStore:
                 commit_hash=commit_hash,
                 blocked_literals=[selected_turn_text],
             )
-            message = ChatMessage(
-                thread_id=thread_id,
-                user_id=str(thread.user_id),
-                role="assistant",
-                content=content,
-                kind="coding_result",
-                extra_meta=extra_meta,
+            message = _store_source_thread_result(
+                session, thread=thread, delivery_key=delivery_key,
+                content=content, extra_meta=extra_meta,
             )
-            session.add(message)
-            session.flush()
 
             intent.visibility_status = (
                 GuardianDelegationVisibilityStatus.RESULT_POSTED.value

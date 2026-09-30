@@ -829,6 +829,30 @@ class DelegationService:
         self.record_summary(summary_packet)
         return job
 
+    def deliver_completed_result(self, delegation_id: str) -> DelegationSummary | None:
+        """Retry only Guardian transcript delivery from the accepted summary.
+
+        Execution status is never changed by this operation. AgentStore owns the
+        durable delivery lock and atomic message/receipt transaction.
+        """
+        from guardian.agents.store import AgentStore
+
+        summary = self.get_summary(delegation_id)
+        if summary is None or summary.status != DelegationJobStatus.COMPLETED.value:
+            return summary
+        receipt = AgentStore(db=self._db).deliver_completed_delegation(delegation_id)
+        summary.metadata.update(receipt)
+        if self._db is None:
+            self._summaries[delegation_id] = summary
+            return summary
+        try:
+            recovered = self.get_summary(delegation_id) or summary
+            recovered.metadata.update(receipt)
+            return recovered
+        except Exception:  # noqa: BLE001 - isolate transcript failures from execution
+            # Return bounded delivery evidence even if durable readback is down.
+            return summary
+
     def mark_job_failed(
         self,
         delegation_id: str,

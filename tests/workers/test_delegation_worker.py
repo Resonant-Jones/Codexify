@@ -563,3 +563,31 @@ def test_worker_short_circuits_when_job_is_already_terminal(
     assert result["status"] == DelegationJobStatus.CANCELLED.value
     assert result["delegation_id"] == approval.job.delegation_id
     assert result["task_id"] == approval.task.task_id
+
+
+def test_completed_replay_delivery_error_does_not_rerun_or_downgrade(monkeypatch):
+    service, approval = _make_service()
+    service.mark_job_completed(approval.job.delegation_id)
+
+    def unavailable(*_):
+        raise RuntimeError("password=do-not-publish")
+
+    monkeypatch.setattr(service, "deliver_completed_result", unavailable)
+    monkeypatch.setattr(
+        service,
+        "resolve_executor",
+        lambda *_args, **_kwargs: pytest.fail("completed inference must not rerun"),
+    )
+    published = []
+    monkeypatch.setattr(
+        delegation_worker.task_events,
+        "publish_with_visibility",
+        lambda task_id, event_type, data: published.append((event_type, data))
+        or {"ok": True},
+    )
+    result = delegation_worker.process_delegation_task(approval.task, service=service)
+    assert result["status"] == "completed"
+    assert service.get_job(approval.job.delegation_id).status == "completed"
+    assert result["metadata"]["delivery_ok"] is False
+    assert "do-not-publish" not in str(result)
+    assert published[-1][0] == "delegation.completed"
