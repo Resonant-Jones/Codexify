@@ -31,11 +31,7 @@ import json
 import os
 import uuid
 from pathlib import Path
-<<<<<<< ours
 from unittest.mock import Mock
-=======
-from unittest.mock import MagicMock
->>>>>>> theirs
 
 import pytest
 import sqlalchemy as sa
@@ -77,7 +73,6 @@ ACCOUNT_A = "ums05b1-account-a"
 ACCOUNT_B = "ums05b1-account-b"
 
 
-<<<<<<< ours
 def test_list_queries_bound_each_source_before_projection() -> None:
     """A one-item page never starts with an unbounded authority query."""
     session = Mock()
@@ -94,25 +89,6 @@ def test_list_queries_bound_each_source_before_projection() -> None:
     # requested candidate-window bound before any row is projected.
     assert query.limit.call_count == 3
     query.limit.assert_called_with(1)
-=======
-def test_list_queries_bound_each_source_before_projection():
-    """A small response page bounds all backing authority queries."""
-
-    queries = [MagicMock(name=name) for name in ("canonical", "entries", "facts")]
-    for query in queries:
-        query.filter.return_value = query
-        query.order_by.return_value = query
-        query.limit.return_value = query
-        query.all.return_value = []
-
-    session = MagicMock()
-    session.query.side_effect = queries
-    service = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
-
-    assert service.list_items(limit=1, offset=2) == []
-    for query in queries:
-        query.limit.assert_called_once_with(3)
->>>>>>> theirs
 
 
 def _admin_url() -> str:

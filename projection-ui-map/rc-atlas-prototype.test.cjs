@@ -425,11 +425,6 @@ const safe = true;
   assert.doesNotMatch(rendered, /<script>|javascript:/);
 });
 
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
 test("repository links to non-Markdown files bypass the document reader", () => {
   const rendered = M.renderMarkdown(
     "[Protocol tokens](../../guardian/protocol_tokens.py) and [ADR index](adr/adr-index.md)",
@@ -438,10 +433,8 @@ test("repository links to non-Markdown files bypass the document reader", () => 
   assert.match(rendered, /href="file:\/\/\/repo\/guardian\/protocol_tokens\.py"/);
   assert.doesNotMatch(rendered, /data-markdown-href="\.\.\/\.\.\/guardian\/protocol_tokens\.py"/);
   assert.match(rendered, /data-markdown-href="adr\/adr-index\.md"/);
-<<<<<<< ours
-=======
-=======
->>>>>>> theirs
+});
+
 test("Markdown rendering preserves nested list hierarchy", () => {
   const rendered = M.renderMarkdown(`- Parent
   - Child
@@ -449,12 +442,6 @@ test("Markdown rendering preserves nested list hierarchy", () => {
   - Second child
 - Sibling`);
   assert.equal(rendered, '<ul><li>Parent<ul><li>Child<ol><li value="1">Nested step</li></ol></li><li>Second child</li></ul></li><li>Sibling</li></ul>');
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
 });
 
 test("full-document loading supports offline sources and preserves original access", () => {
