@@ -144,11 +144,44 @@ This file is authoritative for:
   UMS-05C10B: CLOSED
   UMS-05C10: CLOSED
   UMS-05C11+: NOT AUTHORIZED
-  NEXT ACTION: CAMPAIGN REVALIDATION REQUIRED
   UMS-05D+: NOT AUTHORIZED
 
-  UMS-06+: NOT AUTHORIZED
+  UMS-06 - 10, 12: NOT AUTHORIZED
+  UMS-11 AUDITED PERMANENT ERASURE: AUTHORIZED (sole successor)
   ```
+
+- Revalidated the Unified Memory Store campaign on 2026-09-30 and determined
+  `UMS_FOUNDATIONAL_GAP_REMAINS`. The campaign **does not stop** and foundation
+  expansion stays frozen, with exactly one exception: audited permanent erasure.
+
+  Runtime-proven today, unchanged by this revalidation: account ownership,
+  canonical persistence (six relations, including `memory_revisions`,
+  `memory_review_revisions`, `memory_lifecycle_revisions`), mutation governance
+  (pin, hold, Project scope, Persona attribution, content correction, review
+  transition, retire/restore - all CAS-checked, append-only, receipt-separated),
+  and portability at `account-export.v7`.
+
+  The one failing dimension is **permanent erasure**. Per [§12 of the Unified
+  Memory Store Contract](./unified-memory-store-contract.md) and ADR-084, purge
+  plus re-import suppression are mandatory before supported user-facing release.
+  None of it exists: no `memory_purge_tombstone` relation, no purge service, no
+  purge route, no test, no proof. The contract defers its own implementation to
+  UMS-11, so no architecture currently owns it. `retired` from the C10B-W
+  lifecycle writer is explicitly **not** purge and must not be read as partial
+  erasure.
+
+  Because the Campaign proof matrix folds purge isolation into the
+  account-ownership invariant, the gap also withholds full proof of an
+  otherwise-closed dimension. This is a foundational gap, not missing proof:
+  erasure cannot be proven before it is implemented.
+
+  Consequently **no release truth changes here**. UMS-12 is not authorized; its
+  acceptance and proof require purge fan-out. No public Beta surface was
+  widened, no migration or schema changed, and the Alembic head remains
+  `b8e2f4a6c901`.
+
+  Evidence:
+  [2026-09-30-ums-campaign-revalidation-stop-rule-proof.md](proofs/runtime/2026-09-30-ums-campaign-revalidation-stop-rule-proof.md)
 
 - Froze the implementation-ready Persona-subject mapping and enforcement
   contract in [§4.5 of the Unified Memory Store Contract](./unified-memory-store-contract.md),
