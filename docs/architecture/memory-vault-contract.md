@@ -191,8 +191,8 @@ revision / audit / intent receipt, and fail-closed cases.
 | Add / remove stable Persona attribution | canonical Persona link service | canonical `memory_persona_links` insert / delete | durable mutation receipt |
 | Pin / unpin | canonical pin service | canonical `memory_records.pinned` flip | durable mutation receipt |
 | Hold / release hold | canonical hold service | canonical `memory_records.held` flip | durable mutation receipt |
-| Retire | canonical retirement service | canonical retirement (reversible soft removal) | durable mutation receipt |
-| Restore from retirement | canonical retirement service | canonical re-instatement | durable mutation receipt |
+| Retire | canonical retirement service | canonical `memory_records.lifecycle_state` transition (`active`/`dormant` -> `retired`), plus one `memory_lifecycle_revisions` row | durable mutation receipt + canonical lifecycle revision |
+| Restore from retirement | canonical retirement service | canonical `memory_records.lifecycle_state` transition back to the recovered pre-retirement `active`/`dormant` posture, plus one `memory_lifecycle_revisions` row | durable mutation receipt + canonical lifecycle revision |
 
 For Personal Facts, every action above delegates to the Personal Facts
 service rather than mutating competing envelope state.
@@ -264,58 +264,57 @@ the same next review revision number.
 Lifecycle mutation is not implemented here and remains separately
 governed.
 
-#### 5.1.2 Lifecycle gate (UMS-05C10B-R)
+#### 5.1.2 Lifecycle semantics (UMS-05C10B-R, persisted by C10B-P, frozen by C10B-C)
 
-The Retire and Restore rows above are **admitted but not
-implemented**. No retire, restore, activate, reactivate, or decay
-writer, route, or service method exists; `lifecycle_state` is never
-mutated by any current canonical code path.
+The Retire and Restore rows above are **contracted but not
+implemented**. No retire, restore, activate, reactivate, or decay writer,
+route, or service method exists; `lifecycle_state` is never mutated by
+any current canonical code path.
 
-UMS-05C10B-R revalidated lifecycle authority and history and
-recorded:
+Both prerequisites that UMS-05C10B-R identified are now closed.
 
-```text
-LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
-LIFECYCLE_TRANSITION_GRAPH: PARTIAL
-```
+**History persistence — closed by UMS-05C10B-P.** The canonical
+`memory_lifecycle_revisions` family exists and is carried through
+`account-export.v7`. A retirement from `active` and a retirement from
+`dormant` are now distinguishable in canonical history and survive
+export and restore, because the pre-retirement posture is the
+`old_lifecycle_state` of the retirement revision.
 
-`memory_records.lifecycle_state` is the sole present lifecycle
-authority, and Unified Memory Store contract §3.3 requires a
-revision and an intent receipt for every authority-changing
-transition. No canonical family can record lifecycle transitions:
-`memory_revisions` is content history and `memory_review_revisions`
-is review-transition history, so neither is semantically
-applicable, and provenance remains non-authority.
+**Transition graph — frozen by UMS-05C10B-C** in
+[ADR-089 — Ordinary Memory Lifecycle Transition
+Semantics](./adr/089-ordinary-memory-lifecycle-transition-semantics.md),
+normative in Unified Memory Store contract §3.3.2. The graph that
+UMS-05C10B-R recorded as `LIFECYCLE_TRANSITION_GRAPH: PARTIAL` is now
+resolved.
 
-The decisive finding is the **restore posture**. §5.4 requires
-restore to return a retired record to its *pre-retirement governed
-posture*, but no field records that posture. `active → retired →
-restore` and `dormant → retired → restore` are therefore
-indistinguishable in current storage, so the contractual restore
-rule is not implementable without first persisting the history that
-records it. Relatedly, §4.4 calls `dormant_at` / `retired_at`
-canonical and §10 requires lifecycle transition timestamps in the
-archive; neither column exists and `account-export.v6` carries no
-lifecycle transition timestamp.
+Contracted future writer behavior:
 
-The transition graph is **partial**: `active → dormant` is explicit
-governed policy (forbidden while held), import creates `dormant` as
-an ingress state, and retire/restore exist with account-principal
-authority — but retire source-state legality, the restore target
-set, same-state retire/restore behavior, and any `dormant → active`
-reactivation edge are all unresolved and are **not** invented here.
+| Aspect | Contracted behavior |
+| --- | --- |
+| Direct actions | `retire`, `restore` only — no generic `activate` / `set_lifecycle_state` |
+| Retire from `active` / `dormant` | -> `retired`, one lifecycle revision + one receipt |
+| Retire on `retired` | no-op after fresh CAS |
+| Restore from `retired` | -> canonical pre-retirement `active`/`dormant` posture, one lifecycle revision + one receipt |
+| Restore on `active` / `dormant` | no-op after fresh CAS |
+| Restore with unreconstructable pre-retirement history | **fail closed** — never guess `active` or `dormant` |
+| Stale CAS | conflicts, even on a same-state no-op |
+| Review state | preserved exactly; never approved, rejected, disputed, or reset |
+| Hold | blocks governed automatic decay only, never explicit retire/restore; preserved unchanged |
+| Pin | preserved; pin is not activation |
+| Automatic decay | separate authority; `active -> dormant`, forbidden while held; not owned by this writer |
+| Automatic `dormant -> active` | not established |
+| Legacy retired row with no history | valid, portable, and unrestorable generically |
 
-**Open documentation inconsistency.** The Retire and Restore rows in
-§5.1 still list only a "durable mutation receipt" with no revision,
-diverging from the normative §3.3 rule. Unlike the review rows, this
-is deliberately **not** repaired here, because no lifecycle revision
-family exists yet and editing the table would promise persistence
-that has not been built.
+The `§5.1` Retire/Restore rows above now state the canonical
+lifecycle revision alongside the receipt, which resolves the
+receipt-only divergence UMS-05C10B-R recorded. That row wording is
+consistent with §3.3, which requires a revision **and** an intent
+receipt for every authority-changing transition.
 
-The missing prerequisite is **UMS-05C10B-P** (lifecycle-transition
-revision persistence + UMS-04 portability). The C10B writer remains
-frozen. The review writer above is complete, internal-only, and
-unaffected by this gate.
+This section records contracted future behavior. It does not
+implement the writer, does not create routes, and does not claim any
+lifecycle action is live. The review writer in §5.1.1 is complete,
+internal-only, and unaffected.
 
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
