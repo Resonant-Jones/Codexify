@@ -328,7 +328,9 @@ Examples:
 
 `registry.json` is the current dashboard-facing projection.
 
-It contains one entry per qualification surface, not every historical run.
+It contains exactly one entry per qualification surface, keyed by qualification ID, not every historical run.
+
+The qualification ID is the object key and is therefore the canonical identity consumed by dashboard code. Do not duplicate the ID inside the entry payload.
 
 The registry must summarize evidence. It must never manufacture it.
 

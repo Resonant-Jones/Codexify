@@ -2,13 +2,12 @@
   "registry_version": 1,
   "generated_from_repository": true,
   "release_authority": "docs/architecture/00-current-state.md",
-  "qualifications": [
-    {
-      "id": "onboarding-and-people",
+  "qualifications": {
+    "onboarding-and-people": {
       "title": "Onboarding and People",
       "scope": "Authenticated private-preview onboarding and same-node People messaging",
       "status": "HOLD",
-      "freshness": "current",
+      "freshness": "stale",
       "rubric": "rubrics/onboarding-and-people.md",
       "latest_run": null,
       "tested_commit": null,
@@ -26,5 +25,5 @@
         "A current-tip human A-to-B-to-A onboarding plus messaging loop has not yet been recorded."
       ]
     }
-  ]
+  }
 }

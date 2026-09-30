@@ -37,7 +37,11 @@ Examples:
 - Deployment/environment:
 - Device class:
 - Browser/client:
+- Provider: <provider ID or N/A>
+- Model: <model ID or N/A>
 ```
+
+Use explicit provider and model identifiers when a provider-dependent path is exercised. Record `N/A` only when the qualification surface does not involve a provider or model.
 
 ## Required body
 
