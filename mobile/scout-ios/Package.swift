@@ -24,6 +24,7 @@ let package = Package(
                 "Models/ScoutLLMCatalogSnapshot.swift",
                 "Models/ScoutChatThreadSummary.swift",
                 "Models/ScoutChatMessageSummary.swift",
+                "Services/ScoutConversationState.swift",
                 "Models/ScoutThreadDocumentSummary.swift",
                 "Models/ScoutDocumentDetail.swift",
                 "Models/ScoutRAGTraceSnapshot.swift",

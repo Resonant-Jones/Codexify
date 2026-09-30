@@ -1,10 +1,17 @@
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    private var connectionIdentity: ScoutConnectionIdentity? {
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return nil }
+        return ScoutConnectionIdentity(endpoint: profile)
+    }
+
     var body: some View {
         TabView {
             ForEach(ScoutAppRoute.allCases) { route in
                 rootView(for: route)
+                    .id(connectionIdentity)
                     .tabItem {
                         Label(route.title, systemImage: route.systemImage)
                     }

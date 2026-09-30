@@ -19,6 +19,7 @@ private let ScoutThreadRenamedNotification = Notification.Name("ScoutThreadRenam
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var navigationPath = NavigationPath()
+    @StateObject private var conversation = ScoutConversationState()
     @State private var threads: [ScoutChatThreadSummary]?
     @State private var message: String?
     @State private var keychainError: String?
@@ -150,10 +151,10 @@ struct GuardianChatView: View {
             }
             .navigationTitle("Guardian")
             .navigationDestination(for: ThreadNav.self) { nav in
-                ThreadMessagesView(threadId: nav.id, threadTitle: nav.title)
+                ThreadMessagesView(threadId: nav.id, threadTitle: nav.title, conversation: conversation)
             }
             .navigationDestination(for: TaskNav.self) { nav in
-                TaskEventsView(taskId: nav.taskId, threadId: nav.threadId)
+                TaskEventsView(taskId: nav.taskId, threadId: nav.threadId, conversation: conversation)
             }
             .navigationDestination(for: DocumentDetailNav.self) { nav in
                 DocumentDetailView(documentId: nav.documentId)
@@ -284,6 +285,8 @@ struct GuardianChatView: View {
 private struct ThreadMessagesView: View {
     let threadId: Int
     let threadTitle: String?
+    @ObservedObject var conversation: ScoutConversationState
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var displayedTitle: String?
@@ -291,7 +294,7 @@ private struct ThreadMessagesView: View {
     @State private var renameTitle = ""
     @State private var renameError: String?
     @State private var isRenaming = false
-    @State private var messages: [ScoutChatMessageSummary]?
+    private var messages: [ScoutChatMessageSummary]? { conversation.messages }
     @State private var statusMessage: String?
     @State private var keychainError: String?
     @State private var isLoading = false
@@ -346,7 +349,10 @@ private struct ThreadMessagesView: View {
             if displayedTitle == nil {
                 displayedTitle = threadTitle
             }
-            Task { await loadMessages() }
+            Task { await loadMessages(activate: true) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await loadMessages() } }
         }
         .sheet(isPresented: $showRename) {
             NavigationStack {
@@ -860,7 +866,7 @@ private struct ThreadMessagesView: View {
         }
     }
 
-    private func loadMessages() async {
+    private func loadMessages(activate: Bool = false) async {
         guard !storedProfileData.isEmpty else { return }
 
         isLoading = true
@@ -881,13 +887,11 @@ private struct ThreadMessagesView: View {
             apiKey = nil
         }
 
-        let result = await ScoutGuardianThreadMessagesProbe.probe(
-            endpoint: profile, threadId: threadId, apiKey: apiKey
-        )
-        messages = result.messages
-        if result.messages == nil {
-            statusMessage = result.message
-        }
+        if activate { conversation.select(.init(endpoint: profile, threadID: threadId)) }
+        let profileData = storedProfileData
+        let outcome = await conversation.refresh(endpoint: profile, threadID: threadId, apiKey: apiKey)
+        guard storedProfileData == profileData else { return }
+        if conversation.messages == nil { statusMessage = outcome }
         isLoading = false
     }
 
@@ -1040,6 +1044,7 @@ private struct ThreadMessagesView: View {
 private struct TaskEventsView: View {
     let taskId: String
     let threadId: Int
+    @ObservedObject var conversation: ScoutConversationState
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var events: [ScoutTaskEvent] = []
@@ -1133,11 +1138,8 @@ private struct TaskEventsView: View {
             }
         }
         .navigationTitle("Task Status")
-        .onAppear {
-            Task { await connect() }
-        }
-        .onDisappear {
-            isConnected = false
+        .task {
+            await connect()
         }
     }
 
@@ -1153,19 +1155,12 @@ private struct TaskEventsView: View {
             apiKey = nil
         }
 
-        switch eventType {
-        case "task.completed":
-            _ = await ScoutGuardianThreadMessagesProbe.probe(
-                endpoint: profile, threadId: threadId, apiKey: apiKey
-            )
-            statusMessage = "Task completed. Messages refreshed."
-        case "task.failed":
-            statusMessage = "Task failed. No assistant message was synthesized."
-        case "task.cancelled":
-            statusMessage = "Task cancelled. No assistant message was synthesized."
-        default:
-            break
-        }
+        let profileData = storedProfileData
+        let outcome = await conversation.handleTerminalEvent(
+            eventType, endpoint: profile, threadID: threadId, apiKey: apiKey
+        )
+        guard storedProfileData == profileData else { return }
+        statusMessage = outcome
     }
 
     private func connect() async {
@@ -1194,6 +1189,7 @@ private struct TaskEventsView: View {
                 endpoint: profile, taskId: taskId, apiKey: apiKey
             )
             for try await event in stream {
+                guard !Task.isCancelled else { break }
                 events.append(event)
                 if event.isTerminal {
                     await handleTerminalEvent(event.eventType ?? "unknown")
