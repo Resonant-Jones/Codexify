@@ -37,6 +37,9 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("GET", "/api/events", "stream_events"),
         ("GET", "/graph", "get_graph"),
     ),
+    "guardian.routes.configuration_inspector": (
+        ("GET", "/api/operator/configuration", "get_configuration_snapshot"),
+    ),
     "guardian.routes.agent_orchestration": (
         ("POST", "/api/agents/plans", "create_plan"),
         ("POST", "/api/agents/deployments", "create_deployment"),
@@ -119,6 +122,7 @@ ENABLED_MODULES = {
     "guardian.guardian_api",
     "guardian.routes.agent_orchestration",
     "guardian.routes.coding_work_orders",
+    "guardian.routes.configuration_inspector",
     "guardian.routes.obsidian",
 }
 DEFAULT_OFF_MODULES = {
@@ -186,9 +190,9 @@ def _sign_legacy(secret: str) -> str:
     return f"{encode(payload)}.{encode(signature)}"
 
 
-def test_frozen_operator_manifest_has_exactly_56_registrations_in_12_files():
-    assert len(EXPECTED) == 12
-    assert sum(map(len, EXPECTED.values())) == 56
+def test_frozen_operator_manifest_has_exactly_57_registrations_in_13_files():
+    assert len(EXPECTED) == 13
+    assert sum(map(len, EXPECTED.values())) == 57
 
     for module_name, registrations in EXPECTED.items():
         for method, path, handler in registrations:
@@ -209,7 +213,7 @@ def test_frozen_operator_manifest_has_exactly_56_registrations_in_12_files():
 
 
 def test_frozen_activation_ledger_and_supported_profile_posture():
-    assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 23
+    assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 24
     assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 28
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
@@ -249,7 +253,7 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert default_off_flags == {"guardian_delegations": False, "worktrees": False}
 
 
-def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeypatch):
+def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeypatch):
     from tests.core.test_supported_profile_quarantine import (
         _build_supported_profile_client,
     )
@@ -270,7 +274,7 @@ def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeyp
             for module in ENABLED_MODULES
             for method, path, handler in EXPECTED[module]
         ]
-        assert len(enabled) == 23
+        assert len(enabled) == 24
         for module, method, path, handler in enabled:
             assert (method, path, module, handler) in mounted
             concrete_path = path
