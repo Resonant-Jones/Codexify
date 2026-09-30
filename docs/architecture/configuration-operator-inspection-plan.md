@@ -8,6 +8,14 @@ Evidence posture: documented-contract plus proven-code-path. The 55-family catal
 
 The proposed Inspector may link to an owning control or operator procedure. It is not a generic configuration database, universal settings editor, environment-variable editor, secrets viewer, replacement for Application Settings, All Settings, Persona Studio or Connections, provider-routing authority, account-administration bypass, runtime health system, or release-support oracle.
 
+The architecture gate for any authenticated Inspector endpoint is the
+**proposed** [ADR-095: Configuration Inspector Operator Control-Plane
+Boundary](adr/095-configuration-inspector-operator-control-plane-boundary.md)
+and its [implementation-oriented control-plane
+contract](configuration-inspector-control-plane.md). Human acceptance of
+ADR-095 is required before runtime implementation; this plan remains planning
+doctrine and grants no runtime authority.
+
 ## Three distinct product surfaces and trust boundaries
 
 | Surface | Audience and authority | Appropriate content |
