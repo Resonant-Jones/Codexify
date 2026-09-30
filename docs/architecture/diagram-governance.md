@@ -8,7 +8,17 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-12 (ADR-087 accepted-task execution-deadline decision reviewed; logical runtime topology unchanged; implementation and runtime proof remain pending)
+Diagram Review Marker: 2026-09-29 (Proposed ADR-095 adaptive sidebar presentation reviewed; runtime topology unchanged; human acceptance and implementation remain pending)
+
+## ADR-095 presentation review
+
+[ADR-095](./adr/095-adaptive-application-sidebar-posture-and-shell-boundary.md)
+is a **Proposed** shell-presentation contract. Its state diagram describes
+attention, visibility and sidebar allocation semantics; it is not runtime
+topology or implementation proof. The Architecture README adds proposal routing
+only. No node, trust boundary, queue, worker, provider, persistence or event
+path changed, so the runtime diagram pack and coverage matrix need no redraw.
+Human acceptance and separate implementation/geometry proof remain pending.
 
 ## Scope
 

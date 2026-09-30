@@ -23,6 +23,19 @@ Source anchors:
 
 # Codexify Architecture KB
 
+## Adaptive application sidebar posture (Proposed)
+
+[ADR-095: Adaptive Application Sidebar Posture and Shell-Boundary Authority](./adr/095-adaptive-application-sidebar-posture-and-shell-boundary.md)
+is **Proposed**, pending Resonant Jones acceptance before implementation. It
+separates shell attention from navigation visibility and projects one semantic
+sidebar as relaxed `spatial`, focused transient `edge_overlay`, or focused
+shell-boundary `edge_pinned`. AppShell would reserve pinned width before primary
+layout; future focused surfaces would consume that shared content rectangle.
+The inspected browser-focused shelf is a precursor, not proof of this generalized
+contract or Focus Chat/Canvas support. Workspace layout and mobile navigation
+retain their authority. No runtime/UI or release claim changes; read
+[Current State](./00-current-state.md) for release truth.
+
 ## Browser episodic context and recall routing
 
 For chat-backed browser continuity and future browser-history recall, read the

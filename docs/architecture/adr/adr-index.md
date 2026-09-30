@@ -265,6 +265,12 @@ Use this note as the local map for all ADRs.
   - Authoritative exhaustion emits `task.failed` with `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED` and reconciles the request to `failed_retryable`; observer `timed_out`, user cancellation, orphan ambiguity, partial streams, and durable completion retain distinct meanings.
   - Current-truth boundary: architecture only. Provider streaming, child work, PostgreSQL, persistence/cleanup, turn-lock lifetime, and graceful worker shutdown are not yet conformant or proven. [[../00-current-state|00 Current State]] remains release authority.
 
+- [ADR-095: Adaptive Application Sidebar Posture and Shell-Boundary Authority](./095-adaptive-application-sidebar-posture-and-shell-boundary.md)
+  - **Proposed**, 2026-09-29; Resonant Jones acceptance required before implementation. Defines one semantic navigation system projected as relaxed `spatial`, focused transient `edge_overlay`, or focused shell-boundary `edge_pinned`; AppShell owns posture resolution and pinned content geometry.
+  - Supersedes none. Preserves mobile navigation, Workspace layout, Browser Host, identity and runtime authority. Browser-focused shelf code is a precursor, not the generalized contract.
+  - Numbering provenance: fetched canonical main at `9810971690d6fdcd80acbee519772316af803303` contains Proposed ADR-094; this older checkout ends at ADR-089. ADR-095 is the next unissued number at that fetched revision; intervening ADRs were not imported by this task.
+  - Current-truth boundary: documentation proposal only; no runtime/UI implementation or release support is established. [Current State](../00-current-state.md) remains release authority.
+
 ## Relationship to the main architecture docs
 
 These ADRs sit beside, not above, the main architecture corpus.
