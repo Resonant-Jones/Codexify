@@ -82,10 +82,8 @@ SCHEMA_VERSION = "campaign-engine/v0"
 
 LIVE_EXECUTOR_CLASSIFICATION_VALUE = "live_executor"
 
-# Bounded canonical required-tool name for the live Executor.
-# Campaign Engine declares this as an execution requirement. It is NOT
-# a permission grant and NOT provider authority. The initial supported
-# value is "write". Any other value is rejected by Guardian.
+# Initial supported explicit required-tool value. The locked Executor
+# RoleBinding decides whether to request it; this token grants no permission.
 LIVE_EXECUTOR_REQUIRED_TOOL_NAME = "write"
 
 _LINEAGE_ABSENT_TOKEN = "absent"
@@ -674,6 +672,7 @@ def prepare_live_executor_campaign(
     requested_permissions: tuple[str, ...] = tuple(live_role["requested_permissions"])
     granted_permissions: tuple[str, ...] = tuple(live_role["granted_permissions"])
     operator_consent_reference = str(live_role["operator_consent_reference"])
+    required_tool_name = live_role.get("required_tool_name")
 
     # prompt_sha256 is computed from prompt bytes; we lock it BEFORE the
     # prompt body is finalized by passing it as a placeholder the
@@ -696,7 +695,7 @@ def prepare_live_executor_campaign(
         allowed_file_paths=allowed_file_paths,
         target_repository_identity=str(bound_target),
         prompt_sha256=locked_prompt_sha256_placeholder,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     actual_prompt_sha256 = sha256_text(prompt_body)
 
@@ -773,7 +772,7 @@ def prepare_live_executor_campaign(
         target_baseline_git_head=git_head_pre,
         target_baseline_file_hashes=target_baseline_file_hashes,
         campaign_input_hash=campaign_input_hash,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
         validation_command=validation_command,
     )
 
@@ -1210,39 +1209,15 @@ def _pre_execution_drift_check(
     - current Campaign input hash (re-load);
     - current target baseline evidence (re-snapshot);
     - re-loaded locked binding identity;
-    - current required-tool requirement re-derivation from the
-      canonical Campaign Engine constant;
-    - current prompt hash (re-derived from the canonical requirement,
+    - current required-tool requirement re-derivation from the locked
+      Executor RoleBinding;
+    - current prompt hash (re-derived from canonical Campaign input,
       not from the preparation field);
     - current target identity.
 
     Any material drift fails closed before invocation with
     ``runner_call_count = 0``.
     """
-
-    # 0. Required-tool requirement re-derivation from Campaign Engine
-    # authority.  The canonical live Executor required tool is the
-    # ``LIVE_EXECUTOR_REQUIRED_TOOL_NAME`` constant, NOT the mutable
-    # preparation field.  A preparation whose declared
-    # ``required_tool_name`` no longer equals the canonical value is
-    # material post-authorization drift: the preparation is evidence
-    # of the earlier decision, not authority to redefine that decision
-    # later.  ``None`` is not equivalent to the canonical ``"write"``
-    # requirement.  Fail closed before any other drift check so the
-    # failure reason is unambiguous.
-    if preparation.required_tool_name != LIVE_EXECUTOR_REQUIRED_TOOL_NAME:
-        raise CampaignLiveExecutorError(
-            "preparation required_tool_name drifted from canonical "
-            "Campaign Engine live Executor requirement",
-            failure_reason="drift_after_authorization",
-            diagnostic_stage="pre_invocation_drift",
-            issues=[
-                f"preparation.required_tool_name="
-                f"{preparation.required_tool_name!r} does not match "
-                f"canonical LIVE_EXECUTOR_REQUIRED_TOOL_NAME="
-                f"{LIVE_EXECUTOR_REQUIRED_TOOL_NAME!r}"
-            ],
-        )
 
     # 1. Campaign input hash.
     if source_context_path is not None:
@@ -1322,6 +1297,15 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
+    required_tool_name = current_executor["live_role_binding"].get(
+        "required_tool_name"
+    )
+    if preparation.required_tool_name != required_tool_name:
+        raise CampaignLiveExecutorError(
+            "preparation required_tool_name drifted from locked Executor RoleBinding",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+        )
 
     # 4. Prompt hash re-derivation.
     task = validate_task_selection(document)
@@ -1334,14 +1318,7 @@ def _pre_execution_drift_check(
     allowed_file_paths: tuple[str, ...] = tuple(
         current_executor["live_role_binding"]["allowed_file_paths"]
     )
-    # Recompose the expected prompt from the CANONICAL live Executor
-    # required-tool authority, not the preparation field.  This is the
-    # second of two independent protections against a forged
-    # ``required_tool_name=None`` preparation that also recomposed a
-    # matching prompt/hash: the prompt the runtime would build now
-    # always contains the canonical MANDATORY ACTION clause, so a
-    # forged preparation whose prompt omits it cannot match the
-    # recomposed prompt hash either.
+    # Recompose from the locked binding, never from the preparation field.
     if task.get("validation_command") != preparation.validation_command:
         raise CampaignLiveExecutorError(
             "Task validation_command drifted after preparation",
@@ -1361,7 +1338,7 @@ def _pre_execution_drift_check(
         prompt_sha256=sha256_canonical(
             {"task": prompt_task, "allowed": list(allowed_file_paths)}
         ),
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     if sha256_text(recomposed_prompt) != preparation.prompt_sha256:
         raise CampaignLiveExecutorError(

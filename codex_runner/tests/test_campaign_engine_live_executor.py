@@ -30,7 +30,7 @@ from typing import Any, Callable
 import pytest
 
 from codex_runner.campaign_engine import live_executor
-from codex_runner.campaign_engine.errors import CampaignLiveExecutorError
+from codex_runner.campaign_engine.errors import CampaignLiveExecutorError, CampaignValidationError
 from codex_runner.campaign_engine.live_executor import (
     LiveExecutorPreparation,
     prepare_live_executor_campaign,
@@ -208,6 +208,7 @@ def fixed_clock() -> CampaignClock:
 def _make_canonical_live_campaign(
     tmp_path: pathlib.Path,
     *,
+    required_tool_name: str | None = "write",
     executor_provider: str = "openai-codex",
     executor_model: str = "gpt-5.1",
     allowed_paths: list[str] | None = None,
@@ -351,6 +352,8 @@ def _make_canonical_live_campaign(
             "ordered_decision_gate_ids": [],
         },
     }
+    if required_tool_name is not None:
+        campaign["role_bindings"][1]["live_role_binding"]["required_tool_name"] = required_tool_name
     campaign_path = tmp_path / "campaign_live_test.json"
     campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
     # Inject a key marker we can detect to demonstrate pre/post-snapshot.
@@ -550,6 +553,98 @@ def test_preparation_selects_exactly_one_task(live_doc, tmp_path) -> None:
     )
     assert preparation.task_id == handle["task_id"]
     assert preparation.campaign_id == handle["campaign_id"]
+
+
+@pytest.mark.parametrize("mutation", ["allowed", "zero", "modify", "create", "delete"])
+def test_ordinary_executor_omits_hard_selection_and_keeps_scope_guards(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name=None
+    )
+    unexpected = target / "unexpected.txt"
+    if mutation in {"modify", "delete"}:
+        unexpected.write_text("BEFORE\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    assert preparation.required_tool_name is None
+    assert "MANDATORY ACTION: invoke the `write` tool" not in preparation.prompt
+    assert "proof_target.txt" in preparation.prompt
+    assert "commit" in preparation.prompt
+    assert "files.write" in preparation.granted_permissions
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-ordinary", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-ordinary", receipt_id="pi-receipt-ordinary", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        calls.append(kwargs)
+        if mutation == "allowed":
+            (target / "proof_target.txt").write_text("CHANGED\n", encoding="utf-8")
+        elif mutation == "modify":
+            unexpected.write_text("AFTER\n", encoding="utf-8")
+        elif mutation == "create":
+            unexpected.write_text("NEW\n", encoding="utf-8")
+        elif mutation == "delete":
+            unexpected.unlink()
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    if mutation == "allowed":
+        result = run_live_executor_campaign(
+            preparation, tmp_path / "ordinary-output", envelope=envelope,
+            decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+        )
+        assert result.source_mutations == 1
+        assert result.to_dict()["required_tool_selection"] is None
+    else:
+        with pytest.raises(CampaignLiveExecutorError) as caught:
+            run_live_executor_campaign(
+                preparation, tmp_path / "ordinary-output", envelope=envelope,
+                decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+            )
+        expected = "zero_mutation_executor_turn" if mutation == "zero" else "out_of_scope_mutation"
+        assert caught.value.failure_reason == expected
+    assert len(calls) == 1
+    assert calls[0]["required_tool_name"] is None
+
+
+@pytest.mark.parametrize("initial_tool", [None, "write"])
+def test_required_tool_binding_change_blocks_before_invocation(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, initial_tool: str | None,
+) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name=initial_tool
+    )
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    document = json.loads(campaign_path.read_text(encoding="utf-8"))
+    live_binding = document["role_bindings"][1]["live_role_binding"]
+    if initial_tool is None:
+        live_binding["required_tool_name"] = "write"
+    else:
+        del live_binding["required_tool_name"]
+    campaign_path.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(
+        live_executor, "_invoker", lambda **kwargs: pytest.fail("provider seam reached")
+    )
+    with pytest.raises(CampaignLiveExecutorError) as caught:
+        run_live_executor_campaign(
+            preparation, tmp_path / "drift-output", envelope=envelope,
+            decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+        )
+    assert caught.value.failure_reason == "drift_after_authorization"
+
+
+def test_unsupported_required_tool_fails_before_invocation(tmp_path) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name="edit"
+    )
+    with pytest.raises(CampaignValidationError):
+        prepare_live_executor_campaign(campaign_path, target)
 
 
 # 2. preparation uses the locked Executor binding.
@@ -2961,6 +3056,7 @@ def _setup_simple_canonical_inputs(tmp_path):
         "execution_mode": "live",
         "redaction_status": "redacted",
         "live_role_binding": {
+            "required_tool_name": "write",
             "provider_identity_proof": (
                 "anthropic-operator-auth-readiness-v2-test"
             ),

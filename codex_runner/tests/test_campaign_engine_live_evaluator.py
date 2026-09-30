@@ -112,10 +112,11 @@ def _prepare_lifecycle(
     campaign_id: str = "campaign-ce-l2-provider-free-test-001",
     validation_command: str | None = None,
     validation_result: NormalizedTestResult | None = None,
+    required_tool_name: str | None = "write",
 ):
     campaign_path, target, handle = _make_canonical_live_campaign(
         tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
-        campaign_id=campaign_id,
+        campaign_id=campaign_id, required_tool_name=required_tool_name,
     )
     campaign = json.loads(campaign_path.read_text())
     campaign["tasks"][0]["objective"] = "Write CE-L2-EXACT-MARKER followed by one newline to proof_target.txt."
@@ -182,7 +183,7 @@ def _prepare_lifecycle(
     executor_receipt, executor_harness = _pi_evidence(executor_envelope)
 
     def fake_executor(**kwargs: Any) -> FakeOutcome:
-        assert kwargs["required_tool_name"] == "write"
+        assert kwargs["required_tool_name"] == required_tool_name
         assert kwargs["reasoning_effort"] == "off"
         (target / "proof_target.txt").write_text("CE-L2-EXACT-MARKER\n")
         return FakeOutcome(
@@ -277,6 +278,51 @@ def test_provider_free_single_task_lifecycle(prepared_lifecycle, tmp_path, monke
         for path in output.rglob("*.json")
         for token in ("Bearer abcdefgh12345678", "sk-abcdefghijklmnop")
     )
+
+
+def test_ordinary_executor_reaches_read_only_evaluator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, envelope, decision, receipt, harness, checkpoint, _ = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+    )
+    executor_prep = json.loads(
+        (checkpoint / "authorization/executor-preparation.json").read_text()
+    )
+    assert executor_prep["required_tool_name"] is None
+    calls: list[dict[str, Any]] = []
+
+    def fake_evaluator(**kwargs: Any) -> EvaluatorOutcome:
+        calls.append(kwargs)
+        return EvaluatorOutcome(receipt, harness, _verdict())
+
+    monkeypatch.setattr(live_evaluator, "_invoker", fake_evaluator)
+    output = run_live_evaluator_campaign(
+        prep, tmp_path / "ordinary-final", envelope=envelope, decision=decision,
+        timeout_seconds=30, reasoning_effort="high",
+    )
+    assert len(calls) == 1
+    assert calls[0]["required_tool_name"] is None
+    final = json.loads((output / "campaign-input.json").read_text())
+    assert final["campaign"]["state"] == "completed"
+
+
+def test_evaluator_rejects_required_tool_preparation_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, _, _, _, _, checkpoint, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+    )
+    prep_path = checkpoint / "authorization/executor-preparation.json"
+    forged = json.loads(prep_path.read_text())
+    forged["required_tool_name"] = "write"
+    prep_path.write_text(json.dumps(forged))
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        prepare_live_evaluator_campaign(
+            prep.campaign_path, checkpoint, target,
+            harness_id="pi-coding-agent", harness_version="0.82.1",
+        )
+    assert caught.value.reason == "executor_required_tool_evidence_invalid"
 
 
 def test_locked_deepseek_medium_rejected_before_evaluator_invocation(

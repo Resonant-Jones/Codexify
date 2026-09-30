@@ -363,8 +363,17 @@ def prepare_live_evaluator_campaign(
         _fail("source_campaign_drifted")
     if checkpoint_run.get("provider_calls_performed") != 1 or checkpoint_run.get("attempt_id") != attempt["attempt_id"]:
         _fail("executor_call_evidence_invalid")
-    if executor_prep.get("required_tool_name") != "write" or attempt.get("source_mutation_count") != 1:
-        _fail("executor_required_write_evidence_invalid")
+    if executor_prep.get("required_tool_name") != executor_live.get("required_tool_name"):
+        _fail("executor_required_tool_evidence_invalid")
+    mutation_count = attempt.get("source_mutation_count")
+    changed_files = attempt.get("changed_files")
+    if (
+        type(mutation_count) is not int
+        or mutation_count < 1
+        or not isinstance(changed_files, list)
+        or mutation_count != len(changed_files)
+    ):
+        _fail("executor_mutation_evidence_invalid")
     executor_envelope = _load(checkpoint_dir / "authorization/executor-envelope.json")
     executor_decision = _load(checkpoint_dir / "authorization/executor-policy-decision.json")
     executor_receipt = PiInvocationReceipt.from_payload(_load(checkpoint_dir / "execution/executor-pi-receipt.json"))
