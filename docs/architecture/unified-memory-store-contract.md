@@ -185,6 +185,153 @@ contract allows it; that initial creation is not a `pending → approved`
 transition and must not be given a fabricated review revision. UMS-05C6 creation
 semantics are unchanged.
 
+### 3.3.2 Ordinary-memory lifecycle state machine
+
+Frozen by
+[ADR-089 — Ordinary Memory Lifecycle Transition
+Semantics](./adr/089-ordinary-memory-lifecycle-transition-semantics.md).
+This subsection is normative and implements nothing. It resolves the
+`LIFECYCLE_TRANSITION_GRAPH: PARTIAL` finding recorded in §4.16.5d.
+
+**State meanings.** `active` is lifecycle-eligible to participate in normal
+memory behavior, subject to all independent review, context-posture, scope,
+subtype, and exclusion gates; it does not imply approved, ambient eligible,
+pinned, held, or in-scope. `dormant` remains canonically stored and recallable
+under explicit authorized widening but is excluded from ordinary ambient
+participation by lifecycle; it is non-destructive, not rejected, not retired,
+not purge, and not a synonym for `archived`. `retired` remains canonically
+stored but is reversibly soft-removed from normal lifecycle participation; it is
+ambient-ineligible, distinct from dormant, not purge, and the sole
+ordinary-memory soft-removal state. There is no separate canonical `archived`
+lifecycle state.
+
+**Direct actions.** The Memory Vault lifecycle writer exposes exactly two
+generic direct actions, `retire` and `restore`. It must not add generic
+`activate`, `reactivate`, `set_active`, `set_dormant`, `set_lifecycle_state`, or
+`archive`. Direct promotion or activation of a dormant memory, if a later
+import or promotion workflow needs it, requires its own governed contract or an
+already-accepted owning workflow, and must not be smuggled in through
+retire/restore.
+
+**Direct action matrix.**
+
+| Current lifecycle | `retire` | `restore` |
+| --- | --- | --- |
+| `active` | → `retired` | no-op |
+| `dormant` | → `retired` | no-op |
+| `retired` | no-op | → pre-retirement governed posture |
+
+where the pre-retirement governed posture is in `{active, dormant}` and is
+recovered **only** from canonical lifecycle history (§4.16.5c).
+
+**Retire semantics.** `active → retired` and `dormant → retired` are both legal
+under explicit account-principal authority, each recording its exact
+`old_lifecycle_state`. `retired + retire` is an idempotent semantic no-op after
+successful CAS validation, creating no revision, no receipt, and no CAS
+advance. `retired → retired` history is never invented.
+
+**Restore semantics.** Restore is not "set active." It means: undo the current
+retirement and return the record to the governed posture that immediately
+preceded that retirement. `active → retired → restore → active` and
+`dormant → retired → restore → dormant` are both correct and must remain
+distinct; restore must never normalize every record to `active`, nor to
+`dormant`.
+
+**Restore history gate.** A currently retired record is restorable only when
+canonical history reconciles as `latest.new_lifecycle_state == retired` with
+`latest.old_lifecycle_state ∈ {active, dormant}`. If the record has zero
+history, a gapped history, a divergent tail, a latest transition not ending in
+`retired`, or an invalid old token, generic restore must **fail closed**. It
+must not guess, and must not infer posture from provenance extensions,
+timestamps, heat/ranking state, imported-source metadata, review state, hold or
+pin state, or logs.
+
+**Repeated restore semantics.** A direct `restore` against a current `active`
+or `dormant` record is already satisfied and is a semantic no-op after
+successful CAS validation. This makes direct actions retry-safe without
+creating a generic activation authority.
+
+**CAS doctrine.** `memory_records.updated_at` is validated **before** any
+no-op determination. A stale token plus retire on `retired`, or plus restore
+on `active`/`dormant`, is a **conflict**, not a successful no-op. Fresh-CAS
+semantic no-ops do not advance CAS.
+
+**Review-state preservation.** Neither retire nor restore approves, rejects,
+disputes, or resets to pending. No lifecycle transition auto-approves a record.
+`approved + active → retire → approved + retired → restore → approved + active`
+and `pending + dormant → retire → pending + retired → restore → pending +
+dormant` are both valid.
+
+**Hold interaction.** Hold governs automatic decay only. It does not block an
+explicit account-principal retire or restore, and direct actions preserve the
+hold field unchanged — restore never clears hold. A restored `active` held
+record stays protected from future automatic decay while held.
+
+**Pin interaction.** Pin remains ranking metadata. Direct retire/restore
+preserve pin, do not infer lifecycle from pin, do not unpin on retirement, and
+do not pin on restoration. Pin is not activation.
+
+**Context-posture interaction.** Direct retire/restore preserve any independent
+context-posture authority, and lifecycle mutation never silently rewrites
+context posture. `memory_records` currently has **no** context-posture column;
+that fact is recorded rather than repaired, because no schema change is
+authorized here.
+
+**Ambient eligibility.** The existing computed law is unchanged. `dormant` and
+`retired` are ambient-ineligible with no change to review state, and no stored
+final ambient-eligibility authority is created.
+
+**Automatic decay boundary.** Automatic decay is a different mutation
+authority from direct retire/restore. The accepted automatic transition
+`active → dormant` is a governed automatic policy transition, forbidden while
+held, and must still use canonical `memory_lifecycle_revisions` plus the
+appropriate auditable policy/evidence receipt, applied atomically with the
+present-state mutation. The direct writer does **not** own automatic decay.
+
+| Current lifecycle | automatic decay |
+| --- | --- |
+| `active`, decay normal | → `dormant` |
+| `active`, held | blocked / no mutation |
+| `dormant` | no lifecycle change |
+| `retired` | no lifecycle change |
+
+**Automatic reactivation.** Automatic `dormant → active` is **not**
+established. No accepted contract establishes automatic heat-based or
+time-based reactivation as lifecycle authority, and derived ranking activity
+must never silently become canonical lifecycle mutation.
+
+**Dormant ingress.** A record may be initialized as `dormant` where an accepted
+ingress or import contract permits it. Initial creation as `dormant` is
+initialization, not `active → dormant`, and fabricates no revision. Direct
+creation as `active` likewise fabricates no transition. The zero-synthetic-
+history doctrine is unchanged.
+
+**Explicit recall boundary.** Explicit recall of a dormant or retired record
+does not mutate lifecycle. It may widen request-scoped access under recall-grant
+authority, and it does not activate, restore, retire, change review, or change
+context posture. Reading is not mutation.
+
+**Lifecycle revision and receipt doctrine.** Every changed direct retire or
+restore produces exactly one `memory_lifecycle_revisions` row plus exactly one
+canonical Vault mutation receipt. The revision is canonical historical
+authority; the receipt is intent/source/audit evidence. Neither replaces the
+other, and no parallel `pre_retirement_state` field is required, because
+history itself preserves the posture. Direct receipt action tokens are `retire`
+and `restore`; automatic decay uses a distinct policy/audit action identity and
+must never masquerade as an authenticated user action.
+
+**Personal Facts boundary.** Nothing here gives the ordinary lifecycle writer
+authority over Personal Facts, which retain their specialized lifecycle
+authority. The future ordinary writer must fail or delegate at that boundary.
+
+**Legacy retired records.** Because history was never fabricated, an existing
+retired record may legitimately have zero lifecycle revisions. That is valid,
+portable historical truth: the system knows the record is retired but not the
+preceding posture. Generic restore fails closed for such a row; a later
+explicit operator repair or reclassification workflow may let a human choose a
+target posture with a new authoritative receipt. That workflow is deferred and
+is not the direct writer.
+
 ### 3.4 Personal Facts authority
 
 For Personal Facts:
@@ -1765,7 +1912,7 @@ Portability: `memory_lifecycle_revisions` is the eighth canonical
 family in `account-export.v7`. `account-export.v6` keeps its exact
 seven-family meaning and is not redefined.
 
-#### 4.16.5c Lifecycle history is a third, distinct authority — not yet persisted
+#### 4.16.5d Lifecycle revalidation record (UMS-05C10B-R)
 
 UMS-05C10B-R revalidated ordinary-memory lifecycle mutation
 authority and recorded:
@@ -1775,47 +1922,33 @@ LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
 LIFECYCLE_TRANSITION_GRAPH: PARTIAL
 ```
 
-UMS-05C10B-P closed the persistence half above. The graph
-remainder is still open. The historical record that UMS-05C10B-R
-found missing:
+It found that no canonical family could record a lifecycle
+transition, and that a retirement from `active` and a retirement
+from `dormant` were therefore indistinguishable — while §5.4
+required restore to return a retired record to its
+*pre-retirement governed posture*. It also recorded that §3.3
+requires a revision and intent receipt for every
+authority-changing transition, and that this requirement had
+**not** been narrowed to receipt-only for lifecycle.
 
-The gap UMS-05C10B-R identified — that no canonical family
-could record a lifecycle transition, and that a retirement from
-`active` and a retirement from `dormant` were indistinguishable —
-is now closed by §4.16.5c. What remains open is the legal
-transition graph, which persistence deliberately does not encode.
+Both findings are now closed, by different slices:
 
-`memory_records.lifecycle_state` is the sole present lifecycle
-authority (§3.3), and §3.3 requires a revision and intent receipt
-for every authority-changing transition. That requirement has
-**not** been narrowed to receipt-only for lifecycle, and it is
-not discharged by the existence of the content or review families:
-neither is semantically capable of representing a lifecycle
-transition.
+- the missing persistence is §4.16.5c, added by UMS-05C10B-P and
+  carried through `account-export.v7`; and
+- the missing transition graph is
+  [ADR-089 — Ordinary Memory Lifecycle Transition
+  Semantics](./adr/089-ordinary-memory-lifecycle-transition-semantics.md),
+  accepted by UMS-05C10B-C, normative in §3.3.2.
 
-**Contract-ahead-of-implementation gap, not a contradiction.**
-§4.4 states that lifecycle transition timestamps such as
-`dormant_at` and `retired_at` "remain canonical", and §10 requires
-"lifecycle transition timestamps" in the account archive. Neither
-`dormant_at` nor `retired_at` exists as a column, and the
-`account-export.v6` `memory_records` field set carries no lifecycle
-transition timestamp. No two current documents disagree; the
-contract is simply ahead of storage.
+The §4.4 / §10 wording about `dormant_at` and `retired_at`
+remains ahead of storage: those specific transition-timestamp
+columns still do not exist. Their **content** is preserved instead
+by `memory_lifecycle_revisions`, whose `old_lifecycle_state`
+carries the pre-retirement posture and whose per-row `created_at`
+carries the transition time. That is a
+contract-ahead-of-implementation gap, not a contradiction between
+documents, and no column is invented to close it.
 
-**The restore-posture obligation is currently unimplementable.**
-§5.4 requires restore to return a retired record to its
-*pre-retirement governed posture*. No field records that posture, so
-`active → retired → restore` and `dormant → retired → restore` are
-indistinguishable in current storage. The pre-retirement posture is
-therefore part of the historical authority the missing family must
-preserve.
-
-**This section records the gap only.** It does not choose a
-lifecycle revision schema, does not define a restore target, does
-not define any `dormant → active` reactivation edge, and does not
-decide whether governed automatic decay shares the human
-retire/restore history family. Those remain unresolved, and the
-C10B writer stays frozen behind UMS-05C10B-P.
 
 #### 4.16.5 Payload strategy decision
 

@@ -141,8 +141,9 @@ This file is authoritative for:
   UMS-05C10B-P ORDINARY MEMORY LIFECYCLE-TRANSITION REVISION PERSISTENCE
                    + UMS-04 PORTABILITY: CLOSED
   UMS-05C10B-C ORDINARY MEMORY LIFECYCLE TRANSITION
-                   CONTRACT RESOLUTION: AUTHORIZED
-  UMS-05C10B ORDINARY MEMORY LIFECYCLE WRITER: FROZEN
+                   CONTRACT RESOLUTION: CLOSED
+  UMS-05C10B-W ORDINARY MEMORY RETIRE / RESTORE WRITER: AUTHORIZED
+  UMS-05C10B: OPEN UNTIL C10B-W PASSES
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
@@ -1440,6 +1441,42 @@ This file is authoritative for:
   not merged into the current `main`, not deployed, not a release
   claim. See the
   [UMS-05C10B-P lifecycle revision portability proof](./proofs/runtime/2026-09-29-ums05c10b-p-lifecycle-revision-portability-proof.md).
+
+- **ADR-089 (Ordinary Memory Lifecycle Transition Semantics, accepted on
+  `feature/ums-continued`)**: the ordinary-memory lifecycle state machine is
+  now frozen, closing the `LIFECYCLE_TRANSITION_GRAPH: PARTIAL` finding
+  UMS-05C10B-R recorded. Aligned with ADR-084; neither ADR-084 nor ADR-088 is
+  modified or superseded. The Memory Vault lifecycle writer will expose
+  **exactly two** generic direct actions, `retire` and `restore` — no generic
+  `activate`, `reactivate`, or `set_lifecycle_state`. Retire is legal from both
+  `active` and `dormant`, each recording its exact old state; retire on
+  `retired` is a no-op. Restore is **not** "set active": it returns the record
+  to its canonical pre-retirement `active`/`dormant` posture recovered from
+  `memory_lifecycle_revisions`, so `active → retired → restore → active` and
+  `dormant → retired → restore → dormant` stay distinct and neither is
+  normalized. A currently retired record with no reconstructable history —
+  including a legacy row C10B-P deliberately left zero-history — **fails
+  closed**; posture is never guessed or inferred from provenance, timestamps,
+  heat, review, hold, or pin. Restore against a current `active`/`dormant`
+  record is an already-satisfied no-op, which makes direct actions retry-safe
+  without creating a generic activation authority. CAS on
+  `memory_records.updated_at` is validated **before** any no-op decision, so a
+  stale token conflicts even on a same-state action. Neither action touches
+  review state, hold, or pin: hold blocks governed automatic decay only and
+  never an explicit user action, and restore never clears hold. Automatic decay
+  (`active → dormant`, forbidden while held) remains a **separate** authority
+  the direct writer does not own, and automatic `dormant → active` reactivation
+  is deliberately not established — derived ranking must never become canonical
+  lifecycle mutation. Dormant ingress is initialization, not a transition, so
+  no history is fabricated. This also reconciled the Memory Vault contract's
+  §5.1 retire/restore rows, which had promised only a receipt and diverged from
+  the normative revision-plus-receipt rule. **No retire, restore, activation,
+  or decay writer exists yet**; the Memory Vault remains internal-only.
+  Architecture only: no runtime, schema, migration, export/restore, frontend,
+  retrieval, or release-claim change. The sole next slice is UMS-05C10B-W.
+  Branch-local only; not merged into the current `main`, not deployed, not a
+  release claim. See the
+  [UMS-05C10B-C lifecycle transition contract proof](./proofs/runtime/2026-09-29-ums05c10b-c-lifecycle-transition-contract-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.
