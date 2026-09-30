@@ -5,8 +5,15 @@
 This document is the implementation-oriented contract for the accepted
 Configuration Inspector boundary in
 [ADR-095](adr/095-configuration-inspector-operator-control-plane-boundary.md).
-Resonant Jones accepted ADR-095 on 2026-09-29. A runtime implementation still
-requires a separately scoped, approved task that follows this contract.
+Resonant Jones accepted ADR-095 on 2026-09-29. The bounded v1 backend
+implementation follows this contract; any expansion beyond it requires a
+separately scoped, approved task.
+
+The bounded v1 backend projection is implemented in commit
+`dc77599ec50c9710eda2ea60795f383a204de44b`. Its focused evidence and known
+validation limitation are recorded in the
+[2026-09-29 backend proof](proofs/runtime/2026-09-29-configuration-inspector-v1-backend-proof.md).
+The frontend inspector remains unimplemented.
 
 The Inspector is a read-only operator projection over existing configuration
 authorities. It reports only bounded, non-secret installation posture whose
