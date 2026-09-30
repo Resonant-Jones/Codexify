@@ -2,11 +2,11 @@
 
 ## Status and purpose
 
-This document is the implementation-oriented contract for the proposed
+This document is the implementation-oriented contract for the accepted
 Configuration Inspector boundary in
 [ADR-095](adr/095-configuration-inspector-operator-control-plane-boundary.md).
-ADR-095 is **Proposed**. Human acceptance is required before a runtime task
-implements this contract.
+Resonant Jones accepted ADR-095 on 2026-09-29. A runtime implementation still
+requires a separately scoped, approved task that follows this contract.
 
 The Inspector is a read-only operator projection over existing configuration
 authorities. It reports only bounded, non-secret installation posture whose
@@ -334,13 +334,12 @@ A later implementation task must prove at least:
 16. No supported Beta or release claim widens.
 
 These are future proof gates, not tests or implementation work authorized by
-this contract-writing task.
+this contract alone.
 
 ## Documentation relationships
 
 - Release truth: [00 Current State](00-current-state.md).
-- Governing proposal: [ADR-095](adr/095-configuration-inspector-operator-control-plane-boundary.md),
-  if accepted by a human.
+- Governing accepted decision: [ADR-095](adr/095-configuration-inspector-operator-control-plane-boundary.md).
 - Planning: [Configuration Operator Inspection Plan](configuration-operator-inspection-plan.md).
 - Inventory: [User-Facing Settings Catalog](user-facing-settings-catalog.md).
 - Resolver reconnaissance: [Configuration Authority Path Census](config-authority-path-census.md).

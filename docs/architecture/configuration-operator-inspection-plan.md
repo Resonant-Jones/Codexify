@@ -6,15 +6,16 @@ This is a documentation-only, architecture-impact plan for a future read-only Co
 
 Evidence posture: documented-contract plus proven-code-path. The 55-family catalog is the inventory baseline; the 30-path authority census is the resolver baseline. Neither is live deployment evidence. The current local-first Beta and HOLD posture remains governed by 00-current-state.md. This plan does not promote its planning labels to protocol tokens.
 
-The proposed Inspector may link to an owning control or operator procedure. It is not a generic configuration database, universal settings editor, environment-variable editor, secrets viewer, replacement for Application Settings, All Settings, Persona Studio or Connections, provider-routing authority, account-administration bypass, runtime health system, or release-support oracle.
+The future Inspector may link to an owning control or operator procedure. It is not a generic configuration database, universal settings editor, environment-variable editor, secrets viewer, replacement for Application Settings, All Settings, Persona Studio or Connections, provider-routing authority, account-administration bypass, runtime health system, or release-support oracle.
 
 The architecture gate for any authenticated Inspector endpoint is the
-**proposed** [ADR-095: Configuration Inspector Operator Control-Plane
+**accepted** [ADR-095: Configuration Inspector Operator Control-Plane
 Boundary](adr/095-configuration-inspector-operator-control-plane-boundary.md)
 and its [implementation-oriented control-plane
-contract](configuration-inspector-control-plane.md). Human acceptance of
-ADR-095 is required before runtime implementation; this plan remains planning
-doctrine and grants no runtime authority.
+contract](configuration-inspector-control-plane.md). Resonant Jones accepted
+ADR-095 on 2026-09-29. This plan remains planning doctrine and grants no
+runtime authority; implementation still requires a separately scoped,
+approved task.
 
 ## Three distinct product surfaces and trust boundaries
 
@@ -145,9 +146,11 @@ For an installation-wide operator display **today**, the ID-indexed claim label 
 | Declared or owner-map only (29) | O01; O03–O07; O09–O14; O16–O24; O27–O31; L01; L02; L07 | Show declarations, source classes, conflict and management owner without calling a family-wide value effective. Some members have partial diagnostics listed above. |
 | Unavailable to the installation-wide operator view (23) | U01–U17; O25; O26; L03–L06 | User/device values require their own owner and access boundary; development and unreferenced paths are omitted. U15 and O26 may resolve on one desktop, but that is not installation-wide readback. |
 
-These labels are per-family defaults for the proposed projection. A later, narrower field-level proof can support a stronger label for that field without upgrading the whole family.
+These labels are per-family defaults for the future projection. A later, narrower field-level proof can support a stronger label for that field without upgrading the whole family.
 
-The safe first read-only slice is ownership and source-class rows, conflict warnings, and already bounded non-secret observations: selected supported-profile posture and mounted-route inventory (O02/O15), Guardian catalog/health links for provider policy and local-model configuration (O07/O08), selected graph adapter metadata where already exposed (O13), and local desktop connection status only on that desktop (U15/O26). Each observation must retain process, scope and timestamp. None licenses a generic effective-value display for adjacent fields. U01–U14 and U17 may be described by family name/owner; their account or browser values remain outside operator inspection. O25 and L03–L06 are not normal operator rows.
+The accepted v1 read-only projection is limited by ADR-095 to O02/O15/O07/O08. The broader family coverage and candidate claims in this plan are inventory and planning inputs, not permission for backend output. In particular, graph metadata O13 and device-local connection/bootstrap state U15/O26 are outside the initial route; any later projection of those families requires separate architecture review.
+
+Within the accepted boundary, v1 may report bounded supported-profile posture and mounted-route inventory (O02/O15), plus provider/egress and configured local-target posture where their existing owners can safely establish it (O07/O08). Claims retain their process, scope and evidence meaning. The catalog remains a separate inventory; it does not authorize family-wide values, generic effective-value displays, or account/browser inspection.
 
 ## Classification of the catalog's ten unresolved questions
 
@@ -219,19 +222,19 @@ Each row should bind to a stable catalog family ID and state the narrow scope it
 
 A conceptual Local Chat Model row could name the supported profile as policy owner, the Guardian configured logical or exact target as a separate resolved field, and Whoosh'd's advertised route as an observed availability field. It must not collapse those into one “effective physical model”; request provenance is required to identify what served a turn. The row is an illustration of evidence separation, not proposed copy or a claim about the currently running installation.
 
-For a future read-only projection, the operator identity, authorization policy, account-scope filter and redaction must be enforced server-side. A browser-only Inspector can show its own U15/O26 connection snapshot but cannot claim to represent other clients. If the projection aggregates multiple nodes or processes, every observation needs node/process identity, generation and stale/unreachable behavior. On partition or restart, show stale/unavailable with last observation time; do not silently reuse an old value as current. Cache and retry behavior must be bounded and must not turn observations into persistent configuration. Any newly durable inspection receipt would require an explicit owner, retention and access contract.
+For a future read-only projection, the operator identity, authorization policy, account-scope filter and redaction must be enforced server-side. A separate device-local UI may show its own U15/O26 connection snapshot, but those families are outside ADR-095's v1 operator route and cannot represent other clients. If a later projection aggregates multiple nodes or processes, every observation needs node/process identity, generation and stale/unreachable behavior. On partition or restart, show stale/unavailable with last observation time; do not silently reuse an old value as current. Cache and retry behavior must be bounded and must not turn observations into persistent configuration. Any newly durable inspection receipt would require an explicit owner, retention and access contract.
 
 ## Dependency order for a later implementation task
 
-1. **Freeze the first read-only scope.** Select a small set of non-secret installation families such as O02/O15 and the bounded O07/O08 posture. Define operator identity, installation scope, redaction, staleness and the list of omitted user-owned fields. Document current process/route evidence.
+1. **Carry the accepted first read-only scope into implementation.** Limit v1 to O02/O15/O07/O08. Follow ADR-095's operator identity, process scope, redaction, and user-data exclusions; prove the owning source and route/process evidence for each exposed field.
 2. **Resolve blocking authority questions before unified values.** For O01/O03/O04, O20/O21 and L02, either accept a distinct per-process display or settle precedence through a separate architecture task. Do not invent an Inspector resolver to hide disagreement.
 3. **Prove owner-specific readback.** Add only the safe non-secret resolution receipts needed for selected families, with source class, owner, process generation and effect timing. Verify that secret and account data are absent. A health endpoint alone is insufficient for effective configuration.
-4. **Accept the operator control-plane contract.** **Requires new ADR** if the Inspector introduces an authenticated aggregation API, durable receipts, new operator access, or cross-process authority semantics. This plan does not create that approval. ADR-071/072/074/082 remain governing boundaries.
+4. **Apply the accepted operator control-plane contract.** ADR-095 governs the initial authenticated, process-local projection. Any expansion into durable receipts, new operator access, or cross-process authority semantics requires separate architecture review. ADR-071/072/074/082 remain governing boundaries.
 5. **Expose a read-only projection.** Implement authenticated, scoped and redacted backend data only after the contract and proof. Preserve owner APIs and existing mutation controls; use unavailable for missing values.
 6. **Build the operator UI and adjacent links.** Present family, scope, owner, evidence label, source/conflict, management location and timing. Link health and runtime inventory as separate observations. Do not include edit controls or secrets.
 7. **Expand by proven owner.** Add queues, storage, TTS, OAuth and optional paths only after their distinct authority/readback and access gates are verified. Recheck after restart, mixed versions and partial failure; never infer release support from Inspector coverage.
 
-No runtime/API/schema/frontend/Compose/ADR/current-state change is made by this document. Implementation, testing and human acceptance belong to later task packets.
+This plan itself makes no runtime/API/schema/frontend/Compose/ADR/current-state change. Implementation and testing belong to later task packets. Human acceptance of ADR-095 is recorded; separate task approval remains required.
 
 ## Sources and bounded discrepancies
 

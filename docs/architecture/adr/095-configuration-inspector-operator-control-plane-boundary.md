@@ -1,7 +1,16 @@
 # ADR-095: Configuration Inspector Operator Control-Plane Boundary
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-29
+**Accepted:** 2026-09-29
+**Human approver:** Resonant Jones
+
+## Acceptance
+
+Resonant Jones accepted this decision as written on 2026-09-29. Acceptance
+removes the pending-human-acceptance prerequisite for a future implementation
+task. It does not itself authorize runtime code changes; implementation still
+requires a separately scoped, approved task and its required proof.
 
 ## Context
 
@@ -238,7 +247,7 @@ ADR-094.
 ### 15. Documentation hierarchy
 
 - **Release truth:** docs/architecture/00-current-state.md.
-- **Governing decision:** ADR-095, if later accepted.
+- **Governing decision:** Accepted ADR-095.
 - **Normative Inspector contract:** docs/architecture/configuration-inspector-control-plane.md.
 - **Planning and inventory inputs:** the Configuration Operator Inspection
   Plan, User-Facing Settings Catalog, and Configuration Authority Path Census.
@@ -278,11 +287,12 @@ unavailable rather than manufacturing an effective value.
 Runtime route implementation, response models, resolver work, feature flags,
 frontend UI, persistence, snapshots, configuration mutation, conflict
 resolution, broad catalog coverage, and any release-support decision are
-deferred. Human acceptance of ADR-095 is required before runtime implementation.
+deferred. ADR-095 is accepted; implementation still requires a separately
+scoped, approved task.
 
 ## Runtime and release boundary
 
-This is a proposed architecture decision only. It adds no endpoint, route,
+This is an accepted architecture decision only. It adds no endpoint, route,
 model, resolver, token, feature flag, persistence, probe, UI, or release claim.
 No current runtime endpoint is the canonical Configuration Inspector.
 00-current-state.md remains release truth.
