@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-29 (Proposed ADR-095 sidebar shell geometry and Architecture README link reviewed; runtime topology diagrams unchanged because this presentation contract is not implemented)
+Diagram Review Marker: 2026-09-30 (ADR-095 Inspector and accepted ADR-096 sidebar documentation reconciliation reviewed; runtime topology diagrams unchanged by this docs-only identity correction)
 
 ## Scope
 

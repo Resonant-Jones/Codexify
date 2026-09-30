@@ -1,9 +1,14 @@
-# ADR-095: Adaptive Application Sidebar Posture and Shell Boundary
+# ADR-096: Adaptive Application Sidebar Posture and Shell Boundary
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-29
-- Human decision requested: Resonant Jones acceptance before implementation
+- Accepted: 2026-09-29
+- Human approver: Resonant Jones
 - Supersedes: None
+
+## Numbering and acceptance provenance
+
+At reconciliation, fetched `origin/main` was `9810971690d6fdcd80acbee519772316af803303` and contained neither ADR-095 candidate. This documentation integration uses `codex/adaptive-sidebar-posture-adr-20260929`; it does not claim either decision is published on main. The Configuration Inspector proposal was committed first at `44430f47503900324f9981afc2b20f51280f3f4b` and separately accepted by Resonant Jones at `493abd8ec50c9710eda2ea60795f383a204de44b`. That accepted decision retains ADR-095 in this integration. The sidebar proposal commits `49fca9166895ac71823e40bac4d90fb37d3bb6c8` and `eb7f98f74446bea11e3dd2097ed7d9437a097069` remain unmodified evidence of the parallel ADR-095 allocation; this reconciliation assigns the sidebar decision ADR-096 without changing its substance. The acceptance communicated for **Adaptive Application Sidebar Posture and Shell Boundary** applies to this sidebar decision specifically, not to the Configuration Inspector. Neither proposal commit is rewritten.
 
 ## Context and current evidence
 
@@ -13,9 +18,9 @@ These are compatible precursors, not the generalized contract. Browser focus cur
 
 The [Guardian Chat Portal](../guardian-chat-portal.md) accurately describes its existing desktop split and mobile portal behavior but does not describe a generalized focused shell. The [Workspace Surface Spec](../codexify_workspace_surface_spec_v_1.md) and [Workspace layout mode](../../../frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts) distinguish `chat_focus`, `balanced_split`, and `workspace_focus` within Workspace. Those modes are pane-emphasis choices, not application-navigation posture. The existing [breakpoint contract](../../../frontend/src/components/persona/layout/shellBreakpointContract.ts) determines when split or collapsed layout is available.
 
-The release boundary remains [00 Current State](../00-current-state.md). This proposed decision is architecture only; it proves no new UI behavior or release support.
+The release boundary remains [00 Current State](../00-current-state.md). This accepted decision is architecture only; it proves no new UI behavior or release support.
 
-## Decision proposed
+## Decision
 
 Codexify presents **one semantic application-navigation system** through adaptive shell postures. Focus changes the posture of the shell, not the identity of its parts. The ordinary relaxed desktop retains a compact, floating, spatial sidebar beside the primary content. This decision does not replace it with a conventional permanent desktop rail.
 
@@ -82,7 +87,7 @@ Workspace's `chat_focus`, `balanced_split`, and `workspace_focus` remain Workspa
 
 ## Relationship to existing decisions and guides
 
-No accepted ADR found in the current index directly governs adaptive application-sidebar posture or pinned shell geometry. This is a new presentation decision with no supersession. [ADR-054](054-browser-host-topology-and-release-ownership.md) governs Browser Host topology and the trusted shell boundary; browser content remains a consumer of shell geometry and gains no authority over navigation or trusted-shell policy. [ADR-064](064-orthogonal-ui-material-personalization.md) governs appearance axes, which remain independent of posture. The [Guardian Chat Portal](../guardian-chat-portal.md) remains a current-code guide; after human acceptance and implementation, it should distinguish relaxed spatial, focused overlay, focused pinned, and narrow/mobile drawer presentations. Its current-runtime description is not rewritten here as if the proposed behavior already exists.
+No earlier accepted ADR directly governs adaptive application-sidebar posture or pinned shell geometry. This is a new presentation decision with no supersession. [ADR-054](054-browser-host-topology-and-release-ownership.md) governs Browser Host topology and the trusted shell boundary; browser content remains a consumer of shell geometry and gains no authority over navigation or trusted-shell policy. [ADR-064](064-orthogonal-ui-material-personalization.md) governs appearance axes, which remain independent of posture. The [Guardian Chat Portal](../guardian-chat-portal.md) remains a current-code guide; after implementation, it should distinguish relaxed spatial, focused overlay, focused pinned, and narrow/mobile drawer presentations. Its current-runtime description is not rewritten here as if the accepted behavior already exists.
 
 ## Consequences and deferred work
 
@@ -92,6 +97,6 @@ No accepted ADR found in the current index directly governs adaptive application
 - Future focused surfaces may request the common shell contract; they must not grow independent route-local sidebar geometry. Focus Chat, Canvas, HTML artifacts, and document/editor focus are not implemented by this decision.
 - No CSS, DOM placement, breakpoints, state stores, persistence, Workspace modes, navigation data, provider behavior, or release claims change here. Acceptance authorizes a separate scoped implementation task, not an automatic runtime change.
 
-## Human decision
+## Acceptance
 
-Resonant Jones is asked to accept or reject Adaptive Application Sidebar Posture as the canonical AppShell presentation model, including `spatial`, transient `edge_overlay`, and shell-boundary `edge_pinned` semantics. Until that decision, this ADR remains Proposed.
+Resonant Jones accepted Adaptive Application Sidebar Posture as the canonical AppShell presentation model on 2026-09-29, including `spatial`, transient `edge_overlay`, and shell-boundary `edge_pinned` semantics. Acceptance establishes architecture only; implementation requires a separate scoped task and proof.
