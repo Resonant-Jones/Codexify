@@ -87,6 +87,8 @@ For native agent harnesses, invocation-scoped provider/model identity, `default`
 
 For account-scoped execution credentials, read [Accepted ADR-094: Account-Scoped Execution Credential Authority](./adr/094-account-scoped-execution-credential-authority.md). The Guardian-to-worker-to-Pi credential binding remains unimplemented; its existing bounded Task Spec may resume separately under ADR-093 and ADR-094.
 
+For application sidebar posture and focused shell geometry, read [Proposed ADR-095: Adaptive Application Sidebar Posture and Shell Boundary](./adr/095-adaptive-application-sidebar-posture-and-shell-boundary.md). It proposes one semantic navigation system with spatial, transient edge overlay, and pinned shell-boundary presentations. The generalized contract is not implemented or release-qualified.
+
 If you are working on Persona Studio, Persona Profile portability, revision semantics, profile-to-thread binding, connector or retrieval references, voice configuration, capability requests, or Project/participant scope, start with [ADR-082: Persona Profile Manifest and Binding Authority](./adr/082-persona-profile-manifest-and-binding-authority.md), then read the [Persona Studio Spec](./persona-studio-spec.md). Read historical C07 artifacts only as time-bounded proof; they do not define current persistence truth or environmental authority.
 
 Start here first when you need current-state interpretation rather than structural architecture: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.

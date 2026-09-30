@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-29 (accepted ADR-094 execution-credential authority reviewed; runtime topology diagrams unchanged because the credential contract is not implemented)
+Diagram Review Marker: 2026-09-29 (Proposed ADR-095 sidebar shell geometry and Architecture README link reviewed; runtime topology diagrams unchanged because this presentation contract is not implemented)
 
 ## Scope
 
