@@ -254,7 +254,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Codexify Configuration and Settings Catalog](./user-facing-settings-catalog.md): documentation-only inventory of first-party setting ownership, audiences, and possible UI dispositions. It is not configuration authority and does not imply UI exposure or runtime support.
 - [Configuration Operator Inspection Plan](./configuration-operator-inspection-plan.md): evidence-driven plan for a future read-only operator configuration view; neither runtime authority, a settings editor, nor release support.
-- [Configuration Inspector Control Plane](./configuration-inspector-control-plane.md) and [accepted ADR-095](./adr/095-configuration-inspector-operator-control-plane-boundary.md): define a bounded operator-only, process-local, read-only configuration projection. The separate acceptance of this decision does not itself qualify runtime behavior or release support.
+- [Configuration Inspector Control Plane](./configuration-inspector-control-plane.md) and [accepted ADR-095](./adr/095-configuration-inspector-operator-control-plane-boundary.md): define a future operator-only, process-local, read-only configuration projection. Acceptance establishes architecture only; runtime implementation requires a separately scoped, approved task, and no release-support claim is made.
 - [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only local runtime descriptors for Whoosh'd/MLX-backed local models; this does not change runtime routing or release support by itself.
 - [Whoosh'd Model Tool-Capability Boundary](./whooshd-model-tool-capability-boundary.md): per-model tool-qualification architecture, distinguishing provider identity from runtime engine from exact model-target capability. It does not implement Whoosh'd tool calling or change runtime code.
 - [Whoosh'd Runtime Qualification Attestation Contract](./whooshd-runtime-qualification-attestation-contract.md): docs-only boundary for Whoosh'd-owned, bounded live execution-identity attestation and Codexify's future proof-identity comparison. It does not implement an attestation, capability advertisement, or runtime change.
@@ -430,3 +430,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ### Account observability implementation boundary
 
 [Admin Account Observability Contract](./admin-account-observability-contract.md) and [ADR-049](./adr/ADR-049-admin-account-observability-and-invite-attribution.md) govern an internal Guardian implementation through Slice 3: persistence/tokens, first-touch invite attribution, explicit foreground account/guest heartbeat, and deterministic conversion-safe retention cleanup. This does not include GeoIP, aggregates, operator reporting/snapshot routes, UI, or supported-path proof and does not widen the beta release promise.
+
+
+## Onboarding and Tips
+
+[Account onboarding and Tips contract](onboarding-and-tips-contract.md) defines separate account UX persistence, optional device tours, static Tips, and capability-dependent social setup. It does not widen release claims.

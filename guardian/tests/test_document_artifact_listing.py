@@ -384,3 +384,46 @@ def test_multi_user_project_artifacts_remain_account_scoped(monkeypatch):
 
     assert response.status_code == 200, response.text
     assert [item["id"] for item in response.json()["documents"]] == ["owned-upload"]
+
+def test_saved_workspace_note_appears_as_generated_project_artifact(monkeypatch):
+    note = _row(
+        id="note-1",
+        project_id=10,
+        thread_id=101,
+        title="Guardian Notes",
+        content="# authored",
+        format="md",
+        model="workspace_notes",
+    )
+    db = _make_db(
+        {
+            media_routes.ChatThread: [_row(id=101, project_id=10, title="Source")],
+            media_routes.GeneratedDocument: [note],
+            media_routes.ProjectDocumentLink: [
+                _row(
+                    id=1,
+                    project_id=10,
+                    document_id="note-1",
+                    document_type="generated",
+                    is_enabled=True,
+                )
+            ],
+            media_routes.ThreadDocument: [
+                _row(
+                    id=1,
+                    thread_id=101,
+                    document_id="note-1",
+                    relation="attached",
+                )
+            ],
+            media_routes.UploadedDocument: [],
+        }
+    )
+    with _client(monkeypatch, db) as client:
+        response = client.get(
+            "/api/media/document-artifacts", params={"project_id": 10}
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["documents"][0]["id"] == "note-1"
+    assert response.json()["documents"][0]["format"] == "md"
+    assert response.json()["documents"][0]["artifact_type"] == "generated"

@@ -484,6 +484,7 @@ def _retrieval_proof_state(
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
+from guardian.routes import configuration_inspector
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
@@ -525,6 +526,7 @@ from guardian.routes.connections import router as connections_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
+from guardian.routes.onboarding import router as onboarding_router
 from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
@@ -1058,6 +1060,11 @@ def _include_browser_host_negotiation_router() -> None:
 # Router Inclusion
 # =========================
 
+def _include_admin_surface() -> None:
+    app.include_router(admin.router)
+    app.include_router(configuration_inspector.router)
+
+
 _include_browser_host_attachment_router()
 _include_browser_host_negotiation_router()
 
@@ -1082,7 +1089,7 @@ _include_router(
 _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
-    include_fn=lambda: app.include_router(admin.router),
+    include_fn=_include_admin_surface,
     core_surface=True,
 )
 _include_router(
@@ -1449,6 +1456,13 @@ _include_router(
     include_fn=lambda: app.include_router(hosted_room_guest.router),
     default_enabled=True,
 )
+_include_router(
+    label="onboarding",
+    flag_name="CODEXIFY_ENABLE_ONBOARDING_ROUTES",
+    core_surface=True,
+    include_fn=lambda: app.include_router(onboarding_router),
+)
+
 _include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",

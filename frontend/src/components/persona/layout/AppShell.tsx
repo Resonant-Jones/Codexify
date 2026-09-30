@@ -1,3 +1,4 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -2427,11 +2428,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -3312,7 +3314,7 @@ export default function AppShell({
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
@@ -3454,6 +3456,7 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
     <UnifiedDesktopCompositor
       enabled={!isPhoneShell}
       shellStyle={styleVars as React.CSSProperties}
@@ -3551,7 +3554,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3603,7 +3606,7 @@ export default function AppShell({
             {/* glass backdrop */}
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
+                wallpaperUrl={activeWallpaperMedia.src || null}
                 className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
@@ -4324,5 +4327,6 @@ export default function AppShell({
       )}
     </div>
     </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }
