@@ -56,6 +56,9 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultContentCorrectionIntegrityError,
     MemoryVaultContentCorrectionInvalid,
     MemoryVaultContentCorrectionUnsupported,
+    MemoryVaultLifecycleIntegrityError,
+    MemoryVaultLifecycleInvalid,
+    MemoryVaultLifecycleUnsupported,
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
@@ -801,6 +804,8 @@ _CONTENT_CORRECTION_UNAVAILABLE_DETAIL = "Memory content correction unavailable"
 _CONTENT_CORRECTION_INVALID_DETAIL = "Content must be a non-empty string"
 _REVIEW_TRANSITION_UNAVAILABLE_DETAIL = "Memory review transition unavailable"
 _REVIEW_TRANSITION_INVALID_DETAIL = "Action must be one of: approve, reject, dispute"
+_LIFECYCLE_UNAVAILABLE_DETAIL = "Memory lifecycle transition unavailable"
+_LIFECYCLE_INVALID_DETAIL = "Action must be one of: retire, restore"
 
 
 class VaultReviewTransitionRequest(_VaultMutationRequest):
@@ -817,6 +822,38 @@ class VaultReviewTransitionRequest(_VaultMutationRequest):
     model_config = ConfigDict(extra="forbid")
 
     action: str
+
+
+class VaultLifecycleTransitionRequest(_VaultMutationRequest):
+    """ADR-089 direct lifecycle action.
+
+    Only the admitted action is accepted. A raw lifecycle target is never
+    taken from the caller, so ``active`` / ``dormant`` / ``retired`` cannot
+    be requested directly.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+
+
+class VaultLifecycleTransitionResponse(BaseModel):
+    """Serialized direct lifecycle transition result (UMS-05C10B-W).
+
+    All three identity fields are ``None`` for an ADR-089 same-state no-op.
+    No internal history-validation diagnostic is exposed.
+    """
+
+    changed: bool
+    action: str
+    receipt_id: str | None
+    lifecycle_revision_id: str | None
+    lifecycle_revision_number: int | None
+    previous_lifecycle_state: str
+    resulting_lifecycle_state: str
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItemResponse
 
 
 class VaultReviewTransitionResponse(BaseModel):
@@ -950,6 +987,62 @@ def patch_canonical_vault_item_review(
     )
 
 
+@router.patch(
+    "/items/canonical/{memory_id}/lifecycle",
+    response_model=VaultLifecycleTransitionResponse,
+)
+def patch_canonical_vault_item_lifecycle(
+    memory_id: str,
+    body: VaultLifecycleTransitionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultLifecycleTransitionResponse:
+    """Direct authenticated retire / restore for ordinary memory.
+
+    Thin adapter only: it performs no SQL, no parent lookup, no row locking,
+    no CAS comparison, no no-op determination, no lifecycle state-machine
+    logic, no lifecycle-history read, no restore-target resolution, no
+    revision numbering, no receipt construction, and no read-before-write.
+    Account authority comes exclusively from ``RequestUserScope.account_id``
+    through the existing mutation-service dependency.
+    """
+    try:
+        result = service.transition_lifecycle(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            action=body.action,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultLifecycleInvalid:
+        raise HTTPException(status_code=422, detail=_LIFECYCLE_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultLifecycleUnsupported,
+        MemoryVaultLifecycleIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Includes restore where the pre-retirement posture cannot be proven.
+        # Sanitized: no SQL, constraint, chain, or account detail.
+        raise HTTPException(status_code=409, detail=_LIFECYCLE_UNAVAILABLE_DETAIL)
+
+    return VaultLifecycleTransitionResponse(
+        changed=result.changed,
+        action=result.action,
+        receipt_id=result.receipt_id,
+        lifecycle_revision_id=result.lifecycle_revision_id,
+        lifecycle_revision_number=result.lifecycle_revision_number,
+        previous_lifecycle_state=result.previous_lifecycle_state,
+        resulting_lifecycle_state=result.resulting_lifecycle_state,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
@@ -967,6 +1060,8 @@ __all__ = [
     "VaultCreateMemoryRequest",
     "VaultContentCorrectionRequest",
     "VaultContentCorrectionResponse",
+    "VaultLifecycleTransitionRequest",
+    "VaultLifecycleTransitionResponse",
     "VaultReviewTransitionRequest",
     "VaultReviewTransitionResponse",
     "VaultMutationResponse",

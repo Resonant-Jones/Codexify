@@ -142,8 +142,11 @@ This file is authoritative for:
                    + UMS-04 PORTABILITY: CLOSED
   UMS-05C10B-C ORDINARY MEMORY LIFECYCLE TRANSITION
                    CONTRACT RESOLUTION: CLOSED
-  UMS-05C10B-W ORDINARY MEMORY RETIRE / RESTORE WRITER: AUTHORIZED
-  UMS-05C10B: OPEN UNTIL C10B-W PASSES
+  UMS-05C10B-W ORDINARY MEMORY RETIRE / RESTORE WRITER: CLOSED
+  UMS-05C10B: CLOSED
+  UMS-05C10: CLOSED
+  UMS-05C11+: NOT AUTHORIZED
+  NEXT ACTION: CAMPAIGN REVALIDATION REQUIRED
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
@@ -1477,6 +1480,51 @@ This file is authoritative for:
   Branch-local only; not merged into the current `main`, not deployed, not a
   release claim. See the
   [UMS-05C10B-C lifecycle transition contract proof](./proofs/runtime/2026-09-29-ums05c10b-c-lifecycle-transition-contract-proof.md).
+
+- **UMS-05C10B-W (Ordinary-memory retire / restore writer, qualified on
+  `feature/ums-continued`)**: ADR-089's frozen lifecycle state machine is
+  now implemented internally as
+  `MemoryVaultMutationService.transition_lifecycle` plus
+  `PATCH /api/memory-vault/items/canonical/{memory_id}/lifecycle`. The
+  action vocabulary is exactly `retire` and `restore`; the service exposes
+  no `set_lifecycle_state`, `activate`, or `reactivate`, and the request
+  model forbids extra fields, so a raw lifecycle target cannot be
+  submitted by a client. Restore is **not** set-active: it recovers the
+  pre-retirement posture from the canonical lifecycle-history tail, so
+  `active → retired → restore → active` and
+  `dormant → retired → restore → dormant` stay distinct and neither is
+  normalized, and a repeated cycle uses the *immediate* tail rather than
+  the first retirement ever recorded. A retired record whose
+  pre-retirement posture cannot be proven — including the legacy
+  zero-history rows C10B-P deliberately created, and gapped, chained-
+  broken, or tail-divergent history — **fails closed**; posture is never
+  guessed and provenance extensions and derived state are never consulted
+  as authority. CAS on `memory_records.updated_at` is validated before any
+  no-op decision, so a stale token conflicts even when the action is
+  already satisfied; a fresh no-op creates no revision, no receipt, and
+  no CAS advance. Each changed transition commits the state update, the
+  CAS advance, exactly one `memory_lifecycle_revisions` row, and exactly
+  one `memory-vault-mutation.v1` receipt in one transaction, with
+  parent-row `SELECT ... FOR UPDATE` serializing concurrent mutations so
+  two transitions cannot claim the same revision number. Review state
+  (all four states), hold, pin, content, Project scope, Persona
+  attribution, and both other revision families are preserved unchanged;
+  `memory_records` has no context-posture column on this branch, which is
+  recorded rather than invented. Qualification found and fixed a defect
+  introduced in this slice: a stray `@dataclass(slots=True)` decorator
+  misattached to a new exception class, turning it into a dataclass and
+  surfacing as a route `500`; it was caught by the route suite before
+  commit. **Automatic decay remains a separate, unimplemented authority**
+  and no automatic `dormant → active` behavior was introduced; the
+  direct service is not called from any background decay path. The route
+  is internal-only and hidden from public OpenAPI, and the control-plane
+  delta is exactly +1 PATCH method and +1 path template. No schema,
+  migration, export/restore, frontend, retrieval, or release-claim
+  change. This closes **C10B and C10**; C11+ remains deliberately
+  unauthorized pending Campaign revalidation against the UMS baseline
+  and stop rule. Branch-local only; not merged into the current `main`,
+  not deployed, not a release claim. See the
+  [UMS-05C10B-W lifecycle transition writer proof](./proofs/runtime/2026-09-29-ums05c10b-w-lifecycle-transition-writer-proof.md).
 
 - Accepted ADR-058 separating canonical Persona Profile authored authority from Imprint relational/presentation ownership; legacy Persona observation/status and canonical Persona Studio adoption remain unfinished. The Settings Inspector now observes the canonical read-only projection without changing those ownership boundaries, and no Beta/support claim changed.
 - Merged phone sidebar/navigation and composer overflow work with focused frontend coverage; this is UI change evidence, not supported-path browser proof.

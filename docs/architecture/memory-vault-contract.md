@@ -264,14 +264,15 @@ the same next review revision number.
 Lifecycle mutation is not implemented here and remains separately
 governed.
 
-#### 5.1.2 Lifecycle semantics (UMS-05C10B-R, persisted by C10B-P, frozen by C10B-C)
+#### 5.1.2 Lifecycle semantics (frozen by C10B-C, implemented by C10B-W)
 
-The Retire and Restore rows above are **contracted but not
-implemented**. No retire, restore, activate, reactivate, or decay writer,
-route, or service method exists; `lifecycle_state` is never mutated by
-any current canonical code path.
+The Retire and Restore rows above are **implemented** as the internal
+endpoint below. `MemoryVaultMutationService.transition_lifecycle` and
+`PATCH /api/memory-vault/items/canonical/{memory_id}/lifecycle` exist.
+There is still no activate, reactivate, or decay writer, and no direct
+route or service method can target a raw lifecycle state.
 
-Both prerequisites that UMS-05C10B-R identified are now closed.
+Both prerequisites that UMS-05C10B-R identified are closed.
 
 **History persistence — closed by UMS-05C10B-P.** The canonical
 `memory_lifecycle_revisions` family exists and is carried through
@@ -287,16 +288,17 @@ normative in Unified Memory Store contract §3.3.2. The graph that
 UMS-05C10B-R recorded as `LIFECYCLE_TRANSITION_GRAPH: PARTIAL` is now
 resolved.
 
-Contracted future writer behavior:
+Implemented internal behavior:
 
-| Aspect | Contracted behavior |
+| Aspect | Implemented behavior |
 | --- | --- |
-| Direct actions | `retire`, `restore` only — no generic `activate` / `set_lifecycle_state` |
+| Direct actions | `retire`, `restore` only — no generic `activate` / `set_lifecycle_state`; the request model forbids extra fields so a raw target cannot be submitted |
 | Retire from `active` / `dormant` | -> `retired`, one lifecycle revision + one receipt |
 | Retire on `retired` | no-op after fresh CAS |
 | Restore from `retired` | -> canonical pre-retirement `active`/`dormant` posture, one lifecycle revision + one receipt |
 | Restore on `active` / `dormant` | no-op after fresh CAS |
-| Restore with unreconstructable pre-retirement history | **fail closed** — never guess `active` or `dormant` |
+| Restore with unreconstructable pre-retirement history | **fail closed** with a bounded `409` — never guesses `active` or `dormant`, and never reads provenance extensions or derived state as authority |
+| Restore target | taken from the **current** lifecycle-history tail, not the first retirement ever recorded |
 | Stale CAS | conflicts, even on a same-state no-op |
 | Review state | preserved exactly; never approved, rejected, disputed, or reset |
 | Hold | blocks governed automatic decay only, never explicit retire/restore; preserved unchanged |
@@ -311,9 +313,21 @@ receipt-only divergence UMS-05C10B-R recorded. That row wording is
 consistent with §3.3, which requires a revision **and** an intent
 receipt for every authority-changing transition.
 
-This section records contracted future behavior. It does not
-implement the writer, does not create routes, and does not claim any
-lifecycle action is live. The review writer in §5.1.1 is complete,
+A changed transition commits the `lifecycle_state` update, the CAS
+advance, exactly one `memory_lifecycle_revisions` row, and exactly one
+`memory-vault-mutation.v1` receipt in one transaction; any failure rolls
+all of them back. Parent-row `SELECT ... FOR UPDATE` serializes concurrent
+lifecycle mutations so two transitions cannot claim the same revision
+number. Review state, hold, pin, content, Project scope, Persona
+attribution, and both other revision families are preserved unchanged.
+`memory_records` has no context-posture column on this branch; that fact
+is recorded rather than invented.
+
+Automatic decay remains a separate, unimplemented authority: the direct
+service is not called from any background decay path, and no automatic
+`dormant -> active` behavior was introduced. The lifecycle route remains
+**internal-only** and hidden from public OpenAPI under the existing
+`memory_vault` posture. The review writer in §5.1.1 is complete,
 internal-only, and unaffected.
 
 ### 5.2 Not UMS-05 actions (explicitly deferred)
