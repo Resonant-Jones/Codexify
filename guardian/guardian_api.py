@@ -524,6 +524,7 @@ from guardian.routes.connections import router as connections_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
+from guardian.routes.onboarding import router as onboarding_router
 from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
@@ -1447,6 +1448,13 @@ _include_router(
     include_fn=lambda: app.include_router(hosted_room_guest.router),
     default_enabled=True,
 )
+_include_router(
+    label="onboarding",
+    flag_name="CODEXIFY_ENABLE_ONBOARDING_ROUTES",
+    core_surface=True,
+    include_fn=lambda: app.include_router(onboarding_router),
+)
+
 _include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",

@@ -427,3 +427,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ### Account observability implementation boundary
 
 [Admin Account Observability Contract](./admin-account-observability-contract.md) and [ADR-049](./adr/ADR-049-admin-account-observability-and-invite-attribution.md) govern an internal Guardian implementation through Slice 3: persistence/tokens, first-touch invite attribution, explicit foreground account/guest heartbeat, and deterministic conversion-safe retention cleanup. This does not include GeoIP, aggregates, operator reporting/snapshot routes, UI, or supported-path proof and does not widen the beta release promise.
+
+
+## Onboarding and Tips
+
+[Account onboarding and Tips contract](onboarding-and-tips-contract.md) defines separate account UX persistence, optional device tours, static Tips, and capability-dependent social setup. It does not widen release claims.
