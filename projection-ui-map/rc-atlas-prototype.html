@@ -720,21 +720,11 @@
         const target = safeMarkdownTarget(rawTarget), label = escapeMarkdown(rawLabel);
         const title = rawTitle ? ' title="' + escapeMarkdown(rawTitle) + '"' : "";
         if (!target) return label;
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
+        if (/^https?:\/\//i.test(target)) return hold('<a href="' + escapeMarkdown(target) + '" target="_blank" rel="noopener noreferrer"' + title + ">" + label + "</a>");
         if (/\.md(?:[#?]|$)/i.test(target)) return hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '"' + title + ">" + label + "</a>");
         let href = target;
         try { if (baseUrl && !/^[a-z][a-z\d+.-]*:/i.test(target)) href = new URL(target, baseUrl).href; } catch (_) { return label; }
         return hold('<a href="' + escapeMarkdown(href) + '"' + title + ">" + label + "</a>");
-<<<<<<< ours
-=======
-        if (/^https?:\/\//i.test(target)) return hold('<a href="' + escapeMarkdown(target) + '" target="_blank" rel="noopener noreferrer"' + title + ">" + label + "</a>");
-        return hold('<a href="#" data-markdown-href="' + escapeMarkdown(target) + '"' + title + ">" + label + "</a>");
->>>>>>> theirs
-=======
->>>>>>> theirs
       });
       text = escapeMarkdown(text)
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -782,14 +772,6 @@
       const line = lines[index] || "";
       return !line.trim() || /^\s*```/.test(line) || /^#{1,6}\s+/.test(line) || /^\s*>/.test(line) || /^\s*(?:[-+*]|\d+\.)\s+/.test(line) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) || (index + 1 < lines.length && line.includes("|") && tableDivider(lines[index + 1]));
     }
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    function renderMarkdown(markdown, baseUrl) {
-      const renderInline = value => renderMarkdownInline(value, baseUrl);
-=======
-=======
->>>>>>> theirs
     function renderMarkdownList(lines, startIndex) {
       const listItem = line => {
         const match = line.match(/^(\s*)(?:([-+*])|(\d+)\.)\s+(.+)$/);
@@ -823,12 +805,8 @@
       };
       return renderLevel(startIndex, first.indent, first.ordered);
     }
-    function renderMarkdown(markdown) {
->>>>>>> theirs
-=======
     function renderMarkdown(markdown, baseUrl) {
       const renderInline = value => renderMarkdownInline(value, baseUrl);
->>>>>>> theirs
       const lines = String(markdown == null ? "" : markdown).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
       const output = [];
       let index = 0;
@@ -869,27 +847,8 @@
         }
         const list = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
         if (list) {
-<<<<<<< ours
-<<<<<<< ours
-          const ordered = Boolean(list[2]), items = [], start = ordered ? Math.max(1, +list[2]) : 1;
-          while (index < lines.length) {
-            const item = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
-            if (!item || Boolean(item[2]) !== ordered) break;
-            let content = item[3]; index += 1;
-            while (index < lines.length && /^\s{2,}\S/.test(lines[index]) && !/^\s*(?:[-+*]|\d+\.)\s+/.test(lines[index])) { content += " " + lines[index].trim(); index += 1; }
-            const task = content.match(/^\[([ xX])\]\s+(.+)$/);
-            items.push({ value: ordered ? Math.max(1, +item[2]) : null, html: task ? '<input type="checkbox" disabled' + (task[1].toLowerCase() === "x" ? " checked" : "") + "> " + renderInline(task[2]) : renderInline(content) });
-          }
-          const tag = ordered ? "ol" : "ul", startAttribute = ordered && start !== 1 ? ' start="' + start + '"' : "";
-          output.push("<" + tag + startAttribute + ">" + items.map(item => "<li" + (ordered ? ' value="' + item.value + '"' : "") + ">" + item.html + "</li>").join("") + "</" + tag + ">"); continue;
-=======
           const rendered = renderMarkdownList(lines, index);
           output.push(rendered.html); index = rendered.index; continue;
->>>>>>> theirs
-=======
-          const rendered = renderMarkdownList(lines, index);
-          output.push(rendered.html); index = rendered.index; continue;
->>>>>>> theirs
         }
         const paragraph = [line.trim()]; index += 1;
         while (index < lines.length && !markdownBlockStart(lines, index)) { paragraph.push(lines[index].trim()); index += 1; }
