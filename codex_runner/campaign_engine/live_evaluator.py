@@ -32,6 +32,7 @@ from guardian.pi.validation import (
 
 from .artifacts import ArtifactPublisher, atomic_write_json
 from .errors import CampaignLiveEvaluatorError
+from .filesystem import physical_files, tracked_symlink_snapshot
 from .identity import binding_identity_hash, canonical_json, document_hash, sha256_canonical, sha256_text
 from .live_executor import _contains_sensitive_key, _read_git_head, _to_payload
 from .validation import parse_json_strict, validate_campaign_document, validate_path_component, validate_role_binding_semantics
@@ -172,6 +173,16 @@ def _verify_locked_evaluator_effort(
         _fail("evaluator_effort_unsupported")
 
 
+def _symlink_evidence(target: Path, *, calls: int = 0) -> list[dict[str, str]]:
+    try:
+        return [
+            {"path": rel, "link_target": link, "resolved_target": resolved}
+            for rel, link, resolved in tracked_symlink_snapshot(target)
+        ]
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        _fail("target_symlink_topology_changed", calls=calls)
+
+
 def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
     """Hash target bytes and Git HEAD; support physical worktree Git pointers."""
     if not target.is_dir() or not (target / ".git").exists():
@@ -186,13 +197,12 @@ def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
     head = _read_git_head(target)
     if Path(root).resolve() != target.resolve() or not head:
         _fail("disposable_target_invalid", calls=calls)
-    files: dict[str, str] = {}
-    for path in sorted(target.rglob("*")):
-        if path.is_symlink():
-            _fail("target_symlink_present", calls=calls)
-        if path.is_file():
-            files[str(path.relative_to(target))] = _hash_file(path)
-    return sha256_canonical({"head": head, "files": files})
+    symlinks = _symlink_evidence(target, calls=calls)
+    files = {
+        str(path.relative_to(target)): _hash_file(path)
+        for path in physical_files(target, include_git=True)
+    }
+    return sha256_canonical({"head": head, "files": files, "symlinks": symlinks})
 
 
 def _bounded_changed_file_evidence(
@@ -442,10 +452,14 @@ def prepare_live_evaluator_campaign(
         _fail("executor_boundary_validation_hash_mismatch")
     before = _load(checkpoint_dir / "execution/target-before.json")
     after = _load(checkpoint_dir / "execution/target-after.json")
+    symlinks = _symlink_evidence(target_path)
+    if any(row.get("symlinks", []) != symlinks for row in (before, after)) or (
+        executor_prep.get("target_baseline_symlinks", []) != symlinks
+    ):
+        _fail("target_symlink_topology_changed")
     target_hashes = {
         str(path.relative_to(target_path)): _hash_file(path)
-        for path in target_path.rglob("*")
-        if path.is_file() and ".git" not in path.relative_to(target_path).parts
+        for path in physical_files(target_path)
     }
     after_hashes = {rel: row["sha256_after"] for rel, row in after["snapshot"].items() if row["sha256_after"]}
     if target_hashes != after_hashes or _read_git_head(target_path) != after.get("post_git_head"):
@@ -532,6 +546,7 @@ def prepare_live_evaluator_campaign(
         "bounded_diff": bounded_diff,
         "target_snapshot": {
             "scope": "changed_files",
+            "unchanged_tracked_symlinks": symlinks,
             "before": {row["path"]: {
                 "sha256": row["before_sha256"], "size": row["before_size"],
             } for row in changed_file_evidence},

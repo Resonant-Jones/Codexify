@@ -60,6 +60,7 @@ from .identity import (
     sha256_canonical,
     sha256_text,
 )
+from .filesystem import physical_files, tracked_symlink_snapshot
 from .models import (
     AcceptanceCriterionResult,
     CampaignClock,
@@ -301,6 +302,23 @@ def _hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _check_symlink_topology(
+    target: Path, *, expected: tuple[tuple[str, str, str], ...] | None = None,
+    stage: str = "preparation", calls: int = 0,
+) -> tuple[tuple[str, str, str], ...]:
+    try:
+        actual = tracked_symlink_snapshot(target)
+        if expected is not None and actual != expected:
+            raise ValueError("symlink identity changed")
+        return actual
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise CampaignLiveExecutorError(
+            "disposable target symlink topology is unproven or changed",
+            failure_reason="target_symlink_topology_changed",
+            diagnostic_stage=stage, runner_call_count=calls,
+        ) from exc
+
+
 def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     """Return ``{relative_path: (sha256_before, sha256_after)}`` for files
     within ``target`` excluding ``.git``.
@@ -312,12 +330,8 @@ def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     if not target.is_dir():
         return entries
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            entries[str(path.relative_to(target))] = (
-                _hash_file(path),
-                "",
-            )
+    for path in physical_files(target):
+        entries[str(path.relative_to(target))] = (_hash_file(path), "")
     return entries
 
 
@@ -331,21 +345,18 @@ def _rehydrate_post_snapshot(target: Path, snap: dict[str, tuple[str, str]]) -> 
     behavior.
     """
 
-    # Update pre-existing entries and find new files.
+    current = _snapshot_target(target)
     for rel in list(snap.keys()):
-        abspath = target / rel
         pre_hash, _ = snap[rel]
-        post_hash = _hash_file(abspath) if abspath.is_file() else ""
+        post_hash = current.get(rel, ("", ""))[0]
         snap[rel] = (pre_hash, post_hash)
 
     # Add post-only files (new files created during the live invocation).
     if not target.is_dir():
         return
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            rel = str(path.relative_to(target))
-            if rel not in snap:
-                snap[rel] = ("", _hash_file(path))
+    for rel, hashes in current.items():
+        if rel not in snap:
+            snap[rel] = ("", hashes[0])
 
 
 def _baseline_hash(snapshot: dict[str, tuple[str, str]]) -> str:
@@ -724,6 +735,7 @@ def prepare_live_executor_campaign(
     campaign_state_id = build_campaign_state_id(run_id, campaign_id, created_at)
 
     # 9. Target snapshot for baseline evidence.
+    symlinks = _check_symlink_topology(target_path)
     snapshot = _snapshot_target(target_path)
     target_baseline_hash = _baseline_hash(snapshot)
     target_baseline_file_hashes = tuple(
@@ -771,6 +783,7 @@ def prepare_live_executor_campaign(
         target_baseline_hash=target_baseline_hash,
         target_baseline_git_head=git_head_pre,
         target_baseline_file_hashes=target_baseline_file_hashes,
+        target_baseline_symlinks=symlinks,
         campaign_input_hash=campaign_input_hash,
         required_tool_name=required_tool_name,
         validation_command=validation_command,
@@ -1185,6 +1198,10 @@ def _run_live_attempt(
     """
 
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     return _invoker(
         envelope=envelope,
         decision=decision,
@@ -1259,6 +1276,10 @@ def _pre_execution_drift_check(
 
     # 2. Target baseline evidence.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     snapshot_now = _snapshot_target(target_path)
     target_baseline_now = _baseline_hash(snapshot_now)
     if target_baseline_now != preparation.target_baseline_hash:
@@ -1267,7 +1288,7 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         head_now = _read_git_head(target_path) or ""
         if head_now != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
@@ -1714,23 +1735,23 @@ def run_live_executor_campaign(
     # pre-snapshot was mutated during the harness write; only the
     # preparation's recorded pre hashes survive unchanged.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="post_invocation", calls=1,
+    )
     baseline_lookup: dict[str, str] = dict(preparation.target_baseline_file_hashes)
     snapshot: dict[str, tuple[str, str]] = {}
     if target_path.is_dir():
-        for path in sorted(target_path.rglob("*")):
-            if path.is_file() and ".git" not in path.relative_to(target_path).parts:
-                rel = str(path.relative_to(target_path))
-                snapshot[rel] = (
-                    baseline_lookup.get(rel, ""),
-                    _hash_file(path),
-                )
+        for path in physical_files(target_path):
+            rel = str(path.relative_to(target_path))
+            snapshot[rel] = (baseline_lookup.get(rel, ""), _hash_file(path))
     # Add pre-only entries (files that existed at baseline but were
     # deleted post-invocation).
     for rel, pre_hash in baseline_lookup.items():
         if rel not in snapshot:
             snapshot[rel] = (pre_hash, "")
     target_post_head = _read_git_head(target_path) or ""
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         if target_post_head != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
                 "target Git HEAD changed after invocation",
@@ -1905,6 +1926,10 @@ def run_live_executor_campaign(
                 runner_call_count=1,
             )
         task_validation_result_hash = sha256_canonical(task_validation_payload)
+        _check_symlink_topology(
+            preparation.target_path, expected=preparation.target_baseline_symlinks,
+            stage="task_validation", calls=1,
+        )
         post_validation_hashes = {
             rel: hashes[0]
             for rel, hashes in _snapshot_target(preparation.target_path).items()
@@ -2276,6 +2301,7 @@ def _publish_live_artifacts(
             task_validation_result_payload,
         )
     atomic_write_json(execution_dir, "target-before.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_hash": preparation.target_baseline_hash,
         "target_baseline_git_head": preparation.target_baseline_git_head,
@@ -2285,6 +2311,7 @@ def _publish_live_artifacts(
         },
     })
     atomic_write_json(execution_dir, "target-after.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_git_head_after": preparation.target_baseline_git_head,
         "post_git_head": preparation.target_baseline_git_head,

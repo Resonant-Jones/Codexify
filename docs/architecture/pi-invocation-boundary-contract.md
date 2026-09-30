@@ -160,8 +160,16 @@ The full packet remains bounded to 32,768 UTF-8 bytes. Oversized actual change
 evidence fails closed; it is never silently truncated. Full repository hash
 snapshots remain in the immutable checkpoint and are checked locally, rather
 than copied into the model packet. Physical Git worktree `.git` pointers are
-accepted only with a verified worktree root and Git HEAD; symlinks and target
-drift remain rejected.
+accepted only with a verified worktree root and Git HEAD. Tracked symlink
+identity (path, raw link target, resolved internal target) is snapshotted before
+execution and checked before invocation, after Executor mutation, after Task
+validation, and at Evaluator preparation and read-only readback. Unchanged
+tracked links resolving inside the disposable worktree are accepted. New,
+deleted, replaced, retargeted, dangling, or externally redirected links fail
+closed. Physical file snapshots never traverse symlink aliases; link metadata
+does not grant additional Guardian filesystem authority. Full symlink evidence
+remains in the immutable checkpoint, with unchanged identities in the bounded
+Evaluator packet. Target and Git HEAD drift remain rejected.
 
 For the fresh CE-L2 proof, live RoleBindings explicitly record the selected
 harness identity and reasoning effort. The Executor invocation rejects

@@ -3638,3 +3638,97 @@ def test_forged_required_tool_none_drift_blocks_before_invocation(tmp_path) -> N
         "before any invoker call; "
         f"saw {len(invoker_calls)} call(s): {invoker_calls!r}"
     )
+
+
+@pytest.mark.parametrize("mutation", ["new", "retarget", "outside", "delete", "file", "directory", "replace_regular"])
+def test_tracked_symlink_topology_fails_closed(tmp_path, mutation):
+    from codex_runner.campaign_engine.filesystem import physical_files
+    from codex_runner.campaign_engine.live_executor import _check_symlink_topology, _snapshot_target
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    (target / "physical").mkdir()
+    (target / "physical/data").write_text("inside")
+    link = target / "alias"
+    link.symlink_to("physical", target_is_directory=True)
+    subprocess.run(["git", "-C", str(target), "add", "--", "physical", "alias"], check=True)
+    subprocess.run(["git", "-C", str(target), "commit", "-qm", "tracked link"], check=True)
+    prep = prepare_live_executor_campaign(campaign, target)
+    assert prep.target_baseline_symlinks == (("alias", "physical", "physical"),)
+    assert "alias/data" not in _snapshot_target(target)
+    assert all(not p.is_symlink() and "alias" not in p.relative_to(target).parts for p in physical_files(target))
+    if mutation == "new":
+        (target / "new-alias").symlink_to("physical")
+    elif mutation == "replace_regular":
+        (target / "proof_target.txt").unlink()
+        (target / "proof_target.txt").symlink_to("physical/data")
+    else:
+        link.unlink()
+        if mutation == "retarget":
+            link.symlink_to("physical/data")
+        elif mutation == "outside":
+            link.symlink_to(tmp_path)
+        elif mutation == "file":
+            link.write_text("replacement")
+        elif mutation == "directory":
+            link.mkdir()
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        _check_symlink_topology(target, expected=prep.target_baseline_symlinks, stage="post_invocation", calls=1)
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1
+
+
+def test_external_link_rejected_without_alias_content_read(tmp_path):
+    from codex_runner.campaign_engine.filesystem import physical_files
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret").write_text("not target evidence")
+    (target / "alias").symlink_to(outside, target_is_directory=True)
+    subprocess.run(["git", "-C", str(target), "add", "alias"], check=True)
+    subprocess.run(["git", "-C", str(target), "commit", "-qm", "external link baseline"], check=True)
+    assert all("alias" not in p.relative_to(target).parts for p in physical_files(target))
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        prepare_live_executor_campaign(campaign, target)
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 0
+
+
+@pytest.mark.parametrize("stage", ["pre_invocation", "executor", "validation"])
+def test_symlink_guard_preserves_validation_sequence(tmp_path, monkeypatch, stage):
+    command = "make PYTHON=python3 docs"
+    campaign, target, _ = _campaign_with_task_validation(tmp_path, command)
+    prep = prepare_live_executor_campaign(campaign, target)
+    authority = _coding_loop_validation_authority(prep)
+    envelope, decision = _build_envelope_and_decision(
+        prep, validation_command_reference=live_executor.validation_authorization_reference(prep, authority),
+    )
+    calls = []
+    validations = []
+    def change_topology():
+        (target / "unexpected-link").symlink_to("proof_target.txt")
+    def executor(**kwargs):
+        calls.append(kwargs)
+        (target / "proof_target.txt").write_text("allowed mutation\n")
+        if stage == "executor":
+            change_topology()
+        return FakeOutcome(
+            ok=True, actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+            receipt=FakeReceipt(receipt_id="pi-receipt-symlink-test", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+            harness_result=FakeHarnessResult(harness_result_id="pi-result-symlink-test", receipt_id="pi-receipt-symlink-test", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        )
+    def validation(**kwargs):
+        validations.append(kwargs)
+        change_topology()
+        return NormalizedTestResult(status="passed", command=command, exit_code=0)
+    monkeypatch.setattr(live_executor, "_invoker", executor)
+    monkeypatch.setattr(live_executor, "_task_validation_runner", validation)
+    if stage == "pre_invocation":
+        change_topology()
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        run_live_executor_campaign(
+            prep, tmp_path / "output", envelope=envelope, decision=decision,
+            timeout_seconds=30, campaign_path=campaign, reasoning_effort="off",
+            validation_authorization=authority,
+        )
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert len(calls) == (0 if stage == "pre_invocation" else 1)
+    assert len(validations) == (1 if stage == "validation" else 0)

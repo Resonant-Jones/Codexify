@@ -122,6 +122,7 @@ def _prepare_lifecycle(
     file_name: str = "proof_target.txt",
     task_objective: str | None = None,
     acceptance_criteria: list[dict[str, str]] | None = None,
+    tracked_symlinks: bool = False,
 ):
     campaign_path, target, handle = _make_canonical_live_campaign(
         tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
@@ -129,6 +130,13 @@ def _prepare_lifecycle(
         allowed_paths=[file_name],
     )
     campaign = json.loads(campaign_path.read_text())
+    if tracked_symlinks:
+        (target / "physical").mkdir()
+        (target / "physical/data.txt").write_text("unchanged\n")
+        (target / "directory-alias").symlink_to("physical", target_is_directory=True)
+        (target / "file-alias").symlink_to("physical/data.txt")
+        subprocess.run(["git", "-C", str(target), "add", "--", "physical", "directory-alias", "file-alias"], check=True)
+        subprocess.run(["git", "-C", str(target), "commit", "-qm", "tracked internal links"], check=True)
     if initial_content is not None:
         (target / file_name).write_text(initial_content)
     for index in range(unchanged_file_count):
@@ -895,3 +903,43 @@ def test_evaluator_rejects_task_validation_result_for_different_command(
             harness_version="0.82.1",
         )
     assert caught.value.reason == "task_validation_result_unproven"
+
+
+def test_unchanged_tracked_links_complete_lifecycle(tmp_path, monkeypatch):
+    prep, envelope, decision, receipt, harness, checkpoint, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", tracked_symlinks=True,
+        required_tool_name=None, validation_command="make PYTHON=python3 docs",
+    )
+    packet = json.loads(prep.evidence_packet_json)
+    links = packet["target_snapshot"]["unchanged_tracked_symlinks"]
+    assert len(links) == 2
+    for name in ("target-before.json", "target-after.json"):
+        evidence = json.loads((checkpoint / "execution" / name).read_text())
+        assert evidence["symlinks"] == links
+        assert "file-alias" not in evidence["snapshot"]
+        assert "directory-alias/data.txt" not in evidence["snapshot"]
+    monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: EvaluatorOutcome(receipt, harness, _verdict()))
+    output = run_live_evaluator_campaign(
+        prep, tmp_path / "final", envelope=envelope, decision=decision,
+        timeout_seconds=30, reasoning_effort="high",
+    )
+    assert json.loads((output / "campaign-input.json").read_text())["campaign"]["state"] == "completed"
+    assert (target / "directory-alias").is_symlink()
+
+
+def test_evaluator_symlink_mutation_rejected(tmp_path, monkeypatch):
+    prep, envelope, decision, receipt, harness, _, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", tracked_symlinks=True,
+    )
+    def mutate(**kwargs):
+        (target / "file-alias").unlink()
+        (target / "file-alias").symlink_to("proof_target.txt")
+        return EvaluatorOutcome(receipt, harness, _verdict())
+    monkeypatch.setattr(live_evaluator, "_invoker", mutate)
+    with pytest.raises(CampaignLiveEvaluatorError) as error:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "final", envelope=envelope, decision=decision,
+            timeout_seconds=30, reasoning_effort="high",
+        )
+    assert error.value.reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1
