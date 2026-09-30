@@ -576,7 +576,6 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
@@ -587,17 +586,14 @@ services:
       PYTHONPATH: /app
       REDIS_URL: redis://redis:6379/0
       GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:?GUARDIAN_API_KEY must be set in .env}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       CAMPAIGN_RUNNER_PROVIDER_ADAPTER: "pi"
       CAMPAIGN_RUNNER_PI_ROUTE: "${CAMPAIGN_RUNNER_PI_ROUTE:-default}"
       CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT: "${CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT:-true}"
-      PI_PROVIDER: "${PI_PROVIDER:-anthropic}"
-      PI_MODEL: "${PI_MODEL:-claude-sonnet-4-6}"
       PI_CODING_AGENT_PACKAGE_ROOT: /opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent
       PI_CODING_AGENT_NODE_MODULES: /opt/codexify/pi-sdk/node_modules
-      # Current default-provider credential; alternate providers use the Pi auth store.
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # --- Graph-write runtime boundary (default-off) ---
       CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
       CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
@@ -608,7 +604,6 @@ services:
       - ./backend:/app/backend
       - ./config:/app/config:ro
       - ./codex_runner:/app/codex_runner
-      - codexify_pi_auth:/home/codexify/.pi
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
     command: ["/app/backend/scripts/docker/run_worker_coding.py"]

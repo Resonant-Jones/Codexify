@@ -213,6 +213,7 @@ def _safe_coding_result_for_readback(
         "delivery_status",
         "delivery_reason",
         "visibility_status",
+        "execution_provenance",
     }
     projection = {
         key: source[key]
@@ -236,6 +237,42 @@ def _safe_coding_result_for_readback(
                 )
                 if key in artifact and artifact[key] is not None
             }
+            execution_provenance = artifact.get("execution_provenance")
+            if isinstance(execution_provenance, dict):
+                provenance_keys = {
+                    "binding_id",
+                    "authorization_evidence_ref",
+                    "harness_id",
+                    "harness_selection_mode",
+                    "provider_id",
+                    "model_id",
+                    "requested_provider_id",
+                    "requested_model_id",
+                    "actual_provider_id",
+                    "actual_model_id",
+                    "actual_harness_id",
+                    "actual_harness_version",
+                    "runtime_identity_established",
+                    "funding_route",
+                    "placement",
+                    "credential_ref",
+                    "credential_owner_scope",
+                    "credential_owner_id",
+                    "credential_type",
+                    "credential_source_class",
+                    "usage_policy_ref",
+                    "user_id",
+                    "project_id",
+                    "thread_id",
+                    "source_message_id",
+                    "coding_task_id",
+                    "attempt_id",
+                }
+                safe_artifact["execution_provenance"] = {
+                    key: execution_provenance[key]
+                    for key in provenance_keys
+                    if key in execution_provenance
+                }
             if safe_artifact:
                 if "name" in safe_artifact:
                     safe_artifact["name"] = str(safe_artifact["name"]).replace(

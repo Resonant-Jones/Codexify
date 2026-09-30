@@ -36,6 +36,7 @@ class AgentRunEnvelope(BaseModel):
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
     oauth_available: bool | None = None
+    execution_provenance: dict[str, Any] | None = None
 
     # Bounded Pi 0.82.1 tool activation + execution telemetry.
     # Evidence only — confers no execution authority.
@@ -91,6 +92,21 @@ class AgentExecutionIdentity:
     model_id: str
     harness_id: str
     harness_version: str
+    funding_route: str | None = None
+    placement: str | None = None
+    selection_mode: str | None = None
+    binding_id: str | None = None
+    credential_ref: str | None = None
+    credential_owner_scope: str | None = None
+    credential_owner_id: str | None = None
+    credential_source_class: str | None = None
+    user_id: str | None = None
+    project_id: str | None = None
+    thread_id: str | None = None
+    source_message_id: str | None = None
+    coding_task_id: str | None = None
+    attempt_id: str | None = None
+    authorization_evidence_ref: str | None = None
 
 
 class AgentAdapter(Protocol):

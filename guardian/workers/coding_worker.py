@@ -13,10 +13,16 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
-from guardian.agents.adapters.base import AgentExecutionRequest
+from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
+from guardian.agents.coding_agent_contracts import CodingExecutionBinding
+from guardian.agents.credential_lease_client import (
+    CredentialLeaseClientError,
+    request_coding_credential_lease,
+)
 from guardian.agents.commit_gate import (
     CommitGateError,
     commit_after_green,
@@ -1707,6 +1713,97 @@ def _resolve_guardian_db() -> GuardianDB:
     return GuardianDB(db_url)
 
 
+def _load_pi_harness_version() -> str:
+    package_root = Path(
+        os.getenv(
+            "PI_CODING_AGENT_PACKAGE_ROOT",
+            "/opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent",
+        )
+    )
+    try:
+        package = json.loads((package_root / "package.json").read_text("utf-8"))
+        return str(package.get("version") or "").strip()
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def _execution_provenance(
+    binding_payload: dict[str, Any] | None,
+    result: Any | None = None,
+) -> dict[str, Any] | None:
+    if not isinstance(binding_payload, dict):
+        return None
+    safe_keys = (
+        "binding_id",
+        "authorization_evidence_ref",
+        "harness_id",
+        "harness_selection_mode",
+        "provider_id",
+        "model_id",
+        "funding_route",
+        "placement",
+        "credential_ref",
+        "credential_owner_scope",
+        "credential_owner_id",
+        "credential_type",
+        "credential_source_class",
+        "usage_policy_ref",
+        "user_id",
+        "project_id",
+        "thread_id",
+        "source_message_id",
+        "coding_task_id",
+        "attempt_id",
+    )
+    provenance = {key: binding_payload.get(key) for key in safe_keys}
+    provenance.update(
+        {
+            "requested_provider_id": binding_payload.get("provider_id"),
+            "requested_model_id": binding_payload.get("model_id"),
+            "actual_provider_id": getattr(result, "actual_provider_id", None),
+            "actual_model_id": getattr(result, "actual_model_id", None),
+            "actual_harness_id": getattr(result, "actual_harness_id", None),
+            "actual_harness_version": getattr(result, "actual_harness_version", None),
+            "runtime_identity_established": bool(
+                getattr(result, "runtime_identity_established", False)
+            ),
+        }
+    )
+    return provenance
+
+
+def _validate_task_execution_binding(
+    task: CodingExecutionTask,
+    deployment_spec: dict[str, Any],
+) -> CodingExecutionBinding:
+    payload = task.execution_binding
+    persisted = deployment_spec.get("execution_binding")
+    if not isinstance(payload, dict) or not isinstance(persisted, dict):
+        raise ValueError("execution_binding_missing")
+    if payload != persisted:
+        raise ValueError("execution_binding_queue_mismatch")
+    binding = CodingExecutionBinding.from_dict(payload)
+    if (
+        binding.harness_id != "pi"
+        or binding.coding_task_id != task.coding_task_id
+        or binding.attempt_id != task.attempt_id
+        or binding.harness_selection_mode not in {"default", "explicit"}
+        or binding.credential_type != "api_key"
+        or binding.thread_id != str(task.thread_id or "")
+        or binding.source_message_id != str(task.source_message_id or "")
+        or binding.user_id != str(deployment_spec.get("user_id") or "")
+        or binding.project_id != (
+            str(deployment_spec.get("project_id"))
+            if deployment_spec.get("project_id") is not None
+            else None
+        )
+        or binding.max_attempts < 1
+        or binding.max_attempts > 3
+    ):
+        raise ValueError("execution_binding_lineage_mismatch")
+    return binding
+
+
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
@@ -2015,6 +2112,19 @@ class CodingWorker:
         deployment_spec = dict(deployment.get("spec_json") or {})
         requested_adapter_kind = deployment_spec.get("adapter_kind")
         adapter_kind = _resolve_adapter_kind(requested_adapter_kind)
+        try:
+            execution_binding = _validate_task_execution_binding(
+                task,
+                deployment_spec,
+            )
+        except (TypeError, ValueError):
+            self._emit_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_message="Guardian execution binding is missing or mismatched",
+                error_code="EXECUTION_BINDING_REJECTED",
+            )
+            return
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
         allowed_paths = _normalize_allowed_paths(
@@ -2462,6 +2572,16 @@ class CodingWorker:
                     *result_artifact_payload,
                 ]
 
+            execution_provenance = _execution_provenance(
+                task.execution_binding,
+                result,
+            )
+            if execution_provenance is not None:
+                result_artifact_payload = [
+                    {"execution_provenance": execution_provenance},
+                    *result_artifact_payload,
+                ]
+
             delivery = self.store.store_coding_result(
                 run_id=task.run_id,
                 coding_task_id=task.coding_task_id,
@@ -2602,6 +2722,19 @@ class CodingWorker:
             )
             return
 
+        harness_version = _load_pi_harness_version()
+        execute_authorized = getattr(adapter, "execute_authorized", None)
+        if not harness_version or not callable(execute_authorized):
+            self._emit_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_message="Guardian-authorized Pi control path is unavailable",
+                error_code="AUTHORIZED_EXECUTION_PATH_UNAVAILABLE",
+                lease_ctx=lease_ctx,
+                worktree=_current_worktree_metadata(),
+            )
+            return
+
         for attempt_index in range(1, validation_attempt_budget + 1):
             current_attempt_index = attempt_index
             if is_cancelled(task.task_id):
@@ -2675,7 +2808,89 @@ class CodingWorker:
                 },
             )
 
-            result = adapter.execute(request)
+            try:
+                credential_material, lease = request_coding_credential_lease(
+                    binding=execution_binding.to_dict(),
+                    run_id=task.run_id,
+                    deployment_id=task.deployment_id,
+                    coding_task_id=task.coding_task_id,
+                    attempt_id=task.attempt_id,
+                    attempt_index=attempt_index,
+                )
+            except CredentialLeaseClientError:
+                self._emit_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_message="Guardian denied or could not issue execution credential lease",
+                    error_code="EXECUTION_CREDENTIAL_AUTHORIZATION_FAILED",
+                    lease_ctx=lease_ctx,
+                    worktree=_current_worktree_metadata(),
+                )
+                return
+
+            try:
+                identity = AgentExecutionIdentity(
+                    provider_id=str(lease["provider_id"]),
+                    model_id=str(lease["model_id"]),
+                    harness_id=str(lease["harness_id"]),
+                    harness_version=harness_version,
+                    funding_route=str(lease["funding_route"]),
+                    placement=str(lease["placement"]),
+                    selection_mode=str(lease["harness_selection_mode"]),
+                    binding_id=str(lease["binding_id"]),
+                    credential_ref=str(lease["credential_ref"]),
+                    credential_owner_scope=str(lease["credential_owner_scope"]),
+                    credential_owner_id=str(lease["credential_owner_id"]),
+                    credential_source_class=str(lease["credential_source_class"]),
+                    user_id=str(lease["user_id"]),
+                    project_id=(
+                        str(lease["project_id"])
+                        if lease.get("project_id") is not None
+                        else None
+                    ),
+                    thread_id=str(lease["thread_id"]),
+                    source_message_id=str(lease["source_message_id"]),
+                    coding_task_id=str(lease["coding_task_id"]),
+                    attempt_id=str(lease["attempt_id"]),
+                    authorization_evidence_ref=str(
+                        lease["authorization_evidence_ref"]
+                    ),
+                )
+                if (
+                    identity.provider_id != execution_binding.provider_id
+                    or identity.model_id != execution_binding.model_id
+                    or identity.harness_id != execution_binding.harness_id
+                    or identity.funding_route != execution_binding.funding_route
+                    or identity.credential_ref != execution_binding.credential_ref
+                    or identity.credential_owner_scope
+                    != execution_binding.credential_owner_scope
+                    or identity.credential_owner_id
+                    != execution_binding.credential_owner_id
+                    or identity.user_id != execution_binding.user_id
+                    or identity.project_id != execution_binding.project_id
+                    or identity.thread_id != execution_binding.thread_id
+                    or identity.source_message_id
+                    != execution_binding.source_message_id
+                    or identity.coding_task_id != execution_binding.coding_task_id
+                    or identity.attempt_id != execution_binding.attempt_id
+                ):
+                    self._emit_failure(
+                        task,
+                        adapter_kind=adapter_kind,
+                        error_message="Guardian execution lease did not match its binding",
+                        error_code="EXECUTION_CREDENTIAL_BINDING_MISMATCH",
+                        lease_ctx=lease_ctx,
+                        worktree=_current_worktree_metadata(),
+                    )
+                    return
+                result = execute_authorized(
+                    request,
+                    identity,
+                    credential_material=credential_material,
+                    read_only=not bool(permission_policy.get("allow_write")),
+                )
+            finally:
+                del credential_material
 
             if lease_ctx is not None and lease_store is not None:
                 if not self._heartbeat_or_fail(
@@ -3850,7 +4065,6 @@ class CodingWorker:
         mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
-        del result
         try:
             normalized_patch_artifact = (
                 dict(patch_artifact)
@@ -3906,6 +4120,10 @@ class CodingWorker:
                             require_human_review_before_merge
                         ),
                         "patch_artifact": normalized_patch_artifact,
+                        "execution_provenance": _execution_provenance(
+                            task.execution_binding,
+                            result,
+                        ),
                     },
                     lease_ctx,
                     worktree=worktree,
@@ -3957,6 +4175,9 @@ class CodingWorker:
             "error_code": error_code,
             "error_message": error_message,
             "result_captured_by_guardian": result_captured_by_guardian,
+            "execution_provenance": _execution_provenance(
+                task.execution_binding
+            ),
         }
         if lease_id is not None:
             payload["worktree_lease_id"] = lease_id

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import subprocess
+import threading
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -256,6 +260,40 @@ def test_initialize_worker_uses_guardian_database_url(monkeypatch) -> None:
 
 
 _MISSING = object()
+_TEST_STORES: dict[str, AgentStore] = {}
+
+
+@pytest.fixture(autouse=True)
+def _reset_test_store_registry() -> None:
+    _TEST_STORES.clear()
+
+
+@pytest.fixture(autouse=True)
+def _mock_execution_credential_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(coding_worker, "_load_pi_harness_version", lambda: "0.82.1")
+
+    def _lease(
+        *,
+        binding: dict[str, Any],
+        run_id: str,
+        deployment_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        attempt_index: int,
+    ) -> tuple[str, dict[str, Any]]:
+        del run_id, deployment_id
+        return "TEST-API-KEY-LEASE", {
+            **binding,
+            "account_id": binding["user_id"],
+            "attempt_id": attempt_id,
+            "attempt_index": attempt_index,
+            "coding_task_id": coding_task_id,
+            "expires_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+        }
+
+    monkeypatch.setattr(
+        coding_worker, "request_coding_credential_lease", _lease
+    )
 
 
 def _seed_execution_run(
@@ -293,6 +331,7 @@ def _seed_execution_run(
         rollback_mode="auto",
         status="queued",
     )
+    _TEST_STORES[str(deployment["deployment_id"])] = store
     return str(deployment["deployment_id"]), str(run["run_id"])
 
 
@@ -315,6 +354,8 @@ def _build_task(
     commit_after_validation: bool | None = None,
     commit_message: str | None = None,
     require_human_review_before_merge: bool | None = None,
+    provider_id: str = "test-provider-a",
+    model_id: str = "test-model-a",
 ) -> CodingExecutionTask:
     payload: dict[str, Any] = {
         "task_id": f"task-{coding_task_id}",
@@ -351,6 +392,53 @@ def _build_task(
         payload[
             "require_human_review_before_merge"
         ] = require_human_review_before_merge
+    store = _TEST_STORES.get(deployment_id)
+    if store is not None and thread_id is not None and source_message_id is not None:
+        deployment = store.get_deployment(deployment_id) or {}
+        deployment_spec = dict(deployment.get("spec_json") or {})
+        user_id = str(deployment_spec.get("user_id") or "")
+        if user_id:
+            binding_id = f"xeb-test-{coding_task_id}-{attempt_id}"
+            binding = {
+                "binding_id": binding_id,
+                "schema_version": 1,
+                "harness_id": "pi",
+                "harness_selection_mode": "default",
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "funding_route": "user_byok",
+                "placement": "container",
+                "credential_ref": f"credential-{coding_task_id}",
+                "credential_owner_scope": "account",
+                "credential_owner_id": user_id,
+                "credential_type": "api_key",
+                "credential_source_class": "account_api_key",
+                "usage_policy_ref": None,
+                "user_id": user_id,
+                "project_id": (
+                    str(deployment_spec["project_id"])
+                    if deployment_spec.get("project_id") is not None
+                    else None
+                ),
+                "thread_id": str(thread_id),
+                "source_message_id": str(source_message_id),
+                "coding_task_id": coding_task_id,
+                "attempt_id": attempt_id,
+                "max_attempts": max(
+                    1, min(int(payload.get("max_validation_attempts") or 1), 3)
+                ),
+                "authorization_evidence_ref": binding_id,
+            }
+            with store.db.get_session() as session:
+                row = (
+                    session.query(AgentDeployment)
+                    .filter_by(deployment_id=deployment_id)
+                    .one()
+                )
+                deployment_spec["execution_binding"] = binding
+                row.spec_json = deployment_spec
+                session.commit()
+            payload["execution_binding"] = binding
     return CodingExecutionTask.from_dict(payload)
 
 
@@ -444,6 +532,20 @@ def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> 
     assert task.require_human_review_before_merge is True
 
 
+class _AuthorizedTestAdapter:
+    def execute_authorized(
+        self,
+        request: Any,
+        identity: Any,
+        *,
+        credential_material: str,
+        read_only: bool,
+        required_tool_name: str | None = None,
+    ) -> Any:
+        del identity, credential_material, read_only, required_tool_name
+        return self.execute(request)
+
+
 def _install_fake_adapter(
     monkeypatch,
     result: Any,
@@ -452,7 +554,7 @@ def _install_fake_adapter(
 ) -> list[SimpleNamespace]:
     calls: list[SimpleNamespace] = []
 
-    class _FakeAdapter:
+    class _FakeAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             calls.append(request)
             return result
@@ -472,7 +574,7 @@ def _install_mutating_adapter(
 ) -> list[SimpleNamespace]:
     calls: list[SimpleNamespace] = []
 
-    class _FakeAdapter:
+    class _FakeAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             calls.append(request)
             mutate(request)
@@ -482,6 +584,45 @@ def _install_mutating_adapter(
         coding_worker, "ADAPTERS", {adapter_kind: _FakeAdapter()}
     )
     return calls
+
+
+def _install_identity_adapter(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
+    identities: list[dict[str, str]] = []
+
+    class _IdentityAdapter(_AuthorizedTestAdapter):
+        def execute_authorized(
+            self,
+            request: Any,
+            identity: Any,
+            *,
+            credential_material: str,
+            read_only: bool,
+            required_tool_name: str | None = None,
+        ) -> Any:
+            del request, read_only, required_tool_name
+            assert credential_material == "TEST-API-KEY-LEASE"
+            identities.append(
+                {
+                    "provider_id": identity.provider_id,
+                    "model_id": identity.model_id,
+                    "credential_ref": identity.credential_ref,
+                    "user_id": identity.user_id,
+                }
+            )
+            return SimpleNamespace(
+                status="ok",
+                summary="Bounded invocation completed.",
+                actual_provider_id=identity.provider_id,
+                actual_model_id=identity.model_id,
+                actual_harness_id="pi-coding-agent",
+                actual_harness_version=identity.harness_version,
+                runtime_identity_established=True,
+            )
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _IdentityAdapter()}
+    )
+    return identities
 
 
 def _install_fake_validation_runner(
@@ -738,6 +879,19 @@ def _fetch_message(db: _TestDB, message_id: int) -> ChatMessage | None:
         return session.query(ChatMessage).filter_by(id=message_id).first()
 
 
+def _fetch_campaign_attempts(
+    db: _TestDB,
+    campaign_id: str,
+) -> list[CampaignExecutionAttempt]:
+    with db.get_session() as session:
+        return (
+            session.query(CampaignExecutionAttempt)
+            .filter_by(campaign_id=campaign_id)
+            .order_by(CampaignExecutionAttempt.created_at.asc())
+            .all()
+        )
+
+
 def _fetch_run_state(store: AgentStore, run_id: str) -> dict[str, Any] | None:
     return store.get_run(run_id)
 
@@ -872,6 +1026,497 @@ def test_pi_adapter_kind_resolves_to_pi_codex_runner(
         "pi_codex_runner",
         "pi_codex_runner",
     ]
+
+
+def test_one_worker_uses_two_distinct_invocation_bindings(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="two-binding-user")
+    store = _make_store(db)
+    identities = _install_identity_adapter(monkeypatch)
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
+    monkeypatch.setenv("PI_MODEL", "ambient-model")
+
+    tasks: list[CodingExecutionTask] = []
+    for suffix, provider_id, model_id in (
+        ("a", "provider-alpha", "model-alpha"),
+        ("b", "provider-beta", "model-beta"),
+    ):
+        deployment_id, run_id = _seed_execution_run(
+            store,
+            thread_id=seeded["thread_id"],
+            source_message_id=seeded["source_message_id"],
+            user_id=seeded["user_id"],
+            project_id=seeded["project_id"],
+            adapter_kind="pi_sdk",
+        )
+        tasks.append(
+            _build_task(
+                run_id=run_id,
+                deployment_id=deployment_id,
+                thread_id=seeded["thread_id"],
+                source_message_id=seeded["source_message_id"],
+                coding_task_id=f"coding-task-{suffix}",
+                attempt_id=f"attempt-{suffix}",
+                provider_id=provider_id,
+                model_id=model_id,
+            )
+        )
+
+    worker._process_task(tasks[0])
+    worker._process_task(tasks[1])
+
+    assert identities == [
+        {
+            "provider_id": "provider-alpha",
+            "model_id": "model-alpha",
+            "credential_ref": "credential-coding-task-a",
+            "user_id": "two-binding-user",
+        },
+        {
+            "provider_id": "provider-beta",
+            "model_id": "model-beta",
+            "credential_ref": "credential-coding-task-b",
+            "user_id": "two-binding-user",
+        },
+    ]
+    for task in tasks:
+        assert "TEST-API-KEY-LEASE" not in str(task.to_dict())
+
+    for task, provider_id, model_id in zip(
+        tasks,
+        ("provider-alpha", "provider-beta"),
+        ("model-alpha", "model-beta"),
+        strict=True,
+    ):
+        artifacts = _fetch_coding_result_artifacts(store, task.run_id)
+        assert len(artifacts) == 1
+        stored_artifacts = artifacts[0]["content_json"]["artifacts"]
+        provenance = next(
+            artifact["execution_provenance"]
+            for artifact in stored_artifacts
+            if isinstance(artifact, dict) and "execution_provenance" in artifact
+        )
+        assert provenance["requested_provider_id"] == provider_id
+        assert provenance["requested_model_id"] == model_id
+        assert provenance["actual_provider_id"] == provider_id
+        assert provenance["actual_model_id"] == model_id
+        assert provenance["actual_harness_id"] == "pi-coding-agent"
+        assert provenance["runtime_identity_established"] is True
+        assert "TEST-API-KEY-LEASE" not in str(artifacts[0]["content_json"])
+
+
+def test_missing_execution_credential_fails_before_adapter_dispatch(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from guardian.agents.credential_lease_client import CredentialLeaseClientError
+
+    seeded = _seed_source_context(db, user_id="missing-credential-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi_codex_runner",
+    )
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Must not reach Pi."),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+
+    def _deny_lease(**_kwargs: Any) -> tuple[str, dict[str, Any]]:
+        raise CredentialLeaseClientError("credential_authority_denied")
+
+    monkeypatch.setattr(
+        coding_worker,
+        "request_coding_credential_lease",
+        _deny_lease,
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-credential",
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    terminal = published[-1][2]
+    assert published[-1][1] == "task.failed"
+    assert terminal["error_code"] == "EXECUTION_CREDENTIAL_AUTHORIZATION_FAILED"
+    assert terminal.get("provider_request_started") is not True
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+
+
+def test_one_worker_runs_two_pi_bindings_against_local_provider_mocks(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Exercise one CodingWorker and the pinned Pi runtime without provider egress."""
+    node_binary = shutil.which("node")
+    if not node_binary:
+        pytest.skip("Node.js is required for the Pi invocation runtime proof")
+
+    repo_root = Path(__file__).resolve().parents[3]
+    package_root = repo_root / "codex_runner/vendor/pi-coding-agent"
+    node_modules_root = package_root / "node_modules"
+    synthetic_credentials = {
+        "credential-coding-task-anthropic": "SYNTHETIC-ACCOUNT-A-KEY",
+        "credential-coding-task-openai": "SYNTHETIC-ACCOUNT-B-KEY",
+    }
+    credential_owners = {
+        value: "account-a" if key.endswith("anthropic") else "account-b"
+        for key, value in synthetic_credentials.items()
+    }
+    records: list[dict[str, Any]] = []
+
+    class _ProviderHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
+                body_chunks = []
+                while True:
+                    line = self.rfile.readline().strip()
+                    chunk_size = int(line.split(b";", 1)[0], 16)
+                    if chunk_size == 0:
+                        while self.rfile.readline().strip():
+                            pass
+                        break
+                    body_chunks.append(self.rfile.read(chunk_size))
+                    self.rfile.read(2)
+                raw_body = b"".join(body_chunks)
+            else:
+                raw_body = self.rfile.read(
+                    int(self.headers.get("Content-Length", "0"))
+                )
+            request = json.loads(raw_body)
+            provider_path = self.path.split("?", 1)[0]
+            if provider_path == "/v1/messages":
+                provider_id = "anthropic"
+                credential_value = self.headers.get("x-api-key", "")
+                model_id = "claude-haiku-4-5-20251001"
+                events = [
+                    (
+                        "message_start",
+                        {
+                            "type": "message_start",
+                            "message": {
+                                "id": "msg_anthropic_test",
+                                "type": "message",
+                                "role": "assistant",
+                                "model": model_id,
+                                "content": [],
+                                "stop_reason": None,
+                                "stop_sequence": None,
+                                "usage": {"input_tokens": 1, "output_tokens": 0},
+                            },
+                        },
+                    ),
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": 0,
+                            "content_block": {"type": "text", "text": ""},
+                        },
+                    ),
+                    (
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": "mock response"},
+                        },
+                    ),
+                    (
+                        "content_block_stop",
+                        {"type": "content_block_stop", "index": 0},
+                    ),
+                    (
+                        "message_delta",
+                        {
+                            "type": "message_delta",
+                            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                            "usage": {"output_tokens": 1},
+                        },
+                    ),
+                    ("message_stop", {"type": "message_stop"}),
+                ]
+            elif provider_path == "/v1/responses":
+                provider_id = "openai"
+                authorization = self.headers.get("Authorization", "")
+                credential_value = authorization.removeprefix("Bearer ")
+                model_id = "gpt-4.1-mini"
+                message = {
+                    "id": "msg_openai_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": "mock response", "annotations": []}
+                    ],
+                }
+                events = [
+                    (
+                        "response.created",
+                        {
+                            "type": "response.created",
+                            "response": {
+                                "id": "resp_openai_test",
+                                "status": "in_progress",
+                                "model": model_id,
+                            },
+                        },
+                    ),
+                    (
+                        "response.output_item.added",
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": 0,
+                            "item": {
+                                "id": message["id"],
+                                "type": "message",
+                                "role": "assistant",
+                                "status": "in_progress",
+                                "content": [],
+                            },
+                        },
+                    ),
+                    (
+                        "response.output_text.delta",
+                        {
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": message["id"],
+                            "delta": "mock response",
+                        },
+                    ),
+                    (
+                        "response.output_item.done",
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "item": message,
+                        },
+                    ),
+                    (
+                        "response.completed",
+                        {
+                            "type": "response.completed",
+                            "response": {
+                                "id": "resp_openai_test",
+                                "status": "completed",
+                                "model": model_id,
+                                "output": [message],
+                                "usage": {
+                                    "input_tokens": 1,
+                                    "output_tokens": 1,
+                                    "total_tokens": 2,
+                                },
+                            },
+                        },
+                    ),
+                ]
+            else:
+                self.send_error(404)
+                return
+
+            records.append(
+                {
+                    "provider_id": provider_id,
+                    "model_id": request.get("model"),
+                    "credential_owner": credential_owners.get(credential_value),
+                }
+            )
+            stream_body = "".join(
+                f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
+                for event_name, payload in events
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(stream_body)))
+            self.end_headers()
+            self.wfile.write(stream_body)
+
+        def log_message(self, *_args: Any) -> None:
+            return
+
+    provider_server = ThreadingHTTPServer(("127.0.0.1", 0), _ProviderHandler)
+    server_thread = threading.Thread(
+        target=provider_server.serve_forever,
+        daemon=True,
+    )
+    server_thread.start()
+    try:
+        fetch_hook = tmp_path / "fetch-hook.mjs"
+        fetch_hook.write_text(
+            "const originalFetch = globalThis.fetch;\n"
+            "globalThis.fetch = async (input, init) => {\n"
+            "  const request = input instanceof Request ? new Request(input, init) : new Request(input, init);\n"
+            "  const url = new URL(request.url);\n"
+            "  if (!['api.anthropic.com', 'api.openai.com'].includes(url.hostname)) {\n"
+            "    throw new Error('non_mock_network_blocked');\n"
+            "  }\n"
+            "  url.protocol = 'http:';\n"
+            "  url.hostname = '127.0.0.1';\n"
+            f"  url.port = '{provider_server.server_port}';\n"
+            "  return originalFetch(new Request(url, request));\n"
+            "};\n",
+            encoding="utf-8",
+        )
+        node_shim_dir = tmp_path / "bin"
+        node_shim_dir.mkdir()
+        node_shim = node_shim_dir / "node"
+        node_shim.write_text(
+            f"#!/bin/sh\nexec {shlex.quote(node_binary)} --import "
+            f"{shlex.quote(str(fetch_hook))} \"$@\"\n",
+            encoding="utf-8",
+        )
+        node_shim.chmod(0o755)
+        monkeypatch.setenv(
+            "PATH",
+            f"{node_shim_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        )
+        monkeypatch.setenv("PI_CODING_AGENT_PACKAGE_ROOT", str(package_root))
+        monkeypatch.setenv("PI_CODING_AGENT_NODE_MODULES", str(node_modules_root))
+        monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
+        monkeypatch.setenv("PI_MODEL", "ambient-model")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "AMBIENT-ACCOUNT-A-KEY")
+        monkeypatch.setenv("OPENAI_API_KEY", "AMBIENT-ACCOUNT-B-KEY")
+
+        def _authorized_lease(
+            *,
+            binding: dict[str, Any],
+            attempt_id: str,
+            attempt_index: int,
+            **_kwargs: Any,
+        ) -> tuple[str, dict[str, Any]]:
+            return synthetic_credentials[binding["credential_ref"]], {
+                **binding,
+                "account_id": binding["user_id"],
+                "attempt_id": attempt_id,
+                "attempt_index": attempt_index,
+                "expires_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+            }
+
+        monkeypatch.setattr(
+            coding_worker,
+            "request_coding_credential_lease",
+            _authorized_lease,
+        )
+        from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+        monkeypatch.setattr(
+            coding_worker,
+            "ADAPTERS",
+            {"pi_codex_runner": PiCodexRunnerAdapter()},
+        )
+
+        store = _make_store(db)
+        worker = coding_worker.CodingWorker(agent_store=store)
+        published = _capture_task_events(monkeypatch)
+        tasks: list[CodingExecutionTask] = []
+        for suffix, user_id, provider_id, model_id in (
+            (
+                "anthropic",
+                "account-a",
+                "anthropic",
+                "claude-haiku-4-5-20251001",
+            ),
+            ("openai", "account-b", "openai", "gpt-4.1-mini"),
+        ):
+            seeded = _seed_source_context(db, user_id=user_id)
+            deployment_id, run_id = _seed_execution_run(
+                store,
+                thread_id=seeded["thread_id"],
+                source_message_id=seeded["source_message_id"],
+                user_id=user_id,
+                project_id=seeded["project_id"],
+                adapter_kind="pi_codex_runner",
+            )
+            tasks.append(
+                _build_task(
+                    run_id=run_id,
+                    deployment_id=deployment_id,
+                    thread_id=seeded["thread_id"],
+                    source_message_id=seeded["source_message_id"],
+                    coding_task_id=f"coding-task-{suffix}",
+                    cwd=str(tmp_path),
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+            )
+
+        worker._process_task(tasks[0])
+        worker._process_task(tasks[1])
+
+        assert [event for _, event, _ in published if event == "task.completed"] == [
+            "task.completed",
+            "task.completed",
+        ]
+        assert all(
+            token not in str(published)
+            for token in synthetic_credentials.values()
+        )
+        assert records == [
+            {
+                "provider_id": "anthropic",
+                "model_id": "claude-haiku-4-5-20251001",
+                "credential_owner": "account-a",
+            },
+            {
+                "provider_id": "openai",
+                "model_id": "gpt-4.1-mini",
+                "credential_owner": "account-b",
+            },
+        ]
+        for task, expected_provider, expected_model, expected_owner in zip(
+            tasks,
+            ("anthropic", "openai"),
+            ("claude-haiku-4-5-20251001", "gpt-4.1-mini"),
+            ("account-a", "account-b"),
+            strict=True,
+        ):
+            assert all(
+                token not in str(task.to_dict())
+                for token in synthetic_credentials.values()
+            )
+            artifacts = _fetch_coding_result_artifacts(store, task.run_id)
+            assert len(artifacts) == 1
+            payload = artifacts[0]["content_json"]
+            assert all(
+                token not in str(payload) for token in synthetic_credentials.values()
+            )
+            provenance = next(
+                artifact["execution_provenance"]
+                for artifact in payload["artifacts"]
+                if isinstance(artifact, dict) and "execution_provenance" in artifact
+            )
+            assert provenance["user_id"] == expected_owner
+            assert provenance["credential_owner_id"] == expected_owner
+            assert provenance["credential_source_class"] == "account_api_key"
+            assert provenance["provider_id"] == expected_provider
+            assert provenance["model_id"] == expected_model
+            assert provenance["actual_provider_id"] == expected_provider
+            assert provenance["actual_model_id"] == expected_model
+            assert provenance["harness_id"] == "pi"
+            assert provenance["actual_harness_id"] == "pi-coding-agent"
+            assert provenance["runtime_identity_established"] is True
+    finally:
+        provider_server.shutdown()
+        provider_server.server_close()
+        server_thread.join(timeout=2)
 
 
 @pytest.mark.parametrize("adapter_kind", [_MISSING, "", "   "])
@@ -2563,7 +3208,7 @@ def test_isolated_success_captures_patch_manifest_and_terminal_metadata(
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
 
-    class _TrackedChangeAdapter:
+    class _TrackedChangeAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             readme_path = Path(request.cwd) / "README.md"
             readme_path.write_text("seed\ntracked change\n", encoding="utf-8")
@@ -2659,7 +3304,7 @@ def test_isolated_success_patch_capture_includes_untracked_file(
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
 
-    class _UntrackedAdapter:
+    class _UntrackedAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             untracked_path = Path(request.cwd) / "new-untracked.txt"
             untracked_path.write_text("new file\n", encoding="utf-8")
@@ -2726,7 +3371,7 @@ def test_patch_artifact_root_can_stay_clean_with_gitignore_rule(
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
     monkeypatch.delenv("CODING_WORKER_PATCH_ARTIFACT_ROOT", raising=False)
 
-    class _NoopAdapter:
+    class _NoopAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "README.md").write_text(
                 "seed\nartifact check\n",
@@ -2985,7 +3630,7 @@ def test_isolated_success_cleans_up_by_default_without_promoting_changes(
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
 
-    class _WritingAdapter:
+    class _WritingAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "isolated-only.txt").write_text(
                 "isolated\n",
@@ -3043,7 +3688,7 @@ def test_isolated_failure_keeps_worktree_by_default(
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
     monkeypatch.delenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", raising=False)
 
-    class _FailingAdapter:
+    class _FailingAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "failed-change.txt").write_text(
                 "failed\n",
@@ -3103,7 +3748,7 @@ def test_keep_on_failure_false_cleans_isolated_worktree(
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
 
-    class _FailingAdapter:
+    class _FailingAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "failed-clean-change.txt").write_text(
                 "failed\n",
@@ -3167,7 +3812,7 @@ def test_validation_failure_preserves_patch_artifact_evidence(
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
 
-    class _FailingValidationAdapter:
+    class _FailingValidationAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "README.md").write_text(
                 "seed\nvalidation failure change\n",
@@ -3244,7 +3889,7 @@ def test_oversized_patch_writes_manifest_without_partial_patch(
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
 
-    class _LargePatchAdapter:
+    class _LargePatchAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             payload = "x" * 8192
             Path(request.cwd, "large-change.txt").write_text(
@@ -3308,7 +3953,7 @@ def test_mutation_scope_violation_blocks_apply_ready_patch_artifact(
     monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
 
-    class _ScopeViolatingAdapter:
+    class _ScopeViolatingAdapter(_AuthorizedTestAdapter):
         def execute(self, request: Any) -> Any:
             Path(request.cwd, "out-of-scope.txt").write_text(
                 "scope violation\n",
@@ -4323,9 +4968,12 @@ def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
     assert terminal_payload["allowed_paths"] == ["allowed.txt"]
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
-    assert messages[0].extra_meta["artifacts"][0]["mutation_guard_status"] == (
-        "within_allowed_paths"
+    mutation_artifact = next(
+        artifact
+        for artifact in messages[0].extra_meta["artifacts"]
+        if isinstance(artifact, dict) and artifact.get("mutation_guard_enabled")
     )
+    assert mutation_artifact["mutation_guard_status"] == "within_allowed_paths"
 
 
 def test_clean_git_repo_disallowed_path_mutation_fails_with_scope_violation(
@@ -4820,9 +5468,12 @@ def test_non_git_cwd_emits_unverified_scope_metadata_without_crashing(
     assert terminal_payload["changed_paths"] == []
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
-    assert messages[0].extra_meta["artifacts"][0]["mutation_guard_status"] == (
-        "unverified"
+    mutation_artifact = next(
+        artifact
+        for artifact in messages[0].extra_meta["artifacts"]
+        if isinstance(artifact, dict) and artifact.get("mutation_guard_enabled")
     )
+    assert mutation_artifact["mutation_guard_status"] == "unverified"
 
 
 def test_changed_path_metadata_is_bounded_and_truncated(
@@ -4951,7 +5602,37 @@ def test_successful_completion_writes_one_result_message_with_lineage(
         "guardian/workers/coding_worker.py",
         "guardian/agents/store.py",
     ]
-    assert message.extra_meta["artifacts"] == [
+    artifact_payload = message.extra_meta["artifacts"]
+    assert artifact_payload[0]["execution_provenance"] == {
+        "binding_id": f"xeb-test-{task.coding_task_id}-{task.attempt_id}",
+        "authorization_evidence_ref": f"xeb-test-{task.coding_task_id}-{task.attempt_id}",
+        "harness_id": "pi",
+        "harness_selection_mode": "default",
+        "provider_id": "test-provider-a",
+        "model_id": "test-model-a",
+        "funding_route": "user_byok",
+        "placement": "container",
+        "credential_ref": f"credential-{task.coding_task_id}",
+        "credential_owner_scope": "account",
+        "credential_owner_id": seeded["user_id"],
+        "credential_type": "api_key",
+        "credential_source_class": "account_api_key",
+        "usage_policy_ref": None,
+        "user_id": seeded["user_id"],
+        "project_id": str(seeded["project_id"]),
+        "thread_id": str(seeded["thread_id"]),
+        "source_message_id": str(seeded["source_message_id"]),
+        "coding_task_id": task.coding_task_id,
+        "attempt_id": task.attempt_id,
+        "requested_provider_id": "test-provider-a",
+        "requested_model_id": "test-model-a",
+        "actual_provider_id": None,
+        "actual_model_id": None,
+        "actual_harness_id": None,
+        "actual_harness_version": None,
+        "runtime_identity_established": False,
+    }
+    assert artifact_payload[1:] == [
         {
             "path": "guardian/workers/coding_worker.py",
             "commit_hash": "abc123def",
@@ -5108,7 +5789,7 @@ def test_missing_source_thread_fails_closed_without_fallback_write(
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
-    _install_fake_adapter(
+    adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(
             status="ok",
@@ -5128,22 +5809,14 @@ def test_missing_source_thread_fails_closed_without_fallback_write(
     )
     worker._process_task(task)
 
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.failed",
-    ]
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[0][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
     assert _fetch_thread_messages(db, 999) == []
-    artifacts = _fetch_coding_result_artifacts(store, run_id)
-    assert len(artifacts) == 1
-    content = artifacts[0]["content_json"]
-    assert content["delivery_ok"] is False
-    assert content["delivery_status"] == "degraded"
-    assert content["delivery_reason_code"] == "source_thread_missing"
-    assert content["terminal_run_status"] == "failed"
-    assert content["terminal_run_status_updated"] is True
+    assert _fetch_coding_result_artifacts(store, run_id) == []
 
 
 def test_adapter_failure_does_not_create_a_success_result_message(

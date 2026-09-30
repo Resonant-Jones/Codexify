@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import subprocess
 from typing import Any, AsyncGenerator
 
@@ -18,11 +19,21 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from guardian.agents.coding_agent_contracts import (
+    CodingExecutionBinding,
     CodingAgentResult,
     CodingAgentTaskEnvelope,
+)
+from guardian.agents.credential_transport import seal_lease_payload
+from guardian.agents.execution_credentials import (
+    CredentialAuthorityError,
+    authorize_credential_selection,
+    issue_api_key_lease,
+    list_account_credentials,
+    revoke_account_credential,
+    store_api_key,
 )
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
@@ -30,7 +41,9 @@ from guardian.core.dependencies import (
     get_account_user as get_current_user,
     require_account_session as require_api_key,
     require_operator_auth,
+    require_service_api_key,
 )
+from guardian.db.models import ChatMessage, ChatThread, Project
 from guardian.protocol_tokens import AcceptanceStatus
 from guardian.queue import task_events
 
@@ -71,9 +84,13 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
-def _resolved_request_user(current_user: Any, fallback: str) -> str:
+def _resolved_request_user(current_user: Any, requested_user: str) -> str:
     resolved = str(current_user or "").strip()
-    return resolved if resolved and not resolved.startswith("Depends(") else fallback
+    if not resolved or resolved.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    if str(requested_user or "").strip() != resolved:
+        raise HTTPException(status_code=403, detail="account_identity_mismatch")
+    return resolved
 
 
 class AgentPlanRequest(BaseModel):
@@ -128,6 +145,24 @@ class CodingExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CodingExecutionCredentialCreateRequest(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=128)
+    api_key: SecretStr = Field(min_length=1, max_length=8192)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CodingExecutionCredentialLeaseRequest(BaseModel):
+    run_id: str = Field(min_length=1, max_length=128)
+    deployment_id: str = Field(min_length=1, max_length=128)
+    coding_task_id: str = Field(min_length=1, max_length=255)
+    attempt_id: str = Field(min_length=1, max_length=255)
+    attempt_index: int = Field(ge=1, le=3)
+    worker_public_key: str = Field(min_length=1, max_length=8192)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def build_coding_execution_task_payload(
     body: CodingExecutionRequest,
 ) -> dict[str, Any]:
@@ -135,6 +170,129 @@ def build_coding_execution_task_payload(
     if "permission_policy" not in payload:
         payload["permission_policy"] = {}
     return payload
+
+
+def _resolve_coding_harness(envelope: CodingAgentTaskEnvelope) -> tuple[str, str]:
+    selection_mode = str(envelope.harness_selection_mode or "").strip().lower()
+    if selection_mode == "auto":
+        raise HTTPException(status_code=422, detail="auto_harness_selection_unsupported")
+    if selection_mode == "default":
+        harness_id = (os.getenv("CODEXIFY_DEFAULT_HARNESS") or "pi").strip().lower()
+    elif selection_mode == "explicit":
+        harness_id = (
+            "pi"
+            if envelope.adapter_kind in {"pi", "pi_sdk", "pi_codex_runner"}
+            else ""
+        )
+    else:
+        raise HTTPException(status_code=422, detail="harness_selection_mode_invalid")
+    if harness_id != "pi":
+        raise HTTPException(status_code=409, detail="selected_harness_unavailable")
+    if envelope.adapter_kind not in {"pi", "pi_sdk", "pi_codex_runner"}:
+        raise HTTPException(status_code=409, detail="explicit_harness_unavailable")
+    return harness_id, selection_mode
+
+
+def _validate_coding_lineage(
+    *,
+    account_id: str,
+    thread_id: str,
+    source_message_id: str,
+    requested_project_id: str | None,
+) -> str | None:
+    db = getattr(_store, "db", None)
+    if db is None or not hasattr(db, "get_session"):
+        raise HTTPException(status_code=503, detail="coding_lineage_store_unavailable")
+    try:
+        thread_key = int(thread_id)
+        message_key = int(source_message_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="coding_lineage_invalid") from None
+
+    try:
+        with db.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_key).one_or_none()
+            message = (
+                session.query(ChatMessage)
+                .filter_by(
+                    id=message_key,
+                    thread_id=thread_key,
+                    user_id=account_id,
+                    role="user",
+                )
+                .one_or_none()
+            )
+            if thread is None or str(thread.user_id) != account_id or message is None:
+                raise HTTPException(status_code=404, detail="coding_lineage_not_found")
+            resolved_project_id = thread.project_id
+            if requested_project_id is not None:
+                try:
+                    supplied_project_id = int(requested_project_id)
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=422, detail="coding_project_invalid") from None
+                if supplied_project_id != resolved_project_id:
+                    raise HTTPException(status_code=403, detail="coding_project_mismatch")
+            if resolved_project_id is not None:
+                project = (
+                    session.query(Project)
+                    .filter_by(id=resolved_project_id, user_id=account_id)
+                    .one_or_none()
+                )
+                if project is None:
+                    raise HTTPException(status_code=403, detail="coding_project_owner_mismatch")
+            return str(resolved_project_id) if resolved_project_id is not None else None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="coding_lineage_lookup_failed") from exc
+
+
+def _build_execution_binding(
+    envelope: CodingAgentTaskEnvelope,
+    *,
+    account_id: str,
+) -> dict[str, object]:
+    provider_id = str(envelope.provider_id or "").strip()
+    model_id = str(envelope.model_id or "").strip()
+    credential_ref = str(envelope.credential_ref or "").strip()
+    if not provider_id or not model_id or not credential_ref:
+        raise HTTPException(status_code=422, detail="execution_binding_identity_required")
+    harness_id, selection_mode = _resolve_coding_harness(envelope)
+    project_id = _validate_coding_lineage(
+        account_id=account_id,
+        thread_id=envelope.thread_id,
+        source_message_id=envelope.source_message_id,
+        requested_project_id=envelope.project_id,
+    )
+    db = getattr(_store, "db", None)
+    try:
+        credential = authorize_credential_selection(
+            db,
+            credential_ref=credential_ref,
+            account_id=account_id,
+            provider_id=provider_id,
+            model_id=model_id,
+        )
+        binding = CodingExecutionBinding.authorized(
+            harness_id=harness_id,
+            harness_selection_mode=selection_mode,
+            provider_id=provider_id,
+            model_id=model_id,
+            placement="container",
+            credential=credential,
+            user_id=account_id,
+            project_id=project_id,
+            thread_id=envelope.thread_id,
+            source_message_id=envelope.source_message_id,
+            coding_task_id=envelope.coding_task_id,
+            attempt_id=envelope.attempt_id,
+            max_attempts=envelope.max_validation_attempts,
+        )
+    except CredentialAuthorityError as exc:
+        raise HTTPException(status_code=403, detail=exc.code) from None
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="credential_authority_unavailable") from exc
+    return binding.to_dict()
 
 
 @router.post("/plans", dependencies=[Depends(require_operator_auth)])
@@ -216,6 +374,69 @@ async def start_run(
     return {"ok": True, "run": run}
 
 
+@router.post("/coding/credentials", dependencies=[Depends(require_api_key)])
+async def create_coding_execution_credential(
+    body: CodingExecutionCredentialCreateRequest,
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    account_id = str(current_user or "").strip()
+    if not account_id or account_id.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    db = getattr(_store, "db", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="credential_store_unavailable")
+    try:
+        record = store_api_key(
+            db,
+            owner_scope="account",
+            owner_id=account_id,
+            provider_id=body.provider_id,
+            api_key=body.api_key.get_secret_value(),
+            funding_route="user_byok",
+        )
+    except CredentialAuthorityError as exc:
+        raise HTTPException(status_code=503, detail=exc.code) from None
+    return {"ok": True, "credential": record}
+
+
+@router.get("/coding/credentials", dependencies=[Depends(require_api_key)])
+async def list_coding_execution_credentials(
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    account_id = str(current_user or "").strip()
+    if not account_id or account_id.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    db = getattr(_store, "db", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="credential_store_unavailable")
+    try:
+        records = list_account_credentials(db, account_id=account_id)
+    except CredentialAuthorityError as exc:
+        raise HTTPException(status_code=503, detail=exc.code) from None
+    return {"credentials": records}
+
+
+@router.delete(
+    "/coding/credentials/{credential_ref}",
+    dependencies=[Depends(require_api_key)],
+)
+async def revoke_coding_execution_credential(
+    credential_ref: str,
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    account_id = str(current_user or "").strip()
+    if not account_id or account_id.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    db = getattr(_store, "db", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="credential_store_unavailable")
+    if not revoke_account_credential(
+        db, account_id=account_id, credential_ref=credential_ref
+    ):
+        raise HTTPException(status_code=404, detail="credential_reference_not_found")
+    return {"ok": True, "credential_ref": credential_ref, "status": "revoked"}
+
+
 @router.post("/coding/execute", dependencies=[Depends(require_api_key)])
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
@@ -229,6 +450,10 @@ async def execute_coding_task(
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
     """
     resolved_user_id = _resolved_request_user(current_user, envelope.user_id)
+    execution_binding = _build_execution_binding(
+        envelope,
+        account_id=resolved_user_id,
+    )
 
     # Create deployment to track this coding task and preserve the requested
     # adapter kind in Guardian-owned intake state.
@@ -241,6 +466,7 @@ async def execute_coding_task(
             "campaign_id": envelope.campaign_id,
             "work_order_id": envelope.work_order_id,
             "adapter_kind": envelope.adapter_kind,
+            "execution_binding": execution_binding,
             "validation_command": envelope.validation_command,
             "max_validation_attempts": envelope.max_validation_attempts,
             "worktree_lease_id": envelope.worktree_lease_id,
@@ -257,7 +483,7 @@ async def execute_coding_task(
                 envelope.source_message_id
             ),
             "user_id": resolved_user_id,
-            "project_id": envelope.project_id,
+            "project_id": execution_binding.get("project_id"),
             "attempt_id": envelope.attempt_id,
             "instructions": envelope.instructions,
             "repo_root": envelope.repo_root,
@@ -277,6 +503,7 @@ async def execute_coding_task(
                 "work_order_id": envelope.work_order_id,
                 "attempt_id": envelope.attempt_id,
                 "adapter_kind": envelope.adapter_kind,
+                "execution_binding": execution_binding,
                 "validation_command": envelope.validation_command,
                 "max_validation_attempts": envelope.max_validation_attempts,
                 "worktree_lease_id": envelope.worktree_lease_id,
@@ -316,6 +543,11 @@ async def execute_coding_task(
                 envelope.source_message_id
             ),
             "adapter_kind": envelope.adapter_kind,
+            "execution_binding_id": execution_binding["binding_id"],
+            "provider_id": execution_binding["provider_id"],
+            "model_id": execution_binding["model_id"],
+            "funding_route": execution_binding["funding_route"],
+            "credential_owner_scope": execution_binding["credential_owner_scope"],
             "status": "queued",
         },
     )
@@ -342,7 +574,8 @@ async def execute_coding_task(
         if envelope.thread_id
         else None,
         "user_id": resolved_user_id,
-        "project_id": envelope.project_id,
+        "project_id": execution_binding.get("project_id"),
+        "execution_binding": execution_binding,
         "validation_command": envelope.validation_command,
         "max_validation_attempts": envelope.max_validation_attempts,
         "worktree_lease_id": envelope.worktree_lease_id,
@@ -378,7 +611,67 @@ async def execute_coding_task(
         ),
         "attempt_id": envelope.attempt_id,
         "adapter_kind": envelope.adapter_kind,
+        "execution_binding_id": execution_binding["binding_id"],
     }
+
+
+@router.post(
+    "/coding/credential-lease",
+    dependencies=[Depends(require_service_api_key)],
+)
+async def lease_coding_execution_credential(
+    body: CodingExecutionCredentialLeaseRequest,
+) -> dict[str, Any]:
+    """Revalidate a persisted binding and seal one attempt's API-key lease."""
+    deployment = _store.get_deployment(body.deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="execution_binding_not_found")
+    spec = dict(deployment.get("spec_json") or {})
+    raw_binding = spec.get("execution_binding")
+    if not isinstance(raw_binding, dict):
+        raise HTTPException(status_code=403, detail="execution_binding_missing")
+    try:
+        binding = CodingExecutionBinding.from_dict(raw_binding)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail="execution_binding_invalid") from None
+    if (
+        str(deployment.get("deployment_id") or "") != body.deployment_id
+        or str(spec.get("coding_task_id") or "") != body.coding_task_id
+        or binding.coding_task_id != body.coding_task_id
+        or binding.attempt_id != body.attempt_id
+        or str(spec.get("attempt_id") or "") != body.attempt_id
+    ):
+        raise HTTPException(status_code=403, detail="execution_binding_lineage_mismatch")
+    run = _store.get_run(body.run_id, user_id=binding.user_id)
+    if (
+        run is None
+        or str(run.get("deployment_id") or "") != body.deployment_id
+        or str(run.get("status") or "").lower() not in {"queued", "running"}
+    ):
+        raise HTTPException(status_code=403, detail="execution_run_not_authorized")
+    db = getattr(_store, "db", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="credential_authority_unavailable")
+    try:
+        secret, lease_metadata = issue_api_key_lease(
+            db,
+            binding=binding.to_dict(),
+            account_id=binding.user_id,
+            attempt_id=body.attempt_id,
+            attempt_index=body.attempt_index,
+        )
+        sealed = seal_lease_payload(
+            body.worker_public_key,
+            {
+                "api_key": secret,
+                "lease": {**binding.to_dict(), **lease_metadata},
+            },
+        )
+    except CredentialAuthorityError as exc:
+        raise HTTPException(status_code=403, detail=exc.code) from None
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="credential_lease_unavailable") from exc
+    return {"sealed_lease": sealed}
 
 
 @router.post("/pi-invocation/dry-run", dependencies=[Depends(require_operator_auth)])

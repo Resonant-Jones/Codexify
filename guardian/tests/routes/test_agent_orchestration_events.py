@@ -92,7 +92,37 @@ def _build_client() -> TestClient:
     app = FastAPI()
     app.include_router(agent_orchestration.router)
     app.include_router(agent_orchestration.chat_router)
+    app.dependency_overrides[agent_orchestration.get_current_user] = (
+        lambda: "local-user"
+    )
     return TestClient(app)
+
+
+def _patch_execution_authority(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        agent_orchestration,
+        "_validate_coding_lineage",
+        lambda *, account_id, thread_id, source_message_id, requested_project_id: (
+            str(requested_project_id) if requested_project_id is not None else None
+        ),
+    )
+    monkeypatch.setattr(
+        agent_orchestration,
+        "authorize_credential_selection",
+        lambda _db, *, credential_ref, account_id, provider_id, model_id: {
+            "credential_ref": credential_ref,
+            "owner_scope": "account",
+            "owner_id": account_id,
+            "provider_id": provider_id,
+            "credential_type": "api_key",
+            "funding_route": "user_byok",
+            "source_class": "account_api_key",
+            "usage_policy_ref": None,
+            # This sentinel stands in for secret-bearing custody data. The
+            # binding builder must project only safe authority metadata.
+            "api_key": "SECRET-SENTINEL-must-not-cross-the-task-boundary",
+        },
+    )
 
 
 def test_escalation_persists_and_streams_event(monkeypatch) -> None:
@@ -366,6 +396,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     captured_payloads: list[dict[str, Any]] = []
     local_store = AgentStore()
@@ -399,9 +430,14 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
             allowed_paths=("/workspace/repo",),
             max_runtime_seconds=60,
         ),
+        provider_id="test-provider",
+        model_id="test-model-a",
+        credential_ref="credential-account-a",
     )
 
-    result = await agent_orchestration.execute_coding_task(envelope)
+    result = await agent_orchestration.execute_coding_task(
+        envelope, current_user="local-user"
+    )
 
     assert result["ok"] is True
     assert result["status"] == "accepted"
@@ -417,6 +453,12 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["validation_command"] == "pytest -q"
     assert payload["max_validation_attempts"] == 3
     assert payload["permission_policy"]["allow_shell"] is True
+    assert payload["execution_binding"]["provider_id"] == "test-provider"
+    assert payload["execution_binding"]["model_id"] == "test-model-a"
+    assert payload["execution_binding"]["credential_ref"] == "credential-account-a"
+    serialized_payload = json.dumps(payload)
+    assert "SECRET-SENTINEL-must-not-cross-the-task-boundary" not in serialized_payload
+    assert "api_key" not in payload["execution_binding"]
     assert payload["worktree_lease_id"] is None
     assert payload["require_worktree_lease"] is False
     assert payload["commit_after_validation"] is False
@@ -432,6 +474,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"
+    assert deployment["spec_json"]["execution_binding"] == payload["execution_binding"]
     assert deployment["spec_json"]["project_id"] == "17"
     assert deployment["spec_json"]["worktree_lease_id"] is None
     assert deployment["spec_json"]["require_worktree_lease"] is False
@@ -493,6 +536,7 @@ async def test_execute_coding_task_propagates_worktree_lease_fields(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     captured_payloads: list[dict[str, Any]] = []
     local_store = AgentStore()
@@ -528,9 +572,14 @@ async def test_execute_coding_task_propagates_worktree_lease_fields(
             allowed_paths=("/workspace/repo",),
             max_runtime_seconds=60,
         ),
+        provider_id="test-provider",
+        model_id="test-model-a",
+        credential_ref="credential-account-a",
     )
 
-    result = await agent_orchestration.execute_coding_task(envelope)
+    result = await agent_orchestration.execute_coding_task(
+        envelope, current_user="local-user"
+    )
 
     assert result["ok"] is True
     assert captured_payloads
@@ -549,6 +598,7 @@ async def test_execute_coding_task_propagates_commit_gate_fields(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     captured_payloads: list[dict[str, Any]] = []
     local_store = AgentStore()
@@ -587,9 +637,14 @@ async def test_execute_coding_task_propagates_commit_gate_fields(
             allowed_paths=("/workspace/repo",),
             max_runtime_seconds=60,
         ),
+        provider_id="test-provider",
+        model_id="test-model-a",
+        credential_ref="credential-account-a",
     )
 
-    result = await agent_orchestration.execute_coding_task(envelope)
+    result = await agent_orchestration.execute_coding_task(
+        envelope, current_user="local-user"
+    )
 
     assert result["ok"] is True
     assert captured_payloads
@@ -610,6 +665,7 @@ async def test_execute_coding_task_propagates_campaign_runner_ids(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     captured_payloads: list[dict[str, Any]] = []
     local_store = AgentStore()
@@ -645,9 +701,14 @@ async def test_execute_coding_task_propagates_campaign_runner_ids(
             allowed_paths=("/workspace/repo",),
             max_runtime_seconds=60,
         ),
+        provider_id="test-provider",
+        model_id="test-model-a",
+        credential_ref="credential-account-a",
     )
 
-    result = await agent_orchestration.execute_coding_task(envelope)
+    result = await agent_orchestration.execute_coding_task(
+        envelope, current_user="local-user"
+    )
 
     assert result["ok"] is True
     payload = captured_payloads[0]
@@ -664,6 +725,7 @@ def test_execute_coding_task_route_accepts_pi_codex_runner_adapter_kind(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     local_store = AgentStore()
     local_publisher = AgentEventPublisher()
@@ -693,6 +755,9 @@ def test_execute_coding_task_route_accepts_pi_codex_runner_adapter_kind(
                 allowed_paths=("/workspace/repo",),
                 max_runtime_seconds=60,
             ),
+            provider_id="test-provider",
+            model_id="test-model-a",
+            credential_ref="credential-account-a",
         )
     )
 
@@ -713,10 +778,71 @@ def test_execute_coding_task_route_accepts_pi_codex_runner_adapter_kind(
     assert deployment["spec_json"]["adapter_kind"] == "pi_codex_runner"
 
 
+def test_execute_coding_task_rejects_account_identity_mismatch_before_dispatch(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
+    authority_calls: list[str] = []
+    queued_payloads: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        agent_orchestration,
+        "authorize_credential_selection",
+        lambda *_args, **_kwargs: authority_calls.append("credential_lookup"),
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: queued_payloads.append(dict(payload)),
+    )
+
+    local_store = AgentStore()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", AgentEventPublisher()
+    )
+    payload = asdict(
+        CodingAgentTaskEnvelope(
+            coding_task_id="coding-task-cross-account",
+            thread_id="42",
+            source_message_id="99",
+            attempt_id="attempt-cross-account",
+            user_id="account-b",
+            project_id=None,
+            adapter_kind="pi",
+            instructions="Do not dispatch this cross-account task.",
+            repo_root="/workspace/repo",
+            context_summary=None,
+            permission_policy=CodingAgentPermissionPolicy(
+                allow_shell=True,
+                allow_network=False,
+                allow_write=True,
+                allowed_paths=("/workspace/repo",),
+                max_runtime_seconds=60,
+            ),
+            provider_id="test-provider",
+            model_id="test-model",
+            credential_ref="credential-account-b",
+        )
+    )
+
+    response = _build_client().post(
+        "/api/agents/coding/execute",
+        json=payload,
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "account_identity_mismatch"}
+    assert authority_calls == []
+    assert queued_payloads == []
+    assert local_store.get_deployment("coding_coding-task-cross-account") is None
+
+
 def test_execute_coding_task_route_rejects_unknown_adapter_kind(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    _patch_execution_authority(monkeypatch)
 
     local_store = AgentStore()
     local_publisher = AgentEventPublisher()
@@ -746,6 +872,9 @@ def test_execute_coding_task_route_rejects_unknown_adapter_kind(
                 allowed_paths=("/workspace/repo",),
                 max_runtime_seconds=60,
             ),
+            provider_id="test-provider",
+            model_id="test-model-a",
+            credential_ref="credential-account-a",
         )
     )
     payload["adapter_kind"] = "mystery_adapter"

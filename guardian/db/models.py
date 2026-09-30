@@ -2589,6 +2589,121 @@ class OAuthConnection(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class CodingExecutionCredential(Base):
+    """Encrypted API-key credential for Guardian-mediated coding execution.
+
+    This is intentionally limited to exportable API keys. Native subscriptions,
+    brokered access, and secretless runtimes keep their own authority models.
+    """
+
+    __tablename__ = "coding_execution_credentials"
+
+    credential_ref: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    credential_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="api_key"
+    )
+    funding_route: Mapped[str] = mapped_column(String(32), nullable=False)
+    encrypted_secret: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="active"
+    )
+    allowed_account_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    allowed_model_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    usage_policy_ref: Mapped[str | None] = mapped_column(String(128))
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "owner_scope IN ('account', 'service', 'operator')",
+            name="ck_coding_execution_credentials_owner_scope",
+        ),
+        CheckConstraint(
+            "credential_type = 'api_key'",
+            name="ck_coding_execution_credentials_type",
+        ),
+        CheckConstraint(
+            "funding_route IN ('user_byok', 'codexify_included', "
+            "'codexify_metered', 'local_self_hosted')",
+            name="ck_coding_execution_credentials_funding_route",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_coding_execution_credentials_status",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND encrypted_secret IS NOT NULL) OR "
+            "(status = 'revoked' AND encrypted_secret IS NULL)",
+            name="ck_coding_execution_credentials_secret_status",
+        ),
+        Index(
+            "ix_coding_execution_credentials_owner_provider",
+            "owner_scope",
+            "owner_id",
+            "provider_id",
+        ),
+    )
+
+
+class CodingExecutionCredentialLease(Base):
+    """Secret-free receipt preventing duplicate lease redemption per attempt."""
+
+    __tablename__ = "coding_execution_credential_leases"
+
+    lease_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    binding_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    attempt_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    credential_ref: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("coding_execution_credentials.credential_ref", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    owner_scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "binding_id",
+            "attempt_index",
+            name="uq_coding_execution_credential_lease_binding_attempt",
+        ),
+        CheckConstraint(
+            "attempt_index > 0",
+            name="ck_coding_execution_credential_leases_attempt_index_positive",
+        ),
+        Index(
+            "ix_coding_execution_credential_leases_credential_ref",
+            "credential_ref",
+        ),
+    )
+
+
 class NotionConnectionCredential(Base):
     """One encrypted Notion integration token per user.
 

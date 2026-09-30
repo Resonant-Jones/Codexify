@@ -28,8 +28,6 @@ def test_blocked_worker_exits_before_proxy_or_queue_consumer(
     module = _load_startup_module()
     report = PiReadinessReport(
         status="blocked",
-        effective_provider="anthropic",
-        effective_model="claude-sonnet-4-6",
         checks=(
             PiReadinessCheck(
                 name="pi_sdk_runtime",

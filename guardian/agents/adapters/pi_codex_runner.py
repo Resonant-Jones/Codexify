@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,10 @@ from guardian.agents.adapters.base import (
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
-from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
+from guardian.agents.pi_readiness import (
+    DEFAULT_PI_NODE_MODULES,
+    DEFAULT_PI_PACKAGE_ROOT,
+)
 from guardian.pi.tokens import (
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
@@ -34,6 +38,12 @@ def _get_pi_wrapper_path() -> Path:
 # invocation. Mirrors the canonical Campaign Engine constant for the
 # current supported internal slice.
 LIVE_EXECUTOR_REQUIRED_TOOL_VALUE = "write"
+_PI_RUNTIME_HARNESS_IDS = {
+    # `pi` is the product-facing selectable harness in the execution binding;
+    # `pi-coding-agent` is the pinned runtime's attested identity.
+    "pi": "pi-coding-agent",
+    "pi-coding-agent": "pi-coding-agent",
+}
 
 
 class PiCodexRunnerAdapter:
@@ -48,61 +58,21 @@ class PiCodexRunnerAdapter:
     name = "pi_codex_runner"
 
     def execute(self, request: AgentExecutionRequest) -> AgentRunEnvelope:
-        """Execute a coding task through Pi agent wrapper.
-
-        Args:
-            request: AgentExecutionRequest with prompt and execution context
-
-        Returns:
-            AgentRunEnvelope with execution results
-        """
-        wrapper_path = _get_pi_wrapper_path()
-
-        # Build execution environment
-        env = os.environ.copy()
-
-        # Set model and thinking from environment or defaults
-        env["PI_MODEL"] = env.get("PI_MODEL", DEFAULT_PI_MODEL)
-        env["PI_THINKING"] = env.get("PI_THINKING", "medium")
-
-        # Build the command
-        cmd = ["node", str(wrapper_path), "task", request.prompt]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=request.cwd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=request.timeout_seconds,
-            )
-            return self._parse_result(result)
-
-        except subprocess.TimeoutExpired:
-            return AgentRunEnvelope(
-                status="error",
-                summary=f"Execution timed out after {request.timeout_seconds}s",
-                artifacts=[],
-                next_actions=[],
-                errors=["timeout_expired"],
-                metrics={"timeout_seconds": request.timeout_seconds},
-            )
-        except FileNotFoundError as exc:
-            return AgentRunEnvelope(
-                status="error",
-                summary="Pi agent wrapper not found (Node.js or wrapper.js missing)",
-                artifacts=[],
-                next_actions=[],
-                errors=["pi_wrapper_not_found", str(exc)],
-                metrics={},
-            )
+        """Reject the legacy ambient path; coding tasks require a Guardian binding."""
+        del request
+        return AgentRunEnvelope(
+            status="error",
+            summary="Guardian-authorized execution binding required",
+            failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+            failure_stage="authorization",
+        )
 
     def execute_authorized(
         self,
         request: AgentExecutionRequest,
         identity: AgentExecutionIdentity,
         *,
+        credential_material: str | None = None,
         read_only: bool,
         required_tool_name: str | None = None,
     ) -> AgentRunEnvelope:
@@ -118,6 +88,15 @@ class PiCodexRunnerAdapter:
         inherited environment. The adapter never sources this value from
         ambient state.
         """
+        if not isinstance(credential_material, str) or not credential_material.strip():
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian invocation credential authority is required",
+                errors=[],
+                failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+                failure_stage="credential_authorization",
+            )
+
         if not all(
             (
                 identity.provider_id,
@@ -129,6 +108,16 @@ class PiCodexRunnerAdapter:
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi identity is incomplete",
+                errors=[],
+                failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+                failure_stage="authorization",
+            )
+
+        runtime_harness_id = _PI_RUNTIME_HARNESS_IDS.get(identity.harness_id)
+        if runtime_harness_id is None:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi harness identity is unsupported",
                 errors=[],
                 failure_classification=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
                 failure_stage="authorization",
@@ -170,39 +159,112 @@ class PiCodexRunnerAdapter:
             )
 
         wrapper_path = _get_pi_wrapper_path()
-        env = os.environ.copy()
+        if not wrapper_path.is_file():
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi wrapper is unavailable",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value,
+                failure_stage="wrapper_launch",
+            )
+        package_root = os.getenv(
+            "PI_CODING_AGENT_PACKAGE_ROOT", DEFAULT_PI_PACKAGE_ROOT
+        )
+        node_modules_root = os.getenv(
+            "PI_CODING_AGENT_NODE_MODULES", DEFAULT_PI_NODE_MODULES
+        )
         # Always strip ambient selection so only the validated argument
         # can grant or force behavior.
-        env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
-        env.update(
-            {
-                "PI_PROVIDER": identity.provider_id,
-                "PI_MODEL": identity.model_id,
-                "PI_GUARDIAN_AUTHORIZED": "1",
-                "PI_GUARDIAN_HARNESS_ID": identity.harness_id,
-                "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
-                "PI_DISABLE_TOOLS": "1" if read_only else "0",
-            }
-        )
-        if normalized_required is not None:
-            env["PI_GUARDIAN_REQUIRED_TOOL"] = normalized_required
         cmd = ["node", str(wrapper_path), "guardian-authorized-task", request.prompt]
+        credential_input = json.dumps(
+            {
+                "credential_type": "api_key",
+                "api_key": credential_material,
+            },
+            separators=(",", ":"),
+        )
 
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=request.cwd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=request.timeout_seconds,
+            with tempfile.TemporaryDirectory(prefix="codexify-pi-home-") as isolated_home:
+                env = {
+                    "PATH": os.getenv("PATH", "/usr/local/bin:/usr/bin:/bin"),
+                    "HOME": isolated_home,
+                    "LANG": os.getenv("LANG", "C.UTF-8"),
+                    "LC_ALL": os.getenv("LC_ALL", "C.UTF-8"),
+                    "PI_CODING_AGENT_PACKAGE_ROOT": package_root,
+                    "PI_CODING_AGENT_NODE_MODULES": node_modules_root,
+                    "PI_PROVIDER": identity.provider_id,
+                    "PI_MODEL": identity.model_id,
+                    "PI_GUARDIAN_AUTHORIZED": "1",
+                    "PI_GUARDIAN_HARNESS_ID": runtime_harness_id,
+                    "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
+                    "PI_DISABLE_TOOLS": "1" if read_only else "0",
+                    "PI_GUARDIAN_EXECUTION_BINDING_ID": identity.binding_id or "",
+                }
+                if normalized_required is not None:
+                    env["PI_GUARDIAN_REQUIRED_TOOL"] = normalized_required
+                result = subprocess.run(
+                    cmd,
+                    cwd=request.cwd,
+                    env=env,
+                    input=credential_input,
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout_seconds,
+                )
+        except subprocess.TimeoutExpired:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi execution timed out",
+                failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
+                failure_stage="adapter_execution",
+                metrics={"timeout_seconds": request.timeout_seconds},
             )
-            return self._parse_result(
+        except FileNotFoundError:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi wrapper is unavailable",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value,
+                failure_stage="wrapper_launch",
+            )
+        finally:
+            # Drop Python references as soon as stdin delivery completes. This
+            # does not claim immutable-string zeroization; it bounds lifetime.
+            credential_input = ""
+            credential_material = ""
+
+        try:
+            parsed = self._parse_result(
                 result,
                 require_runtime_identity=True,
                 require_tool_telemetry=True,
                 required_tool_name=normalized_required,
             )
+            provenance = {
+                "binding_id": identity.binding_id,
+                "authorization_evidence_ref": identity.authorization_evidence_ref,
+                "harness_id": identity.harness_id,
+                "harness_selection_mode": identity.selection_mode,
+                "requested_provider_id": identity.provider_id,
+                "requested_model_id": identity.model_id,
+                "funding_route": identity.funding_route,
+                "placement": identity.placement,
+                "credential_ref": identity.credential_ref,
+                "credential_owner_scope": identity.credential_owner_scope,
+                "credential_owner_id": identity.credential_owner_id,
+                "credential_source_class": identity.credential_source_class,
+                "user_id": identity.user_id,
+                "project_id": identity.project_id,
+                "thread_id": identity.thread_id,
+                "source_message_id": identity.source_message_id,
+                "coding_task_id": identity.coding_task_id,
+                "attempt_id": identity.attempt_id,
+                "actual_provider_id": parsed.actual_provider_id,
+                "actual_model_id": parsed.actual_model_id,
+                "actual_harness_id": parsed.actual_harness_id,
+                "actual_harness_version": parsed.actual_harness_version,
+                "runtime_identity_established": parsed.runtime_identity_established,
+            }
+            return parsed.model_copy(update={"execution_provenance": provenance})
         except subprocess.TimeoutExpired:
             return AgentRunEnvelope(
                 status="error",

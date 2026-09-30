@@ -9,6 +9,7 @@ from guardian.agents.coding_agent_contracts import (
     CodingAgentAdapterKind,
     CodingAgentPermissionPolicy,
     CodingAgentResult,
+    CodingExecutionBinding,
     CodingAgentTaskEnvelope,
     CodingAgentTaskStatus,
 )
@@ -37,6 +38,9 @@ def test_valid_coding_agent_task_envelope_can_be_constructed() -> None:
         validation_command="pytest -q",
         max_validation_attempts=4,
         permission_policy=policy,
+        provider_id="provider-a",
+        model_id="model-a",
+        credential_ref="credential-a",
     )
 
     assert envelope.coding_task_id == "coding-task-123"
@@ -69,6 +73,9 @@ def test_coding_agent_task_envelope_can_include_validation_metadata() -> None:
         permission_policy=policy,
         validation_command="pytest -q",
         max_validation_attempts=4,
+        provider_id="provider-b",
+        model_id="model-b",
+        credential_ref="credential-b",
     )
 
     assert envelope.validation_command == "pytest -q"
@@ -150,6 +157,9 @@ def test_source_message_and_attempt_ids_are_separate_required_fields() -> None:
                 allowed_paths=(),
                 max_runtime_seconds=60,
             ),
+            provider_id="provider-a",
+            model_id="model-a",
+            credential_ref="credential-a",
         )
 
     with pytest.raises(TypeError):
@@ -170,4 +180,98 @@ def test_source_message_and_attempt_ids_are_separate_required_fields() -> None:
                 allowed_paths=(),
                 max_runtime_seconds=60,
             ),
+            provider_id="provider-a",
+            model_id="model-a",
+            credential_ref="credential-a",
+        )
+
+
+def test_execution_binding_carries_invocation_identity_without_secret_material() -> None:
+    credential = {
+        "credential_ref": "credential-account-a",
+        "owner_scope": "account",
+        "owner_id": "account-a",
+        "provider_id": "provider-a",
+        "credential_type": "api_key",
+        "funding_route": "user_byok",
+        "source_class": "account_api_key",
+        "usage_policy_ref": None,
+    }
+    binding = CodingExecutionBinding.authorized(
+        harness_id="pi",
+        harness_selection_mode="default",
+        provider_id="provider-a",
+        model_id="model-a",
+        placement="container",
+        credential=credential,
+        user_id="account-a",
+        project_id="project-a",
+        thread_id="thread-a",
+        source_message_id="message-a",
+        coding_task_id="coding-task-a",
+        attempt_id="attempt-a",
+        max_attempts=2,
+    )
+
+    payload = binding.to_dict()
+
+    assert payload["provider_id"] == "provider-a"
+    assert payload["model_id"] == "model-a"
+    assert payload["credential_ref"] == "credential-account-a"
+    assert payload["user_id"] == "account-a"
+    assert payload["project_id"] == "project-a"
+    assert payload["thread_id"] == "thread-a"
+    assert payload["source_message_id"] == "message-a"
+    assert payload["coding_task_id"] == "coding-task-a"
+    assert "api_key" not in payload
+    assert "secret" not in payload
+    assert CodingExecutionBinding.from_dict(payload) == binding
+
+
+def test_execution_bindings_support_distinct_provider_model_pairs_and_service_policy() -> None:
+    common = {
+        "credential_ref": "credential-service-a",
+        "owner_scope": "service",
+        "owner_id": "codexify-deployment-a",
+        "provider_id": "provider-a",
+        "credential_type": "api_key",
+        "funding_route": "codexify_included",
+        "source_class": "service_api_key",
+        "usage_policy_ref": "policy-a",
+    }
+    bindings = [
+        CodingExecutionBinding.authorized(
+            harness_id="pi",
+            harness_selection_mode="explicit",
+            provider_id=provider,
+            model_id=model,
+            placement="container",
+            credential={**common, "provider_id": provider},
+            user_id="account-a",
+            project_id=None,
+            thread_id="thread-a",
+            source_message_id=f"message-{index}",
+            coding_task_id=f"coding-task-{index}",
+            attempt_id=f"attempt-{index}",
+            max_attempts=1,
+        )
+        for index, (provider, model) in enumerate(
+            (("provider-a", "model-a"), ("provider-b", "model-b")),
+            start=1,
+        )
+    ]
+
+    assert [(item.provider_id, item.model_id) for item in bindings] == [
+        ("provider-a", "model-a"),
+        ("provider-b", "model-b"),
+    ]
+    assert all(item.harness_id == "pi" for item in bindings)
+    assert all(item.usage_policy_ref == "policy-a" for item in bindings)
+    with pytest.raises(ValueError, match="usage_policy_missing"):
+        CodingExecutionBinding.from_dict(
+            {**bindings[0].to_dict(), "usage_policy_ref": None}
+        )
+    with pytest.raises(ValueError, match="selection_mode_invalid"):
+        CodingExecutionBinding.from_dict(
+            {**bindings[0].to_dict(), "harness_selection_mode": "auto"}
         )
