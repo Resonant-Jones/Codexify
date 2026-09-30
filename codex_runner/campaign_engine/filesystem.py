@@ -28,6 +28,19 @@ def tracked_symlink_snapshot(target: Path) -> tuple[tuple[str, str, str], ...]:
     Resolution is identity evidence only. No link target content is read or
     traversed through the alias, and no filesystem permission is inferred.
     """
+    actual: dict[str, str] = {}
+    for directory, dirs, files in os.walk(target, followlinks=False):
+        for name in dirs + files:
+            path = Path(directory) / name
+            if path.is_symlink():
+                relative = path.relative_to(target)
+                # Reject metadata aliases before Git can read through them.
+                if ".git" in relative.parts:
+                    raise ValueError("symlink in physical Git metadata")
+                actual[str(relative)] = os.readlink(path)
+        # Inspect physical Git directories for link metadata too. A worktree's
+        # regular .git pointer file is never traversed.
+        dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
     tree = subprocess.run(
         ["git", "-C", str(target), "ls-tree", "-rz", "HEAD"],
         capture_output=True, check=True, timeout=10,
@@ -43,13 +56,6 @@ def tracked_symlink_snapshot(target: Path) -> tuple[tuple[str, str, str], ...]:
                 ["git", "-C", str(target), "cat-file", "blob", oid.decode("ascii")],
                 capture_output=True, check=True, timeout=10,
             ).stdout)
-    actual: dict[str, str] = {}
-    for directory, dirs, files in os.walk(target, followlinks=False):
-        for name in dirs + files:
-            path = Path(directory) / name
-            if path.is_symlink():
-                actual[str(path.relative_to(target))] = os.readlink(path)
-        dirs[:] = [name for name in dirs if name != ".git" and not (Path(directory) / name).is_symlink()]
     if actual != tracked:
         raise ValueError("symlink topology differs from committed target")
     snapshot = []

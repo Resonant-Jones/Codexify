@@ -647,6 +647,7 @@ def prepare_live_executor_campaign(
             failure_reason="target_not_directory",
             diagnostic_stage="preparation",
         )
+    symlinks = _check_symlink_topology(target_path)
     git_head_pre = _read_git_head(target_path) or ""
 
     # 5. Source-selection lineage.
@@ -735,7 +736,6 @@ def prepare_live_executor_campaign(
     campaign_state_id = build_campaign_state_id(run_id, campaign_id, created_at)
 
     # 9. Target snapshot for baseline evidence.
-    symlinks = _check_symlink_topology(target_path)
     snapshot = _snapshot_target(target_path)
     target_baseline_hash = _baseline_hash(snapshot)
     target_baseline_file_hashes = tuple(

@@ -70,3 +70,45 @@ Validated results:
 Initial regression runs exposed fixture receipt-prefix and exception-attribute
 mistakes; those were corrected before the successful complete suite. No live
 provider calls occurred during any repair validation.
+
+## Completion audit: physical Git directory coverage
+
+After the first live rerun completed with `passed_with_advisories`, a
+provider-free completion audit reproduced one remaining boundary gap: the
+symlink-identity scan excluded ordinary `.git` directories. A newly created
+link under `.git` or a nested physical Git directory could evade identity
+comparison. Reproduction evidence is preserved at
+`/private/tmp/ce_symlink_git_scan_audit.json`; no provider was invoked.
+
+The metadata-only scan now also visits physical Git directories without
+traversing any symlink. Such links cannot be committed repository symlinks and
+therefore fail closed. The regular `.git` pointer in a disposable worktree is
+not traversed. Physical file hashing retains its existing Git-scope choices.
+Executor and read-only Evaluator regressions cover both root and nested Git
+symlink creation. This closes the existing safety requirement without changing
+Guardian permissions, Task scope, or the canonical specimen.
+
+The completed Campaign `campaign-milestone-a-makefile-fddb937b3c13` and its
+uncommitted target remain preserved. Its six evidence-coverage advisories are
+recorded in `/private/tmp/ce_milestone_a_tracked_symlinks_0fc1c24b/operator-closeout.json`.
+They do not constitute a clean per-criterion Evaluator pass. Independent
+operator readback passed the remaining Task checks; the live verdict was not
+modified. This audit correction is provider-free and does not resume that
+Campaign or commit any Task edit.
+
+Completion-audit validation:
+
+- 18 focused symlink regressions passed.
+- Final current-source aggregate Executor, Evaluator, and schema suite:
+  **186 passed in 53.49 seconds**.
+- Root and nested Git aliases are rejected before any Git subprocess in
+  shared snapshot, Executor preparation, and Evaluator fingerprint checks.
+- Ruff passed on all audit-correction Python surfaces.
+- `PYTHON=.venv/bin/python make docs` and `git diff --check` passed.
+- Audit repair provider calls: **0**; no binding/permission/schema/ADR changes.
+
+A fresh single-Task Campaign using the unchanged canonical fixture is required
+for the final corrected commit. Its artifacts must remain distinct from the
+already completed Campaign and all earlier failed trials. Stop after its final
+Evaluation/Receipt/CampaignState, preserve advisories as returned, and do not
+commit its disposable Makefile edit or enter CE-L3.

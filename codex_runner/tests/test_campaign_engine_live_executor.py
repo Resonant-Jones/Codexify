@@ -3640,7 +3640,7 @@ def test_forged_required_tool_none_drift_blocks_before_invocation(tmp_path) -> N
     )
 
 
-@pytest.mark.parametrize("mutation", ["new", "retarget", "outside", "delete", "file", "directory", "replace_regular"])
+@pytest.mark.parametrize("mutation", ["new", "git_link", "nested_git_link", "retarget", "outside", "delete", "file", "directory", "replace_regular"])
 def test_tracked_symlink_topology_fails_closed(tmp_path, mutation):
     from codex_runner.campaign_engine.filesystem import physical_files
     from codex_runner.campaign_engine.live_executor import _check_symlink_topology, _snapshot_target
@@ -3657,6 +3657,11 @@ def test_tracked_symlink_topology_fails_closed(tmp_path, mutation):
     assert all(not p.is_symlink() and "alias" not in p.relative_to(target).parts for p in physical_files(target))
     if mutation == "new":
         (target / "new-alias").symlink_to("physical")
+    elif mutation == "git_link":
+        (target / ".git/new-alias").symlink_to("../physical")
+    elif mutation == "nested_git_link":
+        (target / "nested/.git").mkdir(parents=True)
+        (target / "nested/.git/new-alias").symlink_to("../../physical")
     elif mutation == "replace_regular":
         (target / "proof_target.txt").unlink()
         (target / "proof_target.txt").symlink_to("physical/data")
@@ -3732,3 +3737,25 @@ def test_symlink_guard_preserves_validation_sequence(tmp_path, monkeypatch, stag
     assert error.value.failure_reason == "target_symlink_topology_changed"
     assert len(calls) == (0 if stage == "pre_invocation" else 1)
     assert len(validations) == (1 if stage == "validation" else 0)
+
+
+@pytest.mark.parametrize("relative", [".git/new-link", "nested/.git/new-link"])
+def test_git_symlink_rejected_before_git_metadata_read(tmp_path, monkeypatch, relative):
+    from codex_runner.campaign_engine import filesystem
+    from codex_runner.campaign_engine import live_evaluator
+    from codex_runner.campaign_engine.errors import CampaignLiveEvaluatorError
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    link = target / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(tmp_path)
+    monkeypatch.setattr(filesystem.subprocess, "run", lambda *args, **kwargs: pytest.fail("Git must not read through an untrusted metadata alias"))
+    with pytest.raises(ValueError, match="physical Git metadata"):
+        filesystem.tracked_symlink_snapshot(target)
+    with pytest.raises(CampaignLiveExecutorError) as executor_error:
+        prepare_live_executor_campaign(campaign, target)
+    assert executor_error.value.failure_reason == "target_symlink_topology_changed"
+    assert executor_error.value.runner_call_count == 0
+    with pytest.raises(CampaignLiveEvaluatorError) as error:
+        live_evaluator._target_fingerprint(target, calls=1)
+    assert error.value.reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1

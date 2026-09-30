@@ -927,13 +927,20 @@ def test_unchanged_tracked_links_complete_lifecycle(tmp_path, monkeypatch):
     assert (target / "directory-alias").is_symlink()
 
 
-def test_evaluator_symlink_mutation_rejected(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mutation", ["retarget", "git_link", "nested_git_link"])
+def test_evaluator_symlink_mutation_rejected(tmp_path, monkeypatch, mutation):
     prep, envelope, decision, receipt, harness, _, target = _prepare_lifecycle(
         tmp_path, monkeypatch, evaluator_effort="high", tracked_symlinks=True,
     )
     def mutate(**kwargs):
-        (target / "file-alias").unlink()
-        (target / "file-alias").symlink_to("proof_target.txt")
+        if mutation == "retarget":
+            (target / "file-alias").unlink()
+            (target / "file-alias").symlink_to("proof_target.txt")
+        elif mutation == "git_link":
+            (target / ".git/new-link").symlink_to("../proof_target.txt")
+        else:
+            (target / "nested/.git").mkdir(parents=True)
+            (target / "nested/.git/new-link").symlink_to("../../proof_target.txt")
         return EvaluatorOutcome(receipt, harness, _verdict())
     monkeypatch.setattr(live_evaluator, "_invoker", mutate)
     with pytest.raises(CampaignLiveEvaluatorError) as error:

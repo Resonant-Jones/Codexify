@@ -187,6 +187,7 @@ def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
     """Hash target bytes and Git HEAD; support physical worktree Git pointers."""
     if not target.is_dir() or not (target / ".git").exists():
         _fail("disposable_target_invalid", calls=calls)
+    symlinks = _symlink_evidence(target, calls=calls)
     try:
         root = subprocess.run(
             ["git", "-C", str(target), "rev-parse", "--show-toplevel"],
@@ -197,7 +198,6 @@ def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
     head = _read_git_head(target)
     if Path(root).resolve() != target.resolve() or not head:
         _fail("disposable_target_invalid", calls=calls)
-    symlinks = _symlink_evidence(target, calls=calls)
     files = {
         str(path.relative_to(target)): _hash_file(path)
         for path in physical_files(target, include_git=True)
