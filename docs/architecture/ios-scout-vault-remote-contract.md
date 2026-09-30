@@ -6,7 +6,7 @@
 
 Purpose: Define the boundary for the existing native Scout client and its future remote connection to the user's Codexify home server, Vault, while keeping Guardian as the operator and Codexify Core as the long-term authority.
 
-Last updated: 2026-09-22
+Last updated: 2026-09-30
 
 ## Purpose
 
@@ -68,6 +68,21 @@ Authentication boundary:
 - The implemented local/operator lane may send `X-API-Key`; credential presence alone does not establish authentication. The Guardian-health probe fails closed on unrelated or malformed HTTP success responses.
 - ADR-051 governs the separation between local API-key and remote session/Bearer behavior for private clients. Scout must not silently reinterpret its local API key as a remote user session, send both credentials, or fall back to the local credential after remote authentication loss.
 - Scout's remote Bearer/session lane, email/password login, logout, and revocation lifecycle remain future implementation and proof work. Cloudflare/browser admission or private-network transport cannot substitute for Guardian account authentication. Hosted native ingress is unqualified.
+
+## Hosted and personal connection composition
+
+The connection model is `connection = endpoint/transport + explicit authentication mode`.
+
+- The intended convenience/default hosted lane is `https://preview.codexify.space` with `remoteSession`. This is product direction, not a qualified native connection or an implemented default profile.
+- Personal/self-hosted nodes remain first-class: a user chooses their own HTTPS endpoint and an authentication mode actually supported by that node. Connecting to one's own node must not require a Resonant Constructs paid-service account.
+- Tailscale, LAN/private DNS, Cloudflare Tunnel, and user-controlled ingress are transport options. They do not choose a Codexify authentication mode or establish account identity.
+- Cloudflare Access is a distinct ingress admission boundary where configured. On 2026-09-30 the hosted browser visibly presented its Google and email-code sign-in screen. Repository account login remains a separate Guardian-owned session issuer; Access admission is not account-session issuance.
+- Credentials must be isolated by profile and endpoint origin before multiple usable connections ship. The current global local-key storage does not prove that isolation; remote-session storage and a multi-profile credential lifecycle remain unfinished.
+- Guardian/Vault owns durable accounts, threads, messages, tasks, and documents. Scout's volatile projections remain subordinate to that authority.
+
+The 2026-09-30 continuity slice shares observable persisted-message state between thread and task views. A successful `task.completed` triggers a persisted read and publishes that read to the conversation; a failed read cannot claim refresh success. Failed/cancelled tasks do not create assistant messages. Selection includes profile identity, endpoint URL, authentication mode, and thread ID; changed connections clear volatile views, and stale or overlapping reads cannot replace newer/other-node state. Display-only profile metadata changes preserve selection. Foreground/resume refresh is bounded to the selected conversation. These are code/test/build claims, not authenticated hosted proof.
+
+See [Scout remote-session progress](../../mobile/scout-ios/SCOUT_REMOTE_SESSION_PROGRESS.md) for the authentication trace, exact external prerequisite, validation, and unproven surfaces. App Entities/App Intents (#816) and deeper integrations remain downstream of operational continuity (#815); no Beta, TestFlight, or App Store readiness advances.
 
 ## Repository Posture
 
