@@ -23,6 +23,13 @@ from guardian.core.media_signing import extract_media_path
 from guardian.core.storage import FileNotFoundError as StorageFileNotFoundError
 from guardian.core.storage import StorageError, create_storage_from_env
 
+# UMS-11. Single authority for the accepted opaque-fingerprint algorithm
+# versions, so export validation and the purge service cannot drift.
+from guardian.services.memory_purge import (
+    PURGED_RECORD_FINGERPRINT_VERSION,
+    SOURCE_ATOM_FINGERPRINT_VERSION,
+)
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "account-export.v3"
@@ -45,6 +52,11 @@ REVIEW_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v6"
 #: semantics are preserved exactly: v6 remains the seven-family canonical
 #: graph and is never widened to carry lifecycle history.
 LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v7"
+#: UMS-11. v8 is the v7 canonical graph plus the minimum non-content
+#: permanent-erasure suppression family. Tombstones have no parent memory
+#: row -- the purge that writes one deletes that row -- so this family is
+#: independent of the erased canonical graph rather than a child of it.
+PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION = "account-export.v8"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -214,6 +226,19 @@ LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER = REVIEW_REVISION_MEMORY_PAYLOAD_ORDER +
 LIFECYCLE_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
     entry[0] for entry in LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
 )
+#: UMS-11. v8 adds ``memory_purge_tombstones``. Appended last because a
+#: tombstone references no live canonical memory: it is the surviving record
+#: of a memory that is *absent* from this archive by design.
+PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER = LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_purge_tombstones",
+        "entities/memory_purge_tombstones.json",
+        "fetch_account_export_memory_purge_tombstones_for_user",
+    ),
+)
+PURGE_TOMBSTONE_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+)
 # NOTE: FULL_PAYLOAD_ORDER stays bound to v5. Widening it would silently
 # redefine the v5 canonical graph, which is immutable.
 FULL_PAYLOAD_ORDER = PAYLOAD_ORDER + REVISION_MEMORY_PAYLOAD_ORDER
@@ -233,6 +258,9 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
     ),
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+    ),
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
@@ -243,6 +271,9 @@ EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     ),
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
     ),
 }
 BINARY_FAMILIES = {
@@ -571,6 +602,19 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "new_lifecycle_state",
         "created_at",
     },
+    # UMS-11: minimum non-content permanent-erasure suppression state. This
+    # field set is an allowlist, so it is also the export-side guarantee that
+    # no content-bearing column can reach an archive through this family.
+    "memory_purge_tombstones": {
+        "purge_receipt_id",
+        "user_id",
+        "purged_record_fingerprint",
+        "source_system",
+        "source_entity_kind",
+        "source_atom_fingerprint",
+        "purged_at",
+        "suppress_reimport",
+    },
 }
 
 _UNIFIED_MEMORY_ID_FIELDS = {
@@ -582,6 +626,7 @@ _UNIFIED_MEMORY_ID_FIELDS = {
     "memory_revisions": "revision_id",
     "memory_review_revisions": "review_revision_id",
     "memory_lifecycle_revisions": "lifecycle_revision_id",
+    "memory_purge_tombstones": "purge_receipt_id",
 }
 
 _UNIFIED_MEMORY_SORT_KEYS = {
@@ -605,11 +650,130 @@ _UNIFIED_MEMORY_SORT_KEYS = {
         "link_id",
     ),
     "memory_provenance": ("memory_id", "provenance_id"),
+    # UMS-11. Tombstones sort by their own stable receipt identity because
+    # they have no parent memory_id to sort within. purge_receipt_id is a
+    # server-authored UUID, so string ordering is already total and stable.
+    "memory_purge_tombstones": ("purge_receipt_id",),
 }
 
 
 def _identity(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _validate_purge_tombstone_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+) -> None:
+    """Fail closed on malformed permanent-erasure suppression state (UMS-11).
+
+    Tombstones are validated by a *different* rule set than the revision
+    families, and deliberately so. A revision family is a child of a live
+    canonical memory and is checked against that parent. A tombstone's
+    defining property is that its parent is **absent**: it is the surviving
+    record of a memory that was permanently erased. Validating a tombstone
+    against ``memory_records`` would therefore be validating it against
+    something that must not be there.
+
+    What is checked instead:
+
+    * account ownership;
+    * well-formed versioned, non-content fingerprints;
+    * that ``suppress_reimport`` is true -- an archive that claimed to
+      carry a relaxation of suppression is malformed, not permissive;
+    * receipt-identity uniqueness; and
+    * absence of any content-bearing field, which is the export-side
+      guarantee that erasure actually held.
+
+    Absence of tombstones is valid. An account that never purged anything
+    carries none, and no tombstone is ever fabricated to fill the family.
+    """
+    if not rows:
+        return
+
+    seen_receipts: set[str] = set()
+    for row in rows:
+        receipt_id = _identity(row.get("purge_receipt_id"))
+        if not receipt_id:
+            raise RuntimeError("purge_tombstone_export_receipt_missing")
+        if receipt_id in seen_receipts:
+            raise RuntimeError("purge_tombstone_export_duplicate_receipt")
+        seen_receipts.add(receipt_id)
+
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("purge_tombstone_export_account_mismatch")
+
+        record_fingerprint = _identity(row.get("purged_record_fingerprint"))
+        if not _is_versioned_digest(record_fingerprint):
+            raise RuntimeError("purge_tombstone_export_record_fingerprint_invalid")
+
+        raw_source_fingerprint = row.get("source_atom_fingerprint")
+        if raw_source_fingerprint is not None:
+            if not _is_versioned_digest(_identity(raw_source_fingerprint)):
+                raise RuntimeError("purge_tombstone_export_source_fingerprint_invalid")
+
+        # A tombstone claiming relaxed suppression is malformed. It is never
+        # exported as permissive and never silently repaired.
+        if row.get("suppress_reimport") is not True:
+            raise RuntimeError("purge_tombstone_export_suppression_not_true")
+
+        if row.get("purged_at") is None:
+            raise RuntimeError("purge_tombstone_export_purged_at_missing")
+
+        # Content audit. A tombstone must carry none of these, and an archive
+        # that somehow contains them has not actually erased anything.
+        for forbidden in (
+            "text_content",
+            "old_text_content",
+            "new_text_content",
+            "excerpt",
+            "content",
+            "source_record_id",
+            "embedding",
+        ):
+            if forbidden in row:
+                raise RuntimeError("purge_tombstone_export_content_field_present")
+
+
+#: UMS-11. Algorithm versions a tombstone fingerprint may carry.
+_ACCEPTED_FINGERPRINT_VERSIONS: frozenset[str] = frozenset(
+    {
+        PURGED_RECORD_FINGERPRINT_VERSION,
+        SOURCE_ATOM_FINGERPRINT_VERSION,
+    }
+)
+
+
+def _is_versioned_digest(value: str) -> bool:
+    """Return True for a ``<known-version>:<64 hex>`` non-content fingerprint.
+
+    Both purged-record and source-atom fingerprints are opaque digests with
+    an explicit algorithm version prefix. Two things are rejected:
+
+    * a bare or unversioned value, so a fingerprint is never ambiguous; and
+    * an **unrecognised** version. An older build must fail closed on a
+      future-versioned tombstone rather than silently reinterpret a digest it
+      does not know how to produce, which could mis-match suppression state
+      in either direction.
+
+    The accepted version set is imported from the purge service so the
+    algorithm authority has exactly one home.
+    """
+    if not value or ":" not in value:
+        return False
+    version, _, digest = value.partition(":")
+    if version.strip() not in _ACCEPTED_FINGERPRINT_VERSIONS:
+        return False
+    if not digest.strip():
+        return False
+    if any(character.isspace() for character in digest):
+        return False
+    try:
+        int(digest, 16)
+    except ValueError:
+        return False
+    return len(digest) == 64
 
 
 def _validate_unified_memory_export(
@@ -722,6 +886,15 @@ def _validate_unified_memory_export(
         rows_by_family.get("memory_lifecycle_revisions", ()),
         user_id=user_id,
         memories_by_id=memories_by_id,
+    )
+
+    # UMS-11: permanent-erasure suppression state is validated against the
+    # account and against its own non-content shape, never against a live
+    # canonical memory -- a tombstone's parent is absent by definition. A
+    # v4-v7 archive carries no tombstone family and is skipped entirely.
+    _validate_purge_tombstone_export(
+        rows_by_family.get("memory_purge_tombstones", ()),
+        user_id=user_id,
     )
 
     provenance_memory_ids: set[str] = set()
@@ -1225,7 +1398,24 @@ def _build_manifest(
         )
     )
 
-    if schema_version == LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION:
+    if schema_version == PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION:
+        # v8 is the v7 canonical graph plus purge suppression tombstones.
+        compatibility = {
+            "reader": "account_export.v8",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v8 serialization: the v7 eight-family canonical Unified Memory graph plus the memory_purge_tombstones family.",
+            "A purge tombstone carries only minimum non-content suppression state; the memory it describes is absent from this archive by design.",
+            "Tombstones contain no memory text, revision text, evidence excerpt, plaintext source entity id, Project name, Persona name, or embedding.",
+            "Restoring this archive preserves resurrection suppression, so a previously purged source atom stays suppressed on the destination instance.",
+            "A tombstone is never a second authority over a live memory: an archive carrying both a live memory and a suppression claim for the same identity must fail closed on restore.",
+        ]
+    elif schema_version == LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION:
         # v7 is the eight-family canonical graph.
         compatibility = {
             "reader": "account_export.v7",
@@ -1356,6 +1546,7 @@ def build_account_export_zip(
         REVISION_MANIFEST_SCHEMA_VERSION,
         REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
         LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
+        PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
     )
     rows_by_family = _load_rows_by_family(
         db,

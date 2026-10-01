@@ -107,11 +107,15 @@ schema version. An existing version's family set is never widened.
 | `account-export.v5` | the five above plus `memory_revisions` | UMS-05C9 |
 | `account-export.v6` | the six above plus `memory_review_revisions` | UMS-05C10A-P |
 | `account-export.v7` | the seven above plus `memory_lifecycle_revisions` | UMS-05C10B-P |
+| `account-export.v8` | the eight above plus `memory_purge_tombstones` | UMS-11 |
 
-`account-export.v7` is the current eight-family canonical UMS account
-schema. `account-export.v6` retains its exact seven-family meaning; a v6
-archive never carries `memory_lifecycle_revisions`, and it is not
-reinterpreted as malformed because v7 exists. `account-export.v5` retains
+`account-export.v8` is the current nine-family canonical UMS account
+schema. `account-export.v7` retains its exact eight-family meaning; a v7
+archive never carries `memory_purge_tombstones`, and it is not
+reinterpreted as malformed because v8 exists. `account-export.v6` retains
+its exact seven-family meaning; a v6 archive never carries
+`memory_lifecycle_revisions`, and it is not reinterpreted as malformed
+because v7 exists. `account-export.v5` retains
 its exact six-family meaning; a v5 archive never carries
 `memory_review_revisions`, and a v5 restore never fabricates review
 history for a memory that has none.
@@ -143,6 +147,51 @@ Required v6 behavior:
 
 A v6 archive records review transitions; it does not authorize them. No legal
 review-transition graph is encoded in the schema or in export/restore.
+
+### Permanent-erasure suppression (account-export.v8)
+
+`memory_purge_tombstones` is **not** a canonical memory family and must not
+be treated as one. Every other UMS family in this graph is a child of a live
+`memory_records` row. A tombstone's defining property is that its parent is
+**absent**: it is the surviving record of a memory that was permanently
+erased. It therefore has no `memory_id`, is not validated against
+`memory_records`, and does not participate in the parent-first restore order.
+
+What it carries is the minimum non-content suppression authority:
+`purge_receipt_id`, `user_id`, `purged_record_fingerprint`, the source
+*kind* (`source_system`, `source_entity_kind`), an opaque
+`source_atom_fingerprint`, `purged_at`, and `suppress_reimport`.
+
+Required v8 behavior:
+
+- exact field set, with no content-bearing column, so an archive can never be
+  a surviving copy of what was supposedly erased;
+- versioned, non-content fingerprints. A bare, unversioned, malformed, or
+  **unrecognised-version** digest fails closed: an older build must refuse a
+  future-versioned tombstone rather than silently reinterpret a digest it
+  cannot produce;
+- `suppress_reimport` must be `true`. An archive claiming relaxed suppression
+  is malformed, never permissive, and is never silently repaired;
+- deterministic ordering by `purge_receipt_id`;
+- an exact `memory_purge_tombstones` row count in `entity_counts`;
+- account isolation on both export and restore.
+
+**Contradiction rule.** A v8 archive must fail closed if it carries both a
+live canonical memory and a tombstone suppressing that same identity, or
+suppressing that memory's source atom. The check recomputes the canonical
+digest from the live row and compares exactly, so neither side is silently
+preferred. Neither is the tombstone silently dropped, which would leave a
+previously purged atom resurrectable.
+
+**Replay.** A second restore of the same v8 archive is idempotent: it creates
+no second tombstone, no second receipt identity, and reports the existing row
+as identical. A same-receipt-id, different-semantics row is a conflict and
+rolls back.
+
+**Backup truth.** Restoring an archive restores suppression; it does not
+retroactively erase content from copies of the source instance's backups or
+from archive files the user already downloaded. UMS-11 proves deletion from
+state under Codexify's direct control and makes no claim beyond that.
 
 ### Lifecycle-transition history (account-export.v7)
 

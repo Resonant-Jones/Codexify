@@ -34,8 +34,13 @@ The Memory Vault is **not**:
 - an importer of any external memory corpus;
 - an automatic suggestion engine;
 - an activation / heat / decay projection engine;
-- a permanent-erasure implementation;
 - a parallel writable authority.
+
+Permanent erasure is no longer out of scope: it was implemented in UMS-11 as
+`MemoryPurgeService` over one exact canonical ordinary-memory record. It is
+still **internal-only** and has no Vault UI affordance, and it does **not**
+purge Personal Facts, external corpus imports, or any non-canonical memory
+subsystem. See §Permanent erasure (UMS-11) below.
 
 ### Naming collision warning
 
@@ -339,7 +344,7 @@ internal-only, and unaffected.
 | Anthropic / external corpus import | UMS-08 |
 | Consent-gated automatic suggestion acceptance flow | UMS-09 |
 | Heat / activation projections | UMS-10 |
-| Permanent purge / erasure | UMS-11 |
+| ~~Permanent purge / erasure~~ | UMS-11 — **live since UMS-11** |
 
 The Vault UI may render a disabled / placeholder affordance for any of
 the above **only** with explicit "Not available in this build" copy.
@@ -557,7 +562,7 @@ The implementation boundary for UMS-05 is frozen by this matrix.
 | External corpus import | **Deferred** | not in Vault | UMS-08 | n/a | not exposed |
 | Automatic suggestion acceptance | **Deferred** | not in Vault | UMS-09 | n/a | not exposed |
 | Heat / activation projection | **Deferred** | not in Vault | UMS-10 | n/a | not exposed |
-| Permanent erasure | **Deferred** | not in Vault | UMS-11 | n/a | no live purge action |
+| Permanent erasure (purge) | Live in UMS-11 | canonical purge service | UMS-11 | Yes | **irreversible**; leaves a minimum non-content suppression tombstone |
 | Ambient eligibility override | **Never** | n/a | n/a | n/a | always computed |
 | Cross-account Vault access | **Never** | n/a | n/a | n/a | fails closed |
 | Host Operator memory-content read | **Never** | n/a | n/a | n/a | fails closed |
@@ -587,6 +592,81 @@ remain NOT AUTHORIZED until UMS-05B qualifies the read surface.
 If repository discovery proves this dependency order wrong, UMS-05B
 must document the reason before any later slice starts; the Campaign
 order is not silently reshuffled.
+
+---
+
+## 16. Permanent erasure (UMS-11)
+
+Permanent purge is implemented and live, internally, since UMS-11. It closes
+the single foundational gap admitted by the 2026-09-30 Campaign
+revalidation (`UMS_FOUNDATIONAL_GAP_REMAINS`), which held that retirement is
+not purge and that no canonical purge relation, service, route, or proof
+existed.
+
+### 16.1 Purge is not retirement
+
+The distinction is load-bearing and is never collapsed:
+
+| | Retire / restore (ADR-089) | Purge (UMS-11) |
+| --- | --- | --- |
+| Content | retained canonically | destroyed |
+| Reversible | yes, from lifecycle history | **no** |
+| Surviving state | full record + history | minimum non-content tombstone only |
+| Recalls | direct authorized recall of `retired` | target is gone |
+
+`retired` remains canonically retrievable and is **not** erasure. A Vault that
+offers a "delete" affordance backed by `retire` would be lying to the user.
+
+### 16.2 Surface
+
+Two internal routes, both on the internal-only Memory Vault router, both
+hidden from any public surface:
+
+```text
+GET  /api/memory-vault/items/canonical/{memory_id}/purge-preview
+POST /api/memory-vault/items/canonical/{memory_id}/purge
+```
+
+They are thin adapters. SQL, row locking, CAS, confirmation-token
+recomputation, fingerprint derivation, deletion fan-out, tombstone
+construction, and suppression policy all belong to `MemoryPurgeService`.
+
+### 16.3 Required posture
+
+- exact-target preview is account-scoped and reports the real affected-row
+  inventory before anything is destroyed;
+- purge requires a fresh CAS token **and** a confirmation token minted
+  against the current destructive target; both are validated before any
+  deletion, and the canonical row is locked so purge cannot interleave with
+  content correction, review transition, lifecycle transition, Persona
+  attribution, pin, or hold;
+- the authenticated owning account is the only authority. Infrastructure
+  Operator, model, and Persona authority are insufficient, and Project
+  ownership does not replace account ownership;
+- missing and cross-account targets share one indistinguishable 404;
+- a retry of a completed purge is idempotent and returns the original
+  `purge_receipt_id` and `purged_at`; a cross-account retry learns nothing.
+
+### 16.4 What survives
+
+Exactly one minimum non-content `memory_purge_tombstones` row. It carries no
+memory text, no revision text, no evidence excerpt, no plaintext source entity
+id, no Project or Persona name, no embedding, and no extensions JSON. Identity
+is a versioned opaque digest, and `suppress_reimport` is structurally
+incapable of becoming false.
+
+An import-origin record that cannot yield one safe deterministic source-atom
+identity **fails closed before deletion**. Erasing it while knowingly leaving
+automatic resurrection possible would be a false erasure claim.
+
+### 16.5 Boundary that remains
+
+UMS-11 does not purge Personal Facts, which retain their specialized
+authority; ordinary-memory purge has no schema path to them. It does not
+delete from external user backups, previously downloaded account-export
+archives, or any system outside Codexify's immediate control. It provides no
+Vault UI affordance and no generic suppression bypass for any model,
+Operator, importer, or retry.
 
 ---
 

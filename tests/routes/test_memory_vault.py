@@ -1490,10 +1490,19 @@ def test_router_method_surface() -> None:
         if path.startswith("/api/memory-vault"):
             for forbidden in ("put", "delete"):
                 assert forbidden not in operations, f"{path} exposes {forbidden}"
-    # Only the explicit creation PATCH route may carry POST.
+    # Only two routes may carry POST: the admitted explicit creation route
+    # (C6) and the UMS-11 permanent-erasure route, which is the only
+    # destructive surface on this router. Everything else is GET/PATCH.
+    admitted_posts = {
+        "/api/memory-vault/items",
+        "/api/memory-vault/items/canonical/{memory_id}/purge",
+    }
     assert "post" in schema["paths"]["/api/memory-vault/items"]
+    assert (
+        "post" in schema["paths"]["/api/memory-vault/items/canonical/{memory_id}/purge"]
+    )
     for path, operations in schema["paths"].items():
-        if path.startswith("/api/memory-vault") and path != "/api/memory-vault/items":
+        if path.startswith("/api/memory-vault") and path not in admitted_posts:
             assert "post" not in operations, f"{path} exposes post"
 
 
