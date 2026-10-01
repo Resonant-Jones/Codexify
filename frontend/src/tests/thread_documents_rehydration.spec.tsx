@@ -10,8 +10,8 @@ import {
   __setAuthStateForTests,
 } from "@/lib/authState";
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = {
     connected: false,
     connectionStatus: "disconnected",
     statusUpdatedAt: null,
@@ -36,8 +36,9 @@ vi.mock("@/hooks/useLiveEvents", () => ({
       lastEventId: null,
     },
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return { useLiveEvents: () => snapshot };
+});
 
 // JSDOM lacks scrollIntoView in some environments; stub for auto-scroll logic
 if (!Element.prototype.scrollIntoView) {
@@ -119,7 +120,7 @@ describe("Thread document rehydration", () => {
           data: [{ id: 1, name: "General" }],
         } as AxiosResponse);
       }
-      if (url === "/chat/threads") {
+      if (url === "/api/chat/threads") {
         return Promise.resolve({
           data: {
             threads: [
