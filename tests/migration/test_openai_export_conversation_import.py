@@ -74,6 +74,9 @@ def transaction_postgres_url(
         config.set_main_option(
             "script_location", str(repo_root / "guardian" / "db" / "migrations")
         )
+        # Options are loaded above. Keep the migration environment from calling
+        # fileConfig and disabling application loggers in the shared test process.
+        config.config_file_name = None
         command.upgrade(config, "head")
         engine = sa.create_engine(
             parsed_url.set(drivername="postgresql+psycopg", database=database_name),
