@@ -146,13 +146,78 @@ This file is authoritative for:
   UMS-05C11+: NOT AUTHORIZED
   UMS-05D+: NOT AUTHORIZED
 
-  UMS-06 - 10, 12: NOT AUTHORIZED
-  UMS-11 AUDITED PERMANENT ERASURE: AUTHORIZED (sole successor)
+  UMS-06 - 10: PARKED
+  UMS-11 AUDITED PERMANENT ERASURE: CLOSED
+  UMS-12 SUPPORTED USER-FACING PROOF: AUTHORIZED
+  UMS CAMPAIGN: OPEN FOR PROOF ONLY
   ```
 
+- Implemented **audited ordinary-memory permanent erasure** (UMS-11) on
+  2026-09-30, closing the one foundational gap the campaign revalidation had
+  recorded. The UMS architectural baseline is now **complete** and foundation
+  expansion remains frozen.
+
+  Internally, and only internally:
+
+  - one exact canonical ordinary memory can be permanently erased after an
+    account-scoped preview reports precisely what will be destroyed;
+  - purge requires a fresh CAS token **and** a confirmation token bound to the
+    current destructive target, both validated before anything is deleted, with
+    the canonical row locked against concurrent mutation;
+  - the canonical parent and every content-bearing child
+    (`memory_provenance`, `memory_revisions`, `memory_review_revisions`,
+    `memory_lifecycle_revisions`, `memory_persona_links`) are removed in one
+    transaction with a minimum non-content tombstone, so content-absent with no
+    tombstone and tombstone-present with content still present are both
+    impossible;
+  - `memory_purge_tombstones` retains only an opaque record fingerprint, the
+    source *kind*, an opaque source-atom fingerprint, a server-authored
+    receipt identity, the purge time, and a `suppress_reimport` flag that a
+    CHECK constraint makes incapable of becoming false. It holds no memory
+    text, no revision text, no excerpt, no plaintext source id, and no
+    embedding;
+  - replay of the same source atom is suppressed for the owning account and is
+    reported distinctly from deduplication. There is no bypass for any model,
+    Operator, importer, or retry;
+  - an import-origin record that cannot yield one safe source-atom identity
+    **fails closed before deletion** rather than being erased into a state
+    where it could silently resurrect;
+  - a retry is idempotent and returns the original receipt identity; a
+    cross-account retry observes nothing;
+  - suppression is portable through `account-export.v8`, the nine-family
+    canonical graph. v7 and earlier keep their exact meanings and the
+    production default export schema is unchanged. An archive carrying both a
+    live memory and a tombstone suppressing that identity or source atom fails
+    closed.
+
+  **Architectural maturity is not release qualification.** No public release
+  claim changes here. The Memory Vault remains internal-only, both new routes
+  sit behind the same internal flag, and there is no frontend affordance.
+
+  Boundaries recorded rather than papered over:
+
+  - Personal Facts keep their specialized authority; ordinary-memory purge has
+    no schema path to them and does not generic-delete them;
+  - there is currently **no** canonical imported-memory writer, so no
+    provider-specific re-import wiring exists and UMS-08 stays parked;
+  - there is currently **no** UMS vector, heat, summary, cache, queue, or
+    graph-derived state, so the derived fan-out is proven as absence. The
+    repository's only `heat_score` column belongs to `imprints` (cognition)
+    and is not a canonical memory relation;
+  - nothing is claimed about external backups, remote systems, or archives a
+    user already downloaded.
+
+  `UMS-12` is now the sole authorized successor and is a **proof / release
+  qualification** slice. It was not begun. UMS-06 through UMS-10 remain
+  parked, and no C11 was created.
+
+  Evidence:
+  [2026-09-30-ums11-audited-permanent-erasure-proof.md](proofs/runtime/2026-09-30-ums11-audited-permanent-erasure-proof.md)
+
 - Revalidated the Unified Memory Store campaign on 2026-09-30 and determined
-  `UMS_FOUNDATIONAL_GAP_REMAINS`. The campaign **does not stop** and foundation
-  expansion stays frozen, with exactly one exception: audited permanent erasure.
+  `UMS_FOUNDATIONAL_GAP_REMAINS`. **Superseded by UMS-11 below**, which closed
+  the one gap it identified. Retained as the audit trail for how UMS-11 was
+  admitted; it is no longer current state.
 
   Runtime-proven today, unchanged by this revalidation: account ownership,
   canonical persistence (six relations, including `memory_revisions`,

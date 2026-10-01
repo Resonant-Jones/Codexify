@@ -19,17 +19,52 @@ from guardian.extensions.tokens import (
     ExtensionInstallBindingStatus,
     InstallGateDecisionToken,
 )
-from guardian.services.account_export import (
+
+# UMS-11. The fingerprint algorithm is imported, never reimplemented here, so
+# restore and purge cannot drift into disagreeing about what a tombstone means.
+from guardian.services.account_export import (  # noqa: E402
     EXPORT_KIND,
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
     MANIFEST_SCHEMA_VERSION,
     PAYLOAD_FAMILIES,
     PAYLOAD_ORDER,
     PAYLOAD_ORDER_BY_SCHEMA,
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
     REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     REVISION_MANIFEST_SCHEMA_VERSION,
     STAGED_MANIFEST_SCHEMA_VERSION,
     STAGED_PAYLOAD_FAMILIES,
+    _is_versioned_digest,
+)
+from guardian.services.memory_purge import (  # noqa: E402
+    purged_record_fingerprint,
+    source_atom_fingerprint,
+)
+
+#: UMS-11. A suppression tombstone must never carry any of these. Present here
+#: so restore fails closed rather than persisting a content-bearing "tombstone".
+#: UMS-11. Fields compared for replay-idempotent equality. Deliberately
+#: excludes the target account rebinding, which is compared separately.
+_PURGE_TOMBSTONE_FIELDS: tuple[str, ...] = (
+    "user_id",
+    "purged_record_fingerprint",
+    "source_system",
+    "source_entity_kind",
+    "source_atom_fingerprint",
+    "purged_at",
+    "suppress_reimport",
+)
+
+#: UMS-11. A suppression tombstone must never carry any of these. Present here
+#: so restore fails closed rather than persisting a content-bearing "tombstone".
+_PURGE_TOMBSTONE_FORBIDDEN_FIELDS: tuple[str, ...] = (
+    "text_content",
+    "old_text_content",
+    "new_text_content",
+    "excerpt",
+    "content",
+    "source_record_id",
+    "embedding",
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +77,7 @@ SUPPORTED_SCHEMA_VERSIONS = {
     REVISION_MANIFEST_SCHEMA_VERSION,
     REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
 }
 
 # Restore order is dependency-safe for the current schema. It differs from the
@@ -107,6 +143,7 @@ def _restore_order_for_schema(schema_version: str | None) -> tuple[str, ...]:
         REVISION_MANIFEST_SCHEMA_VERSION,
         REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
         LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
+        PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
     ):
         return RESTORE_ORDER
     return HISTORICAL_RESTORE_ORDER
@@ -179,6 +216,13 @@ def _canonical_family_counts(
         return (
             result.lifecycle_revision_created_count,
             result.lifecycle_revision_identical_count,
+            0,
+            0,
+        )
+    if family == "memory_purge_tombstones":
+        return (
+            result.purge_tombstone_created_count,
+            result.purge_tombstone_identical_count,
             0,
             0,
         )
@@ -2553,6 +2597,16 @@ LIFECYCLE_REVISION_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
     "memory_lifecycle_revisions",
 )
 
+#: UMS-11. v8 adds ``memory_purge_tombstones``. Unlike every revision family
+#: above, this one has no parent memory row to validate against: its parent is
+#: absent by design, because the purge that wrote the tombstone deleted it. It
+#: is therefore planned and persisted on its own non-content terms, and it
+#: never blocks or reorders the canonical memory families.
+PURGE_TOMBSTONE_MEMORY_RESTORE_PLAN_FAMILIES: tuple[str, ...] = (
+    *LIFECYCLE_REVISION_MEMORY_RESTORE_PLAN_FAMILIES,
+    "memory_purge_tombstones",
+)
+
 #: Revision families are only planned for the six-family v5 graph. A v4
 #: archive carries no revision family and keeps exactly v4 semantics.
 RESTORE_PLAN_FAMILIES_BY_SCHEMA = {
@@ -2563,6 +2617,9 @@ RESTORE_PLAN_FAMILIES_BY_SCHEMA = {
     ),
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
         LIFECYCLE_REVISION_MEMORY_RESTORE_PLAN_FAMILIES
+    ),
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PURGE_TOMBSTONE_MEMORY_RESTORE_PLAN_FAMILIES
     ),
 }
 _UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
@@ -2659,6 +2716,16 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "new_lifecycle_state",
         "created_at",
     ),
+    # UMS-11: permanent-erasure suppression tombstones. No memory_id: the
+    # erased parent is absent from the archive by design, so a tombstone is
+    # never validated against a live canonical memory.
+    "memory_purge_tombstones": (
+        "purge_receipt_id",
+        "user_id",
+        "purged_record_fingerprint",
+        "purged_at",
+        "suppress_reimport",
+    ),
 }
 _UNIFIED_MEMORY_SORT_KEYS: dict[str, tuple[str, ...]] = {
     "persona_subjects": ("persona_subject_id",),
@@ -2686,6 +2753,9 @@ _UNIFIED_MEMORY_SORT_KEYS: dict[str, tuple[str, ...]] = {
         "revision_number",
         "lifecycle_revision_id",
     ),
+    # UMS-11. Tombstones sort by their own stable receipt identity; they have
+    # no parent memory_id to sort within.
+    "memory_purge_tombstones": ("purge_receipt_id",),
 }
 
 
@@ -2806,6 +2876,27 @@ class PlannedMemoryLifecycleRevision:
 
 
 @dataclass(slots=True)
+class PlannedMemoryPurgeTombstone:
+    """UMS-11. One validated non-content permanent-erasure tombstone.
+
+    Carries no memory content and no reference to a live canonical memory.
+    ``purged_record_fingerprint`` and ``source_atom_fingerprint`` are opaque
+    versioned digests; the plaintext source entity id they were derived from
+    is never part of the archive and never reconstructed here.
+    """
+
+    source_purge_receipt_id: str
+    target_purge_receipt_id: str
+    target_account_id: str
+    purged_record_fingerprint: str
+    source_system: str | None
+    source_entity_kind: str | None
+    source_atom_fingerprint: str | None
+    purged_at: str
+    suppress_reimport: bool
+
+
+@dataclass(slots=True)
 class PlannedMemoryProvenance:
     source_provenance_id: str
     target_provenance_id: str
@@ -2845,6 +2936,11 @@ class CanonicalMemoryRestorePlan:
     memory_revisions: tuple[PlannedMemoryRevision, ...] = ()
     memory_review_revisions: tuple[PlannedMemoryReviewRevision, ...] = ()
     memory_lifecycle_revisions: tuple[PlannedMemoryLifecycleRevision, ...] = ()
+    #: UMS-11. Suppression tombstones restored alongside canonical memory.
+    #: Restoring these is what makes erasure survive migration to another
+    #: Codexify instance: without them a previously purged source atom would
+    #: be silently resurrectable on the destination.
+    memory_purge_tombstones: tuple[PlannedMemoryPurgeTombstone, ...] = ()
 
 
 def _preflight_identity_str(value: Any, *, field: str) -> str:
@@ -4131,6 +4227,15 @@ class UnifiedMemoryRestorePreflight:
                 details={"memory_ids": sorted(missing)},
             )
 
+        # Phase 6b: UMS-11 permanent-erasure suppression tombstones. Planned
+        # after canonical memory so the conflict rule below can compare a
+        # tombstone against every memory the archive tries to resurrect.
+        planned_purge_tombstones = self._plan_purge_tombstones(
+            payload_rows,
+            planned_memories=planned_memories,
+            planned_provenance=planned_provenance,
+        )
+
         # Phase 7: deterministic ordering.
         return CanonicalMemoryRestorePlan(
             target_account_id=self._target_account_id,
@@ -4207,7 +4312,193 @@ class UnifiedMemoryRestorePreflight:
                     ),
                 )
             ),
+            memory_purge_tombstones=tuple(
+                sorted(
+                    planned_purge_tombstones,
+                    key=lambda plan: _sort_text(plan.target_purge_receipt_id),
+                )
+            ),
         )
+
+    def _plan_purge_tombstones(
+        self,
+        payload_rows: dict[str, list[dict[str, Any]]],
+        *,
+        planned_memories: dict[str, PlannedMemoryRecord],
+        planned_provenance: list[PlannedMemoryProvenance],
+    ) -> list[PlannedMemoryPurgeTombstone]:
+        """Validate and plan UMS-11 non-content suppression tombstones.
+
+        Three properties are enforced, in order:
+
+        1. **Account ownership.** A tombstone may only be restored into the
+           account being restored.
+        2. **Non-content shape.** Fingerprints must be well-formed versioned
+           digests, ``suppress_reimport`` must be true, and no content-bearing
+           field may be present. A tombstone claiming relaxed suppression is
+           malformed, never permissive.
+        3. **No live-memory conflict.** An archive must not carry both a live
+           canonical memory and a tombstone claiming suppression of that same
+           identity or source atom. Both are matched by recomputing the
+           canonical digest from the live row -- exact, non-content, and
+           version-consistent -- rather than by trusting anything the archive
+           asserts. Neither side is silently preferred: the archive is
+           contradictory and fails closed.
+        """
+        rows = payload_rows.get("memory_purge_tombstones")
+        if not rows:
+            return []
+
+        planned: list[PlannedMemoryPurgeTombstone] = []
+        seen_receipts: set[str] = set()
+        seen_source_fingerprints: set[str] = set()
+
+        for raw_row in rows:
+            _preflight_required_fields_present(raw_row, "memory_purge_tombstones")
+
+            source_receipt_id = _preflight_identity_str(
+                raw_row.get("purge_receipt_id"),
+                field="memory_purge_tombstones.purge_receipt_id",
+            )
+            if source_receipt_id in seen_receipts:
+                raise _preflight_error(
+                    "memory_purge_tombstone_duplicate_receipt",
+                    "two memory_purge_tombstones rows claim the same "
+                    "purge_receipt_id",
+                    details={"purge_receipt_id": source_receipt_id},
+                )
+            seen_receipts.add(source_receipt_id)
+
+            user_id = _preflight_identity_str(
+                raw_row.get("user_id"), field="memory_purge_tombstones.user_id"
+            )
+            if user_id != self._source_account_id:
+                raise _preflight_error(
+                    "memory_purge_tombstone_account_mismatch",
+                    "memory_purge_tombstones row references an account outside "
+                    "the restored account",
+                    details={
+                        "purge_receipt_id": source_receipt_id,
+                        "actual": user_id,
+                        "expected": self._source_account_id,
+                    },
+                )
+
+            record_fingerprint = _preflight_identity_str(
+                raw_row.get("purged_record_fingerprint"),
+                field="memory_purge_tombstones.purged_record_fingerprint",
+            )
+            if not _is_versioned_digest(record_fingerprint):
+                raise _preflight_error(
+                    "memory_purge_tombstone_record_fingerprint_invalid",
+                    "purged_record_fingerprint must be a versioned opaque digest",
+                    details={"purge_receipt_id": source_receipt_id},
+                )
+
+            raw_source_fingerprint = raw_row.get("source_atom_fingerprint")
+            source_fingerprint: str | None = None
+            if raw_source_fingerprint is not None:
+                source_fingerprint = _preflight_identity_str(
+                    raw_source_fingerprint,
+                    field="memory_purge_tombstones.source_atom_fingerprint",
+                )
+                if not _is_versioned_digest(source_fingerprint):
+                    raise _preflight_error(
+                        "memory_purge_tombstone_source_fingerprint_invalid",
+                        "source_atom_fingerprint must be a versioned opaque digest",
+                        details={"purge_receipt_id": source_receipt_id},
+                    )
+                if source_fingerprint in seen_source_fingerprints:
+                    raise _preflight_error(
+                        "memory_purge_tombstone_duplicate_source_fingerprint",
+                        "two memory_purge_tombstones rows suppress the same "
+                        "source atom for one account",
+                        details={"purge_receipt_id": source_receipt_id},
+                    )
+                seen_source_fingerprints.add(source_fingerprint)
+
+            if raw_row.get("suppress_reimport") is not True:
+                raise _preflight_error(
+                    "memory_purge_tombstone_suppression_not_true",
+                    "memory_purge_tombstones.suppress_reimport must be true; "
+                    "a suppression claim may never be relaxed by an archive",
+                    details={"purge_receipt_id": source_receipt_id},
+                )
+
+            for forbidden in _PURGE_TOMBSTONE_FORBIDDEN_FIELDS:
+                if forbidden in raw_row:
+                    raise _preflight_error(
+                        "memory_purge_tombstone_content_field_present",
+                        "memory_purge_tombstones carries a content-bearing "
+                        "field; erasure is not representable",
+                        details={
+                            "purge_receipt_id": source_receipt_id,
+                            "field": forbidden,
+                        },
+                    )
+
+            purged_at = _preflight_identity_str(
+                raw_row.get("purged_at"),
+                field="memory_purge_tombstones.purged_at",
+            )
+
+            # Conflict rule. Recompute the canonical digests from the live
+            # rows this archive is trying to restore and compare exactly.
+            for memory_id, planned_memory in planned_memories.items():
+                if purged_record_fingerprint(memory_id) == record_fingerprint:
+                    raise _preflight_error(
+                        "memory_purge_tombstone_conflicts_live_memory",
+                        "archive carries both a live canonical memory and a "
+                        "purge tombstone suppressing that same identity; the "
+                        "archive is contradictory",
+                        details={
+                            "purge_receipt_id": source_receipt_id,
+                            "memory_id": memory_id,
+                        },
+                    )
+
+            if source_fingerprint is not None:
+                for provenance in planned_provenance:
+                    if not provenance.is_imported:
+                        continue
+                    identity = (provenance.source_record_id or "").strip()
+                    source_system = (provenance.source_system or "").strip()
+                    if not identity or not source_system:
+                        continue
+                    replayed = source_atom_fingerprint(
+                        source_system=source_system,
+                        source_entity_kind=provenance.source_subject_kind,
+                        source_atom_identity=identity,
+                    )
+                    if replayed == source_fingerprint:
+                        raise _preflight_error(
+                            "memory_purge_tombstone_conflicts_live_source_atom",
+                            "archive carries both a live imported memory and a "
+                            "purge tombstone suppressing that same source atom; "
+                            "the archive is contradictory",
+                            details={
+                                "purge_receipt_id": source_receipt_id,
+                                "memory_id": provenance.target_memory_id,
+                            },
+                        )
+
+            planned.append(
+                PlannedMemoryPurgeTombstone(
+                    source_purge_receipt_id=source_receipt_id,
+                    target_purge_receipt_id=source_receipt_id,
+                    target_account_id=self._target_account_id,
+                    purged_record_fingerprint=record_fingerprint,
+                    source_system=_preflight_optional_str(raw_row.get("source_system")),
+                    source_entity_kind=_preflight_optional_str(
+                        raw_row.get("source_entity_kind")
+                    ),
+                    source_atom_fingerprint=source_fingerprint,
+                    purged_at=purged_at,
+                    suppress_reimport=True,
+                )
+            )
+
+        return planned
 
 
 # =============================================================================
@@ -4366,6 +4657,9 @@ class CanonicalMemoryRestoreClassification:
     # UMS-05C10A-P: ordinary review-transition history.
     review_revision_create_ids: tuple[str, ...] = ()
     review_revision_identical_ids: tuple[str, ...] = ()
+    # UMS-11: permanent-erasure suppression tombstones.
+    purge_tombstone_create_ids: tuple[str, ...] = ()
+    purge_tombstone_identical_ids: tuple[str, ...] = ()
     # UMS-05C10B-P: ordinary lifecycle-transition history.
     lifecycle_revision_create_ids: tuple[str, ...] = ()
     lifecycle_revision_identical_ids: tuple[str, ...] = ()
@@ -4398,6 +4692,10 @@ class CanonicalMemoryRestoreResult:
     review_revision_identical_count: int = 0
     lifecycle_revision_created_count: int = 0
     lifecycle_revision_identical_count: int = 0
+    # UMS-11: suppression tombstone counts. An idempotent replay must report
+    # purge_tombstone_created_count == 0.
+    purge_tombstone_created_count: int = 0
+    purge_tombstone_identical_count: int = 0
 
 
 def _executor_iso(value: Any) -> str | None:
@@ -4466,6 +4764,8 @@ def _executor_row_equals(
             "activated_at",
             "valid_from",
             "valid_until",
+            # UMS-11: purge tombstone time.
+            "purged_at",
         }:
             if _executor_iso(existing_value) != _executor_iso(plan_value):
                 return False
@@ -4780,6 +5080,84 @@ class CanonicalMemoryRestoreExecutor:
                 )
             provenance_identical.append(provenance_id)
 
+        # UMS-11: suppression-tombstone classification. Identity is the stable
+        # purge_receipt_id; semantic identity also covers the source-atom
+        # fingerprint so a differing receipt id cannot quietly double-suppress
+        # an atom that is already suppressed for this account.
+        purge_tombstone_create: list[str] = []
+        purge_tombstone_identical: list[str] = []
+        purge_tombstone_ids = tuple(
+            r.target_purge_receipt_id for r in plan.memory_purge_tombstones
+        )
+        existing_purge_tombstones = _executor_select_by_ids(
+            conn,
+            table="memory_purge_tombstones",
+            id_column="purge_receipt_id",
+            ids=purge_tombstone_ids,
+        )
+        existing_source_fingerprints: dict[str, str] = {}
+        if purge_tombstone_ids:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT source_atom_fingerprint, purge_receipt_id "
+                    "FROM memory_purge_tombstones "
+                    "WHERE user_id = %s AND source_atom_fingerprint IS NOT NULL",
+                    (plan.target_account_id,),
+                )
+                for src_row in cur.fetchall():
+                    existing_source_fingerprints[str(src_row[0])] = str(src_row[1])
+
+        for planned in plan.memory_purge_tombstones:
+            receipt_id = planned.target_purge_receipt_id
+            plan_values = {
+                "purge_receipt_id": receipt_id,
+                "user_id": planned.target_account_id,
+                "purged_record_fingerprint": planned.purged_record_fingerprint,
+                "source_system": planned.source_system,
+                "source_entity_kind": planned.source_entity_kind,
+                "source_atom_fingerprint": planned.source_atom_fingerprint,
+                "purged_at": planned.purged_at,
+                "suppress_reimport": True,
+            }
+            if (
+                planned.source_atom_fingerprint is not None
+                and planned.source_atom_fingerprint in existing_source_fingerprints
+                and existing_source_fingerprints[planned.source_atom_fingerprint]
+                != receipt_id
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_purge_tombstone_conflict",
+                    code="memory_purge_tombstone_conflict",
+                    details={
+                        "source_atom_fingerprint": (planned.source_atom_fingerprint),
+                        "existing_purge_receipt_id": existing_source_fingerprints[
+                            planned.source_atom_fingerprint
+                        ],
+                    },
+                )
+            existing = existing_purge_tombstones.get(receipt_id)
+            if existing is None:
+                purge_tombstone_create.append(receipt_id)
+                continue
+            if not _executor_row_equals(
+                existing=existing,
+                fields=_PURGE_TOMBSTONE_FIELDS,
+                plan_values=plan_values,
+            ):
+                raise UnifiedMemoryRestoreConflictError(
+                    message="memory_purge_tombstone_conflict",
+                    code="memory_purge_tombstone_conflict",
+                    details={
+                        "purge_receipt_id": receipt_id,
+                        "expected": plan_values,
+                        "existing": {
+                            field: existing.get(field)
+                            for field in _PURGE_TOMBSTONE_FIELDS
+                        },
+                    },
+                )
+            purge_tombstone_identical.append(receipt_id)
+
         # UMS-05C9: revision classification. Identity is the stable
         # revision_id; semantic identity also covers (memory_id,
         # revision_number) so a differing revision_id cannot quietly occupy
@@ -5030,6 +5408,8 @@ class CanonicalMemoryRestoreExecutor:
             review_revision_identical_ids=tuple(review_revision_identical),
             lifecycle_revision_create_ids=tuple(lifecycle_create),
             lifecycle_revision_identical_ids=tuple(lifecycle_identical),
+            purge_tombstone_create_ids=tuple(purge_tombstone_create),
+            purge_tombstone_identical_ids=tuple(purge_tombstone_identical),
         )
 
     # ------------------------------------------------------------------
@@ -5058,6 +5438,10 @@ class CanonicalMemoryRestoreExecutor:
         # UMS-05C10B-P: lifecycle-transition history persists after the
         # parent memory_records row, inside the same transaction.
         self._insert_lifecycle_revisions(conn, plan, classification)
+        # UMS-11: suppression tombstones persist inside the same transaction.
+        # They are inserted last because they carry no dependency on a live
+        # parent memory -- the parent they describe is deliberately absent.
+        self._insert_purge_tombstones(conn, plan, classification)
 
         return CanonicalMemoryRestoreResult(
             target_account_id=plan.target_account_id,
@@ -5082,6 +5466,12 @@ class CanonicalMemoryRestoreExecutor:
             ),
             lifecycle_revision_created_count=len(
                 classification.lifecycle_revision_create_ids
+            ),
+            purge_tombstone_created_count=len(
+                classification.purge_tombstone_create_ids
+            ),
+            purge_tombstone_identical_count=len(
+                classification.purge_tombstone_identical_ids
             ),
             lifecycle_revision_identical_count=len(
                 classification.lifecycle_revision_identical_ids
@@ -5278,6 +5668,62 @@ class CanonicalMemoryRestoreExecutor:
                 code="memory_revision_insert_failed",
                 details={
                     "revision_ids": sorted(create_ids),
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    def _insert_purge_tombstones(
+        self,
+        conn: Any,
+        plan: CanonicalMemoryRestorePlan,
+        classification: CanonicalMemoryRestoreClassification,
+    ) -> None:
+        """UMS-11. Persist minimum non-content suppression tombstones.
+
+        Restoring these is what makes an erasure survive migration: without
+        them, a source atom purged on the source instance would be silently
+        resurrectable on the destination.
+
+        Deliberately *not* parent-ordered. Unlike every revision family, a
+        tombstone has no live ``memory_records`` parent -- that row was
+        deleted by the purge -- so this insert neither waits for nor requires
+        any canonical memory row.
+        """
+        if not classification.purge_tombstone_create_ids:
+            return
+        create_ids = set(classification.purge_tombstone_create_ids)
+        rows = [
+            r
+            for r in plan.memory_purge_tombstones
+            if r.target_purge_receipt_id in create_ids
+        ]
+        rows.sort(key=lambda r: r.target_purge_receipt_id)
+        try:
+            with conn.cursor() as cur:
+                for r in rows:
+                    cur.execute(
+                        'INSERT INTO "memory_purge_tombstones" '
+                        "(purge_receipt_id, user_id, purged_record_fingerprint, "
+                        "source_system, source_entity_kind, "
+                        "source_atom_fingerprint, purged_at, suppress_reimport) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            r.target_purge_receipt_id,
+                            r.target_account_id,
+                            r.purged_record_fingerprint,
+                            r.source_system,
+                            r.source_entity_kind,
+                            r.source_atom_fingerprint,
+                            r.purged_at,
+                            True,
+                        ),
+                    )
+        except Exception as exc:
+            raise UnifiedMemoryRestorePersistenceError(
+                message="memory_purge_tombstone_insert_failed",
+                code="memory_purge_tombstone_insert_failed",
+                details={
+                    "purge_receipt_ids": sorted(create_ids),
                     "reason": str(exc),
                 },
             ) from exc

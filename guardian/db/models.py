@@ -7276,3 +7276,89 @@ class MemoryLifecycleRevision(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryPurgeTombstone(Base):
+    """Minimal non-content suppression row surviving permanent erasure (UMS-11).
+
+    Frozen by contract §12. This is the *only* state permitted to outlive
+    ordinary-memory permanent purge.
+
+    It has deliberately **no** composite foreign key to ``memory_records``
+    and stores no canonical ``memory_id``. The purge that writes a tombstone
+    deletes its parent row, so a parent foreign key would be unsatisfiable by
+    construction. Identity is instead carried by
+    ``purged_record_fingerprint``: a versioned, domain-separated,
+    non-reversible digest of the erased record identity that reveals nothing
+    about erased content while remaining sufficient to detect an idempotent
+    retry after the canonical row is gone.
+
+    ``source_atom_fingerprint`` is the replay-suppression authority. It is a
+    digest of the minimum stable source-atom identity, never the plaintext
+    source entity id. It is NULL for direct/manual memory, and the purge
+    service fails closed rather than writing NULL for an import-origin record.
+
+    ``suppress_reimport`` is stored for legibility but cannot become false:
+    a CHECK constraint pins it true. A suppression flag that can be unset is
+    not a suppression authority.
+    """
+
+    __tablename__ = "memory_purge_tombstones"
+
+    purge_receipt_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purged_record_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_system: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_entity_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_atom_fingerprint: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    purged_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    suppress_reimport: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+
+    __table_args__ = (
+        # One suppression entry per erased record per account. This is what
+        # makes an idempotent retry provable without creating a second
+        # tombstone or a second receipt identity.
+        UniqueConstraint(
+            "user_id",
+            "purged_record_fingerprint",
+            name="uq_memory_purge_tombstones_account_record",
+        ),
+        CheckConstraint(
+            "source_system IS NULL OR source_system IN "
+            "('codexify', 'openai', 'anthropic', 'future_registered')",
+            name="memory_purge_tombstones_source_system_check",
+        ),
+        CheckConstraint(
+            "source_entity_kind IS NULL OR source_entity_kind IN "
+            "('chat', 'vault', 'importer', 'classifier', 'future_registered')",
+            name="memory_purge_tombstones_source_entity_kind_check",
+        ),
+        # Structural guarantee: suppression cannot be relaxed.
+        CheckConstraint(
+            "suppress_reimport",
+            name="memory_purge_tombstones_suppress_reimport_check",
+        ),
+        Index("ix_memory_purge_tombstones_user_id", "user_id"),
+        # Partial unique index: a source atom is suppressed at most once per
+        # account, while unconstrained NULLs let any number of direct/manual
+        # purges coexist.
+        Index(
+            "uq_memory_purge_tombstones_account_source_atom",
+            "user_id",
+            "source_atom_fingerprint",
+            unique=True,
+            postgresql_where=text("source_atom_fingerprint IS NOT NULL"),
+        ),
+    )
