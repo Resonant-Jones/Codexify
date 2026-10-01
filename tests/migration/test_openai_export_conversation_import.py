@@ -44,15 +44,17 @@ _SCOPED_IMPORT_MODULE_NAMES = (
 
 
 @pytest.fixture
-def transaction_postgres_url() -> Generator[str, None, None]:
-    """Create disposable model tables for the PostgreSQL transaction proof."""
+def transaction_postgres_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[str, None, None]:
+    """Upgrade a disposable database for the PostgreSQL transaction proof."""
     base_url = os.getenv("TEST_DATABASE_URL")
     if not base_url:
         pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
     psycopg = pytest.importorskip("psycopg")
     from psycopg import sql
-
-    from guardian.db.models import Base
+    from alembic import command
+    from alembic.config import Config
 
     database_name = f"codexify_import_tx_{uuid.uuid4().hex[:12]}"
     parsed_url = make_url(base_url)
@@ -65,12 +67,19 @@ def transaction_postgres_url() -> Generator[str, None, None]:
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
     try:
+        monkeypatch.setenv("DATABASE_URL", database_url)
+        repo_root = Path(__file__).resolve().parents[2]
+        config = Config(str(repo_root / "backend" / "alembic.ini"))
+        config.set_main_option("sqlalchemy.url", database_url)
+        config.set_main_option(
+            "script_location", str(repo_root / "guardian" / "db" / "migrations")
+        )
+        command.upgrade(config, "head")
         engine = sa.create_engine(
             parsed_url.set(drivername="postgresql+psycopg", database=database_name),
             future=True,
         )
         try:
-            Base.metadata.create_all(bind=engine)
             with engine.begin() as conn:
                 conn.execute(
                     sa.text(
