@@ -1,6 +1,6 @@
 # Scout remote-session goal: bounded progress and hosted prerequisite
 
-Date: 2026-09-30 (America/New_York)
+Date: 2026-10-01 (America/New_York; validation below performed September 30)
 Status: incomplete; #815 cannot close.
 
 ## Lineage and scope
@@ -17,7 +17,13 @@ Guardian, frontend, Cloudflare, Tailscale, Whoosh'd, providers, and database sta
 
 ## Authentication trace and evidence classes
 
-**Observed live:** Opening `https://preview.codexify.space` in the Codex browser redirects to the `resonant-constructs.cloudflareaccess.com` Access login. Its heading is `Log in to Codexify Private Preview`; Google and `Send login code` are offered. This establishes an Access application in front of the hostname, beyond ordinary Tunnel ingress. No credentials or codes were entered by the agent. No successful Access admission, Guardian login, protected account read, or running Vault lineage was verified.
+**Observed live, September 30:** Opening `https://preview.codexify.space` in the Codex browser redirects to the `resonant-constructs.cloudflareaccess.com` Access login. Its heading is `Log in to Codexify Private Preview`; Google and `Send login code` are offered. This establishes an Access application in front of the hostname, beyond ordinary Tunnel ingress. No credentials or codes were entered by the agent.
+
+**Observed browser UI, October 1:** After the operator completed sign-in in Chrome, `/login` displayed `Your workspace is ready` and reported an active session. Continuing opened `/chat`; the sidebar displayed existing threads, and opening an existing thread rendered a four-message conversation. This proves an accessible browser workspace and rendered existing conversation, not a captured protected API response, deployed credential-purpose enforcement, native credential handoff, or Scout continuity. The agent did not inspect browser session storage, cookies, or tokens, and did not send a message or request inference. Running Vault lineage remains unverified.
+
+**Credentialless ingress discovery, October 1:** Requests from the approved host lane with `Accept: application/json` to preview's `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` returned HTTP 302 with a `Cloudflare-Access` challenge advertising a `resource_metadata` URL. Reading those exact advertised `/.well-known/cloudflare-access-protected-resource/...` URLs returned HTTP 200 JSON: `protected=true`, team domain `resonant-constructs.cloudflareaccess.com`, and the sole advertised authentication method `cloudflared`. No authorization or token endpoint was supplied by the preview resource metadata. The team domain's standard `/.well-known/oauth-authorization-server` returned issuer, authorization/token/revocation endpoints under that same team origin, authorization-code and refresh-token grants, unauthenticated public-client support (`none`), and PKCE `S256`. Team-wide OAuth capability does not prove that the preview application enables it or permits an iOS callback/client.
+
+Cloudflare's [Managed OAuth documentation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) describes an opt-in application setting, authorization-code discovery for non-browser clients, and allowed HTTPS redirect URIs. The observed 302 and `cloudflared` advertisement suggest the preview application has not exposed that managed flow; this is an inference awaiting control-plane inspection, not confirmed configuration. Any ingress token must remain distinct from Guardian's account token. No Access setting was changed or client registered.
 
 **Historical live evidence:** The repository's [2026-09-01 ingress proof](../../docs/architecture/proofs/runtime/2026-09-01-private-preview-cloudflare-ingress-provisioning-proof.md) records Access admission followed by a distinct Guardian email/password login. This is dated evidence, not a current authenticated runtime result.
 
@@ -76,9 +82,9 @@ xcodebuild -project mobile/scout-ios/CodexifyScout.xcodeproj \
 
 ## Remaining prerequisite and next work
 
-The operator must complete Access admission in the secure browser UI and confirm the separate deployed Guardian login and running auth lineage. Credentials must remain in that UI. This resumes the live authentication trace immediately; it does not by itself supply native admission or a session handoff.
+Browser admission and workspace access now succeed after operator sign-in. The deployed Guardian login issuance and running auth lineage still require confirmation. Credentials must remain in the intended secure UI; browser access does not by itself supply native admission or a session handoff.
 
-Before a hosted native implementation can be qualified, establish the operator-approved Access admission mechanism for native API requests and the canonical Guardian browser-to-native handoff (or an already-supported bounded native exchange). Neither exists in the inspected seams. The actual Cloudflare policy/control-plane configuration has not been available in this run. If these require a new ownership/authorization decision or weakening Access, stop for that decision instead of changing Guardian opportunistically. Do not distribute a shared service token or copy browser cookies/tokens through chat or terminal.
+Before a hosted native implementation can be qualified, establish the operator-approved Access admission mechanism for native API requests and the canonical Guardian browser-to-native handoff (or an already-supported bounded native exchange). No Guardian handoff exists in the inspected seams; the public Cloudflare team metadata establishes OAuth capability but not its availability for this application. The actual preview Access policy, Managed OAuth setting, allowed client/redirect configuration, and credential presentation compatible with Guardian Bearer remain unverified. Read-only control-plane inspection is the next external prerequisite. If implementation requires a new ownership/authorization decision or weakening Access, stop for that decision instead of changing Guardian opportunistically. Do not distribute a shared service token or copy browser cookies/tokens through chat or terminal.
 
 Once those prerequisites are established, resume `remoteSession`, Keychain-only per-profile credential isolation, hosted/personal profile UI, restoration/logout/expiry/reauthentication and route-specific invalid-session handling. Then run the real account-owned thread → message → completion → task events → persisted-output loop, documents/artifacts, resume, and revoked-session denial in Scout.
 
