@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AxiosResponse } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,6 +107,8 @@ describe("Thread document rehydration", () => {
   });
 
   afterEach(() => {
+    // Unmount API consumers before auth resets or their request mocks are restored.
+    cleanup();
     __resetAuthStateForTests();
     vi.restoreAllMocks();
   });
