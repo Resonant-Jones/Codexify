@@ -277,7 +277,15 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
         ]
         assert len(enabled) == 24
         for module, method, path, handler in enabled:
-            assert (method, path, module, handler) in mounted
+            expected_route = (method, path, module, handler)
+            assert expected_route in mounted, {
+                "expected": expected_route,
+                "same_path": sorted(route for route in mounted if route[1] == path),
+                "same_module": sorted(route for route in mounted if route[2] == module),
+                "enabled_labels": sorted(
+                    client.app.state.supported_profile_enabled_labels
+                ),
+            }
             concrete_path = path
             for segment in path.split("/"):
                 if segment.startswith("{") and segment.endswith("}"):
