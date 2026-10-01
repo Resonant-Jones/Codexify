@@ -15,6 +15,7 @@ def _build_supported_profile_client(monkeypatch):
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    monkeypatch.setenv("CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES", "1")
 
     import guardian.guardian_api as guardian_api
 
