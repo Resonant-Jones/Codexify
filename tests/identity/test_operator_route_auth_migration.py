@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import fastapi.routing as fastapi_routing
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -163,6 +164,13 @@ def _routes(module_name: str) -> list[APIRoute]:
     ]
 
 
+def _effective_app_routes(app: FastAPI) -> list:
+    # FastAPI 0.142+ keeps included routers nested until request/schema use.
+    # Its public iterator exposes the effective path and original endpoint.
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    return list(iter_contexts(app.routes) if iter_contexts else app.routes)
+
+
 def _calls(route: APIRoute) -> Iterator[object]:
     def visit(dependant) -> Iterator[object]:
         for child in dependant.dependencies:
@@ -264,10 +272,11 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
         subject="account", purpose=ACCOUNT_SESSION_PURPOSE
     )
     with _build_supported_profile_client(monkeypatch) as client:
+        app_routes = _effective_app_routes(client.app)
         mounted = {
             (method, route.path, route.endpoint.__module__, route.endpoint.__name__)
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
             for method in route.methods
         }
         enabled = [
@@ -304,8 +313,8 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
                 assert (method, path, module, handler) not in mounted
         assert not any(
             route.endpoint.__module__ == "guardian.routes.graph"
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
         )
 
 
