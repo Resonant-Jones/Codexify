@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from tests.services import (
+    test_account_export_restore_unified_memory_roundtrip as roundtrip,
     test_memory_vault_creation as creation,
     test_memory_vault_mutation as mutation,
     test_memory_vault_read_projection as projection,
@@ -31,7 +32,7 @@ def test_disposable_database_url_preserves_connection_identity(monkeypatch, admi
     assert result.set(database=original.database) == original
 
 
-@pytest.mark.parametrize("module", [creation, mutation, projection])
+@pytest.mark.parametrize("module", [creation, mutation, projection, roundtrip])
 @pytest.mark.parametrize("fails", [False, True])
 def test_migration_setup_restores_environment_and_preserves_logging(
     monkeypatch, module, fails
