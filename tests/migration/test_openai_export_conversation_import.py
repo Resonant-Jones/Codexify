@@ -84,7 +84,8 @@ def transaction_postgres_url(
                 conn.execute(
                     sa.text(
                         "INSERT INTO users (id, username, password_hash, role) "
-                        "VALUES ('local', 'local-import-test', 'test', 'guest')"
+                        "VALUES ('local', 'local-import-test', 'test', 'guest') "
+                        "ON CONFLICT (id) DO NOTHING"
                     )
                 )
         finally:
