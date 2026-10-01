@@ -2,7 +2,7 @@
 
 Proves that the qualified Memory Vault router (GET + PATCH pin/unpin/hold/
 project-scope/persona-attribution) is registered through Guardian's
-canonical route control plane as ``internal_only`` on exactly the three
+canonical route control plane as ``internal_only`` on exactly the four
 intended web profiles, remains quarantined elsewhere, is hidden from public
 OpenAPI, and can be disabled by its feature flag.
 
@@ -27,6 +27,7 @@ ADMITTED_PROFILES = {
     "v1-local-core-web-mcp",
     "v1-friends-family-web",
     "v1-whooshd-deepseek-web",
+    "v1-user-profile-accent-proof",
 }
 
 VAULT_GET_PATHS = {
@@ -152,7 +153,7 @@ def test_feature_flag_false_disables_vault_route(load_guardian_api) -> None:
 
 
 def test_quarantine_outranks_feature_flag(load_guardian_api) -> None:
-    guardian_api = load_guardian_api("v1-user-profile-accent-proof", flag="true")
+    guardian_api = load_guardian_api("test-continuity", flag="true")
     app = guardian_api.app
 
     assert "memory_vault" not in app.state.supported_profile_enabled_labels

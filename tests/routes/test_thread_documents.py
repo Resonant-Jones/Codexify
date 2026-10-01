@@ -245,6 +245,8 @@ class TestGetThreadDocuments:
         mock_uploaded_doc = MagicMock()
         mock_uploaded_doc.id = "upload-1"
         mock_uploaded_doc.filename = "requirements.pdf"
+        mock_uploaded_doc.embedding_status = "pending"
+        mock_uploaded_doc.embedding_error = None
 
         mock_models.ChatThread = MagicMock()
         mock_models.ThreadDocument = MagicMock()
@@ -294,6 +296,8 @@ class TestGetThreadDocuments:
                 "id": "upload-1",
                 "title": "requirements.pdf",
                 "relation": "attached",
+                "embedding_status": "pending",
+                "embedding_error": None,
                 "created_at": now.isoformat(),
             }
         ]
@@ -861,7 +865,7 @@ def test_thread_documents_list_denies_unauthenticated_in_public_allowlist(
         response = client.get("/api/threads/1/documents")
 
     assert response.status_code == 401
-    assert "session/jwt" in str(response.json().get("detail", "")).lower()
+    assert response.json().get("detail") == "Account session required"
 
 
 def test_thread_documents_list_allows_local_api_key_in_local_safe(monkeypatch):
