@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import fastapi.routing as fastapi_routing
 import pytest
 
 from guardian.core.supported_profile import load_supported_profile
@@ -121,10 +122,15 @@ def load_guardian_api(monkeypatch: pytest.MonkeyPatch, tmp_path):
         importlib.reload(guardian_api)
 
 
+def _effective_routes(app):
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    return iter_contexts(app.routes) if iter_contexts else app.routes
+
+
 def _mounted_paths(app) -> set[str]:
     return {
         getattr(route, "path", None)
-        for route in app.routes
+        for route in _effective_routes(app)
         if isinstance(getattr(route, "path", None), str)
     }
 
@@ -169,7 +175,7 @@ def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
     # when the same URL exposes multiple HTTP methods, so we collect
     # methods across all such entries for each path.
     methods_by_path: dict[str, set[str]] = {}
-    for route in app.routes:
+    for route in _effective_routes(app):
         path = getattr(route, "path", None)
         if path in VAULT_PATHS:
             methods_by_path.setdefault(path, set()).update(

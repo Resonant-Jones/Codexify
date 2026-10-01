@@ -38,6 +38,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi import routing as fastapi_routing
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -284,7 +285,11 @@ def _include_router(
             if hidden_paths is None:
                 hidden_paths = set()
                 app.state.supported_profile_hidden_paths = hidden_paths
-            for route in app.routes[route_count_before:]:
+            included_routes = app.routes[route_count_before:]
+            iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+            if iter_contexts is not None:
+                included_routes = iter_contexts(included_routes)
+            for route in included_routes:
                 path = getattr(route, "path", None)
                 if isinstance(path, str) and path:
                     hidden_paths.add(path)
