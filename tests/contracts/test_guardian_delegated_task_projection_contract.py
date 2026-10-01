@@ -4,44 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-import pytest
-from sqlalchemy import JSON
-from sqlalchemy.dialects.postgresql import JSONB
-
-from guardian.db.models import AgentRun, GuardianDelegationIntent, PersonalFact
-from guardian.routes import guardian_delegations
+from guardian.db.models import AgentRun, GuardianDelegationIntent
 from guardian.protocol_tokens import GuardianDelegationApprovalMode
 from tests.contracts.test_guardian_delegation_phase2a_contract import (
     _TestDB,
+    _postgres_engine,
     _fetch_thread_messages,
     _seed_source_context,
+    db,
+    delegation_client,
 )
-
-
-@pytest.fixture
-def db():
-    # The shared SQLite fixture predates this PersonalFact JSONB column.
-    column = PersonalFact.__table__.c.guardrail_metadata
-    original_type = column.type
-    column.type = JSON().with_variant(JSONB, "postgresql")
-    test_db = None
-    try:
-        test_db = _TestDB()
-        yield test_db
-    finally:
-        if test_db is not None:
-            test_db.close()
-        column.type = original_type
-
-
-@pytest.fixture
-def delegation_client(db):
-    guardian_delegations.configure_db(db)
-    app = FastAPI()
-    app.include_router(guardian_delegations.router)
-    return TestClient(app)
 
 
 def _create_manual(client, headers, seeded):
