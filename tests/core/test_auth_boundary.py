@@ -3,7 +3,7 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.dependencies import verify_api_key
 
 
@@ -96,6 +96,7 @@ def test_remote_mode_accepts_bearer_session_token(monkeypatch):
     session_token, _expires = issue_session_token(
         subject="boundary-test-user",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     token = verify_api_key(
@@ -115,6 +116,7 @@ def test_remote_mode_accepts_session_cookie(monkeypatch):
     session_token, _expires = issue_session_token(
         subject="boundary-test-cookie",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     token = verify_api_key(
@@ -159,6 +161,7 @@ def test_public_allowlist_exposure_accepts_bearer_when_auth_mode_misset(
     session_token, _expires = issue_session_token(
         subject="boundary-test-exposure-bearer",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     token = verify_api_key(

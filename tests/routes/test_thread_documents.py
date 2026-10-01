@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import documents
 
@@ -889,6 +889,7 @@ def test_thread_documents_list_allows_bearer_in_public_allowlist(monkeypatch):
         session_token, _expires = issue_session_token(
             subject="thread-documents-route-auth-test",
             ttl_seconds=60,
+            purpose=ACCOUNT_SESSION_PURPOSE,
         )
         response = client.get(
             "/api/threads/1/documents",
