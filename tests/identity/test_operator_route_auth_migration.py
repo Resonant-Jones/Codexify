@@ -94,6 +94,7 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("GET", "/graph", "get_graph"),
     ),
     "guardian.routes.guardian_delegations": (
+        ("GET", "/api/guardian/delegations", "list_guardian_delegations"),
         ("POST", "/api/guardian/delegations", "create_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/approve", "approve_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/cancel", "cancel_guardian_delegation"),
@@ -190,9 +191,9 @@ def _sign_legacy(secret: str) -> str:
     return f"{encode(payload)}.{encode(signature)}"
 
 
-def test_frozen_operator_manifest_has_exactly_57_registrations_in_13_files():
+def test_frozen_operator_manifest_has_exactly_58_registrations_in_13_files():
     assert len(EXPECTED) == 13
-    assert sum(map(len, EXPECTED.values())) == 57
+    assert sum(map(len, EXPECTED.values())) == 58
 
     for module_name, registrations in EXPECTED.items():
         for method, path, handler in registrations:
@@ -214,7 +215,7 @@ def test_frozen_operator_manifest_has_exactly_57_registrations_in_13_files():
 
 def test_frozen_activation_ledger_and_supported_profile_posture():
     assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 24
-    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 28
+    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 29
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
 
