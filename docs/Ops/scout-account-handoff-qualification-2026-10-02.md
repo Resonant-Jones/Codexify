@@ -197,3 +197,40 @@ absence is not evidence of a hook invocation. A safe static
 `scout_startup_provisioning_disabled` marker replaces it; both guard-mode tests
 also assert its presence/absence. The final image receipt must verify that marker
 alongside serving bytes, flag, health and unchanged database posture.
+
+## Final no-seed deployment receipt
+
+Source revision: dcd8c2b7347632dc196f2181094bc4a1425c4785. Serving image:
+sha256:f9e7f5ff1e69d03a4f626bdbf99ff6ba032687f7f374517ed1f05a565a99a158.
+The artifact contains only five reviewed Guardian files, the reviewed LoginPage,
+and qualification/Compose/rollback metadata. Build and syntax/hash qualification
+use the already-pinned base with network disabled and no application startup.
+Both forward and rollback Compose configurations retain all other services,
+environment, volumes and networks. Only preview backend/frontend were recreated
+with `up -d --no-deps --no-build --pull never backend frontend`.
+
+Serving hashes match all reviewed files at both Guardian package mounts and the
+frontend mount. The backend uses the approved direct command and flag; its safe
+startup suppression marker appears exactly once. Guardian is healthy. Origin
+`127.0.0.1:8081` health/login return 200, anonymous account thread reads return 401,
+and Scout exchange without signed hosted admission returns 401. No seed script,
+migration, import replay or bootstrap ran. Schema and all ten table counts/row
+fingerprints are identical before/after; the existing workers, database and
+independent chat-proof stack retain their container identities and configuration.
+The [non-secret receipt](scout-no-seed-preview-receipt-2026-10-02.json) records the
+image/base/source, schema fingerprint, table aggregates and remaining proof gates.
+
+Rollback remains the pinned prior image/source. Use only
+`/Volumes/Dev_SSD/Codexify-scout815-auth/dcd8c2b73/compose.scout-rollback.yml` with
+the existing base/private-preview Compose files and the same bounded two-service
+command. This removes Scout auth overrides but retains the tested no-seed guard
+on the original API source; it does not downgrade or replace the database.
+
+Final source tests pass 70 cases, guarded rollback passes both modes, docs checks
+pass, and applicable commit hooks pass with the previously recorded mypy
+limitation. Client Swift bytes did not change; prior 50-test/signed simulator
+qualification remains separate from live proof. Device Hub currently shows no
+Guardian account session and its coordinate input reports `noWindowsAvailable`.
+The operator is asked to complete secure native Guardian sign-in and report only
+non-secret status. Protected authenticated reads, session restoration/expiry,
+logout/revocation and the complete #815 continuity loop remain unproven.
