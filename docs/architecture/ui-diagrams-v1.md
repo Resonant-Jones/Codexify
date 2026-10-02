@@ -2,7 +2,7 @@
 
 ## 1. Title and purpose
 
-This document is the first-pass UI diagram pack derived only from the validated UI canon source set. It maps Codexify's presentation-side architecture for tokens, layout, rendering surfaces, and diagnostics-facing conceptual layers without asserting backend or runtime topology.
+This document is the first-pass UI diagram pack derived from the validated UI canon source set, with System Surface presentation semantics governed by the [System Surface Design Contract](./design/system-surface-design-contract.md). It maps Codexify's presentation-side architecture for tokens, layout, rendering surfaces, and diagnostics-facing conceptual layers without asserting backend or runtime topology.
 
 ## 2. Source set used
 
@@ -11,11 +11,12 @@ This document is the first-pass UI diagram pack derived only from the validated 
 - `/docs/dev/ARTIFACT3—Codexify-UI-Rendering-Protocol.md`
 - `/docs/dev/ARTIFACT4—COGNITIVE-DIAGNOSTICS-CANON.md`
 - `/docs/dev/ARTIFACT7--CODEXIFY-PERCEPTUAL-STACK-SPEC.md`
+- docs/architecture/design/system-surface-design-contract.md — sanctioned system-authored presentation category only; no notification runtime claim.
 
 ## 3. Interpretation constraints
 
 - These diagrams describe UI canon and presentation structure, not current backend/runtime topology.
-- These diagrams are derived from the validated UI canon only.
+- Material and layout relationships are derived from the validated UI canon; System Surface authorship and category semantics follow its governing design contract.
 - Runtime disagreements must be resolved against the runtime KB, not this document.
 - Quarantined legacy docs and implementation guesswork were not used.
 
@@ -265,23 +266,30 @@ flowchart TD
     D["Component contract tokens"] --> B
     E["Fallback semantic tokens"] --> B
     B --> F["Rendering decision"]
-    F --> G["Choose surface category"]
-    G --> H["Glass surface<br/>RefractiveGlassCard only"]
-    G --> I["Panel surface<br/>panel-bg plus panel-border"]
-    G --> J["Chip surface"]
-    G --> K["Frame region"]
-    F --> L["Choose container geometry"]
-    L --> M["Token-driven padding, gap, radius, clamp, flex"]
-    M --> N["Layout frame and card hierarchy"]
-    H --> O["Composed visible UI surface"]
-    I --> O
-    J --> O
-    K --> O
-    N --> O
-    O --> P["Validity checks"]
-    P --> Q["All values token-derived"]
-    P --> R["No manual glass recreation"]
-    P --> S["No new visual categories"]
+    F --> G["Choose presentation category"]
+    G --> H["Workspace/content surface"]
+    G --> I["Guardian conversational surface"]
+    G --> J["System Surface<br/>Codexify-authored communication"]
+    F --> L["Choose token-governed material/rendering category"]
+    L --> M["Glass surface<br/>RefractiveGlassCard only"]
+    L --> N["Panel surface<br/>panel-bg plus panel-border"]
+    L --> P["Chip surface"]
+    L --> R["Frame region"]
+    F --> S["Choose container geometry"]
+    S --> T["Token-driven padding, gap, radius, clamp, flex"]
+    T --> U["Layout frame and card hierarchy"]
+    H --> V["Composed visible UI surface"]
+    I --> V
+    J --> V
+    M --> V
+    N --> V
+    P --> V
+    R --> V
+    U --> V
+    V --> W["Validity checks"]
+    W --> X["All values token-derived"]
+    W --> Y["No manual glass recreation"]
+    W --> Z["No unsanctioned categories"]
 ```
 
 **Evidence notes**
@@ -293,11 +301,13 @@ Primary sources:
 
 Conservative assumptions:
 - The composition model is synthesized from the rendering precedence stack, decision tree, and canonical card hierarchy to keep the diagram readable.
+- Presentation category (workspace/content, Guardian conversational, or System Surface) and material/rendering category (glass, panel, chip, or frame) are separate choices in the diagram; System Surface is defined by the [System Surface Design Contract](./design/system-surface-design-contract.md).
 - Diagnostics overlays are omitted here because the rendering protocol does not define them as a primary rendering branch.
 
 Explicit exclusions:
 - No React component tree, prop flow, or renderer internals.
 - No runtime event, data, or provider path shown inside the rendering diagram.
+- No notification delivery or runtime support is implied by the System Surface category.
 
 ## 8. Diagram 4: Diagnostics / Perceptual Stack (moderate confidence)
 
