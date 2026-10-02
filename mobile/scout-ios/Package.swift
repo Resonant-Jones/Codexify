@@ -46,6 +46,9 @@ let package = Package(
                 "Services/ScoutCreateThreadProbe.swift",
                 "Services/ScoutRenameThreadProbe.swift",
                 "Services/ScoutKeychainStore.swift",
+                "Services/ScoutAccessOAuth.swift",
+                "Services/ScoutAccessCredentialStore.swift",
+                "Services/ScoutAccessSignIn.swift",
             ],
             linkerSettings: [
                 .linkedFramework("Security")

@@ -111,3 +111,25 @@ cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
 - [ ] Return to thread list — verify renamed title appears
 - [ ] View Activity tab — verify cross-thread task receipts
 - [ ] View Artifacts tab — verify global document listing
+
+## Hosted ingress qualification (October 2, 2026)
+
+The registered public native client uses ASWebAuthenticationSession and PKCE S256.
+In Settings, select remote-session mode, then **Use hosted Codexify** and
+**Authorize hosted ingress**. Complete Google/OTP only in the system browser.
+The exact callback is `ai.resonantconstructs.codexify.scout://access-callback`.
+No client secret exists. Ingress credentials remain in a separate profile/origin-scoped
+Keychain record; neither credentials nor callback results belong in proof files.
+
+This slice qualifies Cloudflare admission separately from Guardian identity. It
+does not implement the Guardian browser-to-native account-session handoff. Normal
+remote requests still fail closed under the shared authentication policy. The
+Settings result reports a non-secret HTTP status/Ray ID after token exchange; it
+does not claim an account session. Use **Revoke hosted ingress** to request ingress
+revocation and remove its Keychain credential after confirmation. Automatic
+refresh/restoration and Guardian logout are still pending.
+
+Live PKCE/token/admission qualification requires human sign-in in the dedicated
+Scout proof simulator. Do not capture credentials, OTPs, callback codes, or tokens
+in screenshots or logs. See [the progress record](SCOUT_REMOTE_SESSION_PROGRESS.md)
+for evidence and the remaining #815 boundary.

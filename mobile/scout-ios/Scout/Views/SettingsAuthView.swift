@@ -14,6 +14,8 @@ struct SettingsAuthView: View {
     @State private var isKeyStored: Bool = false
     @State private var keychainMessage: String?
 
+    @StateObject private var accessSignIn = ScoutAccessSignIn()
+
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
@@ -41,9 +43,38 @@ struct SettingsAuthView: View {
                         }
                     }
                     if draftProfile.authenticationMode == .remoteSession {
-                        Text("Remote-session login is not implemented. No request will be sent in this mode.")
+                        Text("Hosted ingress sign-in is available below. Guardian account-session handoff is still required before remote requests can be sent.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if draftProfile.authenticationMode == .remoteSession {
+                    Section("Hosted Ingress") {
+                        Button("Use hosted Codexify") {
+                            accessSignIn.cancel()
+                            draftProfile = ScoutEndpointProfile(id: UUID(), name: "Hosted Codexify",
+                                baseURL: ScoutAccessOAuth.resource.absoluteString, transportType: .custom,
+                                authenticationState: .unconfigured, validationState: .unconfigured,
+                                lastConnectedAt: nil, authenticationMode: .remoteSession)
+                            persistDraft()
+                        }
+                        Button("Authorize hosted ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.signIn(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        Button("Revoke hosted ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.revoke(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        if accessSignIn.isWorking { ProgressView("Waiting for sign-in…") }
+                        if let message = accessSignIn.message {
+                            Text(message).font(.footnote)
+                        }
+                        Text("Ingress admission and Guardian account authentication are separate. Personal nodes keep their own explicitly supported authentication mode.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
 
@@ -276,6 +307,12 @@ struct SettingsAuthView: View {
         }
     }
 
+    private var isSavedHostedProfile: Bool {
+        guard (try? ScoutAccessOAuth.requireHosted(draftProfile)) != nil,
+              let saved = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return false }
+        return ScoutConnectionIdentity(endpoint: saved) == ScoutConnectionIdentity(endpoint: draftProfile)
+    }
+
     private var nameBinding: Binding<String> {
         Binding(get: { draftProfile.name }, set: { value in
             guard value != draftProfile.name else { return }
@@ -310,6 +347,7 @@ struct SettingsAuthView: View {
     }
 
     private func resetCurrentConnectionEvidence() {
+        accessSignIn.cancel()
         probeGeneration += 1
         isProbing = false
         draftProfile.authenticationState = .unconfigured
