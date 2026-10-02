@@ -1,9 +1,9 @@
 {
   "conflicts": [],
-  "generated_at": "2026-08-08T12:25:50-04:00",
-  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "generated_at": "2026-10-02T18:52:20-04:00",
+  "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
   "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
   "record_type": "authority_conflicts_report",
-  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "repository_revision": "d6b1de7cbc8ea73251b833c578e036a282a272b6",
   "schema_version": "1.0.0"
 }
