@@ -2118,8 +2118,8 @@ def _run_chat_completion_task_compat(
     # trace, so persisted snapshots cannot retain stale
     # "image_routing_not_evaluated" values for known image turns.
     final_trace = result.get("trace")
-    if not isinstance(final_trace, dict) and isinstance(trace_fallback, dict):
-        final_trace = dict(trace_fallback)
+    if not isinstance(final_trace, dict) and isinstance(trace, dict):
+        final_trace = dict(trace)
     (
         image_attachment_count,
         image_routing_path,
