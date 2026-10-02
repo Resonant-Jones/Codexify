@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/components/auth/useAuth";
 import { Button } from "@/components/ui/button";
 import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
+import api from "@/lib/api";
 
 import "./LoginPage.css";
 
@@ -27,6 +28,14 @@ export default function LoginPage() {
 
   const canSubmit = username.trim().length > 0 && password.length > 0;
   const activeSession = auth.ready && auth.isAuthenticated;
+  const scoutParams = new URLSearchParams(window.location.search);
+  const scoutState = scoutParams.get("scout_state") ?? "";
+  const scoutChallenge = scoutParams.get("scout_challenge") ?? "";
+  const scoutFlow = /^[A-Za-z0-9_-]{43}$/.test(scoutState) &&
+    /^[A-Za-z0-9_-]{43}$/.test(scoutChallenge) &&
+    scoutParams.getAll("scout_state").length === 1 &&
+    scoutParams.getAll("scout_challenge").length === 1;
+  const [handoffLoading, setHandoffLoading] = useState(false);
   const showRegistration = import.meta.env.VITE_PRIVATE_PREVIEW !== "true";
   const identityLabel = remoteAuthMode ? "Email address" : "Username";
 
@@ -51,11 +60,38 @@ export default function LoginPage() {
         username: username.trim(),
         password,
       });
-      window.location.assign("/");
+      setPassword("");
+      if (!scoutFlow) window.location.assign("/");
     } catch {
       setError(LOGIN_FAILURE_MESSAGE);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function continueToScout() {
+    if (!scoutFlow || !activeSession || handoffLoading) return;
+    setHandoffLoading(true);
+    setError(null);
+    try {
+      const response = await api.post("/auth/scout/handoff", {
+        state: scoutState, challenge: scoutChallenge,
+      });
+      const callback = new URL(String(response.data?.callback ?? ""));
+      if (callback.protocol !== "ai.resonantconstructs.codexify.scout:" ||
+          callback.hostname !== "access-callback" || callback.pathname !== "" ||
+          callback.username || callback.password || callback.port || callback.hash ||
+          callback.searchParams.getAll("state").length !== 1 ||
+          callback.searchParams.get("state") !== scoutState ||
+          callback.searchParams.getAll("code").length !== 1 ||
+          !/^[A-Za-z0-9_-]{43}$/.test(callback.searchParams.get("code") ?? "")) {
+        throw new Error("Invalid handoff");
+      }
+      window.location.assign(callback.href);
+    } catch {
+      setError("Could not continue to Scout. Retry from Scout; your account session remains unchanged.");
+    } finally {
+      setHandoffLoading(false);
     }
   }
 
@@ -122,14 +158,20 @@ export default function LoginPage() {
             </div>
           ) : activeSession ? (
             <div className="login-threshold__actions">
+              {error ? <p role="alert">{error}</p> : null}
               <Button
                 className="login-threshold__primary-action"
-                onClick={() => window.location.assign("/")}
+                onClick={scoutFlow ? continueToScout : () => window.location.assign("/")}
+                disabled={handoffLoading}
                 size="lg"
                 type="button"
               >
-                CONTINUE TO WORKSPACE
+                {scoutFlow ? (handoffLoading ? "Continuing…" : "CONTINUE TO SCOUT") : "CONTINUE TO WORKSPACE"}
               </Button>
+
+              {scoutFlow ? (
+                <p>This shares your existing account session with Scout until that session expires or is revoked. Scout stores it in this device’s Keychain.</p>
+              ) : null}
 
               {auth.token ? (
                 <Button

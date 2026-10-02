@@ -34,6 +34,25 @@ public-ingress boundary is closed.
 
 ### Distinct principal and credential lanes
 
+#### Qualified hosted Scout transport (approved 2026-10-02)
+
+Resonant Jones approved `X-Guardian-Account-Session` strictly as an alternate
+transport of the existing canonical `account_session`. It defines no new
+credential class, principal, ownership, or permission. It is accepted only for
+the qualified `preview.codexify.space` private-preview composition where
+upstream Access occupies `Authorization`. Personal nodes retain account Bearer.
+
+The adapter must validate the upstream signed Access assertion against the fixed
+team issuer and application audience, require the Access opaque Bearer transport,
+and restrict normalization to explicitly scoped Scout account APIs. Access claims
+never resolve a Guardian user. The account bytes then pass through the existing
+strict account-purpose, stored-session, canonical-user and account-approval checks.
+Duplicate/conflicting credentials fail closed. Invalid alternate account material
+cannot retry the ingress credential, cookie, guest, operator or API-key lane.
+Operator and guest routes must reject this alternate header. The header and
+upstream assertion must be redacted from diagnostics. This approval does not
+establish implementation, deployment, authenticated reads or continuity proof.
+
 - The **account lane** uses the supported account session/Bearer mechanisms,
   currently `Authorization` and `gc_session`, and resolves a canonical
   `RequestUserScope`. A local API key remains governed by the separate local

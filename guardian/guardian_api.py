@@ -102,6 +102,7 @@ from guardian.core.public_exposure import (
     PublicExposureMiddleware,
 )
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.scout_account_transport import ScoutAccountTransportMiddleware
 from guardian.core.storage import ensure_storage_base_path
 from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
@@ -112,10 +113,10 @@ from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
     startup_failure_receipt_boundary,
 )
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
-from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import get_local_embed_model, require_local_embed_model
@@ -502,11 +503,10 @@ from guardian.routes import (
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
-from guardian.routes import llm_overrides
-from guardian.routes import memory, migration
 from guardian.routes import (
     hosted_room_guest,
     hosted_rooms,
+    llm_overrides,
     memory,
     memory_vault,
     migration,
@@ -539,6 +539,7 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.scout_auth import router as scout_auth_router
 from guardian.routes.user_profile import router as user_profile_router
 from guardian.routes.voice import router as voice_router
 from guardian.routes.worktrees import router as worktrees_router
@@ -1014,6 +1015,11 @@ app.add_middleware(
     expose_headers=[ACCOUNT_AUTH_FAILURE_HEADER],
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
+
+# Normalize only the explicitly qualified hosted Scout account transport before
+# routing. Canonical validators still decide account purpose and authorization.
+app.add_middleware(ScoutAccountTransportMiddleware)
+app.include_router(scout_auth_router)
 
 # Signed media serving base path
 media_storage_path = ensure_storage_base_path().resolve()

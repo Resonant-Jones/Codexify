@@ -257,6 +257,42 @@ describe("trusted remote login page", () => {
     expect(locationState.assign).toHaveBeenCalledWith("/");
   });
 
+  it("transfers an existing session only after explicit Scout confirmation", async () => {
+    const user = userEvent.setup();
+    const state = "s".repeat(43);
+    const challenge = "c".repeat(43);
+    const callback = `ai.resonantconstructs.codexify.scout://access-callback?code=${"g".repeat(43)}&state=${state}`;
+    window.location.search = `?scout_state=${state}&scout_challenge=${challenge}`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: { callback } } as never);
+    setAuthToken("session-token");
+    render(<LoginPage />);
+    expect(postSpy).not.toHaveBeenCalled();
+    expect(locationState.assign).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(postSpy).toHaveBeenCalledWith("/auth/scout/handoff", { state, challenge });
+    expect(locationState.assign).toHaveBeenCalledWith(callback);
+    expect(window.sessionStorage.getItem(SESSION_TOKEN_STORAGE_KEY)).toBe("session-token");
+  });
+
+  it("rejects an alternate destination or wrong state without exporting session material", async () => {
+    const user = userEvent.setup();
+    const state = "s".repeat(43);
+    window.location.search = `?scout_state=${state}&scout_challenge=${"c".repeat(43)}`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: {
+      callback: `other://access-callback?code=${"g".repeat(43)}&state=${state}`,
+    } } as never);
+    setAuthToken("session-token");
+    render(<LoginPage />);
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(locationState.assign).not.toHaveBeenCalled();
+    expect(screen.getByText(/Could not continue to Scout/)).toBeInTheDocument();
+    postSpy.mockResolvedValue({ data: { callback:
+      `ai.resonantconstructs.codexify.scout://access-callback?code=${"g".repeat(43)}&state=${"w".repeat(43)}`,
+    } } as never);
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(locationState.assign).not.toHaveBeenCalled();
+  });
+
   it("signs out a token-backed session and returns focus to the form", async () => {
     const user = userEvent.setup();
     const postSpy = vi.spyOn(api, "post").mockResolvedValue({} as never);
