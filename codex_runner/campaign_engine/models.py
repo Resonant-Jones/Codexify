@@ -238,6 +238,7 @@ class LiveExecutorPreparation:
     # `None` means no required-tool selection.
     required_tool_name: str | None = None
     validation_command: str | None = None
+    target_baseline_symlinks: tuple[tuple[str, str, str], ...] = ()
 
     def as_payload(self) -> dict[str, Any]:
         payload = {
@@ -273,6 +274,10 @@ class LiveExecutorPreparation:
             ],
             "campaign_input_hash": self.campaign_input_hash,
             "required_tool_name": self.required_tool_name,
+            "target_baseline_symlinks": [
+                {"path": rel, "link_target": link, "resolved_target": resolved}
+                for rel, link, resolved in self.target_baseline_symlinks
+            ],
         }
         if self.validation_command is not None:
             payload["validation_command"] = self.validation_command

@@ -6,10 +6,10 @@ The current implemented runtime seam includes, at minimum:
 
 - `guardian/pi` runtime invocation machinery beyond pure shape validation (canonical `invoke_guardian_authorized_pi` reaches the maintained Pi 0.82.1 wrapper through the bounded authorized path);
 - the canonical wrapper (`codex_runner/src/agent-wrapper.js`) implements bounded Pi coding-tool surface activation, session lifecycle, and the maintained Pi 0.82.1 session-level `onPayload` chain;
-- Campaign Engine can pass its canonical `required_tool_name="write"` requirement through Guardian into Pi for the live Executor slice (ADR-068), and the wrapper projects that requirement onto the first provider-request payload;
+- Campaign Engine can pass an optional locked live Executor `required_tool_name="write"` requirement through Guardian into Pi (ADR-068); when declared, the wrapper projects it onto the first provider-request payload;
 - required-tool selection is first-provider-turn-only, does not grant permission, and the selected tool name reaches the bounded live session through a single `tool_choice` projection;
 - bounded live tool-execution and bounded assistant-response telemetry are observed through `tool_telemetry` and propagated as evidence-only fields;
-- the pre-execution drift gate revalidates the canonical required-tool requirement from the `LIVE_EXECUTOR_REQUIRED_TOOL_NAME` constant before any provider-mechanics authority is engaged.
+- the pre-execution drift gate revalidates optional required-tool selection from the locked Executor RoleBinding before any provider-mechanics authority is engaged.
 
 This seam remains supervised and internal. The Campaign's DeepSeek CE-L1 Executor gate is accepted complete; CE-L2's independent live Evaluator remains unproven. See `docs/architecture/00-current-state.md` for release status; this document does not widen the release claim.
 
@@ -151,7 +151,25 @@ validates the checkpoint's Attempt, Pi Receipt, Harness Result, boundary
 validation, and unchanged locked bindings. It constructs a bounded Evaluator
 packet from the Task objective and acceptance criteria, source-context
 reference, Executor Attempt and identity evidence, changed-file list, a
-size-limited disposable-target diff and snapshot, and validation output.
+complete bounded disposable-target diff, changed-file hash/size metadata,
+and validation output. File size does not determine change size: full file
+bytes are verified locally against the committed baseline, Executor readback,
+and Attempt hash. The packet contains only changed-file before/after SHA-256
+and byte sizes, with a complete unified diff bounded to 16,384 UTF-8 bytes.
+The full packet remains bounded to 32,768 UTF-8 bytes. Oversized actual change
+evidence fails closed; it is never silently truncated. Full repository hash
+snapshots remain in the immutable checkpoint and are checked locally, rather
+than copied into the model packet. Physical Git worktree `.git` pointers are
+accepted only with a verified worktree root and Git HEAD. Tracked symlink
+identity (path, raw link target, resolved internal target) is snapshotted before
+execution and checked before invocation, after Executor mutation, after Task
+validation, and at Evaluator preparation and read-only readback. Unchanged
+tracked links resolving inside the disposable worktree are accepted. New,
+deleted, replaced, retargeted, dangling, or externally redirected links fail
+closed. Physical file snapshots never traverse symlink aliases; link metadata
+does not grant additional Guardian filesystem authority. Full symlink evidence
+remains in the immutable checkpoint, with unchanged identities in the bounded
+Evaluator packet. Target and Git HEAD drift remain rejected.
 
 For the fresh CE-L2 proof, live RoleBindings explicitly record the selected
 harness identity and reasoning effort. The Executor invocation rejects
@@ -536,12 +554,12 @@ ADR.
 
 ### Ownership contract
 
-- **Campaign Engine declares the execution requirement** via the
-  bounded `LiveExecutorPreparation.required_tool_name` field. The initial
-  supported value is `"write"`. The field is set by the canonical
-  runtime constant `LIVE_EXECUTOR_REQUIRED_TOOL_NAME`; the prompt builder
-  consumes the declared value rather than carrying a second hardcoded
-  tool literal.
+- **Campaign Engine declares an optional execution requirement** in the
+  locked live Executor RoleBinding. The initial supported explicit value is
+  `"write"`; absence resolves to `LiveExecutorPreparation.required_tool_name=None`
+  and leaves tool choice to the ordinary harness. Campaign input hashing and
+  pre-invocation drift checks bind either posture. The prompt builder consumes
+  the declared value and adds a mandatory-action clause only for `"write"`.
 - **Guardian authorizes permissions.** A required tool cannot broaden
   Guardian permissions. For `required_tool_name="write"`, the envelope
   must already grant at least one valid `files.write` resource; if no
@@ -629,6 +647,9 @@ bounded object — never inside the ten-field `tool_telemetry`:
 
 When `required_tool_name=None`, behavior must remain exactly as before:
 
+- A live Campaign Executor uses ordinary harness tool selection within its
+  existing Guardian grants and allowed-file boundary. Mutation still requires
+  filesystem readback and post-execution scope validation.
 - Ordinary chat, ordinary completion, legacy
   `PiCodexRunnerAdapter.execute`, read-only authorized Pi, Pi
   readiness, general Pi interactive behavior, and global provider

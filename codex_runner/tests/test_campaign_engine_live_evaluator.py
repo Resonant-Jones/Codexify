@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import subprocess
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -112,17 +115,50 @@ def _prepare_lifecycle(
     campaign_id: str = "campaign-ce-l2-provider-free-test-001",
     validation_command: str | None = None,
     validation_result: NormalizedTestResult | None = None,
+    required_tool_name: str | None = "write",
+    initial_content: str | None = None,
+    result_content: str = "CE-L2-EXACT-MARKER\n",
+    unchanged_file_count: int = 0,
+    file_name: str = "proof_target.txt",
+    task_objective: str | None = None,
+    acceptance_criteria: list[dict[str, str]] | None = None,
+    tracked_symlinks: bool = False,
 ):
     campaign_path, target, handle = _make_canonical_live_campaign(
         tmp_path, executor_provider="deepseek", executor_model="deepseek-v4-pro",
-        campaign_id=campaign_id,
+        campaign_id=campaign_id, required_tool_name=required_tool_name,
+        allowed_paths=[file_name],
     )
     campaign = json.loads(campaign_path.read_text())
+    if tracked_symlinks:
+        (target / "physical").mkdir()
+        (target / "physical/data.txt").write_text("unchanged\n")
+        (target / "directory-alias").symlink_to("physical", target_is_directory=True)
+        (target / "file-alias").symlink_to("physical/data.txt")
+        subprocess.run(["git", "-C", str(target), "add", "--", "physical", "directory-alias", "file-alias"], check=True)
+        subprocess.run(["git", "-C", str(target), "commit", "-qm", "tracked internal links"], check=True)
+    if initial_content is not None:
+        (target / file_name).write_text(initial_content)
+    for index in range(unchanged_file_count):
+        (target / f"unchanged-{index}.txt").write_text("UNCHANGED\n")
+    if initial_content is not None or unchanged_file_count:
+        subprocess.run([
+            "git", "-C", str(target), "add", "--", file_name,
+            *(f"unchanged-{index}.txt" for index in range(unchanged_file_count)),
+        ], check=True)
+        subprocess.run(["git", "-C", str(target), "commit", "-qm", "test evidence baseline"], check=True)
     campaign["tasks"][0]["objective"] = "Write CE-L2-EXACT-MARKER followed by one newline to proof_target.txt."
     campaign["tasks"][0]["acceptance_criteria"] = [{
         "criterion_id": "exact-marker",
         "description": "proof_target.txt contains exactly CE-L2-EXACT-MARKER followed by one newline; no other target file changed.",
     }]
+    if initial_content is not None:
+        campaign["tasks"][0]["objective"] = "Make the declared bounded line change in proof_target.txt; preserve other content."
+        campaign["tasks"][0]["acceptance_criteria"][0]["description"] = "The bounded diff contains the declared marker change only."
+    if task_objective is not None:
+        campaign["tasks"][0]["objective"] = task_objective
+    if acceptance_criteria is not None:
+        campaign["tasks"][0]["acceptance_criteria"] = acceptance_criteria
     if validation_command is not None:
         campaign["tasks"][0]["validation_command"] = validation_command
     campaign["role_bindings"][1]["live_role_binding"].update({
@@ -139,7 +175,7 @@ def _prepare_lifecycle(
             "harness_id": "pi-coding-agent", "harness_version": "0.82.1",
             "reasoning_effort": evaluator_effort,
             "target_repository_identity": str(target),
-            "allowed_file_paths": ["proof_target.txt"],
+            "allowed_file_paths": [file_name],
             "requested_permissions": ["files.read", "network.provider.allowed"],
             "granted_permissions": ["files.read"],
             "operator_consent_reference": "ce-l2-provider-free-test-consent",
@@ -172,6 +208,7 @@ def _prepare_lifecycle(
         )
     executor_envelope, executor_decision = _build_envelope_and_decision(
         executor_prep,
+        granted_files_write_resource=file_name,
         validation_command_reference=validation_reference,
     )
     from dataclasses import replace
@@ -182,9 +219,9 @@ def _prepare_lifecycle(
     executor_receipt, executor_harness = _pi_evidence(executor_envelope)
 
     def fake_executor(**kwargs: Any) -> FakeOutcome:
-        assert kwargs["required_tool_name"] == "write"
+        assert kwargs["required_tool_name"] == required_tool_name
         assert kwargs["reasoning_effort"] == "off"
-        (target / "proof_target.txt").write_text("CE-L2-EXACT-MARKER\n")
+        (target / file_name).write_text(result_content)
         return FakeOutcome(
             ok=True,
             actual_identity=FakeIdentity("deepseek", "deepseek-v4-pro", "pi-coding-agent", "0.82.1"),
@@ -204,7 +241,7 @@ def _prepare_lifecycle(
         harness_id="pi-coding-agent", harness_version="0.82.1",
     )
     boundary = executor_envelope.guardian_boundary
-    granted = (PiPermissionGrant(permission="files.read", resource="proof_target.txt"),)
+    granted = (PiPermissionGrant(permission="files.read", resource=file_name),)
     requested = granted + (PiPermissionGrant(permission="network.provider.allowed", resource="."),)
     evaluator_envelope = PiInvocationEnvelope(
         guardian_boundary=boundary, source_thread_id="ce-l2-test-thread",
@@ -277,6 +314,204 @@ def test_provider_free_single_task_lifecycle(prepared_lifecycle, tmp_path, monke
         for path in output.rglob("*.json")
         for token in ("Bearer abcdefgh12345678", "sk-abcdefghijklmnop")
     )
+
+
+def test_ordinary_executor_reaches_read_only_evaluator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, envelope, decision, receipt, harness, checkpoint, _ = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+    )
+    executor_prep = json.loads(
+        (checkpoint / "authorization/executor-preparation.json").read_text()
+    )
+    assert executor_prep["required_tool_name"] is None
+    calls: list[dict[str, Any]] = []
+
+    def fake_evaluator(**kwargs: Any) -> EvaluatorOutcome:
+        calls.append(kwargs)
+        return EvaluatorOutcome(receipt, harness, _verdict())
+
+    monkeypatch.setattr(live_evaluator, "_invoker", fake_evaluator)
+    output = run_live_evaluator_campaign(
+        prep, tmp_path / "ordinary-final", envelope=envelope, decision=decision,
+        timeout_seconds=30, reasoning_effort="high",
+    )
+    assert len(calls) == 1
+    assert calls[0]["required_tool_name"] is None
+    final = json.loads((output / "campaign-input.json").read_text())
+    assert final["campaign"]["state"] == "completed"
+
+
+def test_large_file_small_change_reaches_evaluator_with_bounded_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = "".join(f"unchanged source line {index}\n" for index in range(10000))
+    after = before.replace("unchanged source line 5000\n", "CE-L2-EXACT-MARKER\n")
+    prep, envelope, decision, receipt, harness, checkpoint, _ = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+        initial_content=before, result_content=after, unchanged_file_count=250,
+        validation_command="make PYTHON=python3 docs",
+    )
+    packet = json.loads(prep.evidence_packet_json)
+    assert len(before.encode()) > 128 * 1024
+    assert packet["changed_files"] == [{
+        "path": "proof_target.txt",
+        "before_sha256": hashlib.sha256(before.encode()).hexdigest(),
+        "after_sha256": hashlib.sha256(after.encode()).hexdigest(),
+        "before_size": len(before.encode()), "after_size": len(after.encode()),
+    }]
+    assert "-unchanged source line 5000\n" in packet["bounded_diff"]
+    assert "+CE-L2-EXACT-MARKER\n" in packet["bounded_diff"]
+    assert len(packet["bounded_diff"].encode()) <= 16384
+    assert len(prep.evidence_packet_json.encode()) <= 32768
+    assert packet["target_snapshot"]["scope"] == "changed_files"
+    assert set(packet["target_snapshot"]["before"]) == {"proof_target.txt"}
+    assert "unchanged-249.txt" not in prep.evidence_packet_json
+    full_snapshot = json.loads((checkpoint / "execution/target-after.json").read_text())
+    assert len(full_snapshot["snapshot"]) == 251
+    assert packet["task_validation"]["validation_result"]["status"] == "passed"
+    calls = []
+
+    def fake_evaluator(**kwargs):
+        calls.append(kwargs)
+        return EvaluatorOutcome(receipt, harness, _verdict())
+
+    monkeypatch.setattr(live_evaluator, "_invoker", fake_evaluator)
+    output = run_live_evaluator_campaign(
+        prep, tmp_path / "large-file-final", envelope=envelope, decision=decision,
+        timeout_seconds=30, reasoning_effort="high",
+    )
+    assert len(calls) == 1
+    assert json.loads((output / "campaign-state.json").read_text())["state"] == "completed"
+
+
+def test_canonical_makefile_specimen_fits_complete_mutation_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = Path(__file__).resolve().parents[2]
+    fixture = (repo / "docs/Campaign/fixtures/milestone-a-ordinary-single-task.md").read_text()
+    after = (repo / "Makefile").read_text()
+    blocks = re.findall(r"(?ms)^canonical-audit-live-proof-receipt:\n(?:\t[^\n]*\n)+", after)
+    assert len(blocks) == 1
+    # Keep the pre-fix specimen independent of the repaired repository target.
+    stale = (repo / "codex_runner/tests/fixtures/campaign_engine/stale_canonical_audit_target.mk").read_text()
+    assert "--env-file" in stale
+    before = after.replace(blocks[0], stale + "\n" + blocks[0], 1)
+    assert len(re.findall(r"^canonical-audit-live-proof-receipt:", before, re.MULTILINE)) == 2
+    criteria_text = fixture.split("## Acceptance Criteria", 1)[1].split("## Non-Goals", 1)[0]
+    criteria = [{
+        "criterion_id": f"criterion-{int(match.group(1)):02d}",
+        "description": " ".join(match.group(2).split()),
+    } for match in re.finditer(r"(?ms)^(\d+)\. (.*?)(?=^\d+\. |\Z)", criteria_text)]
+    assert len(criteria) == 12
+    prep, _, _, _, _, _, _ = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+        initial_content=before, result_content=after, file_name="Makefile",
+        task_objective=fixture, acceptance_criteria=criteria,
+        validation_command="make PYTHON=python3 docs", unchanged_file_count=250,
+    )
+    packet = json.loads(prep.evidence_packet_json)
+    assert packet["task_objective"] == fixture
+    assert packet["acceptance_criteria"] == criteria
+    assert packet["changed_files"][0]["before_size"] == len(before.encode())
+    assert packet["changed_files"][0]["after_size"] == len(after.encode())
+    assert len(packet["bounded_diff"].encode()) <= 16384
+    assert len(prep.evidence_packet_json.encode()) <= 32768
+    assert set(packet["target_snapshot"]["before"]) == {"Makefile"}
+
+
+def test_oversized_actual_change_fails_before_evaluator_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: pytest.fail("provider seam reached"))
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        _prepare_lifecycle(
+            tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+            initial_content="BEFORE\n" * 4000, result_content="AFTER\n" * 4000,
+        )
+    assert caught.value.reason == "changed_file_diff_invalid"
+    assert caught.value.runner_call_count == 0
+
+
+def test_changed_file_evidence_rejects_hash_and_snapshot_mismatch(tmp_path: Path) -> None:
+    target = tmp_path / "repo"
+    target.mkdir()
+    path = target / "file.txt"
+    path.write_text("BEFORE\n")
+    subprocess.run(["git", "-C", str(target), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(target), "add", "file.txt"], check=True)
+    subprocess.run(["git", "-C", str(target), "-c", "user.name=test", "-c", "user.email=test@in.valid", "commit", "-qm", "baseline"], check=True)
+    path.write_text("AFTER\n")
+    before_hash = hashlib.sha256(b"BEFORE\n").hexdigest()
+    after_hash = hashlib.sha256(b"AFTER\n").hexdigest()
+    snapshot = {"file.txt": {"sha256_before": before_hash, "sha256_after": after_hash}}
+    rows = [{"path": "file.txt", "hash": after_hash}]
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        live_evaluator._bounded_changed_file_evidence(target, rows, {})
+    assert caught.value.reason == "changed_file_snapshot_mismatch"
+    snapshot["file.txt"]["sha256_before"] = "0" * 64
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        live_evaluator._bounded_changed_file_evidence(target, rows, snapshot)
+    assert caught.value.reason == "changed_file_hash_mismatch"
+    path.write_bytes(b"\xff")
+    snapshot["file.txt"]["sha256_before"] = before_hash
+    snapshot["file.txt"]["sha256_after"] = hashlib.sha256(b"\xff").hexdigest()
+    rows[0]["hash"] = snapshot["file.txt"]["sha256_after"]
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        live_evaluator._bounded_changed_file_evidence(target, rows, snapshot)
+    assert caught.value.reason == "changed_file_snapshot_invalid"
+
+
+def test_complete_diff_preserves_missing_final_newlines(tmp_path: Path) -> None:
+    target = tmp_path / "repo"
+    target.mkdir()
+    path = target / "file.txt"
+    path.write_bytes(b"BEFORE")
+    subprocess.run(["git", "-C", str(target), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(target), "add", "file.txt"], check=True)
+    subprocess.run(["git", "-C", str(target), "-c", "user.name=test", "-c", "user.email=test@in.valid", "commit", "-qm", "baseline"], check=True)
+    path.write_bytes(b"AFTER")
+    before_hash = hashlib.sha256(b"BEFORE").hexdigest()
+    after_hash = hashlib.sha256(b"AFTER").hexdigest()
+    diff, _ = live_evaluator._bounded_changed_file_evidence(
+        target, [{"path": "file.txt", "hash": after_hash}],
+        {"file.txt": {"sha256_before": before_hash, "sha256_after": after_hash}},
+    )
+    assert "-BEFORE\n\\ No newline at end of file\n" in diff
+    assert "+AFTER\n\\ No newline at end of file\n" in diff
+
+
+def test_fingerprint_supports_physical_worktree_and_detects_head_drift(tmp_path: Path) -> None:
+    source, target = tmp_path / "source", tmp_path / "worktree"
+    source.mkdir()
+    (source / "file.txt").write_text("BEFORE\n")
+    subprocess.run(["git", "-C", str(source), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(source), "add", "file.txt"], check=True)
+    subprocess.run(["git", "-C", str(source), "-c", "user.name=test", "-c", "user.email=test@in.valid", "commit", "-qm", "baseline"], check=True)
+    subprocess.run(["git", "-C", str(source), "worktree", "add", "--detach", str(target), "HEAD"], check=True, capture_output=True)
+    assert (target / ".git").is_file()
+    baseline = live_evaluator._target_fingerprint(target)
+    subprocess.run(["git", "-C", str(target), "-c", "user.name=test", "-c", "user.email=test@in.valid", "commit", "--allow-empty", "-qm", "head drift"], check=True)
+    assert live_evaluator._target_fingerprint(target) != baseline
+
+
+def test_evaluator_rejects_required_tool_preparation_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prep, _, _, _, _, checkpoint, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", required_tool_name=None,
+    )
+    prep_path = checkpoint / "authorization/executor-preparation.json"
+    forged = json.loads(prep_path.read_text())
+    forged["required_tool_name"] = "write"
+    prep_path.write_text(json.dumps(forged))
+    with pytest.raises(CampaignLiveEvaluatorError) as caught:
+        prepare_live_evaluator_campaign(
+            prep.campaign_path, checkpoint, target,
+            harness_id="pi-coding-agent", harness_version="0.82.1",
+        )
+    assert caught.value.reason == "executor_required_tool_evidence_invalid"
 
 
 def test_locked_deepseek_medium_rejected_before_evaluator_invocation(
@@ -672,3 +907,50 @@ def test_evaluator_rejects_task_validation_result_for_different_command(
             harness_version="0.82.1",
         )
     assert caught.value.reason == "task_validation_result_unproven"
+
+
+def test_unchanged_tracked_links_complete_lifecycle(tmp_path, monkeypatch):
+    prep, envelope, decision, receipt, harness, checkpoint, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", tracked_symlinks=True,
+        required_tool_name=None, validation_command="make PYTHON=python3 docs",
+    )
+    packet = json.loads(prep.evidence_packet_json)
+    links = packet["target_snapshot"]["unchanged_tracked_symlinks"]
+    assert len(links) == 2
+    for name in ("target-before.json", "target-after.json"):
+        evidence = json.loads((checkpoint / "execution" / name).read_text())
+        assert evidence["symlinks"] == links
+        assert "file-alias" not in evidence["snapshot"]
+        assert "directory-alias/data.txt" not in evidence["snapshot"]
+    monkeypatch.setattr(live_evaluator, "_invoker", lambda **kwargs: EvaluatorOutcome(receipt, harness, _verdict()))
+    output = run_live_evaluator_campaign(
+        prep, tmp_path / "final", envelope=envelope, decision=decision,
+        timeout_seconds=30, reasoning_effort="high",
+    )
+    assert json.loads((output / "campaign-input.json").read_text())["campaign"]["state"] == "completed"
+    assert (target / "directory-alias").is_symlink()
+
+
+@pytest.mark.parametrize("mutation", ["retarget", "git_link", "nested_git_link"])
+def test_evaluator_symlink_mutation_rejected(tmp_path, monkeypatch, mutation):
+    prep, envelope, decision, receipt, harness, _, target = _prepare_lifecycle(
+        tmp_path, monkeypatch, evaluator_effort="high", tracked_symlinks=True,
+    )
+    def mutate(**kwargs):
+        if mutation == "retarget":
+            (target / "file-alias").unlink()
+            (target / "file-alias").symlink_to("proof_target.txt")
+        elif mutation == "git_link":
+            (target / ".git/new-link").symlink_to("../proof_target.txt")
+        else:
+            (target / "nested/.git").mkdir(parents=True)
+            (target / "nested/.git/new-link").symlink_to("../../proof_target.txt")
+        return EvaluatorOutcome(receipt, harness, _verdict())
+    monkeypatch.setattr(live_evaluator, "_invoker", mutate)
+    with pytest.raises(CampaignLiveEvaluatorError) as error:
+        run_live_evaluator_campaign(
+            prep, tmp_path / "final", envelope=envelope, decision=decision,
+            timeout_seconds=30, reasoning_effort="high",
+        )
+    assert error.value.reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1

@@ -60,6 +60,7 @@ from .identity import (
     sha256_canonical,
     sha256_text,
 )
+from .filesystem import physical_files, tracked_symlink_snapshot
 from .models import (
     AcceptanceCriterionResult,
     CampaignClock,
@@ -82,10 +83,8 @@ SCHEMA_VERSION = "campaign-engine/v0"
 
 LIVE_EXECUTOR_CLASSIFICATION_VALUE = "live_executor"
 
-# Bounded canonical required-tool name for the live Executor.
-# Campaign Engine declares this as an execution requirement. It is NOT
-# a permission grant and NOT provider authority. The initial supported
-# value is "write". Any other value is rejected by Guardian.
+# Initial supported explicit required-tool value. The locked Executor
+# RoleBinding decides whether to request it; this token grants no permission.
 LIVE_EXECUTOR_REQUIRED_TOOL_NAME = "write"
 
 _LINEAGE_ABSENT_TOKEN = "absent"
@@ -303,6 +302,23 @@ def _hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _check_symlink_topology(
+    target: Path, *, expected: tuple[tuple[str, str, str], ...] | None = None,
+    stage: str = "preparation", calls: int = 0,
+) -> tuple[tuple[str, str, str], ...]:
+    try:
+        actual = tracked_symlink_snapshot(target)
+        if expected is not None and actual != expected:
+            raise ValueError("symlink identity changed")
+        return actual
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise CampaignLiveExecutorError(
+            "disposable target symlink topology is unproven or changed",
+            failure_reason="target_symlink_topology_changed",
+            diagnostic_stage=stage, runner_call_count=calls,
+        ) from exc
+
+
 def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     """Return ``{relative_path: (sha256_before, sha256_after)}`` for files
     within ``target`` excluding ``.git``.
@@ -314,12 +330,8 @@ def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     if not target.is_dir():
         return entries
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            entries[str(path.relative_to(target))] = (
-                _hash_file(path),
-                "",
-            )
+    for path in physical_files(target):
+        entries[str(path.relative_to(target))] = (_hash_file(path), "")
     return entries
 
 
@@ -333,21 +345,18 @@ def _rehydrate_post_snapshot(target: Path, snap: dict[str, tuple[str, str]]) -> 
     behavior.
     """
 
-    # Update pre-existing entries and find new files.
+    current = _snapshot_target(target)
     for rel in list(snap.keys()):
-        abspath = target / rel
         pre_hash, _ = snap[rel]
-        post_hash = _hash_file(abspath) if abspath.is_file() else ""
+        post_hash = current.get(rel, ("", ""))[0]
         snap[rel] = (pre_hash, post_hash)
 
     # Add post-only files (new files created during the live invocation).
     if not target.is_dir():
         return
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            rel = str(path.relative_to(target))
-            if rel not in snap:
-                snap[rel] = ("", _hash_file(path))
+    for rel, hashes in current.items():
+        if rel not in snap:
+            snap[rel] = ("", hashes[0])
 
 
 def _baseline_hash(snapshot: dict[str, tuple[str, str]]) -> str:
@@ -638,6 +647,7 @@ def prepare_live_executor_campaign(
             failure_reason="target_not_directory",
             diagnostic_stage="preparation",
         )
+    symlinks = _check_symlink_topology(target_path)
     git_head_pre = _read_git_head(target_path) or ""
 
     # 5. Source-selection lineage.
@@ -674,6 +684,7 @@ def prepare_live_executor_campaign(
     requested_permissions: tuple[str, ...] = tuple(live_role["requested_permissions"])
     granted_permissions: tuple[str, ...] = tuple(live_role["granted_permissions"])
     operator_consent_reference = str(live_role["operator_consent_reference"])
+    required_tool_name = live_role.get("required_tool_name")
 
     # prompt_sha256 is computed from prompt bytes; we lock it BEFORE the
     # prompt body is finalized by passing it as a placeholder the
@@ -696,7 +707,7 @@ def prepare_live_executor_campaign(
         allowed_file_paths=allowed_file_paths,
         target_repository_identity=str(bound_target),
         prompt_sha256=locked_prompt_sha256_placeholder,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     actual_prompt_sha256 = sha256_text(prompt_body)
 
@@ -772,8 +783,9 @@ def prepare_live_executor_campaign(
         target_baseline_hash=target_baseline_hash,
         target_baseline_git_head=git_head_pre,
         target_baseline_file_hashes=target_baseline_file_hashes,
+        target_baseline_symlinks=symlinks,
         campaign_input_hash=campaign_input_hash,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
         validation_command=validation_command,
     )
 
@@ -795,13 +807,24 @@ def _build_live_attempt_id(
     )[:24]
 
 
+def _actual_changed_entries(
+    snapshot: dict[str, tuple[str, str]],
+) -> dict[str, tuple[str, str]]:
+    """Select mutations from a full pre/post snapshot, including adds and deletes."""
+    return {
+        rel: (pre_hash, post_hash)
+        for rel, (pre_hash, post_hash) in snapshot.items()
+        if pre_hash != post_hash
+    }
+
+
 def _build_boundary_artifact(
     *,
     preparation: LiveExecutorPreparation,
     envelope_payload: dict[str, Any],
     outcome_payload: dict[str, Any],
     target_post_head: str | None,
-    target_post_changed: dict[str, tuple[str, str]],
+    target_post_snapshot: dict[str, tuple[str, str]],
     receipt_id: str | None,
     harness_result_id: str | None,
     expected_provider: str,
@@ -845,7 +868,7 @@ def _build_boundary_artifact(
     # Allowed scope agreement.
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     out_of_scope = [
-        rel for rel in target_post_changed.keys()
+        rel for rel in _actual_changed_entries(target_post_snapshot)
         if not _resource_within_allowed(rel, allowed_norm)
     ]
     checks.append({
@@ -1175,6 +1198,10 @@ def _run_live_attempt(
     """
 
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     return _invoker(
         envelope=envelope,
         decision=decision,
@@ -1199,39 +1226,15 @@ def _pre_execution_drift_check(
     - current Campaign input hash (re-load);
     - current target baseline evidence (re-snapshot);
     - re-loaded locked binding identity;
-    - current required-tool requirement re-derivation from the
-      canonical Campaign Engine constant;
-    - current prompt hash (re-derived from the canonical requirement,
+    - current required-tool requirement re-derivation from the locked
+      Executor RoleBinding;
+    - current prompt hash (re-derived from canonical Campaign input,
       not from the preparation field);
     - current target identity.
 
     Any material drift fails closed before invocation with
     ``runner_call_count = 0``.
     """
-
-    # 0. Required-tool requirement re-derivation from Campaign Engine
-    # authority.  The canonical live Executor required tool is the
-    # ``LIVE_EXECUTOR_REQUIRED_TOOL_NAME`` constant, NOT the mutable
-    # preparation field.  A preparation whose declared
-    # ``required_tool_name`` no longer equals the canonical value is
-    # material post-authorization drift: the preparation is evidence
-    # of the earlier decision, not authority to redefine that decision
-    # later.  ``None`` is not equivalent to the canonical ``"write"``
-    # requirement.  Fail closed before any other drift check so the
-    # failure reason is unambiguous.
-    if preparation.required_tool_name != LIVE_EXECUTOR_REQUIRED_TOOL_NAME:
-        raise CampaignLiveExecutorError(
-            "preparation required_tool_name drifted from canonical "
-            "Campaign Engine live Executor requirement",
-            failure_reason="drift_after_authorization",
-            diagnostic_stage="pre_invocation_drift",
-            issues=[
-                f"preparation.required_tool_name="
-                f"{preparation.required_tool_name!r} does not match "
-                f"canonical LIVE_EXECUTOR_REQUIRED_TOOL_NAME="
-                f"{LIVE_EXECUTOR_REQUIRED_TOOL_NAME!r}"
-            ],
-        )
 
     # 1. Campaign input hash.
     if source_context_path is not None:
@@ -1273,6 +1276,10 @@ def _pre_execution_drift_check(
 
     # 2. Target baseline evidence.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     snapshot_now = _snapshot_target(target_path)
     target_baseline_now = _baseline_hash(snapshot_now)
     if target_baseline_now != preparation.target_baseline_hash:
@@ -1281,7 +1288,7 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         head_now = _read_git_head(target_path) or ""
         if head_now != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
@@ -1311,6 +1318,15 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
+    required_tool_name = current_executor["live_role_binding"].get(
+        "required_tool_name"
+    )
+    if preparation.required_tool_name != required_tool_name:
+        raise CampaignLiveExecutorError(
+            "preparation required_tool_name drifted from locked Executor RoleBinding",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+        )
 
     # 4. Prompt hash re-derivation.
     task = validate_task_selection(document)
@@ -1323,14 +1339,7 @@ def _pre_execution_drift_check(
     allowed_file_paths: tuple[str, ...] = tuple(
         current_executor["live_role_binding"]["allowed_file_paths"]
     )
-    # Recompose the expected prompt from the CANONICAL live Executor
-    # required-tool authority, not the preparation field.  This is the
-    # second of two independent protections against a forged
-    # ``required_tool_name=None`` preparation that also recomposed a
-    # matching prompt/hash: the prompt the runtime would build now
-    # always contains the canonical MANDATORY ACTION clause, so a
-    # forged preparation whose prompt omits it cannot match the
-    # recomposed prompt hash either.
+    # Recompose from the locked binding, never from the preparation field.
     if task.get("validation_command") != preparation.validation_command:
         raise CampaignLiveExecutorError(
             "Task validation_command drifted after preparation",
@@ -1350,7 +1359,7 @@ def _pre_execution_drift_check(
         prompt_sha256=sha256_canonical(
             {"task": prompt_task, "allowed": list(allowed_file_paths)}
         ),
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     if sha256_text(recomposed_prompt) != preparation.prompt_sha256:
         raise CampaignLiveExecutorError(
@@ -1726,23 +1735,23 @@ def run_live_executor_campaign(
     # pre-snapshot was mutated during the harness write; only the
     # preparation's recorded pre hashes survive unchanged.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="post_invocation", calls=1,
+    )
     baseline_lookup: dict[str, str] = dict(preparation.target_baseline_file_hashes)
     snapshot: dict[str, tuple[str, str]] = {}
     if target_path.is_dir():
-        for path in sorted(target_path.rglob("*")):
-            if path.is_file() and ".git" not in path.relative_to(target_path).parts:
-                rel = str(path.relative_to(target_path))
-                snapshot[rel] = (
-                    baseline_lookup.get(rel, ""),
-                    _hash_file(path),
-                )
+        for path in physical_files(target_path):
+            rel = str(path.relative_to(target_path))
+            snapshot[rel] = (baseline_lookup.get(rel, ""), _hash_file(path))
     # Add pre-only entries (files that existed at baseline but were
     # deleted post-invocation).
     for rel, pre_hash in baseline_lookup.items():
         if rel not in snapshot:
             snapshot[rel] = (pre_hash, "")
     target_post_head = _read_git_head(target_path) or ""
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         if target_post_head != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
                 "target Git HEAD changed after invocation",
@@ -1754,9 +1763,7 @@ def run_live_executor_campaign(
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     changed_files: list[dict[str, Any]] = []
     out_of_scope: list[str] = []
-    for rel, (pre_hash, post_hash) in sorted(snapshot.items()):
-        if pre_hash == post_hash:
-            continue
+    for rel, (_, post_hash) in sorted(_actual_changed_entries(snapshot).items()):
         if not _resource_within_allowed(rel, allowed_norm):
             out_of_scope.append(rel)
             continue
@@ -1784,7 +1791,7 @@ def run_live_executor_campaign(
         envelope_payload=_to_payload(envelope),
         outcome_payload=outcome_payload,
         target_post_head=target_post_head or None,
-        target_post_changed=snapshot,
+        target_post_snapshot=snapshot,
         receipt_id=receipt_id,
         harness_result_id=harness_result_id,
         expected_provider=preparation.expected_provider_id,
@@ -1919,6 +1926,10 @@ def run_live_executor_campaign(
                 runner_call_count=1,
             )
         task_validation_result_hash = sha256_canonical(task_validation_payload)
+        _check_symlink_topology(
+            preparation.target_path, expected=preparation.target_baseline_symlinks,
+            stage="task_validation", calls=1,
+        )
         post_validation_hashes = {
             rel: hashes[0]
             for rel, hashes in _snapshot_target(preparation.target_path).items()
@@ -2290,6 +2301,7 @@ def _publish_live_artifacts(
             task_validation_result_payload,
         )
     atomic_write_json(execution_dir, "target-before.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_hash": preparation.target_baseline_hash,
         "target_baseline_git_head": preparation.target_baseline_git_head,
@@ -2299,6 +2311,7 @@ def _publish_live_artifacts(
         },
     })
     atomic_write_json(execution_dir, "target-after.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_git_head_after": preparation.target_baseline_git_head,
         "post_git_head": preparation.target_baseline_git_head,

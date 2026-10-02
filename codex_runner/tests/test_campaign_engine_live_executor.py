@@ -30,7 +30,7 @@ from typing import Any, Callable
 import pytest
 
 from codex_runner.campaign_engine import live_executor
-from codex_runner.campaign_engine.errors import CampaignLiveExecutorError
+from codex_runner.campaign_engine.errors import CampaignLiveExecutorError, CampaignValidationError
 from codex_runner.campaign_engine.live_executor import (
     LiveExecutorPreparation,
     prepare_live_executor_campaign,
@@ -208,6 +208,7 @@ def fixed_clock() -> CampaignClock:
 def _make_canonical_live_campaign(
     tmp_path: pathlib.Path,
     *,
+    required_tool_name: str | None = "write",
     executor_provider: str = "openai-codex",
     executor_model: str = "gpt-5.1",
     allowed_paths: list[str] | None = None,
@@ -351,6 +352,8 @@ def _make_canonical_live_campaign(
             "ordered_decision_gate_ids": [],
         },
     }
+    if required_tool_name is not None:
+        campaign["role_bindings"][1]["live_role_binding"]["required_tool_name"] = required_tool_name
     campaign_path = tmp_path / "campaign_live_test.json"
     campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
     # Inject a key marker we can detect to demonstrate pre/post-snapshot.
@@ -550,6 +553,98 @@ def test_preparation_selects_exactly_one_task(live_doc, tmp_path) -> None:
     )
     assert preparation.task_id == handle["task_id"]
     assert preparation.campaign_id == handle["campaign_id"]
+
+
+@pytest.mark.parametrize("mutation", ["allowed", "zero", "modify", "create", "delete"])
+def test_ordinary_executor_omits_hard_selection_and_keeps_scope_guards(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name=None
+    )
+    unexpected = target / "unexpected.txt"
+    if mutation in {"modify", "delete"}:
+        unexpected.write_text("BEFORE\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    assert preparation.required_tool_name is None
+    assert "MANDATORY ACTION: invoke the `write` tool" not in preparation.prompt
+    assert "proof_target.txt" in preparation.prompt
+    assert "commit" in preparation.prompt
+    assert "files.write" in preparation.granted_permissions
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-ordinary", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-ordinary", receipt_id="pi-receipt-ordinary", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        calls.append(kwargs)
+        if mutation == "allowed":
+            (target / "proof_target.txt").write_text("CHANGED\n", encoding="utf-8")
+        elif mutation == "modify":
+            unexpected.write_text("AFTER\n", encoding="utf-8")
+        elif mutation == "create":
+            unexpected.write_text("NEW\n", encoding="utf-8")
+        elif mutation == "delete":
+            unexpected.unlink()
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    if mutation == "allowed":
+        result = run_live_executor_campaign(
+            preparation, tmp_path / "ordinary-output", envelope=envelope,
+            decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+        )
+        assert result.source_mutations == 1
+        assert result.to_dict()["required_tool_selection"] is None
+    else:
+        with pytest.raises(CampaignLiveExecutorError) as caught:
+            run_live_executor_campaign(
+                preparation, tmp_path / "ordinary-output", envelope=envelope,
+                decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+            )
+        expected = "zero_mutation_executor_turn" if mutation == "zero" else "out_of_scope_mutation"
+        assert caught.value.failure_reason == expected
+    assert len(calls) == 1
+    assert calls[0]["required_tool_name"] is None
+
+
+@pytest.mark.parametrize("initial_tool", [None, "write"])
+def test_required_tool_binding_change_blocks_before_invocation(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, initial_tool: str | None,
+) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name=initial_tool
+    )
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    document = json.loads(campaign_path.read_text(encoding="utf-8"))
+    live_binding = document["role_bindings"][1]["live_role_binding"]
+    if initial_tool is None:
+        live_binding["required_tool_name"] = "write"
+    else:
+        del live_binding["required_tool_name"]
+    campaign_path.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(
+        live_executor, "_invoker", lambda **kwargs: pytest.fail("provider seam reached")
+    )
+    with pytest.raises(CampaignLiveExecutorError) as caught:
+        run_live_executor_campaign(
+            preparation, tmp_path / "drift-output", envelope=envelope,
+            decision=decision, timeout_seconds=30, campaign_path=campaign_path,
+        )
+    assert caught.value.failure_reason == "drift_after_authorization"
+
+
+def test_unsupported_required_tool_fails_before_invocation(tmp_path) -> None:
+    campaign_path, target, _ = _make_canonical_live_campaign(
+        tmp_path, required_tool_name="edit"
+    )
+    with pytest.raises(CampaignValidationError):
+        prepare_live_executor_campaign(campaign_path, target)
 
 
 # 2. preparation uses the locked Executor binding.
@@ -979,6 +1074,148 @@ def test_successful_invocation_occurs_exactly_once(
     assert head_now == handle["head"]
 
 
+# A full snapshot is evidence of presence; only unequal hashes are mutations.
+def _boundary_for_snapshot(
+    snapshot: dict[str, tuple[str, str]],
+) -> dict[str, Any]:
+    """Exercise the pure boundary check with a full repository snapshot."""
+    preparation = types.SimpleNamespace(
+        allowed_file_paths=("Makefile",), target_baseline_git_head="baseline-head"
+    )
+    return live_executor._build_boundary_artifact(
+        preparation=preparation,
+        envelope_payload={"authorized": True},
+        outcome_payload={
+            "ok": True,
+            "runner_call_count": 1,
+            "retry_count": 0,
+            "fallback_count": 0,
+        },
+        target_post_head="baseline-head",
+        target_post_snapshot=snapshot,
+        receipt_id="pi-receipt-snapshot-test",
+        harness_result_id="pi-result-snapshot-test",
+        expected_provider="deepseek",
+        expected_model="deepseek-v4-pro",
+        actual_provider="deepseek",
+        actual_model="deepseek-v4-pro",
+    )["boundary_validation_artifact"]
+
+
+def test_boundary_scope_ignores_large_unchanged_out_of_scope_snapshot() -> None:
+    snapshot = {
+        f"src/unchanged-{index}.py": (f"hash-{index}", f"hash-{index}")
+        for index in range(256)
+    }
+    snapshot.update({
+        "README.md": ("readme-hash", "readme-hash"),
+        "docs/bar.md": ("docs-hash", "docs-hash"),
+        "Makefile": ("old-hash", "new-hash"),
+    })
+
+    assert live_executor._actual_changed_entries(snapshot) == {
+        "Makefile": ("old-hash", "new-hash")
+    }
+    boundary = _boundary_for_snapshot(snapshot)
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert boundary["all_passed"] is True
+    assert scope == {
+        "check": "changed_paths_within_allowed_scope",
+        "ok": True,
+        "out_of_scope": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "unexpected_hashes",
+    [("old", "new"), ("", "new"), ("old", "")],
+    ids=["modification", "creation", "deletion"],
+)
+def test_boundary_scope_rejects_actual_out_of_scope_mutations(
+    unexpected_hashes: tuple[str, str],
+) -> None:
+    snapshot = {
+        "Makefile": ("old", "new"),
+        "README.md": ("unchanged", "unchanged"),
+        "unexpected.txt": unexpected_hashes,
+    }
+
+    assert set(live_executor._actual_changed_entries(snapshot)) == {
+        "Makefile", "unexpected.txt"
+    }
+    boundary = _boundary_for_snapshot(snapshot)
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert boundary["all_passed"] is False
+    assert scope["ok"] is False
+    assert scope["out_of_scope"] == ["unexpected.txt"]
+
+
+def test_boundary_scope_distinguishes_no_mutation_from_snapshot_membership() -> None:
+    snapshot = {
+        "Makefile": ("same", "same"),
+        "README.md": ("same", "same"),
+    }
+    assert live_executor._actual_changed_entries(snapshot) == {}
+    scope = next(
+        check for check in _boundary_for_snapshot(snapshot)["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert scope["ok"] is True
+    assert scope["out_of_scope"] == []
+
+
+def test_allowed_mutation_with_unchanged_other_files_preserves_count_and_boundary(
+    live_doc, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign_path, target, handle = live_doc
+    for index in range(32):
+        path = target / "src" / f"unchanged-{index}.py"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"UNCHANGED-{index}\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-many-unchanged", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-many-unchanged", receipt_id="pi-receipt-many-unchanged", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        (pathlib.Path(kwargs["cwd"]) / "proof_target.txt").write_text(
+            "CHANGED\n", encoding="utf-8"
+        )
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    output_root = tmp_path / "out-many-unchanged"
+    result = run_live_executor_campaign(
+        preparation, output_root, envelope=envelope, decision=decision,
+        timeout_seconds=30, campaign_path=campaign_path,
+    )
+    final_dir = output_root / handle["campaign_id"]
+    attempt = json.loads(
+        (final_dir / "attempts" / f"{preparation.attempt_id}.json").read_text()
+    )
+    boundary = json.loads(
+        (final_dir / "execution/executor-boundary-validation.json").read_text()
+    )["boundary_validation_artifact"]
+    assert result.source_mutations == attempt["source_mutation_count"] == 1
+    assert [item["path"] for item in attempt["changed_files"]] == ["proof_target.txt"]
+    assert boundary["all_passed"] is True
+    scope = next(
+        check for check in boundary["checks"]
+        if check["check"] == "changed_paths_within_allowed_scope"
+    )
+    assert scope["out_of_scope"] == []
+
+
 # 14. one allowed target mutation produces source_mutation_count=1.
 def test_one_allowed_mutation_produces_count_one(
     live_doc, tmp_path, invoker_factory
@@ -1143,6 +1380,41 @@ def test_out_of_scope_change_fails_closed(
         )
     monkeypatch.undo()
     assert exc_info.value.failure_reason == "out_of_scope_mutation"
+
+
+@pytest.mark.parametrize("mutation", ["modify", "create", "delete"])
+def test_runtime_rejects_each_out_of_scope_mutation(
+    live_doc, tmp_path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    campaign_path, target, _ = live_doc
+    unexpected = target / "unexpected.txt"
+    if mutation != "create":
+        unexpected.write_text("BEFORE\n", encoding="utf-8")
+    preparation = prepare_live_executor_campaign(campaign_path, target)
+    envelope, decision = _build_envelope_and_decision(preparation)
+    outcome = FakeOutcome(
+        ok=True,
+        actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+        receipt=FakeReceipt(receipt_id="pi-receipt-out-of-scope", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+        harness_result=FakeHarnessResult(harness_result_id="pi-result-out-of-scope", receipt_id="pi-receipt-out-of-scope", harness_id="pi-coding-agent", harness_version="0.72.1"),
+    )
+
+    def fake_executor(**kwargs: Any) -> FakeOutcome:
+        if mutation == "delete":
+            unexpected.unlink()
+        else:
+            unexpected.write_text("AFTER\n", encoding="utf-8")
+        return outcome
+
+    monkeypatch.setattr(live_executor, "_invoker", fake_executor)
+    with pytest.raises(CampaignLiveExecutorError) as exc_info:
+        run_live_executor_campaign(
+            preparation, tmp_path / f"out-{mutation}",
+            envelope=envelope, decision=decision,
+            timeout_seconds=30, campaign_path=campaign_path,
+        )
+    assert exc_info.value.failure_reason == "out_of_scope_mutation"
+    assert "unexpected.txt" in str(exc_info.value.issues)
 
 
 # 18. Git HEAD change fails closed.
@@ -2784,6 +3056,7 @@ def _setup_simple_canonical_inputs(tmp_path):
         "execution_mode": "live",
         "redaction_status": "redacted",
         "live_role_binding": {
+            "required_tool_name": "write",
             "provider_identity_proof": (
                 "anthropic-operator-auth-readiness-v2-test"
             ),
@@ -3365,3 +3638,124 @@ def test_forged_required_tool_none_drift_blocks_before_invocation(tmp_path) -> N
         "before any invoker call; "
         f"saw {len(invoker_calls)} call(s): {invoker_calls!r}"
     )
+
+
+@pytest.mark.parametrize("mutation", ["new", "git_link", "nested_git_link", "retarget", "outside", "delete", "file", "directory", "replace_regular"])
+def test_tracked_symlink_topology_fails_closed(tmp_path, mutation):
+    from codex_runner.campaign_engine.filesystem import physical_files
+    from codex_runner.campaign_engine.live_executor import _check_symlink_topology, _snapshot_target
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    (target / "physical").mkdir()
+    (target / "physical/data").write_text("inside")
+    link = target / "alias"
+    link.symlink_to("physical", target_is_directory=True)
+    subprocess.run(["git", "-C", str(target), "add", "--", "physical", "alias"], check=True)
+    subprocess.run(["git", "-C", str(target), "commit", "-qm", "tracked link"], check=True)
+    prep = prepare_live_executor_campaign(campaign, target)
+    assert prep.target_baseline_symlinks == (("alias", "physical", "physical"),)
+    assert "alias/data" not in _snapshot_target(target)
+    assert all(not p.is_symlink() and "alias" not in p.relative_to(target).parts for p in physical_files(target))
+    if mutation == "new":
+        (target / "new-alias").symlink_to("physical")
+    elif mutation == "git_link":
+        (target / ".git/new-alias").symlink_to("../physical")
+    elif mutation == "nested_git_link":
+        (target / "nested/.git").mkdir(parents=True)
+        (target / "nested/.git/new-alias").symlink_to("../../physical")
+    elif mutation == "replace_regular":
+        (target / "proof_target.txt").unlink()
+        (target / "proof_target.txt").symlink_to("physical/data")
+    else:
+        link.unlink()
+        if mutation == "retarget":
+            link.symlink_to("physical/data")
+        elif mutation == "outside":
+            link.symlink_to(tmp_path)
+        elif mutation == "file":
+            link.write_text("replacement")
+        elif mutation == "directory":
+            link.mkdir()
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        _check_symlink_topology(target, expected=prep.target_baseline_symlinks, stage="post_invocation", calls=1)
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1
+
+
+def test_external_link_rejected_without_alias_content_read(tmp_path):
+    from codex_runner.campaign_engine.filesystem import physical_files
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret").write_text("not target evidence")
+    (target / "alias").symlink_to(outside, target_is_directory=True)
+    subprocess.run(["git", "-C", str(target), "add", "alias"], check=True)
+    subprocess.run(["git", "-C", str(target), "commit", "-qm", "external link baseline"], check=True)
+    assert all("alias" not in p.relative_to(target).parts for p in physical_files(target))
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        prepare_live_executor_campaign(campaign, target)
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 0
+
+
+@pytest.mark.parametrize("stage", ["pre_invocation", "executor", "validation"])
+def test_symlink_guard_preserves_validation_sequence(tmp_path, monkeypatch, stage):
+    command = "make PYTHON=python3 docs"
+    campaign, target, _ = _campaign_with_task_validation(tmp_path, command)
+    prep = prepare_live_executor_campaign(campaign, target)
+    authority = _coding_loop_validation_authority(prep)
+    envelope, decision = _build_envelope_and_decision(
+        prep, validation_command_reference=live_executor.validation_authorization_reference(prep, authority),
+    )
+    calls = []
+    validations = []
+    def change_topology():
+        (target / "unexpected-link").symlink_to("proof_target.txt")
+    def executor(**kwargs):
+        calls.append(kwargs)
+        (target / "proof_target.txt").write_text("allowed mutation\n")
+        if stage == "executor":
+            change_topology()
+        return FakeOutcome(
+            ok=True, actual_identity=FakeIdentity("openai-codex", "gpt-5.1", "pi-coding-agent", "0.72.1"),
+            receipt=FakeReceipt(receipt_id="pi-receipt-symlink-test", invocation_id=envelope.invocation_id, harness_id="pi-coding-agent", harness_version="0.72.1"),
+            harness_result=FakeHarnessResult(harness_result_id="pi-result-symlink-test", receipt_id="pi-receipt-symlink-test", harness_id="pi-coding-agent", harness_version="0.72.1"),
+        )
+    def validation(**kwargs):
+        validations.append(kwargs)
+        change_topology()
+        return NormalizedTestResult(status="passed", command=command, exit_code=0)
+    monkeypatch.setattr(live_executor, "_invoker", executor)
+    monkeypatch.setattr(live_executor, "_task_validation_runner", validation)
+    if stage == "pre_invocation":
+        change_topology()
+    with pytest.raises(CampaignLiveExecutorError) as error:
+        run_live_executor_campaign(
+            prep, tmp_path / "output", envelope=envelope, decision=decision,
+            timeout_seconds=30, campaign_path=campaign, reasoning_effort="off",
+            validation_authorization=authority,
+        )
+    assert error.value.failure_reason == "target_symlink_topology_changed"
+    assert len(calls) == (0 if stage == "pre_invocation" else 1)
+    assert len(validations) == (1 if stage == "validation" else 0)
+
+
+@pytest.mark.parametrize("relative", [".git/new-link", "nested/.git/new-link"])
+def test_git_symlink_rejected_before_git_metadata_read(tmp_path, monkeypatch, relative):
+    from codex_runner.campaign_engine import filesystem
+    from codex_runner.campaign_engine import live_evaluator
+    from codex_runner.campaign_engine.errors import CampaignLiveEvaluatorError
+    campaign, target, _ = _setup_simple_canonical_inputs(tmp_path)
+    link = target / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(tmp_path)
+    monkeypatch.setattr(filesystem.subprocess, "run", lambda *args, **kwargs: pytest.fail("Git must not read through an untrusted metadata alias"))
+    with pytest.raises(ValueError, match="physical Git metadata"):
+        filesystem.tracked_symlink_snapshot(target)
+    with pytest.raises(CampaignLiveExecutorError) as executor_error:
+        prepare_live_executor_campaign(campaign, target)
+    assert executor_error.value.failure_reason == "target_symlink_topology_changed"
+    assert executor_error.value.runner_call_count == 0
+    with pytest.raises(CampaignLiveEvaluatorError) as error:
+        live_evaluator._target_fingerprint(target, calls=1)
+    assert error.value.reason == "target_symlink_topology_changed"
+    assert error.value.runner_call_count == 1

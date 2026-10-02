@@ -171,6 +171,24 @@ describe("SettingsView save flow", () => {
     window.history.pushState({}, "", "/chat/42");
   });
 
+  it("opens the dedicated Inspector from the Operator directory without fetching its snapshot", async () => {
+    const open = vi.fn();
+    renderSettingsView({ onOpenConfigurationInspector: open });
+    fireEvent.click(screen.getByRole("tab", { name: "Operator" }));
+    const panel = screen.getByRole("tabpanel", { name: "Operator" });
+    const launcher = within(panel).getByRole("button", { name: /Configuration Inspector/ });
+    expect(within(launcher).getByTestId("configuration-inspector-chevron")).toBeInTheDocument();
+    expect(within(panel).getByText(/Read-only installation posture, owners, and evidence. No editing./)).toBeInTheDocument();
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+    expect(panel.querySelector("input, select, textarea")).toBeNull();
+    fireEvent.click(launcher);
+    expect(open).toHaveBeenCalledOnce();
+    await act(async () => {});
+    expect(mockedApi.get.mock.calls.some(([url]) => url === "/api/operator/configuration")).toBe(false);
+    expect(screen.queryByText("Configured target")).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe("operator");
+  });
+
   it("removes prompt editing while preserving local preview saves", async () => {
     const setSystemPrompt = vi.fn();
     renderSettingsView({ setSystemPrompt });
@@ -267,15 +285,17 @@ describe("SettingsView save flow", () => {
     appearanceTab.focus();
 
     const steps = [
-      ["ArrowLeft", "Personal Facts"],
+      ["ArrowLeft", "Operator"],
       ["ArrowRight", "Appearance"],
       ["ArrowDown", "Feedback"],
       ["ArrowUp", "Appearance"],
-      ["End", "Personal Facts"],
+      ["End", "Operator"],
+      ["ArrowUp", "Personal Facts"],
       ["ArrowUp", "Data"],
       ["ArrowDown", "Personal Facts"],
+      ["ArrowDown", "Operator"],
       ["ArrowDown", "Appearance"],
-      ["ArrowUp", "Personal Facts"],
+      ["ArrowUp", "Operator"],
       ["Home", "Appearance"],
     ];
 

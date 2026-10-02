@@ -1763,6 +1763,7 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
     )
 
     env = os.environ.copy()
+    env["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
     env["PI_CODING_AGENT_PACKAGE_ROOT"] = str(materialized)
     env["PI_PROVIDER"] = "anthropic"
     env["PI_MODEL"] = "claude-sonnet-4-6"

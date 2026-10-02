@@ -32,6 +32,7 @@ from guardian.pi.validation import (
 
 from .artifacts import ArtifactPublisher, atomic_write_json
 from .errors import CampaignLiveEvaluatorError
+from .filesystem import physical_files, tracked_symlink_snapshot
 from .identity import binding_identity_hash, canonical_json, document_hash, sha256_canonical, sha256_text
 from .live_executor import _contains_sensitive_key, _read_git_head, _to_payload
 from .validation import parse_json_strict, validate_campaign_document, validate_path_component, validate_role_binding_semantics
@@ -172,22 +173,53 @@ def _verify_locked_evaluator_effort(
         _fail("evaluator_effort_unsupported")
 
 
+def _symlink_evidence(target: Path, *, calls: int = 0) -> list[dict[str, str]]:
+    try:
+        return [
+            {"path": rel, "link_target": link, "resolved_target": resolved}
+            for rel, link, resolved in tracked_symlink_snapshot(target)
+        ]
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        _fail("target_symlink_topology_changed", calls=calls)
+
+
 def _target_fingerprint(target: Path, *, calls: int = 0) -> str:
-    """Hash all target bytes, including Git metadata; reject symlink escape."""
-    if not target.is_dir() or not (target / ".git").is_dir():
+    """Hash target bytes and Git HEAD; support physical worktree Git pointers."""
+    if not target.is_dir() or not (target / ".git").exists():
         _fail("disposable_target_invalid", calls=calls)
-    files: dict[str, str] = {}
-    for path in sorted(target.rglob("*")):
-        if path.is_symlink():
-            _fail("target_symlink_present", calls=calls)
-        if path.is_file():
-            files[str(path.relative_to(target))] = _hash_file(path)
-    return sha256_canonical({"head": _read_git_head(target), "files": files})
+    symlinks = _symlink_evidence(target, calls=calls)
+    try:
+        root = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True, timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        _fail("disposable_target_invalid", calls=calls)
+    head = _read_git_head(target)
+    if Path(root).resolve() != target.resolve() or not head:
+        _fail("disposable_target_invalid", calls=calls)
+    files = {
+        str(path.relative_to(target)): _hash_file(path)
+        for path in physical_files(target, include_git=True)
+    }
+    return sha256_canonical({"head": head, "files": files, "symlinks": symlinks})
 
 
-def _bounded_changed_file_diff(target: Path, changed_files: list[dict[str, Any]]) -> str:
-    """Read only declared changed files and their committed disposable baseline."""
+def _bounded_changed_file_evidence(
+    target: Path, changed_files: list[dict[str, Any]],
+    snapshot: dict[str, dict[str, str]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Verify full bytes locally; bound the complete mutation evidence, not files."""
     chunks: list[str] = []
+    evidence: list[dict[str, Any]] = []
+    diff_bytes = 0
+    actual_changed = {
+        rel for rel, row in snapshot.items()
+        if row["sha256_before"] != row["sha256_after"]
+    }
+    declared = [row["path"] for row in changed_files]
+    if len(set(declared)) != len(declared) or set(declared) != actual_changed:
+        _fail("changed_file_snapshot_mismatch")
     for row in changed_files:
         rel = row["path"]
         if not isinstance(rel, str) or Path(rel).is_absolute() or ".." in Path(rel).parts:
@@ -201,21 +233,36 @@ def _bounded_changed_file_diff(target: Path, changed_files: list[dict[str, Any]]
                 ["git", "-C", str(target), "show", f"HEAD:{rel}"],
                 capture_output=True, check=True, timeout=10,
             ).stdout
-            if len(baseline) > 4096 or len(after_bytes) > 4096:
-                _fail("changed_file_snapshot_too_large")
             before_text, after_text = baseline.decode("utf-8"), after_bytes.decode("utf-8")
         except (OSError, UnicodeDecodeError, subprocess.SubprocessError):
             _fail("changed_file_snapshot_invalid")
-        if hashlib.sha256(after_bytes).hexdigest() != row["hash"]:
+        before_hash = hashlib.sha256(baseline).hexdigest()
+        after_hash = hashlib.sha256(after_bytes).hexdigest()
+        if (
+            before_hash != snapshot[rel]["sha256_before"]
+            or after_hash != snapshot[rel]["sha256_after"]
+            or after_hash != row["hash"]
+        ):
             _fail("changed_file_hash_mismatch")
-        chunks.extend(difflib.unified_diff(
+        evidence.append({
+            "path": rel, "before_sha256": before_hash, "after_sha256": after_hash,
+            "before_size": len(baseline), "after_size": len(after_bytes),
+        })
+        for line in difflib.unified_diff(
             before_text.splitlines(keepends=True), after_text.splitlines(keepends=True),
             fromfile=f"before/{rel}", tofile=f"after/{rel}",
-        ))
+        ):
+            # Preserve missing-final-newline evidence without joining diff lines.
+            if not line.endswith("\n"):
+                line += "\n\\ No newline at end of file\n"
+            diff_bytes += len(line.encode("utf-8"))
+            if diff_bytes > 16384:
+                _fail("changed_file_diff_invalid")
+            chunks.append(line)
     diff = "".join(chunks)
-    if not diff or len(diff.encode("utf-8")) > 16384:
+    if not diff:
         _fail("changed_file_diff_invalid")
-    return diff
+    return diff, evidence
 
 
 def _id(prefix: str, value: dict[str, Any]) -> str:
@@ -363,8 +410,17 @@ def prepare_live_evaluator_campaign(
         _fail("source_campaign_drifted")
     if checkpoint_run.get("provider_calls_performed") != 1 or checkpoint_run.get("attempt_id") != attempt["attempt_id"]:
         _fail("executor_call_evidence_invalid")
-    if executor_prep.get("required_tool_name") != "write" or attempt.get("source_mutation_count") != 1:
-        _fail("executor_required_write_evidence_invalid")
+    if executor_prep.get("required_tool_name") != executor_live.get("required_tool_name"):
+        _fail("executor_required_tool_evidence_invalid")
+    mutation_count = attempt.get("source_mutation_count")
+    changed_files = attempt.get("changed_files")
+    if (
+        type(mutation_count) is not int
+        or mutation_count < 1
+        or not isinstance(changed_files, list)
+        or mutation_count != len(changed_files)
+    ):
+        _fail("executor_mutation_evidence_invalid")
     executor_envelope = _load(checkpoint_dir / "authorization/executor-envelope.json")
     executor_decision = _load(checkpoint_dir / "authorization/executor-policy-decision.json")
     executor_receipt = PiInvocationReceipt.from_payload(_load(checkpoint_dir / "execution/executor-pi-receipt.json"))
@@ -396,16 +452,24 @@ def prepare_live_evaluator_campaign(
         _fail("executor_boundary_validation_hash_mismatch")
     before = _load(checkpoint_dir / "execution/target-before.json")
     after = _load(checkpoint_dir / "execution/target-after.json")
+    symlinks = _symlink_evidence(target_path)
+    if any(row.get("symlinks", []) != symlinks for row in (before, after)) or (
+        executor_prep.get("target_baseline_symlinks", []) != symlinks
+    ):
+        _fail("target_symlink_topology_changed")
     target_hashes = {
         str(path.relative_to(target_path)): _hash_file(path)
-        for path in target_path.rglob("*")
-        if path.is_file() and ".git" not in path.relative_to(target_path).parts
+        for path in physical_files(target_path)
     }
     after_hashes = {rel: row["sha256_after"] for rel, row in after["snapshot"].items() if row["sha256_after"]}
     if target_hashes != after_hashes or _read_git_head(target_path) != after.get("post_git_head"):
         _fail("executor_target_drifted")
     receipt = checkpoint["receipts"][0]
-    bounded_diff = _bounded_changed_file_diff(target_path, attempt.get("changed_files", []))
+    if before["snapshot"] != after["snapshot"]:
+        _fail("changed_file_snapshot_mismatch")
+    bounded_diff, changed_file_evidence = _bounded_changed_file_evidence(
+        target_path, attempt.get("changed_files", []), after["snapshot"],
+    )
     checkpoint_paths = list(_CHECKPOINT_FILES)
     task_validation = None
     evidence_ids = set(_EVIDENCE_IDS)
@@ -478,9 +542,18 @@ def prepare_live_evaluator_campaign(
         "acceptance_criteria": criteria,
         "source_context_reference": receipt["source_context_reference"],
         "executor_attempt": attempt,
-        "changed_files": attempt.get("changed_files", []),
+        "changed_files": changed_file_evidence,
         "bounded_diff": bounded_diff,
-        "target_snapshot": {"before": before["snapshot"], "after": after["snapshot"]},
+        "target_snapshot": {
+            "scope": "changed_files",
+            "unchanged_tracked_symlinks": symlinks,
+            "before": {row["path"]: {
+                "sha256": row["before_sha256"], "size": row["before_size"],
+            } for row in changed_file_evidence},
+            "after": {row["path"]: {
+                "sha256": row["after_sha256"], "size": row["after_size"],
+            } for row in changed_file_evidence},
+        },
         "campaign_boundary_validation": {
             "validation_command": "campaign-engine:executor-boundary-validation/v0",
             "validation_hash": boundary_validation_hash,
