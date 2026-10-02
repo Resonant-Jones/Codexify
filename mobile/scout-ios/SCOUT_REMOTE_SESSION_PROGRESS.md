@@ -17,6 +17,18 @@ Guardian, frontend, Tailscale, Whoosh'd, providers, and database state were not 
 
 ## Authentication trace and evidence classes
 
+**Native Access admission, October 2:** Operator-supplied Device Hub evidence at
+16:51:45 UTC displays `Native request reached Guardian's account gate (HTTP 401,
+Cloudflare Ray a4453689ff3df8ae-MIA)`. The installed classifier requires the
+canonical Guardian account failure marker for this message. This qualifies the
+simulator's native ingress admission, not a Guardian account session or protected
+authenticated read. No further registration, BIC or Access policy work is needed
+for this checkpoint. The serving account extractor was re-read at the pinned
+`f83fe5da326871d1948ba79d90831be1402375ec` revision: Bearer precedes `gc_session`,
+and no native account handoff exists. The concrete next contract/deployment
+decision is in [the account handoff proposal](SCOUT_ACCOUNT_HANDOFF_DECISION.md).
+It is not an approval or deployed implementation.
+
 **Scout sign-in diagnostics, October 2:** Starting HEAD for this slice was
 `b5cb07df6433274e51e768f93752807eedaf8cbc`; branch and #822 ancestry were
 verified. Remote Server status no longer attempts to load a local API key.
