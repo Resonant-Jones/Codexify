@@ -23,8 +23,8 @@ from guardian.services.account_export import (
     build_account_export_zip,
 )
 from guardian.services.account_restore import (
+    AccountRestoreError,
     AccountRestoreService,
-    AccountRestoreValidationError,
 )
 from tests.migration.test_canonical_memory_persistence_migration import _upgrade
 from tests.migration.test_canonical_memory_persistence_migration import (  # noqa: PLC0414
@@ -551,20 +551,22 @@ def test_malformed_v4_graph_fails_closed(
         )
 
 
-def test_v4_restore_remains_unsupported(tmp_path: Path):
+def test_v4_restore_validates_archive_before_requiring_db_helpers(tmp_path: Path):
     archive_bytes = _archive_bytes(
         StagedExportDB(),
         tmp_path,
         schema_version=STAGED_MANIFEST_SCHEMA_VERSION,
     )
 
-    with pytest.raises(AccountRestoreValidationError) as exc_info:
+    with pytest.raises(AccountRestoreError) as exc_info:
         AccountRestoreService(SimpleNamespace()).restore_from_zip(
             archive_bytes,
             user_id=ACCOUNT_A,
         )
 
-    assert exc_info.value.code == "schema_version_unsupported"
+    assert exc_info.value.code == "restore_helper_missing"
+    assert exc_info.value.validated is True
+    assert exc_info.value.schema_version == STAGED_MANIFEST_SCHEMA_VERSION
 
 
 @pytest.mark.integration

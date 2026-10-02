@@ -5,19 +5,15 @@ import FrameCard from "@/components/surface/FrameCard";
 import WorkspaceScratchpadPanel from "./WorkspaceScratchpadPanel";
 import WorkspaceShelfPanel from "./WorkspaceShelfPanel";
 import WorkspaceInspectorPanel from "./WorkspaceInspectorPanel";
+import type { WorkspaceSelection } from "../workspaceSelection";
 import WorkspaceTabs from "./WorkspaceTabs";
-import type {
-  WorkspaceDrawerTab,
-  WorkspaceRouteContext,
-} from "../state/useWorkspaceUiState";
+import type { WorkspaceDrawerTab, WorkspaceRouteContext } from "../state/useWorkspaceUiState";
 import {
   getNextWorkspaceLayoutMode,
   getWorkspaceLayoutModeLabel,
   getWorkspacePaneRatioForLayoutMode,
   type WorkspaceLayoutMode,
 } from "../state/useWorkspaceLayoutMode";
-
-type ShelfItem = { kind: "document"; item: { id: string; filename?: string; src_url: string; caption?: string; mime_type?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } } | { kind: "image"; item: { id: string; src_url: string; filename?: string; caption?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } };
 
 type WorkspaceDrawerProps = {
   routeContext: WorkspaceRouteContext;
@@ -55,14 +51,12 @@ export default function WorkspaceDrawer({
   projectId,
   onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
-  const [selectedItem, setSelectedItem] = useState<ShelfItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<WorkspaceSelection | null>(null);
 
   const handleShelfItemClick = React.useCallback(
-    (item: ShelfItem) => {
-      if (item.kind === "document") {
-        setSelectedItem(item);
-        onActiveTabChange("inspector");
-      }
+    (item: WorkspaceSelection) => {
+      setSelectedItem(item);
+      onActiveTabChange("inspector");
     },
     [onActiveTabChange]
   );
@@ -147,11 +141,7 @@ export default function WorkspaceDrawer({
           </button>
         </div>
 
-        <WorkspaceTabs
-          activeTab={activeTab}
-          onTabChange={onActiveTabChange}
-          idBase={idBase}
-        />
+        <WorkspaceTabs activeTab={activeTab} onTabChange={onActiveTabChange} idBase={idBase} />
 
         {activeTab === "scratchpad" ? (
           <section

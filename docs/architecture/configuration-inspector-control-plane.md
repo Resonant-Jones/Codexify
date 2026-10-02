@@ -13,7 +13,11 @@ The bounded v1 backend projection is implemented in commit
 `dc77599ec50c9710eda2ea60795f383a204de44b`. Its focused evidence and known
 validation limitation are recorded in the
 [2026-09-29 backend proof](proofs/runtime/2026-09-29-configuration-inspector-v1-backend-proof.md).
-The frontend inspector remains unimplemented.
+The frontend Inspector is implemented with code-path and focused test evidence
+for its Settings launcher, read-only snapshot view, manual refresh, and bounded
+failure states. It retains only the current opening's request in browser memory;
+it creates no durable snapshot store. Live supported-path frontend qualification
+remains unproven. This does not change release support.
 
 The Inspector is a read-only operator projection over existing configuration
 authorities. It reports only bounded, non-secret installation posture whose

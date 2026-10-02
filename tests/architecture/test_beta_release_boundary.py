@@ -499,7 +499,8 @@ def test_current_state_preserves_supported_path_hold_and_active_blockers():
     assert "`HOLD`" in current_phase
     assert "local Docker Compose" in supported_reality
     assert "`v1-local-core-web-mcp`" in supported_reality
-    assert "Governing static validation remains open" in active_blockers
+    assert "complete supported-Compose qualification" in active_blockers
+    assert "fresh isolated natural import-to-recall run" in active_blockers
 
 
 # ---------------------------------------------------------------------------

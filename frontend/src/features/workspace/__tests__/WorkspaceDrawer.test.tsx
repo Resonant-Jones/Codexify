@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,23 +20,13 @@ import {
 } from "../state/useWorkspaceLayoutMode";
 
 vi.mock("@/components/surface/FrameCard", () => ({
-  default: ({
-    children,
-    className,
-  }: {
-    children?: React.ReactNode;
-    className?: string;
-  }) => <div className={className}>{children}</div>,
+  default: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/documents/DocumentTile", () => ({
-  default: ({
-    file,
-    onClick,
-  }: {
-    file: { name?: string; ext?: string };
-    onClick?: () => void;
-  }) => (
+  default: ({ file, onClick }: { file: { name?: string; ext?: string }; onClick?: () => void }) => (
     <button type="button" data-testid="document-tile" onClick={onClick}>
       {file?.name || "Untitled"}
     </button>
@@ -63,9 +53,7 @@ function WorkspaceDrawerHarness({
   const { isOpen, activeTab, open, close, setActiveTab } = useWorkspaceUiState({
     routeContext,
   });
-  const [layoutMode, setLayoutMode] = React.useState<WorkspaceLayoutMode>(
-    initialLayoutMode
-  );
+  const [layoutMode, setLayoutMode] = React.useState<WorkspaceLayoutMode>(initialLayoutMode);
   const paneRatio = getWorkspacePaneRatioForLayoutMode(layoutMode);
 
   return (
@@ -109,12 +97,8 @@ function WorkspaceDrawerHarness({
 
 describe("workspace layout mode contract", () => {
   it("derives layout mode from deterministic thresholds and clamps pane bounds", () => {
-    expect(clampWorkspacePaneRatio(MIN_WORKSPACE_PANE_RATIO - 0.2)).toBe(
-      MIN_WORKSPACE_PANE_RATIO
-    );
-    expect(clampWorkspacePaneRatio(MAX_WORKSPACE_PANE_RATIO + 0.2)).toBe(
-      MAX_WORKSPACE_PANE_RATIO
-    );
+    expect(clampWorkspacePaneRatio(MIN_WORKSPACE_PANE_RATIO - 0.2)).toBe(MIN_WORKSPACE_PANE_RATIO);
+    expect(clampWorkspacePaneRatio(MAX_WORKSPACE_PANE_RATIO + 0.2)).toBe(MAX_WORKSPACE_PANE_RATIO);
     expect(
       deriveWorkspaceLayoutMode({
         isOpen: false,
@@ -141,22 +125,14 @@ describe("workspace layout mode contract", () => {
     ).toBe("workspace_focus");
     expect(getWorkspaceLayoutRatioBucket("chat_focus")).toBe("chat_first");
     expect(getWorkspaceLayoutRatioBucket("balanced_split")).toBe("shared");
-    expect(getWorkspaceLayoutRatioBucket("workspace_focus")).toBe(
-      "workspace_first"
-    );
-    expect(getWorkspacePaneRatioForLayoutMode("chat_focus")).toBe(
-      MIN_WORKSPACE_PANE_RATIO
-    );
+    expect(getWorkspaceLayoutRatioBucket("workspace_focus")).toBe("workspace_first");
+    expect(getWorkspacePaneRatioForLayoutMode("chat_focus")).toBe(MIN_WORKSPACE_PANE_RATIO);
     expect(getWorkspacePaneRatioForLayoutMode("balanced_split")).toBe(
       BALANCED_SPLIT_WORKSPACE_PANE_RATIO
     );
-    expect(getWorkspacePaneRatioForLayoutMode("workspace_focus")).toBe(
-      MAX_WORKSPACE_PANE_RATIO
-    );
+    expect(getWorkspacePaneRatioForLayoutMode("workspace_focus")).toBe(MAX_WORKSPACE_PANE_RATIO);
     expect(getNextWorkspaceLayoutMode("chat_focus")).toBe("balanced_split");
-    expect(getNextWorkspaceLayoutMode("balanced_split")).toBe(
-      "workspace_focus"
-    );
+    expect(getNextWorkspaceLayoutMode("balanced_split")).toBe("workspace_focus");
     expect(getNextWorkspaceLayoutMode("workspace_focus")).toBe("chat_focus");
   });
 });
@@ -182,23 +158,18 @@ describe("WorkspaceDrawer shell", () => {
     },
     {
       routeContext: "guardian" as const,
-      expectedLabel: "Scratchpad",
+      expectedLabel: "Notes",
       expectedPlaceholder:
         "Stage plaintext notes, prompts, or fragments before moving them into the composer.",
     },
     {
       routeContext: "documents" as const,
       expectedLabel: "Inspector",
-      expectedText: "Select a document from the Shelf to preview it here.",
+      expectedText: "Select a document or image from the Shelf to inspect it here.",
     },
   ])(
     "defaults $routeContext to $expectedLabel",
-    async ({
-      routeContext,
-      expectedLabel,
-      expectedText,
-      expectedPlaceholder,
-    }) => {
+    async ({ routeContext, expectedLabel, expectedText, expectedPlaceholder }) => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
       render(<WorkspaceDrawerHarness routeContext={routeContext} />);
@@ -213,9 +184,10 @@ describe("WorkspaceDrawer shell", () => {
         expect(screen.getByRole("tabpanel")).toHaveTextContent(expectedText);
       }
       if (expectedPlaceholder) {
-        expect(
-          screen.getByTestId("workspace-scratchpad-textarea")
-        ).toHaveAttribute("placeholder", expectedPlaceholder);
+        expect(screen.getByTestId("workspace-scratchpad-textarea")).toHaveAttribute(
+          "placeholder",
+          expectedPlaceholder
+        );
       }
 
       await user.click(screen.getByTestId("workspace-open-button"));
@@ -223,21 +195,19 @@ describe("WorkspaceDrawer shell", () => {
     }
   );
 
-  it("keeps Shelf as real panel, Inspector as placeholder while Scratchpad is interactive", async () => {
+  it("keeps Shelf discovery, the Inspector empty state, and Notes interaction intact", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
     render(<WorkspaceDrawerHarness routeContext="dashboard" />);
 
     await user.click(screen.getByTestId("workspace-open-button"));
-    await user.click(screen.getByRole("tab", { name: "Scratchpad" }));
+    await user.click(screen.getByRole("tab", { name: "Notes" }));
 
-    expect(
-      screen.getByTestId("workspace-scratchpad-textarea")
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-scratchpad-textarea")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Inspector" }));
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
-      "Select a document from the Shelf to preview it here."
+      "Select a document or image from the Shelf to inspect it here."
     );
     expect(screen.getAllByText(/^Inspector$/)).toHaveLength(1);
 
@@ -259,9 +229,7 @@ describe("WorkspaceDrawer shell", () => {
       "data-header-layout",
       "centered"
     );
-    expect(screen.getByTestId("workspace-drawer-title")).toHaveTextContent(
-      "Workspace"
-    );
+    expect(screen.getByTestId("workspace-drawer-title")).toHaveTextContent("Workspace");
     const posture = screen.getByTestId("workspace-drawer-posture");
     expect(posture.tagName).toBe("BUTTON");
     expect(posture).toHaveTextContent("Chat Focus");
@@ -302,13 +270,9 @@ describe("WorkspaceDrawer shell", () => {
       "data-layout-mode",
       "chat_focus"
     );
-    expect(
-      screen.queryByRole("button", { name: "Close workspace" })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close workspace" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Workspace Focus" })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Workspace Focus" })).not.toBeInTheDocument();
 
     const tablist = screen.getByRole("tablist", { name: "Workspace panels" });
     expect(tablist).toBeInTheDocument();
@@ -335,9 +299,7 @@ describe("WorkspaceDrawer shell", () => {
     );
     await user.click(screen.getByRole("button", { name: "Move to composer" }));
 
-    expect(onMoveScratchpadToComposer).toHaveBeenCalledWith(
-      "Stage this for the composer"
-    );
+    expect(onMoveScratchpadToComposer).toHaveBeenCalledWith("Stage this for the composer");
   });
 
   it("keeps the header honest and preserves scratchpad meaning and actions", async () => {
@@ -352,64 +314,42 @@ describe("WorkspaceDrawer shell", () => {
       "data-header-layout",
       "centered"
     );
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Chat Focus"
-    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent("Chat Focus");
     expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
     expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/^Scratchpad$/)).toHaveLength(1);
-    expect(
-      screen.getByTestId("workspace-scratchpad-textarea")
-    ).toHaveAttribute(
+    expect(screen.getAllByText(/^Notes$/)).toHaveLength(1);
+    expect(screen.getByTestId("workspace-scratchpad-textarea")).toHaveAttribute(
       "placeholder",
       "Stage plaintext notes, prompts, or fragments before moving them into the composer."
     );
-    expect(
-      screen.getByRole("button", { name: "Move to composer" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Copy to Clipboard" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move to composer" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy to Clipboard" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-scratchpad-status")).toHaveTextContent(
-      "Scratchpad stays local to this browser."
+      "Notes draft stays local to this browser until Save."
     );
   });
 
   it("keeps layout mode stable while active tabs change", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
-    render(
-      <WorkspaceDrawerHarness
-        routeContext="dashboard"
-        initialLayoutMode="workspace_focus"
-      />
-    );
+    render(<WorkspaceDrawerHarness routeContext="dashboard" initialLayoutMode="workspace_focus" />);
 
     await user.click(screen.getByTestId("workspace-open-button"));
 
     const drawer = screen.getByTestId("workspace-drawer");
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(drawer).toHaveAttribute("data-layout-label", "Workspace Focus");
-    expect(drawer).toHaveAttribute(
-      "data-pane-ratio",
-      MAX_WORKSPACE_PANE_RATIO.toFixed(2)
-    );
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace Focus"
-    );
+    expect(drawer).toHaveAttribute("data-pane-ratio", MAX_WORKSPACE_PANE_RATIO.toFixed(2));
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent("Workspace Focus");
 
-    await user.click(screen.getByRole("tab", { name: "Scratchpad" }));
+    await user.click(screen.getByRole("tab", { name: "Notes" }));
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace Focus"
-    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent("Workspace Focus");
 
     await user.click(screen.getByRole("tab", { name: "Inspector" }));
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace Focus"
-    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent("Workspace Focus");
   });
 
   it("switches to inspector tab when shelf document is clicked", async () => {
@@ -425,32 +365,66 @@ describe("WorkspaceDrawer shell", () => {
               filename: "test-doc.pdf",
               src_url: "/media/documents/doc-1.pdf",
               mime_type: "application/pdf",
+              artifact_type: "uploaded",
             },
           ],
           images: [],
         }),
     };
 
-    const globalFetch = vi.fn()
+    const globalFetch = vi
+      .fn()
       .mockResolvedValueOnce(docResponse)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ images: [] }) });
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ images: [] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: "doc-1", content: null, parsed_text: null }),
+      });
     vi.stubGlobal("fetch", globalFetch);
 
     render(<WorkspaceDrawerHarness routeContext="dashboard" activeThreadId="thread-123" />);
 
     await user.click(screen.getByTestId("workspace-open-button"));
 
-    expect(screen.getByRole("tab", { name: "Shelf" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
+    expect(screen.getByRole("tab", { name: "Shelf" })).toHaveAttribute("aria-selected", "true");
 
     await user.click(await screen.findByTestId("document-tile"));
 
-    expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
+    expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveTextContent(/test-doc.pdf/i);
+  });
+
+  it("selects a Shelf image and opens it in Inspector without changing the chat route", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const currentPath = window.location.pathname;
+
+    const globalFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ documents: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            images: [
+              { id: "image-1", filename: "diagram.png", src_url: "/media/images/diagram.png" },
+            ],
+          }),
+      });
+    vi.stubGlobal("fetch", globalFetch);
+
+    render(<WorkspaceDrawerHarness routeContext="guardian" activeThreadId="thread-123" />);
+    await user.click(screen.getByTestId("workspace-open-button"));
+    await user.click(screen.getByRole("tab", { name: "Shelf" }));
+    await user.click(await screen.findByRole("img", { name: "diagram.png" }));
+
+    expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("img", { name: "diagram.png" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(currentPath);
+    expect(globalFetch).toHaveBeenCalledTimes(2);
+    fireEvent.load(screen.getByRole("img", { name: "diagram.png" }));
   });
 });

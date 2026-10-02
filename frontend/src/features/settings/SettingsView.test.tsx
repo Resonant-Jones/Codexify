@@ -321,7 +321,7 @@ describe("SettingsView save flow", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: /import conversation history/i })
+      screen.getByRole("button", { name: /^import conversation history$/i })
     ).toBeInTheDocument();
 
     unmount();
@@ -332,13 +332,13 @@ describe("SettingsView save flow", () => {
       "true"
     );
     expect(
-      screen.getByRole("button", { name: /import conversation history/i })
+      screen.getByRole("button", { name: /^import conversation history$/i })
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /^appearance$/i }));
 
     expect(
-      screen.queryByRole("button", { name: /import conversation history/i })
+      screen.queryByRole("button", { name: /^import conversation history$/i })
     ).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -389,7 +389,7 @@ describe("SettingsView save flow", () => {
       "true"
     );
     expect(
-      screen.queryByRole("button", { name: /import conversation history/i })
+      screen.queryByRole("button", { name: /^import conversation history$/i })
     ).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -433,7 +433,7 @@ describe("SettingsView save flow", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByRole("button", { name: /import conversation history/i })
+          screen.getByRole("button", { name: /^import conversation history$/i })
         ).toBeInTheDocument();
       });
       await waitFor(() => {
@@ -472,7 +472,7 @@ describe("SettingsView save flow", () => {
       await waitFor(() => {
         expect(scrollTop).toBe(180);
         expect(
-          screen.getByRole("button", { name: /import conversation history/i })
+          screen.getByRole("button", { name: /^import conversation history$/i })
         ).toBeInTheDocument();
       });
     } finally {

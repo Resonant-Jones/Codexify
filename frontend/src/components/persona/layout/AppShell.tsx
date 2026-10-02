@@ -1,3 +1,4 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -276,7 +277,7 @@ export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
 ): "default" | "phone_frame_first" {
-  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+  return isPhoneShell && resolveMobileApplicationView(activeView) != null
     ? "phone_frame_first"
     : "default";
 }
@@ -291,6 +292,11 @@ function isPrimaryMobileApplicationView(
     view === "dashboard" ||
     view === "settings"
   );
+}
+
+function resolveMobileApplicationView(view: AppShellView): MobileApplicationView | null {
+  if (view === "configurationInspector") return "settings";
+  return isPrimaryMobileApplicationView(view) ? view : null;
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -1389,7 +1395,7 @@ export default function AppShell({
   }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
-      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+      () => resolveMobileApplicationView(view) != null && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
@@ -1483,7 +1489,7 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const syncRouteState = () => {
+    const syncRouteState = (event?: Event) => {
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1500,7 +1506,12 @@ export default function AppShell({
         setActiveRouteThreadId(null);
       }
       if (routeView) {
-        setView(routeView);
+        setView((current) =>
+          event?.type === "cfy:threads:refresh" &&
+          current === "configurationInspector" && routeView === "settings"
+            ? current
+            : routeView
+        );
       }
     };
 
@@ -1671,7 +1682,7 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (isPrimaryMobileApplicationView(nextView)) {
+      if (resolveMobileApplicationView(nextView) != null) {
         if (nextView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
@@ -2179,7 +2190,7 @@ export default function AppShell({
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
     setIsPhoneSidebarOpen(false);
-    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (!isPhoneShell || resolveMobileApplicationView(view) == null) return;
     if (view === "guardian") {
       setIsApplicationNavigationExpanded(false);
       return;
@@ -2191,7 +2202,7 @@ export default function AppShell({
   useEffect(() => {
     if (
       !isPhoneShell ||
-      !isPrimaryMobileApplicationView(view) ||
+      resolveMobileApplicationView(view) == null ||
       view === "guardian" ||
       guardianSidebarSnapshot != null ||
       phoneSidebarHydrationAttemptedRef.current ||
@@ -2437,11 +2448,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -3318,11 +3330,11 @@ export default function AppShell({
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
+      activeApplicationView={resolveMobileApplicationView(view) ?? "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
@@ -3464,6 +3476,7 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
     <UnifiedDesktopCompositor
       enabled={!isPhoneShell}
       shellStyle={styleVars as React.CSSProperties}
@@ -3561,7 +3574,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3613,7 +3626,7 @@ export default function AppShell({
             {/* glass backdrop */}
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
+                wallpaperUrl={activeWallpaperMedia.src || null}
                 className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
@@ -4203,6 +4216,7 @@ export default function AppShell({
               data-testid="configuration-inspector-framecard"
               style={settingsLayout}
             >
+              {phonePrimaryFrameHeader}
               <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
                 <ErrorBoundary>
                   <ConfigurationInspectorView
@@ -4353,5 +4367,6 @@ export default function AppShell({
       )}
     </div>
     </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }
