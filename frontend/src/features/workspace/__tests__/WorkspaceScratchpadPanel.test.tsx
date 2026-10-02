@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceScratchpadPanel from "../components/WorkspaceScratchpadPanel";
+import api from "@/lib/api";
+import { NOTES_LAST_FORMAT_KEY } from "../noteSave";
+
+vi.mock("@/lib/api", () => ({ default: { post: vi.fn() } }));
 import {
   WORKSPACE_SCRATCHPAD_AUTOSAVE_DEBOUNCE_MS,
   getWorkspaceScratchpadStorageKey,
@@ -34,7 +38,7 @@ describe("WorkspaceScratchpadPanel", () => {
 
     render(<WorkspaceScratchpadPanel threadIdentity="thread-1" />);
 
-    const textarea = screen.getByRole("textbox", { name: "Scratchpad" });
+    const textarea = screen.getByRole("textbox", { name: "Notes" });
     expect(textarea).toHaveAttribute(
       "data-testid",
       "workspace-scratchpad-textarea"
@@ -57,7 +61,7 @@ describe("WorkspaceScratchpadPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-scratchpad-status")).toHaveTextContent(
-      "Scratchpad stays local to this browser."
+      "Notes draft stays local to this browser until Save."
     );
 
     await user.type(textarea, "hello");
@@ -184,4 +188,42 @@ describe("WorkspaceScratchpadPanel", () => {
     expect(screen.getByTestId("workspace-scratchpad-textarea")).toHaveValue("");
     expect(localStorage.getItem(storageKey)).toBeNull();
   });
+  it("saves an explicit snapshot while preserving the local draft", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.post).mockResolvedValue({ data: { filename: "Guardian.md" } });
+    render(<WorkspaceScratchpadPanel threadIdentity={42} />);
+    const textarea = screen.getByRole("textbox", { name: "Notes" });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toBeDisabled();
+    await user.type(textarea, "# Guardian");
+    await user.click(save);
+    expect(screen.getByRole("dialog", { name: "Save Note" })).toBeInTheDocument();
+    await user.click(screen.getByRole("dialog").querySelector('button[type="submit"]')!);
+    expect(api.post).toHaveBeenCalledWith("/documents/notes", {
+      thread_id: 42,
+      title: "Guardian",
+      content: "# Guardian",
+      format: "md",
+    });
+    expect(textarea).toHaveValue("# Guardian");
+    expect(localStorage.getItem(NOTES_LAST_FORMAT_KEY)).toBe("md");
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId("workspace-scratchpad-status")).toHaveTextContent(
+      "Saved Guardian.md to this thread and project."
+    );
+  });
+
+  it("keeps the draft and format preference unchanged after failed Save", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.post).mockRejectedValue(new Error("Save failed"));
+    render(<WorkspaceScratchpadPanel threadIdentity={42} />);
+    const textarea = screen.getByRole("textbox", { name: "Notes" });
+    await user.type(textarea, "body");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("dialog").querySelector('button[type="submit"]')!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
+    expect(textarea).toHaveValue("body");
+    expect(localStorage.getItem(NOTES_LAST_FORMAT_KEY)).toBeNull();
+  });
+
 });

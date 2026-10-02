@@ -13,7 +13,7 @@ const WORKSPACE_TABS: Array<{
   label: string;
 }> = [
   { id: "shelf", label: "Shelf" },
-  { id: "scratchpad", label: "Scratchpad" },
+  { id: "scratchpad", label: "Notes" },
   { id: "inspector", label: "Inspector" },
 ];
 

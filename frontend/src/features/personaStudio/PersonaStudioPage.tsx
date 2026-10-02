@@ -1,4 +1,6 @@
 import * as React from "react";
+
+import FrameCard from "@/components/surface/FrameCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,985 +11,681 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+
+import PersonaVoicePanel from "./components/PersonaVoicePanel";
+import PersonaPreviewPanel, {
+  personaStudioActionChip,
+  PersonaStudioActionChipStyles,
+} from "./PersonaPreviewPanel";
+import {
+  applyPersonaStudioConfiguratorIntent,
+  type PersonaStudioConfiguratorChange,
+  type PersonaStudioConfiguratorSection,
+} from "./lib/personaStudioConfigurator";
+import { PERSONA_PROFILE_API_VERSION } from "./personaStudioApi";
 import {
   type PersonaConfig,
-  type ToolsSettings,
+  type PersonaProfileDraft,
   usePersonaStudioLocalDraftState,
 } from "./personaStudioStore";
-import PersonaVoicePanel from "./components/PersonaVoicePanel";
-import StudioGuidePanel from "./components/StudioGuidePanel";
-import TruthMatrix from "./components/TruthMatrix";
-import { PersonaStudioActionChipStyles } from "./PersonaPreviewPanel";
-import PersonaStudioRail from "./PersonaStudioRail";
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      data-state={active ? "active" : "inactive"}
-      className="pill-tab min-w-0 flex-1 px-4 py-3.5 text-[0.95rem]"
-    >
-      {children}
-    </button>
-  );
-}
+type AssistantMode = "build" | "test";
+type ConfigurationMode = "form" | "manifest" | "effective";
+type FormSectionId =
+  | "identity"
+  | "prompt"
+  | "model"
+  | "voice"
+  | "capabilities"
+  | "retrieval"
+  | "bindings";
 
-const TABS = [
-  "Identity",
-  "Model",
-  "Voice",
-  "Prompt",
-  "Tools",
-  "Retrieval",
-  "Truth Matrix",
+type BuildMessage = {
+  id: number;
+  request: string;
+  changes: PersonaStudioConfiguratorChange[];
+  response: string;
+};
+
+const CONFIGURATOR_FORM_SECTION: Record<
+  PersonaStudioConfiguratorSection,
+  FormSectionId
+> = {
+  prompt: "prompt",
+  model: "model",
+  voice: "voice",
+  capabilities: "capabilities",
+  retrieval: "retrieval",
+};
+
+const INITIAL_OPEN_SECTIONS: Record<FormSectionId, boolean> = {
+  identity: true,
+  prompt: true,
+  model: false,
+  voice: false,
+  capabilities: false,
+  retrieval: false,
+  bindings: false,
+};
+
+const WRITABLE_MANIFEST_KEYS = [
+  "apiVersion",
+  "profileIdentity",
+  "identity",
+  "prompt",
+  "model",
+  "voice",
+  "capabilities",
+  "retrieval",
 ] as const;
 
-function IdentityEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-      <div className="space-y-2">
-        <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-          Persona Name
-        </label>
-        <Input
-          className="h-10"
-          value={config.identity.name}
-          onChange={(e) =>
-            onChange({
-              ...config,
-              identity: { ...config.identity, name: e.target.value },
-            })
-          }
-          placeholder="Enter persona name"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-          Description
-        </label>
-        <Textarea
-          className="min-h-[140px] resize-y"
-          value={config.identity.description}
-          onChange={(e) =>
-            onChange({
-              ...config,
-              identity: { ...config.identity, description: e.target.value },
-            })
-          }
-          rows={5}
-          placeholder="Describe this persona"
-        />
-      </div>
-    </div>
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function ModelEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  const providerId = "persona-studio-model-provider";
-  const modelId = "persona-studio-model-id";
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor={providerId}>
-            Provider
-          </label>
-          <select
-            id={providerId}
-            className="w-full h-9 px-3 rounded-md border text-sm"
-            style={{
-              background: "transparent",
-              borderColor: "var(--panel-border)",
-              color: "var(--text)",
-            }}
-            value={config.model.provider}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                model: { ...config.model, provider: e.target.value },
-              })
-            }
-          >
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="google">Google</option>
-            <option value="local">Local</option>
-          </select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor={modelId}>
-            Model
-          </label>
-          <Input
-            id={modelId}
-            value={config.model.model}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                model: { ...config.model, model: e.target.value },
-              })
-            }
-            placeholder="e.g., gpt-4o"
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Temperature</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={config.model.temperature}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  model: { ...config.model, temperature: parseFloat(e.target.value) },
-                })
-              }
-              className="flex-1"
-            />
-            <span className="text-sm w-12 text-right">{config.model.temperature}</span>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Max Tokens</label>
-          <Input
-            type="number"
-            value={config.model.maxTokens}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                model: { ...config.model, maxTokens: parseInt(e.target.value) || 0 },
-              })
-            }
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Generation Top K</label>
-          <Input
-            type="number"
-            value={config.model.topK}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                model: { ...config.model, topK: parseInt(e.target.value) || 0 },
-              })
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Top P</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={config.model.topP}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  model: { ...config.model, topP: parseFloat(e.target.value) },
-                })
-              }
-              className="flex-1"
-            />
-            <span className="text-sm w-12 text-right">{config.model.topP}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${label} must be an object`);
+  return value;
 }
 
-function PromptEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">System Prompt</label>
-        <Textarea
-          value={config.prompt.systemPrompt}
-          onChange={(e) =>
-            onChange({
-              ...config,
-              prompt: { ...config.prompt, systemPrompt: e.target.value },
-            })
-          }
-          rows={6}
-          placeholder="Enter the system prompt that defines this persona's behavior"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Style Notes</label>
-        <Textarea
-          value={config.prompt.styleNotes}
-          onChange={(e) =>
-            onChange({
-              ...config,
-              prompt: { ...config.prompt, styleNotes: e.target.value },
-            })
-          }
-          rows={3}
-          placeholder="Notes about tone, manner, and communication style"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Directives</label>
-        <Textarea
-          value={config.prompt.directives}
-          onChange={(e) =>
-            onChange({
-              ...config,
-              prompt: { ...config.prompt, directives: e.target.value },
-            })
-          }
-          rows={3}
-          placeholder="Operational directives and constraints"
-        />
-      </div>
-    </div>
-  );
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string
+) {
+  const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unexpected) throw new Error(`${label} contains unsupported field: ${unexpected}`);
 }
 
-function ToolsEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  const [newPinnedTool, setNewPinnedTool] = React.useState("");
-  const [newAllowedTool, setNewAllowedTool] = React.useState("");
-  const [newSkill, setNewSkill] = React.useState("");
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== "string") throw new Error(`${label} must be a string`);
+  return value;
+}
 
-  const addPinnedTool = () => {
-    if (newPinnedTool.trim() && !config.tools.pinnedTools.includes(newPinnedTool.trim())) {
-      onChange({
-        ...config,
-        tools: {
-          ...config.tools,
-          pinnedTools: [...config.tools.pinnedTools, newPinnedTool.trim()],
-        },
-      });
-      setNewPinnedTool("");
-    }
+function requireNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return value;
+}
+
+function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean`);
+  return value;
+}
+
+function requireStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${label} must be an array of strings`);
+  }
+  return [...value] as string[];
+}
+
+function manifestFromDraft(profile: PersonaProfileDraft) {
+  const { config } = profile;
+  return {
+    apiVersion: PERSONA_PROFILE_API_VERSION,
+    profileIdentity: profile.id,
+    identity: { ...config.identity },
+    prompt: { ...config.prompt },
+    model: { ...config.model },
+    voice: { ...config.voice },
+    capabilities: {
+      pinnedTools: [...config.tools.pinnedTools],
+      allowedTools: [...config.tools.allowedTools],
+      skills: [...config.tools.skills],
+      permissions: { ...config.tools.permissions },
+    },
+    retrieval: { ...config.retrieval },
   };
+}
 
-  const removePinnedTool = (tool: string) => {
-    onChange({
-      ...config,
-      tools: {
-        ...config.tools,
-        pinnedTools: config.tools.pinnedTools.filter((t) => t !== tool),
+/**
+ * JSON is a projection of the local authored draft, not a backdoor to Binding
+ * authority. This strict parser makes invalid or authority-bearing JSON remain
+ * only in the local text buffer.
+ */
+function draftFromManifest(
+  current: PersonaProfileDraft,
+  value: unknown
+): PersonaProfileDraft {
+  const manifest = requireRecord(value, "Manifest");
+  assertExactKeys(manifest, WRITABLE_MANIFEST_KEYS, "Manifest");
+  if (manifest.apiVersion !== PERSONA_PROFILE_API_VERSION) {
+    throw new Error(`apiVersion must be ${PERSONA_PROFILE_API_VERSION}`);
+  }
+  if (manifest.profileIdentity !== current.id) {
+    throw new Error("profileIdentity must match the selected profile");
+  }
+
+  const identity = requireRecord(manifest.identity, "identity");
+  assertExactKeys(identity, ["name", "description"], "identity");
+  const prompt = requireRecord(manifest.prompt, "prompt");
+  assertExactKeys(prompt, ["systemPrompt", "styleNotes", "directives"], "prompt");
+  const model = requireRecord(manifest.model, "model");
+  assertExactKeys(model, ["provider", "model", "temperature", "topK", "topP", "maxTokens"], "model");
+  const voice = requireRecord(manifest.voice, "voice");
+  assertExactKeys(voice, ["enabled", "provider", "voicePreset", "speed", "wakeWord", "interruptible"], "voice");
+  const capabilities = requireRecord(manifest.capabilities, "capabilities");
+  assertExactKeys(capabilities, ["pinnedTools", "allowedTools", "skills", "permissions"], "capabilities");
+  const permissions = requireRecord(capabilities.permissions, "capabilities.permissions");
+  assertExactKeys(permissions, ["web", "email", "calendar", "cli", "filesystem"], "capabilities.permissions");
+  const retrieval = requireRecord(manifest.retrieval, "retrieval");
+  assertExactKeys(retrieval, ["enabled", "mode", "topK", "rerank"], "retrieval");
+
+  const config: PersonaConfig = {
+    identity: {
+      name: requireString(identity.name, "identity.name"),
+      description: requireString(identity.description, "identity.description"),
+    },
+    prompt: {
+      systemPrompt: requireString(prompt.systemPrompt, "prompt.systemPrompt"),
+      styleNotes: requireString(prompt.styleNotes, "prompt.styleNotes"),
+      directives: requireString(prompt.directives, "prompt.directives"),
+    },
+    model: {
+      provider: requireString(model.provider, "model.provider"),
+      model: requireString(model.model, "model.model"),
+      temperature: requireNumber(model.temperature, "model.temperature"),
+      topK: requireNumber(model.topK, "model.topK"),
+      topP: requireNumber(model.topP, "model.topP"),
+      maxTokens: requireNumber(model.maxTokens, "model.maxTokens"),
+    },
+    voice: {
+      enabled: requireBoolean(voice.enabled, "voice.enabled"),
+      provider: requireString(voice.provider, "voice.provider"),
+      voicePreset: requireString(voice.voicePreset, "voice.voicePreset"),
+      speed: requireNumber(voice.speed, "voice.speed"),
+      wakeWord: requireString(voice.wakeWord, "voice.wakeWord"),
+      interruptible: requireBoolean(voice.interruptible, "voice.interruptible"),
+    },
+    tools: {
+      pinnedTools: requireStringArray(capabilities.pinnedTools, "capabilities.pinnedTools"),
+      allowedTools: requireStringArray(capabilities.allowedTools, "capabilities.allowedTools"),
+      skills: requireStringArray(capabilities.skills, "capabilities.skills"),
+      permissions: {
+        web: requireBoolean(permissions.web, "capabilities.permissions.web"),
+        email: requireBoolean(permissions.email, "capabilities.permissions.email"),
+        calendar: requireBoolean(permissions.calendar, "capabilities.permissions.calendar"),
+        cli: requireBoolean(permissions.cli, "capabilities.permissions.cli"),
+        filesystem: requireBoolean(permissions.filesystem, "capabilities.permissions.filesystem"),
       },
-    });
+    },
+    retrieval: {
+      enabled: requireBoolean(retrieval.enabled, "retrieval.enabled"),
+      mode: requireString(retrieval.mode, "retrieval.mode"),
+      topK: requireNumber(retrieval.topK, "retrieval.topK"),
+      rerank: requireBoolean(retrieval.rerank, "retrieval.rerank"),
+    },
   };
 
-  const addAllowedTool = () => {
-    if (newAllowedTool.trim() && !config.tools.allowedTools.includes(newAllowedTool.trim())) {
-      onChange({
-        ...config,
-        tools: {
-          ...config.tools,
-          allowedTools: [...config.tools.allowedTools, newAllowedTool.trim()],
-        },
-      });
-      setNewAllowedTool("");
-    }
+  return {
+    ...current,
+    name: config.identity.name,
+    description: config.identity.description,
+    config,
   };
-
-  const removeAllowedTool = (tool: string) => {
-    onChange({
-      ...config,
-      tools: {
-        ...config.tools,
-        allowedTools: config.tools.allowedTools.filter((t) => t !== tool),
-      },
-    });
-  };
-
-  const addSkill = () => {
-    if (newSkill.trim() && !config.tools.skills.includes(newSkill.trim())) {
-      onChange({
-        ...config,
-        tools: {
-          ...config.tools,
-          skills: [...config.tools.skills, newSkill.trim()],
-        },
-      });
-      setNewSkill("");
-    }
-  };
-
-  const removeSkill = (skill: string) => {
-    onChange({
-      ...config,
-      tools: {
-        ...config.tools,
-        skills: config.tools.skills.filter((s) => s !== skill),
-      },
-    });
-  };
-
-  const togglePermission = (key: keyof ToolsSettings["permissions"]) => {
-    onChange({
-      ...config,
-      tools: {
-        ...config.tools,
-        permissions: {
-          ...config.tools.permissions,
-          [key]: !config.tools.permissions[key],
-        },
-      },
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <label className="text-sm font-medium">Pinned Tools</label>
-        <div className="flex flex-wrap gap-2">
-          {config.tools.pinnedTools.map((tool) => (
-            <Badge
-              key={tool}
-              className="px-2 py-1 text-xs"
-              style={{ borderColor: "var(--panel-border)" }}
-            >
-              {tool}
-              <button
-                type="button"
-                onClick={() => removePinnedTool(tool)}
-                className="ml-1.5 text-[var(--muted)] hover:text-[var(--text)]"
-              >
-                ×
-              </button>
-            </Badge>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            value={newPinnedTool}
-            onChange={(e) => setNewPinnedTool(e.target.value)}
-            placeholder="Add pinned tool"
-            className="flex-1"
-            onKeyDown={(e) => e.key === "Enter" && addPinnedTool()}
-          />
-          <Button type="button" size="sm" variant="ghost" onClick={addPinnedTool}>
-            Add
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <label className="text-sm font-medium">Allowed Tools</label>
-        <div className="flex flex-wrap gap-2">
-          {config.tools.allowedTools.map((tool) => (
-            <Badge
-              key={tool}
-              className="px-2 py-1 text-xs"
-              style={{ borderColor: "var(--panel-border)" }}
-            >
-              {tool}
-              <button
-                type="button"
-                onClick={() => removeAllowedTool(tool)}
-                className="ml-1.5 text-[var(--muted)] hover:text-[var(--text)]"
-              >
-                ×
-              </button>
-            </Badge>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            value={newAllowedTool}
-            onChange={(e) => setNewAllowedTool(e.target.value)}
-            placeholder="Add allowed tool"
-            className="flex-1"
-            onKeyDown={(e) => e.key === "Enter" && addAllowedTool()}
-          />
-          <Button type="button" size="sm" variant="ghost" onClick={addAllowedTool}>
-            Add
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <label className="text-sm font-medium">Skills</label>
-        <div className="flex flex-wrap gap-2">
-          {config.tools.skills.map((skill) => (
-            <Badge
-              key={skill}
-              className="px-2 py-1 text-xs"
-              style={{ borderColor: "var(--panel-border)" }}
-            >
-              {skill}
-              <button
-                type="button"
-                onClick={() => removeSkill(skill)}
-                className="ml-1.5 text-[var(--muted)] hover:text-[var(--text)]"
-              >
-                ×
-              </button>
-            </Badge>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            value={newSkill}
-            onChange={(e) => setNewSkill(e.target.value)}
-            placeholder="Add skill"
-            className="flex-1"
-            onKeyDown={(e) => e.key === "Enter" && addSkill()}
-          />
-          <Button type="button" size="sm" variant="ghost" onClick={addSkill}>
-            Add
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <label className="text-sm font-medium">Permissions</label>
-        <div className="grid grid-cols-2 gap-3">
-          {(
-            [
-              ["web", "Web Access"],
-              ["email", "Email"],
-              ["calendar", "Calendar"],
-              ["cli", "CLI"],
-              ["filesystem", "Filesystem"],
-            ] as const
-          ).map(([key, label]) => (
-            <div key={key} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id={`perm-${key}`}
-                checked={config.tools.permissions[key]}
-                onChange={() => togglePermission(key)}
-                className="rounded"
-              />
-              <label htmlFor={`perm-${key}`} className="text-sm">
-                {label}
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
-function RetrievalEditor({
-  config,
-  onChange,
+function statusFor(isDirty: boolean, savedRevision: number | null) {
+  if (savedRevision == null) return "Unsaved draft";
+  return isDirty
+    ? `Unsaved changes · saved rev ${savedRevision}`
+    : `Saved · rev ${savedRevision}`;
+}
+
+function FormSection({
+  id,
+  title,
+  summary,
+  open,
+  highlighted,
+  onToggle,
+  children,
 }: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
+  id: FormSectionId;
+  title: string;
+  summary: string;
+  open: boolean;
+  highlighted: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
 }) {
+  const contentId = `persona-studio-form-section-${id}-content`;
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="relative inline-flex items-center cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.retrieval.enabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                retrieval: { ...config.retrieval, enabled: e.target.checked },
-              })
-            }
-            className="sr-only peer"
-          />
-          <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-        </label>
-        <span className="text-sm font-medium">Retrieval Enabled</span>
-      </div>
-
-      {config.retrieval.enabled && (
-        <>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Retrieval Mode</label>
-            <select
-              className="w-full h-9 px-3 rounded-md border text-sm"
-              style={{
-                background: "transparent",
-                borderColor: "var(--panel-border)",
-                color: "var(--text)",
-              }}
-              value={config.retrieval.mode}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  retrieval: { ...config.retrieval, mode: e.target.value },
-                })
-              }
-            >
-              <option value="semantic">Semantic</option>
-              <option value="hybrid">Hybrid</option>
-              <option value="keyword">Keyword</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Retrieval Top K</label>
-            <Input
-              type="number"
-              value={config.retrieval.topK}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  retrieval: { ...config.retrieval, topK: parseInt(e.target.value) || 0 },
-                })
-              }
-            />
-            <p className="text-xs text-[var(--muted)]">
-              Number of documents to retrieve (distinct from Generation Top K)
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.retrieval.rerank}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    retrieval: { ...config.retrieval, rerank: e.target.checked },
-                  })
-                }
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-            </label>
-            <span className="text-sm font-medium">Rerank Results</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-export interface PersonaProfileSelectorProps {
-  profiles: Array<{
-    id: string;
-    name: string;
-    description: string;
-    isDefault?: boolean;
-  }>;
-  selectedProfileId: string;
-  onSelectProfile: (profileId: string) => void;
-  selectedProfile: {
-    id: string;
-    name: string;
-    description: string;
-    isDefault?: boolean;
-  } | null;
-  isDirty: boolean;
-  hasSavedVersion: boolean;
-  onSave: () => void;
-  onSaveAsNew: () => void;
-  onReset: () => void;
-  onResetAll: () => void;
-}
-
-function PersonaProfileSelector({
-  profiles,
-  selectedProfileId,
-  onSelectProfile,
-  selectedProfile,
-  isDirty,
-  hasSavedVersion,
-  onSave,
-  onSaveAsNew,
-  onReset,
-  onResetAll,
-}: PersonaProfileSelectorProps) {
-  const [open, setOpen] = React.useState(false);
-  void hasSavedVersion;
-
-  const handleSelectProfile = (profileId: string) => {
-    onSelectProfile(profileId);
-    setOpen(false);
-  };
-
-  const profileName = selectedProfile?.name ?? "No profile selected";
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-1"
-      data-testid="persona-studio-profile-selector"
+    <section
+      id={`persona-studio-form-section-${id}`}
+      data-testid={`persona-studio-form-section-${id}`}
+      data-highlighted={highlighted ? "true" : "false"}
+      data-open={open ? "true" : "false"}
+      className="ps-form-section rounded-[var(--radius-micro)] border"
+      style={{
+        borderColor: "var(--panel-border)",
+        background: highlighted
+          ? "color-mix(in oklab, var(--accent-weak) 12%, transparent)"
+          : undefined,
+      }}
     >
-      <PersonaStudioActionChipStyles />
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            data-testid="persona-studio-profile-selector-trigger"
-            title={`Profile: ${profileName} — click to switch`}
-            aria-label={`Profile: ${profileName}`}
-            className="ps-action-chip h-6 gap-1 px-2 text-xs"
-            data-ps-material="selector"
-            data-ps-action-tier="selector"
-          >
-            <span
-              data-testid="persona-studio-profile-selector-trigger-name"
-              className="max-w-[180px] truncate"
-            >
-              {profileName}
-            </span>
-            <span
-              aria-hidden="true"
-              className="text-[10px] leading-none"
-              style={{ color: "var(--muted)" }}
-            >
-              ▾
-            </span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          className="z-50 min-w-[240px] overflow-hidden rounded-[var(--card-radius)] border p-1"
-          style={{
-            background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
-            borderColor: "var(--panel-border)",
-            boxShadow:
-              "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
-          }}
-          data-testid="persona-studio-profile-selector-dropdown"
-        >
-          <div
-            className="max-h-[220px] overflow-y-auto"
-            data-testid="persona-studio-profile-selector-list"
-          >
-            {profiles.map((profile) => (
-              <DropdownMenuItem
-                key={profile.id}
-                onClick={() => handleSelectProfile(profile.id)}
-                className="flex items-center gap-2 rounded-[var(--tile-radius)] px-3 py-2 text-sm cursor-pointer"
-                style={{
-                  background:
-                    profile.id === selectedProfileId
-                      ? "color-mix(in srgb, var(--accent) 10%, transparent)"
-                      : "transparent",
-                  color: "var(--text)",
-                }}
-                data-testid={`persona-studio-profile-option-${profile.id}`}
-              >
-                <span className="flex-1 truncate">{profile.name}</span>
-                <span
-                  className="shrink-0 text-xs"
-                  style={{ color: "var(--muted)" }}
-                >
-                  {profile.isDefault ? "Default" : "Custom"}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <span
-        className="mx-0.5 select-none text-xs"
-        style={{ color: "var(--muted)" }}
-        aria-hidden="true"
-      >
-        ·
-      </span>
-
-      <Button
+      <button
         type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onSave}
-        disabled={!isDirty}
-        className="ps-action-chip h-6 px-2 text-xs"
-        data-testid="persona-studio-action-save"
-        data-ps-material="primary"
-        data-ps-action-tier="primary"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={contentId}
+        className="ps-section-toggle flex w-full items-start justify-between gap-[var(--card-pad)] text-left"
       >
-        Save profile
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onSaveAsNew}
-        disabled={!selectedProfile}
-        className="ps-action-chip h-6 px-2 text-xs"
-        data-testid="persona-studio-action-save-as-new"
-        data-ps-material="secondary"
-        data-ps-action-tier="secondary"
-      >
-        Save as new profile
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onReset}
-        disabled={!isDirty}
-        className="ps-action-chip h-6 px-2 text-xs"
-        data-testid="persona-studio-action-reset"
-        data-ps-material="reset"
-        data-ps-action-tier="reset"
-      >
-        Reset profile changes
-      </Button>
-
-      <span
-        className="mx-1 select-none text-xs"
-        style={{ color: "var(--muted)" }}
-        aria-hidden="true"
-      >
-        ·
-      </span>
-
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onResetAll}
-        className="ps-action-chip h-6 px-2 text-xs"
-        title="Reset all local Persona Studio data"
-        data-testid="persona-studio-action-reset-all"
-        data-ps-material="reset"
-        data-ps-action-tier="reset"
-      >
-        Reset local Studio data
-      </Button>
-    </div>
+        <span>
+          <span className="block text-base font-semibold leading-6">{title}</span>
+          <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{summary}</span>
+        </span>
+        <svg className="mt-1 h-4 w-4 shrink-0 text-[var(--muted)]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d={open ? "M3 10l5-5 5 5" : "M3 6l5 5 5-5"} />
+        </svg>
+      </button>
+      {open ? <div id={contentId} className="ps-section-fields">{children}</div> : null}
+    </section>
   );
+}
+
+function FieldLabel({
+  htmlFor,
+  children,
+  highlighted = false,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+  highlighted?: boolean;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      data-highlighted={highlighted ? "true" : "false"}
+      className="block space-y-1.5 text-xs font-medium text-[var(--muted)]"
+      style={{ color: highlighted ? "var(--accent)" : undefined }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function parseCommaSeparated(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 export default function PersonaStudioPage() {
   const {
     profiles,
-    selectedProfileId,
-    activeTab,
     selectedProfile,
-    selectedSavedProfile,
+    savedRevision,
     isDirty,
     hasSavedVersion,
     setSelectedProfileId,
-    setActiveTab,
     updateSelectedProfile,
     saveSelectedProfile,
     saveSelectedProfileAsNew,
     resetSelectedProfile,
   } = usePersonaStudioLocalDraftState();
+  const [assistantMode, setAssistantMode] = React.useState<AssistantMode>("build");
+  const [configurationMode, setConfigurationMode] = React.useState<ConfigurationMode>("form");
+  const [openSections, setOpenSections] = React.useState(INITIAL_OPEN_SECTIONS);
+  const [highlightedFields, setHighlightedFields] = React.useState<string[]>([]);
+  const [buildInput, setBuildInput] = React.useState("");
+  const [buildMessages, setBuildMessages] = React.useState<BuildMessage[]>([]);
+  const [manifestBuffer, setManifestBuffer] = React.useState("");
+  const [manifestError, setManifestError] = React.useState<string | null>(null);
+  const messageId = React.useRef(0);
+  const highlightTimeout = React.useRef<number | null>(null);
+  const selectedProfileIdRef = React.useRef<string | null>(null);
 
-  const handleTabChange = (tab: (typeof TABS)[number]) => {
-    setActiveTab(tab);
-  };
+  const manifestProjection = React.useMemo(
+    () => (selectedProfile ? JSON.stringify(manifestFromDraft(selectedProfile), null, 2) : ""),
+    [selectedProfile]
+  );
 
-  const currentConfig = selectedProfile?.config ?? null;
-
-  const handleSave = () => {
-    if (selectedProfile) {
-      saveSelectedProfile();
+  React.useEffect(() => {
+    const profileId = selectedProfile?.id ?? null;
+    if (selectedProfileIdRef.current !== profileId) {
+      selectedProfileIdRef.current = profileId;
+      setManifestError(null);
+      setManifestBuffer(manifestProjection);
+    } else if (!manifestError) {
+      setManifestBuffer(manifestProjection);
     }
-  };
+  }, [manifestError, manifestProjection, selectedProfile?.id]);
 
-  const handleSaveAsNew = () => {
-    if (selectedProfile) {
-      saveSelectedProfileAsNew();
-    }
-  };
-
-  const handleReset = () => {
-    resetSelectedProfile();
-  };
-
-  const resetAllLocalPersonaStudioData = React.useCallback(() => {
-    if (window.confirm("Reset all local Persona Studio data?")) {
-      localStorage.removeItem("personaStudio");
-      window.location.reload();
-    }
+  React.useEffect(() => () => {
+    if (highlightTimeout.current != null) window.clearTimeout(highlightTimeout.current);
   }, []);
 
-  const renderActiveTab = () => {
-    if (!currentConfig) {
-      return (
-        <div className="flex items-center justify-center py-12 text-sm" style={{ color: "var(--muted)" }}>
-          Select a profile to begin editing.
-        </div>
-      );
+  const updateConfig = React.useCallback((updater: (config: PersonaConfig) => PersonaConfig) => {
+    updateSelectedProfile((current) => {
+      const config = updater(current.config);
+      return {
+        ...current,
+        name: config.identity.name,
+        description: config.identity.description,
+        config,
+      };
+    });
+  }, [updateSelectedProfile]);
+
+  const fieldIsHighlighted = React.useCallback(
+    (field: string) => highlightedFields.includes(field),
+    [highlightedFields]
+  );
+  const sectionIsHighlighted = React.useCallback((section: FormSectionId) => {
+    const configuratorSection = (Object.entries(CONFIGURATOR_FORM_SECTION).find(
+      ([, formSection]) => formSection === section
+    )?.[0] ?? null) as PersonaStudioConfiguratorSection | null;
+    return configuratorSection !== null && highlightedFields.some((field) =>
+      configuratorSection === "capabilities"
+        ? field.startsWith("capabilities.")
+        : field.startsWith(`${configuratorSection}.`)
+    );
+  }, [highlightedFields]);
+
+  const focusChanges = React.useCallback((changes: PersonaStudioConfiguratorChange[]) => {
+    const firstSection = changes[0]?.section;
+    if (!firstSection) return;
+    const formSection = CONFIGURATOR_FORM_SECTION[firstSection];
+    setConfigurationMode("form");
+    setOpenSections((previous) => ({ ...previous, [formSection]: true }));
+    window.setTimeout(() => {
+      document.getElementById(`persona-studio-form-section-${formSection}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }, 0);
+  }, []);
+
+  const handleBuildSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const request = buildInput.trim();
+    if (!request || !selectedProfile) return;
+    const result = applyPersonaStudioConfiguratorIntent(selectedProfile, request);
+    messageId.current += 1;
+    if (result.recognized) {
+      updateSelectedProfile(() => result.draft);
+      setHighlightedFields(result.changedFieldPaths);
+      setOpenSections((previous) => result.sections.reduce(
+        (next, section) => ({ ...next, [CONFIGURATOR_FORM_SECTION[section]]: true }),
+        previous
+      ));
+      if (highlightTimeout.current != null) window.clearTimeout(highlightTimeout.current);
+      highlightTimeout.current = window.setTimeout(() => setHighlightedFields([]), 2800);
     }
+    setBuildMessages((previous) => [...previous, {
+      id: messageId.current,
+      request,
+      changes: result.changes,
+      response: result.recognized
+        ? `Updated ${result.changes.length} local draft ${result.changes.length === 1 ? "field" : "fields"}. Save remains explicit.`
+        : "No supported draft change was recognized. The local draft was left unchanged.",
+    }]);
+    setBuildInput("");
+  };
 
-    const onChange = (config: PersonaConfig) => {
-      if (selectedProfile) {
-        updateSelectedProfile((currentProfile) => ({
-          ...currentProfile,
-          name: config.identity.name,
-          description: config.identity.description,
-          config,
-        }));
-      }
-    };
-
-    switch (activeTab) {
-      case "Identity":
-        return <IdentityEditor config={currentConfig} onChange={onChange} />;
-      case "Model":
-        return <ModelEditor config={currentConfig} onChange={onChange} />;
-      case "Voice":
-        return <PersonaVoicePanel config={currentConfig} onChange={onChange} />;
-      case "Prompt":
-        return <PromptEditor config={currentConfig} onChange={onChange} />;
-      case "Tools":
-        return <ToolsEditor config={currentConfig} onChange={onChange} />;
-      case "Retrieval":
-        return <RetrievalEditor config={currentConfig} onChange={onChange} />;
-      case "Truth Matrix":
-        return <TruthMatrix config={currentConfig} />;
-      default:
-        return null;
+  const handleManifestChange = (nextBuffer: string) => {
+    setManifestBuffer(nextBuffer);
+    if (!selectedProfile) return;
+    try {
+      const nextDraft = draftFromManifest(selectedProfile, JSON.parse(nextBuffer) as unknown);
+      updateSelectedProfile(() => nextDraft);
+      setManifestError(null);
+    } catch (error) {
+      setManifestError(error instanceof Error ? error.message : "Manifest is invalid");
     }
   };
 
+  if (!selectedProfile) {
+    return <div className="flex h-full items-center justify-center" data-testid="persona-studio-page">No Persona Profile is selected.</div>;
+  }
+
+  const { config } = selectedProfile;
+  const status = statusFor(isDirty, savedRevision);
+  const toggleSection = (section: FormSectionId) => setOpenSections((previous) => ({
+    ...previous,
+    [section]: !previous[section],
+  }));
+
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="persona-studio-page" style={{ background: "var(--bg)" }}>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pt-6 pb-6">
-        <section
-          className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto rounded-[var(--card-radius)] border p-[var(--card-pad)]"
-          data-testid="persona-studio-shell"
-          style={{
-            background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
-            borderColor: "var(--panel-border)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)",
-          }}
-        >
-          <div
-            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch lg:grid-cols-[minmax(0,var(--persona-studio-editor-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))]"
-            data-testid="persona-studio-editor-two-lane-layout"
-          >
-            <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
-              <div className="space-y-4" data-testid="persona-studio-shell-header">
-                <div>
-                  <h1 className="text-2xl font-semibold" style={{ color: "var(--text)" }}>
-                    Persona Studio
-                  </h1>
-                  <p className="mt-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
-                    Configure reusable agent profiles.
-                  </p>
+    <main className="h-full min-h-0 w-full overflow-y-auto" data-testid="persona-studio-page" data-persona-studio-layout="assistant-configuration">
+      <style data-testid="persona-studio-layout-styles">{`
+        [data-testid="persona-studio-page"] {
+          container: persona-studio / inline-size;
+        }
+        [data-testid="persona-studio-workspace"] {
+          display: grid;
+          box-sizing: border-box;
+          min-height: 100%;
+          grid-template-columns: minmax(0, 1fr);
+          grid-auto-rows: minmax(34rem, auto);
+          gap: var(--shell-gap);
+          padding: var(--shell-gap);
+        }
+        [data-testid="persona-studio-workspace"] > .fc-root {
+          min-width: 0;
+          min-height: 0;
+        }
+        [data-testid="persona-studio-workspace"] .fc-inner > div,
+        [data-testid="persona-studio-build-mode"],
+        [data-testid="persona-studio-test-mode"] {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+          min-width: 0;
+        }
+        [data-testid="persona-studio-configuration-viewport"],
+        [data-testid="persona-studio-build-transcript"] {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+        }
+        [data-testid="persona-studio-workspace"] :is(input, textarea, select) {
+          box-sizing: border-box;
+          max-width: 100%;
+        }
+        @container persona-studio (min-width: 900px) {
+          [data-testid="persona-studio-workspace"] {
+            height: 100%;
+            min-height: 0;
+            grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.35fr);
+            grid-template-rows: minmax(0, 1fr);
+          }
+          [data-testid="persona-studio-workspace"] > .fc-root {
+            grid-row: 1;
+          }
+        }
+      `}</style>
+      <style data-testid="persona-studio-hierarchy-styles">{`
+        /* Guardian composer geometry, scoped to text entry (including embedded Test). */
+        [data-testid="persona-studio-page"] :is(textarea, input[type="text"], input[type="number"], input:not([type])) {
+          border-radius: 24px;
+          padding: var(--card-pad) var(--shell-gap);
+          font-size: 0.875rem;
+          font-weight: 400;
+          line-height: 1.5;
+          color: var(--text);
+        }
+        [data-testid="persona-studio-page"] :is(input[type="text"], input[type="number"], input:not([type])) {
+          height: auto;
+          min-height: calc(var(--card-pad) * 3.5);
+        }
+        [data-testid="persona-studio-page"] .ps-save-row {
+          border-block: 1px solid var(--panel-border);
+          padding-block: calc(var(--card-pad) / 2);
+        }
+        [data-testid="persona-studio-page"] .ps-projection-nav {
+          border: 1px solid var(--panel-border);
+          border-radius: var(--radius-micro);
+          background: color-mix(in srgb, var(--chip-bg) 70%, var(--panel-bg));
+        }
+        [data-testid="persona-studio-page"] .ps-projection-nav .pill-tab {
+          font-weight: 600;
+        }
+        [data-testid="persona-studio-page"] .ps-form-section {
+          background: color-mix(in srgb, var(--panel-bg) 92%, var(--text));
+        }
+        [data-testid="persona-studio-page"] .ps-section-toggle {
+          padding: var(--card-pad) var(--shell-gap);
+          border-radius: inherit;
+        }
+        [data-testid="persona-studio-page"] .ps-form-section[data-open="true"] .ps-section-toggle {
+          border-bottom: 1px solid var(--panel-border);
+          border-bottom-left-radius: 0;
+          border-bottom-right-radius: 0;
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields {
+          padding: var(--shell-gap);
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields > * + * {
+          margin-top: var(--shell-gap);
+        }
+        [data-testid="persona-studio-page"] .ps-section-fields :is(input, textarea, select) {
+          font-weight: 400;
+        }
+      `}</style>
+      <PersonaStudioActionChipStyles />
+      <h1 className="sr-only">Persona Studio</h1>
+      <div
+        data-testid="persona-studio-workspace"
+        data-layout="assistant-configuration"
+      >
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-assistant-frame" ariaLabel="Studio Assistant">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
+              <div>
+                <h2 className="text-base font-semibold">Studio Assistant</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Deterministic local draft editing and ephemeral preview.</p>
+              </div>
+              <Badge className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>Local only</Badge>
+            </header>
+            <div className="flex gap-1" role="tablist" aria-label="Studio Assistant mode">
+              {(["build", "test"] as const).map((mode) => (
+                <button key={mode} type="button" role="tab" aria-selected={assistantMode === mode} onClick={() => setAssistantMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={assistantMode === mode ? "active" : "inactive"}>{mode}</button>
+              ))}
+            </div>
+            {assistantMode === "build" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="persona-studio-build-mode">
+                <div className="rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
+                  <p className="font-medium">Bounded configurator</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">Supports the approved prototype’s typed changes for tone, model, temperature, web/email, voice, and retrieval. It never calls a provider or saves for you.</p>
                 </div>
-                <div
-                  className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
-                  data-testid="persona-studio-tabs"
-                  style={
-                    {
-                      "--pill-active-text": "var(--text-on-accent)",
-                      "--pill-font": "0.92rem",
-                      width: "100%",
-                      justifyContent: "stretch",
-                    } as React.CSSProperties
-                  }
-                >
-                  {TABS.map((tab) => (
-                    <TabButton key={tab} active={activeTab === tab} onClick={() => handleTabChange(tab)}>
-                      {tab}
-                    </TabButton>
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto" data-testid="persona-studio-build-transcript" aria-live="polite">
+                  {buildMessages.length === 0 ? <p className="text-sm text-[var(--muted)]">Describe a supported change, such as “make this more analytical and use Claude.”</p> : buildMessages.map((message) => (
+                    <article key={message.id} className="space-y-3 border-b pb-3 last:border-b-0" style={{ borderColor: "var(--panel-border)" }}>
+                      <div className="ml-auto max-w-[92%] rounded-[var(--tile-radius)] border px-3 py-2 text-sm" style={{ borderColor: "var(--panel-border)", background: "color-mix(in oklab, var(--accent) 8%, var(--panel-bg))" }}>{message.request}</div>
+                      <div className="rounded-[var(--tile-radius)] border px-3 py-3 text-sm" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                        <p>{message.response}</p>
+                        {message.changes.length > 0 ? <button type="button" onClick={() => focusChanges(message.changes)} className="mt-2 text-left text-xs font-medium text-[var(--accent)] underline underline-offset-2">{message.changes.map((change) => change.label).join(" · ")}</button> : null}
+                      </div>
+                    </article>
                   ))}
                 </div>
+                <form className="space-y-2 border-t pt-3" style={{ borderColor: "var(--panel-border)" }} onSubmit={handleBuildSubmit}>
+                  <label className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]" htmlFor="persona-studio-build-input">Describe a draft change</label>
+                  <Textarea id="persona-studio-build-input" aria-label="Describe a supported draft change" value={buildInput} onChange={(event) => setBuildInput(event.target.value)} placeholder="e.g. Make this more analytical and use Claude" className="min-h-[88px] resize-y" />
+                  <div className="flex justify-end"><Button {...personaStudioActionChip("primary")} type="submit" variant="ghost" disabled={!buildInput.trim()}>Apply locally</Button></div>
+                </form>
               </div>
-
-              <div
-                className="rounded-[var(--tile-radius)] border px-4 py-4"
-                role="region"
-                aria-label="Persona Studio editor"
-                data-testid="persona-studio-editor"
-                data-saved-profile-id={selectedSavedProfile?.id ?? ""}
-                data-draft-state={isDirty ? "dirty" : "clean"}
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
-                  borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
-                }}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1" />
-                  <Badge className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
-                    {activeTab}
-                  </Badge>
-                </div>
-
-                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                  {renderActiveTab()}
-                </div>
-
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col" data-testid="persona-studio-test-mode">
+                <div className="mb-3 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5 text-[var(--muted)]" style={{ borderColor: "var(--panel-border)" }}>Test is an ephemeral, draft-aware preview. It creates no Guardian thread, provider request, memory write, or saved history.</div>
+                <PersonaPreviewPanel profile={selectedProfile} embedded />
               </div>
+            )}
+          </div>
+        </FrameCard>
 
-              <PersonaProfileSelector
-                profiles={profiles}
-                selectedProfileId={selectedProfileId}
-                onSelectProfile={setSelectedProfileId}
-                selectedProfile={selectedProfile}
-                isDirty={isDirty}
-                hasSavedVersion={hasSavedVersion}
-                onSave={handleSave}
-                onSaveAsNew={handleSaveAsNew}
-                onReset={handleReset}
-                onResetAll={resetAllLocalPersonaStudioData}
-              />
-            </div>
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-configuration-frame" ariaLabel="Configuration">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <header className="ps-configuration-header space-y-[var(--card-pad)] border-b pb-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight">Configuration</h2>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">One local draft projected as Form, Manifest, or effective inspection.</p>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><Button {...personaStudioActionChip("selector", "max-w-[15rem] justify-between gap-2")} variant="ghost" type="button" data-testid="persona-studio-profile-selector-trigger"><span className="truncate">{selectedProfile.name}</span><span aria-hidden>⌄</span></Button></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64" data-testid="persona-studio-profile-selector-list">
+                    <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Persona Profiles</div>
+                    {profiles.map((profile) => <DropdownMenuItem key={profile.id} onClick={() => setSelectedProfileId(profile.id)} className="flex flex-col items-start gap-1"><span>{profile.name}</span><span className="text-xs text-[var(--muted)]">{profile.id === selectedProfile.id ? "Current draft" : profile.description}</span></DropdownMenuItem>)}
+                    <div role="separator" className="my-1 h-px bg-[var(--panel-border)]" />
+                    <DropdownMenuItem onClick={saveSelectedProfileAsNew} data-testid="persona-studio-action-save-as-new">Duplicate as new</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="ps-save-row flex flex-wrap items-center justify-between gap-[var(--card-pad)]">
+                <span className="text-xs font-medium text-[var(--muted)]" data-testid="persona-studio-save-status" data-saved-revision={savedRevision ?? ""}>{status}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button {...personaStudioActionChip("reset")} type="button" variant="ghost" size="sm" onClick={resetSelectedProfile} disabled={!hasSavedVersion || !isDirty} data-testid="persona-studio-action-reset">Revert</Button>
+                  <Button {...personaStudioActionChip("primary")} type="button" variant="ghost" size="sm" onClick={saveSelectedProfile} disabled={!isDirty} data-testid="persona-studio-action-save">Save</Button>
+                </div>
+              </div>
+              <div className="ps-projection-nav flex gap-1" role="tablist" aria-label="Configuration projection">
+                {(["form", "manifest", "effective"] as const).map((mode) => <button key={mode} type="button" role="tab" aria-selected={configurationMode === mode} onClick={() => setConfigurationMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={configurationMode === mode ? "active" : "inactive"}>{mode}</button>)}
+              </div>
+            </header>
 
-            <div
-              className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-full"
-              data-testid="persona-studio-rail-lane"
-            >
-              <PersonaStudioRail
-                selectedProfile={selectedProfile}
-                config={currentConfig}
-                isDirty={isDirty}
-                hasSavedVersion={hasSavedVersion}
-              />
-            </div>
-
-            <div
-              className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-full"
-              data-testid="persona-studio-guide-lane"
-            >
-              <StudioGuidePanel config={currentConfig} />
+            <div className="min-h-0 flex-1 overflow-y-auto pt-[var(--card-pad)]" data-testid="persona-studio-configuration-viewport" data-saved-profile-id={hasSavedVersion ? selectedProfile.id : ""} data-draft-state={isDirty ? "dirty" : "clean"}>
+              {configurationMode === "form" ? (
+                <div data-testid="persona-studio-form" className="space-y-[var(--card-pad)]">
+                  <FormSection id="identity" title="Identity" summary="Portable name and description for this Persona Profile." open={openSections.identity} highlighted={false} onToggle={() => toggleSection("identity")}>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-name"><span>Persona name</span><Input id="persona-studio-name" aria-label="Persona name" value={config.identity.name} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, name: event.target.value } }))} placeholder="Enter persona name" /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-description"><span>Description</span><Textarea id="persona-studio-description" aria-label="Persona description" value={config.identity.description} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, description: event.target.value } }))} rows={3} className="min-h-[88px] resize-y" /></FieldLabel>
+                    </div>
+                  </FormSection>
+                  <FormSection id="prompt" title="Behavior / Prompt" summary="Authored prompt guidance only; it does not execute an assistant." open={openSections.prompt} highlighted={sectionIsHighlighted("prompt")} onToggle={() => toggleSection("prompt")}>
+                    <FieldLabel htmlFor="persona-studio-system-prompt" highlighted={fieldIsHighlighted("prompt.systemPrompt")}><span>System prompt</span><Textarea id="persona-studio-system-prompt" value={config.prompt.systemPrompt} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, systemPrompt: event.target.value } }))} rows={5} className="min-h-[130px] resize-y" /></FieldLabel>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-style-notes" highlighted={fieldIsHighlighted("prompt.styleNotes")}><span>Style notes</span><Textarea id="persona-studio-style-notes" value={config.prompt.styleNotes} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, styleNotes: event.target.value } }))} rows={4} className="min-h-[106px] resize-y" /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-directives" highlighted={fieldIsHighlighted("prompt.directives")}><span>Directives</span><Textarea id="persona-studio-directives" value={config.prompt.directives} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, directives: event.target.value } }))} rows={4} className="min-h-[106px] resize-y" /></FieldLabel>
+                    </div>
+                  </FormSection>
+                  <FormSection id="model" title="Model" summary="Requested provider and model values; availability is not resolved here." open={openSections.model} highlighted={sectionIsHighlighted("model")} onToggle={() => toggleSection("model")}>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-model-provider" highlighted={fieldIsHighlighted("model.provider")}><span>Provider</span><select id="persona-studio-model-provider" aria-label="Model provider" className="h-9 w-full rounded-md border px-3 text-sm" style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }} value={config.model.provider} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, provider: event.target.value } }))}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="local">Local</option></select></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-model-name" highlighted={fieldIsHighlighted("model.model")}><span>Model</span><Input id="persona-studio-model-name" aria-label="Model" value={config.model.model} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, model: event.target.value } }))} /></FieldLabel>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-temperature" highlighted={fieldIsHighlighted("model.temperature")}><span>Temperature · {config.model.temperature.toFixed(2)}</span><input id="persona-studio-temperature" className="material-slider w-full" type="range" min="0" max="2" step="0.1" value={config.model.temperature} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, temperature: Number(event.target.value) } }))} /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-max-tokens"><span>Max tokens</span><Input id="persona-studio-max-tokens" type="number" value={config.model.maxTokens} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, maxTokens: Number(event.target.value) || 0 } }))} /></FieldLabel>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-top-k"><span>Top K</span><Input id="persona-studio-top-k" type="number" value={config.model.topK} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, topK: Number(event.target.value) || 0 } }))} /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-top-p"><span>Top P</span><Input id="persona-studio-top-p" type="number" step="0.01" value={config.model.topP} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, topP: Number(event.target.value) || 0 } }))} /></FieldLabel>
+                    </div>
+                  </FormSection>
+                  <FormSection id="voice" title="Voice" summary="Requested voice settings. Discovery remains separately bounded by its existing surface." open={openSections.voice} highlighted={sectionIsHighlighted("voice")} onToggle={() => toggleSection("voice")}><PersonaVoicePanel config={config} onChange={(next) => updateConfig(() => next)} /></FormSection>
+                  <FormSection id="capabilities" title="Capabilities" summary="Requested permissions are not proof of an available or granted capability." open={openSections.capabilities} highlighted={sectionIsHighlighted("capabilities")} onToggle={() => toggleSection("capabilities")}>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {(["web", "email", "calendar", "cli", "filesystem"] as const).map((permission) => <label key={permission} className="flex items-center gap-2 rounded-[var(--radius-micro)] border px-3 py-2 text-sm" style={{ borderColor: fieldIsHighlighted(`capabilities.permissions.${permission}`) ? "var(--accent)" : "var(--panel-border)" }}><input type="checkbox" checked={config.tools.permissions[permission]} onChange={(event) => updateConfig((current) => ({ ...current, tools: { ...current.tools, permissions: { ...current.tools.permissions, [permission]: event.target.checked } } }))} />{permission === "cli" ? "CLI" : permission.charAt(0).toUpperCase() + permission.slice(1)} requested</label>)}
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-pinned-tools"><span>Pinned tools (comma-separated)</span><Textarea id="persona-studio-pinned-tools" value={config.tools.pinnedTools.join(", ")} onChange={(event) => updateConfig((current) => ({ ...current, tools: { ...current.tools, pinnedTools: parseCommaSeparated(event.target.value) } }))} rows={3} className="min-h-[82px] resize-y" /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-allowed-tools"><span>Allowed tools (comma-separated)</span><Textarea id="persona-studio-allowed-tools" value={config.tools.allowedTools.join(", ")} onChange={(event) => updateConfig((current) => ({ ...current, tools: { ...current.tools, allowedTools: parseCommaSeparated(event.target.value) } }))} rows={3} className="min-h-[82px] resize-y" /></FieldLabel>
+                    </div>
+                  </FormSection>
+                  <FormSection id="retrieval" title="Retrieval" summary="An authored preference only; Studio does not execute retrieval." open={openSections.retrieval} highlighted={sectionIsHighlighted("retrieval")} onToggle={() => toggleSection("retrieval")}>
+                    <label className="flex items-center gap-2 text-sm" data-highlighted={fieldIsHighlighted("retrieval.enabled") ? "true" : "false"}><input type="checkbox" checked={config.retrieval.enabled} onChange={(event) => updateConfig((current) => ({ ...current, retrieval: { ...current.retrieval, enabled: event.target.checked } }))} />Retrieval requested</label>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FieldLabel htmlFor="persona-studio-retrieval-mode"><span>Mode</span><select id="persona-studio-retrieval-mode" className="h-9 w-full rounded-md border px-3 text-sm" style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }} value={config.retrieval.mode} onChange={(event) => updateConfig((current) => ({ ...current, retrieval: { ...current.retrieval, mode: event.target.value } }))}><option value="hybrid">Hybrid</option><option value="semantic">Semantic</option><option value="keyword">Keyword</option></select></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-retrieval-top-k"><span>Top K</span><Input id="persona-studio-retrieval-top-k" type="number" value={config.retrieval.topK} onChange={(event) => updateConfig((current) => ({ ...current, retrieval: { ...current.retrieval, topK: Number(event.target.value) || 0 } }))} /></FieldLabel>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.retrieval.rerank} onChange={(event) => updateConfig((current) => ({ ...current, retrieval: { ...current.retrieval, rerank: event.target.checked } }))} />Request reranking</label>
+                  </FormSection>
+                  <FormSection id="bindings" title="Activation & Bindings" summary="Server-owned environmental authority is deliberately outside the portable manifest." open={openSections.bindings} highlighted={false} onToggle={() => toggleSection("bindings")}>
+                    <div className="space-y-3 rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}><p>Project pins, invocation aliases, connector grants, credentials, and runtime authorization are not editable in this workspace.</p><p className="text-xs text-[var(--muted)]">Bindings: Not resolved. No authoritative Binding editor or effective-config resolver is available here.</p></div>
+                  </FormSection>
+                </div>
+              ) : null}
+              {configurationMode === "manifest" ? <section data-testid="persona-studio-manifest" className="space-y-3 py-3"><div><h3 className="text-sm font-semibold">Writable authored manifest</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This JSON is the same local draft as Form. Revision, bindings, credentials, and runtime grants are rejected.</p></div><Textarea aria-label="Persona manifest JSON" value={manifestBuffer} onChange={(event) => handleManifestChange(event.target.value)} spellCheck={false} className="min-h-[28rem] font-mono text-xs leading-5" />{manifestError ? <p role="alert" className="text-xs leading-5 text-[var(--accent)]" data-testid="persona-studio-manifest-error">Manifest not applied: {manifestError}</p> : <p className="text-xs text-[var(--muted)]">Valid JSON updates the local draft; Save remains explicit.</p>}</section> : null}
+              {configurationMode === "effective" ? <section data-testid="persona-studio-effective" className="space-y-4 py-3"><div><h3 className="text-sm font-semibold">Effective inspection</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This route has no authoritative effective-configuration resolver. Requested values below are not runtime truth.</p></div><dl className="space-y-2 text-sm">{[["Requested model", `${config.model.provider} / ${config.model.model}`], ["Requested web capability", config.tools.permissions.web ? "Requested" : "Not requested"], ["Requested retrieval", config.retrieval.enabled ? "Requested" : "Not requested"]].map(([label, value]) => <div key={label} className="grid gap-1 rounded-[var(--radius-micro)] border px-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_1fr]" style={{ borderColor: "var(--panel-border)" }}><dt className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</dt><dd>{value}</dd></div>)}</dl><div className="rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}><p className="font-medium">Unavailable to resolve here</p><p className="mt-1 text-xs text-[var(--muted)]">Provider availability, model availability, connector authorization and health, Project bindings, capability grants, and runtime effectiveness are Not resolved.</p></div></section> : null}
             </div>
           </div>
-        </section>
+        </FrameCard>
       </div>
-    </div>
+    </main>
   );
 }

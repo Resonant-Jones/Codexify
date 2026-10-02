@@ -26,6 +26,7 @@ from guardian.core.provider_registry import (
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
+    resolve_local_runtime_identity,
 )
 from guardian.core.provider_registry import (
     resolve_model_capability_state as resolve_model_capability_state_registry,
@@ -387,6 +388,28 @@ def _apply_local_display_disambiguation(
     return entries
 
 
+def _local_inventory_display_names(
+    endpoint_resolution: dict[str, Any],
+) -> dict[str, str]:
+    display_names: dict[str, str] = {}
+    inventory_models = endpoint_resolution.get("inventory_models")
+    if not isinstance(inventory_models, list):
+        return display_names
+    for item in inventory_models:
+        if not isinstance(item, dict):
+            continue
+        model_id = normalize_model_id(item.get("id"))
+        metadata = item.get("metadata")
+        display_name = (
+            str(metadata.get("display_name") or "").strip()
+            if isinstance(metadata, dict)
+            else ""
+        )
+        if model_id and display_name:
+            display_names[model_id] = display_name
+    return display_names
+
+
 def _fetch_local_models(
     settings: Settings,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], Any]:
@@ -445,6 +468,7 @@ def _fetch_local_models(
         except Exception:
             source_base = None
     source_label = _source_label(source_base) if source_base else None
+    inventory_display_names = _local_inventory_display_names(endpoint_resolution)
     identities = _apply_local_display_disambiguation(
         [
             _local_model_identity(name, source_label=source_label)
@@ -453,11 +477,15 @@ def _fetch_local_models(
     )
     entries: list[dict[str, Any]] = []
     for name, identity in zip(deduped, identities, strict=False):
+        inventory_display_name = inventory_display_names.get(
+            normalize_model_id(name)
+        )
         profile = whooshd_profile_by_id_or_repo(name)
         if profile:
             name = str(profile.get("id") or name).strip()
         display_label = str(
-            (profile or {}).get("display_name")
+            inventory_display_name
+            or (profile or {}).get("display_name")
             or identity.get("alias")
             or identity.get("display_label")
             or name
@@ -484,7 +512,8 @@ def _fetch_local_models(
             identity.get("canonical_id") or name
         ).strip()
         entry["display_label"] = str(
-            (profile or {}).get("display_name")
+            inventory_display_name
+            or (profile or {}).get("display_name")
             or identity.get("display_label")
             or display_label
         ).strip()
@@ -684,15 +713,27 @@ def _provider_source(
     return source
 
 
-def _provider_display_name(provider_id: str, settings: Settings) -> str:
+def _provider_display_name(
+    provider_id: str,
+    settings: Settings,
+    runtime_identity: dict[str, Any] | None = None,
+) -> str:
     fallback = _PROVIDER_LABELS.get(provider_id, provider_id.title())
     if provider_id != "local":
         return fallback
 
-    configured = str(
-        getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", "") or ""
+    runtime_display_name = str(
+        (runtime_identity or {}).get("displayName") or ""
     ).strip()
-    return configured or fallback
+    return runtime_display_name or fallback
+
+
+def _local_provider_runtime_identity(settings: Settings) -> dict[str, Any]:
+    return resolve_local_runtime_identity(
+        vendor=getattr(settings, "LOCAL_PROVIDER_VENDOR", None),
+        runtime_preset=getattr(settings, "LOCAL_RUNTIME_PRESET", None),
+        display_name=getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", None),
+    )
 
 
 def _provider_entry(
@@ -768,7 +809,16 @@ def _provider_entry(
         and not bool(supported_profile_approved)
     ):
         return None
-    display_name = _provider_display_name(provider_id, settings)
+    runtime_identity = (
+        _local_provider_runtime_identity(settings)
+        if provider_id == "local"
+        else None
+    )
+    display_name = _provider_display_name(
+        provider_id,
+        settings,
+        runtime_identity=runtime_identity,
+    )
     entry: dict[str, Any] = {
         "id": provider_id,
         "displayName": display_name,
@@ -784,6 +834,8 @@ def _provider_entry(
     source = _provider_source(provider_id, settings, endpoint_resolution)
     if source is not None:
         entry["source"] = source
+    if runtime_identity is not None:
+        entry["runtime"] = runtime_identity
     if endpoint_resolution is not None:
         entry["endpoint_resolution"] = endpoint_resolution
     if local_model_resolution is not None:

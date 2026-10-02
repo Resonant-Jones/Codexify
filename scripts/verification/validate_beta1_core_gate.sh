@@ -31,7 +31,7 @@ main() {
     "tests/routes/test_chat_routes.py::TestChatCompletePost::test_complete_groq_error"
     "tests/routes/test_chat_routes.py::TestChatCompletePost::test_complete_turn_lock_error_returns_structured_503"
     "tests/routes/test_metrics.py::test_health_chat_endpoint"
-    "tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_embeds"
+    "tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_catches_up_embeddings"
     "tests/routes/test_media_routes.py::TestUploadDedupeAndResolve::test_upload_document_enqueues_embedding_with_asset_metadata"
     "tests/routes/test_media_routes.py::TestMediaQuarantine::test_generate_image_quarantined_in_beta_core_mode"
     "tests/routes/test_media_routes.py::TestMediaQuarantine::test_tts_quarantined_when_disabled"

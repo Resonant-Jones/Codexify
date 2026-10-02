@@ -97,6 +97,10 @@ class CampaignLiveExecutorError(CampaignEngineError):
         required_tool_name: str | None = None,
         hard_tool_selection_applied: bool | None = None,
         hard_tool_selection_application_count: int | None = None,
+        # Guardian/Pi's bounded timeout phase prefix. Absence remains unknown.
+        observed_execution_phases: tuple[str, ...] | None = None,
+        highest_observed_execution_phase: str | None = None,
+        effective_reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_reason = failure_reason
@@ -121,11 +125,43 @@ class CampaignLiveExecutorError(CampaignEngineError):
         self.hard_tool_selection_application_count = (
             hard_tool_selection_application_count
         )
+        self.observed_execution_phases = observed_execution_phases
+        self.highest_observed_execution_phase = highest_observed_execution_phase
+        self.effective_reasoning_effort = effective_reasoning_effort
 
     def to_payload(self) -> dict[str, Any]:
         # Surface only the bounded telemetry fields. Counts are normalized
         # to integers; missing telemetry surfaces as None.  No text /
         # reasoning / arguments / IDs / payloads are ever included.
+        # Import these tokens only when an error is serialized so the
+        # provider-free Campaign package remains safe to import.
+        from guardian.pi.tokens import (
+            PI_AUTHORIZED_EXECUTION_PHASES,
+            PI_AUTHORIZED_REASONING_EFFORTS,
+        )
+
+        phases = self.observed_execution_phases
+        phase_prefix = (
+            tuple(phases)
+            if isinstance(phases, (tuple, list))
+            and 0 < len(phases) <= len(PI_AUTHORIZED_EXECUTION_PHASES)
+            and all(isinstance(phase, str) for phase in phases)
+            and tuple(phases) == PI_AUTHORIZED_EXECUTION_PHASES[: len(phases)]
+            else None
+        )
+        highest_phase = (
+            self.highest_observed_execution_phase
+            if phase_prefix is not None
+            and self.highest_observed_execution_phase == phase_prefix[-1]
+            else None
+        )
+        effective_effort = (
+            self.effective_reasoning_effort
+            if isinstance(self.effective_reasoning_effort, str)
+            and self.effective_reasoning_effort in PI_AUTHORIZED_REASONING_EFFORTS
+            else None
+        )
+
         def _as_int(value: Any) -> int | None:
             return value if isinstance(value, int) and value >= 0 else None
         def _as_tuple(value: Any) -> tuple[str, ...] | None:
@@ -143,6 +179,13 @@ class CampaignLiveExecutorError(CampaignEngineError):
             "retry_count": self.retry_count,
             "fallback_count": self.fallback_count,
             "issues": list(self.issues),
+            "observed_execution_phases": (
+                list(phase_prefix)
+                if phase_prefix is not None
+                else None
+            ),
+            "highest_observed_execution_phase": highest_phase,
+            "effective_reasoning_effort": effective_effort,
             "tool_telemetry": {
                 "effective_tool_names": (
                     list(self.effective_tool_names)
@@ -204,6 +247,45 @@ class CampaignLiveExecutorError(CampaignEngineError):
                 and len(self.required_tool_name) > 0
                 else None
             ),
+        }
+
+
+class CampaignLiveEvaluatorError(CampaignEngineError):
+    """Credential-safe CE-L2 failure; never carries raw model output."""
+
+    def __init__(
+        self, reason: str, *, runner_call_count: int = 0,
+        retry_count: int = 0, fallback_count: int = 0,
+        diagnostic_class: str | None = None, diagnostic_stage: str | None = None,
+        observed_execution_phases: tuple[str, ...] | None = None,
+        highest_observed_execution_phase: str | None = None,
+        effective_reasoning_effort: str | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.runner_call_count = runner_call_count
+        self.retry_count = retry_count
+        self.fallback_count = fallback_count
+        self.diagnostic_class = diagnostic_class
+        self.diagnostic_stage = diagnostic_stage
+        self.observed_execution_phases = observed_execution_phases
+        self.highest_observed_execution_phase = highest_observed_execution_phase
+        self.effective_reasoning_effort = effective_reasoning_effort
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "failure_reason": self.reason,
+            "runner_call_count": self.runner_call_count,
+            "retry_count": self.retry_count,
+            "fallback_count": self.fallback_count,
+            "diagnostic_class": self.diagnostic_class,
+            "diagnostic_stage": self.diagnostic_stage,
+            "observed_execution_phases": (
+                list(self.observed_execution_phases)
+                if self.observed_execution_phases is not None else None
+            ),
+            "highest_observed_execution_phase": self.highest_observed_execution_phase,
+            "effective_reasoning_effort": self.effective_reasoning_effort,
         }
 
 

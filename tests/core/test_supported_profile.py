@@ -10,7 +10,7 @@ from guardian.core.provider_registry import (
 )
 from guardian.core.supported_profile import load_supported_profile
 
-_TESTER_TRACKED_DEFAULT_MODEL = "qwen3.8-27b-4bit"
+_LOCAL_CHAT_ROUTE = "local-chat"
 
 
 def test_v1_supported_profile_manifest_loads() -> None:
@@ -128,7 +128,7 @@ def test_tester_profile_deepseek_provider_contract() -> None:
     assert manifest.provider_contract["CODEXIFY_EGRESS_ALLOWLIST"] == "deepseek"
 
 
-def test_whooshd_deepseek_profile_pins_both_provider_lanes() -> None:
+def test_whooshd_deepseek_profile_pins_provider_lanes_and_logical_route() -> None:
     manifest = load_supported_profile("v1-whooshd-deepseek-web")
 
     assert manifest.provider_contract == {
@@ -139,7 +139,7 @@ def test_whooshd_deepseek_profile_pins_both_provider_lanes() -> None:
         "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
         "LOCAL_API_KEY": "local",
         "LOCAL_PROVIDER_VENDOR": "whooshd",
-        "LOCAL_CHAT_MODEL": _TESTER_TRACKED_DEFAULT_MODEL,
+        "LOCAL_CHAT_MODEL": _LOCAL_CHAT_ROUTE,
         "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
     }
 
@@ -220,7 +220,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
         LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
         LOCAL_API_KEY="local",
         LOCAL_PROVIDER_VENDOR="whooshd",
-        LOCAL_CHAT_MODEL=_TESTER_TRACKED_DEFAULT_MODEL,
+        LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="inert-deepseek-test-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
         OPENAI_API_KEY=None,

@@ -11,7 +11,11 @@ import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
 import { resolveMediaSrc } from "@/lib/mediaUrl";
 import {
+  documentIdentityKey,
+  loadCanonicalDocumentTile,
+  parseCanonicalDocumentHref,
   parseDocumentContextContent,
+  type DocumentContextTile,
 } from "@/lib/documentContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -363,30 +367,7 @@ const AttachmentTiles = ({
           );
         }
 
-        return (
-          <div key={key} className={`${tileFrame} ${tileSize} px-3 py-2`}>
-            {resolvedSrc ? (
-              <button
-                type="button"
-                onClick={() => openInWorkspace(att, idx)}
-                className="flex w-full items-center gap-3 text-left"
-                aria-label="Open document"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10 dark:bg-white/10">
-                  📄
-                </div>
-                <div className="text-sm font-medium">Document</div>
-              </button>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10 dark:bg-white/10">
-                  📄
-                </div>
-                <div className="text-sm font-medium">Document</div>
-              </div>
-            )}
-          </div>
-        );
+        return null;
       })}
     </div>
   );
@@ -462,11 +443,50 @@ export function ChatBubble({
   const { tiles: documentTiles, text: documentCleanText } = parseDocumentContextContent(
     message.content || ""
   );
-  const { attachments: contentAttachments, text } = parseAttachments(documentCleanText);
-  const attachments = mergeAttachments(message.attachments, contentAttachments);
+  const { attachments: contentAttachments, text } = React.useMemo(
+    () => parseAttachments(documentCleanText),
+    [documentCleanText]
+  );
+  const attachments = React.useMemo(
+    () => mergeAttachments(message.attachments, contentAttachments),
+    [message.attachments, contentAttachments]
+  );
   const cleanedContent = text;
+  const canonicalLinks = React.useMemo(() => {
+    if (!isGuardian) return [];
+    return [...cleanedContent.matchAll(/(?<!!)\[[^\]]+\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)]
+      .map((match) => parseCanonicalDocumentHref(match[1]))
+      .filter((ref): ref is { id: string; artifactType: "uploaded" | "any" } => !!ref);
+  }, [cleanedContent, isGuardian]);
+  const [resolvedDocuments, setResolvedDocuments] = React.useState<Record<string, DocumentContextTile>>({});
+  React.useEffect(() => {
+    let active = true;
+    const refs = [...canonicalLinks, ...attachments
+      .filter((att) => att.kind === "document" && !!att.id)
+      .map((att) => ({ id: att.id!, artifactType: "uploaded" as const }))];
+    setResolvedDocuments({});
+    void Promise.all(refs.map(async (ref) => {
+      try {
+        return await loadCanonicalDocumentTile(ref.id, ref.artifactType);
+      } catch {
+        return null;
+      }
+    })).then((tiles) => {
+      if (!active) return;
+      const next: Record<string, DocumentContextTile> = {};
+      for (const tile of tiles) if (tile) next[documentIdentityKey(tile)] = tile;
+      setResolvedDocuments(next);
+    });
+    return () => { active = false; };
+  }, [canonicalLinks, attachments]);
+  const visibleDocumentTiles = React.useMemo(() => {
+    const unique = new Map<string, DocumentContextTile>();
+    for (const tile of documentTiles) unique.set(documentIdentityKey(tile), tile);
+    for (const tile of Object.values(resolvedDocuments)) unique.set(documentIdentityKey(tile), tile);
+    return [...unique.values()];
+  }, [documentTiles, resolvedDocuments]);
   const assistantContent = cleanedContent.trim();
-  const hasDocumentTiles = documentTiles.length > 0;
+  const hasDocumentTiles = visibleDocumentTiles.length > 0;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(assistantContent);
   const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles;
@@ -565,8 +585,12 @@ export function ChatBubble({
     ul: ({ children }: any) => <ul className="mb-2 list-disc pl-4 break-words">{children}</ul>,
     ol: ({ children }: any) => <ol className="mb-2 list-decimal pl-4 break-words">{children}</ol>,
     li: ({ children }: any) => <li className="break-words">{children}</li>,
-    a: ({ href, children }: any) => (
-      <a
+    a: ({ href, children }: any) => {
+      const ref = parseCanonicalDocumentHref(String(href ?? ""));
+      if (ref && Object.values(resolvedDocuments).some((tile) => tile.id === ref.id &&
+        (ref.artifactType === "any" || tile.artifactType === ref.artifactType))) return null;
+      if (ref?.artifactType === "uploaded" && documentTiles.some((tile) => documentIdentityKey(tile) === documentIdentityKey(ref))) return null;
+      return <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
@@ -574,8 +598,8 @@ export function ChatBubble({
         style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
       >
         {children}
-      </a>
-    ),
+      </a>;
+    },
     img: ({ src, alt }: any) => (
       <RenderableChatImage
         src={resolveMediaSrc(String(src ?? ""))}
@@ -639,9 +663,9 @@ export function ChatBubble({
         </div>
         {hasDocumentTiles ? (
           <div className="flex flex-col gap-2">
-            {documentTiles.map((tile) => (
+            {visibleDocumentTiles.map((tile) => (
               <DocumentContextTileView
-                key={tile.id}
+                key={documentIdentityKey(tile)}
                 tile={tile}
                 className="max-w-[min(34rem,100%)]"
               />
@@ -720,9 +744,9 @@ export function ChatBubble({
           <div className="flex max-w-full min-w-0 flex-col items-end gap-2">
             {hasDocumentTiles ? (
               <div className="flex w-full flex-col items-end gap-2">
-                {documentTiles.map((tile) => (
+                {visibleDocumentTiles.map((tile) => (
                   <DocumentContextTileView
-                    key={tile.id}
+                    key={documentIdentityKey(tile)}
                     tile={tile}
                     className="max-w-[min(34rem,100%)]"
                   />

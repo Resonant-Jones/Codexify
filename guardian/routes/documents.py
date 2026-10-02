@@ -15,9 +15,9 @@ from guardian.core.ai_router import chat_with_ai
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
+    get_account_user_scope as get_request_user_scope,
     get_single_user_id,
-    require_api_key,
+    require_account_session as require_api_key,
 )
 from guardian.db import models
 
@@ -43,6 +43,27 @@ class AutosaveResponse(BaseModel):
     ok: bool
     document_id: str
     relation: str
+
+
+class WorkspaceNoteSaveRequest(BaseModel):
+    thread_id: int
+    title: str
+    content: str
+    format: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WorkspaceNoteSaveResponse(BaseModel):
+    ok: bool
+    document_id: str
+    thread_id: int
+    project_id: int
+    title: str
+    format: str
+    filename: str
+    relation: str
+    project_linked: bool
 
 
 class ThreadDocumentResponse(BaseModel):
@@ -279,6 +300,112 @@ def _resolve_uploaded_document_for_scope(
                 detail="Document does not belong to the authenticated account",
             )
     return document
+
+
+@router.post("/api/documents/notes", response_model=WorkspaceNoteSaveResponse)
+async def save_workspace_note(
+    request: WorkspaceNoteSaveRequest,
+    _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Promote one user-authored Notes draft snapshot into project documents."""
+    if request.thread_id <= 0:
+        raise HTTPException(status_code=400, detail="thread_id is required")
+    content = request.content
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="content cannot be empty")
+    document_format = request.format.strip().lower()
+    if document_format not in {"md", "txt"}:
+        raise HTTPException(status_code=400, detail="format must be md or txt")
+    title = " ".join(request.title.split())
+    if not title:
+        raise HTTPException(status_code=400, detail="title cannot be empty")
+    suffix = title.rsplit(".", 1)[-1].lower() if "." in title else ""
+    if suffix in {"md", "txt"}:
+        if suffix != document_format:
+            raise HTTPException(
+                status_code=400, detail="title extension and format differ"
+            )
+        title = title[: -(len(suffix) + 1)].rstrip()
+    elif suffix in {"pdf", "doc", "docx", "png", "jpeg", "codex"}:
+        raise HTTPException(
+            status_code=400, detail="Notes export format is not available yet"
+        )
+    if not title:
+        raise HTTPException(status_code=400, detail="title cannot be empty")
+
+    db = _get_db()
+    document_id = str(uuid.uuid4())
+    try:
+        with db.get_session() as session:
+            thread = (
+                session.query(models.ChatThread).filter_by(id=request.thread_id).first()
+            )
+            if thread is None:
+                raise HTTPException(status_code=404, detail="Thread not found")
+            _require_thread_account_scope(
+                request.thread_id, request_user_scope, thread=thread
+            )
+            project_id = getattr(thread, "project_id", None)
+            if project_id is None:
+                raise HTTPException(
+                    status_code=409, detail="Thread has no project for Notes save"
+                )
+            project = session.query(models.Project).filter_by(id=project_id).first()
+            if project is None:
+                raise HTTPException(status_code=409, detail="Thread project not found")
+            if request_user_scope.multi_user_enabled and str(
+                project.user_id
+            ) != _request_account_id(request_user_scope):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Project does not belong to the authenticated account",
+                )
+            owner_id = _resolve_document_owner_hint(
+                None, request_user_scope, fallback_user_id=thread.user_id
+            )
+            session.add(
+                models.GeneratedDocument(
+                    id=document_id,
+                    project_id=project_id,
+                    thread_id=thread.id,
+                    user_id=owner_id,
+                    title=title,
+                    content=content,
+                    format=document_format,
+                    model="workspace_notes",
+                )
+            )
+            session.add(
+                models.ThreadDocument(
+                    thread_id=thread.id, document_id=document_id, relation="attached"
+                )
+            )
+            _ensure_project_document_link(
+                session,
+                project_id=project_id,
+                document_id=document_id,
+                document_type="generated",
+                attached_by=owner_id,
+            )
+            session.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to save workspace note: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save note") from exc
+
+    return {
+        "ok": True,
+        "document_id": document_id,
+        "thread_id": request.thread_id,
+        "project_id": project_id,
+        "title": title,
+        "format": document_format,
+        "filename": f"{title}.{document_format}",
+        "relation": "attached",
+        "project_linked": True,
+    }
 
 
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)

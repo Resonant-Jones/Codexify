@@ -98,8 +98,12 @@ def _apply_supported_profile_local_runtime(settings) -> None:
     settings.ALLOW_CLOUD_PROVIDERS = False
     settings.CODEXIFY_LOCAL_ONLY_MODE = True
     settings.CODEXIFY_EGRESS_ALLOWLIST = ""
-    settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+    settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
+    settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
     settings.LOCAL_API_KEY = "local"
+    settings.LOCAL_COMPAT_FIRST = True
+    settings.LOCAL_PROVIDER_DISPLAY_NAME = "Whoosh'd"
+    settings.LOCAL_PROVIDER_VENDOR = "whooshd"
     settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
     settings.LOCAL_CHAT_MODEL = "library2/ministral-3:8b"
     settings.DEFAULT_LOCAL_MODEL = "library2/ministral-3:8b"

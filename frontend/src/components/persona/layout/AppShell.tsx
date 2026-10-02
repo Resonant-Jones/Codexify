@@ -1,22 +1,7 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
- * TODO: TOKEN MIGRATION PLAN — Codexify UI Architecture
- *
- * Current state:
- *   - Inline CSS variables declared directly in AppShell serve as runtime design tokens.
- *   - Variables like `--bezel`, `--rim`, `--panel-bg`, etc., are effectively local tokens.
- *
- * Next phase:
- *   - Extract all static vars into `/src/theme/tokens.json`.
- *   - Create `/src/theme/index.ts` to import JSON and export `cssVars` for React + CSS injection.
- *   - Optional: Add Style Dictionary or a simple script to export Figma/Swift/React Native tokens.
- *
- * Goal:
- *   - Establish a universal token layer for Codexify and PulseOS.
- *   - Maintain parity across Web, Electron, and mobile builds.
- *
- * Notes:
- *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
- *   - Migration should be trivial if naming consistency is preserved.
+ * AppShell projects responsive layout and active material colors.
+ * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
 import { ChevronRight, Settings2 } from "lucide-react";
@@ -35,6 +20,8 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
+import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
@@ -47,6 +34,7 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
+import UnifiedDesktopCompositor, { type BrowserPresentation } from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -55,7 +43,11 @@ import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
-import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import {
+  setWallpaperPreference,
+  WALLPAPER_CHANGE_EVENT,
+  WALLPAPER_STORAGE_KEY,
+} from "@/lib/wallpaperPreference";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth, {
   formatRuntimeHealthDiagnostics,
@@ -132,7 +124,7 @@ import RoomMode from "@/features/rooms/RoomMode";
 import { parseHostedRoomRoute } from "@/features/rooms/roomRoute";
 import "./AppShell.css";
 
-// TEMPORARY: inject static design tokens until full migration is done.
+// Publish canonical static tokens before the shell renders.
 import {
   applySurfaceWarmth,
   injectCssVars,
@@ -168,6 +160,7 @@ type AppShellView =
   | "guardian"
   | "flowBuilder"
   | "settings"
+  | "configurationInspector"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
@@ -264,6 +257,7 @@ const APP_SHELL_VIEWS = [
   "guardian",
   "flowBuilder",
   "settings",
+  "configurationInspector",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
@@ -283,7 +277,7 @@ export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
 ): "default" | "phone_frame_first" {
-  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+  return isPhoneShell && resolveMobileApplicationView(activeView) != null
     ? "phone_frame_first"
     : "default";
 }
@@ -298,6 +292,11 @@ function isPrimaryMobileApplicationView(
     view === "dashboard" ||
     view === "settings"
   );
+}
+
+function resolveMobileApplicationView(view: AppShellView): MobileApplicationView | null {
+  if (view === "configurationInspector") return "settings";
+  return isPrimaryMobileApplicationView(view) ? view : null;
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -618,6 +617,45 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+const SEEDED_GALLERY_ITEMS: ReadonlyArray<GalleryItem> = [
+  {
+    src: "/peekaboo-demo/abstract-signal-study.png",
+    prompt: "Abstract signal study",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/interface-moodboard.png",
+    prompt: "Interface moodboard",
+    mock: true,
+  },
+  {
+    src: "/peekaboo-demo/field-notes-map.png",
+    prompt: "Field notes map",
+    mock: true,
+  },
+];
+
+const SEEDED_GALLERY_ITEMS_BY_PATH = new Map(
+  SEEDED_GALLERY_ITEMS.map((item) => [item.src, item])
+);
+
+function createSeededGalleryItems(): GalleryItem[] {
+  return SEEDED_GALLERY_ITEMS.map((item) => ({ ...item }));
+}
+
+function resolveSeededGalleryItem(value: unknown): GalleryItem | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const pathname = new URL(value, base).pathname;
+    const seededItem = SEEDED_GALLERY_ITEMS_BY_PATH.get(pathname);
+    return seededItem ? { ...seededItem } : null;
+  } catch {
+    return null;
+  }
+}
+
 function isTransientFailedGalleryItem(raw: any): boolean {
   const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
   return (
@@ -628,10 +666,11 @@ function isTransientFailedGalleryItem(raw: any): boolean {
 }
 
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  const seededItem = resolveSeededGalleryItem(candidate);
+  if (seededItem) return seededItem;
   if (isTransientFailedGalleryItem(raw)) return null;
-  const src = normalizeGallerySrc(
-    raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
-  );
+  const src = normalizeGallerySrc(candidate);
   if (!src) return null;
   const prompt =
     typeof raw?.prompt === "string" && raw.prompt.trim()
@@ -1313,6 +1352,10 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const [view, setView] = useState<AppShellView>(() => {
     if (typeof window !== "undefined") {
+      if (window.location.pathname === "/") {
+        return "guardian";
+      }
+
       const routeView = resolveViewFromPathname(window.location.pathname);
       if (routeView) return routeView;
 
@@ -1324,10 +1367,35 @@ export default function AppShell({
 
     return "dashboard";
   });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian" || window.location.pathname !== "/") return;
+
+    window.history.replaceState({}, "", "/chat");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [view]);
+  const configurationSnapshotRequest = useRef<Promise<ConfigurationSnapshot> | null>(null);
+  useEffect(() => {
+    // The request belongs to one Inspector opening, never to a durable cache.
+    if (view !== "configurationInspector") configurationSnapshotRequest.current = null;
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
+  const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
+  const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
+  const [focusedSidebarPinned, setFocusedSidebarPinned] = useState(false);
+  const handleBrowserPresentationChange = useCallback((next: BrowserPresentation) => {
+    setBrowserPresentation(next);
+    const focused = next === "focused";
+    setFocusedSidebarOpen(focused);
+    setFocusedSidebarPinned(focused);
+  }, []);
+  const setFocusedSidebarVisibility = useCallback((open: boolean) => {
+    setFocusedSidebarOpen(open);
+    if (!open) setFocusedSidebarPinned(false);
+  }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
-      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+      () => resolveMobileApplicationView(view) != null && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
@@ -1421,7 +1489,7 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const syncRouteState = () => {
+    const syncRouteState = (event?: Event) => {
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1438,7 +1506,12 @@ export default function AppShell({
         setActiveRouteThreadId(null);
       }
       if (routeView) {
-        setView(routeView);
+        setView((current) =>
+          event?.type === "cfy:threads:refresh" &&
+          current === "configurationInspector" && routeView === "settings"
+            ? current
+            : routeView
+        );
       }
     };
 
@@ -1450,7 +1523,24 @@ export default function AppShell({
       window.removeEventListener("cfy:threads:refresh", syncRouteState as EventListener);
     };
   }, []);
-  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem("cfy.wallpaper")));
+  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem(WALLPAPER_STORAGE_KEY)));
+  const selectedWallpaperMedia = useRenderableMediaSrc(wallpaper);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === WALLPAPER_STORAGE_KEY) setWallpaper(event.newValue);
+    };
+    const onWallpaperChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ url: string | null }>).detail;
+      setWallpaper(detail?.url ?? null);
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    };
+  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      📄 SECTION: Document and Gallery State
@@ -1592,7 +1682,7 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (isPrimaryMobileApplicationView(nextView)) {
+      if (resolveMobileApplicationView(nextView) != null) {
         if (nextView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
@@ -1602,7 +1692,8 @@ export default function AppShell({
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
-      if (typeof window === "undefined") return;
+      // The Inspector is internal to Settings; it has no URL route of its own.
+      if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(nextView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
@@ -2010,7 +2101,7 @@ export default function AppShell({
     return { background: `linear-gradient(to bottom, ${start}, ${end})` } as React.CSSProperties;
   })();
   const backgroundStyle: React.CSSProperties = (() => {
-    if (!wallpaper) return bgStyleNoWallpaper;
+    if (!wallpaper || !selectedWallpaperMedia.src) return bgStyleNoWallpaper;
     // Overlay gradient with alpha to bias the scene per theme
     const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
     const f = clamp(fade);
@@ -2027,7 +2118,7 @@ export default function AppShell({
       end = `rgba(255,255,255,${(d * 0.25).toFixed(3)})`;
     }
     return {
-      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${wallpaper})`,
+      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${selectedWallpaperMedia.src})`,
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -2082,6 +2173,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const isFocusedBrowser = browserPresentation === "focused" && !isPhoneShell;
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -2093,11 +2185,12 @@ export default function AppShell({
     isPhoneFrameFirstShell && view === "guardian";
   const isNonGuardianPhoneFrameShell =
     isPhoneFrameFirstShell && view !== "guardian";
+  const showFocusedAppSidebar = isFocusedBrowser && view !== "guardian";
   useEffect(() => {
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
     setIsPhoneSidebarOpen(false);
-    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (!isPhoneShell || resolveMobileApplicationView(view) == null) return;
     if (view === "guardian") {
       setIsApplicationNavigationExpanded(false);
       return;
@@ -2109,7 +2202,7 @@ export default function AppShell({
   useEffect(() => {
     if (
       !isPhoneShell ||
-      !isPrimaryMobileApplicationView(view) ||
+      resolveMobileApplicationView(view) == null ||
       view === "guardian" ||
       guardianSidebarSnapshot != null ||
       phoneSidebarHydrationAttemptedRef.current ||
@@ -2207,28 +2300,23 @@ export default function AppShell({
      ───────────────────────────────────────────────────────────────────────────── */
   const styleVars = {
     /* === GENERAL LAYOUT TOKENS === */
-    "--radius-micro": "8px",                 // chips, inputs, pills
-    "--radius-tile": "20px",                  // cards, tiles, panels
-    "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
     "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,
     "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
     "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
-    "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
-    "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
+    ...(isPhoneShell || shellViewportProfile.viewportClass === "small_tablet"
+      ? {
+          "--edge-chrome": shellViewportProfile.shellEdgeChrome,
+          "--shell-gap": shellViewportProfile.shellGap,
+          "--card-pad": shellViewportProfile.shellCardPad,
+          "--viewport-radius": shellViewportProfile.viewportRadius,
+        }
+      : {}),
     "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
-    "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
-    "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
     "--dock-collapsed-page-gutter": "6px",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
-    "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
-    "--frame": "3px",                         // Outer frame thickness
-    // --bezel: Visual margin between the refractive glass and the opaque content surface.
-    // Changing this variable tunes the glass thickness everywhere.
-    "--bezel": "var(--bezel, 6px)",             // Bezel (margin) between glass and content (default 6px)
-    "--rim": "3px",                           // Inner rim spacing
 
     /* === TILE / CHIP / ELEMENT SIZING === */
     "--project-tile-size": "72px",              // Project tile square size
@@ -2280,11 +2368,6 @@ export default function AppShell({
     "--accent-strong": accentStrong,
     "--pill-active-text": accentContrast,
 
-    /* === SEMANTIC FALLBACKS (legacy) === */
-    "--radius": "var(--tile-radius)",           // Used in old components
-    "--board-edge": "var(--edge-chrome)",       // Used in spacing wrappers
-    "--gutter": "var(--shell-gap)",             // Used in layout
-    // --bezel is also set at the main viewport for live tuning of glass thickness
   } as React.CSSProperties;
 
 
@@ -2317,29 +2400,28 @@ export default function AppShell({
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery, setGallery] = useState<GalleryItem[]>(() => {
-    // The local tester exposes Vite static assets on 5173 while the guest
-    // shell is served through the 5174 sidecar entrypoint.
-    const def: GalleryItem[] = [
-      { src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study" },
-      { src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard" },
-      { src: "http://localhost:5173/peekaboo-demo/field-notes-map.png", prompt: "Field notes map" },
-    ];
+    const def = createSeededGalleryItems();
     if (typeof window === "undefined") return def;
+    let hasUserUpload = false;
     try {
+      hasUserUpload = Boolean(localStorage.getItem("cfy.hasUserUpload"));
       const raw = localStorage.getItem("cfy.gallery");
       if (!raw) {
-        localStorage.setItem("cfy.gallery", JSON.stringify(def));
-        return def;
+        const initialGallery = hasUserUpload ? [] : def;
+        localStorage.setItem("cfy.gallery", JSON.stringify(initialGallery));
+        return initialGallery;
       }
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return def;
+      if (!Array.isArray(parsed)) return hasUserUpload ? [] : def;
       const normalized = parsed
         .map((item) => normalizeGalleryItem(item))
         .filter((item): item is GalleryItem => !!item);
-      return normalized.length > 0 && normalized.every((item) => item.mock)
-        ? def
-        : normalized;
-    } catch { return def; }
+      const userItems = normalized.filter((item) => !item.mock);
+      if (userItems.length > 0) return userItems;
+      return hasUserUpload ? [] : def;
+    } catch {
+      return hasUserUpload ? [] : def;
+    }
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2366,11 +2448,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -2456,8 +2539,11 @@ export default function AppShell({
         .filter((item): item is GalleryItem => !!item);
       if (normalizedItems.length === 0) return;
       setGallery((prev) => {
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -2507,8 +2593,11 @@ export default function AppShell({
           .map((item: any) => normalizeGalleryItem(item))
           .filter((item): item is GalleryItem => !!item);
         if (normalizedItems.length === 0) return prev;
+        const existingItems = normalizedItems.some((item) => !item.mock)
+          ? prev.filter((item) => !item.mock)
+          : prev;
         const seen = new Set<string>();
-        const merged = [...normalizedItems, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...existingItems].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -2777,6 +2866,7 @@ export default function AppShell({
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
   }, [wallpaper, gallery]);
+  const activeWallpaperMedia = useRenderableMediaSrc(activeWallpaper);
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }
@@ -3191,7 +3281,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     view === "documents" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3224,19 +3314,27 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     <MobileAppSidebarDrawer
-      isOpen={isPhoneSidebarOpen}
-      onClose={() => setIsPhoneSidebarOpen(false)}
+      isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
+      onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
+      presentation={showFocusedAppSidebar ? "shelf" : "modal"}
+      pinned={showFocusedAppSidebar && focusedSidebarPinned}
+      onPinnedChange={(pinned) => {
+        setFocusedSidebarPinned(pinned);
+        if (pinned) setFocusedSidebarOpen(true);
+      }}
+      onShelfPointerLeave={showFocusedAppSidebar && !focusedSidebarPinned ? () => setFocusedSidebarVisibility(false) : undefined}
+      shellStyle={showFocusedAppSidebar ? styleVars as React.CSSProperties : undefined}
       isApplicationNavigationExpanded={isApplicationNavigationExpanded}
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={view as MobileApplicationView}
+      activeApplicationView={resolveMobileApplicationView(view) ?? "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
@@ -3378,8 +3476,18 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
+    <UnifiedDesktopCompositor
+      enabled={!isPhoneShell}
+      shellStyle={styleVars as React.CSSProperties}
+      presentation={browserPresentation}
+      onPresentationChange={handleBrowserPresentationChange}
+      focusedSidebarOpen={focusedSidebarOpen}
+      focusedSidebarPinned={focusedSidebarPinned}
+      onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
+    >
     <div
-      className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
+      className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
@@ -3396,7 +3504,6 @@ export default function AppShell({
 
         /* ✨ glossy‑glass overrides */
         "--tile-blur": "22px",                       // stronger backdrop blur
-        "--bezel": "6px",                            // bezel (glass margin) can be tuned here
         "--lip-w": "6px",                            // deeper inner lip
         "--depth-scale": "1.35",                     // bolder drop‑shadow scale
         "--panel-bezel": "rgba(255,255,255,0.28)",   // brighter edge sparkle
@@ -3430,7 +3537,7 @@ export default function AppShell({
       {/* Global outer glass skin */}
       <div className="absolute inset-0 -z-10 pointer-events-none rounded-[var(--viewport-radius)] overflow-hidden">
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--viewport-radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3467,7 +3574,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3517,10 +3624,10 @@ export default function AppShell({
             style={mobileTopNavDockStyle}
           >
             {/* glass backdrop */}
-            <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
-                className="w-full h-full rounded-full"
+                wallpaperUrl={activeWallpaperMedia.src || null}
+                className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
                 aberration={0.006}
@@ -3667,7 +3774,6 @@ export default function AppShell({
             ...(isPhoneFrameFirstShell
               ? {
                   "--frame": "1px",
-                  "--bezel": "var(--bezel, 6px)",
                   "--rim": "1px",
                 }
               : {}),
@@ -3706,11 +3812,8 @@ export default function AppShell({
               data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
+                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                 "--gutter": "var(--shell-gap)",
-                "--card-pad": shellViewportProfile.shellCardPad,
                 "--min-h": shellViewportProfile.contentMinHeight,
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
@@ -3935,9 +4038,7 @@ export default function AppShell({
                       sessionComposerBlocked ? "true" : "false"
                     }
                     style={{
-                      "--frame": "1px",
-                      "--bezel": "var(--bezel, 6px)",
-                      "--rim": "1px",
+                      ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
                     } as React.CSSProperties}
                   >
                     <ErrorBoundary>
@@ -3973,6 +4074,15 @@ export default function AppShell({
                         }
                         frameFirstMobile={isNarrowGuardianFrameShell}
                         mobileFramePrelude={guardianMobileFramePrelude}
+                        browserFocused={isFocusedBrowser}
+                        focusedSidebarOpen={focusedSidebarOpen}
+                        focusedSidebarPinned={focusedSidebarPinned}
+                        onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
+                        onFocusedSidebarPinnedChange={(pinned) => {
+                          setFocusedSidebarPinned(pinned);
+                          if (pinned) setFocusedSidebarOpen(true);
+                        }}
+                        focusedShelfStyle={styleVars as React.CSSProperties}
                       />
                     </ErrorBoundary>
                   </div>
@@ -4080,7 +4190,7 @@ export default function AppShell({
                     systemPrompt={systemPrompt}
                     setSystemPrompt={setSystemPrompt}
                     wallpaper={wallpaper}
-                    setWallpaper={setWallpaper}
+                    setWallpaper={setWallpaperPreference}
                     extColors={extColors}
                     setExtColors={setExtColors}
                     dashboardThreadRows={dashboardThreadRows}
@@ -4090,8 +4200,28 @@ export default function AppShell({
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
                     onStartFeedbackConversation={openFeedbackConversation}
+                    onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
+              </div>
+            </FrameCard>
+          )}
+          {!startupLocked && activeRoomId == null && view === "configurationInspector" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="mx-auto flex w-full min-w-0 min-h-0 max-h-full flex-col overflow-hidden"
+              data-testid="configuration-inspector-framecard"
+              style={settingsLayout}
+            >
+              {phonePrimaryFrameHeader}
+              <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
+                <ErrorBoundary>
+                  <ConfigurationInspectorView
+                    onBackToSettings={() => navigateToView("settings")}
+                    snapshotRequest={configurationSnapshotRequest}
                   />
                 </ErrorBoundary>
               </div>
@@ -4119,18 +4249,11 @@ export default function AppShell({
             <div
               className="h-full w-full isolate"
               data-active-view="personaStudio"
-              data-active-view-contract="left-center-right"
+              data-active-view-contract="assistant-configuration"
               data-thread-rail="absent"
               data-view-family="personaStudio"
             >
-              <FrameCard
-                refractiveFallback
-                shimmerMode="subtle"
-                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-                data-testid="persona-studio-framecard"
-              >
-                <PersonaStudioPage />
-              </FrameCard>
+              <PersonaStudioPage />
             </div>
           )}
         </div>
@@ -4225,6 +4348,7 @@ export default function AppShell({
           y={galleryMenu.y}
           onClose={() => setGalleryMenu(null)}
           items={[
+            ...(galleryMenu.src ? [{ label: "Set as wallpaper", onClick: () => { setWallpaperPreference(galleryMenu.src!); } }] : []),
             ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;
@@ -4242,5 +4366,7 @@ export default function AppShell({
         />
       )}
     </div>
+    </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }

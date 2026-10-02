@@ -538,7 +538,8 @@ def test_account_export_zip_returns_truthful_manifest(
     rows,
 ) -> None:
     db, calls = fake_db
-    monkeypatch.setattr(api_exports, "db", db, raising=True)
+    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", None)
+    monkeypatch.setattr(api_exports, "_resolve_account_export_pgdb", lambda: db)
 
     response = client.get(
         "/exports/account.zip",

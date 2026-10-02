@@ -96,7 +96,7 @@ The configured provider is not the same thing as discovered provider inventory. 
 
 | Governance category | Providers | Operational meaning | Live discovery expected | Routing validates against discovered inventory | Configured defaults allowed during degraded discovery | Local-only / unavailable |
 |---|---|---|---|---|---|---|
-| `discovery_backed` | `alibaba`, `minimax` | Provider is routed through the canonical registry and expected to expose a live model index. | Yes | Yes | Yes | No |
+| `discovery_backed` | `alibaba`, `deepseek`, `minimax` | Provider is routed through the canonical registry and expected to expose a live model index. | Yes | Yes | Yes | No |
 | `static_authorized` | `openai`, `groq` | Provider is supported for routed execution through static model descriptors plus credential and egress authorization. | No | No | No | No |
 | `local_only` | `local` | Provider is intentionally local-first and does not depend on cloud discovery or remote authorization. | No | No | No | Yes, intentionally local-only |
 | `disabled` | `anthropic`, `gemini` | Provider remains explicitly classified in the registry but is unavailable for routed execution under the current contract. | No | No | No | Yes, unavailable |

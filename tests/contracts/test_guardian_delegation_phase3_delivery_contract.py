@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import JSON, Integer, create_engine
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from guardian.agents.store import AgentStore
 from guardian.core.guardian_delegation_service import (
@@ -32,88 +31,15 @@ from guardian.db.models import (
     User,
 )
 from guardian.routes import guardian_delegations
+from tests.contracts.test_guardian_delegation_phase2a_contract import (
+    _clear_disposable_tables,
+    _disposable_postgres_engine,
+)
 
 
 class _TestDB:
-    def __init__(self) -> None:
-        self._engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            future=True,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        self._original_types = {
-            AgentDeployment.__table__.c.id: AgentDeployment.__table__.c.id.type,
-            AgentRun.__table__.c.id: AgentRun.__table__.c.id.type,
-            AgentRunArtifact.__table__.c.id: AgentRunArtifact.__table__.c.id.type,
-            AgentRunAttempt.__table__.c.id: AgentRunAttempt.__table__.c.id.type,
-            AgentRunStep.__table__.c.id: AgentRunStep.__table__.c.id.type,
-            ChatMessage.__table__.c.id: ChatMessage.__table__.c.id.type,
-            ChatThread.__table__.c.thread_config: (
-                ChatThread.__table__.c.thread_config.type
-            ),
-            AgentDeployment.__table__.c.spec_json: (
-                AgentDeployment.__table__.c.spec_json.type
-            ),
-            AgentRunArtifact.__table__.c.content_json: (
-                AgentRunArtifact.__table__.c.content_json.type
-            ),
-            AgentRunAttempt.__table__.c.metadata: (
-                AgentRunAttempt.__table__.c.metadata.type
-            ),
-            AgentRunStep.__table__.c.metadata: (
-                AgentRunStep.__table__.c.metadata.type
-            ),
-            ChatMessage.__table__.c.extra_meta: (
-                ChatMessage.__table__.c.extra_meta.type
-            ),
-            GuardianDelegationIntent.__table__.c.plan_summary: (
-                GuardianDelegationIntent.__table__.c.plan_summary.type
-            ),
-            GuardianDelegationIntent.__table__.c.context_basis: (
-                GuardianDelegationIntent.__table__.c.context_basis.type
-            ),
-        }
-        self._original_defaults = {
-            GuardianDelegationIntent.__table__.c.plan_summary: (
-                GuardianDelegationIntent.__table__.c.plan_summary.server_default
-            ),
-            GuardianDelegationIntent.__table__.c.context_basis: (
-                GuardianDelegationIntent.__table__.c.context_basis.server_default
-            ),
-        }
-        for column in self._original_types:
-            if column.name == "id" and column.table.name in {
-                "agent_deployments",
-                "agent_runs",
-                "agent_run_artifacts",
-                "agent_run_attempts",
-                "agent_run_steps",
-                "chat_messages",
-            }:
-                column.type = Integer()
-            else:
-                column.type = JSON().with_variant(JSONB, "postgresql")
-        GuardianDelegationIntent.__table__.c.plan_summary.server_default = None
-        GuardianDelegationIntent.__table__.c.context_basis.server_default = None
-        Base.metadata.create_all(
-            bind=self._engine,
-            tables=[
-                User.__table__,
-                Project.__table__,
-                ChatThread.__table__,
-                ChatMessage.__table__,
-                GeneratedDocument.__table__,
-                ProjectDocumentLink.__table__,
-                PersonalFact.__table__,
-                AgentDeployment.__table__,
-                AgentRun.__table__,
-                AgentRunStep.__table__,
-                AgentRunAttempt.__table__,
-                AgentRunArtifact.__table__,
-                GuardianDelegationIntent.__table__,
-            ],
-        )
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
         self._session_factory = sessionmaker(
             bind=self._engine,
             autoflush=False,
@@ -124,21 +50,18 @@ class _TestDB:
     def get_session(self):  # noqa: ANN201
         return self._session_factory()
 
-    def close(self) -> None:
-        for column, original in self._original_types.items():
-            column.type = original
-        for column, original in self._original_defaults.items():
-            column.server_default = original
-        self._engine.dispose()
+
+@pytest.fixture(scope="module")
+def _postgres_engine() -> Iterator[Engine]:
+    with _disposable_postgres_engine() as engine:
+        Base.metadata.create_all(bind=engine)
+        yield engine
 
 
 @pytest.fixture
-def db() -> _TestDB:
-    test_db = _TestDB()
-    try:
-        yield test_db
-    finally:
-        test_db.close()
+def db(_postgres_engine: Engine) -> _TestDB:
+    _clear_disposable_tables(_postgres_engine)
+    return _TestDB(_postgres_engine)
 
 
 @pytest.fixture

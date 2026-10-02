@@ -11,6 +11,10 @@ import {
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
+import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
+} from "@/contracts/runtimeTokens";
 import type {
   PersonaVoicePreviewRequest,
   PersonaVoicePreviewResponse,
@@ -208,6 +212,15 @@ export function setAuthToken(token: string | null): void {
 
 function clearAuthTokenAfterUnauthorized(): void {
   applyAuthToken(null, { syncAuthState: false });
+}
+
+function isExplicitAccountSessionFailure(error: any): boolean {
+  const headers = error?.response?.headers;
+  const marker =
+    headers?.get?.(ACCOUNT_AUTH_FAILURE_HEADER) ??
+    headers?.[ACCOUNT_AUTH_FAILURE_HEADER.toLowerCase()] ??
+    headers?.[ACCOUNT_AUTH_FAILURE_HEADER];
+  return marker === ACCOUNT_AUTH_FAILURE_CODES.SESSION_INVALID;
 }
 
 function applyAuthHeaders(
@@ -960,6 +973,7 @@ export interface AccountImportJob {
   imported_thread_count: number;
   imported_message_count: number;
   imported_media_count: number;
+  imported_document_count?: number;
   duplicate_count: number;
   canonical_duplicate_count?: number;
   skipped_count: number;
@@ -988,18 +1002,12 @@ export interface AccountImportBrowserFile {
 
 const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 
-function accountImportHeaders(userId?: string): Record<string, string> | undefined {
-  const normalized = String(userId || "").trim();
-  return normalized ? { "X-User-Id": normalized } : undefined;
-}
-
 export async function createOpenAIAccountImport(
   declaration: {
     total_file_count: number;
     total_byte_count: number;
     source_system: AccountImportSourceSystem;
   },
-  userId?: string
 ): Promise<AccountImportJob> {
   if (!isAccountImportSourceSystem(declaration.source_system)) {
     throw new Error(
@@ -1014,8 +1022,7 @@ export async function createOpenAIAccountImport(
       total_file_count: declaration.total_file_count,
       total_byte_count: declaration.total_byte_count,
       source_system: declaration.source_system,
-    },
-    { headers: accountImportHeaders(userId) }
+    }
   );
   // Provenance boundary: the Web client must never assign or accept
   // canonical conversation origin. If the server were ever to return one
@@ -1033,8 +1040,7 @@ export async function createOpenAIAccountImport(
 
 export async function uploadOpenAIAccountImportBatch(
   jobId: string,
-  files: AccountImportBrowserFile[],
-  userId?: string
+  files: AccountImportBrowserFile[]
 ): Promise<AccountImportJob> {
   const formData = new FormData();
   for (const item of files) {
@@ -1044,30 +1050,23 @@ export async function uploadOpenAIAccountImportBatch(
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
     formData,
-    { headers: accountImportHeaders(userId), timeout: 0 }
+    { timeout: 0 }
   );
   return response.data;
 }
 
-export async function commitOpenAIAccountImport(
-  jobId: string,
-  userId?: string
-): Promise<AccountImportJob> {
+export async function commitOpenAIAccountImport(jobId: string): Promise<AccountImportJob> {
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/commit`,
     undefined,
-    { headers: accountImportHeaders(userId), timeout: 0 }
+    { timeout: 0 }
   );
   return response.data;
 }
 
-export async function fetchOpenAIAccountImport(
-  jobId: string,
-  userId?: string
-): Promise<AccountImportJob> {
+export async function fetchOpenAIAccountImport(jobId: string): Promise<AccountImportJob> {
   const response = await api.get<AccountImportJob>(
-    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`,
-    { headers: accountImportHeaders(userId) }
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`
   );
   return response.data;
 }
@@ -1539,7 +1538,10 @@ api.interceptors.response.use(
       clearBackendOutage();
     }
 
-    if (error?.response?.status === 401) {
+    if (
+      error?.response?.status === 401 &&
+      isExplicitAccountSessionFailure(error)
+    ) {
       clearAuthTokenAfterUnauthorized();
       markAuthUnauthenticatedFrom401();
     }

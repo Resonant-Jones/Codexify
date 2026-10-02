@@ -167,11 +167,12 @@ vi.mock("@/lib/guardianEventSource", () => {
   return { GuardianEventSource: MockGuardianEventSource };
 });
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = {
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
@@ -438,8 +439,7 @@ function createApiResponse(
 
 async function advanceTimers(ms: number) {
   await act(async () => {
-    vi.advanceTimersByTime(ms);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(ms);
   });
 }
 
@@ -468,7 +468,7 @@ describe("GuardianChat inference rail", () => {
     authState.ready = true;
     authState.status = "authenticated";
     authState.token = "test-token";
-    runtimeConfigState.authMode = "local";
+    runtimeConfigState.authMode = "remote";
     try {
       window.localStorage.setItem("cfy.voice.playbackEnabled", "");
       window.localStorage.setItem("cfy.voice.turnEnabled", "");
@@ -547,8 +547,8 @@ describe("GuardianChat inference rail", () => {
 
   async function startTrackedRequest() {
     fireEvent.click(screen.getByTestId("composer-send"));
-    await screen.findByText("Queued…");
     await advanceTimers(100);
+    expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
     expect(eventSources.instances).toHaveLength(1);
     return eventSources.instances[0];
   }

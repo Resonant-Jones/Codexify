@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -9,11 +11,18 @@ from guardian.core import chat_completion_service
 from guardian.tasks.types import ChatCompletionTask
 
 
+def _marker_payload(value: dict[str, str]) -> str:
+    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+
 @pytest.mark.asyncio
 async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_thread_docs(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mock_chatlog_db = MagicMock()
+    tile = _marker_payload({"id": "doc-1", "title": "Project Plan.pdf", "artifactType": "uploaded"})
+    content_id = _marker_payload({"id": "doc-1"})
+    sentinel = "CODEXIFY_CANONICAL_DOCUMENT_TILE_PROBE"
     mock_chatlog_db.get_chat_thread.return_value = {
         "id": 1,
         "user_id": "user-1",
@@ -27,6 +36,10 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
                 "<!-- cfy-media:document:doc-1 -->\n\n"
                 "<!-- cfy-media-src:https://example.test/project-plan.pdf -->\n\n"
                 "<!-- cfy-media-name:Project Plan.pdf -->\n\n"
+                f"<!-- cfy-doc-tile:{tile} -->\n\n"
+                f"<!-- cfy-doc-content:start:{content_id} -->\n"
+                f"{sentinel}\n"
+                f"<!-- cfy-doc-content:end:{content_id} -->\n\n"
                 "Please summarize this."
             ),
         }
@@ -130,13 +143,9 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
     assert model == "local-model"
     assert trace is not None
     assert trace["retrieval_target"] == "latest_turn"
-    assert trace["retrieval_query"] == (
-        "Attached document: Project Plan.pdf Please summarize this."
-    )
+    assert sentinel in trace["retrieval_query"]
     assert bundle["docs"]["thread"][0]["title"] == "Project Plan.pdf"
-    assert captured["query"] == (
-        "Attached document: Project Plan.pdf Please summarize this."
-    )
+    assert sentinel in captured["query"]
     assert bundle["_prompt_meta"]["docs"]["count"] == 1
     assert bundle["_prompt_meta"]["docs"]["injected"] is True
     assert messages_for_llm[0] == {"role": "system", "content": "BASE SYSTEM"}
@@ -158,12 +167,9 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
         for msg in system_messages
     )
     assert any("Project Plan.pdf" in msg["content"] for msg in system_messages)
-    assert messages_for_llm[-1] == {
-        "role": "user",
-        "content": (
-            "Attached document: Project Plan.pdf\n\nPlease summarize this."
-        ),
-    }
+    assert messages_for_llm[-1]["role"] == "user"
+    assert f"Referenced document: Project Plan.pdf\n{sentinel}" in messages_for_llm[-1]["content"]
+    assert messages_for_llm[-1]["content"].endswith("Please summarize this.")
 
 
 @pytest.mark.asyncio

@@ -87,8 +87,10 @@ message if `ALIBABA_API_KEY` is missing or `ALIBABA_API_BASE` is blank.
 ## DeepSeek
 
 DeepSeek is available as a restricted first-class chat provider through the
-OpenAI-compatible API. The friends/family tester profile exposes only
-`deepseek-v4-flash`; other DeepSeek models are rejected by the static catalog.
+OpenAI-compatible API. The friends/family tester profile exposes the current
+chat-capable roster returned by DeepSeek's authenticated `/models` endpoint;
+the configured `DEEPSEEK_CHAT_MODEL` remains a compatibility fallback when
+discovery is temporarily unavailable.
 
 ### Enable DeepSeek
 
@@ -102,9 +104,17 @@ Set:
 - `CODEXIFY_LOCAL_ONLY_MODE=false`
 - `CODEXIFY_EGRESS_ALLOWLIST=deepseek`
 
-DeepSeek model discovery is intentionally static for this lane. The catalog
-exposes `deepseek-v4-flash` only, and routing validates the requested model
-against that allowlisted catalog entry.
+Optional:
+
+- `DEEPSEEK_MODEL_DISCOVERY_URL=<explicit_model_catalog_url>` when you want to
+  probe a documented model-list endpoint explicitly
+- `DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS=<seconds>` (default `3`)
+
+The catalog derives `https://api.deepseek.com/v1/models` from
+`DEEPSEEK_BASE_URL` when no discovery URL is supplied. It filters the returned
+inventory to chat-capable entries and routing validates explicit selections
+against that live inventory. If discovery is degraded, only the configured
+default remains available as a bounded compatibility fallback.
 
 ## MiniMax
 

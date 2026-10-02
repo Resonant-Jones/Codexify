@@ -137,7 +137,8 @@ def test_fixture_documents_static_only_boundaries_and_tools_remain_green() -> No
     assert fixture_path in reducer
     assert fixture_path in runtime
     assert fixture_path in readme
-    assert fixture_path in current
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current
 
     for target in (
         "guardian-evidence-packets-validate",

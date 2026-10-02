@@ -54,6 +54,8 @@ export type ShareSheetProps = {
   /** Capability posture for `direct_messages`; Send to Person requires
    *  "available" and must fire zero DM requests otherwise. */
   capabilityState: RuntimeRouteCapabilityState;
+  /** Capability posture for `share`; link creation requires "available". */
+  shareCapabilityState: RuntimeRouteCapabilityState;
   /** Existing shell-owned People state; when absent Send to Person is
    *  hidden (standalone mounts keep Copy Link only). */
   peopleState: PeopleMessagingState | null;
@@ -133,6 +135,7 @@ export default function ShareSheet({
   open,
   onClose,
   capabilityState,
+  shareCapabilityState,
   peopleState,
   sourceThreadId = null,
   sourceProjectId = null,
@@ -154,7 +157,11 @@ export default function ShareSheet({
   const submissionInFlight = useRef(false);
   const interactionGeneration = useRef(0);
 
-  const messagingEnabled = capabilityState === "available" && peopleState != null;
+  const linkSharingEnabled = shareCapabilityState === "available";
+  const messagingEnabled =
+    capabilityState === "available" &&
+    linkSharingEnabled &&
+    peopleState != null;
 
   // Invalidate async work whenever this open instance or its share target
   // changes. A stale completion must not take over a later interaction.
@@ -189,6 +196,7 @@ export default function ShareSheet({
   }, [close, open]);
 
   const handleCopyLink = useCallback(async () => {
+    if (!linkSharingEnabled) return;
     setCopyState({ phase: "copying", url: null, message: null });
     try {
       const result = await createShareLink(targetType, targetId);
@@ -211,7 +219,7 @@ export default function ShareSheet({
         message: error instanceof Error ? error.message : "Failed to create share link",
       });
     }
-  }, [targetType, targetId]);
+  }, [linkSharingEnabled, targetType, targetId]);
 
   const runSearch = useCallback(
     async (query: string, requestSequence: number) => {
@@ -506,19 +514,33 @@ export default function ShareSheet({
 
         {stage === "actions" ? (
           <div className="share-sheet-actions">
-            <button
-              type="button"
-              className="share-sheet-action"
-              data-testid="share-action-copy"
-              disabled={copyState.phase === "copying"}
-              onClick={() => void handleCopyLink()}
-            >
-              <Link2 size={15} aria-hidden="true" />
-              <span>
-                <strong>Copy Link</strong>
-                <small>Create a secure share link and copy it.</small>
-              </span>
-            </button>
+            {linkSharingEnabled ? (
+              <button
+                type="button"
+                className="share-sheet-action"
+                data-testid="share-action-copy"
+                disabled={copyState.phase === "copying"}
+                onClick={() => void handleCopyLink()}
+              >
+                <Link2 size={15} aria-hidden="true" />
+                <span>
+                  <strong>Copy Link</strong>
+                  <small>Create a secure share link and copy it.</small>
+                </span>
+              </button>
+            ) : (
+              <div
+                className="share-sheet-action share-sheet-action-disabled"
+                data-testid="share-action-copy-unavailable"
+                aria-disabled="true"
+              >
+                <Link2 size={15} aria-hidden="true" />
+                <span>
+                  <strong>Copy Link</strong>
+                  <small>Link sharing is unavailable in this profile.</small>
+                </span>
+              </div>
+            )}
 
             {messagingEnabled ? (
               <button
@@ -550,7 +572,11 @@ export default function ShareSheet({
                 <span>
                   <strong>Send to Person</strong>
                   <small>
-                    Direct messages are unavailable in this profile.
+                    {capabilityState !== "available"
+                      ? "Direct messages are unavailable in this profile."
+                      : shareCapabilityState !== "available"
+                        ? "Link sharing is unavailable in this profile."
+                        : "Open People to send a direct message."}
                   </small>
                 </span>
               </div>

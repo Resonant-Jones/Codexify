@@ -48,7 +48,6 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshRun = 0;
 let activeRun = 0;
 let initialized = false;
-let pollingUserId: string | undefined;
 let accountStatusListener: EventListener | null = null;
 const listeners = new Set<() => void>();
 
@@ -115,7 +114,7 @@ async function refreshJob(
   const run = ++refreshRun;
   stopPolling();
   try {
-    const job = await fetchOpenAIAccountImport(jobId, pollingUserId);
+    const job = await fetchOpenAIAccountImport(jobId);
     if (run !== refreshRun) return;
     if (restoringReceiving && job.status === "receiving") {
       setSnapshot({
@@ -170,9 +169,8 @@ async function refreshJob(
   }
 }
 
-function startPolling(jobId: string, userId?: string): void {
+function startPolling(jobId: string): void {
   stopPolling();
-  pollingUserId = userId;
   pollTimer = setTimeout(() => void refreshJob(jobId), POLL_INTERVAL_MS);
 }
 
@@ -309,7 +307,6 @@ function uploadBatches(
 
 export async function startOpenAIAccountImport(
   selectedFiles: AccountImportBrowserFile[],
-  userId?: string,
   sourceSystem: AccountImportSourceSystem = "openai"
 ): Promise<AccountImportJob> {
   ensureInitialized();
@@ -334,7 +331,6 @@ export async function startOpenAIAccountImport(
   }
 
   const run = ++activeRun;
-  pollingUserId = userId;
   const selectedByteCount = normalizedFiles.reduce(
     (total, item) => total + item.file.size,
     0
@@ -355,26 +351,23 @@ export async function startOpenAIAccountImport(
         technicalDetail: availability.technicalDetail,
       });
     }
-    let job = await createOpenAIAccountImport(
-      {
-        total_file_count: normalizedFiles.length,
-        total_byte_count: selectedByteCount,
-        source_system: sourceSystem,
-      },
-      userId
-    );
+    let job = await createOpenAIAccountImport({
+      total_file_count: normalizedFiles.length,
+      total_byte_count: selectedByteCount,
+      source_system: sourceSystem,
+    });
     if (run !== activeRun) return job;
     setSnapshot({ ...snapshot, phase: "transferring", job });
     for (const batch of uploadBatches(normalizedFiles)) {
-      job = await uploadOpenAIAccountImportBatch(job.job_id, batch, userId);
+      job = await uploadOpenAIAccountImportBatch(job.job_id, batch);
       if (run !== activeRun) return job;
       setSnapshot({ ...snapshot, phase: "transferring", job });
     }
-    job = await commitOpenAIAccountImport(job.job_id, userId);
+    job = await commitOpenAIAccountImport(job.job_id);
     if (run !== activeRun) return job;
     setSnapshot({ ...snapshot, phase: phaseForJob(job), job });
     if (["queued", "running"].includes(job.status)) {
-      startPolling(job.job_id, userId);
+      startPolling(job.job_id);
     }
     return job;
   } catch (error: unknown) {
@@ -409,7 +402,6 @@ export function clearAccountImportCoordinatorResult(): void {
   stopPolling();
   refreshRun += 1;
   activeRun += 1;
-  pollingUserId = undefined;
   setSnapshot(EMPTY_SNAPSHOT);
 }
 
@@ -417,7 +409,6 @@ export function resetAccountImportCoordinatorForTests(): void {
   stopPolling();
   refreshRun += 1;
   activeRun += 1;
-  pollingUserId = undefined;
   initialized = false;
   snapshot = EMPTY_SNAPSHOT;
   listeners.clear();

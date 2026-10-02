@@ -2,19 +2,19 @@
 
 ## Purpose
 
-This document freezes the dependency order between the current provider-free
-Campaign Engine runtime and a future bounded live Campaign Engine that can run
+This document freezes the dependency order between the provider-free
+Campaign Engine runtime and a bounded live Campaign Engine that can run
 three dependency-ordered real Tasks without admitting unrelated autonomy
 work. It records what is already true, what remains to be proven, and the
 sequence of gates required to cross from the present one-Task provider-free
 lifecycle to a supervised Campaign Engine that an operator can use on real
 Codexify work.
 
-It is a planning artifact only. It does not modify Campaign Engine runtime
+This document is the closure plan and operator status register. Status
+updates record validated evidence; they do not modify Campaign Engine runtime
 behavior, schemas, Guardian authority, the Pi invocation boundary, providers,
-worker/queue scheduling, database persistence, UI surfaces, test posture, or
-release claims. No runtime, schema, Guardian, provider, Pi, worker, database,
-API, frontend, or test file is authorized for modification by this document.
+worker/queue scheduling, database persistence, UI surfaces, or release
+claims.
 
 ## Scope
 
@@ -105,9 +105,30 @@ release claims.
 - automatic commit, push, merge, PR creation, or deployment;
 - generalized arbitrary-repository execution.
 
-The current Campaign Engine runtime still deliberately executes exactly one
-runnable Task and synthesizes its Executor Attempt and Evaluation. That
-is by design, not a defect.
+The provider-free runtime path still executes exactly one runnable Task and
+emits synthetic Executor Attempt and Evaluation records. Separately, the
+ADR-068 live extensions have now completed one fresh supervised single-Task
+lifecycle. This proves Milestone A utility without changing the provider-free
+path or authorizing multi-Task execution.
+
+## Proven Milestone A status
+
+Milestone A is proven by the [durable single-Task supervised-usability
+proof](../architecture/proofs/runtime/2026-09-28-campaign-engine-milestone-a-single-task-supervised-usability-proof.md):
+
+- CE-L0: `GUARDIAN_PI_LIVE_READY`;
+- CE-L1: `LIVE_EXECUTOR_PROVEN`;
+- CE-L2: `SINGLE_TASK_SUPERVISED_USABLE`;
+- Milestone A: `SINGLE_TASK_SUPERVISED_USABLE`.
+
+The current CE-L1 pass is evidenced by the successful live Executor artifact
+in that complete CE-L2 lifecycle. The earlier standalone CE-L1 Anthropic
+zero-mutation proof remains a historical blocked attempt; it is not used as
+the pass evidence. CE-L0 and CE-L1 are closed for this bounded Milestone A
+proof, and CE-L2 passed on the fresh Campaign recorded in the linked proof.
+
+Milestone B remains open. The closure Campaign remains active until CE-L5
+passes.
 
 ## Usability Milestones
 
@@ -115,6 +136,8 @@ The closure Campaign splits into two usability milestones so that operator
 friction is observed before adding scheduling semantics.
 
 ### Milestone A — Single-task supervised utility
+
+Status: **PROVEN** — see the [Milestone A live proof](../architecture/proofs/runtime/2026-09-28-campaign-engine-milestone-a-single-task-supervised-usability-proof.md).
 
 A predefined Campaign containing exactly one Task can invoke:
 
@@ -132,6 +155,8 @@ Milestone A does not authorize multi-task execution. It does not introduce
 scheduling. It does not introduce any new autonomy.
 
 ### Milestone B — Multi-task supervised campaign utility
+
+Status: **OPEN**. No multi-Task progression has been authorized or proven.
 
 A bounded Campaign containing multiple dependency-ordered Tasks can:
 
@@ -190,6 +215,9 @@ The closure Campaign has six gates, ordered CE-L0 through CE-L5.
 
 ### CE-L0 — Qualify the existing live invocation substrate
 
+Status: **PASS** — `GUARDIAN_PI_LIVE_READY`. See the
+[CE-L0 Anthropic qualification proof](../architecture/proofs/runtime/2026-09-26-campaign-engine-ce-l0-anthropic-live-ready.md).
+
 Purpose:
 
 Prove the already-merged Guardian/Pi execution seam independently before
@@ -215,6 +243,11 @@ Required proof:
 Exit condition: `GUARDIAN_PI_LIVE_READY`.
 
 ### CE-L1 — Replace the synthetic Executor with one Guardian-authorized live Executor
+
+Status: **PASS** — `LIVE_EXECUTOR_PROVEN`, evidenced by the Executor portion
+of the [Milestone A live proof](../architecture/proofs/runtime/2026-09-28-campaign-engine-milestone-a-single-task-supervised-usability-proof.md).
+The separate 2026-09-26 Anthropic zero-mutation record remains a historical
+blocked attempt.
 
 Purpose:
 
@@ -251,6 +284,9 @@ Guardian/Pi receipt backed by one real provider invocation.
 Exit condition: `LIVE_EXECUTOR_PROVEN`.
 
 ### CE-L2 — Replace the synthetic Evaluation with one independent live Evaluator
+
+Status: **PASS** — `SINGLE_TASK_SUPERVISED_USABLE`. See the
+[Milestone A live proof](../architecture/proofs/runtime/2026-09-28-campaign-engine-milestone-a-single-task-supervised-usability-proof.md).
 
 Purpose:
 
@@ -309,6 +345,9 @@ scheduling semantics.
 Do not interpret Milestone A as autonomous Campaign support.
 
 ### CE-L3 — Authorize dependency-ordered multi-task progression
+
+Status: **NOT AUTHORIZED / NOT ENTERED**. Milestone A requires use of the
+single-Task lifecycle on real disposable Task Specs and operator review first.
 
 Purpose:
 
@@ -462,7 +501,8 @@ The closure Campaign is acceptable only when all of the following hold:
 - no auto-commit / push / merge / PR / deploy capability is introduced;
 - no Beta / release claim is widened;
 - the stopping condition is explicit: close this Campaign after CE-L5 passes;
-- the only file modified is `docs/Campaign/campaign-engine-supervised-usability-closure.md`;
+- closure plan and proof-status updates stay within this document and the
+  dedicated Milestone A runtime proof record;
 - `docs/architecture/00-current-state.md` is unchanged;
 - no ADR is modified, added, or superseded.
 
@@ -521,17 +561,18 @@ This document is aligned with the existing accepted contracts:
 
 This document does not modify, supersede, or amend any accepted ADR. It does
 not implement any new runtime behavior. It does not widen any release claim.
-It is a planning artifact only.
+It records the closure plan and bounded proof status only.
 
 ## Documentation Follow-Through
 
-- This document is the single source of truth for the closure Campaign.
-- `docs/architecture/00-current-state.md` is unchanged by this planning
-  task because this document changes no runtime or release posture.
-- ADRs are unchanged by this planning task because no accepted architecture
-  changed.
-- Future runtime slices (CE-L0 onward) require their own live proof and may
-  not cite this planning document as implementation evidence.
+- This document remains the operator status register for the closure Campaign;
+  the linked Milestone A record is its durable live evidence.
+- `docs/architecture/00-current-state.md` remains unchanged because
+  Milestone A does not change the supported install path or release posture.
+- ADRs remain unchanged because this proof exercises the existing ADR-068
+  single-Task authority.
+- CE-L0, CE-L1, and CE-L2 link to their supporting live evidence. Later gates
+  still require their own proof and authorization.
 - A separate ADR or accepted amendment will be required at CE-L3 before
   multi-task runtime semantics change.
 

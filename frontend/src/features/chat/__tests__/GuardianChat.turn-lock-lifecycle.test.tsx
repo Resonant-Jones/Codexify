@@ -1,12 +1,41 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
 import api from "@/lib/api";
 
-const liveEventHandlers = vi.hoisted(
-  () => new Map<string, Set<(event: { type: string; data: unknown }) => void>>()
-);
+const liveEventsMock = vi.hoisted(() => {
+  const handlers = new Map<
+    string,
+    Set<(event: { type: string; data: unknown }) => void>
+  >();
+  const subscribe = vi.fn(
+    (
+      eventType: string,
+      handler: (event: { type: string; data: unknown }) => void
+    ) => {
+      const listeners = handlers.get(eventType) ?? new Set();
+      listeners.add(handler);
+      handlers.set(eventType, listeners);
+      return () => {
+        const existing = handlers.get(eventType);
+        if (!existing) return;
+        existing.delete(handler);
+        if (existing.size === 0) {
+          handlers.delete(eventType);
+        }
+      };
+    }
+  );
+  return { handlers, subscribe };
+});
 
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
@@ -285,8 +314,8 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("@/features/chat/useChat", () => ({
-  default: () => ({
+vi.mock("@/features/chat/useChat", () => {
+  const hookValue = {
     messages: [],
     loading: false,
     error: null,
@@ -305,35 +334,23 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: chatMocks.handleIncomingAssistantMessage,
     isCompletionInFlight: chatMocks.isCompletionInFlight,
     setCompletionInFlight: chatMocks.setCompletionInFlight,
-  }),
-}));
+  };
+  return {
+    default: () => hookValue,
+  };
+});
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
-    subscribe: (eventType: string, handler: (event: { type: string; data: unknown }) => void) => {
-      const listeners = liveEventHandlers.get(eventType) ?? new Set();
-      listeners.add(handler);
-      liveEventHandlers.set(eventType, listeners);
-      return () => {
-        const existing = liveEventHandlers.get(eventType);
-        if (!existing) return;
-        existing.delete(handler);
-        if (existing.size === 0) {
-          liveEventHandlers.delete(eventType);
-        }
-      };
-    },
-  }),
-}));
+vi.mock("@/hooks/useLiveEvents", () => {
+  const hookValue = {
+    subscribe: liveEventsMock.subscribe,
+  };
+  return {
+    useLiveEvents: () => hookValue,
+  };
+});
 
-vi.mock("@/features/chat/hooks/useInferenceRequestState", () => ({
-  describeInferenceRequestState: (state: { phase?: string } | null | undefined) => ({
-    canonicalState: state?.phase ?? "idle",
-    delayDetailText: null,
-    isDelayed: false,
-    timings: {},
-  }),
-  useInferenceRequestState: () => ({
+vi.mock("@/features/chat/hooks/useInferenceRequestState", () => {
+  const hookValue = {
     state: inferenceMocks.state,
     startRequest: inferenceMocks.startRequest,
     attachTask: inferenceMocks.attachTask,
@@ -342,14 +359,28 @@ vi.mock("@/features/chat/hooks/useInferenceRequestState", () => ({
     markCancelled: inferenceMocks.markCancelled,
     requestCancel: inferenceMocks.requestCancel,
     reset: inferenceMocks.reset,
-  }),
-}));
+  };
+  return {
+    describeInferenceRequestState: (
+      state: { phase?: string } | null | undefined
+    ) => ({
+      canonicalState: state?.phase ?? "idle",
+      delayDetailText: null,
+      isDelayed: false,
+      timings: {},
+    }),
+    useInferenceRequestState: () => hookValue,
+  };
+});
 
 vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
   isChatSelectableModel: (model: {
     supportsChat?: boolean;
     modelKind?: string;
-  } | null | undefined) => Boolean(model && model.supportsChat !== false && model.modelKind !== "utility"),
+  } | null | undefined) =>
+    Boolean(
+      model && model.supportsChat !== false && model.modelKind !== "utility"
+    ),
   describeModelCapability: (model: {
     supportsVision?: boolean;
     supportsChat?: boolean;
@@ -360,7 +391,7 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
       : model.supportsVision
         ? "Vision-capable chat"
         : "Text-only chat",
-  useLlmCatalog: () => {
+  useLlmCatalog: (() => {
     const providers = [
       {
         id: "local",
@@ -379,7 +410,7 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
         models: [{ id: "remote-model", canonicalId: "remote-model" }],
       },
     ];
-    return {
+    const hookValue = {
       providers,
       getProviderById: (providerId: string | null | undefined) =>
         providers.find((provider) => provider.id === providerId) ?? null,
@@ -393,7 +424,8 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
           )
         ) ?? null,
     };
-  },
+    return () => hookValue;
+  })(),
 }));
 
 vi.mock("@/state/contextTrace", () => ({
@@ -413,7 +445,7 @@ vi.mock("@/imprint/api", () => ({
 }));
 
 function emitLiveEvent(type: string, data: Record<string, unknown>) {
-  const listeners = liveEventHandlers.get(type);
+  const listeners = liveEventsMock.handlers.get(type);
   if (!listeners) return;
   act(() => {
     for (const handler of listeners) {
@@ -466,7 +498,7 @@ describe("GuardianChat turn lock lifecycle", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    liveEventHandlers.clear();
+    liveEventsMock.handlers.clear();
     chatMocks.resetState();
     inferenceMocks.reset();
     inferenceMocks.requestCancel.mockResolvedValue(true);
@@ -480,6 +512,12 @@ describe("GuardianChat turn lock lifecycle", () => {
       }
       return { data: {} };
     });
+  });
+
+  afterEach(() => {
+    cleanup();
+    expect(liveEventsMock.handlers.size).toBe(0);
+    liveEventsMock.handlers.clear();
   });
 
   it("clears the lock when completion start fails with backend error", async () => {
@@ -587,5 +625,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     });
     expect(inferenceMocks.reset).toHaveBeenCalled();
     expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
+    expect(screen.getByTestId("composer-send")).toBeEnabled();
   });
 });

@@ -5,6 +5,11 @@ export const LIVE_EVENT_CONNECTION_STATES = {
   DISCONNECTED: "disconnected",
 } as const;
 
+export const ACCOUNT_AUTH_FAILURE_HEADER = "X-Guardian-Auth-Failure";
+export const ACCOUNT_AUTH_FAILURE_CODES = {
+  SESSION_INVALID: "ACCOUNT_SESSION_INVALID",
+} as const;
+
 export type LiveEventConnectionState =
   (typeof LIVE_EVENT_CONNECTION_STATES)[keyof typeof LIVE_EVENT_CONNECTION_STATES];
 

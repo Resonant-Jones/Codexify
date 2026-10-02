@@ -27,10 +27,13 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-vi.mock("@/lib/authState", () => ({
-  checkAuthGate: vi.fn(() => false),
-  useAuthState: vi.fn(() => ({ token: null })),
-}));
+vi.mock("@/lib/authState", () => {
+  const snapshot = { token: null };
+  return {
+    checkAuthGate: vi.fn(() => false),
+    useAuthState: vi.fn(() => snapshot),
+  };
+});
 
 vi.mock("@/components/modals/ImageGenModal", () => ({
   ImageGenModal: () => null,

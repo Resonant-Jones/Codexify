@@ -677,6 +677,109 @@ def test_chat_with_ai_local_only_uses_local_chat_model_for_execution(
     assert captured["json"]["model"] == "qwen3.5:0.8b"
 
 
+def test_explicit_local_model_executes_exact_advertised_model(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["model"] = json["model"]
+        _ = (url, headers, timeout)
+        return _MockRawResponse({"message": {"content": "Exact reply"}})
+
+    monkeypatch.setattr(
+        ai_router.requests,
+        "get",
+        _mock_local_inventory_request(["local-chat", "exact-test-model"]),
+    )
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="local-chat",
+    )
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="exact-test-model",
+        settings=settings,
+        requested_model_is_authoritative=True,
+    )
+    assert result == "Exact reply"
+    assert captured["model"] == "exact-test-model"
+
+
+def test_explicit_unavailable_local_model_never_posts(monkeypatch):
+    def post(*_args, **_kwargs):
+        pytest.fail("provider execution must not start")
+    monkeypatch.setattr(
+        ai_router.requests,
+        "get",
+        _mock_local_inventory_request(["local-chat"]),
+    )
+    monkeypatch.setattr(ai_router.requests, "post", post)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="local-chat",
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        chat_with_ai(
+            [{"role": "user", "content": "hello"}],
+            provider="local",
+            model="missing-local-model-A7K9",
+            settings=settings,
+            requested_model_is_authoritative=True,
+        )
+    assert failure.value.detail["failure_kind"] == (
+        ai_router.LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
+    )
+    assert failure.value.detail["requested_model"] == "missing-local-model-A7K9"
+
+
+def test_explicit_local_stream_preserves_exact_model(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, stream, timeout):
+        captured["model"] = json["model"]
+        _ = (url, headers, stream, timeout)
+        return _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Exact"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr(
+        ai_router.requests,
+        "get",
+        _mock_local_inventory_request(["local-chat", "exact-test-model"]),
+    )
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="local-chat",
+    )
+    tokens, terminal = _drain_stream_with_terminal(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "exact-test-model",
+            settings=settings,
+            requested_model_is_authoritative=True,
+        )
+    )
+    assert "".join(tokens) == "Exact"
+    assert terminal.successful
+    assert captured["model"] == "exact-test-model"
+
+
 def test_chat_with_ai_local_only_blank_local_chat_model_fails_clearly():
     settings = Settings(
         LLM_PROVIDER="local",

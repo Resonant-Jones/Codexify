@@ -152,6 +152,71 @@ class User(Base):
     )
 
 
+class AccountActivationCapability(Base):
+    """Recipient-bound one-time capability for canonical account creation."""
+
+    __tablename__ = "account_activation_capabilities"
+
+    activation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    intended_role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    resulting_user_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "token_digest",
+            name="uq_account_activation_capabilities_token_digest",
+        ),
+        CheckConstraint(
+            "intended_role IN ('admin', 'guest')",
+            name="account_activation_capabilities_role_check",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="account_activation_capabilities_expiry_check",
+        ),
+        CheckConstraint(
+            "((consumed_at IS NULL AND resulting_user_id IS NULL) OR "
+            "(consumed_at IS NOT NULL AND resulting_user_id IS NOT NULL))",
+            name="account_activation_capabilities_consumption_check",
+        ),
+        CheckConstraint(
+            "NOT (consumed_at IS NOT NULL AND revoked_at IS NOT NULL)",
+            name="account_activation_capabilities_terminal_state_check",
+        ),
+        Index(
+            "ix_account_activation_capabilities_recipient_lifecycle",
+            "recipient_email",
+            "consumed_at",
+            "revoked_at",
+            "expires_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # User Profiles
 # =========================
@@ -1263,6 +1328,28 @@ class ChatThread(Base):
             "origin_system",
         ),
     )
+
+
+class ChatCompletionAttempt(Base):
+    """Durable identity and thread binding for one queued chat completion."""
+
+    __tablename__ = "chat_completion_attempts"
+
+    request_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    backend_task_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True
+    )
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
 class ChatMessage(Base):
@@ -7007,3 +7094,44 @@ class MemoryProvenance(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class UserOnboardingState(Base):
+    """Account-owned introduction progress; separate from identity policy."""
+
+    __tablename__ = "user_onboarding_state"
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    onboarding_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="not_started"
+    )
+    last_step_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    desktop_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    mobile_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    contextual_tips_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('not_started', 'in_progress', 'skipped', 'completed')",
+            name="user_onboarding_status_check",
+        ),
+        CheckConstraint("onboarding_version = 1", name="user_onboarding_version_check"),
+    )

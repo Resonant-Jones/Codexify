@@ -13,9 +13,9 @@ const cx = (...parts: Array<string | false | null | undefined>) =>
   parts.filter(Boolean).join(" ");
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "md", ...props }, ref) => {
+  ({ className, style, variant = "default", size = "md", ...props }, ref) => {
     const base =
-      "inline-flex items-center justify-center font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none rounded-[var(--tile-radius,19px)] focus:outline-none";
+      "inline-flex items-center justify-center font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none focus:outline-none";
     const variants: Record<Variant, string> = {
       default:
         "bg-[var(--accent)] text-[var(--panel-bg)] hover:bg-[var(--accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]",
@@ -24,16 +24,36 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       destructive:
         "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-700",
     };
-    const sizes: Record<Size, string> = {
-      sm: "h-7 px-3 text-xs",
-      md: "h-9 px-4 text-sm",
-      lg: "h-11 px-6 text-base",
-      icon: "h-9 w-9",
+    const sizes: Record<Size, { height: string; width?: string; padding?: string; text?: string }> = {
+      sm: { height: "h-8", padding: "px-3", text: "text-xs" },
+      md: { height: "h-10", padding: "px-4", text: "text-sm" },
+      lg: { height: "h-12", padding: "px-6", text: "text-base" },
+      icon: { height: "h-10", width: "w-10" },
     };
+    const hasCallerUtility = (pattern: RegExp) =>
+      className?.split(/\s+/).some((token) => pattern.test(token)) ?? false;
+    const callerOwnsRadius = hasCallerUtility(/^rounded(?:-|$)/);
+    const selectedSize = sizes[size];
     return (
       <button
         ref={ref}
-        className={cx(base, variants[variant], sizes[size], className)}
+        className={cx(
+          base,
+          variants[variant],
+          !hasCallerUtility(/^(?:h-|size-)/) && selectedSize.height,
+          !hasCallerUtility(/^(?:w-|size-)/) && selectedSize.width,
+          !hasCallerUtility(/^px-/) && selectedSize.padding,
+          !hasCallerUtility(/^text-(?:xs|sm|base|lg|xl|[2-9]xl|\[\d)/) && selectedSize.text,
+          className
+        )}
+        style={{
+          borderRadius: callerOwnsRadius
+            ? undefined
+            : hasCallerUtility(/^pill-tab$/)
+              ? "var(--dock-segment-radius, var(--radius-micro))"
+              : "var(--radius-micro)",
+          ...style,
+        }}
         {...props}
       />
     );

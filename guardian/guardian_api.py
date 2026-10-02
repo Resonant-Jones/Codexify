@@ -38,14 +38,10 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi import routing as fastapi_routing
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import (
-    FileResponse,
-    HTMLResponse,
-    JSONResponse,
-    RedirectResponse,
-)
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import exc as sa_exc
@@ -54,18 +50,22 @@ from sqlalchemy import exc as sa_exc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from guardian.browser_host.http_adapter import (
+    browser_host_attachment_adapter_enabled,
+    browser_host_negotiation_adapter_enabled,
+    install_browser_host_attachment_adapter,
+    install_browser_host_negotiation_adapter,
+    shutdown_browser_host_attachment_adapter,
+    shutdown_browser_host_negotiation_adapter,
+)
 from guardian.config.system_config import ensure_system_dirs
-from guardian.connectors.google import router as google_connect_router
-from guardian.connectors.minimax import router as minimax_oauth_router
 from guardian.connections.google_drive import router as google_drive_connection_routes
 from guardian.connections.notion import router as notion_connection_routes
+from guardian.connectors.google import router as google_connect_router
+from guardian.connectors.minimax import router as minimax_oauth_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
-from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
-    STARTUP_PHASE_APPLICATION_LIFESPAN,
-    startup_failure_receipt_boundary,
-)
 from guardian.core.config import (
     VECTOR_STORE_BACKEND_CHROMA,
     VECTOR_STORE_PROOF_STATUS_MISMATCH,
@@ -76,14 +76,6 @@ from guardian.core.config import (
     get_settings,
     resolve_vector_store_runtime,
 )
-from guardian.browser_host.http_adapter import (
-    browser_host_attachment_adapter_enabled,
-    browser_host_negotiation_adapter_enabled,
-    install_browser_host_attachment_adapter,
-    install_browser_host_negotiation_adapter,
-    shutdown_browser_host_attachment_adapter,
-    shutdown_browser_host_negotiation_adapter,
-)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
@@ -93,7 +85,9 @@ from guardian.core.dependencies import (
     get_vector_store,
     init_database,
     init_services,
+    require_account_session,
     require_api_key,
+    require_operator_auth,
 )
 from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
@@ -115,15 +109,17 @@ from guardian.core.supported_profile import (
     get_active_supported_profile,
 )
 from guardian.core.user_manager import get_or_create_default_user
+from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
+    STARTUP_PHASE_APPLICATION_LIFESPAN,
+    startup_failure_receipt_boundary,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
-from guardian.utils.embed_paths import (
-    get_local_embed_model,
-    require_local_embed_model,
-)
+from guardian.utils.embed_paths import get_local_embed_model, require_local_embed_model
 
 # Optional Neo4j for graph endpoint
 try:
@@ -161,11 +157,7 @@ if not api_key:
     raise SystemExit("GUARDIAN_API_KEY is required")
 
 # Log API key (masked)
-_mask = (
-    (api_key[:4] + "…" + api_key[-4:])
-    if api_key and len(api_key) > 8
-    else api_key
-)
+_mask = (api_key[:4] + "…" + api_key[-4:]) if api_key and len(api_key) > 8 else api_key
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
 # Initialize primary chat database eagerly so router modules
@@ -177,12 +169,8 @@ chatlog_db = dependencies.chatlog_db
 OUTBOX_POLL_INTERVAL = parse_outbox_poll_interval(
     os.getenv("OUTBOX_POLL_INTERVAL", "1.0")
 )
-OUTBOX_BATCH_SIZE = parse_outbox_batch_size(
-    os.getenv("OUTBOX_BATCH_SIZE", "100")
-)
-OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
-    os.getenv("OUTBOX_TENANT_ID", "default")
-)
+OUTBOX_BATCH_SIZE = parse_outbox_batch_size(os.getenv("OUTBOX_BATCH_SIZE", "100"))
+OUTBOX_TENANT_ID = normalize_outbox_tenant_id(os.getenv("OUTBOX_TENANT_ID", "default"))
 
 _RETRYABLE_OUTBOX_SQLSTATE_CODES = {"57P01", "57P02", "57P03"}
 
@@ -211,10 +199,7 @@ def _is_retryable_outbox_poll_error(exc: BaseException) -> bool:
     sqlstate = _db_error_sqlstate(exc)
     if sqlstate is None:
         return False
-    return (
-        sqlstate.startswith("08")
-        or sqlstate in _RETRYABLE_OUTBOX_SQLSTATE_CODES
-    )
+    return sqlstate.startswith("08") or sqlstate in _RETRYABLE_OUTBOX_SQLSTATE_CODES
 
 
 def _summarize_outbox_poll_error(exc: BaseException) -> str:
@@ -241,14 +226,10 @@ def _env_positive_int(name: str, default: int) -> int:
     try:
         value = int(str(raw).strip())
     except (TypeError, ValueError):
-        logger.warning(
-            "[startup] invalid %s=%r; using default=%d", name, raw, default
-        )
+        logger.warning("[startup] invalid %s=%r; using default=%d", name, raw, default)
         return default
     if value <= 0:
-        logger.warning(
-            "[startup] invalid %s=%r; using default=%d", name, raw, default
-        )
+        logger.warning("[startup] invalid %s=%r; using default=%d", name, raw, default)
         return default
     return value
 
@@ -282,9 +263,7 @@ def _include_router(
         )
         return
     if _BETA_CORE_ONLY and not core_surface:
-        if not (
-            profile_manifest is not None and profile_status == "internal_only"
-        ):
+        if not (profile_manifest is not None and profile_status == "internal_only"):
             logger.info(
                 "[routers] quarantined %s (CODEXIFY_BETA_CORE_ONLY=true)",
                 label,
@@ -296,21 +275,21 @@ def _include_router(
     route_count_before = len(app.routes)
     include_fn()
     if profile_manifest is not None:
-        enabled_labels = getattr(
-            app.state, "supported_profile_enabled_labels", None
-        )
+        enabled_labels = getattr(app.state, "supported_profile_enabled_labels", None)
         if enabled_labels is None:
             enabled_labels = set()
             app.state.supported_profile_enabled_labels = enabled_labels
         enabled_labels.add(label)
         if profile_status == "internal_only":
-            hidden_paths = getattr(
-                app.state, "supported_profile_hidden_paths", None
-            )
+            hidden_paths = getattr(app.state, "supported_profile_hidden_paths", None)
             if hidden_paths is None:
                 hidden_paths = set()
                 app.state.supported_profile_hidden_paths = hidden_paths
-            for route in app.routes[route_count_before:]:
+            included_routes = app.routes[route_count_before:]
+            iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+            if iter_contexts is not None:
+                included_routes = iter_contexts(included_routes)
+            for route in included_routes:
                 path = getattr(route, "path", None)
                 if isinstance(path, str) and path:
                     hidden_paths.add(path)
@@ -350,12 +329,10 @@ def _run_chatgpt_import_startup_sweep() -> None:
             limit=retry_cap,
         )
         level = (
-            logger.warning
-            if stats.get("embedding_coverage_degraded")
-            else logger.info
+            logger.warning if stats.get("embedding_coverage_degraded") else logger.info
         )
         level(
-            "[startup] ChatGPT import sweep user_id=%s limit=%d candidates=%d persisted=%d failed=%d degraded=%s",
+            "[startup] ChatGPT import sweep user_id=%s limit=%d item_count=%d persisted=%d failed=%d degraded=%s",
             user_id,
             retry_cap,
             int(stats.get("embedding_candidates", 0)),
@@ -372,9 +349,7 @@ def _run_chatgpt_import_startup_sweep() -> None:
         )
 
 
-def _schedule_background_startup_task(
-    app: FastAPI, task: asyncio.Task[Any]
-) -> None:
+def _schedule_background_startup_task(app: FastAPI, task: asyncio.Task[Any]) -> None:
     background_tasks = getattr(app.state, "startup_background_tasks", None)
     if background_tasks is None:
         background_tasks = set()
@@ -395,17 +370,13 @@ def _schedule_chatgpt_import_startup_sweep(app: FastAPI) -> asyncio.Task[Any]:
 
 def _run_builtin_help_startup_ingest(guardian_db: Any | None) -> None:
     if guardian_db is None:
-        logger.info(
-            "[startup] Built-in help ingest skipped: GuardianDB unavailable"
-        )
+        logger.info("[startup] Built-in help ingest skipped: GuardianDB unavailable")
         return
 
     try:
         result = builtin_help_ingest.ingest_builtin_help_document(guardian_db)
     except Exception as exc:
-        logger.warning(
-            "[startup] Built-in help ingest failed: %s", exc, exc_info=True
-        )
+        logger.warning("[startup] Built-in help ingest failed: %s", exc, exc_info=True)
         return
 
     status = str(result.get("status") or "unknown").strip().lower()
@@ -413,9 +384,7 @@ def _run_builtin_help_startup_ingest(guardian_db: Any | None) -> None:
     source_path = str(result.get("source_path") or "").strip()
     project_id = result.get("project_id")
     vector_written = bool(result.get("vector_written"))
-    log_level = (
-        logger.warning if status in {"skipped", "unknown"} else logger.info
-    )
+    log_level = logger.warning if status in {"skipped", "unknown"} else logger.info
     log_level(
         "[startup] Built-in help ingest status=%s doc_id=%s path=%s project_id=%s vector_written=%s",
         status,
@@ -439,15 +408,11 @@ def _resolve_embedding_backend(settings_obj: Any | None = None) -> str:
     backend = ""
     if settings_obj is not None:
         backend = (
-            str(getattr(settings_obj, "EMBEDDING_BACKEND", "") or "")
-            .strip()
-            .lower()
+            str(getattr(settings_obj, "EMBEDDING_BACKEND", "") or "").strip().lower()
         )
         if not backend:
             backend = (
-                str(getattr(settings_obj, "EMBED_BACKEND", "") or "")
-                .strip()
-                .lower()
+                str(getattr(settings_obj, "EMBED_BACKEND", "") or "").strip().lower()
             )
 
     if not backend:
@@ -484,9 +449,7 @@ def _backend_vector_runtime_payload(vector_store: Any) -> dict[str, str]:
     embedder = getattr(vector_store, "embedder", None)
     return {
         "backend": str(
-            getattr(vector_store, "store", None)
-            or getattr(embedder, "store", "")
-            or ""
+            getattr(vector_store, "store", None) or getattr(embedder, "store", "") or ""
         ).strip(),
         "chroma_path": str(
             getattr(vector_store, "chroma_path", None)
@@ -524,19 +487,13 @@ def _retrieval_proof_state(
     )
 
 
-from backend import llm_overrides
-
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import (
-    account_observability,
-    admin,
-    agent,
-    agent_orchestration,
-    browser_host,
-)
+from guardian.routes import account_observability, admin, agent, agent_orchestration
+from guardian.routes import configuration_inspector
 from guardian.routes import auth as auth_routes
-from guardian.routes import backfill, coding_work_orders
+from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
+from guardian.routes import connections as connections_routes
 from guardian.routes import continuity_operator
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
@@ -546,15 +503,21 @@ from guardian.routes import (
     documents,
     embeddings,
     federation,
+    github_watchdog,
     guardian_delegations,
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
+from guardian.routes import llm_overrides
 from guardian.routes import memory, migration
+from guardian.routes import (
+    hosted_room_guest,
+    hosted_rooms,
+    memory,
+    memory_vault,
+    migration,
+)
 from guardian.routes import neo as neo_routes
-from guardian.routes import hosted_room_guest, hosted_rooms
-from guardian.routes.direct_messages import router as direct_messages_router
-from guardian.routes import github_watchdog
 from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
 from guardian.routes import ui_session
@@ -564,11 +527,12 @@ from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
 from guardian.routes.codex import router as codex_router
+from guardian.routes.connections import router as connections_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
-from guardian.routes import connections as connections_routes
-from guardian.routes.connections import router as connections_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
+from guardian.routes.onboarding import router as onboarding_router
+from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
 from guardian.routes.imprint import router as imprint_router
@@ -652,9 +616,7 @@ async def _app_lifespan_body(app: FastAPI):
     init_services(db)
 
     try:
-        from guardian.runtime.ingest.seed_pipeline import (
-            seed_global_system_docs,
-        )
+        from guardian.runtime.ingest.seed_pipeline import seed_global_system_docs
 
         seed_summary = seed_global_system_docs(get_vector_store())
         logger.info(
@@ -712,16 +674,12 @@ async def _app_lifespan_body(app: FastAPI):
         try:
             get_or_create_default_user(guardian_db)
         except Exception as exc:
-            logger.warning(
-                "[startup] Failed to ensure default user exists: %s", exc
-            )
+            logger.warning("[startup] Failed to ensure default user exists: %s", exc)
 
     try:
         _run_builtin_help_startup_ingest(guardian_db)
     except Exception as exc:
-        logger.warning(
-            "[startup] Built-in help ingest hook failed soft: %s", exc
-        )
+        logger.warning("[startup] Built-in help ingest hook failed soft: %s", exc)
 
     # Configure durable outbox storage
     if ENABLE_OUTBOX:
@@ -756,9 +714,7 @@ async def _app_lifespan_body(app: FastAPI):
             sync_stats.get("runtime_created", 0),
         )
     except Exception as exc:
-        logger.warning(
-            "[startup] Failed to sync inference provider rows: %s", exc
-        )
+        logger.warning("[startup] Failed to sync inference provider rows: %s", exc)
 
     _schedule_chatgpt_import_startup_sweep(app)
 
@@ -780,14 +736,10 @@ async def _app_lifespan_body(app: FastAPI):
             db.list_connector_configs()
             stop_event = asyncio.Event()
             _CONNECTOR_WORKER_STOP = stop_event
-            _CONNECTOR_WORKER_TASK = asyncio.create_task(
-                _connector_worker(stop_event)
-            )
+            _CONNECTOR_WORKER_TASK = asyncio.create_task(_connector_worker(stop_event))
             logger.info("[connectors] Background worker started")
         except Exception as exc:
-            logger.error(
-                "[connectors] Unable to initialize connector tables: %s", exc
-            )
+            logger.error("[connectors] Unable to initialize connector tables: %s", exc)
 
     # Enqueue warm-up task for local models (fire-and-forget)
     try:
@@ -820,9 +772,7 @@ async def _app_lifespan_body(app: FastAPI):
             seen.add(norm)
             models.append(candidate)
         if models:
-            task = WarmupTask(
-                models=list(dict.fromkeys(models)), origin="startup"
-            )
+            task = WarmupTask(models=list(dict.fromkeys(models)), origin="startup")
             enqueue(task, "codexify:queue:system")
             try:
                 task_events.publish(
@@ -858,9 +808,7 @@ async def _app_lifespan_body(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    startup_background_tasks = getattr(
-        app.state, "startup_background_tasks", None
-    )
+    startup_background_tasks = getattr(app.state, "startup_background_tasks", None)
     if startup_background_tasks:
         for task in list(startup_background_tasks):
             task.cancel()
@@ -898,9 +846,7 @@ app.state.supported_profile_hidden_paths = set()
 app.state.supported_profile_enabled_labels = set()
 
 exposure_mode = os.getenv("GUARDIAN_EXPOSURE_MODE", DEFAULT_EXPOSURE_MODE)
-public_routes_file = os.getenv(
-    "GUARDIAN_PUBLIC_ROUTES_FILE", DEFAULT_ROUTES_FILE
-)
+public_routes_file = os.getenv("GUARDIAN_PUBLIC_ROUTES_FILE", DEFAULT_ROUTES_FILE)
 public_profile = os.getenv("GUARDIAN_PUBLIC_PROFILE", DEFAULT_PROFILE)
 
 app.add_middleware(
@@ -926,9 +872,7 @@ def _refresh_supported_profile_state(
         app.state.supported_profile = None
         return None
 
-    enabled_routes = set(
-        getattr(app.state, "supported_profile_enabled_labels", set())
-    )
+    enabled_routes = set(getattr(app.state, "supported_profile_enabled_labels", set()))
     state = build_supported_profile_runtime_state(
         manifest,
         settings=settings,
@@ -951,9 +895,7 @@ def _custom_openapi() -> dict[str, Any]:
         description=app.description,
         routes=app.routes,
     )
-    hidden_paths = set(
-        getattr(app.state, "supported_profile_hidden_paths", set())
-    )
+    hidden_paths = set(getattr(app.state, "supported_profile_hidden_paths", set()))
     paths = schema.get("paths", {})
     for path in hidden_paths:
         paths.pop(path, None)
@@ -1006,11 +948,7 @@ def _request_timing_enabled() -> bool:
 def _request_remote_class(request: Request) -> str:
     host = (request.headers.get("host") or "").split(":", 1)[0].lower()
     public_base = (os.getenv("CODEXIFY_PUBLIC_BASE_URL") or "").lower()
-    return (
-        "tailscale"
-        if host.endswith(".ts.net") or host in public_base
-        else "local"
-    )
+    return "tailscale" if host.endswith(".ts.net") or host in public_base else "local"
 
 
 @app.middleware("http")
@@ -1080,6 +1018,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[ACCOUNT_AUTH_FAILURE_HEADER],
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
@@ -1098,14 +1037,10 @@ def _include_browser_host_attachment_router() -> None:
     # route inventory.  The remaining three gates are evaluated before a
     # store or route is created.
     if _BETA_CORE_ONLY or _SUPPORTED_PROFILE_MANIFEST is not None:
-        logger.info(
-            "[routers] quarantined browser_host (supported release surface)"
-        )
+        logger.info("[routers] quarantined browser_host (supported release surface)")
         return
     if not browser_host_attachment_adapter_enabled():
-        logger.info(
-            "[routers] quarantined browser_host (development adapter disabled)"
-        )
+        logger.info("[routers] quarantined browser_host (development adapter disabled)")
         return
     install_browser_host_attachment_adapter(app, browser_host.router)
 
@@ -1129,6 +1064,11 @@ def _include_browser_host_negotiation_router() -> None:
 # =========================
 # Router Inclusion
 # =========================
+
+def _include_admin_surface() -> None:
+    app.include_router(admin.router)
+    app.include_router(configuration_inspector.router)
+
 
 _include_browser_host_attachment_router()
 _include_browser_host_negotiation_router()
@@ -1154,7 +1094,7 @@ _include_router(
 _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
-    include_fn=lambda: app.include_router(admin.router),
+    include_fn=_include_admin_surface,
     core_surface=True,
 )
 _include_router(
@@ -1258,6 +1198,13 @@ _include_router(
     include_fn=lambda: app.include_router(memory.router),
 )
 _include_router(
+    label="memory_vault",
+    flag_name="CODEXIFY_ENABLE_MEMORY_VAULT_ROUTES",
+    include_fn=lambda: app.include_router(memory_vault.router),
+    default_enabled=True,
+    core_surface=False,
+)
+_include_router(
     label="personal_facts",
     flag_name="CODEXIFY_ENABLE_PERSONAL_FACTS_ROUTES",
     include_fn=_include_personal_facts_router,
@@ -1342,7 +1289,9 @@ _include_router(
 _include_router(
     label="google_drive_knowledge",
     flag_name="CODEXIFY_ENABLE_GOOGLE_DRIVE_KNOWLEDGE_ROUTES",
-    include_fn=lambda: app.include_router(google_drive_connection_routes.operations_router),
+    include_fn=lambda: app.include_router(
+        google_drive_connection_routes.operations_router
+    ),
 )
 _include_router(
     label="google_drive_setup",
@@ -1513,6 +1462,13 @@ _include_router(
     default_enabled=True,
 )
 _include_router(
+    label="onboarding",
+    flag_name="CODEXIFY_ENABLE_ONBOARDING_ROUTES",
+    core_surface=True,
+    include_fn=lambda: app.include_router(onboarding_router),
+)
+
+_include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",
     # Private-preview functionality.  Only the hosted/private test profile
@@ -1572,7 +1528,7 @@ async def stream_events(
     request: Request,
     last_id_query: int = Query(0, alias="last_id"),
     last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ):
     """
     Stream domain events from the durable events_outbox as Server-Sent Events.
@@ -1725,9 +1681,7 @@ async def stream_task_events(
                     last_id = ev_id
 
                     if (
-                        task_events.classify_event_visibility(
-                            ev.get("type") or ""
-                        )
+                        task_events.classify_event_visibility(ev.get("type") or "")
                         == "terminal"
                     ):
                         return
@@ -1745,7 +1699,7 @@ async def stream_task_events(
 @app.post("/api/tasks/{task_id}/cancel", tags=["Tasks"])
 async def request_task_cancel(
     task_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_account_session),
 ):
     """Mark a queued or running task as cancelled."""
     _ = api_key
@@ -1760,7 +1714,7 @@ async def request_task_cancel(
 @app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])
 def get_graph(
     scope: str = "codexify",
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ):
     """
     Fetch graph data from Neo4j for visualization.
@@ -1768,15 +1722,11 @@ def get_graph(
     """
     _ = api_key
     if not NEO4J_AVAILABLE:
-        raise HTTPException(
-            status_code=503, detail="Neo4j driver not available"
-        )
+        raise HTTPException(status_code=503, detail="Neo4j driver not available")
 
     uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = (
-        os.getenv("NEO4J_PASSWORD") or os.getenv("NEO4J_PASS") or ""
-    ).strip()
+    password = (os.getenv("NEO4J_PASSWORD") or os.getenv("NEO4J_PASS") or "").strip()
     if not password:
         raise HTTPException(
             status_code=503,
@@ -1786,9 +1736,7 @@ def get_graph(
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to connect to Neo4j: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to connect to Neo4j: {e}")
 
     nodes, links = [], []
     try:
@@ -1945,9 +1893,7 @@ if _WEBUI_BASIC_DIR.is_dir():
     )
     logger.info("[webui-basic] Serving from %s at /ui", _WEBUI_BASIC_DIR)
 else:
-    logger.info(
-        "[webui-basic] %s not found, skipping UI mount", _WEBUI_BASIC_DIR
-    )
+    logger.info("[webui-basic] %s not found, skipping UI mount", _WEBUI_BASIC_DIR)
 
 
 # =========================

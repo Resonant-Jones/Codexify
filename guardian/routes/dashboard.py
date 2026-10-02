@@ -16,7 +16,7 @@ from guardian.core import dependencies
 from guardian.core.auth_dependencies import resolve_session_user_id
 from guardian.core.dependencies import (
     get_request_user_scope,
-    require_api_key,
+    require_account_session as require_api_key,
     require_service_api_key,
 )
 from guardian.core.preview_access import (

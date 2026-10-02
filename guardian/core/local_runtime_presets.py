@@ -4,11 +4,9 @@ import platform
 from dataclasses import dataclass
 
 
-WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-WHOOSHD_ALIAS_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-WHOOSHD_GGUF_MODEL = "qwen2.5-0.5b-gguf"
-WHOOSHD_VISION_MODEL = "qwen2-vl-2b-mlx"
-OLLAMA_MODEL = "llama3.2:latest"
+LOCAL_CHAT_ROUTE = "local-chat"
+WHOOSHD_ALIAS_MODEL = LOCAL_CHAT_ROUTE
+OLLAMA_MODEL = LOCAL_CHAT_ROUTE
 CUSTOM_LOCAL_MODEL = "local-model"
 
 

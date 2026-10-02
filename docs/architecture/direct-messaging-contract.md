@@ -14,7 +14,7 @@ contract is written so a future transport adapter can handle cross-node
 delivery without redefining message identity, profile identity,
 conversation semantics, or authorization.
 
-Last updated: 2026-08-31
+Last updated: 2026-09-22
 
 ## 1. Address hierarchy
 
@@ -232,11 +232,13 @@ authority.
 
 ## 9. Route posture
 
-Registered under the `direct_messages` route label.  Enabled only on the
-hosted/private test profile (`v1-friends-family-web`); every other
-supported profile leaves the label unlisted and route governance treats
-it as quarantined.  Federation and general collaboration routes remain
-quarantined.
+Registered under the `direct_messages` route label. Enabled on the opt-in
+private-preview profile (`v1-whooshd-deepseek-web`) and hosted/private tester
+profile (`v1-friends-family-web`); every other supported profile leaves the
+label unlisted and route governance treats it as quarantined. These profiles
+use the existing authenticated account boundary and same-node messaging
+contract. Federation, Guardian execution, and share-link routes remain
+quarantined on the private-preview profile.
 
 ## 10. Deferred (explicitly not implemented)
 
@@ -270,7 +272,7 @@ Recorded in ADR-079; they must not block the same-node implementation:
 
 ## 12. Future dependency order
 
-1. Inbox/global Conversation projection and person filter — **implemented** (private-profile frontend projection; see §13)
+1. Inbox/global Conversation projection and person filter — **implemented** (opt-in private-preview/tester frontend projection; see §13; excluded from default Beta)
 2. Share Sheet / Project-origin interaction UX
 3. explicit Project Scope Offer / invitation contract
 4. provisional Conversation "summary so far" modal + export

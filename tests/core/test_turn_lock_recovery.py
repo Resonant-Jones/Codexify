@@ -49,6 +49,12 @@ def mock_db():
 def test_client(mock_db, monkeypatch, tmp_path):
     monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
     monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "test_user")
+    # These cases exercise orphan recovery; lease renewal has separate coverage.
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
+    )
     with patch("logging.info"):
         with patch("guardian.guardian_api.chatlog_db", mock_db):
             with patch("guardian.core.dependencies.chatlog_db", mock_db):

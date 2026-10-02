@@ -7,9 +7,7 @@ import json
 import logging
 import os
 import re
-import shlex
 import subprocess
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
@@ -27,6 +25,12 @@ from guardian.agents.test_results import (
     NormalizedTestResult,
     normalize_subprocess_test_result,
     not_run_test_result,
+)
+from guardian.agents.validation import (
+    VALIDATION_TIMEOUT_CAP_SECONDS,
+    _build_validation_error_result,
+    run_validation_command,
+    validation_timeout_seconds,
 )
 from guardian.agents.worktree_lease_store import (
     WorktreeLeaseNotFound,
@@ -74,7 +78,7 @@ _UNSUPPORTED_DIRECT_ADAPTER_MESSAGE = (
     "Use the Pi broker adapter."
 )
 
-_VALIDATION_TIMEOUT_CAP_SECONDS = 120
+_VALIDATION_TIMEOUT_CAP_SECONDS = VALIDATION_TIMEOUT_CAP_SECONDS
 _VALIDATION_ATTEMPTS_DEFAULT = 1
 _VALIDATION_ATTEMPTS_CAP = 3
 _GIT_COMMAND_TIMEOUT_SECONDS = 5
@@ -1278,32 +1282,7 @@ def _enforce_isolated_mutation_scope(
 
 
 def _validation_timeout_seconds(task_timeout_seconds: int) -> int:
-    return max(
-        1, min(int(task_timeout_seconds or 0), _VALIDATION_TIMEOUT_CAP_SECONDS)
-    )
-
-
-def _build_validation_error_result(
-    *,
-    command: str,
-    stdout: str = "",
-    stderr: str = "",
-    error_message: str,
-    duration_seconds: float | None = None,
-) -> NormalizedTestResult:
-    return NormalizedTestResult(
-        status="error",
-        command=command,
-        exit_code=None,
-        tests_total=None,
-        tests_passed=None,
-        tests_failed=None,
-        fail_signature=None,
-        stdout_preview=stdout[:480],
-        stderr_preview=stderr[:480],
-        duration_seconds=duration_seconds,
-        error_message=error_message,
-    )
+    return validation_timeout_seconds(task_timeout_seconds)
 
 
 def _resolve_validation_command(
@@ -1386,51 +1365,11 @@ def _run_validation_command(
     cwd: str,
     timeout_seconds: int,
 ) -> NormalizedTestResult:
-    try:
-        argv = shlex.split(command)
-    except ValueError as exc:
-        return _build_validation_error_result(
-            command=command,
-            error_message=f"validation_command_parse_failed: {exc}",
-        )
-    if not argv:
-        return _build_validation_error_result(
-            command=command,
-            error_message="validation_command_empty",
-        )
-
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            argv,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        elapsed = time.monotonic() - started
-        return _build_validation_error_result(
-            command=command,
-            error_message="validation_command_timeout",
-            duration_seconds=elapsed,
-        )
-    except Exception as exc:
-        elapsed = time.monotonic() - started
-        return _build_validation_error_result(
-            command=command,
-            error_message=f"validation_command_error: {type(exc).__name__}",
-            duration_seconds=elapsed,
-        )
-
-    elapsed = time.monotonic() - started
-    return normalize_subprocess_test_result(
+    """Compatibility seam delegating one attempt to the shared runner."""
+    return run_validation_command(
         command=command,
-        exit_code=completed.returncode,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
-        duration_seconds=elapsed,
+        cwd=cwd,
+        timeout_seconds=timeout_seconds,
     )
 
 

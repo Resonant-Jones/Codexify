@@ -696,7 +696,7 @@ export default function SidebarRoot({
             onRename={renameThread}
             onArchiveToggle={handleArchiveToggle}
             onDelete={handleDelete}
-            className={clsx("flex-1 min-h-0", columnClass)}
+            className="flex-1 min-h-0"
           />
         )}
       </div>

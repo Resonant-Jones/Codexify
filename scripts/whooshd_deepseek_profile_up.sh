@@ -14,11 +14,28 @@ ENV_FILE="${CODEXIFY_ENV_FILE:-.env.tester}"
 WHOOSHD_BASE_URL="${WHOOSHD_BASE_URL:-http://127.0.0.1:8000}"
 BACKEND_URL="${CODEXIFY_BACKEND_URL:-http://127.0.0.1:8889}"
 WHOOSHD_LABEL="${WHOOSHD_LAUNCHD_LABEL:-system/com.resonant.whooshd}"
-# ADR-074: this is an assertion input, not a second runtime selection source.
-# The historical tracked default is retained until a separate live-inventory
-# reconciliation establishes the current operator selection. Operators may
-# supply EXPECTED_MODEL for that assertion without changing Compose authority.
-EXPECTED_MODEL="${EXPECTED_MODEL:-qwen3.8-27b-4bit}"
+# ADR-074: this is an assertion input, not a second physical-model authority.
+# The normal route is provider-owned; an operator can still set an exact model
+# in the selected dotenv file without sourcing unrelated values or secrets.
+if [[ -z "${EXPECTED_MODEL:-}" ]]; then
+  EXPECTED_MODEL="$(python3 - "$ENV_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+selected = ""
+path = Path(sys.argv[1])
+if path.is_file():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == "LOCAL_CHAT_MODEL":
+            selected = value.strip().strip("\"'")
+print(selected or "local-chat")
+PY
+)"
+fi
 WHOOSHD_READINESS_TIMEOUT_SECONDS="${WHOOSHD_READINESS_TIMEOUT_SECONDS:-120}"
 CODEXIFY_READINESS_TIMEOUT_SECONDS="${CODEXIFY_READINESS_TIMEOUT_SECONDS:-120}"
 
@@ -114,10 +131,10 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-codexify_tester}" \
   -f docker-compose.whooshd-deepseek.yml \
   up -d frontend backend db redis worker-chat worker-document-embed migrator
 
-python3 - "$BACKEND_URL" "$CODEXIFY_READINESS_TIMEOUT_SECONDS" <<'PY'
-import json, os, sys, time, urllib.error, urllib.request
+python3 - "$BACKEND_URL" "$CODEXIFY_READINESS_TIMEOUT_SECONDS" "$EXPECTED_MODEL" <<'PY'
+import json, sys, time, urllib.error, urllib.request
 
-base, readiness_timeout = sys.argv[1:]
+base, readiness_timeout, expected_model = sys.argv[1:]
 deadline = time.monotonic() + float(readiness_timeout)
 last_error = None
 while time.monotonic() < deadline:
@@ -149,7 +166,6 @@ with urllib.request.urlopen(base + '/api/llm/catalog', timeout=15) as response:
 by_id = {str(item.get('id') or '').strip(): item for item in providers}
 if set(by_id) != {'local', 'deepseek'}:
     raise SystemExit(f'provider pin failed; expected local and deepseek only: {sorted(by_id)}')
-expected_model = os.environ.get('EXPECTED_MODEL', 'qwen3.8-27b-4bit')
 if [str(item.get('id') or '').strip() for item in by_id['local'].get('models', [])] != [expected_model]:
     raise SystemExit(f'local provider is not pinned to {expected_model!r}')
 if [str(item.get('id') or '').strip() for item in by_id['deepseek'].get('models', [])] != ['deepseek-v4-flash']:

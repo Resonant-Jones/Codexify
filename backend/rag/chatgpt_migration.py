@@ -4,6 +4,7 @@ import json
 import logging
 import multiprocessing as mp
 import os
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -428,7 +429,42 @@ def _classify_import_candidates(
     return kept, skipped_discard, 0
 
 
-def _ingest_canonical_messages(
+def _ingest_canonical_messages(**kwargs) -> Tuple[int, int]:
+    """Commit one canonical conversation before scheduling derived work."""
+    chatlog_db = kwargs["chatlog_db"]
+    pending_embed_items = kwargs["pending_embed_items"]
+    pending_embed_message_ids = kwargs["pending_embed_message_ids"]
+    staged_items: List[Dict[str, Any]] = []
+    staged_message_ids: List[int] = []
+    pending_facts: List[Tuple[Dict[str, Any], List[Dict[str, Any]], bool]] = []
+    transaction = getattr(chatlog_db, "conversation_transaction", None)
+    scope = transaction() if callable(transaction) else nullcontext()
+    with scope:
+        result = _write_canonical_messages(
+            **{
+                **kwargs,
+                "pending_embed_items": staged_items,
+                "pending_embed_message_ids": staged_message_ids,
+                "pending_facts": pending_facts,
+            }
+        )
+    pending_embed_items.extend(staged_items)
+    pending_embed_message_ids.extend(staged_message_ids)
+    for message, candidates, require_message_db_id in pending_facts:
+        try:
+            persist_personal_fact_candidates(
+                chatlog_db,
+                user_id=kwargs["user_id"],
+                message=message,
+                candidates=candidates,
+                require_message_db_id=require_message_db_id,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist imported personal fact candidates: %s", exc)
+    return result
+
+
+def _write_canonical_messages(
     *,
     chatlog_db,
     user_id: str,
@@ -448,6 +484,7 @@ def _ingest_canonical_messages(
     embedding_mode: str = "enqueue",
     disable_personal_facts: bool = False,
     origin_system: str | None = None,
+    pending_facts: List[Tuple[Dict[str, Any], List[Dict[str, Any]], bool]] | None = None,
 ) -> Tuple[int, int]:
     # Resolve the canonical conversation-origin token. The import_source
     # token is the legacy product label (e.g. ``"chatgpt"``, ``"claude"``);
@@ -471,7 +508,10 @@ def _ingest_canonical_messages(
         canonical_origin = legacy
 
     thread_id = _find_existing_thread_for_source(
-        chatlog_db, user_id=user_id, source_thread_id=source_thread_id
+        chatlog_db,
+        user_id=user_id,
+        source_thread_id=source_thread_id,
+        origin_system=canonical_origin,
     )
     threads_count = 0
     messages_count = 0
@@ -515,6 +555,7 @@ def _ingest_canonical_messages(
                     chatlog_db,
                     thread_id=thread_id_for_update,
                     updates=thread_updates,
+                    strict=callable(getattr(chatlog_db, "conversation_transaction", None)),
                 )
 
         thread_id = int(thread_record["id"])
@@ -524,6 +565,7 @@ def _ingest_canonical_messages(
             chatlog_db,
             thread_id=thread_id,
             updates=thread_updates,
+            strict=callable(getattr(chatlog_db, "conversation_transaction", None)),
         )
 
     for msg in messages:
@@ -608,23 +650,8 @@ def _ingest_canonical_messages(
                         mid,
                     )
                 if classified:
-                    try:
-                        persist_personal_fact_candidates(
-                            chatlog_db,
-                            user_id=user_id,
-                            message={
-                                **msg,
-                                "chatlog_message_id": mid,
-                            },
-                            candidates=classified,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to persist %s personal fact candidates for message %s: %s",
-                            import_source,
-                            mid,
-                            exc,
-                        )
+                    assert pending_facts is not None
+                    pending_facts.append(({**msg, "chatlog_message_id": mid}, classified, True))
 
         if should_queue_embedding:
             try:
@@ -688,20 +715,8 @@ def _ingest_canonical_messages(
                 conv_discard,
             )
         if conv_classified:
-            try:
-                persist_personal_fact_candidates(
-                    chatlog_db,
-                    user_id=user_id,
-                    message=conv_message,
-                    candidates=conv_classified,
-                    require_message_db_id=False,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to persist %s conversation-level personal fact candidates: %s",
-                    import_source,
-                    exc,
-                )
+            assert pending_facts is not None
+            pending_facts.append((conv_message, conv_classified, False))
 
     return threads_count, messages_count
 
@@ -1522,28 +1537,33 @@ def _linearize_mainline(
 
 
 def _find_existing_thread_for_source(
-    chatlog_db, user_id: str, source_thread_id: str
+    chatlog_db, user_id: str, source_thread_id: str,
+    origin_system: str | None = None,
 ) -> Optional[int]:
     if not source_thread_id or not hasattr(chatlog_db, "_connect"):
         return None
-    try:
-        with chatlog_db._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT cm.thread_id
-                FROM chat_messages cm
-                JOIN chat_threads ct ON ct.id = cm.thread_id
-                WHERE ct.user_id = %s
-                  AND cm.extra_meta->>'source_thread_id' = %s
-                ORDER BY cm.id ASC
-                LIMIT 1
-                """,
-                (user_id, source_thread_id),
-            )
-            row = cur.fetchone()
-            return int(row["thread_id"]) if row else None
-    except Exception:
-        return None
+    origin_filter = "AND ct.origin_system = %s" if origin_system is not None else ""
+    params = (
+        (user_id, origin_system, source_thread_id)
+        if origin_system is not None
+        else (user_id, source_thread_id)
+    )
+    with chatlog_db._connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT cm.thread_id
+            FROM chat_messages cm
+            JOIN chat_threads ct ON ct.id = cm.thread_id
+            WHERE ct.user_id = %s
+              {origin_filter}
+              AND cm.extra_meta->>'source_thread_id' = %s
+            ORDER BY cm.id ASC
+            LIMIT 1
+            """,
+            params,
+        )
+        row = cur.fetchone()
+        return int(row["thread_id"]) if row else None
 
 
 def _find_existing_message_for_source(
@@ -1551,23 +1571,20 @@ def _find_existing_message_for_source(
 ) -> Optional[Dict[str, Any]]:
     if not source_message_id or not hasattr(chatlog_db, "_connect"):
         return None
-    try:
-        with chatlog_db._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, extra_meta
-                FROM chat_messages
-                WHERE thread_id = %s
-                  AND extra_meta->>'source_message_id' = %s
-                ORDER BY id ASC
-                LIMIT 1
-                """,
-                (thread_id, source_message_id),
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
-    except Exception:
-        return None
+    with chatlog_db._connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, extra_meta
+            FROM chat_messages
+            WHERE thread_id = %s
+              AND extra_meta->>'source_message_id' = %s
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (thread_id, source_message_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def _create_message_with_fallback(
@@ -1616,26 +1633,19 @@ def _persist_temporal_metadata(
 ) -> None:
     if not hasattr(chatlog_db, "_connect"):
         return
-    try:
-        with chatlog_db._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE chat_messages
-                SET event_at = COALESCE(event_at, %s),
-                    extra_meta = %s::jsonb
-                WHERE id = %s
-                """,
-                (
-                    source_created_at.isoformat(),
-                    json.dumps(merged_meta),
-                    message_id,
-                ),
-            )
-    except Exception as exc:
-        logger.warning(
-            "Unable to persist temporal metadata for message %s: %s",
-            message_id,
-            exc,
+    with chatlog_db._connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE chat_messages
+            SET event_at = COALESCE(event_at, %s),
+                extra_meta = %s::jsonb
+            WHERE id = %s
+            """,
+            (
+                source_created_at.isoformat(),
+                json.dumps(merged_meta),
+                message_id,
+            ),
         )
 
 
@@ -1818,6 +1828,7 @@ def _update_thread_metadata_best_effort(
     *,
     thread_id: int,
     updates: Dict[str, Any],
+    strict: bool = False,
 ) -> None:
     try:
         get_thread = getattr(chatlog_db, "get_chat_thread", None)
@@ -1833,8 +1844,12 @@ def _update_thread_metadata_best_effort(
         if not isinstance(existing_metadata, dict):
             existing_metadata = {}
         merged = _merge_thread_metadata(existing_metadata, updates)
-        update_thread_metadata(thread_id, merged)
+        updated = update_thread_metadata(thread_id, merged)
+        if strict and not updated:
+            raise RuntimeError(f"Thread {thread_id} provenance update failed")
     except Exception:
+        if strict:
+            raise
         return
 
 
@@ -1905,6 +1920,7 @@ def ingest_chatgpt_conversation_records(
     pending_embed_message_ids: List[int] = []
 
     for conv in data:
+        writing_canonical = False
         try:
             if not user_id:
                 raise RuntimeError(
@@ -1950,6 +1966,7 @@ def ingest_chatgpt_conversation_records(
 
             title = str(conv.get("title") or "Imported Chat")
 
+            writing_canonical = True
             imported_threads, imported_messages = _ingest_canonical_messages(
                 chatlog_db=chatlog_db,
                 user_id=user_id,
@@ -1972,7 +1989,9 @@ def ingest_chatgpt_conversation_records(
             threads_count += imported_threads
             messages_count += imported_messages
 
-        except Exception as e:
+        except (ValueError, KeyError, TypeError) as e:
+            if writing_canonical:
+                raise
             logger.error("Failed to import conversation: %s", e)
             continue
 
@@ -2047,6 +2066,9 @@ def ingest_claude_export(
     threads_count = 0
     messages_count = 0
     messages_filtered = 0
+    conversations_accepted = 0
+    conversations_failed = 0
+    canonical_duplicate_count = 0
     projects_created = 0
     projects_reused = 0
     imports_project_id = int(_resolve_imports_project_id(chatlog_db))
@@ -2054,6 +2076,7 @@ def ingest_claude_export(
     pending_embed_message_ids: List[int] = []
 
     for conv in data:
+        writing_canonical = False
         try:
             if not user_id:
                 raise RuntimeError(
@@ -2099,6 +2122,7 @@ def ingest_claude_export(
             title = _coerce_string(
                 conv.get("name") or conv.get("title") or "Imported Claude Chat"
             )
+            writing_canonical = True
             imported_threads, imported_messages = _ingest_canonical_messages(
                 chatlog_db=chatlog_db,
                 user_id=user_id,
@@ -2118,8 +2142,15 @@ def ingest_claude_export(
             )
             threads_count += imported_threads
             messages_count += imported_messages
-        except Exception as e:
+            conversations_accepted += 1
+            canonical_duplicate_count += (1 - imported_threads) + (
+                len(messages) - imported_messages
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            if writing_canonical:
+                raise
             logger.error("Failed to import Claude conversation: %s", e)
+            conversations_failed += 1
             continue
 
     embedding_diagnostics = _process_chatgpt_embedding_batches(
@@ -2133,6 +2164,9 @@ def ingest_claude_export(
     return {
         "threads_imported": threads_count,
         "messages_imported": messages_count,
+        "conversations_accepted": conversations_accepted,
+        "conversations_failed": conversations_failed,
+        "canonical_duplicate_count": canonical_duplicate_count,
         "projects_created": projects_created,
         "projects_reused": projects_reused,
         "messages_filtered": messages_filtered,

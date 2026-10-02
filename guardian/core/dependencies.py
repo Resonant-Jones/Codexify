@@ -30,7 +30,16 @@ from sqlalchemy.orm import sessionmaker
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
-from guardian.core.auth import verify_session_token
+from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
+    OPERATOR_SESSION_PURPOSE,
+    get_verified_session_token_purpose,
+    resolve_account_session_subject,
+    verify_session_token,
+    verify_session_token_for_purpose,
+)
+from guardian.core.hosted_room_session import is_verified_guest_session_token
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER, ErrorCode
 from guardian.core.auth_dependencies import (
     extract_session_token,
     resolve_session_user_id,
@@ -782,6 +791,17 @@ def require_service_api_key(
     raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def require_service_capability(
+    _service_key: str = Depends(require_service_api_key),
+) -> None:
+    """Validate the raw service key as a non-principal capability.
+
+    The underlying verifier reads only ``X-API-Key``. Its matching key is not
+    returned as an account, operator, or request scope.
+    """
+    return None
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -790,6 +810,72 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     the dynamic Settings-based behavior without code changes.
     """
     return api_key
+
+
+def require_operator_auth(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> str:
+    """Require explicit operator authority without resolving an account.
+
+    The route may use the configured Guardian API key as operator authority,
+    or a current-format signed token carrying the exact operator purpose.
+    A valid token of another class is rejected before considering API-key
+    fallback, so account and guest credentials cannot be reinterpreted.
+    """
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    cookie_token = _coerce_text(gc_session)
+    presented_token = bearer or cookie_token
+
+    if presented_token:
+        if verify_session_token_for_purpose(
+            presented_token, OPERATOR_SESSION_PURPOSE
+        ):
+            return "operator-session"
+        if _is_valid_remote_token(presented_token) or cookie_token:
+            raise HTTPException(
+                status_code=401, detail="Operator authentication required"
+            )
+
+    candidates: list[str] = []
+    if x_api_key:
+        candidate = x_api_key.strip()
+        if candidate:
+            candidates.append(candidate)
+    # Preserve the local operator route's existing Bearer API-key lane.
+    if bearer and not verify_session_token(bearer)[0]:
+        candidates.append(bearer)
+
+    allowed: list[str] = []
+    try:
+        settings = get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                item.strip()
+                for item in raw_multi.replace(";", ",").split(",")
+                if item.strip()
+            )
+    except Exception:
+        pass
+    env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+    if env_key and env_key not in allowed:
+        allowed.append(env_key)
+
+    if any(
+        hmac.compare_digest(candidate, key)
+        for candidate in candidates
+        for key in allowed
+    ):
+        return "operator-api-key"
+
+    raise HTTPException(status_code=401, detail="Operator authentication required")
 
 
 def get_current_user(
@@ -804,6 +890,86 @@ def get_current_user(
     """
     _ = api_key
     return get_request_user_id(request, x_user_id, authorization, gc_session)
+
+
+def verify_account_session(
+    request: Request = None,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> str:
+    """Authenticate a frozen account route without changing other auth lanes."""
+    if not is_private_preview() and _auth_mode() != "remote":
+        return verify_api_key(request, x_api_key, authorization, gc_session)
+
+    token = extract_session_token(authorization, gc_session)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Account session required",
+            headers={
+                ACCOUNT_AUTH_FAILURE_HEADER: ErrorCode.ACCOUNT_SESSION_INVALID.value
+            },
+        )
+    try:
+        subject = resolve_account_session_subject(token)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        purpose = get_verified_session_token_purpose(token)
+        if purpose == ACCOUNT_SESSION_PURPOSE or (
+            purpose is None and not is_verified_guest_session_token(token)
+        ):
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers={
+                    ACCOUNT_AUTH_FAILURE_HEADER: ErrorCode.ACCOUNT_SESSION_INVALID.value
+                },
+            ) from exc
+        raise
+    if is_private_preview():
+        principal = require_preview_principal(request)
+        if principal.email != subject:
+            raise HTTPException(status_code=401, detail="Account session mismatch")
+        return principal.email
+    return token
+
+
+def require_account_session(
+    credential: str = Depends(verify_account_session),
+) -> str:
+    return credential
+
+
+def _account_scope_gate(
+    request: Request = None,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> None:
+    if is_private_preview() or _auth_mode() == "remote":
+        verify_account_session(request, None, authorization, gc_session)
+
+
+def get_account_user_id(
+    _account_gate: None = Depends(_account_scope_gate),
+    user_id: str = Depends(get_request_user_id),
+) -> str:
+    return user_id
+
+
+def get_account_user_scope(
+    _account_gate: None = Depends(_account_scope_gate),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> RequestUserScope:
+    return request_user_scope
+
+
+def get_account_user(
+    _account_gate: None = Depends(_account_scope_gate),
+    current_user: str = Depends(get_current_user),
+) -> str:
+    return current_user
 
 
 # =========================
@@ -1189,7 +1355,9 @@ __all__ = [
     # Authentication
     "verify_api_key",
     "require_api_key",
+    "require_operator_auth",
     "require_service_api_key",
+    "require_service_capability",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",

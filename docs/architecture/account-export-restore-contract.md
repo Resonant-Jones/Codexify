@@ -313,6 +313,13 @@ Future exports must be emitted from canonical Codexify state, not from the origi
 
 This section extends the export + restore contract to canonical UMS state introduced by UMS-03D and the corresponding compatibility surface introduced by UMS-03A/E/F/G/H/I. It is normative for any UMS-04 implementation slice. It does not authorize UMS-05+.
 
+The 2026-09-25 candidate-authority amendment to ADR-084 and the
+[Unified Memory Store Contract](./unified-memory-store-contract.md) adds a
+target export/restore shape for `candidate_unreviewed_fact`. The original
+UMS-04B/C/D implementation and qualification cover the earlier field set;
+they do not prove this amended candidate shape. A later, separately
+authorized schema-version and round-trip proof must implement it.
+
 The contract answers:
 
 - what is exported
@@ -335,7 +342,17 @@ The export must cover exactly three canonical UMS families, using the physical c
 | `memory_persona_links` | `memory_persona_links` | Typed stable-Persona attribution relationship; zero or more rows per memory |
 | `memory_provenance` | `memory_provenance` | First-class durable lineage row; one or more rows per memory |
 
-The export artifact uses the physical table names above as the entity-family keys. No alias mapping is created. The existing `OMITTED_FAMILIES` list remains authoritative for currently-uncovered families. UMS-04 implementation is responsible for moving `memory_records`, `memory_persona_links`, and `memory_provenance` from "not yet covered" to a covered payload family in a future `account-export.v4` schema version.
+The export artifact uses the physical table names above as the entity-family keys. No alias mapping is created. The existing `OMITTED_FAMILIES` list remains authoritative for currently-uncovered families in each export version. UMS-04 introduced these families in its internal `account-export.v4` stage; ordinary `account-export.v3` coverage is a separate current-runtime question.
+
+The candidate amendment retains these three UMS families and adds no
+parallel candidate or evidence family. The amended fields require a later supported
+export schema version and cannot be silently appended to an older archive.
+Candidate transition audit follows the UMS revision/intent evidence rule in
+§4.2 of the UMS contract. Its physical revision family is still deferred;
+before candidate writes are enabled, that family and its export/restore
+identity, ordering, and integrity rules must be frozen. It is historical audit,
+not a second candidate authority. The three UMS-04 families alone do not
+qualify candidate transition-history portability.
 
 Supporting tables required to satisfy UMS restore are evaluated in the next subsection.
 
@@ -372,7 +389,11 @@ For every `memory_records` row, the export must preserve the complete set of fie
 - `project_id` (nullable; explicit Project identity map reference when non-null)
 - `semantic_species` (closed `MemorySemanticSpecies` token — only the three frozen values; no aliases)
 - `text_content` (free-text for `episodic_semantic_memory`; nullable)
-- `fact_key`, `fact_value`, `fact_confidence` (for personal-fact species; nullable)
+- `raw_fact_key` (intact candidate proposal, `Text`; required for candidate species)
+- `fact_key` (nullable before candidate eligibility, bounded to 255), `fact_value`, `fact_confidence`
+- `candidate_replay_fingerprint`, `candidate_extraction_version`
+- `candidate_guardrail_status`, `candidate_review_state`, `candidate_reason_code`, `candidate_decided_at`
+- `candidate_predecessor_id`, `promoted_personal_fact_id` (nullable lineage)
 - `reviewed_at` (nullable)
 - `activated_at` (nullable)
 - `pinned` (boolean, NOT NULL)
@@ -410,11 +431,17 @@ For every `memory_provenance` row, the export must preserve the full frozen UMS-
 - `source_export_fingerprint` (opaque, nullable)
 - `source_subject_kind` (closed vocabulary: `chat`, `vault`, `importer`, `classifier`, future-registered; nullable)
 - `source_subject_id` (opaque, nullable)
+- `source_type`, `source_role`, `source_excerpt`, `source_locator`, `source_timestamp` (candidate evidence fields, preserving unknowns as unknowns)
 - `is_imported` (boolean, NOT NULL)
 - `extensions` (JSONB; non-authoritative auxiliary metadata only)
 - `created_at` (NOT NULL)
 
 Multiple provenance rows per memory must NOT be collapsed. Distinct source identities must remain distinct after round-trip.
+
+For a candidate, exported provenance rows are the durable evidence links.
+Restore retains every stable `provenance_id`, excerpt/locator, role, type, and
+timestamp; it cannot replace these with a `personal_fact_evidence` row or
+drop them because the candidate was quarantined or rejected.
 
 ### Canonical identity behavior
 
@@ -423,6 +450,12 @@ The exported `memory_id` is the stable canonical memory identity. On a successfu
 `memory_id` is NOT remapped merely because restore occurs on another database instance or another user-owned storage area. A `memory_id` is portable across restore operations.
 
 `memory_persona_links.link_id`, `memory_provenance.provenance_id`, and any future stable UMS identity follow the same rule.
+
+For candidate rows, `memory_id` is the candidate stable ID. The
+`candidate_replay_fingerprint` and `candidate_predecessor_id` round-trip
+unchanged under the account owner map. Neither arrival order nor nullable
+`fact_key` may regenerate candidate identity. Same-ID/different-disposition
+restore conflicts fail closed rather than resetting review state.
 
 ### Collision and conflict behavior
 
@@ -476,6 +509,16 @@ For opaque external references:
 
 `source_system` must be preserved as the exact closed vocabulary value.
 
+`promoted_personal_fact_id` is a local relational ID, not a portable account
+principal or an authority to manufacture a fact. The exporter must include
+the linked promoted `personal_facts` row under its own family and preserve an
+explicit candidate-to-fact relationship. Restore resolves that link through
+the existing Personal Facts restore ID map after account ownership and fact
+identity are validated. A missing, omitted, or cross-account promoted fact
+fails closed. The current `OMITTED_FAMILIES` posture means this round trip is
+**not yet qualified** for promoted candidate lineage; it must be reconciled in
+the later candidate export/restore implementation.
+
 ### Restore dependency order
 
 The restore must follow a dependency order that satisfies the foreign-key and same-account invariants. The required order, at minimum, is:
@@ -492,6 +535,13 @@ memory_records
 memory_persona_links
 memory_provenance
 ```
+
+When a candidate has promotion lineage, the linked `personal_facts` family
+must also be restored and mapped before the candidate-to-fact link is
+finalized. Candidate rows and evidence may restore without a promoted fact
+only when `promoted_personal_fact_id` was null in the archive. The restore
+must not promote quarantined/rejected candidates or infer `approved` from a
+fact key or from arrival order.
 
 UMS-04 must express this ordering in the existing multi-phase restore pipeline rather than inventing a parallel restore engine.
 
@@ -511,6 +561,11 @@ The two are distinct persistence families. The following are explicitly PROHIBIT
 
 Until a future authority-cutover migration exists, both families restore according to their own persistence contracts, side by side, in the same export.
 
+The candidate-authority migration in the UMS contract is an explicitly
+separate, readback-verified reconciliation step. The prohibitions above still
+apply to ordinary export/restore; restore must not perform that migration
+implicitly or create a second candidate from a legacy Personal Fact row.
+
 ### Compatibility-projection exclusion
 
 `MemoryCompatibilityProjection`, `MemoryCompatibilitySourceRef`, and `MemoryCompatibilitySourceKind` are runtime read objects defined by UMS-03E/F/G/I. They are NOT durable export families.
@@ -528,9 +583,17 @@ Round-trip must preserve exactly:
 - Equal `reviewed_at == activated_at` timestamps are valid
 - `pinned` (boolean)
 - `held` (boolean)
-- All fact payload fields (`text_content`, `fact_key`, `fact_value`, `fact_confidence`)
+- All fact payload fields (`text_content`, `raw_fact_key`, `fact_key`, `fact_value`, `fact_confidence`)
+- Candidate review and guardrail state, reason, decision time, extraction
+  version, replay fingerprint, predecessor, promotion lineage, and every
+  candidate-linked evidence row
 
 Restore must NOT infer review. Restore must NOT infer activation. Restore must NOT change a "pending" review posture into "approved". Restore must NOT promote an inactive memory to active. Restore must NOT alter lifecycle state through inference.
+
+In particular, a `quarantined` candidate with `fact_key=NULL` remains
+quarantined with the intact `raw_fact_key` and reason after restore; a
+`rejected` candidate remains rejected. Restoring the same archive again
+resolves the same candidate and evidence identities without resetting them.
 
 ### Extension behavior
 
@@ -587,6 +650,10 @@ The following are explicit fail-closed cases:
 - Manifest integrity failure
 - Entity-count mismatch between declared, serialized, and restored counts
 - Relationship count mismatch where restore validation expects exact counts
+- Candidate missing intact `raw_fact_key`, replay identity, disposition,
+  reason when required, or linked evidence
+- Candidate promotion link whose `personal_facts` target is omitted,
+  missing, conflicting, or owned by another account
 
 The restore report must enumerate every skipped, repaired, or failed entity and relationship by stable identity. Silent degradation is forbidden.
 
@@ -618,6 +685,11 @@ UMS-04 implementation does not close from unit serialization tests alone. The fu
   - `memory_provenance` multiplicity (no collapse, no merge)
   - `semantic_species` (exact canonical token, no aliases)
   - payload fields (text / fact_key / fact_value / fact_confidence)
+  - candidate `raw_fact_key` longer than 255, nullable canonical
+    `fact_key`, replay fingerprint, extraction version, guardrail/review
+    state and reason, predecessor and promotion lineage
+  - candidate `memory_provenance` evidence fields and stable IDs, including
+    quarantined candidates with no `personal_facts` row
   - governance state (`reviewed_at`, `activated_at`, the `reviewed_at IS NULL OR (reviewed_at IS NOT NULL AND activated_at >= reviewed_at)` invariant, equal timestamps remain valid)
   - `pinned` and `held` boolean state
   - timestamps where the contract requires preservation

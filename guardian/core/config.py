@@ -123,12 +123,15 @@ class Settings(BaseSettings):
         ),
     )
     LLM_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Model identifier to pass to the selected LLM provider.",
+        default="local-chat",
+        description=(
+            "Logical model route to pass to the selected local LLM provider. "
+            "Set an exact model explicitly when exact-model execution is required."
+        ),
     )
     DEFAULT_LOCAL_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Default chat model for local (Ollama) completions.",
+        default="local-chat",
+        description="Provider-owned logical route for local chat completions.",
     )
     DEFAULT_OPENAI_MODEL: str = Field(
         default="gpt-4o",
@@ -153,6 +156,19 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str | None = Field(
         default=_DEFAULT_DEEPSEEK_BASE,
         description="Base URL for DeepSeek's OpenAI-compatible API endpoint.",
+    )
+    DEEPSEEK_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for DeepSeek's live model index endpoint. "
+            "Defaults to deriving /models from DEEPSEEK_BASE_URL."
+        ),
+    )
+    DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for DeepSeek live model index discovery requests (seconds)."
+        ),
     )
     DEEPSEEK_CHAT_MODEL: str | None = Field(
         default="deepseek-v4-flash",
@@ -320,12 +336,15 @@ class Settings(BaseSettings):
         description="When true, stop the Whoosh'd sidecar process when Codexify exits.",
     )
     LOCAL_LLM_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Local chat model identifier for Ollama.",
+        default="local-chat",
+        description="Provider-owned logical route for local chat completions.",
     )
     LOCAL_CHAT_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Local chat model identifier used by supported profile validation.",
+        default="local-chat",
+        description=(
+            "Logical local-chat route used by supported profile validation. "
+            "An operator may override it with an exact provider-advertised model."
+        ),
     )
     LOCAL_VISION_MODEL: str | None = Field(
         default=None,

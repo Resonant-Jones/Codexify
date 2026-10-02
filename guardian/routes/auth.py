@@ -9,7 +9,12 @@ from typing import Any
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from guardian.account_activation.service import (
+    ActivationUnavailableError,
+    redeem_activation,
+)
 from guardian.account_observability.invites import (
     complete_registration_attribution,
     record_invite_audit,
@@ -19,7 +24,7 @@ from guardian.account_observability.tokens import (
     ATTRIBUTION_COOKIE_NAME,
     AccountObservabilityInviteAuditAction,
 )
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import resolve_session_user_id
 from guardian.core.passwords import hash_password, verify_password
@@ -53,6 +58,13 @@ class AuthLoginRequest(BaseModel):
     password: str
 
     model_config = ConfigDict(extra="ignore")
+
+
+class AuthActivateRequest(BaseModel):
+    token: str
+    password: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _auth_db():
@@ -252,7 +264,9 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
             session.commit()
 
         token, expires_at = issue_session_token(
-            subject=user.id, ttl_seconds=DEFAULT_SESSION_TTL_SECONDS
+            subject=user.id,
+            ttl_seconds=DEFAULT_SESSION_TTL_SECONDS,
+            purpose=ACCOUNT_SESSION_PURPOSE,
         )
         get_session_store().store(
             token,
@@ -264,6 +278,49 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
         "token": token,
         "user_id": user.id,
         "expires_at": expires_at,
+    }
+
+
+@router.post("/activate")
+@api_router.post("/activate")
+def activate_user(
+    body: AuthActivateRequest, request: Request
+) -> dict[str, Any]:
+    """Redeem a one-time capability without issuing an authenticated session."""
+
+    password = _normalize_password(body.password)
+    db = _auth_db()
+    try:
+        with db.get_session() as session:
+            user = redeem_activation(
+                session,
+                raw_token=body.token,
+                password=password,
+            )
+            session.commit()
+            user_id = user.id
+            username = user.username
+    except (ActivationUnavailableError, IntegrityError):
+        raise HTTPException(
+            status_code=400,
+            detail="activation_unavailable",
+        ) from None
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "[auth] activation_redemption_failed operation=redeem "
+            "request_id=%s error_class=%s",
+            getattr(request.state, "request_id", None),
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="activation_unavailable",
+        ) from None
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "username": username,
     }
 
 

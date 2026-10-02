@@ -8,7 +8,7 @@ export type TileShellSizeVariant =
   | "gallery-image";
 
 const TILE_SIZE_BY_VARIANT: Record<TileShellSizeVariant, string> = {
-  document: "127px",
+  document: "112px",
   "dashboard-image": "192px",
   "gallery-image": "256px",
 };

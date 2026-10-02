@@ -185,7 +185,7 @@ function ThreadPreviewList({
         }}
       >
         {showHeader && (
-          <div className="flex items-center justify-between pb-2">
+          <div className="flex items-center justify-between px-3 pb-2">
             <div className="inline-flex items-center gap-1 text-xs opacity-70">
               <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
               <span className="font-medium">{scopeLabel ?? "—"}</span>
@@ -198,7 +198,7 @@ function ThreadPreviewList({
           </div>
         )}
         {showHeader && onOriginSystemChange && originOptions.length > 0 && (
-          <div className="pb-2 px-3 min-w-0">
+          <div className="pb-2 min-w-0">
             <div
               className="glass-pill sidebar-source-navigation box-border flex w-full max-w-full min-w-0 overflow-hidden px-1"
               role="toolbar"

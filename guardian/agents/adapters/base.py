@@ -35,7 +35,12 @@ class AgentRunEnvelope(BaseModel):
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
 
     # Bounded Pi 0.82.1 tool activation + execution telemetry.
     # Evidence only — confers no execution authority.
@@ -71,6 +76,9 @@ class AgentRunEnvelope(BaseModel):
     required_tool_name: str | None = None
     hard_tool_selection_applied: bool | None = None
     hard_tool_selection_application_count: int | None = Field(default=None, ge=0)
+
+    # Only the strict ADR-068 Evaluator projection, never raw model text.
+    evaluator_result: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
 

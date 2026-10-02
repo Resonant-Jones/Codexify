@@ -30,7 +30,7 @@ from guardian.continuity.write_actions import (
     ContinuityWriteReceipt,
     RealityStampInput,
 )
-from guardian.core.dependencies import get_database_dsn, require_api_key
+from guardian.core.dependencies import get_database_dsn, require_operator_auth
 from guardian.db.models import (
     ContinuityContextPacket,
     ContinuityRealityCommit,
@@ -130,11 +130,12 @@ def _receipt_to_response(receipt: ContinuityWriteReceipt) -> RealityStampRespons
 @router.post("/reality-stamp", response_model=RealityStampResponse)
 def create_reality_stamp(
     request: RealityStampRequest,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> RealityStampResponse:
     """Create a Reality Stamp (persisted Context Packet) from explicit input.
 
-    Requires explicit API-key authentication.  All input fields must be
+    Requires explicit operator authentication by configured API key or
+    operator-purpose session. All input fields must be
     explicit — no ambient chat context, retrieval, model inference,
     browser capture, or graph enrichment is used.
     """
@@ -249,7 +250,7 @@ class ContextPacketReadbackResponse(BaseModel):
 )
 def read_context_packet(
     packet_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> ContextPacketReadbackResponse:
     """Read a single Context Packet by exact packet ID.
 
@@ -366,7 +367,7 @@ class ContinuityOperatorDiagnosticsResponse(BaseModel):
     response_model=ContinuityOperatorDiagnosticsResponse,
 )
 def operator_diagnostics(
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> ContinuityOperatorDiagnosticsResponse:
     """Report aggregate continuity operator gate/profile/count truth.
 
@@ -504,7 +505,7 @@ class RealityStateReadbackResponse(BaseModel):
 )
 def read_reality_state(
     state_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> RealityStateReadbackResponse:
     """Read a single Reality State by exact state ID.
 
@@ -604,7 +605,7 @@ class RealityCommitReadbackResponse(BaseModel):
 )
 def read_reality_commit(
     commit_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> RealityCommitReadbackResponse:
     """Read a single Reality Commit by exact commit ID.
 
@@ -703,7 +704,7 @@ class StatePacketLinkReadbackResponse(BaseModel):
 )
 def read_state_packet_link(
     link_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_operator_auth),
 ) -> StatePacketLinkReadbackResponse:
     """Read a single State-Packet Link by exact link ID.
 

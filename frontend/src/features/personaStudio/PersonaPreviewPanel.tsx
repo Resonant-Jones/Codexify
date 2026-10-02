@@ -240,9 +240,14 @@ function buildPreviewReply(
 
 export interface PersonaPreviewPanelProps {
   profile: PersonaProfileDraft | null;
+  /** Render inside the V2 Assistant FrameCard without a second card/header. */
+  embedded?: boolean;
 }
 
-export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProps) {
+export default function PersonaPreviewPanel({
+  profile,
+  embedded = false,
+}: PersonaPreviewPanelProps) {
   const [previewTurns, setPreviewTurns] = React.useState<PreviewTurn[]>([]);
   const [previewPrompt, setPreviewPrompt] = React.useState("");
   const [isResponding, setIsResponding] = React.useState(false);
@@ -331,19 +336,18 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
 
   const hasTurns = previewTurns.length > 0;
 
-  return (
-    <Card
-      className="bezel-none flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border lg:h-full"
-      role="region"
-      aria-label="Persona Preview panel"
-      data-testid="persona-preview-panel"
-      style={{
-        background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-        borderColor: "var(--panel-border)",
-        boxShadow: "0 10px 30px color-mix(in srgb, var(--bg) 62%, transparent)",
-      }}
-    >
-      <CardHeader className="space-y-2 pb-3" data-testid="persona-preview-panel-header">
+  const panelContents = (
+    <>
+      {embedded ? (
+        <p
+          className="mb-3 text-xs leading-5"
+          data-testid="persona-preview-panel-safety-row"
+          style={{ color: "var(--muted)" }}
+        >
+          Temporary preview. Not saved to chat history.
+        </p>
+      ) : (
+        <CardHeader className="space-y-2 pb-3" data-testid="persona-preview-panel-header">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1.5">
             <CardTitle className="text-lg font-semibold">Draft Preview</CardTitle>
@@ -359,7 +363,8 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
             </p>
           </div>
         </div>
-      </CardHeader>
+        </CardHeader>
+      )}
       <CardContent className="flex min-h-0 flex-1 pt-0">
         <div className="flex min-h-0 w-full flex-1 flex-col gap-3">
           <section
@@ -731,6 +736,35 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
           </section>
         </div>
       </CardContent>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        className="persona-preview-panel--embedded flex min-h-0 flex-1 flex-col"
+        role="region"
+        aria-label="Persona Preview panel"
+        data-testid="persona-preview-panel"
+      >
+        {panelContents}
+      </div>
+    );
+  }
+
+  return (
+    <Card
+      className="bezel-none flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border lg:h-full"
+      role="region"
+      aria-label="Persona Preview panel"
+      data-testid="persona-preview-panel"
+      style={{
+        background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+        borderColor: "var(--panel-border)",
+        boxShadow: "0 10px 30px color-mix(in srgb, var(--bg) 62%, transparent)",
+      }}
+    >
+      {panelContents}
     </Card>
   );
 }

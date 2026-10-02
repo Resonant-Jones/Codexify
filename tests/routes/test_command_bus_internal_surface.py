@@ -73,9 +73,5 @@ def test_public_allowlist_blocks_internal_command_bus_surface(
             "/api/guardian/commands/manifest", headers=headers
         )
 
-        assert response.status_code == 401
-        body = response.json()
-        assert body["detail"] == (
-            "Remote mode requires session/JWT auth; X-API-Key is local-only"
-        )
-        assert body["request_id"]
+        assert response.status_code == 403
+        assert response.json() == {"ok": False, "error": "forbidden"}

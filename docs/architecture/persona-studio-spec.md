@@ -1,463 +1,130 @@
-Product Spec — Persona Studio (Agent Command Center)
+# Product Spec — Persona Studio
 
-## Architecture status
+## Architecture Status
 
-[ADR-082: Persona Profile Manifest and Binding Authority](./adr/082-persona-profile-manifest-and-binding-authority.md)
-governs Persona Studio persistence and authority semantics. The canonical
-authored object is the typed PersonaProfileManifest; YAML and JSON are
-serialization formats only. Browser localStorage and a database JSON blob are
-not authority sources.
+[ADR-082](./adr/082-persona-profile-manifest-and-binding-authority.md) governs Persona Studio persistence and authority. The canonical authored object is the typed `PersonaProfileManifest`; JSON is a serialization format, not an authority source. Browser localStorage and a database JSON blob are not authority sources.
 
-PersonaProfileManifest records requested configuration. A separate,
-server-owned PersonaProfileBinding records server-derived or server-validated
-account, Project, participant, connection, activation, and environment
-mappings. It is authoritative only for a profile's binding state and does not
-supersede the systems that own the underlying authority. A profile import
-cannot self-assign those bindings, credentials, or execution permission.
+`PersonaProfileManifest` records requested configuration. A separate, server-owned `PersonaProfileBinding` records server-derived or server-validated account, Project, participant, connection, activation, and environment mappings. Imports cannot self-assign bindings, credentials, or execution permission.
 
-Current code-path scope is deliberately narrower: the Studio maintains a broad
-browser-local draft, while backend persistence and system-profile resolution
-currently carry only name, system prompt, model provider, model ID, and
-temperature. Broader fields below describe authored intent and future
-implementation direction; they do not claim current runtime enforcement or
-release support.
+Current code-path scope remains narrower: Studio maintains a broad browser-local draft, while backend persistence and system-profile resolution carry only name, system prompt, model provider, model ID, and temperature. Broader fields are authored intent, not current runtime enforcement or release support.
 
-1. Overview
+## 1. Overview
 
-Persona Studio is a non-conversational configuration and observability interface for defining, editing, and validating agent profiles.
+Persona Studio is a non-conversational configuration interface for defining, editing, inspecting, and locally testing Persona Profiles. It may configure model behavior, voice, prompt, requested capabilities, and retrieval intent, but saving remains neither runtime execution nor an authority grant.
 
-It allows users to configure:
+Persona Studio does not maintain chat history, write memory, act as normal conversation, or create runtime authority.
 
-Model behavior (temperature, sampling)
-Voice system
-Persona/system prompt
-Tools, skills, and permissions
-Retrieval and memory policies
+## 2. Core Principles
 
-Profiles may be represented as reusable runtime presets only through
-separately implemented persistence and binding seams. Saving a profile is not
-runtime execution or an authority grant.
+- Persona Studio is configuration; Runtime Chat is execution; memory, Project, connection, and binding systems retain their own authority.
+- Build receipts and Test transcripts are local, ephemeral UI state, not conversation objects or message persistence.
+- Manifest owns authored intent; Binding is server-owned environmental state; requested configuration is not effective configuration.
+- Editing, saving, validating, importing, exporting, Build, and Test do not write memory, infer durable traits, or execute runtime behavior.
 
-Persona Studio itself:
+## 3. Core Entities
 
-does not maintain chat history
-does not write to memory systems
-does not act as a conversational interface
-2. Core Principles
-2.1 Separation of Concerns
-Persona Studio = configuration layer
-Runtime Chat = execution layer
-Memory = external system (thread/project/workspace)
-2.2 Stateless Interaction
-No conversation objects
-No message persistence
-Only config state + validation/test outputs
-2.3 Deterministic Output
-Profiles must produce predictable runtime behavior
-All derived config must be inspectable
-2.4 No Identity Contamination
-Studio actions do not modify persona memory or identity
-Saving, validating, importing, or exporting a profile does not write memory,
-infer durable traits, or execute runtime behavior
-2.5 Manifest and Binding Separation
-PersonaProfileManifest owns authored intent
-PersonaProfileBinding is server-owned environmental binding state
-Requested configuration is not effective configuration
-3. Core Entities
-3.1 PersonaProfileManifest (conceptual)
+### 3.1 PersonaProfileManifest
 
-This product inventory is a conceptual typed shape, not
-implementation-language-specific field syntax. ADR-082 is the authoritative
-manifest contract.
+ADR-082 owns the exact typed contract. V2's writable JSON projection contains selected profile identity/schema version plus authored identity, prompt, model, voice, capabilities, and retrieval fields. It does not make revisions, credentials, Project authority, grants, or Binding records editable.
 
-type PersonaProfileManifest = {
-  id: string
-  name: string
-  description?: string
-  avatar?: string
+The stable profile identity and immutable revision are distinct. `apiVersion` describes schema compatibility; a backend acknowledgement establishes the positive revision. A valid manifest request is not a provider, connector, capability, or execution grant.
 
-  model: {
-    provider: string
-    modelId: string
-    temperature: number
-    topK?: number
-    topP?: number
-    maxTokens?: number
-  }
+### 3.2 PersonaProfileBinding
 
-  voice: {
-    enabled: boolean
-    provider?: string
-    voiceId?: string
-    speed?: number
-    style?: string
-    wakeWord?: string
-    interruptible?: boolean
-  }
+The server separately owns profile-to-environment binding records. They may contain server-derived account references and server-validated Project, participant, connection, activation, or environment mappings. This does not replace authority held by the owning account, Project, Connections, capability, or runtime-support system.
 
-  prompt: {
-    systemPrompt: string
-    styleNotes?: string
-    directives?: string
-  }
+### 3.3 Studio-Only State
 
-  tools: {
-    pinned: string[]
-    allowed: string[]
-    skills: string[]
-  }
+Studio retains a selected local draft, dirty/saved comparison state, local Build receipts and field highlights, Manifest text-buffer validation state, and an ephemeral Test transcript. None is a new persistence or runtime contract.
 
-  permissions: {
-    web: boolean
-    filesystem: "none" | "scoped" | "full"
-    email: boolean
-    calendar: boolean
-    automation: boolean
-    cli: boolean
-  }
+## 4. V2 User Experience
 
-  retrieval: {
-    enabled: boolean
-    mode: "off" | "thread" | "project" | "workspace"
-    topK: number
-    scoreThreshold?: number
-    rerank: boolean
-  }
+### 4.1 Layout
 
-  runtimeFlags: {
-    interruptibleVoice: boolean
-    showTrace: boolean
-    verboseLogs: boolean
-    safeMode: boolean
-  }
+The route is an AppShell sibling view. AppShell owns Dock, scene, theme, and global shell tokens. Persona Studio renders exactly two canonical `FrameCard` surfaces:
 
-  metadata: {
-    createdAt: string
-    updatedAt: string
-    apiVersion: string
-    revision: string
-  }
-}
+```text
+Studio Assistant  |  Configuration
+```
 
-The stable profile identity and the revision are distinct. apiVersion
-describes manifest-schema compatibility; revision identifies one immutable
-authored configuration snapshot. A mutable version number that points only at
-current state is not enough for future thread-to-profile-revision binding.
+Configuration is wider on desktop; the surfaces stack at narrow width without horizontal overflow. There is no third outer frame and no full-width page footer/status panel.
 
-The model, voice, tool, skill, permission, retrieval, and connector-shaped
-fields above are requests or declared ceilings. They do not by themselves
-grant capability, connector, Project, participant, credential, retrieval, or
-voice authority. Connector references, when present, are non-secret logical
-aliases only; no OAuth token, API key, password, provider credential, session
-credential, or connection secret belongs in the manifest.
+### 4.2 Studio Assistant
 
-3.2 PersonaProfileBinding (server-owned conceptual envelope)
+Build is deterministic local configuration, not a model-backed assistant. It recognizes approved prototype mappings for analytic/warmer behavior, Anthropic/Claude or OpenAI/GPT model choice, higher/lower temperature, requested web/email permissions, voice on/off, and retrieval on/off. Recognized changes apply to the selected draft only, show a local receipt, and highlight affected Form fields/sections. Unrecognized text leaves the draft unchanged. Build never auto-saves or calls a provider, normal chat, tool, retrieval, connector, or memory surface.
 
-The server separately owns the profile-to-environment binding record for a
-manifest or revision. It records server-derived account references,
-server-validated Project and participant policy scope references, non-secret
-connection-resolution mappings returned by the Connections control plane,
-activation state, and environment-specific reference mappings. It is
-authoritative for that profile binding record, but does not replace canonical
-account, Project, relationship, Connections, capability, or runtime-support
-authority. Imported YAML or JSON must be validated, remapped, approved, or
-rejected against those server-owned controls; it cannot choose them.
+Test reuses the deterministic draft-aware preview engine. It remains local, ephemeral, non-threaded, and independently clearable. It must not create a Guardian thread, chat history, memory write, provider request, tool call, retrieval execution, connector call, or persisted Persona mutation. Its embedded layout must not create another primary frame or duplicate heading.
 
-3.3 Studio-Only Entities
-type ProfileDraft = PersonaProfileManifest & {
-  isDirty: boolean
-  validationState: "valid" | "warning" | "invalid"
-}
+### 4.3 Configuration
 
-type ProfileValidationEvent = {
-  type: "error" | "warning"
-  field: string
-  message: string
-}
+The Configuration header has the compact profile selector, acknowledgement state, Revert, Save, and a subordinate Duplicate-as-new action. Status states are `Saved · rev N` for a clean acknowledged draft, `Unsaved changes · saved rev N` for a dirty acknowledged draft, and `Unsaved draft` with no acknowledged baseline. The client never predicts a future revision; Save remains `Save`, not `Save rev N+1`.
 
-type ProfileTestRun = {
-  id: string
-  type: "voice" | "prompt" | "retrieval" | "tools"
-  result: any
-  timestamp: string
-}
+Configuration has Form, Manifest, and Effective projections of the same selected draft.
 
-type ProfileDebugEvent = {
-  event: string
-  payload?: any
-  timestamp: string
-}
-4. User Experience
-4.1 Layout
-Left Panel — Profile Manager
-List of profiles
-Search/filter
-Create new
-Duplicate
-Delete
-Import / export
-Default selector
-Main Panel — Profile Editor
+#### Form
 
-The editor may show Project, participant, connector, capability, retrieval, or
-voice requests, but it must label them as requested until a server-owned
-binding and the owning resolver establish an effective configuration. The
-editor must not treat configuration presence as connector authorization,
-connector authorization as health, or provider selection as model
-availability.
+Form contains collapsible Identity, Behavior / Prompt, Model, Voice, Capabilities, Retrieval, and Activation & Bindings sections. It replaces the retired permanent seven-tab editor. Generation Top K and Retrieval Top K remain separate authored parameters.
 
-Tabbed interface:
+#### Manifest
 
-1. Identity
-Name
-Description
-Avatar / color
-Base template
-2. Model
-Provider
-Model selection
-Temperature
-Top K (generation)
-Top P
-Max tokens
-Fallback model
-3. Voice
-Enable / disable
-Provider
-Voice preset / clone
-Speed
-Style
-Wake word
-Interruptible speech
-4. Prompt
-System prompt (primary field)
-Style notes
-Directives
-Guardrails
-5. Tools
-Pinned tools
-Allowed tools
-Skills attached
-Tool priority
-6. Permissions
-Web access
-File system scope
-Email
-Calendar
-CLI
-Automation
-7. Retrieval
-Enabled toggle
-Mode (thread/project/workspace)
-Retrieval Top K
-Score threshold
-Reranking toggle
-8. Observability
-Effective config preview
-Resolved prompt preview
-Permission matrix
-Validation results
-Right Panel — Diagnostics
-Sections
-Save status
-Validation output
-Config diff
-Last test run
-Debug event stream
-Effective runtime snapshot
-9. Key Functional Behavior
-5.1 Save Model
+Manifest is editable JSON for the writable authored shape. Form edits regenerate the JSON projection; valid JSON changes update the same draft. Invalid JSON remains in the local buffer with an inline validation error and cannot corrupt the draft. The editor rejects mismatched `apiVersion`, another profile identity, revision fields, bindings, credentials, Project authority, runtime grants, and unknown fields. YAML import/export remains deferred.
 
-Actions:
+#### Effective
 
-Save
-Save as new
-Duplicate
-Export JSON or YAML (future, non-secret serialization)
-Import JSON or YAML (future, server-validated)
-Reset to last saved
-Revert section
+Effective may inspect authored/requested values only. Until an authoritative resolver exists, provider/model availability, connector authorization/health, Project bindings, capability grants, and runtime effect must be labelled `Not resolved`, `Unavailable to resolve here`, or equivalent neutral wording. The view must not fabricate availability, authorization, or runtime truth.
 
-An import/export feature must serialize PersonaProfileManifest only. It must
-not serialize credentials, create account ownership, bind Projects or
-participants, grant connector access, or grant execution authority. Until a
-full-manifest persistence task is implemented, the current saved runtime seam
-remains limited to name, system prompt, model provider, model ID, and
-temperature.
-5.2 Validation System
+#### Activation & Bindings
 
-Triggered on:
+This section preserves the non-portable Binding boundary. It has no Project-pin editor, `@persona` alias editor, connector grant control, credential field, or fake authorization toggle unless a later authorized task provides an authoritative production seam.
 
-field change
-save attempt
+## 5. Save, Validation, and Test Behavior
 
-Validations include:
+Save and Duplicate-as-new use the existing manifest persistence seam. Submitted writable manifests omit revision. Successful backend acknowledgement establishes the new baseline/revision; failed requests leave the draft dirty. Concurrent local edits are not silently erased. Revert restores the last acknowledged manifest when available and does not write the backend.
 
-missing required fields
-incompatible model params
-unavailable providers
-tool-permission conflicts
-retrieval enabled without sources
+V2 validates writable-manifest shape and identity/schema coherence. It does not invent environment validation: provider selection is not availability, configuration is not connector authorization or health, and requested capability is not effective capability.
 
-Validation distinguishes manifest shape from environment authority. A selected
-provider is not proof of inventory availability; a configured connection is
-not authorization or health; and a valid requested capability is not an
-effective capability.
-5.3 Test System (Non-Persistent)
-Test Types
-Test Voice
-Test Prompt
-Test Retrieval
-Test Tools
-Constraints
-no memory writes
-no chat history creation
-no persona mutation
-no authority grant or execution merely from validation
-Output
-result payload
-debug events
-logs in diagnostics panel
-6. Runtime Integration and Execution Boundary
+The current Test system is deterministic preview, not voice/retrieval/tool execution. It has no memory writes, chat history, authority grant, or runtime execution merely because a draft is inspected or tested.
 
-6.1 Current Compatible Projection
+## 6. Runtime Integration and Execution Boundary
 
-The existing runtime-bearing persistence seam can project only:
+### 6.1 Current Compatible Projection
 
-name
-system prompt
-model provider
-model ID
-temperature
+The existing runtime-bearing persistence seam can project only name, system prompt, model provider, model ID, and temperature. The remaining manifest fields stay non-executing until each has a separately implemented, authorized, and proven enforcement seam.
 
-A future manifest-persistence implementation may project those five values
-through the existing system-profile resolver. It does not require a wholesale
-resolver rewrite. The remaining manifest fields stay non-executing until each
-has a separately implemented, authorized, and proven enforcement seam.
+### 6.2 Requested Versus Effective Application
 
-6.2 Requested Versus Effective Application
+The intended path is not UI-to-runtime: Manifest records requested configuration; Binding supplies server-derived or server-validated environment references; owning systems determine availability and policy denials; and runtime/support policy determines the narrow effective configuration that may reach a runtime. No effective-configuration endpoint or full resolver exists today.
 
-The intended profile-application path is not a direct UI-to-runtime pipe:
+### 6.3 Strict Isolation
 
-1. PersonaProfileManifest records requested configuration.
-2. PersonaProfileBinding supplies server-derived or server-validated account,
-   Project, participant, connection, activation, and environmental scope
-   references; the owning systems retain authority over those inputs.
-3. The owning systems determine resource availability and policy denials.
-4. The existing effective capability resolver supplies the capability snapshot
-   with its unchanged profile > Project > account precedence.
-5. Applicable runtime and support policy determines the narrow effective
-   configuration that may reach a runtime.
+Persona Studio must never, merely by editing, saving, importing, exporting, validating, testing, or inspecting a profile, write memory stores, modify thread history or create conversation records, invoke a model/tool/retrieval/connector, change provider health, or grant new authority.
 
-For capabilities:
+## 7. Observability Requirements
 
-effective capabilities =
-profile requested ceiling
-intersection resolved capability snapshot(account, project, profile)
-intersection applicable runtime/support policy
+Effective distinguishes requested values from unavailable unresolved environment state. It does not claim available, denied, or effective runtime configuration without an owning resolver/evidence source. Draft-vs-saved state and transient Build highlights are sufficient V2 inspection surfaces.
 
-No effective-configuration endpoint or full resolver exists today; a future
-view remains observational until a runtime-integration task explicitly
-authorizes execution.
+## 8. Critical UX Rules
 
-6.3 Strict Isolation
+- No normal Guardian chat UI, conversation threading, or hidden assistant persona presence in Studio.
+- Keep generation and retrieval parameters semantically separate.
+- Make unsaved state visible in the Configuration header, not a page footer.
+- Use actual FrameCard material and AppShell scene ownership; do not port the prototype's simulated shell or environmental claims.
 
-Persona Studio must never, merely by editing, saving, importing, exporting,
-validating, or inspecting a profile:
+## 9. Non-Goals
 
-write to memory stores
-modify thread history
-create conversation records
-invoke a model
-execute a tool or capability
-perform retrieval
-invoke a connector
-change provider health
-grant new authority
+V2 does not implement model-backed configuration, a new backend endpoint, Binding persistence/editor, Project pins, `@persona` aliases, connector grants, provider health resolution, capability enforcement, retrieval execution, voice runtime enforcement, YAML import/export, new identity/memory behavior, global Dock/FrameCard/token redesign, legacy-component cleanup, or release promotion.
 
-7. Observability Requirements
-7.1 Effective Config View
-Requested configuration
-Available configuration
-Denied configuration with reason
-Effective configuration
-Capability-resolution source and scope
-Connection setup, authorization, and health shown separately
-7.2 Prompt Preview
-Final compiled system prompt
-7.3 Event Log
+## 10. Future Extensions
 
-Examples:
+Potential future work includes individually authorized effective-config resolution, Binding editing, import/export, history/rollback, Project scope, and runtime enforcement. Each requires its own authority, execution, and proof contract.
 
-profile.loaded
-field.changed
-config.validated
-config.saved
-test.started
-test.completed
-permission.denied
-provider.unavailable
-7.4 Diff Viewer
-Compare draft vs saved profile
-Highlight modified fields
-8. Critical UX Rules
-8.1 No Chat UI
-No message bubbles
-No conversation threading
-No assistant persona presence
-8.2 Explicit Parameter Separation
+## 11. Naming
 
-Clearly distinguish:
+- Feature: Persona Studio
+- Left workspace: Studio Assistant
+- Right workspace: Configuration
+- Local modes: Build / Test and Form / Manifest / Effective
 
-Generation Top K (model sampling)
-Retrieval Top K (memory fetch)
-8.3 Runtime Readiness Indicator
-Show manifest validity separately from effective runtime eligibility
-Do not label a selected provider, configured connector, or requested capability
-as ready without the owning availability, authorization, health, and
-runtime/support-policy evidence
-8.4 Unsaved State Visibility
-Persistent unsaved indicator
-Section-level dirty state
-9. Non-Goals
+## 12. Definition of Done
 
-Persona Studio will NOT:
-
-act as a chat interface
-store conversations
-manage long-term memory
-simulate runtime threads
-mutate persona identity directly
-10. Future Extensions (Optional)
-Template marketplace (prebuilt personas)
-Version history / rollback
-Profile inheritance system
-Sharing/export registry
-Multi-profile A/B comparison
-Live runtime telemetry hook
-11. Naming
-Feature: Agent Command Center
-Primary workspace: Persona Studio
-Internal modules:
-Profile Editor
-Runtime Preview
-Diagnostics
-12. Definition of Done
-
-The architecture contract is complete when:
-
-PersonaProfileManifest and PersonaProfileBinding remain distinct
-API schema compatibility and immutable profile revision semantics remain
-distinct
-Imports cannot self-grant environmental authority or include secrets
-The five-field compatible projection remains explicit until broader
-enforcement seams are proven
-No memory, chat, identity, connector, retrieval, tool, capability, or model
-execution is inferred from Studio save or validation behavior
-Diagnostics distinguish requested, available, denied, and effective
-configuration
-
-A future implementation may declare an individual runtime field complete only
-when its owning binding, authorization, enforcement, and proof seams are
-implemented. This specification does not claim that all displayed profile
-parameters currently apply at runtime.
+The V2 presentation is complete when AppShell directly contains the page and the page renders exactly two primary FrameCards; Build/Test retain local-only non-authoritative behavior; Form/Manifest/Effective are one draft projected honestly; Manifest and Binding stay separate; acknowledgement/revision semantics remain intact; and no runtime, identity, memory, connector, or release claim is inferred from Studio interaction.

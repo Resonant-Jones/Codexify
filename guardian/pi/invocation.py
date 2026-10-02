@@ -13,7 +13,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from guardian.pi.contracts import (
     PiHarnessResult,
@@ -21,10 +21,12 @@ from guardian.pi.contracts import (
     PiInvocationEnvelope,
     PiInvocationPolicyDecision,
     PiInvocationReceipt,
-    PiPermissionGrant,
     PiProviderLane,
 )
+from guardian.pi.evaluator_result import validate_evaluator_result
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    PI_AUTHORIZED_REASONING_EFFORTS,
     PiAuthorizedFailureClass,
     PiHarnessResultClass,
     PiInvocationReceiptStatus,
@@ -42,6 +44,7 @@ _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",
         "authorization",
+        "evaluation_result",
         "cookie",
         "credential",
         "password",
@@ -63,6 +66,7 @@ _GIT_TIMEOUT_SECONDS = 5
 _AUTHORIZED_FAILURE_STAGES = frozenset(
     {
         "adapter_execution",
+        "authorized_retry_suppression",
         "authorization",
         "identity_attestation",
         "identity_verification",
@@ -73,6 +77,7 @@ _AUTHORIZED_FAILURE_STAGES = frozenset(
         "provider_request",
         "provider_resolution",
         "provider_transport",
+        "reasoning_effort",
         "runtime_load",
         "session_initialization",
         "target_posture",
@@ -101,12 +106,14 @@ class PiAuthorizedHarnessRequest:
     timeout_seconds: int
     identity: PiAuthorizedExecutionIdentity
     read_only: bool
+    reasoning_effort: str = "medium"
     # Bounded Campaign Engine declared execution requirement.
     # When non-null, the adapter must project it into the first provider
     # request only. `None` preserves ordinary authorized execution.
     # Guardian permits this value only inside an already-authorized
     # `files.write` grant.
     required_tool_name: str | None = None
+    evaluator_result_contract: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +135,12 @@ class PiHarnessRuntimeEvidence:
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
     # Bounded Pi 0.82.1 tool activation + execution telemetry (evidence only).
     effective_tool_names: tuple[str, ...] | None = None
     write_tool_available: bool | None = None
@@ -146,6 +158,7 @@ class PiHarnessRuntimeEvidence:
     required_tool_name: str | None = None
     hard_tool_selection_applied: bool | None = None
     hard_tool_selection_application_count: int | None = None
+    evaluator_result: dict[str, Any] | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -168,7 +181,12 @@ class PiLiveInvocationOutcome:
     runtime_identity_established: bool = False
     session_initialized: bool | None = None
     provider_request_started: bool | None = None
+    observed_execution_phases: tuple[str, ...] | None = None
+    highest_observed_execution_phase: str | None = None
     oauth_available: bool | None = None
+    requested_reasoning_effort: str | None = None
+    effective_reasoning_effort: str | None = None
+    automatic_retries_disabled: bool | None = None
     receipt: PiInvocationReceipt | None = None
     harness_result: PiHarnessResult | None = None
     actual_identity: PiAuthorizedExecutionIdentity | None = None
@@ -189,6 +207,7 @@ class PiLiveInvocationOutcome:
     required_tool_name: str | None = None
     hard_tool_selection_applied: bool | None = None
     hard_tool_selection_application_count: int | None = None
+    evaluator_result: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +243,8 @@ def invoke_guardian_authorized_pi(
     timeout_seconds: int,
     harness_runner: PiAuthorizedHarnessRunner | None = None,
     required_tool_name: str | None = None,
+    reasoning_effort: str = "medium",
+    evaluator_result_contract: str | None = None,
 ) -> PiLiveInvocationOutcome:
     """Authorize and invoke one Pi harness call without durable side effects.
 
@@ -299,6 +320,26 @@ def invoke_guardian_authorized_pi(
             diagnostic_stage="tool_selection",
         )
 
+    if evaluator_result_contract is not None and (
+        evaluator_result_contract != PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+        or bool(write_roots)
+        or normalized_required_tool is not None
+    ):
+        return _blocked(
+            PiValidationFailureReason.MUTATION_SCOPE_VIOLATION,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="evaluation_result",
+        )
+
+    if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+        return _blocked(
+            PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            runner_call_count=0,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage="reasoning_effort",
+        )
+
     pre_execution = _snapshot_target(target)
     request = PiAuthorizedHarnessRequest(
         prompt=str(prompt),
@@ -306,7 +347,9 @@ def invoke_guardian_authorized_pi(
         timeout_seconds=max(1, int(timeout_seconds)),
         identity=identity,
         read_only=not write_roots,
+        reasoning_effort=reasoning_effort,
         required_tool_name=normalized_required_tool,
+        evaluator_result_contract=evaluator_result_contract,
     )
     runner = harness_runner or _run_with_pi_adapter
     evidence: PiHarnessRuntimeEvidence | None = None
@@ -344,6 +387,9 @@ def invoke_guardian_authorized_pi(
             runtime_identity_established=evidence.runtime_identity_established,
             session_initialized=evidence.session_initialized,
             provider_request_started=evidence.provider_request_started,
+            observed_execution_phases=evidence.observed_execution_phases,
+            highest_observed_execution_phase=evidence.highest_observed_execution_phase,
+            effective_reasoning_effort=evidence.effective_reasoning_effort,
             runner_call_count=1,
         )
 
@@ -362,6 +408,31 @@ def invoke_guardian_authorized_pi(
             runner_call_count=1,
             diagnostic_class=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
         )
+
+    if (
+        evidence.requested_reasoning_effort != reasoning_effort
+        or evidence.effective_reasoning_effort != reasoning_effort
+        or evidence.automatic_retries_disabled is not True
+    ):
+        retry_mismatch = evidence.automatic_retries_disabled is not True
+        return _blocked(
+            PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            runner_call_count=1,
+            diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+            diagnostic_stage=("authorized_retry_suppression" if retry_mismatch else "reasoning_effort"),
+        )
+
+    evaluator_result = None
+    if evaluator_result_contract is not None:
+        try:
+            evaluator_result = validate_evaluator_result(evidence.evaluator_result)
+        except (TypeError, ValueError):
+            return _blocked(
+                PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+                runner_call_count=1,
+                diagnostic_class=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                diagnostic_stage="evaluation_result",
+            )
 
     artifact_ref = f"pi://guardian-authorized/{envelope.invocation_id}/result"
     # Bounded selection evidence (separate from the ten-field telemetry).
@@ -388,6 +459,8 @@ def invoke_guardian_authorized_pi(
         receipt_status=PiInvocationReceiptStatus.COMPLETED.value,
         validation_metadata={
             "guardian_authorized": True,
+            "reasoning_effort": {"requested": reasoning_effort, "effective": evidence.effective_reasoning_effort},
+            "automatic_retries_disabled": True,
             "policy_decision_id": decision.policy_decision_id,
             # Bounded tool + assistant-response telemetry — evidence only,
             # no args/results/content/deltas/IDs.
@@ -454,6 +527,8 @@ def invoke_guardian_authorized_pi(
         result_class=PiHarnessResultClass.SUCCESS.value,
         validation_metadata={
             "actual_runtime_identity_attested": True,
+            "reasoning_effort": {"requested": reasoning_effort, "effective": evidence.effective_reasoning_effort},
+            "automatic_retries_disabled": True,
             # Bounded tool + assistant-response telemetry — evidence only,
             # no args/results/content/deltas/IDs.
             "tool_telemetry": {
@@ -499,6 +574,9 @@ def invoke_guardian_authorized_pi(
         session_initialized=evidence.session_initialized,
         provider_request_started=evidence.provider_request_started,
         oauth_available=evidence.oauth_available,
+        requested_reasoning_effort=reasoning_effort,
+        effective_reasoning_effort=evidence.effective_reasoning_effort,
+        automatic_retries_disabled=True,
         receipt=receipt,
         harness_result=harness_result,
         actual_identity=actual_identity,
@@ -532,6 +610,7 @@ def invoke_guardian_authorized_pi(
             if selection_evidence is not None
             else None
         ),
+        evaluator_result=evaluator_result,
     )
 
 
@@ -558,7 +637,9 @@ def _run_with_pi_adapter(
             harness_version=request.identity.harness_version,
         ),
         read_only=request.read_only,
+        reasoning_effort=request.reasoning_effort,
         required_tool_name=request.required_tool_name,
+        evaluator_result_contract=request.evaluator_result_contract,
     )
     return PiHarnessRuntimeEvidence(
         status=result.status,
@@ -572,7 +653,12 @@ def _run_with_pi_adapter(
         runtime_identity_established=result.runtime_identity_established,
         session_initialized=result.session_initialized,
         provider_request_started=result.provider_request_started,
+        observed_execution_phases=result.observed_execution_phases,
+        highest_observed_execution_phase=result.highest_observed_execution_phase,
         oauth_available=result.oauth_available,
+        requested_reasoning_effort=result.requested_reasoning_effort,
+        effective_reasoning_effort=result.effective_reasoning_effort,
+        automatic_retries_disabled=result.automatic_retries_disabled,
         # Bounded tool telemetry (evidence only; Pi is the source of truth).
         effective_tool_names=result.effective_tool_names,
         write_tool_available=result.write_tool_available,
@@ -595,6 +681,7 @@ def _run_with_pi_adapter(
         hard_tool_selection_application_count=(
             result.hard_tool_selection_application_count
         ),
+        evaluator_result=result.evaluator_result,
     )
 
 
@@ -995,6 +1082,9 @@ def _blocked(
     runtime_identity_established: bool = False,
     session_initialized: bool | None = None,
     provider_request_started: bool | None = None,
+    observed_execution_phases: tuple[str, ...] | None = None,
+    highest_observed_execution_phase: str | None = None,
+    effective_reasoning_effort: str | None = None,
 ) -> PiLiveInvocationOutcome:
     return PiLiveInvocationOutcome(
         ok=False,
@@ -1008,6 +1098,9 @@ def _blocked(
         runtime_identity_established=runtime_identity_established,
         session_initialized=session_initialized,
         provider_request_started=provider_request_started,
+        observed_execution_phases=observed_execution_phases,
+        highest_observed_execution_phase=highest_observed_execution_phase,
+        effective_reasoning_effort=effective_reasoning_effort,
     )
 
 
@@ -1051,6 +1144,9 @@ def _adapter_blocked(
     runtime_identity_established: bool = False,
     session_initialized: bool | None = None,
     provider_request_started: bool | None = None,
+    observed_execution_phases: tuple[str, ...] | None = None,
+    highest_observed_execution_phase: str | None = None,
+    effective_reasoning_effort: str | None = None,
 ) -> PiLiveInvocationOutcome:
     return _blocked(
         reason,
@@ -1061,6 +1157,9 @@ def _adapter_blocked(
         runtime_identity_established=runtime_identity_established,
         session_initialized=session_initialized,
         provider_request_started=provider_request_started,
+        observed_execution_phases=observed_execution_phases,
+        highest_observed_execution_phase=highest_observed_execution_phase,
+        effective_reasoning_effort=effective_reasoning_effort,
     )
 
 

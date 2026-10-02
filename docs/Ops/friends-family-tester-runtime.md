@@ -34,9 +34,9 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 | State isolation | Dev Postgres/Redis/Neo4j volumes | Separate volumes via project name |
 | Supported profile | `v1-local-core-web-mcp` | `v1-whooshd-deepseek-web` |
 | Default chat provider | Local runtime | Whoosh'd, with the model selected by the operator environment |
-| Cloud chat provider | Not enabled by this profile | DeepSeek `deepseek-v4-flash`, only when selected in the durable thread configuration |
+| Cloud chat provider | Not enabled by this profile | DeepSeek's live chat-model roster, only when selected in the durable thread configuration |
 
-The Tester keeps `LLM_PROVIDER=local` and the operator-selected Whoosh'd model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and `modelId=deepseek-v4-flash` through the ordinary thread configuration API. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`. Per ADR-074, the supported profile owns allowed/default provider posture, `.env.tester` supplies the concrete local model, Compose forwards the four chat-model aliases from `${LOCAL_CHAT_MODEL}`, and live inventory remains fail-closed runtime truth. The restored tracked Qwen default is not a current availability claim.
+The Tester keeps `LLM_PROVIDER=local` and the operator-selected Whoosh'd model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and any chat-capable `modelId` returned by DeepSeek's authenticated `/models` endpoint through the ordinary thread configuration API. If discovery is degraded, `deepseek-v4-flash` remains the bounded compatibility fallback. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`. Per ADR-074, the supported profile owns allowed/default provider posture, `.env.tester` supplies the concrete local model, Compose forwards the four chat-model aliases from `${LOCAL_CHAT_MODEL}`, and live inventory remains fail-closed runtime truth. The restored tracked Qwen default is not a current availability claim.
 
 ## Hosted Room Route Posture (Private Preview)
 

@@ -1,81 +1,100 @@
 # Zac Collaborator RAG Source
 
 **For:** Zac and Zac's agent  
-**Last updated:** 2026-06-26  
-**Status:** Active — a compact RAG source directory, not a task backlog
+**Last updated:** 2026-09-29
+**Status:** Active — orientation resources plus bounded execution handoffs
 
 ## Purpose
 
-This folder is a compact RAG source for Zac's agent. Zac does not need to manually read the whole Codexify architecture corpus before exploring. This folder helps an agent understand how to explore Codexify and return grounded proposals.
+This folder is Zac's compact entrypoint into Codexify. It exists so a person or agent can orient from a bounded source set instead of reconstructing the project from the full architecture corpus.
 
-Resonant Jones wants Zac to work from curiosity and inspiration, not assigned ticket grinding. Zac is not expected to hammer through Codexify the same way Resonant does. Zac should be able to point an agent at this one directory and get enough context for exploration, proposal-making, and safe contribution.
+The original June 2026 resources were intentionally exploration-first: reports before proposals, curiosity before ticket grinding. That mode remains useful. It is no longer the only mode.
 
-## How Zac Should Use It
+## Two Collaboration Modes
 
-- Point an agent at this directory.
-- Ask the agent to explore an area that feels interesting.
-- Ask the agent to produce a proposal before implementation.
-- Bring proposals to Resonant when architecture-sensitive boundaries are involved.
-- Ask Resonant for constraints when a proposal touches sensitive zones.
+### 1. Exploration / report mode
 
-## What This Folder Is
+Use the existing report lenses when the goal is to learn, map, critique, or investigate without committing to implementation.
 
-- Collaborator orientation.
-- Proposal protocol.
-- Safe/sensitive zone map.
-- Source map into deeper docs.
+- Read `agent-rag-brief.md`.
+- Use `report-only-agent-lenses.md` and `report-request-prompts.md`.
+- Save grounded learning artifacts under `reports/`.
+- Reports are not tasks, approvals, or architecture authority.
 
-## What This Folder Is Not
+### 2. Execution handoff mode
 
-- Not a task backlog.
-- Not a complete architecture replacement.
-- Not permission to bypass `00-current-state.md`.
-- Not permission to change runtime semantics without a contract.
-- Not a release promise.
+When Chris sends a dated handoff, the handoff defines one bounded outcome with an evidence gate.
+
+Start from the newest dated packet under `handoffs/`. A handoff may ask for product testing, field evidence, runtime proof, a proposal, or implementation. Its scope and stop conditions override the older exploration-first posture for that lane.
+
+Current handoff:
+
+- `handoffs/2026-09-28/README.md`
+
+The rule is simple: **one primary lane at a time, evidence before expansion**.
+
+## Feedback Does Not Need To Be Formal
+
+Zac does not need to remember the report schema while using Codexify.
+
+He can complain, narrate, voice-dump, paste screenshots, or describe what felt wrong in ordinary language. His assistant can translate that raw feedback into the project format afterward using:
+
+- `handoffs/2026-09-28/feedback-translator-template.md`
+
+The translator must preserve uncertainty and must not invent reproduction steps, causes, severity, or product intent. The human experience is the source material; formatting is an agent task.
+
+## Authority Order
+
+For any Codexify claim or task, use this order:
+
+1. `docs/architecture/00-current-state.md` for current operational and release truth.
+2. The authoritative GitHub issue / accepted architecture contract for the chosen lane.
+3. The dated handoff packet for coordination, proof shape, and stop conditions.
+4. Older collaborator reports and planning docs for background only.
+
+If these conflict, stop and surface the conflict instead of reconciling it by assumption.
 
 ## Directory Contents
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `agent-rag-brief.md` | Main file Zac hands to an agent. Gives the agent its role, rules, and workflow. |
-| `exploration-proposal-protocol.md` | Lightweight proposal-before-change workflow. Defines the exploration loop and risk classes. |
-| `safe-and-sensitive-zones.md` | Map of where Zac can explore freely and where proposals are required. |
-| `proposal-template.md` | Copy-paste template for proposals. |
-| `source-map.md` | Deeper pointers into architecture docs, code entrypoints, and sensitive domains. |
-| `agent-startup-prompt.md` | Copy-paste prompt Zac can give to an AI agent as the initial instruction. |
-| `report-only-agent-lenses.md` | Seven report-only lenses Zac can ask an agent to use for learning the codebase. |
-| `report-request-prompts.md` | Copy-paste prompts for each report-only lens plus a general prompt and follow-up proposal prompt. |
-| `report-output-templates.md` | Standardized report shapes for directory maps, UI observations, runtime boundaries, test coverage, and Continuity phases. |
-| `reports/` | Report archive and intake index. Where generated reports land. See `reports/README.md`. |
+| `agent-rag-brief.md` | Exploration-mode agent brief. |
+| `agent-startup-prompt.md` | Copy-paste exploration startup prompt. |
+| `exploration-proposal-protocol.md` | Proposal-before-change workflow. |
+| `safe-and-sensitive-zones.md` | Historical risk map; verify against current state before relying on it. |
+| `proposal-template.md` | Proposal template. |
+| `source-map.md` | Historical orientation map; dated 2026-06-26. |
+| `report-only-agent-lenses.md` | Report-only exploration lenses. |
+| `report-request-prompts.md` | Report prompts. |
+| `report-output-templates.md` | Standard report shapes. |
+| `reports/` | Learning-artifact archive. |
+| `handoffs/` | Dated execution packets with outcomes, evidence gates, and stop conditions. |
+| `handoffs/2026-09-28/feedback-translator-template.md` | Agent template for turning informal Zac feedback into evidence without requiring Zac to format it. |
 
-## Quick Start: Copy-Paste Prompt
+## Execution Checkpoint Format
 
-Zac can copy the prompt from `agent-startup-prompt.md` into an AI agent and point the agent at this directory. The agent will orient from the RAG source, explore one area, and produce a scout report/proposal — not implementation. This removes the need to manually summarize the directory each time.
+For an active handoff, the saved checkpoint should be compact:
 
-## Suggested Agent Orientation Order
+- **Current truth** — what is true now.
+- **What changed** — what was actually completed.
+- **Evidence** — screenshot, trace, report, commit, test output, or runtime proof.
+- **Blocker / ambiguity** — only if one exists.
+- **Next move** — the next bounded action.
 
-These files are designed for Zac's agent. Zac does not need to read them all manually.
+Zac does not need to speak in this format. His assistant may translate an informal update into it.
 
-If Zac wants an agent to explore, tell the agent:
+Do not replace evidence with an activity log.
 
-1. Read `agent-rag-brief.md` first — this is the agent's operating brief.
-2. Read `safe-and-sensitive-zones.md` to know which areas require proposals before changes.
-3. Follow `exploration-proposal-protocol.md` to shape any proposals.
-4. Use `source-map.md` as a doc/code pointer index.
-5. Use `proposal-template.md` to produce a clean proposal.
+## General Stop Conditions
 
-## Reports Before Proposals
+Stop and ask rather than improvise when:
 
-Zac can use report-only lenses while learning the repo. These lenses produce grounded reports — directory maps, UI observations, boundary summaries, test coverage maps — without any implementation or proposal pressure.
-
-Reports are useful even when they do not lead to code changes. They help Zac build a mental map of Codexify step by step. Proposals come later if something still feels worth changing after the report.
-
-## Report Archive
-
-Generated reports can be stored in `docs/collaborators/zac/reports/`. Use `reports/report-index.md` to track them. Follow `reports/report-filename-conventions.md` for naming.
-
-Reports in the archive are learning artifacts only. They are not tasks, not approvals, and not architecture authority. `docs/architecture/00-current-state.md` remains authoritative. See `reports/README.md` for the full archive protocol.
+- current truth conflicts with the handoff;
+- a step requires a credential, permission, account, node, or provider access that has not been explicitly supplied;
+- the work would change identity, memory, auth, provider, queue/worker, release, or architecture authority beyond the lane's contract;
+- a task would require pushing to `main`, deploying, widening a release claim, or mutating another node without explicit authorization;
+- the proof invalidates a premise that the next step depends on.
 
 ## Bottom Line
 
-Zac should follow inspiration and explore what feels alive, awkward, undercooked, or worth improving. Curiosity is welcome. But architecture-sensitive changes require proposal-before-change. This directory helps Zac's agent do that safely.
+Exploration is still welcome. Active collaboration is now more explicit: when a dated handoff exists, choose one lane, complete the bounded proof or reach a real stop condition, and return evidence. Curiosity can determine *how* the lane is approached; it does not replace the outcome.

@@ -6,9 +6,10 @@ caller-supplied identity is never trusted, email is never exposed, and no
 Guardian/model/retrieval/memory work is performed by any path here.
 
 Route posture: registered under the ``direct_messages`` label and enabled
-only on the hosted/private test profile (``v1-friends-family-web``).  All
-other supported profiles leave the label unlisted, which the route-governance
-machinery treats as quarantined.
+only on the private-preview profile (``v1-whooshd-deepseek-web``) and the
+hosted/private test profile (``v1-friends-family-web``). All other supported
+profiles leave the label unlisted, which route governance treats as
+quarantined.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import RequestUserScope, get_request_user_scope
+from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
 from guardian.db.models import User
 from guardian.messaging import service
 
