@@ -1,6 +1,7 @@
 # Scout #815: account handoff decision
 
-Status: proposal awaiting operator decision; no new auth route or transport is deployed.
+Status: operator approved with the strict hosted-composition condition below;
+implementation in progress, not deployed or live-qualified.
 Date: 2026-10-02.
 
 ## Proven checkpoint
@@ -20,7 +21,14 @@ and returns its expiry. Its account extractor selects Authorization Bearer befor
 `gc_session`. No browser-to-native handoff route exists in the inspected auth seams.
 Scout's branch predates ADR-092 and must not deploy its older purpose-less issuer.
 
-## Decision required
+## Approved decision
+
+Operator decision, October 2: approved provided `X-Guardian-Account-Session` is
+strictly an alternate transport for the existing canonical Guardian account
+session, with no new credential class or authority, accepted only on the
+explicitly qualified hosted composition where upstream Access occupies
+Authorization. Implementation must preserve this condition. The proposal below
+records the rationale and bounded implementation scope; it is not runtime proof.
 
 The original goal requires an account Bearer header. Native Cloudflare admission
 is currently qualified using an Access Bearer in that same header. Two tokens
@@ -28,7 +36,7 @@ cannot occupy that field. Cloudflare's documented opaque Managed OAuth token is
 not a downstream Access JWT; its linked-app header mechanism does not establish
 that the opaque token can be moved to `CF-Access-Token`.
 
-Recommended amendment: for the hosted profile only, retain the qualified Access
+Approved composition: for the hosted profile only, retain the qualified Access
 Bearer and carry the separately issued account session in a dedicated
 `X-Guardian-Account-Session` header. Personal nodes without this ingress keep the
 canonical account Bearer path. Both transports feed the same strict account

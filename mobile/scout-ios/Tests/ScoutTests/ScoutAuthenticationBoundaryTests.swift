@@ -104,7 +104,7 @@ final class ScoutAuthenticationBoundaryTests: XCTestCase {
             XCTAssertThrowsError(try ScoutRequestAuthentication.apply(
                 to: &request, endpoint: endpoint(mode: .remoteSession), apiKey: key
             )) { error in
-                XCTAssertEqual(error as? ScoutRequestAuthenticationError, .unsupportedRemoteSession)
+                XCTAssertEqual(error as? ScoutRequestAuthenticationError, .sessionRequired)
             }
             XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
             XCTAssertNil(request.value(forHTTPHeaderField: "X-API-Key"))
@@ -197,7 +197,7 @@ final class ScoutAuthenticationBoundaryTests: XCTestCase {
             }
             XCTFail("Remote stream ended without a policy error")
         } catch {
-            XCTAssertEqual(error as? ScoutRequestAuthenticationError, .unsupportedRemoteSession)
+            XCTAssertEqual(error as? ScoutRequestAuthenticationError, .sessionRequired)
         }
 
         XCTAssertTrue(received.isEmpty)
@@ -206,7 +206,7 @@ final class ScoutAuthenticationBoundaryTests: XCTestCase {
 
     private func assertBlocked(_ message: String, status: Int?, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertNil(status, file: file, line: line)
-        XCTAssertTrue(message.contains("Remote-session authentication is not implemented"), message, file: file, line: line)
+        XCTAssertTrue(message.contains("No account session is stored"), message, file: file, line: line)
         XCTAssertEqual(AuthenticationBoundaryURLProtocol.requestCount, 0, file: file, line: line)
     }
 

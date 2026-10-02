@@ -227,7 +227,7 @@ struct GuardianChatView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             keychainError = "Could not load API key from Keychain."
             apiKey = nil
@@ -256,7 +256,7 @@ struct GuardianChatView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -824,7 +824,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -850,7 +850,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -881,7 +881,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             keychainError = "Could not load API key from Keychain."
             apiKey = nil
@@ -910,7 +910,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -943,7 +943,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -972,7 +972,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -997,7 +997,7 @@ private struct ThreadMessagesView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -1150,7 +1150,7 @@ private struct TaskEventsView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -1176,7 +1176,7 @@ private struct TaskEventsView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
@@ -1302,7 +1302,7 @@ struct DocumentDetailView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }

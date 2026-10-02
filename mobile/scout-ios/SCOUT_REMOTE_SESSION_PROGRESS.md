@@ -186,3 +186,30 @@ Before a hosted native implementation can be qualified, establish the operator-a
 Once those prerequisites are established, resume `remoteSession`, Keychain-only per-profile credential isolation, hosted/personal profile UI, restoration/logout/expiry/reauthentication and route-specific invalid-session handling. Then run the real account-owned thread → message → completion → task events → persisted-output loop, documents/artifacts, resume, and revoked-session denial in Scout.
 
 No authenticated live Scout behaviors were proven. The new ingress tests do not establish a Guardian remote session. Account-session lifecycle tests and the full #815 live proof remain open. #816/#817 were not started. No issue was mutated, closed, or promoted. No new ADR is introduced by this client projection repair; existing Guardian authority and endpoint/auth separation remain governing.
+
+
+## October 2: canonical account handoff implementation checkpoint
+
+The operator approved the alternate hosted account header only as transport of
+Guardian's existing canonical account session, with no new credential authority.
+The backend patch is isolated from the older Scout issuer in a worktree based on
+serving revision f83fe5da326871d1948ba79d90831be1402375ec. It has not yet been deployed.
+
+Scout now implements browser handoff, profile/origin-scoped account restoration,
+protected thread qualification, explicit logout, typed expiry/invalid-session
+handling and the shared hosted/personal credential selector. Local API keys also
+use profile/origin slots; legacy global material is preserved without adoption.
+All credential-bearing shared services reject redirects and clear account state
+only on the canonical invalid-account marker. Account changes reset volatile views.
+
+Validation: the complete SwiftPM suite passes 50 tests; the canonical signed
+simulator Xcode project builds successfully in the host lane with isolated /tmp
+caches and -disable-sandbox. The managed build cannot reach CoreSimulator, so that
+attempt does not establish build or launch proof. The new signed build is not yet
+installed. Backend handoff/transport/app-mount/strict-purpose/operator tests passed 57
+tests after aligning core dependencies with the serving image. Frontend login tests passed 13 tests
+and Vite build passed. These are source/test/build layers, not live account proof.
+
+The previously observed native ingress admission remains the current live
+checkpoint. Guardian handoff, protected read, complete continuity and logout denial
+must still be executed through the actual app before #815 can close.

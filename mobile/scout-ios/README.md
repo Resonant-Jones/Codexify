@@ -127,14 +127,38 @@ The exact callback is `ai.resonantconstructs.codexify.scout://access-callback`.
 No client secret exists. Ingress credentials remain in a separate profile/origin-scoped
 Keychain record; neither credentials nor callback results belong in proof files.
 
-This slice qualifies Cloudflare admission separately from Guardian identity. It
-does not implement the Guardian browser-to-native account-session handoff. Normal
-remote requests still fail closed under the shared authentication policy. The
-Settings result reports a non-secret HTTP status/Ray ID after token exchange; it
-does not claim an account session. Use **Revoke hosted ingress** to request ingress
-revocation and remove its Keychain credential after confirmation. Automatic
-account-session restoration and Guardian logout are still pending. Ingress
-renewal is attempted only by the explicit stored-ingress check.
+Cloudflare admission and Guardian account identity remain distinct. After ingress
+admission, **Sign in to Guardian** opens the existing canonical web account login.
+An explicit **Continue to Scout** confirmation transfers that existing account
+session through a 60-second, single-use PKCE code, using the already registered
+callback. The server revalidates purpose, live session mapping and account
+eligibility before returning the unchanged session bytes and ordinary expiry.
+No Access identity is converted into a Guardian user.
+
+**Check Guardian account** performs a protected thread read. Restoring a Keychain
+record alone does not prove authentication. **Log out of Guardian** removes this
+connection's local account session and requests canonical server revocation;
+the result distinguishes remote confirmation from a failed revocation request.
+A marked account-session failure clears only the affected account credential.
+Unrelated 401 responses preserve it. Expiry requires explicit sign-in again.
+
+Connection = endpoint/transport + explicit authentication mode. Hosted requests
+use Access in Authorization and the approved X-Guardian-Account-Session alternate
+transport for the canonical account credential. Guardian accepts the alternate
+header only at the fixed preview host/application with signed upstream admission;
+its existing strict account validator remains authoritative. Personal HTTPS
+nodes retain account Bearer where supported, or explicitly selected local API
+keys. Tailscale is transport, not identity. There is no local-key fallback.
+All credentials are scoped by profile and origin, held only in Keychain. Legacy
+global API keys are preserved but never silently adopted; explicitly save a key
+for the selected personal connection. Credential-bearing requests cannot follow
+redirects. Profile/account changes reset volatile client projections; Guardian
+remains durable authority.
+
+Source and tests implement this handoff; deployment and authenticated #815 live
+continuity remain separate qualification gates. LLM/operator evidence routes are
+not promoted to account-authorized routes by this change. App Intents remain
+downstream of operational continuity.
 
 Live PKCE/token/admission qualification requires human sign-in in the dedicated
 Scout proof simulator. Do not capture credentials, OTPs, callback codes, or tokens

@@ -373,7 +373,7 @@ struct ServerStatusView: View {
         var apiKey: String?
         if profile.authenticationMode == .localAPIKey {
             do {
-                apiKey = try keychainStore.loadAPIKey()
+                apiKey = try keychainStore.loadAPIKey(for: profile)
             } catch {
                 keychainError = "Could not load API key from Keychain."
             }

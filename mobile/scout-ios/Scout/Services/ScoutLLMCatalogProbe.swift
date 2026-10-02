@@ -12,7 +12,7 @@ struct ScoutLLMCatalogProbe {
     static func probe(
         endpoint: ScoutEndpointProfile,
         apiKey: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = .scoutAuthenticated
     ) async -> ScoutLLMCatalogResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -50,6 +50,9 @@ struct ScoutLLMCatalogProbe {
         do {
             try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+            }
             let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse else {

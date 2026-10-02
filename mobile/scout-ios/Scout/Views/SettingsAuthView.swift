@@ -15,6 +15,7 @@ struct SettingsAuthView: View {
     @State private var keychainMessage: String?
 
     @StateObject private var accessSignIn = ScoutAccessSignIn()
+    @StateObject private var accountSignIn = ScoutAccountSignIn()
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -50,9 +51,25 @@ struct SettingsAuthView: View {
                 }
 
                 if draftProfile.authenticationMode == .remoteSession {
+                    Section("Guardian Account") {
+                        Button("Sign in to Guardian") {
+                            let profile = draftProfile
+                            Task { await accountSignIn.signIn(profile: profile) }
+                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking || !isSavedHostedProfile)
+                        Button("Check account session") {
+                            let profile = draftProfile
+                            Task { await accountSignIn.check(profile: profile) }
+                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
+                        Button("Log out of Guardian") {
+                            let profile = draftProfile
+                            Task { await accountSignIn.logout(profile: profile) }
+                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
+                        if let message = accountSignIn.message { Text(message).font(.footnote) }
+                    }
                     Section("Hosted Ingress") {
                         Button("Use hosted Codexify") {
                             accessSignIn.cancel()
+                            accountSignIn.cancel()
                             draftProfile = ScoutEndpointProfile(id: UUID(), name: "Hosted Codexify",
                                 baseURL: ScoutAccessOAuth.resource.absoluteString, transportType: .custom,
                                 authenticationState: .unconfigured, validationState: .unconfigured,
@@ -63,17 +80,17 @@ struct SettingsAuthView: View {
                             let profile = draftProfile
                             Task { await accessSignIn.signIn(profile: profile) }
                         }
-                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
                         Button("Check stored ingress") {
                             let profile = draftProfile
                             Task { await accessSignIn.checkStoredIngress(profile: profile) }
                         }
-                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
                         Button("Revoke hosted ingress") {
                             let profile = draftProfile
                             Task { await accessSignIn.revoke(profile: profile) }
                         }
-                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
                         if accessSignIn.isWorking { ProgressView("Waiting for sign-in…") }
                         if let message = accessSignIn.message {
                             Text(message).font(.footnote)
@@ -144,7 +161,9 @@ struct SettingsAuthView: View {
                         }
 
                         let testedEndpoint = draftProfile
-                        probeGeneration += 1
+                        isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey(for: draftProfile)
+        apiKeyInput = ""
+        probeGeneration += 1
                         let testedGeneration = probeGeneration
                         isProbing = true
                         connectionMessage = nil
@@ -155,7 +174,7 @@ struct SettingsAuthView: View {
                             var apiKey: String?
                             if testedEndpoint.authenticationMode == .localAPIKey {
                                 do {
-                                    apiKey = try keychainStore.loadAPIKey()
+                                    apiKey = try keychainStore.loadAPIKey(for: draftProfile)
                                 } catch {
                                     keychainMessage = "Could not load API key from Keychain. Testing without credentials."
                                 }
@@ -211,7 +230,7 @@ struct SettingsAuthView: View {
                                     .foregroundStyle(.green)
                                 Spacer()
                                 Button("Delete", role: .destructive) {
-                                    try? keychainStore.deleteAPIKey()
+                                    try? keychainStore.deleteAPIKey(for: draftProfile)
                                     isKeyStored = false
                                     apiKeyInput = ""
                                     keychainMessage = "API key removed from Keychain."
@@ -223,7 +242,7 @@ struct SettingsAuthView: View {
                                     let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
                                     guard !trimmed.isEmpty else { return }
                                     do {
-                                        try keychainStore.saveAPIKey(trimmed)
+                                        try keychainStore.saveAPIKey(trimmed, for: draftProfile)
                                         apiKeyInput = ""
                                         keychainMessage = "API key updated in Keychain."
                                     } catch {
@@ -236,7 +255,7 @@ struct SettingsAuthView: View {
                                 let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
                                 do {
-                                    try keychainStore.saveAPIKey(trimmed)
+                                    try keychainStore.saveAPIKey(trimmed, for: draftProfile)
                                     isKeyStored = true
                                     apiKeyInput = ""
                                     keychainMessage = "API key saved to Keychain."
@@ -307,8 +326,9 @@ struct SettingsAuthView: View {
             .navigationTitle("Settings")
             .onAppear {
                 loadProfile()
-                isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey()
+                isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey(for: draftProfile)
                 if isSavedHostedProfile { accessSignIn.restoreStatus(profile: draftProfile) }
+                if draftProfile.authenticationMode == .remoteSession { accountSignIn.restoreStatus(profile: draftProfile) }
             }
         }
     }
@@ -354,6 +374,9 @@ struct SettingsAuthView: View {
 
     private func resetCurrentConnectionEvidence() {
         accessSignIn.cancel()
+        accountSignIn.cancel()
+        isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey(for: draftProfile)
+        apiKeyInput = ""
         probeGeneration += 1
         isProbing = false
         draftProfile.authenticationState = .unconfigured

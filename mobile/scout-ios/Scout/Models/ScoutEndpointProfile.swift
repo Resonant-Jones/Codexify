@@ -25,7 +25,7 @@ enum ScoutEndpointAuthenticationMode: String, CaseIterable, Identifiable, Codabl
     var title: String {
         switch self {
         case .localAPIKey: return "Local API key"
-        case .remoteSession: return "Remote session — not available yet"
+        case .remoteSession: return "Remote account session"
         }
     }
 }
