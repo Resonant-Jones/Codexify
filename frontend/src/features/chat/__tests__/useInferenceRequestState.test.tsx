@@ -1,5 +1,7 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
 
 import {
   describeInferenceRequestState,
@@ -298,6 +300,55 @@ describe("useInferenceRequestState", () => {
     emitTaskEvent(eventSources.instances[0], "task.cancelled", {});
     emitTaskEvent(eventSources.instances[1], "task.cancelled", { task_id: "old-task" });
     expect(onTaskCancelled).not.toHaveBeenCalled();
+  });
+
+  it.each(["task.failed", "completion.error", "task.state"])(
+    "projects owned deadline %s as request failure despite terminal timing",
+    (type) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      vi.setSystemTime(new Date("2026-04-05T00:12:01.000Z"));
+      emitTaskEvent(source, type, {
+        thread_id: 1, task_id: "current-task", state: "FAILED",
+        failure_code: "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+        error: "Accepted chat task work deadline exceeded.",
+        failed_after_state: "QUEUED", provider_request_started: false,
+        first_output_observed: false, completed_at: "2026-04-05T00:12:01.000Z",
+      });
+      expect(result.current.state.phase).toBe("failed");
+      expect(result.current.state.failureCode).toBe("CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED");
+      expect(result.current.state.statusText).toMatch(/request.*time limit/i);
+      expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed_retryable");
+      expect(describeInferenceRequestState(result.current.state).isDelayed).toBe(false);
+      expect(source.close).toHaveBeenCalledOnce();
+      render(<InferenceStatusBanner state={result.current.state} />);
+      expect(screen.getByText("Reply failed")).toBeInTheDocument();
+      expect(screen.getByText(/request.*time limit/i)).toBeInTheDocument();
+      expect(screen.queryByText(/provider error|provider.*timed out|completed/i)).not.toBeInTheDocument();
+      act(() => result.current.startRequest(request));
+      expect(result.current.state.failureCode).toBeNull();
+      expect(result.current.state.phase).toBe("sending");
+    }
+  );
+
+  it.each(["task.failed", "task.cancelled"])("does not mistake %s terminal timing for success", (type) => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    emitTaskEvent(eventSources.instances[0], type, {
+      thread_id: 1, task_id: "current-task", error: "Provider rejected the request",
+      completed_at: "2026-04-05T00:00:01.000Z",
+    });
+    expect(result.current.state.phase).toBe(type === "task.failed" ? "failed" : "cancelled");
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe(
+      type === "task.failed" ? "provider_error" : "cancelled"
+    );
   });
 
   function deferCancelPost() {

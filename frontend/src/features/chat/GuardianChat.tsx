@@ -3117,6 +3117,8 @@ export function GuardianChat({
           String(payload?.error || "Guardian could not finish the response."),
           {
             detailText: describeTaskFailureDetailText(payload),
+            failureCode:
+              typeof payload?.failure_code === "string" ? payload.failure_code : null,
           }
         );
         pendingFastRetryRef.current = null;

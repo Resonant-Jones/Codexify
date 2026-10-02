@@ -400,12 +400,14 @@ vi.mock("@/features/chat/hooks/useInferenceRequestState", async (importOriginal)
   return {
     describeInferenceRequestState: (
       state: { phase?: string } | null | undefined
-    ) => ({
-      canonicalState: state?.phase ?? "idle",
-      delayDetailText: null,
-      isDelayed: false,
-      timings: {},
-    }),
+    ) => inferenceMocks.realHook && state
+      ? actual.describeInferenceRequestState(state as any)
+      : ({
+        canonicalState: state?.phase ?? "idle",
+        delayDetailText: null,
+        isDelayed: false,
+        timings: {},
+      }),
     useInferenceRequestState: (options?: { onTaskCancelled?: (threadId: number, taskId: string) => void }) => {
       inferenceMocks.onTaskCancelled = options?.onTaskCancelled;
       return inferenceMocks.realHook ? actual.useInferenceRequestState(options) : hookValue;
@@ -966,6 +968,27 @@ describe("GuardianChat turn lock lifecycle", () => {
     })));
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
     expect(current.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["task.failed", "completion.error"])("projects owned global deadline %s through the actual hook", async (type) => {
+    inferenceMocks.realHook = true;
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
+    emitLiveEvent(type, {
+      thread_id: 1, task_id: "task-1",
+      failure_code: "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+      error: "Accepted chat task work deadline exceeded.",
+      provider_request_started: false, first_output_observed: false,
+      completed_at: "2026-04-05T00:00:01.000Z",
+    });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable");
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
   });
 
   it.each(

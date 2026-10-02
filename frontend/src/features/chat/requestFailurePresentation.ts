@@ -12,6 +12,16 @@ export const PROVIDER_TIMEOUT_DETAIL_TEXT =
 export const PROVIDER_FIRST_TOKEN_TIMEOUT_DETAIL_TEXT =
   "Provider timed out after accepting the request and before the first token. Try again or switch to a faster mode.";
 
+export const ACCEPTED_TASK_DEADLINE_DETAIL_TEXT =
+  "The request reached its execution time limit. Try again.";
+
+export function isAcceptedTaskDeadlineFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  // Existing Guardian ErrorCode; presentation must follow typed failure truth.
+  return payload?.failure_code === "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED";
+}
+
 function normalizeToken(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -63,6 +73,10 @@ export function describeTaskFailureDetailText(
 ): string {
   if (!payload) {
     return GENERIC_PROVIDER_FAILURE_DETAIL_TEXT;
+  }
+
+  if (isAcceptedTaskDeadlineFailure(payload)) {
+    return ACCEPTED_TASK_DEADLINE_DETAIL_TEXT;
   }
 
   if (isFirstTokenTimeout(payload)) {
