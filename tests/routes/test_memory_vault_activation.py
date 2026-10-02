@@ -2,7 +2,7 @@
 
 Proves that the qualified Memory Vault router (GET + PATCH pin/unpin/hold/
 project-scope/persona-attribution) is registered through Guardian's
-canonical route control plane as ``internal_only`` on exactly the three
+canonical route control plane as ``internal_only`` on exactly the four
 intended web profiles, remains quarantined elsewhere, is hidden from public
 OpenAPI, and can be disabled by its feature flag.
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import fastapi.routing as fastapi_routing
 import pytest
 
 from guardian.core.supported_profile import load_supported_profile
@@ -27,6 +28,7 @@ ADMITTED_PROFILES = {
     "v1-local-core-web-mcp",
     "v1-friends-family-web",
     "v1-whooshd-deepseek-web",
+    "v1-user-profile-accent-proof",
 }
 
 VAULT_GET_PATHS = {
@@ -120,10 +122,15 @@ def load_guardian_api(monkeypatch: pytest.MonkeyPatch, tmp_path):
         importlib.reload(guardian_api)
 
 
+def _effective_routes(app):
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    return iter_contexts(app.routes) if iter_contexts else app.routes
+
+
 def _mounted_paths(app) -> set[str]:
     return {
         getattr(route, "path", None)
-        for route in app.routes
+        for route in _effective_routes(app)
         if isinstance(getattr(route, "path", None), str)
     }
 
@@ -152,7 +159,7 @@ def test_feature_flag_false_disables_vault_route(load_guardian_api) -> None:
 
 
 def test_quarantine_outranks_feature_flag(load_guardian_api) -> None:
-    guardian_api = load_guardian_api("v1-user-profile-accent-proof", flag="true")
+    guardian_api = load_guardian_api("test-continuity", flag="true")
     app = guardian_api.app
 
     assert "memory_vault" not in app.state.supported_profile_enabled_labels
@@ -168,7 +175,7 @@ def test_vault_routes_have_correct_methods(load_guardian_api) -> None:
     # when the same URL exposes multiple HTTP methods, so we collect
     # methods across all such entries for each path.
     methods_by_path: dict[str, set[str]] = {}
-    for route in app.routes:
+    for route in _effective_routes(app):
         path = getattr(route, "path", None)
         if path in VAULT_PATHS:
             methods_by_path.setdefault(path, set()).update(

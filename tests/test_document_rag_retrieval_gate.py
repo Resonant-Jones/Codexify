@@ -86,8 +86,40 @@ class TestContextBrokerDocumentReadinessGate:
         assert result is ready_doc
         # The query must have been against UploadedDocument
         session.query.assert_called_once_with(UploadedDocument)
-        # Two filters were applied: by id and by embedding_status
-        assert mock_query.filter.call_count == 2
+        # Ownership and readiness are checked on the loaded row.
+        mock_query.filter.assert_called_once()
+        predicate = mock_query.filter.call_args.args[0]
+        assert predicate.compare(UploadedDocument.id == "ready-1")
+
+    @pytest.mark.parametrize(
+        ("status", "owner", "deleted"),
+        [
+            ("pending", "tester", False),
+            ("processing", "tester", False),
+            ("failed", "tester", False),
+            ("ready", "other-account", False),
+            ("ready", "tester", True),
+        ],
+    )
+    def test_load_doc_by_type_rejects_ineligible_row(self, status, owner, deleted):
+        from guardian.context.broker import ContextBroker
+        from guardian.db.models import GeneratedDocument, UploadedDocument
+
+        broker = ContextBroker(chatlog_db=MagicMock(), vector_store=MagicMock())
+        row = _FakeDoc(status=status)
+        row.user_id = owner
+        row.deleted_at = datetime.now(timezone.utc) if deleted else None
+        session = MagicMock()
+        session.query.return_value.filter.return_value.first.return_value = row
+
+        assert broker._load_doc_by_type(
+            session=session,
+            doc_id=row.id,
+            doc_type="uploaded",
+            user_id="tester",
+            generated_model=GeneratedDocument,
+            uploaded_model=UploadedDocument,
+        ) is None
 
     def test_load_doc_by_type_returns_none_when_no_ready_match(self):
         """When no document matches id + ready, returns None."""

@@ -1585,7 +1585,7 @@ describe("AppShell gallery demo content", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
 
     expect(localStorage.getItem("cfy.wallpaper")).toBe(
-      `${window.location.origin}/peekaboo-demo/abstract-signal-study.png`
+      "/peekaboo-demo/abstract-signal-study.png"
     );
     expect(
       screen.getByRole("img", { name: "Abstract signal study" })

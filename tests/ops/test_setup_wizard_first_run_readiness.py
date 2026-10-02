@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from guardian.core.local_runtime_presets import WHOOSHD_MODEL as _WHOOSHD_MODEL
+from guardian.core.local_runtime_presets import WHOOSHD_ALIAS_MODEL as _WHOOSHD_MODEL
 from guardian.ops import setup_wizard
 
 

@@ -372,8 +372,7 @@ function renderChat(threadId = "1") {
 
 async function advanceTimers(ms: number) {
   await act(async () => {
-    vi.advanceTimersByTime(ms);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(ms);
   });
 }
 

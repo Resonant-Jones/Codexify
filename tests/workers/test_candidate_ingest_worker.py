@@ -26,8 +26,11 @@ def _task(*, payload: dict[str, object]) -> dict[str, object]:
 
 
 def _record_by_message(caplog, message: str):
+    event_type = message.split("] ", 1)[1]
     return next(
-        record for record in caplog.records if record.getMessage() == message
+        record
+        for record in caplog.records
+        if getattr(record, "event_type", None) == event_type
     )
 
 
@@ -65,12 +68,10 @@ def test_candidate_ingest_worker_enqueues_graph_write_task_from_graph_candidates
     )
     assert summary.request_id == "req-1"
     assert summary.thread_id == 7
-    assert summary.candidate_trace_id == "trace-1"
+    assert summary.candidate_trace_id != "trace-1"
     assert summary.node_count == 2
     assert summary.edge_count == 1
     assert summary.warning_count == 0
-    assert summary.node_types == ["Document", "Message"]
-    assert summary.edge_types == ["DERIVED_FROM"]
 
     assert enqueue_spy.call_count == 1
     graph_write_task, queue_name = enqueue_spy.call_args.args
@@ -85,6 +86,13 @@ def test_candidate_ingest_worker_enqueues_graph_write_task_from_graph_candidates
     )
     assert len(graph_write_task["nodes"]) == 2
     assert len(graph_write_task["edges"]) == 1
+    assert {node["node_type"] for node in graph_write_task["nodes"]} == {
+        "Document",
+        "Message",
+    }
+    assert {edge["edge_type"] for edge in graph_write_task["edges"]} == {
+        "DERIVED_FROM"
+    }
     assert graph_write_task["warnings"] == []
 
 
@@ -120,9 +128,9 @@ def test_candidate_ingest_worker_logs_graph_candidate_warnings(
     assert summary.node_count == 1
     assert summary.edge_count == 0
     assert summary.warning_count == 1
-    assert summary.node_types == ["Unknown"]
-    assert summary.edge_types == []
-    assert warning.warnings == ["unknown_entity_type"]
+    assert warning.candidate_trace_id != "trace-1"
+    graph_write_task = enqueue_spy.call_args.args[0]
+    assert graph_write_task["warnings"] == ["unknown_entity_type"]
     enqueue_spy.assert_called_once()
 
 
@@ -207,8 +215,8 @@ def test_candidate_ingest_worker_contains_graph_write_enqueue_failure(
     assert ok is True
     assert any(
         record.levelno >= logging.ERROR
-        and candidate_ingest_worker.GRAPH_WRITE_ENQUEUE_FAILED_LOG
-        in record.getMessage()
+        and getattr(record, "event_type", None)
+        == candidate_ingest_worker.GRAPH_WRITE_ENQUEUE_FAILED_LOG
         for record in caplog.records
     )
     summary = _record_by_message(

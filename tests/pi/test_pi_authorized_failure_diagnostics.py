@@ -1752,6 +1752,9 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
     fake_pi_dir = (
         Path(__file__).resolve().parent / "fixtures" / "fake_pi_package"
     )
+    node_binary = shutil.which("node")
+    if node_binary is None:
+        pytest.skip("Node.js is required for the Pi wrapper subprocess test")
     materialized = tmp_path / "fake_pi_package"
     (materialized / "dist").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(fake_pi_dir / "package.json", materialized / "package.json")
@@ -1777,7 +1780,7 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
     env["PI_FAKE_RECORD_SETTINGS"] = "1"
     repo_root = Path(__file__).resolve().parents[2]
     result = subprocess.run(
-        ["node", str(repo_root / "codex_runner/src/agent-wrapper.js"),
+        [node_binary, str(repo_root / "codex_runner/src/agent-wrapper.js"),
          "guardian-authorized-task", "fixture prompt"],
         cwd=str(materialized.parent),
         env=env,

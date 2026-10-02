@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 
 from backend.rag.openai_export_conversation_import import (
     ImportDiagnostics,
@@ -39,6 +41,71 @@ _SCOPED_IMPORT_MODULE_NAMES = (
     "guardian.core.chatlog_postgres",
     "guardian.core.pgdb",
 )
+
+
+@pytest.fixture
+def transaction_postgres_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[str, None, None]:
+    """Upgrade a disposable database for the PostgreSQL transaction proof."""
+    base_url = os.getenv("TEST_DATABASE_URL")
+    if not base_url:
+        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql
+    from alembic import command
+    from alembic.config import Config
+
+    database_name = f"codexify_import_tx_{uuid.uuid4().hex[:12]}"
+    parsed_url = make_url(base_url)
+    admin_url = parsed_url.set(database="postgres").render_as_string(
+        hide_password=False
+    )
+    database_url = parsed_url.set(database=database_name).render_as_string(
+        hide_password=False
+    )
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    try:
+        monkeypatch.setenv("DATABASE_URL", database_url)
+        repo_root = Path(__file__).resolve().parents[2]
+        config = Config(str(repo_root / "backend" / "alembic.ini"))
+        config.set_main_option("sqlalchemy.url", database_url)
+        config.set_main_option(
+            "script_location", str(repo_root / "guardian" / "db" / "migrations")
+        )
+        # Options are loaded above. Keep the migration environment from calling
+        # fileConfig and disabling application loggers in the shared test process.
+        config.config_file_name = None
+        command.upgrade(config, "head")
+        engine = sa.create_engine(
+            parsed_url.set(drivername="postgresql+psycopg", database=database_name),
+            future=True,
+        )
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO users (id, username, password_hash, role) "
+                        "VALUES ('local', 'local-import-test', 'test', 'guest') "
+                        "ON CONFLICT (id) DO NOTHING"
+                    )
+                )
+        finally:
+            engine.dispose()
+        yield database_url
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            conn.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                    sql.Identifier(database_name)
+                )
+            )
 
 
 class ImportModules(NamedTuple):
@@ -1250,11 +1317,10 @@ def test_postgres_source_identity_replay_keeps_canonical_ids() -> None:
 
 def test_postgres_conversation_transaction_rolls_back_and_replays(
     monkeypatch: pytest.MonkeyPatch,
+    transaction_postgres_url: str,
 ) -> None:
     """A failure after the second provenance update cannot commit a fragment."""
-    database_url = os.getenv("TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
+    database_url = transaction_postgres_url
     psycopg = pytest.importorskip("psycopg")
     from guardian.core.pgdb import PgDB
 

@@ -17,6 +17,7 @@ Runtime values that are part of the system truth surface, including:
 - Status strings returned by routes or workers.
 - Task event names carried over queues or streams.
 - Machine-readable error codes used for failure classification.
+- Typed response headers that carry registered error codes across auth boundaries.
 
 ## Core rule
 New runtime literals must be added to a canonical protocol-token module before
@@ -45,6 +46,7 @@ inline literals.
   `chat.orphaned_turn_recovered`, `thread.created`
 
 - Error codes:
+  `ACCOUNT_SESSION_INVALID`,
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
@@ -52,6 +54,14 @@ inline literals.
   `CAMPAIGN_GOAL_NOT_FOUND`, `CAMPAIGN_GOAL_INVALID`,
   `CAMPAIGN_NOT_FOUND`, `CAMPAIGN_INVALID`,
   `CAMPAIGN_EXECUTION_ATTEMPT_INVALID`
+
+- Account-auth failure classification:
+  `X-Guardian-Auth-Failure` carries the registered
+  `ACCOUNT_SESSION_INVALID` code only when Guardian's account-session boundary
+  determines the presented account credential is invalid or missing. A
+  signed credential with another purpose and an operator-route 401 do not emit
+  this header. The frontend may clear account auth state only for this typed
+  signal; HTTP status alone is insufficient.
 
 - Campaign Runner statuses:
   `campaign_goals.status` uses `draft`, `active`, `blocked`, `completed`,

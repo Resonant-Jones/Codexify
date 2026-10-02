@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from guardian.core import dependencies
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.dependencies import RequestUserScope
 from guardian.core.hosted_room_session import (
     decode_principal,
@@ -202,7 +202,9 @@ def test_guest_lifecycle_denials_are_preserved(
 
 def test_account_session_cannot_become_guest_principal(monkeypatch):
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "inert-thread-access-test-secret")
-    account_token, _ = issue_session_token(subject="account-a")
+    account_token, _ = issue_session_token(
+        subject="account-a", purpose=ACCOUNT_SESSION_PURPOSE
+    )
     with pytest.raises(HTTPException) as denied:
         decode_principal(account_token)
     assert denied.value.status_code == 401

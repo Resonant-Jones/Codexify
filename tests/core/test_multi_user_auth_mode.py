@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 
 
 def _configure_auth_modules(monkeypatch, **env_overrides):
@@ -71,6 +71,7 @@ def test_multi_user_mode_enabled_accepts_resolved_authenticated_subject(
     session_token, _expires = issue_session_token(
         subject="resolved-user",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     assert (

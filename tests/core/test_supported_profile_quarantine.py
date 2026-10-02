@@ -15,6 +15,14 @@ def _build_supported_profile_client(monkeypatch):
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    monkeypatch.setenv("CODEXIFY_BETA_CORE_ONLY", "0")
+    for flag in (
+        "CODEXIFY_ENABLE_ADMIN_ROUTES",
+        "CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES",
+        "CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES",
+        "CODEXIFY_ENABLE_OBSIDIAN_ROUTES",
+    ):
+        monkeypatch.setenv(flag, "1")
 
     import guardian.guardian_api as guardian_api
 

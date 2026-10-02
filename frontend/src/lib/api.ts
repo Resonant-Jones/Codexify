@@ -11,6 +11,10 @@ import {
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
+import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
+} from "@/contracts/runtimeTokens";
 import type {
   PersonaVoicePreviewRequest,
   PersonaVoicePreviewResponse,
@@ -208,6 +212,15 @@ export function setAuthToken(token: string | null): void {
 
 function clearAuthTokenAfterUnauthorized(): void {
   applyAuthToken(null, { syncAuthState: false });
+}
+
+function isExplicitAccountSessionFailure(error: any): boolean {
+  const headers = error?.response?.headers;
+  const marker =
+    headers?.get?.(ACCOUNT_AUTH_FAILURE_HEADER) ??
+    headers?.[ACCOUNT_AUTH_FAILURE_HEADER.toLowerCase()] ??
+    headers?.[ACCOUNT_AUTH_FAILURE_HEADER];
+  return marker === ACCOUNT_AUTH_FAILURE_CODES.SESSION_INVALID;
 }
 
 function applyAuthHeaders(
@@ -1525,7 +1538,10 @@ api.interceptors.response.use(
       clearBackendOutage();
     }
 
-    if (error?.response?.status === 401) {
+    if (
+      error?.response?.status === 401 &&
+      isExplicitAccountSessionFailure(error)
+    ) {
       clearAuthTokenAfterUnauthorized();
       markAuthUnauthenticatedFrom401();
     }
