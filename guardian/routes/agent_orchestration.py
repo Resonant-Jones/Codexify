@@ -26,6 +26,7 @@ from guardian.agents.coding_agent_contracts import (
 )
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
+from guardian.core import dependencies
 from guardian.core.dependencies import (
     get_account_user as get_current_user,
     require_account_session as require_api_key,
@@ -226,7 +227,7 @@ async def execute_coding_task(
     Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
     requested adapter kind.
 
-    Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
+    Returns immediately with run_id. Poll /api/agents/runs/{run_id}/coding for progress.
     """
     resolved_user_id = _resolved_request_user(current_user, envelope.user_id)
 
@@ -473,7 +474,7 @@ async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "") or None
+    request_user = _resolved_request_user(current_user, "")
     run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
@@ -485,8 +486,8 @@ async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "") or None
-    run = _store.get_run(run_id, user_id=request_user)
+    request_user = _resolved_request_user(current_user, "")
+    run = _store.get_account_run(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return {"ok": True, "run": run}
@@ -499,6 +500,11 @@ async def stream_run_events(
     last_id_query: str = Query("0-0", alias="last_id"),
     last_event_id_header: str | None = Header(None, alias="Last-Event-ID"),
 ) -> StreamingResponse:
+    # Public account readback uses snapshots. This legacy stream is not a
+    # qualified remote reader; quarantine it rather than add unused authority.
+    if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
+        raise HTTPException(status_code=404, detail="run_not_found")
+
     async def event_stream() -> AsyncGenerator[str, None]:
         last_id = str(last_event_id_header or last_id_query or "0-0")
         if "-" not in last_id:
@@ -541,18 +547,24 @@ async def stream_run_events(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.get(
-    "/chat/{thread_id}/agent-runs", dependencies=[Depends(require_api_key)]
-)
-async def list_thread_runs(thread_id: int) -> dict[str, Any]:
-    runs = _store.list_runs_for_thread(thread_id)
+@router.get("/chat/{thread_id}/agent-runs", dependencies=[Depends(require_api_key)])
+async def list_thread_runs(
+    thread_id: int,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    request_user = _resolved_request_user(current_user, "")
+    runs = _store.list_account_runs_for_thread(thread_id, user_id=request_user)
+    if runs is None:
+        raise HTTPException(status_code=404, detail="thread_not_found")
     return {"ok": True, "thread_id": thread_id, "runs": runs}
 
 
 @chat_router.get("/api/chat/{thread_id}/agent-runs")
-async def list_thread_runs_via_chat(thread_id: int) -> dict[str, Any]:
-    runs = _store.list_runs_for_thread(thread_id)
-    return {"ok": True, "thread_id": thread_id, "runs": runs}
+async def list_thread_runs_via_chat(
+    thread_id: int,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    return await list_thread_runs(thread_id, current_user=current_user)
 
 
 @chat_router.get("/api/chat/{thread_id}/coding-runs")
@@ -560,6 +572,8 @@ async def list_coding_runs_via_chat(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "") or None
+    request_user = _resolved_request_user(current_user, "")
     runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
+    if runs is None:
+        raise HTTPException(status_code=404, detail="thread_not_found")
     return {"ok": True, "thread_id": thread_id, "runs": runs}
