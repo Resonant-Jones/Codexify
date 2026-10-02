@@ -3019,19 +3019,8 @@ def run_forever() -> None:
                 raw_owner = payload.get("turn_lock_owner")
                 if isinstance(raw_owner, str) and raw_owner.strip():
                     task.turn_lock_owner = raw_owner.strip()
-            if is_cancelled(task.task_id):
-                _safe_publish(
-                    task.task_id,
-                    "task.cancelled",
-                    {
-                        "type": task.type,
-                        "origin": task.origin,
-                        "turn_id": _extract_turn_id(task),
-                    },
-                )
-                clear_cancelled(task.task_id)
-                logger.info("[task] cancelled type=%s id=%s", task.type, task.task_id)
-                continue
+            # Cancellation belongs to the task lifecycle, including terminal
+            # correlation and owner-guarded turn-lock cleanup in its finally.
             executor.submit(_run_chat_task, task)
 
 
