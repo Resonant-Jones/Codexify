@@ -43,6 +43,8 @@ Two independent conceptual axes govern the desktop presentation:
 
 The overlay and pinned postures are distinct layout contracts, not visual variants of the same fixed drawer. Overlay has transient occupancy; pinned creates a shell boundary. A hidden sidebar in focused mode is a visibility state, not a fourth desktop posture.
 
+Hidden navigation resolves to `edge_overlay` with visibility disabled and zero reserved sidebar width. Entering focus with navigation hidden uses that posture. Dismissing `edge_pinned` first removes the pinned boundary and resolves to hidden `edge_overlay`; it must not retain an empty gutter. Revealing hidden navigation makes the overlay visible without reallocating content. Pinning is a separate explicit action that restores width reservation. No hidden state retains a logically pinned allocation.
+
 ### Transition model
 
 The primary surface remains focused during all transitions on the right side of this diagram. Leaving focus is a separate shell transition.
@@ -51,7 +53,7 @@ The primary surface remains focused during all transitions on the right side of 
 stateDiagram-v2
     [*] --> RelaxedSpatial
     RelaxedSpatial: relaxed / spatial visible
-    FocusedHidden: focused / edge navigation hidden
+    FocusedHidden: focused / edge_overlay hidden / zero reserved width
     FocusedOverlay: focused / edge_overlay visible
     FocusedPinned: focused / edge_pinned visible
     RelaxedSpatial --> FocusedHidden: primary surface requests focused presentation
@@ -59,7 +61,7 @@ stateDiagram-v2
     FocusedOverlay --> FocusedHidden: dismiss navigation
     FocusedOverlay --> FocusedPinned: pin navigation
     FocusedPinned --> FocusedOverlay: unpin and keep revealed
-    FocusedPinned --> FocusedHidden: dismiss navigation
+    FocusedPinned --> FocusedHidden: dismiss and remove pinned boundary
     FocusedHidden --> RelaxedSpatial: leave focused presentation
     FocusedOverlay --> RelaxedSpatial: leave focused presentation
     FocusedPinned --> RelaxedSpatial: leave focused presentation
@@ -77,7 +79,9 @@ An implementation may return from unpinning directly to hidden navigation when t
 
 The compositor calculates the pinned boundary once. Child surfaces receive or occupy the resulting content area; they do not each subtract a width, add a compensating margin, or let browser/chat/Canvas content extend under the pinned edge. This geometry rule applies to any future focused surface that participates in the shared shell contract. It does not claim that those surfaces are presently implemented.
 
-Posture changes are presentation-only. They cannot change the active Project, active Chat Thread, current destination, Thread ownership, retrieval scope, source/provider filtering semantics, provider or model, Persona, Workspace contents, canonical identity, or authorization. Navigation actions remain explicit actions of the one semantic sidebar. Moving or hiding its presentation must not imply a change in provenance, selection, or runtime state.
+Posture changes are presentation-only. They cannot change the active Project, active Chat Thread, current destination, Thread ownership, retrieval scope, origin/source filtering semantics, provider or model, Persona, Workspace contents, canonical identity, or authorization. Navigation actions remain explicit actions of the one semantic sidebar. Moving or hiding its presentation must not imply a change in provenance, selection, or runtime state.
+
+The sidebar's origin/source filter describes immutable conversation lineage under the [conversation-origin contract](../../../frontend/src/contracts/conversationOrigin.ts). It must not infer origin from an inference provider or model. Provider/model selection remains a separate chat-composer responsibility whose value is preserved through posture transitions; this sidebar contract requires no provider filter in any posture.
 
 ### Responsive and Workspace relationship
 
