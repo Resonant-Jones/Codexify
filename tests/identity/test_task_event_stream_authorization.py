@@ -150,6 +150,39 @@ def test_redis_only_task_id_is_not_an_authorized_object(task_event_client):
     redis_read.assert_not_called()
 
 
+@pytest.mark.parametrize("operator_selector", ["cookie", "raw-key"])
+def test_account_jwt_mix_is_denied_before_attempt_or_redis(
+    task_event_client, monkeypatch, operator_selector
+):
+    from tests.identity.test_mixed_principal_boundary import (
+        API_KEY,
+        _assert_mixed,
+        _configure_remote,
+        _presence_token,
+    )
+
+    client, db, lookup, redis_read, _attempts = task_event_client
+    _configure_remote(monkeypatch)
+    token = _presence_token(b'{"purpose":"account_session","exp":0}', jwt=True)
+    headers = {"Authorization": f"Bearer {token}", "X-API-Key": ""}
+    cookies = {}
+    if operator_selector == "cookie":
+        operator, _ = issue_session_token(
+            subject="operator", purpose=OPERATOR_SESSION_PURPOSE, ttl_seconds=-60
+        )
+        cookies["gc_session"] = operator
+    else:
+        headers["X-API-Key"] = API_KEY
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    response = client.get(
+        "/api/tasks/backend-task-a/events", headers=headers, cookies=cookies
+    )
+    _assert_mixed(response)
+    lookup.assert_not_called()
+    db.get_chat_thread.assert_not_called()
+    redis_read.assert_not_called()
+
+
 class _RoomSession:
     def __init__(self, *, participant_state: str = "active", room_id: str = "room-a"):
         self.room = SimpleNamespace(

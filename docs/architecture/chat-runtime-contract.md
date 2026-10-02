@@ -147,14 +147,22 @@ assistant persistence.
 
 ### Task-event SSE authorization
 
-`GET /api/tasks/{task_id}/events` treats `{task_id}` as the backend task ID.
+`GET /api/tasks/{task_id}/events` is intentionally a **chat-completion-only**
+public read surface under [ADR-097](./adr/097-public-task-event-ingress-as-chat-completion-readback.md)
+and the [accepted ingress matrix](./task-event-ingress-matrix.md). It treats
+`{task_id}` as the exact completion backend task ID.
 Before creating the SSE response, the route authenticates an eligible local or
 account principal, or a purpose-scoped Hosted Room guest principal; resolves
 the exact ID through `ChatCompletionAttempt.backend_task_id`; and authorizes
 the attempt's canonical `thread_id` with `require_thread_read_access`. Redis
 remains event transport and is reached only after that policy allows access.
-Unknown, Redis-only, request-ID-as-task-ID, and inaccessible resources fail
-closed. This route-specific guard does not change generic local-first auth
+Agent/coding uses owner-authorized dedicated snapshots/thread lists; dedicated
+public agent SSE is quarantined. Delegation uses its operator surface; account
+import uses owner-scoped job polling. Voice outer tasks and internal warmup
+have no generic public admission. Historical Redis publication and client ID
+possession do not create a supported reader. No family-dispatch or new task
+ownership mapping is introduced. Unknown, moved/quarantined, Redis-only,
+request-ID-as-task-ID, and inaccessible resources fail closed. This route-specific guard does not change generic local-first auth
 defaults or establish live public-ingress qualification.
 
 ## Canonical Provider States

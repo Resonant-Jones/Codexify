@@ -164,3 +164,174 @@ claim preserved generic non-chat stream compatibility.
 
 No live deployment, ingress requalification, or Cloudflare mutation occurred.
 The original focused proof and public-ingress HOLD remain historically bounded.
+
+
+## Chat-only finalization candidate — 2026-10-02
+
+This additive record preserves the earlier proofs. The isolated finalization
+checkout began clean at `c6b5e720d21dc2dcadc5cf8b5ea7cd8be6b0e67b` on
+`codex/finalize-public-ingress-chat-only`. It includes the separately adopted
+snapshot-reader prerequisite; it does not rewrite the protected PR #848 head
+`590e9ac9f11b4a5f7fa8b153ee0a76074eff04ff`.
+
+The accepted matrix at `3cc1aed8808467cf22169ba38ad98e92e4351450` replaces the
+historical assumption that every producer must retain generic-SSE access.
+Generic public task SSE admits chat completion attempts only, through ADR-091
+attempt-to-thread authority. Agent/coding uses qualified dedicated snapshots;
+delegation uses its operator surface; account import uses job readback; voice
+is quarantined from generic ingress; warmup remains internal. No new schema,
+queue identity mapping, or polymorphic authorization framework is introduced.
+ADR-097 records this accepted contract; its number was checked against the
+current index at execution. ADR-091/092 remain unchanged.
+
+The candidate corrections classify account/operator JWT purpose claims as
+unverified presence evidence, catch parser recursion failures, and run Hosted
+Room invitation mixed-principal preflight before database access or mutation.
+Ordinary credential verification is unchanged. Existing off-loop chat task
+authorization remains intact. The generic resolver needs documentation and
+regression coverage rather than a new runtime family dispatch.
+
+Focused and adjacent verification on the candidate tree:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 /Volumes/Dev_SSD/Codexify-main/.venv/bin/python -m pytest -v \
+  tests/identity/test_mixed_principal_boundary.py \
+  tests/identity/test_task_event_stream_authorization.py \
+  tests/identity/test_task_event_family_authorization.py \
+  tests/routes/test_chat_task_events_lifecycle.py \
+  tests/identity/test_operator_route_auth_migration.py \
+  tests/contracts/test_protocol_tokens.py
+146 passed (recorded in the combined run below)
+```
+
+Coverage includes non-chat producer IDs denied before thread/Redis lookup,
+JWT mixed-lane rejection before verification, mounted generic-SSE rejection,
+real stdlib C and Python JSON scanners, invalid/duplicate/deep payloads,
+invitation non-consumption and successful same-invitation retry, and unchanged
+local supplemental-credential behavior. Invitation persistence checks use the
+existing SQLite fixture; producer/resource tests use deterministic database
+and Redis instrumentation. These are bounded tests, not live ingress proof.
+A parseable deep payload can provide presence evidence; inspection never
+confers authentication. Actual parser recursion failures return no purpose.
+
+The initial combined command additionally ran `tests/architecture`:
+`509 passed, 31 failed, 37 errors`. Of these, the focused suites contributed
+146 passes and architecture contributed 363 passes. Four unhydrated canonical
+Git LFS fixtures caused 29 failures and 37 errors. Restoring their cached,
+SHA-256-verified canonical objects resolved those environmental failures:
+all 166 tests across the eight affected architecture modules passed.
+Hydration changes no Git source blobs.
+
+Two DLG validation failures remain. The Architecture KB node's recorded
+content hash already mismatches README bytes at the frozen `c6b5e720d`
+baseline. The ADR-index node's recorded hash needs synchronization with this
+candidate's ADR-097 entry. Both metadata files are outside the finalization
+allowlist. The task explicitly requires stopping on an unrelated pre-existing
+validation defect; no metadata correction has been applied. A two-line
+content-hash-only patch was prepared for scope review. Finalization is paused
+at this gate, uncommitted; full architecture and integrated prerequisite
+qualification have not been completed on this candidate tree.
+
+Documentation validation passed before this follow-up; rerun it and diff
+checks after final documentation edits. Changed legacy files retain only the
+five already-existing unused-import lint findings; no lint cleanup is claimed.
+No public-ingress live matrix, deployment, Cloudflare change, push, or merge
+occurred. Public-ingress and PR #848 remain **HOLD**.
+
+
+## Approved DLG prerequisite and integrated qualification — 2026-10-02
+
+This follow-up supersedes the stopped-gate status above without replacing its
+historical evidence. The human-approved proof-prerequisite packet authorized
+exactly two derived metadata hash replacements. `git apply --stat` reported
+two files, two insertions, and two deletions; `git apply --check` passed.
+The frozen patch matched a reconstructed hash-only diff byte-for-byte before
+application, and each replacement matches SHA-256 of its canonical source.
+
+| Derived metadata path | Canonical source | Classification |
+| --- | --- | --- |
+| `docs/knowledge-graph/nodes/codexify:doc:architecture:kb-entrypoint.json` | `docs/architecture/README.md` | Pre-existing mismatch at `c6b5e720d`; source README unchanged by this candidate. |
+| `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json` | `docs/architecture/adr/adr-index.md` | Parent-induced update for the already-approved ADR-097 index entry. |
+
+Exact inspected replacements:
+
+- `docs/knowledge-graph/nodes/codexify:doc:architecture:kb-entrypoint.json`: `d5649213e80957592204001dd2165ac22ee6c3dfd03ed634ec6eb17c9357eef2` -> `ee7c45fb2664345156b0bdb4cd5b43a9dadf8fefa9ff9dd418711c42cb732457`.
+- `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json`: `23fcc455c3edb9ffb2c7a0865208e7983ee468c9dfd15b4de37c611f868bfd6c` -> `1ea4ff7a006a9158d535acb4892e7598e6fe6ffd80a2247f70a6a3467efb30b5`.
+
+No canonical source was changed to manufacture a match. No broader node or
+generated-graph regeneration, freshness rewrite, authority change, or runtime
+edit accompanied this repair. All ten pre-existing candidate file hashes
+matched the inspection receipt immediately after application. The runtime,
+tests, ADR-097, index, and chat contract remained byte-unchanged throughout
+qualification; this proof receives only this additive execution record.
+
+Fresh integrated command, from the isolated worktree root:
+
+```bash
+AGENT_SNAPSHOT_TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:54429/agent_snapshot_proof \
+PYTHONDONTWRITEBYTECODE=1 /Volumes/Dev_SSD/Codexify-main/.venv/bin/python -m pytest -v \
+  tests/identity/test_mixed_principal_boundary.py \
+  tests/identity/test_task_event_stream_authorization.py \
+  tests/identity/test_task_event_family_authorization.py \
+  tests/routes/test_chat_task_events_lifecycle.py \
+  guardian/tests/routes/test_hosted_room_guest.py \
+  tests/identity/test_operator_route_auth_migration.py \
+  tests/contracts/test_protocol_tokens.py \
+  tests/architecture \
+  tests/integration/test_agent_coding_snapshot_readback_postgres.py \
+  guardian/tests/routes/test_agent_orchestration_events.py \
+  tests/identity/test_account_purpose_strict_migration.py
+```
+
+Result: **739 passed, 107 warnings, zero failures/errors/skips**, 38.21 seconds.
+The port was disposable and is historical, not application configuration.
+
+| Fresh proof surface | Passed |
+| --- | --- |
+| Four focused ingress suites plus Hosted Room guest routes | 151 |
+| Operator migration and protocol-token regressions | 53 |
+| Full architecture suite, including the previously affected 166 cases and DLG coherence | 431 |
+| Disposable PostgreSQL snapshot authority | 71 |
+| Adjacent agent routes | 18 |
+| Account-purpose strict migration | 15 |
+
+The adopted snapshot prerequisite's four-module set has 121 passes in this
+run: 71 PostgreSQL, 18 routes, 15 account-purpose, plus the 17 operator cases
+already counted above. These are overlapping subsets, not additional tests.
+The prior 146/166 pass records were not substituted for fresh execution.
+
+The exact two formerly failing DLG tests also passed separately after patch
+application. `scripts/knowledge_graph/validate_and_generate_dlg.py validate`
+returned success with zero errors and all ten canonical node source hashes
+matching. Existing README broken-local-link warnings remain documented debt;
+the README is unchanged and no unrelated link cleanup was attempted.
+Docs validation and ordinary/staged diff checks form the final closeout gate.
+Ruff retains exactly five pre-existing unused-import findings when compared
+with the frozen `c6b5e720d` sources; there are no new lint findings.
+
+The four necessary Git LFS fixtures were hydrated from cached canonical
+objects verified against their recorded SHA-256 OIDs and sizes. Original
+checkout pointer bytes were verified against HEAD after testing; the final
+worktree retains canonical hydrated representations to avoid LFS stat noise.
+No fixture source delta belongs to either commit. The dedicated tmpfs PostgreSQL container published
+only on loopback. Its unique test schemas were all dropped (count zero), and
+the container was removed by its recorded, label-verified ID. Application
+`DATABASE_URL`, shared services, and shared volumes were not used or changed.
+
+Commit separation is coherent: the independently stale README metadata repair
+can be committed alone against the starting source tree. The final parent
+commit includes its ADR-index-induced metadata replacement atomically with
+the index entry and parent correction. The implementation commit subject is
+`Finalize public ingress task authorization`. Commit SHAs are reported in the
+execution closeout; no commit attempts to embed its own hash.
+
+ADR-091/092, current-state release truth, the accepted ingress matrix, the
+snapshot-reader implementation, and async generic-SSE authorization mount
+remain unchanged. No schema, queue mapping, worker, persistence, UI, protocol
+token, or deployment change occurred. GitHub still holds the open PR at
+`590e9ac9f11b4a5f7fa8b153ee0a76074eff04ff`; all four P1/P2 review threads remain
+unresolved there because this local candidate has not been pushed. No thread
+was automatically resolved. The local candidate passes this scoped integrated
+qualification; deployed/public-ingress qualification and human merge decision
+remain **HOLD**. These tests do not establish a deployed ingress, live browser,
+Cloudflare, full supported-Compose, or provider execution result.

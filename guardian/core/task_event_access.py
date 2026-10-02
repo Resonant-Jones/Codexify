@@ -1,4 +1,4 @@
-"""Durable authorization for task-event streams."""
+"""Durable chat-completion authorization for generic public task SSE."""
 
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ def authorize_task_event_read(
     *,
     chatlog_db: Any,
 ) -> ThreadReadAccess:
-    """Resolve a backend task ID to its canonical thread and authorize it.
+    """Resolve an exact chat-completion task to its authorized canonical thread.
 
     Postgres completion-attempt state is the only task-to-thread authority.
     Redis is intentionally absent from this function and is reached only by
-    the caller after this decision succeeds.
+    the caller after this decision succeeds. Other producer families use
+    dedicated readback or internal transport; none inherit generic admission.
     """
     if chatlog_db is None:
         raise HTTPException(status_code=503, detail="Task authorization unavailable")

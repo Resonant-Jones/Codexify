@@ -29,7 +29,7 @@ OPERATOR_SESSION_PURPOSE = "operator_session"
 
 
 def _unverified_session_purpose(token: object) -> str | None:
-    """Read a current session token's purpose as presence evidence only.
+    """Read an opaque session or JWT purpose as presence evidence only.
 
     This parser deliberately does not verify the signature, expiry, subject,
     or session-store approval. It is used only to reject requests that present
@@ -38,9 +38,17 @@ def _unverified_session_purpose(token: object) -> str | None:
     if not isinstance(token, str):
         return None
     packed = token.strip()
-    if not packed or len(packed) > 16_384 or packed.count(".") != 1:
+    if not packed or len(packed) > 16_384:
         return None
-    payload_b64, _signature_b64 = packed.split(".", 1)
+    parts = packed.split(".")
+    if len(parts) == 2:
+        payload_b64 = parts[0]
+    elif len(parts) == 3:
+        # JWT claims occupy the middle segment. Header/signature inspection
+        # and ordinary credential verification remain separate from presence.
+        payload_b64 = parts[1]
+    else:
+        return None
     if not payload_b64:
         return None
 
@@ -60,7 +68,7 @@ def _unverified_session_purpose(token: object) -> str | None:
         claims = json.loads(
             payload.decode("utf-8"), object_pairs_hook=reject_duplicate_claims
         )
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (ValueError, RecursionError):
         return None
 
     if not isinstance(claims, dict):

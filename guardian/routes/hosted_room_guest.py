@@ -325,6 +325,7 @@ def _validate_session_lifecycle(
 
 @router.post("/api/hosted-room-invitations/exchange", response_model=ExchangeResponse)
 def exchange_invitation(
+    request: Request,
     body: ExchangeRequest = Body(...),
     response: Response = None,  # injected by FastAPI
 ) -> dict[str, Any]:
@@ -334,6 +335,7 @@ def exchange_invitation(
     metadata is returned.  The invitation token is consumed and cannot be
     reused.
     """
+    _reject_mixed_guest_request(request)
     token = body.invitation_token  # already validated by Pydantic
 
     # Hash the supplied token to look up the invitation

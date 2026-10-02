@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import base64
+import json
+import hashlib
+import hmac
+import sys
+
+import pytest
+
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -79,7 +88,9 @@ def test_account_and_expired_operator_session_are_rejected_before_validation(
         validation_calls.append("account")
         raise AssertionError("credential validation must not run for mixed input")
 
-    monkeypatch.setattr(dependencies, "resolve_account_session_subject", resolve_account)
+    monkeypatch.setattr(
+        dependencies, "resolve_account_session_subject", resolve_account
+    )
     response = _client().get(
         "/account",
         headers={"Authorization": f"Bearer {account}"},
@@ -103,7 +114,9 @@ def test_account_session_and_guest_selector_are_rejected_before_validation(
         validation_calls.append("account")
         raise AssertionError("credential validation must not run for mixed input")
 
-    monkeypatch.setattr(dependencies, "resolve_account_session_subject", resolve_account)
+    monkeypatch.setattr(
+        dependencies, "resolve_account_session_subject", resolve_account
+    )
     response = _client().get(
         "/account",
         headers={"Authorization": f"Bearer {account}"},
@@ -264,3 +277,228 @@ def test_local_operator_api_key_behavior_is_outside_remote_mixed_rule(monkeypatc
         cookies={"codexify_hosted_room_session": "unused-local-cookie"},
     )
     assert response.status_code == 200, response.text
+
+
+# Reuse the existing SQLite invitation fixture without changing its source.
+from guardian.tests.routes.test_hosted_room_guest import (
+    _create_invite,
+    _create_room,
+    client as _invitation_client,
+    mock_db as _invitation_db,
+    test_engine as _invitation_engine,
+)
+
+
+invitation_client = _invitation_client
+mock_db = _invitation_db
+test_engine = _invitation_engine
+
+
+def _presence_token(payload: bytes, *, jwt: bool = False) -> str:
+    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    if not jwt:
+        return f"{encoded}.unverified"
+    signing_input = f"eyJhbGciOiJIUzI1NiJ9.{encoded}"
+    signature = hmac.new(
+        SECRET.encode(), signing_input.encode(), hashlib.sha256
+    ).digest()
+    signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{signing_input}.{signature_b64}"
+
+
+@pytest.mark.parametrize(
+    "path", ["/account", "/generic-account", "/legacy-account", "/operator"]
+)
+@pytest.mark.parametrize(
+    "jwt_purpose", [ACCOUNT_SESSION_PURPOSE, OPERATOR_SESSION_PURPOSE]
+)
+def test_jwt_presence_is_mixed_before_any_validation(monkeypatch, path, jwt_purpose):
+    _configure_remote(monkeypatch)
+    other = (
+        OPERATOR_SESSION_PURPOSE
+        if jwt_purpose == ACCOUNT_SESSION_PURPOSE
+        else ACCOUNT_SESSION_PURPOSE
+    )
+    native, _ = issue_session_token(subject="other-lane", purpose=other)
+    jwt_token = _presence_token(json.dumps({"purpose": jwt_purpose}).encode(), jwt=True)
+    forbidden = Mock(side_effect=AssertionError("mixed input must not be validated"))
+    monkeypatch.setattr(dependencies, "resolve_account_session_subject", forbidden)
+    monkeypatch.setattr(auth, "resolve_account_session_subject", forbidden)
+    monkeypatch.setattr(dependencies, "verify_session_token_for_purpose", forbidden)
+    response = _client().get(
+        path,
+        headers={"Authorization": f"Bearer {jwt_token}"},
+        cookies={"gc_session": native},
+    )
+    _assert_mixed(response)
+    forbidden.assert_not_called()
+
+
+@pytest.mark.parametrize("jwt", [False, True], ids=["opaque", "jwt"])
+@pytest.mark.parametrize("decoder", ["default", "python"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"purpose":"account_session","padding":'
+        + b"[" * 2500
+        + b"0"
+        + b"]" * 2500
+        + b"}",
+        b'{"purpose":"account_session","purpose":"operator_session"}',
+        b'{"purpose":[]}',
+        b"[]",
+        b"null",
+        b"\xff",
+        b'{"purpose":"account_session","number":' + b"9" * 5000 + b"}",
+    ],
+    ids=["deep", "duplicate", "nonstring", "list", "null", "utf8", "integer-limit"],
+)
+def test_malformed_or_deep_presence_payload_is_not_an_account_or_a_500(
+    monkeypatch, jwt, payload, decoder
+):
+    _configure_remote(monkeypatch)
+    token = _presence_token(payload, jwt=jwt)
+    # Exercise both real stdlib scanners: the Python fallback raises on deep
+    # JSON even where the installed C scanner accepts it. Classification never
+    # grants authentication. Restore all test-only parser/limit settings.
+    if decoder == "python":
+        monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+    previous_limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(1000)
+        purpose = auth._unverified_session_purpose(token)
+        if decoder == "default" and b'"padding"' in payload:
+            assert purpose in (None, ACCOUNT_SESSION_PURPOSE)
+        else:
+            assert purpose is None
+        with TestClient(_client().app, raise_server_exceptions=False) as client:
+            response = client.get(
+                "/account", headers={"Authorization": f"Bearer {token}"}
+            )
+        assert response.status_code == 401
+    finally:
+        sys.setrecursionlimit(previous_limit)
+
+
+@pytest.mark.parametrize("token", ["é.bad", "!.bad", "a.b.c.d", "x" * 16385])
+def test_undecodable_or_oversized_presence_is_not_a_500(monkeypatch, token):
+    _configure_remote(monkeypatch)
+    assert auth._unverified_session_purpose(token) is None
+    with TestClient(_client().app, raise_server_exceptions=False) as client:
+        assert (
+            client.get(
+                "/account",
+                headers={"Authorization": b"Bearer " + token.encode("utf-8")},
+            ).status_code
+            == 401
+        )
+
+
+@pytest.mark.parametrize(
+    "mode,exposure", [("remote", "local_safe"), ("local", "private_preview")]
+)
+@pytest.mark.parametrize("mix", ["account_operator", "guest_account"])
+def test_mixed_invitation_exchange_keeps_the_invitation_unconsumed(
+    invitation_client, mock_db, monkeypatch, mode, exposure, mix
+):
+    from guardian.routes import hosted_room_guest
+    from guardian.db.models import HostedRoomInvite, HostedRoomParticipant
+    from sqlalchemy import select
+
+    room_id = _create_room(invitation_client)
+    invite_id, token = _create_invite(invitation_client, room_id)
+    _configure_remote(monkeypatch)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", mode)
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", exposure)
+    account, _ = issue_session_token(
+        subject="account-a", purpose=ACCOUNT_SESSION_PURPOSE
+    )
+    operator, _ = issue_session_token(
+        subject="operator-a", purpose=OPERATOR_SESSION_PURPOSE
+    )
+    cookies = (
+        {"gc_session": operator}
+        if mix == "account_operator"
+        else {"codexify_hosted_room_session": "malformed-guest"}
+    )
+    db_access = Mock(wraps=hosted_room_guest._require_db)
+    monkeypatch.setattr(hosted_room_guest, "_require_db", db_access)
+    response = invitation_client.post(
+        "/api/hosted-room-invitations/exchange",
+        json={"invitation_token": token},
+        headers={"Authorization": f"Bearer {account}"},
+        cookies=cookies,
+    )
+    _assert_mixed(response)
+    db_access.assert_not_called()
+    assert "set-cookie" not in response.headers
+    with mock_db.get_session() as session:
+        invite = session.get(HostedRoomInvite, invite_id)
+        assert invite.status == "pending" and invite.accepted_at is None
+        assert (
+            session.scalar(
+                select(HostedRoomParticipant).where(
+                    HostedRoomParticipant.invitation_id == invite_id
+                )
+            )
+            is None
+        )
+    invitation_client.cookies.clear()
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    accepted = invitation_client.post(
+        "/api/hosted-room-invitations/exchange", json={"invitation_token": token}
+    )
+    assert accepted.status_code == 200, accepted.text
+    with mock_db.get_session() as session:
+        assert session.get(HostedRoomInvite, invite_id).status == "accepted"
+
+
+def test_local_invitation_exchange_preserves_existing_supplemental_credentials(
+    invitation_client, monkeypatch
+):
+    room_id = _create_room(invitation_client)
+    _, token = _create_invite(invitation_client, room_id)
+    _configure_remote(monkeypatch)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    operator, _ = issue_session_token(
+        subject="operator", purpose=OPERATOR_SESSION_PURPOSE
+    )
+    response = invitation_client.post(
+        "/api/hosted-room-invitations/exchange",
+        json={"invitation_token": token},
+        headers={"Authorization": "Bearer supplemental-local-material"},
+        cookies={
+            "gc_session": operator,
+            "codexify_hosted_room_session": "stale-local-selector",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("purpose", [ACCOUNT_SESSION_PURPOSE, OPERATOR_SESSION_PURPOSE])
+def test_jwt_presence_alone_does_not_grant_a_principal(monkeypatch, purpose):
+    _configure_remote(monkeypatch)
+    token = _presence_token(json.dumps({"purpose": purpose}).encode(), jwt=True)
+    assert auth._unverified_session_purpose(token) == purpose
+    for path in ["/account", "/operator"]:
+        response = _client().get(
+            path, headers={"Authorization": f"Bearer {token}", "X-API-Key": ""}
+        )
+        assert response.status_code == 401
+
+
+def test_account_jwt_and_raw_operator_key_are_mixed_before_verification(monkeypatch):
+    _configure_remote(monkeypatch)
+    token = _presence_token(
+        json.dumps({"purpose": ACCOUNT_SESSION_PURPOSE, "exp": 0}).encode(), jwt=True
+    )
+    validation = Mock(
+        side_effect=AssertionError("mixed credentials must not be verified")
+    )
+    monkeypatch.setattr(dependencies, "verify_session_token_for_purpose", validation)
+    response = _client().get(
+        "/operator", headers={"Authorization": f"Bearer {token}", "X-API-Key": API_KEY}
+    )
+    _assert_mixed(response)
+    validation.assert_not_called()
