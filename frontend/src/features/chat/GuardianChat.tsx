@@ -1067,7 +1067,11 @@ export function GuardianChat({
     setCompletionInFlight,
     streamingDraft,
   } = useChat();
-  const inferenceRequest = useInferenceRequestState();
+  const onTaskCancelledRef = useRef<((threadId: number, taskId: string) => void) | null>(null);
+  const onTaskCancelled = useCallback((threadId: number, taskId: string) => {
+    onTaskCancelledRef.current?.(threadId, taskId);
+  }, []);
+  const inferenceRequest = useInferenceRequestState({ onTaskCancelled });
   const {
     providers: catalogProviders,
     getProviderById,
@@ -1110,11 +1114,15 @@ export function GuardianChat({
     ].join("|");
   }, [activeThread.id, persistedThreadConfig]);
   const hydratedThreadConfigKeyRef = useRef<string | null>(null);
-  const pendingFastRetryRef = useRef<{
+  type FastRetryIntent = {
     threadId: number;
+    taskId: string;
     providerId: string | null;
     modelId: string | null;
-  } | null>(null);
+    cancelled: boolean;
+    scheduled: boolean;
+  };
+  const pendingFastRetryRef = useRef<FastRetryIntent | null>(null);
   const threadProfileRequestRef = useRef<{
     controller: AbortController | null;
     promise: Promise<SystemProfileOption | null> | null;
@@ -1751,6 +1759,7 @@ export function GuardianChat({
   type TurnLeaseReleaseOptions = {
     clearCompletion?: boolean;
     clearInference?: boolean;
+    preserveFastRetry?: boolean;
   };
   const releaseTurnLease = useCallback(
     (
@@ -1759,7 +1768,7 @@ export function GuardianChat({
     ) => {
       const candidate = Number(threadId);
       const normalizedThreadId = Number.isFinite(candidate) ? candidate : null;
-      pendingFastRetryRef.current = null;
+      if (!options.preserveFastRetry) pendingFastRetryRef.current = null;
       setPendingTurnLock(false);
       if (normalizedThreadId != null) {
         setTurnLockForThread(normalizedThreadId, false);
@@ -1896,7 +1905,8 @@ export function GuardianChat({
   );
 
   const startInferenceForThread = useCallback(
-    (threadId: number, options: CompletionRequestOptions = {}) => {
+    (threadId: number, options: CompletionRequestOptions = {}, fastRetry?: FastRetryIntent) => {
+      if (pendingFastRetryRef.current !== fastRetry) pendingFastRetryRef.current = null;
       const selection = resolveCompletionSelection(options);
       inferenceRequest.startRequest({
         threadId,
@@ -2038,26 +2048,29 @@ export function GuardianChat({
   };
 
   const retryWithoutThinkingAfterCancel = useCallback(
-    (threadId: number, attempt = 0) => {
+    (pending: FastRetryIntent, attempt = 0) => {
+      if (pendingFastRetryRef.current !== pending || !pending.cancelled || pending.scheduled) return;
+      pending.scheduled = true;
       const delayMs = 180 + attempt * 180;
       window.setTimeout(() => {
-        const pending = pendingFastRetryRef.current;
-        if (!pending || pending.threadId !== threadId) {
-          return;
-        }
+        if (pendingFastRetryRef.current !== pending) return;
+        pending.scheduled = false;
+        const threadId = pending.threadId;
         void (async () => {
+          setTurnLockForThread(threadId, true);
           startInferenceForThread(threadId, {
             providerId: pending.providerId,
             modelId: pending.modelId,
             reasoningMode: "no_think",
-          });
+          }, pending);
           const outcome = await completeThread(threadId, {
             providerId: pending.providerId,
             modelId: pending.modelId,
             reasoningMode: "no_think",
           });
+          if (pendingFastRetryRef.current !== pending) return;
           if (outcome === "inflight" && attempt < 3) {
-            retryWithoutThinkingAfterCancel(threadId, attempt + 1);
+            retryWithoutThinkingAfterCancel(pending, attempt + 1);
             return;
           }
           pendingFastRetryRef.current = null;
@@ -2071,8 +2084,15 @@ export function GuardianChat({
         })();
       }, delayMs);
     },
-    [completeThread, releaseTurnLease, showToast, startInferenceForThread]
+    [completeThread, releaseTurnLease, setTurnLockForThread, showToast, startInferenceForThread]
   );
+  onTaskCancelledRef.current = (threadId, taskId) => {
+    const pending = pendingFastRetryRef.current;
+    if (!pending || pending.threadId !== threadId || pending.taskId !== taskId || pending.cancelled) return;
+    pending.cancelled = true;
+    retryWithoutThinkingAfterCancel(pending);
+  };
+  useEffect(() => () => { pendingFastRetryRef.current = null; }, []);
 
   const numericThreadId = useMemo(() => {
     const n = Number((activeThread as any)?.id);
@@ -3063,6 +3083,9 @@ export function GuardianChat({
           return;
         }
 
+        if (event.type === "task.cancelled") {
+          onTaskCancelledRef.current?.(tid, eventTaskId);
+        }
         if (eventTurnId) {
           updateCompletionSessionTurnId(eventTaskId, eventTurnId);
         }
@@ -3084,6 +3107,9 @@ export function GuardianChat({
         releaseTurnLease(tid, {
           clearCompletion: true,
           clearInference: false,
+          preserveFastRetry: event.type === "task.cancelled" &&
+            pendingFastRetryRef.current?.taskId === eventTaskId &&
+            pendingFastRetryRef.current.cancelled,
         });
       }
       if (event.type === "task.failed" || event.type === "completion.error") {
@@ -3098,9 +3124,6 @@ export function GuardianChat({
       }
       if (event.type === "task.cancelled") {
         inferenceRequest.markCancelled();
-        if (pendingFastRetryRef.current?.threadId === tid) {
-          retryWithoutThinkingAfterCancel(tid);
-        }
         return;
       }
       if (event.type === "task.completed") {
@@ -3149,6 +3172,8 @@ export function GuardianChat({
       releaseTurnLease(lastCompletionThreadRef.current, {
         clearCompletion: false,
         clearInference: false,
+        preserveFastRetry: Boolean(pendingFastRetryRef.current?.cancelled &&
+          pendingFastRetryRef.current.threadId === lastCompletionThreadRef.current),
       });
       lastCompletionThreadRef.current = null;
     }
@@ -3163,6 +3188,9 @@ export function GuardianChat({
     releaseTurnLease(releaseThreadId, {
       clearCompletion: true,
       clearInference: false,
+      preserveFastRetry: Boolean(inferenceRequest.state.phase === "cancelled" &&
+        pendingFastRetryRef.current?.cancelled &&
+        pendingFastRetryRef.current.threadId === releaseThreadId),
     });
   }, [
     completionState.activeThreadId,
@@ -3828,23 +3856,30 @@ export function GuardianChat({
     [composerInferenceState]
   );
   const handleCancelInference = () => {
+    // A later explicit Stop supersedes a pending fast-mode handoff.
+    pendingFastRetryRef.current = null;
     // Keep observing the attempt until its terminal outcome is known.
     void inferenceRequest.requestCancel();
   };
   const handleSwitchToNoThink = () => {
-    if (effectiveThreadId == null) return;
+    if (effectiveThreadId == null || !inferenceRequest.state.taskId ||
+        inferenceRequest.state.threadId !== effectiveThreadId ||
+        !isActiveInferencePhase(inferenceRequest.state.phase)) return;
     onSessionInferenceModeChange?.("no_think");
     const selection = resolveCompletionSelection({
       reasoningMode: "no_think",
     });
-    const pendingRetry = {
+    const pendingRetry: FastRetryIntent = {
       threadId: effectiveThreadId,
+      taskId: inferenceRequest.state.taskId,
       providerId: selection.providerId,
       modelId: selection.modelId,
+      cancelled: false,
+      scheduled: false,
     };
     pendingFastRetryRef.current = pendingRetry;
     void inferenceRequest.requestCancel().then((ok) => {
-      if (!ok && pendingFastRetryRef.current === pendingRetry) {
+      if (!ok && !pendingRetry.cancelled && pendingFastRetryRef.current === pendingRetry) {
         pendingFastRetryRef.current = null;
       }
     });
@@ -4644,6 +4679,7 @@ export function GuardianChat({
                     selectedProvider?.id ?? activeProviderId ?? null;
 
                   const providerChanged = providerId !== currentProviderId;
+                  if (providerChanged) pendingFastRetryRef.current = null;
 
                   if (
                     providerChanged &&

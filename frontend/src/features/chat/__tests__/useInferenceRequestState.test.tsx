@@ -270,6 +270,36 @@ describe("useInferenceRequestState", () => {
     expect(source.close).not.toHaveBeenCalled();
   });
 
+  it.each(["task.cancelled", "task.state"])("reports owned cancellation identity from %s before clearing it", (type) => {
+    const onTaskCancelled = vi.fn();
+    const { result } = renderHook(() => useInferenceRequestState({ onTaskCancelled }));
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    emitTaskEvent(eventSources.instances[0], type, { thread_id: 1, task_id: "current-task", state: "CANCELLED" });
+    expect(onTaskCancelled).toHaveBeenCalledExactlyOnceWith(1, "current-task");
+    expect(result.current.state.phase).toBe("cancelled");
+    emitTaskEvent(eventSources.instances[0], type, { thread_id: 1, task_id: "current-task", state: "CANCELLED" });
+    expect(onTaskCancelled).toHaveBeenCalledOnce();
+  });
+
+  it("does not report cancellation from a retired stream or foreign identity", () => {
+    const onTaskCancelled = vi.fn();
+    const { result } = renderHook(() => useInferenceRequestState({ onTaskCancelled }));
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("old-task");
+    });
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    emitTaskEvent(eventSources.instances[0], "task.cancelled", {});
+    emitTaskEvent(eventSources.instances[1], "task.cancelled", { task_id: "old-task" });
+    expect(onTaskCancelled).not.toHaveBeenCalled();
+  });
+
   function deferCancelPost() {
     let resolve!: (value: unknown) => void;
     let reject!: (reason: Error) => void;

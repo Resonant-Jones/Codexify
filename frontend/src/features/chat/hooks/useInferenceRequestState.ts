@@ -572,7 +572,11 @@ function buildStatePatch(
   };
 }
 
-export function useInferenceRequestState() {
+export function useInferenceRequestState(options: {
+  onTaskCancelled?: (threadId: number, taskId: string) => void;
+} = {}) {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const [state, setState] = useState<InferenceRequestState>(
     createIdleInferenceRequestState()
   );
@@ -800,6 +804,9 @@ export function useInferenceRequestState() {
           return;
         }
         if (lifecycleState === TASK_LIFECYCLE_STATE.CANCELLED) {
+          if (stateRef.current.threadId != null) {
+            optionsRef.current.onTaskCancelled?.(stateRef.current.threadId, taskId);
+          }
           markCancelled(INFERENCE_DETAIL_TEXT.CANCELLED_ACTIVE, {
             timingPatch,
           });
@@ -828,6 +835,9 @@ export function useInferenceRequestState() {
       const handleTaskCancelled = (event: Event) => {
         const payload = parseTaskEventPayload(event);
         if (!acceptsTaskPayload(payload)) return;
+        if (stateRef.current.threadId != null) {
+          optionsRef.current.onTaskCancelled?.(stateRef.current.threadId, taskId);
+        }
         markCancelled(INFERENCE_DETAIL_TEXT.CANCELLED_ACTIVE, {
           timingPatch: extractTimingPatch(payload),
         });
