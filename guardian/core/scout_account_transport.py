@@ -11,6 +11,7 @@ import os
 from http.cookies import SimpleCookie
 
 import jwt
+from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -32,6 +33,15 @@ def verify_access_assertion(assertion: str) -> None:
         issuer=ISSUER,
         options={"require": ["exp", "iat", "iss", "aud"]},
     )
+
+
+def verify_selected_account(scope) -> None:
+    # Reuse canonical purpose, live session mapping and preview eligibility.
+    # This also covers handlers such as logout that otherwise only revoke a key.
+    from guardian.core.dependencies import verify_account_session
+
+    request = Request(scope)
+    verify_account_session(request, None, request.headers.get("Authorization"), None)
 
 
 def account_route(path: str) -> bool:
@@ -104,6 +114,15 @@ class ScoutAccountTransportMiddleware:
             for k, v in headers
             if k.lower() not in {ACCOUNT_HEADER, b"authorization"}
         ] + [(b"authorization", b"Bearer " + account_values[0])]
-        # Existing strict account validators now receive the original account
-        # session. Invalid account credentials cannot retry the ingress token.
+        try:
+            await run_in_threadpool(verify_selected_account, normalized)
+        except HTTPException as exc:
+            response = JSONResponse(
+                {"detail": "Account session required"},
+                status_code=exc.status_code,
+                headers={"Cache-Control": "no-store", **(exc.headers or {})},
+            )
+            return await response(scope, receive, send)
+        # Downstream account validators receive only the selected account
+        # session; no alternate credential can retry a failed selection.
         return await self.app(normalized, receive, send)

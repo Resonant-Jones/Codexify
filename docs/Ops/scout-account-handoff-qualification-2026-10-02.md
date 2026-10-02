@@ -82,3 +82,43 @@ files and base image provide rollback without a database downgrade.
 This establishes bounded deployment only. Canonical account handoff, native
 protected read, task/message continuity and logout denial still require the
 operator's secure sign-in in the actual Scout app. #815 remains open.
+
+
+## Independent native session amendment — source qualification
+
+The operator amended the approval: native exchange must issue a fresh exact-purpose
+account_session for the same canonical User.id, rather than returning browser
+session bytes. The revised source uses the canonical issuer and 24-hour session
+store TTL, with a fresh nonce/store key/expiry. Browser approval is revalidated
+before issuance; browser and native revocation are independent. Grant origin is
+explicitly stored and checked by the atomic Redis consumption script. The selected
+alternate header also invokes the existing strict validator before downstream
+routing, including logout; failed selection never retries another credential.
+Conflicting browser/native exchange account credentials are rejected.
+
+Qualification: 68 backend tests pass, including independent nonce/expiry, browser
+revocation preserving native authority, native logout preserving browser authority,
+subsequent protected-read denial, replay refusing a second session, origin mismatch,
+selected-account failure and the existing purpose/operator suites. Login page tests
+pass 13 cases and the frontend build passes. No Swift contract change is required:
+the native response still contains token, user_id and expires_at. These source
+checks do not prove a live account login, and the amendment is not yet deployed.
+
+Deployment boundary: the current backend entrypoint unconditionally invokes
+backend/scripts/seed_defaults.py. Guardian's lifespan also invokes global system
+doc seeding, local-user bootstrap, built-in help upsert, default project ensure,
+sync-job support ensure and provider-row synchronization. No existing no-seed
+startup switch was found. The amended approval expressly forbids seed operations;
+therefore the old normal restart command must not be used for this revision.
+A bounded opt-in guard proposal will suppress these startup provisioning hooks,
+keep database/service initialization and auth validation, and use direct Uvicorn
+to bypass the seed script. It requires explicit resolution before deployment;
+no startup provisioning change has been applied or deployed at this checkpoint.
+
+Amendment commit hooks: format, secret detection, Bandit and other applicable hooks
+passed. Mypy again reports only existing errors in untouched modules (three errors
+in coding_agent_contracts.py and watchdog/contracts.py for this six-file import
+graph); the scoped retry excludes only that known failing hook. The proposed
+no-seed guard was separately tested from /tmp without changing repository startup
+source: two tests pass, proving the opt-in mode suppresses all seven provisioning
+hooks and the default retains them. It remains a review proposal, not applied code.

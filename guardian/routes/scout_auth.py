@@ -1,4 +1,4 @@
-"""PKCE-bound transfer from canonical browser login to hosted Scout."""
+"""PKCE-bound issuance of an independent canonical account session for Scout."""
 
 from urllib.parse import urlencode
 
@@ -10,15 +10,22 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
     _verified_session_token_claims,
+    issue_session_token,
     resolve_account_session_subject,
 )
 from guardian.core.auth_dependencies import extract_session_token
 from guardian.core.dependencies import verify_account_session
 from guardian.core.preview_access import is_private_preview
 from guardian.core.scout_account_transport import HOST, verify_access_assertion
-from guardian.core.scout_handoff import CALLBACK, HandoffUnavailable, ScoutHandoffStore
-from guardian.core.session_store import get_session_store
+from guardian.core.scout_handoff import (
+    CALLBACK,
+    ORIGIN,
+    HandoffUnavailable,
+    ScoutHandoffStore,
+)
+from guardian.core.session_store import DEFAULT_SESSION_TTL_SECONDS, get_session_store
 
 SAFE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 
@@ -69,6 +76,11 @@ async def require_hosted_admission(request: Request) -> None:
             headers=SAFE_HEADERS,
         )
     try:
+        if (
+            len(request.headers.getlist("Host")) != 1
+            or len(request.headers.getlist("Cf-Access-Jwt-Assertion")) != 1
+        ):
+            raise ValueError("Ambiguous hosted admission")
         await run_in_threadpool(
             verify_access_assertion, request.headers.get("Cf-Access-Jwt-Assertion", "")
         )
@@ -88,6 +100,21 @@ async def create_handoff(
         raise HTTPException(
             status_code=400,
             detail="Same-origin browser confirmation required",
+            headers=SAFE_HEADERS,
+        )
+    if (
+        len(request.headers.getlist("Authorization")) > 1
+        or (
+            request.headers.get("Authorization") is not None
+            and "gc_session" in request.cookies
+        )
+        or "codexify_hosted_room_session" in request.cookies
+        or "X-API-Key" in request.headers
+        or "X-Guardian-Key" in request.headers
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Conflicting account transports",
             headers=SAFE_HEADERS,
         )
     verify_account_session(
@@ -113,6 +140,7 @@ async def create_handoff(
             token=token,
             user_id=subject,
             expires_at=int(claims["exp"]),
+            origin=ORIGIN,
         )
     except HandoffUnavailable:
         raise HTTPException(
@@ -128,7 +156,14 @@ async def create_handoff(
 async def exchange_handoff(
     body: ExchangeHandoff, request: Request, _: None = Depends(require_hosted_admission)
 ):
-    if not request.headers.get("Authorization", "").startswith("Bearer oauth:"):
+    if (
+        len(request.headers.getlist("Authorization")) != 1
+        or not request.headers.get("Authorization", "").startswith("Bearer oauth:")
+        or "gc_session" in request.cookies
+        or "codexify_hosted_room_session" in request.cookies
+        or "X-API-Key" in request.headers
+        or "X-Guardian-Key" in request.headers
+    ):
         raise HTTPException(
             status_code=400,
             detail="Native Access admission required",
@@ -136,7 +171,10 @@ async def exchange_handoff(
         )
     try:
         grant = await run_in_threadpool(
-            ScoutHandoffStore().consume, code=body.code, verifier=body.verifier
+            ScoutHandoffStore().consume,
+            code=body.code,
+            verifier=body.verifier,
+            origin=ORIGIN,
         )
         token = grant["token"]
         subject = resolve_account_session_subject(token)
@@ -161,7 +199,21 @@ async def exchange_handoff(
             detail="Handoff unavailable; sign in again",
             headers=SAFE_HEADERS,
         ) from None
+    # This is the canonical issuer and exact credential class, with a fresh
+    # nonce/expiry and independent store entry. The parent browser credential
+    # authorizes this one exchange but is never returned to the native client.
+    native_token, native_expiry = issue_session_token(
+        subject=subject,
+        ttl_seconds=DEFAULT_SESSION_TTL_SECONDS,
+        purpose=ACCOUNT_SESSION_PURPOSE,
+    )
+    await run_in_threadpool(
+        get_session_store().store,
+        native_token,
+        subject,
+        DEFAULT_SESSION_TTL_SECONDS,
+    )
     return JSONResponse(
-        {"token": token, "user_id": subject, "expires_at": grant["expires_at"]},
+        {"token": native_token, "user_id": subject, "expires_at": native_expiry},
         headers=SAFE_HEADERS,
     )

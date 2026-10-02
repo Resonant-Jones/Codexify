@@ -9,6 +9,8 @@ def client(monkeypatch):
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
     monkeypatch.setattr(transport, "verify_access_assertion", lambda _: None)
 
+    monkeypatch.setattr(transport, "verify_selected_account", lambda _: None)
+
     async def downstream(scope, receive, send):
         from starlette.responses import JSONResponse
 
@@ -141,13 +143,14 @@ def test_normalization_preserves_exact_canonical_account_purpose(monkeypatch):
 
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "synthetic-unit-test-signing-fixture")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+    monkeypatch.setenv("CODEXIFY_PREVIEW_APPROVED_EMAILS", "fixture@example.com")
     monkeypatch.setattr(transport, "verify_access_assertion", lambda _: None)
 
     class Store:
         def verify(self, token):
-            return "fixture-user"
+            return "fixture@example.com"
 
-    monkeypatch.setattr(session_store, "get_session_store", lambda: Store())
+    monkeypatch.setattr(session_store, "_SESSION_STORE", Store())
 
     async def protected(scope, receive, send):
         token = dict(scope["headers"])[b"authorization"].decode()[7:]
@@ -169,14 +172,16 @@ def test_normalization_preserves_exact_canonical_account_purpose(monkeypatch):
         (auth.OPERATOR_SESSION_PURPOSE, 401),
         ("hosted_room_guest_session", 401),
     ):
-        token, _ = auth.issue_session_token(subject="fixture-user", purpose=purpose)
+        token, _ = auth.issue_session_token(
+            subject="fixture@example.com", purpose=purpose
+        )
         response = client.get(
             "/api/chat/threads",
             headers=headers() | {"X-Guardian-Account-Session": token},
         )
         assert response.status_code == expected
         if expected == 200:
-            assert response.json() == {"subject": "fixture-user"}
+            assert response.json() == {"subject": "fixture@example.com"}
 
 
 def test_transport_headers_are_redacted_from_raw_logging():
@@ -185,3 +190,18 @@ def test_transport_headers_are_redacted_from_raw_logging():
     for name in ("X-Guardian-Account-Session", "Cf-Access-Jwt-Assertion"):
         result = sanitize_log_text(name + ": fixture-sensitive-material")
         assert "fixture-sensitive-material" not in result
+
+
+def test_invalid_selected_account_never_reaches_downstream_even_on_logout(
+    client, monkeypatch
+):
+    from fastapi import HTTPException
+
+    def invalid(_):
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    monkeypatch.setattr(transport, "verify_selected_account", invalid)
+    for path in ["/api/chat/threads", "/api/auth/logout"]:
+        response = client.post(path, headers=headers())
+        assert response.status_code == 401
+        assert "selected" not in response.json()

@@ -42,6 +42,14 @@ credential class, principal, ownership, or permission. It is accepted only for
 the qualified `preview.codexify.space` private-preview composition where
 upstream Access occupies `Authorization`. Personal nodes retain account Bearer.
 
+The amended handoff must issue a new exact-purpose `account_session` through the
+canonical issuer for the same canonical `User.id`; it must not return or reuse
+the browser's session token. The native session has an independent nonce, expiry,
+store entry and revocation/logout lifecycle. Browser authorization is revalidated
+at redemption. The code is fixed-callback and origin-bound, expires within 60
+seconds, and is atomically consumed only by its S256 verifier. This remains the
+same account credential class and strict validator, not a new authority.
+
 The adapter must validate the upstream signed Access assertion against the fixed
 team issuer and application audience, require the Access opaque Bearer transport,
 and restrict normalization to explicitly scoped Scout account APIs. Access claims

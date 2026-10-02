@@ -170,7 +170,7 @@ export default function LoginPage() {
               </Button>
 
               {scoutFlow ? (
-                <p>This shares your existing account session with Scout until that session expires or is revoked. Scout stores it in this device’s Keychain.</p>
+                <p>This creates a separate Scout session for your existing account. It has its own expiry and logout, and Scout stores it in this device’s Keychain. Your browser session stays separate.</p>
               ) : null}
 
               {auth.token ? (

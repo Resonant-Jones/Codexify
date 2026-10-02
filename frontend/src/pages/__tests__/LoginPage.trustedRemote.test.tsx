@@ -257,7 +257,7 @@ describe("trusted remote login page", () => {
     expect(locationState.assign).toHaveBeenCalledWith("/");
   });
 
-  it("transfers an existing session only after explicit Scout confirmation", async () => {
+  it("authorizes a separate native session only after explicit Scout confirmation", async () => {
     const user = userEvent.setup();
     const state = "s".repeat(43);
     const challenge = "c".repeat(43);

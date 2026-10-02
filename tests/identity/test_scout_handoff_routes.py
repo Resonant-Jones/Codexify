@@ -20,12 +20,18 @@ def flow(monkeypatch):
     store = session_store.SessionStore(client)
     monkeypatch.setattr(session_store, "_SESSION_STORE", store)
     token, _ = auth.issue_session_token(
-        subject="fixture@example.com", purpose=auth.ACCOUNT_SESSION_PURPOSE
+        subject="fixture@example.com",
+        ttl_seconds=300,
+        purpose=auth.ACCOUNT_SESSION_PURPOSE,
     )
-    store.store(token, "fixture@example.com", 3600)
+    store.store(token, "fixture@example.com", 300)
     app = FastAPI()
     app.include_router(scout_auth.router)
-    api = TestClient(app, base_url="https://preview.codexify.space")
+    api = TestClient(
+        app,
+        base_url="https://preview.codexify.space",
+        headers={"Cf-Access-Jwt-Assertion": "fixture-assertion"},
+    )
     return api, store, token
 
 
@@ -62,14 +68,24 @@ def exchange(api, code, verifier="v" * 43):
     )
 
 
-def test_canonical_session_transfers_once_without_reissuing(flow):
+def test_exchange_issues_independent_exact_purpose_native_session(flow):
     api, store, token = flow
     code = code_from(create(api, token))
     assert token not in create(api, token).json()["callback"]
     assert exchange(api, code, "w" * 43).status_code == 401
     response = exchange(api, code)
     assert response.status_code == 200
-    assert response.json()["token"] == token
+    native = response.json()["token"]
+    assert native != token
+    browser_claims = auth._verified_session_token_claims(token)
+    native_claims = auth._verified_session_token_claims(native)
+    assert native_claims["nonce"] != browser_claims["nonce"]
+    assert native_claims["purpose"] == auth.ACCOUNT_SESSION_PURPOSE
+    assert native_claims["subject"] == browser_claims["subject"]
+    assert native_claims["exp"] == response.json()["expires_at"]
+    assert native_claims["exp"] > browser_claims["exp"]
+    assert store.verify(native) == "fixture@example.com"
+    assert store._client().ttl(store._key(native)) > 86000
     assert response.json()["user_id"] == "fixture@example.com"
     assert response.headers["cache-control"] == "no-store"
     assert store.verify(token) == "fixture@example.com"
@@ -134,3 +150,132 @@ def test_validation_errors_never_echo_handoff_material(flow):
     assert response.status_code == 400
     assert "fixture-sensitive" not in response.text
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_browser_revocation_after_exchange_does_not_revoke_native(flow):
+    api, store, browser = flow
+    native = exchange(api, code_from(create(api, browser))).json()["token"]
+    store.revoke(browser)
+    assert store.verify(browser) is None
+    assert auth.resolve_account_session_subject(native) == "fixture@example.com"
+    assert store.verify(native) == "fixture@example.com"
+
+
+def test_native_revocation_leaves_browser_and_other_native_sessions_live(flow):
+    api, store, browser = flow
+    first = exchange(api, code_from(create(api, browser))).json()["token"]
+    second = exchange(api, code_from(create(api, browser))).json()["token"]
+    assert first != second
+    store.revoke(first)
+    assert store.verify(first) is None
+    assert store.verify(browser) == store.verify(second) == "fixture@example.com"
+
+
+def test_atomic_replay_cannot_create_second_native_session(flow):
+    api, store, browser = flow
+    code = code_from(create(api, browser))
+    first = exchange(api, code)
+    assert first.status_code == 200
+    assert exchange(api, code).status_code == 401
+    assert len(list(store._client().scan_iter("session:*"))) == 2
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"Cookie": "gc_session=synthetic"},
+        {"Cookie": "codexify_hosted_room_session=synthetic"},
+        {"X-API-Key": "synthetic"},
+    ],
+)
+def test_conflicting_native_exchange_credentials_are_rejected(flow, extra):
+    api, _, browser = flow
+    code = code_from(create(api, browser))
+    response = api.post(
+        "/api/auth/scout/exchange",
+        json={"code": code, "verifier": "v" * 43},
+        headers={"Authorization": "Bearer oauth:fixture-ingress", **extra},
+    )
+    assert response.status_code == 400
+    assert exchange(api, code).status_code == 200
+
+
+def test_browser_bearer_and_account_cookie_conflict_is_rejected(flow):
+    api, _, browser = flow
+    response = api.post(
+        "/api/auth/scout/handoff",
+        json={"state": "s" * 43, "challenge": challenge_for("v" * 43)},
+        headers={
+            "Origin": "https://preview.codexify.space",
+            "Authorization": "Bearer " + browser,
+            "Cookie": "gc_session=" + browser,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_canonical_logout_revokes_only_native_and_protected_read_denies_it(
+    flow, monkeypatch
+):
+    from contextlib import contextmanager
+
+    from fastapi import Depends
+
+    from guardian.core.dependencies import verify_account_session
+    from guardian.routes import auth as auth_routes
+
+    api, store, browser = flow
+    native = exchange(api, code_from(create(api, browser))).json()["token"]
+
+    class PresenceDB:
+        @contextmanager
+        def get_session(self):
+            class Session:
+                def commit(self):
+                    pass
+
+            yield Session()
+
+    monkeypatch.setattr(auth_routes, "_auth_db", lambda: PresenceDB())
+    monkeypatch.setattr(auth_routes, "end_account_presence", lambda *_: None)
+    api.app.include_router(auth_routes.api_router)
+
+    @api.app.get("/protected")
+    def protected(subject=Depends(verify_account_session)):
+        return {"ok": True}
+
+    assert (
+        api.get("/protected", headers={"Authorization": "Bearer " + native}).status_code
+        == 200
+    )
+    assert (
+        api.post(
+            "/api/auth/logout", headers={"Authorization": "Bearer " + native}
+        ).status_code
+        == 200
+    )
+    assert store.verify(native) is None
+    assert (
+        api.get("/protected", headers={"Authorization": "Bearer " + native}).status_code
+        == 401
+    )
+    assert (
+        api.get(
+            "/protected", headers={"Authorization": "Bearer " + browser}
+        ).status_code
+        == 200
+    )
+
+
+def test_concurrent_redemption_issues_exactly_one_native_session(flow):
+    from concurrent.futures import ThreadPoolExecutor
+
+    api, store, browser = flow
+    code = code_from(create(api, browser))
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        statuses = list(
+            workers.map(lambda _: exchange(api, code).status_code, range(4))
+        )
+    assert statuses.count(200) == 1
+    assert statuses.count(401) == 3
+    assert len(list(store._client().scan_iter("session:*"))) == 2
