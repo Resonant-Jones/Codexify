@@ -408,7 +408,10 @@ jobs:
         run: |
           set -euxo pipefail
           docker rm -f ci-backend-smoke >/dev/null 2>&1 || true
+          backend_image="$(docker compose config --no-interpolate --no-env-resolution --format json backend | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["backend"]["image"])')"
+          backend_image_id="$(docker image inspect --format '{{.Id}}' "$backend_image")"
           docker run -d \
+            --pull=never \
             --name ci-backend-smoke \
             --network codexify_default \
             -p 18888:8888 \
@@ -420,7 +423,7 @@ jobs:
             -e CODEXIFY_EMBEDDINGS_BACKEND=mock \
             -e CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1 \
             -e PORT=8888 \
-            codexify-backend
+            "$backend_image_id"
 
           for i in {1..60}; do
             if curl -fsS http://127.0.0.1:18888/ping >/dev/null; then
