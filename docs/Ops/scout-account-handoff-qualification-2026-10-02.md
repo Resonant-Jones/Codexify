@@ -122,3 +122,21 @@ graph); the scoped retry excludes only that known failing hook. The proposed
 no-seed guard was separately tested from /tmp without changing repository startup
 source: two tests pass, proving the opt-in mode suppresses all seven provisioning
 hooks and the default retains them. It remains a review proposal, not applied code.
+
+## Independent-session image checkpoint (not deployed)
+
+Source Git revision: 7c7def912. The bounded image
+codexify-scout-native-session:7c7def912 was built on the pinned qualified base.
+Image SHA256: eeb253ded052cb05fb6a28ec0d4f0131cdadac53c7fae5a64ca18792ad7a5083.
+Reviewed source hashes and Python syntax passed in a network-disabled, read-only
+container with only public source artifacts mounted and /tmp writable; application
+startup was not invoked. Core dependency versions match the serving preview.
+Artifact location: /Volumes/Dev_SSD/Codexify-scout815-auth/7c7def912 on VaultNode.
+
+No preview service was restarted for this amendment, and no startup guard was
+applied. The separately tested review proposal is
+/tmp/scout815-no-seed-startup-proposal.md with the concrete diff at
+/tmp/scout815-no-seed-startup-proposal.patch on the operator host. The operator was
+asked to approve that additional opt-in startup behavior before deployment.
+Native sign-in must wait for the amended revision; the earlier served patch still
+returns the browser token. Full #815 continuity and #816–#818 remain unqualified.
