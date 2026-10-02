@@ -408,7 +408,7 @@ jobs:
         run: |
           set -euxo pipefail
           docker rm -f ci-backend-smoke >/dev/null 2>&1 || true
-          backend_image="$(docker compose config --no-interpolate --no-env-resolution --format json backend | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["backend"]["image"])')"
+          backend_image="$(docker compose config --no-env-resolution --format json backend | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["backend"]["image"])')"
           backend_image_id="$(docker image inspect --format '{{.Id}}' "$backend_image")"
           docker run -d \
             --pull=never \
