@@ -72,6 +72,7 @@ from guardian.core.provider_registry import (
 from guardian.core.provider_truth import build_provider_truth
 from guardian.evals.spine import schedule_post_completion_eval
 from guardian.protocol_tokens import (
+    ErrorCode,
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
 )
@@ -83,6 +84,7 @@ from guardian.queue.redis_queue import (
     is_cancelled,
 )
 from guardian.queue.turn_lock import release_turn_lock
+from guardian.tasks.chat_deadline import DEADLINE_FIELDS, parse_accepted_chat_task_deadline
 from guardian.tasks.types import (
     ChatCompletionTask,
     TaskLifecycleState,
@@ -2485,6 +2487,29 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     True,
                 )
                 return
+
+        # Queue wait spends the frozen acceptance-time work budget. Prior
+        # durable completion and explicit cancellation remain authoritative.
+        deadline_snapshot = {
+            name: getattr(task, name, None) for name in DEADLINE_FIELDS
+        }
+        if any(value is not None for value in deadline_snapshot.values()):
+            deadline = parse_accepted_chat_task_deadline(deadline_snapshot)
+            if datetime.now(timezone.utc) >= deadline.work_deadline_at:
+                raise HTTPException(
+                    status_code=504,
+                    detail={
+                        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value,
+                        "message": "Accepted chat task work deadline exceeded.",
+                        "completion_truth": _completion_truth(
+                            accepted=True,
+                            attempted=False,
+                            fallback_attempted=False,
+                            executed=False,
+                            completed=False,
+                        ),
+                    },
+                )
 
         result = run_chat_completion_task(
             task,
