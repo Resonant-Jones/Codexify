@@ -391,10 +391,14 @@ def test_canonical_makefile_specimen_fits_complete_mutation_packet(
 ) -> None:
     repo = Path(__file__).resolve().parents[2]
     fixture = (repo / "docs/Campaign/fixtures/milestone-a-ordinary-single-task.md").read_text()
-    before = (repo / "Makefile").read_text()
-    blocks = re.findall(r"(?ms)^canonical-audit-live-proof-receipt:\n(?:\t[^\n]*\n)+", before)
-    assert len(blocks) == 2
-    after = before.replace(blocks[0] + "\n", "", 1)
+    after = (repo / "Makefile").read_text()
+    blocks = re.findall(r"(?ms)^canonical-audit-live-proof-receipt:\n(?:\t[^\n]*\n)+", after)
+    assert len(blocks) == 1
+    # Keep the pre-fix specimen independent of the repaired repository target.
+    stale = (repo / "codex_runner/tests/fixtures/campaign_engine/stale_canonical_audit_target.mk").read_text()
+    assert "--env-file" in stale
+    before = after.replace(blocks[0], stale + "\n" + blocks[0], 1)
+    assert len(re.findall(r"^canonical-audit-live-proof-receipt:", before, re.MULTILINE)) == 2
     criteria_text = fixture.split("## Acceptance Criteria", 1)[1].split("## Non-Goals", 1)[0]
     criteria = [{
         "criterion_id": f"criterion-{int(match.group(1)):02d}",
