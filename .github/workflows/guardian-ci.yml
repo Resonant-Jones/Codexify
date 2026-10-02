@@ -187,7 +187,7 @@ jobs:
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         env:
           CORE_LOOP_RAG_SELECTOR: tests/integration/test_rag_integration_loop.py::test_rag_integration_memory_loop
-          CORE_LOOP_MIGRATION_SELECTOR: tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_embeds
+          CORE_LOOP_MIGRATION_SELECTOR: tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_catches_up_embeddings
           CORE_LOOP_IMAGE_SELECTOR: tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_success
           CORE_LOOP_DOCGEN_SELECTOR: guardian/tests/test_document_gen_persist_and_link.py::test_document_generate_persists_and_links
           GUARDIAN_API_KEY: test
