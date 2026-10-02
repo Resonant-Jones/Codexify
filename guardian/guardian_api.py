@@ -563,6 +563,7 @@ async def _app_lifespan_body(app: FastAPI):
     Handles startup and shutdown logic.
     """
     global _CONNECTOR_WORKER_STOP, _CONNECTOR_WORKER_TASK
+    skip_seeding = os.getenv("CODEXIFY_SKIP_STARTUP_SEEDING", "0") == "1"
 
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
@@ -609,21 +610,22 @@ async def _app_lifespan_body(app: FastAPI):
     # Initialize shared services (vector store, sensors)
     init_services(db)
 
-    try:
-        from guardian.runtime.ingest.seed_pipeline import seed_global_system_docs
+    if not skip_seeding:
+        try:
+            from guardian.runtime.ingest.seed_pipeline import seed_global_system_docs
 
-        seed_summary = seed_global_system_docs(get_vector_store())
-        logger.info(
-            "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
-            seed_summary.get("seeded", 0),
-            seed_summary.get("candidate_count", 0),
-            seed_summary.get("namespace"),
-        )
-    except Exception as exc:
-        logger.warning(
-            "[startup] global system doc seeding failed: %s",
-            exc,
-        )
+            seed_summary = seed_global_system_docs(get_vector_store())
+            logger.info(
+                "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
+                seed_summary.get("seeded", 0),
+                seed_summary.get("candidate_count", 0),
+                seed_summary.get("namespace"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[startup] global system doc seeding failed: %s",
+                exc,
+            )
 
     # Initialize Prometheus metrics
     metrics.set_db_backend(dependencies.DB_BACKEND)
@@ -666,12 +668,14 @@ async def _app_lifespan_body(app: FastAPI):
         )
 
         try:
-            get_or_create_default_user(guardian_db)
+            if not skip_seeding:
+                get_or_create_default_user(guardian_db)
         except Exception as exc:
             logger.warning("[startup] Failed to ensure default user exists: %s", exc)
 
     try:
-        _run_builtin_help_startup_ingest(guardian_db)
+        if not skip_seeding:
+            _run_builtin_help_startup_ingest(guardian_db)
     except Exception as exc:
         logger.warning("[startup] Built-in help ingest hook failed soft: %s", exc)
 
@@ -687,30 +691,36 @@ async def _app_lifespan_body(app: FastAPI):
 
     # Ensure canonical default "General" project exists
     try:
-        ensure_default_project()
+        if not skip_seeding:
+            ensure_default_project()
     except Exception as exc:
         logger.error("[startup] Failed to initialize default project: %s", exc)
 
     # Ensure sync_jobs table exists
     try:
-        db.ensure_sync_job_support()
+        if not skip_seeding:
+            db.ensure_sync_job_support()
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
 
-    # Seed/sync provider control-plane rows from /api/llm/catalog
-    try:
-        sync_stats = db.sync_inference_provider_rows_from_catalog()
-        logger.info(
-            "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
-            sync_stats.get("provider_rows", 0),
-            sync_stats.get("providers_created", 0),
-            sync_stats.get("providers_updated", 0),
-            sync_stats.get("runtime_created", 0),
-        )
-    except Exception as exc:
-        logger.warning("[startup] Failed to sync inference provider rows: %s", exc)
+    if not skip_seeding:
+        # Seed/sync provider control-plane rows from /api/llm/catalog
+        try:
+            sync_stats = db.sync_inference_provider_rows_from_catalog()
+            logger.info(
+                "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
+                sync_stats.get("provider_rows", 0),
+                sync_stats.get("providers_created", 0),
+                sync_stats.get("providers_updated", 0),
+                sync_stats.get("runtime_created", 0),
+            )
+        except Exception as exc:
+            logger.warning("[startup] Failed to sync inference provider rows: %s", exc)
 
-    _schedule_chatgpt_import_startup_sweep(app)
+    if not skip_seeding:
+        _schedule_chatgpt_import_startup_sweep(app)
+    else:
+        logger.info("[startup] seed/bootstrap hooks and import replay suppressed")
 
     # Initialize Neo4j connection if graph logging is enabled
     if (

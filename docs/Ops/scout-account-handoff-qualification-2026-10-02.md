@@ -140,3 +140,40 @@ applied. The separately tested review proposal is
 asked to approve that additional opt-in startup behavior before deployment.
 Native sign-in must wait for the amended revision; the earlier served patch still
 returns the browser token. Full #815 continuity and #816–#818 remain unqualified.
+
+## Approved no-seed startup source qualification
+
+The operator subsequently approved the opt-in startup guard solely for the
+existing preview qualification. `CODEXIFY_SKIP_STARTUP_SEEDING=1` suppresses the
+seven identified hooks: global system docs, default user, built-in help, default
+project, sync-job support, provider-row seed/synchronization, and import replay.
+The flag is checked when lifespan starts. Its absence preserves existing startup
+behavior; database/schema verification, service initialization, route bindings,
+and authentication are retained. No new permanent startup policy is established.
+
+The bounded preview command is `python -m uvicorn guardian.guardian_api:app
+--host 0.0.0.0 --port 8888`. It bypasses the wrapper's unconditional seed script.
+The wrapper's other responsibilities are the existing uppercase app symlink,
+database readiness/schema probes, and embedding directory validation. These must
+be qualified read-only before restart; missing non-seeding initialization is a
+stop condition, not permission to compensate with another mutation.
+
+The integrated account transport, handoff, purpose/operator and startup suite
+passes 70 tests. Both startup modes execute the actual lifespan with isolated
+spies: all seven hooks run once by default, and none runs with the flag. Database,
+service, configuration and route bindings still run once in both modes. Two
+additional tests pass against the pinned original API source with the identical
+guard; its lifespan AST matches the amended source. This prepares rollback with
+the original image/source plus the same approved no-seed guard and direct command.
+Rollback must not use the original seed-producing wrapper during this window.
+
+These tests prove source behavior only. Image, serving-source, anonymous denial,
+database-preservation and secure native continuity evidence will be recorded
+after the bounded deployment. Workers and the independent chat-proof stack stay
+on their existing configuration and image.
+
+Startup commit hooks pass formatting, secret detection, Bandit and the other
+applicable checks. Mypy reports five existing errors in untouched
+coding_agent_contracts.py, watchdog/contracts.py and routes/imprint.py. The
+scoped commit retry excludes only that failing hook; the passing runtime tests
+and docs checks do not erase the unrelated type-check limitation.
