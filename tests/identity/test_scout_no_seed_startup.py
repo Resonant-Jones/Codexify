@@ -1,6 +1,7 @@
 """Bounded preview startup skips provisioning while retaining service binding."""
 
 import asyncio
+import logging
 from collections import Counter
 from types import SimpleNamespace
 
@@ -19,8 +20,9 @@ SEED_HOOKS = {
 
 @pytest.mark.parametrize("enabled", [True, False])
 def test_guard_skips_seven_hooks_and_absent_flag_preserves_default(
-    monkeypatch, enabled
+    monkeypatch, caplog, enabled
 ):
+    caplog.set_level(logging.INFO, logger="guardian.guardian_api")
     monkeypatch.setenv("GUARDIAN_API_KEY", "synthetic-no-seed-fixture")
     if enabled:
         monkeypatch.setenv("CODEXIFY_SKIP_STARTUP_SEEDING", "1")
@@ -115,3 +117,4 @@ def test_guard_skips_seven_hooks_and_absent_flag_preserves_default(
         *route_modules,
     }
     assert all(called[name] == 1 for name in required)
+    assert caplog.text.count("scout_startup_provisioning_disabled") == int(enabled)

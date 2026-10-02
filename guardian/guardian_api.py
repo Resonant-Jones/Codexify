@@ -720,7 +720,7 @@ async def _app_lifespan_body(app: FastAPI):
     if not skip_seeding:
         _schedule_chatgpt_import_startup_sweep(app)
     else:
-        logger.info("[startup] seed/bootstrap hooks and import replay suppressed")
+        logger.info("scout_startup_provisioning_disabled")
 
     # Initialize Neo4j connection if graph logging is enabled
     if (

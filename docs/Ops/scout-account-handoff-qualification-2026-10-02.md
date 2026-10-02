@@ -177,3 +177,23 @@ applicable checks. Mypy reports five existing errors in untouched
 coding_agent_contracts.py, watchdog/contracts.py and routes/imprint.py. The
 scoped commit retry excludes only that failing hook; the passing runtime tests
 and docs checks do not erase the unrelated type-check limitation.
+
+First guarded deployment: commit 6c6adaa74, image
+27959164b29bb95683c5162ff2ba3e7b6c51eb404681485db5d3609c7bfa071e.
+Only preview backend/frontend were recreated. Serving auth/LoginPage hashes and
+the no-seed flag match the reviewed artifact; origin health/login return 200,
+anonymous account reads return 401, and exchange without signed Access admission
+returns 401. Schema hash, ten recorded table counts/row fingerprints and all
+preserved service identities/configurations remain unchanged across startup.
+
+The uppercase `/app/Codexify` alias exists only in the old container's writable
+layer. Inspection found no Guardian/auth/runtime reference to it outside the
+wrapper, which treats alias failure as a warning. Direct Uvicorn uses `/app` and
+the existing `guardian`/`codexify` mounts, and serving health/auth denial confirms
+that no required initialization is missing. No alias repair was performed.
+
+The logging boundary sanitizes the first free-form suppression message, so its
+absence is not evidence of a hook invocation. A safe static
+`scout_startup_provisioning_disabled` marker replaces it; both guard-mode tests
+also assert its presence/absence. The final image receipt must verify that marker
+alongside serving bytes, flag, health and unchanged database posture.
