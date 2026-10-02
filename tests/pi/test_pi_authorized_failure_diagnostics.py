@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,10 @@ from guardian.agents.adapters.base import (
     AgentExecutionIdentity,
     AgentExecutionRequest,
 )
-from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+from guardian.agents.adapters.pi_codex_runner import (
+    PiCodexRunnerAdapter,
+    _parse_authorized_timeout_phases,
+)
 from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiInvocationEnvelope,
@@ -31,9 +35,47 @@ from guardian.pi.invocation import (
     preflight_guardian_authorized_pi,
 )
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EXECUTION_PHASES,
+    PI_AUTHORIZED_PHASE_SENTINEL,
     PiAuthorizedFailureClass,
     PiValidationFailureReason,
 )
+
+
+def _phase_frame(phase: str, sequence: int, **extra: object) -> str:
+    return PI_AUTHORIZED_PHASE_SENTINEL + json.dumps(
+        {"phase": phase, "sequence": sequence, **extra}
+    )
+
+
+def test_timeout_phase_vocabulary_and_strict_parser() -> None:
+    assert PI_AUTHORIZED_EXECUTION_PHASES == (
+        "wrapper_started", "runtime_identity_established",
+        "session_initialized", "provider_request_started",
+    )
+    frames = [
+        _phase_frame("wrapper_started", 1),
+        _phase_frame("runtime_identity_established", 2),
+        _phase_frame("session_initialized", 3, effective_reasoning_effort="high"),
+        _phase_frame("provider_request_started", 4),
+    ]
+    valid = "ordinary dependency stderr\n" + "\n".join(frames) + "\n"
+    assert _parse_authorized_timeout_phases(valid.encode()) == (
+        PI_AUTHORIZED_EXECUTION_PHASES, "high"
+    )
+    assert _parse_authorized_timeout_phases(None) == ((), None)
+    assert _parse_authorized_timeout_phases("provider_request_started\n") == ((), None)
+    for invalid in (
+        [frames[1]],  # A skipped prefix cannot establish any phase.
+        [frames[0], frames[2]],
+        [frames[0], frames[0]],
+        [frames[0], _phase_frame("unsupported", 2)],
+        [frames[0], PI_AUTHORIZED_PHASE_SENTINEL + "{bad-json"],
+        [frames[0], _phase_frame("runtime_identity_established", True)],
+        [frames[0], _phase_frame("runtime_identity_established", 2, secret="x")],
+        frames[:2] + [_phase_frame("session_initialized", 3, effective_reasoning_effort=["high"])],
+    ):
+        assert _parse_authorized_timeout_phases("\n".join(invalid)) == ((), None)
 
 
 IDENTITY = PiAuthorizedExecutionIdentity(
@@ -112,6 +154,9 @@ def _evidence(
         failure_stage=failure_stage,
         runtime_identity_established=actual_identity,
         oauth_available=oauth_available,
+        requested_reasoning_effort="medium",
+        effective_reasoning_effort="medium",
+        automatic_retries_disabled=True,
     )
 
 
@@ -608,6 +653,8 @@ def _valid_telemetry_payload() -> dict[str, object]:
     return {
         "status": "ok",
         "summary": "bounded",
+        "reasoning_effort": {"requested": "medium", "effective": "medium"},
+        "automatic_retries_disabled": True,
         "actual_runtime_identity": {
             "actual_provider_id": IDENTITY.provider_id,
             "actual_model_id": IDENTITY.model_id,
@@ -974,6 +1021,8 @@ def test_ambient_required_tool_env_does_not_affect_authorized_call_with_none(
                 "session_initialized": True,
                 "provider_request_started": True,
                 "oauth_available": True,
+                "reasoning_effort": {"requested": "medium", "effective": "medium"},
+                "automatic_retries_disabled": True,
                 "tool_telemetry": {
                     "effective_tool_names": ["read", "bash", "edit", "write"],
                     "write_tool_available": True,
@@ -1062,6 +1111,8 @@ def test_execute_authorized_required_write_sets_subprocess_env(
                 "session_initialized": True,
                 "provider_request_started": True,
                 "oauth_available": True,
+                "reasoning_effort": {"requested": "medium", "effective": "medium"},
+                "automatic_retries_disabled": True,
                 "tool_telemetry": {
                     "effective_tool_names": ["read", "bash", "edit", "write"],
                     "write_tool_available": True,
@@ -1435,6 +1486,8 @@ def test_canonical_write_required_tool_survives_to_subprocess(tmp_path: Path) ->
                 "session_initialized": True,
                 "provider_request_started": True,
                 "oauth_available": True,
+                "reasoning_effort": {"requested": "medium", "effective": "medium"},
+                "automatic_retries_disabled": True,
                 "tool_telemetry": {
                     "effective_tool_names": ["read", "bash", "edit", "write"],
                     "write_tool_available": True,
@@ -1710,6 +1763,7 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
     )
 
     env = os.environ.copy()
+    env["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
     env["PI_CODING_AGENT_PACKAGE_ROOT"] = str(materialized)
     env["PI_PROVIDER"] = "anthropic"
     env["PI_MODEL"] = "claude-sonnet-4-6"
