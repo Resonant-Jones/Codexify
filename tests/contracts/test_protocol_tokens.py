@@ -20,6 +20,7 @@ from guardian.pi.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    ACCOUNT_AUTH_FAILURE_HEADER,
     ACCOUNT_IMPORT_ERROR_CODES,
     ACCOUNT_IMPORT_EVENT_TYPES,
     ACCOUNT_IMPORT_STATUSES,
@@ -941,6 +942,8 @@ def test_error_code_tokens() -> None:
         == "mixed_principal_credentials"
     )
     assert ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value in ERROR_CODES
+    assert ErrorCode.ACCOUNT_SESSION_INVALID.value == "ACCOUNT_SESSION_INVALID"
+    assert ACCOUNT_AUTH_FAILURE_HEADER == "X-Guardian-Auth-Failure"
     assert ErrorCode.QUEUE_ENQUEUE_FAILED.value == "QUEUE_ENQUEUE_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value == "CHAT_COMPLETE_ENQUEUE_FAILED"
@@ -1027,6 +1030,7 @@ def test_error_code_tokens() -> None:
     )
     assert ERROR_CODES == {
         "mixed_principal_credentials",
+        "ACCOUNT_SESSION_INVALID",
         "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",

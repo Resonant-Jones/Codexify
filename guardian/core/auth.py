@@ -217,19 +217,12 @@ def issue_session_token(
     return packed, exp
 
 
-def verify_session_token_for_purpose(
-    token: str, expected_purpose: str
-) -> bool:
-    """Validate a current-format signed session token for one exact purpose.
-
-    Unlike the compatibility verifier below, this validator requires the
-    canonical two-part HMAC format and all current claims, including nonce
-    and purpose. Legacy purpose-less tokens cannot cross this boundary.
-    """
+def _verified_session_token_claims(token: str) -> dict[str, Any] | None:
+    """Return structurally valid claims from a signed current-format token."""
     try:
         packed = (token or "").strip()
         if not packed or packed.count(".") != 1:
-            return False
+            return None
         payload_b64, sig_b64 = packed.split(".", 1)
 
         def decode(raw_text: str) -> bytes | None:
@@ -242,24 +235,54 @@ def verify_session_token_for_purpose(
         payload = decode(payload_b64)
         signature = decode(sig_b64)
         if payload is None or signature is None:
-            return False
+            return None
         expected_signature = hmac.new(
             _session_secret(), payload, hashlib.sha256
         ).digest()
         if not hmac.compare_digest(signature, expected_signature):
-            return False
+            return None
 
         claims = json.loads(payload.decode("utf-8"))
         subject = str(claims.get("subject") or "").strip()
         nonce = str(claims.get("nonce") or "").strip()
         purpose = str(claims.get("purpose") or "").strip()
-        expires_at = int(claims.get("exp") or 0)
+        int(claims.get("exp") or 0)
+        if not subject or not nonce or not purpose:
+            return None
+        return claims
+    except Exception:
+        return None
+
+
+def get_verified_session_token_purpose(token: str) -> str | None:
+    """Read a signed token's class for failure classification only.
+
+    Expiry is intentionally not checked here: an expired signed token still
+    identifies which credential lane was presented. Callers must use
+    ``verify_session_token_for_purpose`` to authorize a request.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return None
+    return str(claims.get("purpose") or "").strip() or None
+
+
+def verify_session_token_for_purpose(
+    token: str, expected_purpose: str
+) -> bool:
+    """Validate a current-format signed session token for one exact purpose.
+
+    Unlike the compatibility verifier below, this validator requires the
+    canonical two-part HMAC format and all current claims, including nonce
+    and purpose. Legacy purpose-less tokens cannot cross this boundary.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return False
+    try:
         return bool(
-            subject
-            and nonce
-            and purpose
-            and purpose == expected_purpose
-            and expires_at >= int(time.time())
+            str(claims.get("purpose") or "").strip() == expected_purpose
+            and int(claims.get("exp") or 0) >= int(time.time())
         )
     except Exception:
         return False

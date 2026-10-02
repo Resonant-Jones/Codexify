@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-29 (proposed ADR-094 execution-credential authority reviewed; runtime topology diagrams unchanged because the credential contract is not accepted or implemented)
+Diagram Review Marker: 2026-10-01 (accepted ADR-096 hidden-overlay allocation and pinned-dismissal transitions reviewed; ADR-095 remains Configuration Inspector; Configuration Inspector Settings subview and phone-frame preservation reviewed; runtime topology diagrams unchanged)
 
 ## Scope
 

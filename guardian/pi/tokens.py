@@ -49,6 +49,26 @@ class PiAuthorizedFailureClass(str, Enum):
     UNKNOWN_ADAPTER_FAILURE = "unknown_adapter_failure"
 
 
+# The maintained Pi wrapper's bounded thinking-level vocabulary. Guardian
+# chooses one value per invocation; ambient PI_THINKING has no authority here.
+PI_AUTHORIZED_REASONING_EFFORTS: frozenset[str] = frozenset(
+    {"off", "minimal", "low", "medium", "high", "xhigh"}
+)
+
+# Explicit, Guardian-owned bounded result projection for the ADR-068 live
+# Evaluator. None retains the existing content-omitting authorized path.
+PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT = "campaign-evaluator-v0"
+
+# Ordered, evidence-only phases for a single authorized wrapper invocation.
+PI_AUTHORIZED_PHASE_SENTINEL = "CODEXIFY_PI_AUTHORIZED_PHASE_V1:"
+PI_AUTHORIZED_EXECUTION_PHASES: tuple[str, ...] = (
+    "wrapper_started",
+    "runtime_identity_established",
+    "session_initialized",
+    "provider_request_started",
+)
+
+
 class PiProviderLaneClass(str, Enum):
     LOCAL = "local"
     REMOTE = "remote"

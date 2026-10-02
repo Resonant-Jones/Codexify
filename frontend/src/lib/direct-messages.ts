@@ -124,6 +124,25 @@ export function normalizeDirectMessageError(error: unknown): DirectMessageApiErr
   );
 }
 
+export async function claimSocialIdentityUsername(username: string): Promise<DirectMessageSocialProfile> {
+  try {
+    const response = await api.put<{ profile: DirectMessageSocialProfile }>("/api/profile/social-identity", { username });
+    return response.data.profile;
+  } catch (error) {
+    const normalized = normalizeDirectMessageError(error);
+    const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+    if (typeof detail === "string") normalized.message = detail;
+    else if (Array.isArray(detail)) {
+      const messages = detail.map(item => item?.msg).filter((value): value is string => typeof value === "string");
+      if (messages.length) normalized.message = messages.join("; ");
+    } else if (detail && typeof detail === "object") {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string") normalized.message = message;
+    }
+    throw normalized;
+  }
+}
+
 export async function fetchOwnSocialIdentity(): Promise<DirectMessageSocialProfile> {
   const response = await api.get<{ profile: DirectMessageSocialProfile }>(
     "/api/profile/social-identity"

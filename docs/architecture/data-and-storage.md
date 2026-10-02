@@ -468,3 +468,8 @@ Migration `b2c3d4e5f6a7` owns the Guardian tables for invite definitions, pseudo
 `guardian.account_observability.retention.run_cleanup` owns deterministic row-level cleanup and is exposed through `POST /api/operator/account-observability/retention/cleanup` with dry-run support. It closes open leases whose latest accepted heartbeat is strictly older than 30 minutes, deletes presence rows whose `created_at` is strictly older than 30 days in batches of 500, and soft-deletes guest lineage strictly older than 90 days only when no converted-account metadata requires that lineage. Converted attribution is deferred, invite definitions and canonical account registration metadata are preserved, and each run returns execution/cutoff timestamps plus expired, deleted, and deferred counts.
 
 This is internal capability evidence only. GeoIP, aggregates, operator reporting reads, UI, and supported-path proof remain absent.
+
+
+## Account onboarding state
+
+`user_onboarding_state` owns account UX progress only. It references `users.id`; missing GET returns defaults and partial PATCH lazily commits only declared fields. IDDB `UserSettings` remains identity-modeling policy. See [the onboarding contract](onboarding-and-tips-contract.md).

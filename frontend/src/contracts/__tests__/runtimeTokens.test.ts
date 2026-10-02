@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
   PROVIDER_FAILURE_KINDS,
   PROVIDER_TRANSPORT_CLASSIFICATIONS,
   RUNTIME_STATUS_PRESENTATIONS,
@@ -51,6 +53,13 @@ const EXPECTED_PROVIDER_TRANSPORT_CLASSIFICATIONS = {
 } as const;
 
 describe("runtimeTokens contract", () => {
+  it("registers the explicit account-session invalidation signal", () => {
+    expect(ACCOUNT_AUTH_FAILURE_HEADER).toBe("X-Guardian-Auth-Failure");
+    expect(ACCOUNT_AUTH_FAILURE_CODES.SESSION_INVALID).toBe(
+      "ACCOUNT_SESSION_INVALID"
+    );
+  });
+
   it("keeps provider failure and transport classifications aligned with backend tokens", () => {
     expect(PROVIDER_FAILURE_KINDS).toEqual(EXPECTED_PROVIDER_FAILURE_KINDS);
     expect(PROVIDER_TRANSPORT_CLASSIFICATIONS).toEqual(

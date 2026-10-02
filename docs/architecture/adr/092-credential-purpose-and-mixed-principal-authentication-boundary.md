@@ -113,6 +113,13 @@ not a signed account session. Conflicting class claims fail closed. The future
 runtime task must register any new contract-bearing values in the appropriate
 canonical token domain before using them in code.
 
+Frontend account-session invalidation uses the registered
+`X-Guardian-Auth-Failure: ACCOUNT_SESSION_INVALID` response signal. Guardian
+emits it only for a missing or rejected account-lane credential; a signed
+credential with another purpose and an operator-route rejection do not carry
+the signal. The frontend therefore does not infer account invalidity from HTTP
+401 alone. This signal classifies failure only and grants no route authority.
+
 | Signed credential class | Account validator | Operator validator | Hosted Room guest validator |
 |---|---|---|---|
 | `account_session` | Account checks required | Reject | Reject |

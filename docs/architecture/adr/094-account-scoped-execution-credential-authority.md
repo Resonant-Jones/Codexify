@@ -1,14 +1,15 @@
 # ADR-094: Account-Scoped Execution Credential Authority
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-29
-- Human decision requested: Resonant Jones acceptance before runtime implementation
+- Accepted: 2026-09-29
+- Human approver: Resonant Jones
 
 ## Context
 
 The account-authenticated coding route can enqueue work for a shared coding worker, while the current Pi worker has a shared auth volume and may select provider and model from ambient process configuration. The route and task do not currently carry a canonical account-scoped execution-credential reference. A provider/model choice alone cannot authorize use of a credential found in that worker. The observed code path is an implementation gap, not proof that cross-account execution has occurred.
 
-Resonant Jones directed that credential authority for account-scoped coding execution must be resolved per invocation. The existing single-user/operator credential lane may remain only as an explicitly bounded compatibility path. Codexify service-owned credentials must also be eligible for account invocations under explicit service policy, including the `codexify_included` and `codexify_metered` funding routes in ADR-093. This direction authorizes drafting this general architecture contract; it is not acceptance of this Proposed ADR or authorization to implement credential storage or delivery.
+Resonant Jones accepted this architecture on 2026-09-29: credential authority for account-scoped coding execution must be resolved per invocation. The existing single-user/operator credential lane may remain only as an explicitly bounded compatibility path. Codexify service-owned credentials must also be eligible for account invocations under explicit service policy, including the `codexify_included` and `codexify_metered` funding routes in ADR-093. Acceptance authorizes the bounded invocation-scoped execution-binding Task Spec to resume under ADR-093 and this ADR's contracts; it does not authorize a specific credential storage or delivery design.
 
 ## Governing relationships
 
@@ -17,9 +18,9 @@ Resonant Jones directed that credential authority for account-scoped coding exec
 - [ADR-071](071-connections-control-plane-boundary.md) distinguishes connection visibility and setup from inference authorization, and keeps credentials server-owned and user-scoped. Its catalog is a projection, not execution authority or a universal credential store.
 - [ADR-092](092-credential-purpose-and-mixed-principal-authentication-boundary.md) separates account and operator principals. An operator credential or session does not become an account credential through routing fallback.
 - [ADR-077](077-sandbox-execution-authority-and-provider-boundary.md) keeps provider credentials outside untrusted command environments unless a separate purpose-bound Guardian grant authorizes exposure.
-- [00 Current State](../00-current-state.md) remains the release and supported-path authority. This proposal establishes no runtime or release support.
+- [00 Current State](../00-current-state.md) remains the release and supported-path authority. This decision establishes no runtime or release support.
 
-## Proposed decision
+## Decision
 
 ### Ownership, custody, and reference
 
@@ -58,7 +59,7 @@ Resonant Jones directed that credential authority for account-scoped coding exec
 
 Canonical account, Codexify service/deployment, or operator ownership is strongly checked at dispatch and again at execution-time access. Service-owned authority may be eligible for multiple accounts only through separate account-specific Guardian authorization; its bearer material is never exposed to the account. There is no cross-owner merge or last-writer-wins resolution of credential authority. Revocation, owner mismatch, or stale authorization denies access. The threat model includes honest but buggy workers, duplicate queue delivery, stale cached sessions, compromised untrusted tools, and attempts to use another account's, the service's, or the operator's ambient credentials without authorization.
 
-## Implementation and proof gates after acceptance
+## Implementation and proof gates
 
 Any bounded implementation must choose and document the credential-type-specific custody and execution-time delivery mechanism, version its binding and queue contract, and define migration behavior for old queued tasks. Old account-scoped tasks without a valid owner-bound credential reference must fail closed; compatibility cannot silently populate one. Schema, storage, lease encoding, and secret transport remain undecided here.
 
@@ -66,6 +67,6 @@ Proof must include positive account-owned authorization; authorized service-owne
 
 ## Non-goals and review state
 
-This proposal does not add a credential table, secret broker, lease token, API endpoint, Pi adapter change, queue/worker implementation, GUI, billing, hosted execution, new harness, or release claim. It does not make all credential types share one model or change the accepted ADR-093 harness-selection semantics.
+This acceptance does not select a database schema, credential table, secret broker, lease-token design, environment-variable or temporary auth-file injection, or a specific OAuth/API-key storage mechanism. It does not implement an API endpoint, Pi adapter change, queue/worker change, GUI, billing or metering, hosted execution, new harness, or release claim. It does not make all credential types share one model or change the accepted ADR-093 harness-selection semantics.
 
-**Human acceptance is required before the Guardian → queue → coding-worker → Pi invocation-binding implementation resumes.** Until then, the account-scoped credential path remains unimplemented and no shared Pi credential may be treated as its authority.
+**The existing Guardian → queue → coding-worker → Pi invocation-scoped execution-binding Task Spec may resume as a separate bounded implementation task, subject to accepted ADR-093 and ADR-094 and its existing stop conditions.** Acceptance is not runtime completion; the account-scoped credential path remains unimplemented and no shared Pi credential may be treated as its authority.

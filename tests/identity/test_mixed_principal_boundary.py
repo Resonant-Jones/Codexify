@@ -12,7 +12,7 @@ from guardian.core.auth import (
     issue_session_token,
 )
 from guardian.core.hosted_room_session import issue_guest_session_token
-from guardian.protocol_tokens import ErrorCode
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER, ErrorCode
 
 SECRET = "mixed-principal-boundary-test-secret"
 API_KEY = "mixed-principal-operator-key"
@@ -42,6 +42,7 @@ def _client() -> TestClient:
 
 def _assert_mixed(response) -> None:
     assert response.status_code == 400
+    assert ACCOUNT_AUTH_FAILURE_HEADER.lower() not in response.headers
     assert response.json()["detail"] == {
         "error": ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value,
         "message": "Conflicting authentication contexts",

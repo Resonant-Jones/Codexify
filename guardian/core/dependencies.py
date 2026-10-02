@@ -31,12 +31,15 @@ from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
 from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
     OPERATOR_SESSION_PURPOSE,
+    get_verified_session_token_purpose,
     reject_mixed_principal_credentials,
     resolve_account_session_subject,
     verify_session_token,
     verify_session_token_for_purpose,
 )
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER, ErrorCode
 from guardian.core.auth_dependencies import (
     extract_session_token,
     resolve_session_user_id,
@@ -53,6 +56,7 @@ from guardian.core.preview_access import (
 )
 from guardian.core.hosted_room_session import (
     HostedRoomGuestPrincipal,
+    is_verified_guest_session_token,
     decode_principal as decode_hosted_room_guest_principal,
     extract_session_token_from_request as extract_hosted_room_guest_session,
 )
@@ -933,8 +937,30 @@ def verify_account_session(
 
     token = extract_session_token(authorization, gc_session)
     if not token:
-        raise HTTPException(status_code=401, detail="Account session required")
-    subject = resolve_account_session_subject(token)
+        raise HTTPException(
+            status_code=401,
+            detail="Account session required",
+            headers={
+                ACCOUNT_AUTH_FAILURE_HEADER: ErrorCode.ACCOUNT_SESSION_INVALID.value
+            },
+        )
+    try:
+        subject = resolve_account_session_subject(token)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        purpose = get_verified_session_token_purpose(token)
+        if purpose == ACCOUNT_SESSION_PURPOSE or (
+            purpose is None and not is_verified_guest_session_token(token)
+        ):
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers={
+                    ACCOUNT_AUTH_FAILURE_HEADER: ErrorCode.ACCOUNT_SESSION_INVALID.value
+                },
+            ) from exc
+        raise
     if private_preview:
         principal = require_preview_principal(request)
         if principal.email != subject:
