@@ -2,7 +2,7 @@
 
 ## 1. Title and purpose
 
-This document is the first-pass UI diagram pack derived from the validated UI canon source set, with System Surface presentation semantics governed by the [System Surface Design Contract](./design/system-surface-design-contract.md). It maps Codexify's presentation-side architecture for tokens, layout, rendering surfaces, and diagnostics-facing conceptual layers without asserting backend or runtime topology.
+This document is the first-pass UI diagram pack derived from the validated UI canon source set, with System Surface presentation semantics governed by [ADR-097](./adr/097-codexify-system-surface-design-language.md) and its [System Surface Design Contract](./design/system-surface-design-contract.md). It maps Codexify's presentation-side architecture for tokens, layout, rendering surfaces, and diagnostics-facing conceptual layers without asserting backend or runtime topology.
 
 ## 2. Source set used
 

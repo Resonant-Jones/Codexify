@@ -1,4 +1,4 @@
-# ADR-095: Codexify System Surface Design Language
+# ADR-097: Codexify System Surface Design Language
 
 - Status: Accepted
 - Date: 2026-10-02

@@ -3,7 +3,7 @@
 ## Status and scope
 
 - Classification: architecture/design contract
-- Status: accepted presentation language under [ADR-095](../adr/095-codexify-system-surface-design-language.md)
+- Status: accepted presentation language under [ADR-097](../adr/097-codexify-system-surface-design-language.md)
 - Governing material-personalization decision: [ADR-064](../adr/064-orthogonal-ui-material-personalization.md)
 - Evidence posture: documented contract
 - Scope: presentation semantics and future visual implementation guidance
