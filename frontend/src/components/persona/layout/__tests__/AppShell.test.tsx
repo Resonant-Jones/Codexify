@@ -306,7 +306,11 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
 }));
 
 vi.mock("@/features/settings/SettingsView", () => ({
-  default: () => <div data-testid="settings-view-mock" />,
+  default: ({ onOpenConfigurationInspector }: { onOpenConfigurationInspector?: () => void }) => (
+    <div data-testid="settings-view-mock">
+      <button onClick={onOpenConfigurationInspector}>Open Configuration Inspector</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ErrorBoundary", () => ({
@@ -769,6 +773,32 @@ describe("AppShell Guardian mobile navigation seam", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it.each([390, 1200])("retains the Inspector on thread refresh at width %s and honors navigation", async (width) => {
+    setViewportWidth(width);
+    setRoutePath("/settings");
+    setAuthenticatedAuthState();
+    render(<AppShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Configuration Inspector" }));
+    await screen.findByRole("heading", { name: "Unable to load configuration snapshot" });
+    const inspectorRequests = () => mockApi.get.mock.calls.filter(([url]) => url === "/api/operator/configuration").length;
+    expect(inspectorRequests()).toBe(1);
+    expect(window.location.pathname).toBe("/settings");
+    if (width === 390) {
+      expect(screen.queryByTestId("app-shell-top-chrome")).not.toBeInTheDocument();
+      expect(screen.getByTestId("phone-primary-frame-header")).toBeInTheDocument();
+    }
+    act(() => { window.dispatchEvent(new CustomEvent("cfy:threads:refresh")); });
+    expect(screen.getByRole("heading", { name: "Configuration Inspector" })).toBeInTheDocument();
+    expect(inspectorRequests()).toBe(1);
+    act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Configuration Inspector" }));
+    await screen.findByRole("heading", { name: "Unable to load configuration snapshot" });
+    expect(inspectorRequests()).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Back to Settings" }));
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 
   it("passes the canonical AppShell navigation seam into Guardian and changes the active view", async () => {

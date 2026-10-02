@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-10-01 (accepted ADR-096 hidden-overlay allocation and pinned-dismissal transitions reviewed; ADR-095 remains Configuration Inspector; runtime topology diagrams unchanged by this docs-only clarification)
+Diagram Review Marker: 2026-10-01 (accepted ADR-096 hidden-overlay allocation and pinned-dismissal transitions reviewed; ADR-095 remains Configuration Inspector; Configuration Inspector Settings subview and phone-frame preservation reviewed; runtime topology diagrams unchanged)
 
 ## Scope
 

@@ -20,6 +20,8 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
+import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
@@ -158,6 +160,7 @@ type AppShellView =
   | "guardian"
   | "flowBuilder"
   | "settings"
+  | "configurationInspector"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
@@ -254,6 +257,7 @@ const APP_SHELL_VIEWS = [
   "guardian",
   "flowBuilder",
   "settings",
+  "configurationInspector",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
@@ -273,7 +277,7 @@ export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
 ): "default" | "phone_frame_first" {
-  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+  return isPhoneShell && resolveMobileApplicationView(activeView) != null
     ? "phone_frame_first"
     : "default";
 }
@@ -288,6 +292,11 @@ function isPrimaryMobileApplicationView(
     view === "dashboard" ||
     view === "settings"
   );
+}
+
+function resolveMobileApplicationView(view: AppShellView): MobileApplicationView | null {
+  if (view === "configurationInspector") return "settings";
+  return isPrimaryMobileApplicationView(view) ? view : null;
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -1365,6 +1374,11 @@ export default function AppShell({
     window.history.replaceState({}, "", "/chat");
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
+  const configurationSnapshotRequest = useRef<Promise<ConfigurationSnapshot> | null>(null);
+  useEffect(() => {
+    // The request belongs to one Inspector opening, never to a durable cache.
+    if (view !== "configurationInspector") configurationSnapshotRequest.current = null;
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
   const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
@@ -1381,7 +1395,7 @@ export default function AppShell({
   }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
-      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+      () => resolveMobileApplicationView(view) != null && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
@@ -1475,7 +1489,7 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const syncRouteState = () => {
+    const syncRouteState = (event?: Event) => {
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1492,7 +1506,12 @@ export default function AppShell({
         setActiveRouteThreadId(null);
       }
       if (routeView) {
-        setView(routeView);
+        setView((current) =>
+          event?.type === "cfy:threads:refresh" &&
+          current === "configurationInspector" && routeView === "settings"
+            ? current
+            : routeView
+        );
       }
     };
 
@@ -1663,7 +1682,7 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (isPrimaryMobileApplicationView(nextView)) {
+      if (resolveMobileApplicationView(nextView) != null) {
         if (nextView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
@@ -1673,7 +1692,8 @@ export default function AppShell({
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
-      if (typeof window === "undefined") return;
+      // The Inspector is internal to Settings; it has no URL route of its own.
+      if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(nextView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
@@ -2170,7 +2190,7 @@ export default function AppShell({
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
     setIsPhoneSidebarOpen(false);
-    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (!isPhoneShell || resolveMobileApplicationView(view) == null) return;
     if (view === "guardian") {
       setIsApplicationNavigationExpanded(false);
       return;
@@ -2182,7 +2202,7 @@ export default function AppShell({
   useEffect(() => {
     if (
       !isPhoneShell ||
-      !isPrimaryMobileApplicationView(view) ||
+      resolveMobileApplicationView(view) == null ||
       view === "guardian" ||
       guardianSidebarSnapshot != null ||
       phoneSidebarHydrationAttemptedRef.current ||
@@ -3310,7 +3330,7 @@ export default function AppShell({
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
+      activeApplicationView={resolveMobileApplicationView(view) ?? "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
@@ -4180,8 +4200,28 @@ export default function AppShell({
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
                     onStartFeedbackConversation={openFeedbackConversation}
+                    onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
+              </div>
+            </FrameCard>
+          )}
+          {!startupLocked && activeRoomId == null && view === "configurationInspector" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="mx-auto flex w-full min-w-0 min-h-0 max-h-full flex-col overflow-hidden"
+              data-testid="configuration-inspector-framecard"
+              style={settingsLayout}
+            >
+              {phonePrimaryFrameHeader}
+              <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
+                <ErrorBoundary>
+                  <ConfigurationInspectorView
+                    onBackToSettings={() => navigateToView("settings")}
+                    snapshotRequest={configurationSnapshotRequest}
                   />
                 </ErrorBoundary>
               </div>

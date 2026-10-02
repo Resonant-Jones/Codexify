@@ -197,6 +197,7 @@ describe("Guardian frame-first mobile shell", () => {
       "documents",
       "gallery",
       "settings",
+      "configurationInspector",
     ] as const) {
       expect(resolveAppShellPresentationProfile(view, true)).toBe(
         "phone_frame_first"
