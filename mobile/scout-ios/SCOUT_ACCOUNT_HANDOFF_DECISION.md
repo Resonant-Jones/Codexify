@@ -1,7 +1,7 @@
 # Scout #815: account handoff decision
 
 Status: operator approved with the strict hosted-composition condition below;
-implementation in progress, not deployed or live-qualified.
+amended independent-session source is qualified but not yet deployed or live-qualified.
 Date: 2026-10-02.
 
 ## Proven checkpoint
@@ -52,7 +52,7 @@ is proposed. Do not deploy or assume this amendment is approved from this docume
 
 1. Add one browser-to-native handoff to the existing Guardian/web login. Scout
    opens a same-origin page with a PKCE S256 challenge and random state. The page
-   uses the existing canonical account login and clearly confirms transfer of
+   uses the existing canonical account login and clearly confirms issuance of
    that account session to Scout; Google/OTP remains the separate Access gate.
 2. An authenticated account creates a short-lived (at most 60 seconds), single-use
    opaque handoff code bound to its exact account session, PKCE challenge, fixed
@@ -107,3 +107,20 @@ Sources: serving ADR-092, `guardian/routes/auth.py`,
 `guardian/core/auth_dependencies.py`, `guardian/core/dependencies.py`;
 [Cloudflare Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) and
 [linked-app limitations](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/linked-apps/).
+
+
+## Amended approval: independent native session
+
+On PKCE redemption, issue a fresh exact-purpose account_session for the same
+canonical User.id through Guardian's existing issuer/store/validator. Do not
+transfer the browser's token to Scout. The native session has independent nonce,
+expiry, revocation and logout; Access never resolves account ownership. The
+alternate header selects this account lane, conflicts are rejected, and failed
+selection cannot fall back to any other credential. The native response contract
+is unchanged, so the previously qualified Swift implementation remains applicable.
+
+Revised backend source passes 68 tests and frontend source passes 13 tests/build.
+Deployment is held because normal backend/Guardian startup invokes seed/bootstrap
+hooks prohibited by the amended approval. A bounded no-seed startup guard needs
+resolution before restart. No migration or new seed operation ran for this amendment.
+Do not initiate the old browser-token handoff while deployment is pending.

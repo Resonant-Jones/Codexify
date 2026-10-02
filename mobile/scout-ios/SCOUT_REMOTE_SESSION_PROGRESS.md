@@ -247,3 +247,24 @@ noWindowsAvailable. The operator has been asked to use Settings → Check stored
 ingress → Sign in to Guardian and confirm Continue to Scout in the existing web
 account flow. Guardian handoff and the full #815 loop remain unproven pending that
 secure UI action. No credential values were captured.
+
+
+## October 2: independent native session amendment, deployment held
+
+The operator amended the handoff to require a fresh exact-purpose account_session
+for the same canonical User.id, with independent nonce/expiry/store/revocation.
+The separately reviewed backend source now implements this; the browser's token
+is retained only server-side for one-time grant revalidation and is not returned
+to Scout. Origin is checked in atomic grant consumption. The alternate account
+transport invokes the existing strict validator before every scoped handler,
+including logout. Conflicting account transports fail closed without fallback.
+
+68 backend tests and 13 login-page tests pass; Vite build passes. Native response
+fields and the Swift credential class are unchanged. Revised deployment has not
+run: the current entrypoint and lifespan unconditionally execute seed/bootstrap
+operations, and no existing no-seed startup switch was found. The amended approval
+forbids seeding. A concrete bounded startup-guard proposal is required before
+restarting. No new seed/migration or external access change ran for this amendment.
+The currently served first patch still follows the earlier token-transfer design;
+hold account sign-in until the amended independent-session revision is deployed.
+The full authenticated #815 loop remains unproven, and #816–#818 remain downstream.

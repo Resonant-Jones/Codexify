@@ -129,10 +129,12 @@ Keychain record; neither credentials nor callback results belong in proof files.
 
 Cloudflare admission and Guardian account identity remain distinct. After ingress
 admission, **Sign in to Guardian** opens the existing canonical web account login.
-An explicit **Continue to Scout** confirmation transfers that existing account
-session through a 60-second, single-use PKCE code, using the already registered
-callback. The server revalidates purpose, live session mapping and account
-eligibility before returning the unchanged session bytes and ordinary expiry.
+An explicit **Continue to Scout** confirmation authorizes a separate native
+session through a 60-second, single-use, origin-bound PKCE code and the already
+registered callback. The server revalidates browser purpose, live session mapping
+and account eligibility, then issues a fresh canonical `account_session` for the
+same `User.id`. Browser session bytes are never returned to Scout. Native nonce,
+expiry, revocation and logout are independent of the browser session.
 No Access identity is converted into a Guardian user.
 
 **Check Guardian account** performs a protected thread read. Restoring a Keychain
