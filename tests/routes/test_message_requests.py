@@ -544,3 +544,52 @@ def test_message_send_cannot_bypass_missing_consent_even_with_a_conversation_row
     assert response.status_code == 403
     with Session(seeded) as session:
         assert _count(session, DirectMessage) == 0
+
+
+def test_daily_request_budget_across_hour_boundaries(seeded, monkeypatch):
+    a, b, pa, pb = _new_pair(seeded)
+    now = datetime.now(timezone.utc)
+    for hour in range(5):
+        instant = now + timedelta(hours=hour, seconds=hour)
+        monkeypatch.setattr(domain, "_now", lambda instant=instant: instant)
+        for attempt in range(10):
+            result = _send(a, pb, key=f"daily-{hour}-{attempt}")
+            assert result.status_code == 200
+            request = result.json()["request"]
+            assert (
+                a.post(
+                    f"/api/direct-messages/requests/{request['request_id']}/withdraw"
+                ).status_code
+                == 200
+            )
+    monkeypatch.setattr(domain, "_now", lambda: now + timedelta(hours=6))
+    assert _send(a, pb, key="daily-over-budget").status_code == 429
+    assert _send(a, pb, key="daily-0-0").json()["replayed"] is True
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "sender_profile_id",
+        "user_id",
+        "account_id",
+        "origin_project_id",
+        "origin_thread_id",
+        "content_type",
+    ],
+)
+def test_request_body_cannot_inject_identity_scope_or_content_authority(seeded, extra):
+    a, b, pa, pb = _new_pair(seeded)
+    response = a.post(
+        "/api/direct-messages/requests",
+        json={
+            "destination_node_id": pb["node_id"],
+            "destination_profile_id": pb["profile_id"],
+            "note": "Human plain text",
+            "client_request_key": "scope-test",
+            extra: "forged",
+        },
+    )
+    assert response.status_code == 422
+    with Session(seeded) as session:
+        assert _count(session, MessageRequest) == _count(session, DirectMessage) == 0

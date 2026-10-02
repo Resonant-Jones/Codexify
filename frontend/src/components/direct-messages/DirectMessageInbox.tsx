@@ -21,6 +21,8 @@
  */
 import { MessageSquarePlus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import MessageRequestPanel from "./MessageRequestPanel";
+import { useOnboarding } from "@/features/onboarding/OnboardingProvider";
 
 import type { RuntimeRouteCapabilityState } from "@/contracts/supportedProfileRoutes";
 import DirectConversation from "@/features/contacts/DirectConversation";
@@ -29,6 +31,7 @@ import {
   buildPeerFilterOptions,
   createDirectMessageConversation,
   fetchDirectMessageConversations,
+  fetchDirectMessageConversation,
   fetchProjectLabelMap,
   fetchThreadProjectScope,
   filterConversationsByRelationship,
@@ -80,7 +83,7 @@ function formatActivity(value?: string | null): string {
 
 function projectLabel(
   projectId: number | null,
-  labels: Map<number, string>
+  labels: Map<number, string>,
 ): string {
   if (projectId == null) return "Unscoped";
   return labels.get(projectId) ?? "Project";
@@ -88,7 +91,7 @@ function projectLabel(
 
 function originLabel(
   conversation: DirectMessageConversation,
-  labels: Map<number, string>
+  labels: Map<number, string>,
 ): string {
   const originProject = conversation.origin.origin_project_id;
   const originThread = conversation.origin.origin_thread_id;
@@ -103,11 +106,12 @@ export default function DirectMessageInbox({
   sourceThreadId,
   state,
 }: DirectMessageInboxProps) {
-  const [conversations, setConversations] = useState<DirectMessageConversation[]>(
-    []
-  );
+  const onboarding = useOnboarding();
+  const [conversations, setConversations] = useState<
+    DirectMessageConversation[]
+  >([]);
   const [projectLabels, setProjectLabels] = useState<Map<number, string>>(
-    () => new Map()
+    () => new Map(),
   );
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -118,14 +122,26 @@ export default function DirectMessageInbox({
 
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<DirectMessageSocialProfile[]>(
-    []
-  );
+  const [searchResults, setSearchResults] = useState<
+    DirectMessageSocialProfile[]
+  >([]);
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [ownProfile, setOwnProfile] =
+    useState<DirectMessageSocialProfile | null>(null);
+  const [introPeer, setIntroPeer] = useState<DirectMessageSocialProfile | null>(
+    null,
+  );
 
   const messagingEnabled = capabilityState === "available";
+  const syncIdentity = useCallback(
+    (profile: DirectMessageSocialProfile) => {
+      setOwnProfile(profile);
+      onboarding?.setProfile(profile);
+    },
+    [onboarding?.setProfile],
+  );
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -138,19 +154,29 @@ export default function DirectMessageInbox({
       setConversations(conversationRows);
       setProjectLabels(labels);
       conversationRows.forEach((conversation) =>
-        state.cacheConversationMeta(conversation)
+        state.cacheConversationMeta(conversation),
       );
     } catch (error) {
       const normalized = normalizeDirectMessageError(error);
       setLoadError(
         normalized.status === 404
           ? "Direct messaging is unavailable in this profile."
-          : normalized.message
+          : normalized.message,
       );
     } finally {
       setLoading(false);
     }
   }, [state]);
+
+  const openAcceptedConversation = useCallback(
+    async (conversationId: string) => {
+      const conversation = await fetchDirectMessageConversation(conversationId);
+      state.cacheConversationMeta(conversation);
+      await reload();
+      state.openConversation(conversationId, conversation);
+    },
+    [reload, state],
+  );
 
   useEffect(() => {
     if (!messagingEnabled) return;
@@ -159,12 +185,13 @@ export default function DirectMessageInbox({
 
   const filterOptions = useMemo(
     () => buildPeerFilterOptions(conversations),
-    [conversations]
+    [conversations],
   );
 
   const visibleConversations = useMemo(
-    () => filterConversationsByRelationship(conversations, filterRelationshipId),
-    [conversations, filterRelationshipId]
+    () =>
+      filterConversationsByRelationship(conversations, filterRelationshipId),
+    [conversations, filterRelationshipId],
   );
 
   const filteredPeer = useMemo(() => {
@@ -190,15 +217,16 @@ export default function DirectMessageInbox({
     }
   }, []);
 
-  const computeOrigin = useCallback(async (): Promise<ConversationOriginInput> => {
-    if (sourceThreadId == null) return {};
-    const projectId = await fetchThreadProjectScope(sourceThreadId);
-    if (projectId == null) return {};
-    return {
-      origin_project_id: projectId,
-      origin_thread_id: sourceThreadId,
-    };
-  }, [sourceThreadId]);
+  const computeOrigin =
+    useCallback(async (): Promise<ConversationOriginInput> => {
+      if (sourceThreadId == null) return {};
+      const projectId = await fetchThreadProjectScope(sourceThreadId);
+      if (projectId == null) return {};
+      return {
+        origin_project_id: projectId,
+        origin_thread_id: sourceThreadId,
+      };
+    }, [sourceThreadId]);
 
   const startConversationWith = useCallback(
     async (profile: DirectMessageSocialProfile): Promise<void> => {
@@ -207,12 +235,19 @@ export default function DirectMessageInbox({
       try {
         const relationship = await resolveDirectMessageRelationship(
           profile.node_id,
-          profile.profile_id
+          profile.profile_id,
         );
+        if (!relationship.messaging_consent_established) {
+          setIntroPeer(profile);
+          setNewConversationOpen(false);
+          setSearchQuery("");
+          setSearchResults([]);
+          return;
+        }
         const origin = await computeOrigin();
         const conversation = await createDirectMessageConversation(
           relationship.relationship_id,
-          origin
+          origin,
         );
         state.cacheConversationMeta(conversation);
         setNewConversationOpen(false);
@@ -221,12 +256,20 @@ export default function DirectMessageInbox({
         await reload();
         state.openConversation(conversation.conversation_id, conversation);
       } catch (error) {
-        setCreateError(normalizeDirectMessageError(error).message);
+        const normalized = normalizeDirectMessageError(error);
+        if (normalized.code === "messaging_consent_required") {
+          setIntroPeer(profile);
+          setNewConversationOpen(false);
+          setSearchQuery("");
+          setSearchResults([]);
+        } else {
+          setCreateError(normalized.message);
+        }
       } finally {
         setCreating(false);
       }
     },
-    [computeOrigin, reload, state]
+    [computeOrigin, reload, state],
   );
 
   if (!messagingEnabled) {
@@ -284,17 +327,32 @@ export default function DirectMessageInbox({
           type="button"
           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
           aria-expanded={newConversationOpen}
+          disabled={ownProfile?.username_state !== "active"}
           onClick={() => setNewConversationOpen((current) => !current)}
         >
           <MessageSquarePlus size={14} aria-hidden="true" />
-          New Conversation
+          Find People
         </button>
       </div>
 
+      <MessageRequestPanel
+        introPeer={introPeer}
+        onIntroClose={() => setIntroPeer(null)}
+        onIdentity={syncIdentity}
+        onAccepted={openAcceptedConversation}
+      />
+
       {newConversationOpen ? (
-        <div className="mx-4 mb-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-3" aria-label="New Conversation">
+        <div
+          className="mx-4 mb-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-3"
+          aria-label="Find People"
+        >
           <div className="flex items-center gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--background,transparent)] px-2.5 py-1.5">
-            <Search size={13} aria-hidden="true" className="text-[var(--text-subtle)]" />
+            <Search
+              size={13}
+              aria-hidden="true"
+              className="text-[var(--text-subtle)]"
+            />
             <input
               type="search"
               className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-subtle)]"
@@ -321,7 +379,9 @@ export default function DirectMessageInbox({
             </button>
           </div>
           {createError ? (
-            <p className="mt-2 text-xs text-[var(--text-subtle)]">{createError}</p>
+            <p className="mt-2 text-xs text-[var(--text-subtle)]">
+              {createError}
+            </p>
           ) : null}
           {searching ? (
             <p className="mt-2 text-xs text-[var(--text-subtle)]">Searching…</p>
@@ -437,7 +497,7 @@ export default function DirectMessageInbox({
                 onClick={() =>
                   state.openConversation(
                     conversation.conversation_id,
-                    conversation
+                    conversation,
                   )
                 }
               >
@@ -468,7 +528,10 @@ export default function DirectMessageInbox({
                   </span>
                   <span className="block truncate text-[11px] text-[var(--text-subtle)]/80">
                     ↳ {originLabel(conversation, projectLabels)} · placed in{" "}
-                    {projectLabel(conversation.placement.project_id, projectLabels)}
+                    {projectLabel(
+                      conversation.placement.project_id,
+                      projectLabels,
+                    )}
                   </span>
                 </span>
               </button>

@@ -20,6 +20,8 @@
 # existing Hosted Room owner/guest route families for private-preview
 # collaboration qualification only. This does not widen the default beta
 # promise, and it does not qualify Hosted Rooms for release.
+# ADR-097 enables same-node human messaging with explicit request consent.
+# This capability remains outside default/public Beta.
 
 name: v1-whooshd-deepseek-web
 version: 1
@@ -61,6 +63,7 @@ route_posture:
     - obsidian
     - auth
     - persona_profiles
+    - direct_messages
     - hosted_rooms
     - hosted_room_guest
   internal_only:

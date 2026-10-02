@@ -5,6 +5,11 @@ import DirectMessageInbox from "@/components/direct-messages/DirectMessageInbox"
 import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import {
   createDirectMessageConversation,
+  fetchDirectMessageConversation,
+  sendMessageRequest,
+  fetchOwnSocialIdentity,
+  fetchMessageRequests,
+  fetchMessageRequestHistoryPreference,
   fetchDirectMessageConversations,
   fetchProjectLabelMap,
   fetchThreadProjectScope,
@@ -15,15 +20,19 @@ import {
 } from "@/lib/direct-messages";
 
 vi.mock("@/lib/direct-messages", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/direct-messages")>();
+  const actual = await importOriginal<typeof import("@/lib/direct-messages")>();
   return {
     ...actual,
     fetchDirectMessageConversations: vi.fn(),
+    fetchOwnSocialIdentity: vi.fn(),
+    fetchMessageRequests: vi.fn(),
+    fetchMessageRequestHistoryPreference: vi.fn(),
     fetchProjectLabelMap: vi.fn(),
     searchDirectMessageProfiles: vi.fn(),
     resolveDirectMessageRelationship: vi.fn(),
     createDirectMessageConversation: vi.fn(),
+    fetchDirectMessageConversation: vi.fn(),
+    sendMessageRequest: vi.fn(),
     fetchThreadProjectScope: vi.fn(),
     normalizeDirectMessageError: (error: unknown) =>
       error instanceof Error ? error : new Error("request failed"),
@@ -57,7 +66,7 @@ const mockedThreadScope = vi.mocked(fetchThreadProjectScope);
 function profile(
   id: string,
   username: string,
-  displayName: string
+  displayName: string,
 ): DirectMessageSocialProfile {
   return {
     node_id: `node-${id}`,
@@ -73,7 +82,7 @@ function conversation(
   id: string,
   relationshipId: string,
   peer: DirectMessageSocialProfile,
-  preview: string | null
+  preview: string | null,
 ): DirectMessageConversation {
   return {
     conversation_id: id,
@@ -102,7 +111,7 @@ function conversation(
 }
 
 function makeState(
-  overrides: Partial<PeopleMessagingState> = {}
+  overrides: Partial<PeopleMessagingState> = {},
 ): PeopleMessagingState {
   return {
     peopleOpen: false,
@@ -140,19 +149,24 @@ const carol = profile("carol", "carol", "Carol Rivera");
 
 function renderInbox(
   state: PeopleMessagingState = makeState(),
-  sourceThreadId: number | null = null
+  sourceThreadId: number | null = null,
 ) {
   return render(
     <DirectMessageInbox
       capabilityState="available"
       sourceThreadId={sourceThreadId}
       state={state}
-    />
+    />,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(fetchOwnSocialIdentity).mockResolvedValue(
+    profile("alice", "alice", "Alice"),
+  );
+  vi.mocked(fetchMessageRequests).mockResolvedValue([]);
+  vi.mocked(fetchMessageRequestHistoryPreference).mockResolvedValue(false);
   mockedFetchConversations.mockResolvedValue([]);
   mockedFetchLabels.mockResolvedValue(new Map());
   mockedSearch.mockResolvedValue([]);
@@ -166,11 +180,11 @@ describe("capability gating", () => {
         capabilityState="unavailable"
         sourceThreadId={null}
         state={makeState()}
-      />
+      />,
     );
     expect(screen.getByTestId("direct-messages-unavailable")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Direct messages unavailable" })
+      screen.getByRole("heading", { name: "Direct messages unavailable" }),
     ).toBeTruthy();
     expect(mockedFetchConversations).not.toHaveBeenCalled();
   });
@@ -187,7 +201,7 @@ describe("conversation-first rows", () => {
     renderInbox();
 
     await waitFor(() =>
-      expect(screen.getAllByTestId("conversation-row")).toHaveLength(3)
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(3),
     );
     const rows = screen.getAllByTestId("conversation-row");
     expect(rows[0].textContent).toContain("first thread");
@@ -195,7 +209,7 @@ describe("conversation-first rows", () => {
     expect(rows[2].textContent).toContain("carol thread");
     // Both Bob conversations remain distinct rows.
     expect(
-      rows.filter((row) => row.textContent?.includes("Bob Tester"))
+      rows.filter((row) => row.textContent?.includes("Bob Tester")),
     ).toHaveLength(2);
   });
 
@@ -207,7 +221,7 @@ describe("conversation-first rows", () => {
     renderInbox();
 
     await waitFor(() =>
-      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1)
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
     );
     expect(screen.getByText("No messages yet")).toBeTruthy();
   });
@@ -224,7 +238,7 @@ describe("person filter", () => {
     renderInbox();
 
     await waitFor(() =>
-      expect(screen.getAllByTestId("conversation-row")).toHaveLength(3)
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(3),
     );
 
     fireEvent.click(screen.getByTestId("person-filter-rel-ab"));
@@ -245,7 +259,7 @@ describe("person filter", () => {
     renderInbox();
 
     await waitFor(() =>
-      expect(screen.getAllByTestId("conversation-row")).toHaveLength(2)
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(2),
     );
 
     fireEvent.click(screen.getByTestId("person-filter-rel-ab"));
@@ -267,13 +281,13 @@ describe("conversation selection", () => {
     const { rerender } = renderInbox(state);
 
     await waitFor(() =>
-      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1)
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
     );
 
     fireEvent.click(screen.getByTestId("conversation-row"));
     expect(openConversation).toHaveBeenCalledWith(
       "c-target",
-      expect.objectContaining({ conversation_id: "c-target" })
+      expect.objectContaining({ conversation_id: "c-target" }),
     );
 
     rerender(
@@ -281,11 +295,11 @@ describe("conversation selection", () => {
         capabilityState="available"
         sourceThreadId={null}
         state={makeState({ selectedConversationId: "c-target" })}
-      />
+      />,
     );
 
     expect(screen.getByTestId("direct-conversation-id").textContent).toBe(
-      "c-target"
+      "c-target",
     );
   });
 
@@ -313,6 +327,7 @@ describe("new conversation creation", () => {
     mockedSearch.mockResolvedValue([bob]);
     mockedResolve.mockResolvedValue({
       relationship_id: "rel-ab",
+      messaging_consent_established: true,
       participants: [profile("alice", "alice", "Alice Self"), bob],
       peer: bob,
       created_at: "2026-09-01T00:00:00Z",
@@ -322,12 +337,17 @@ describe("new conversation creation", () => {
 
     renderInbox(state);
 
-    fireEvent.click(screen.getByRole("button", { name: /New Conversation/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Find People/ }),
+      ).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Find People/ }));
     const input = screen.getByLabelText("Search profiles by username");
     fireEvent.change(input, { target: { value: "bob" } });
 
     await waitFor(() =>
-      expect(screen.getByTestId("profile-search-result")).toBeTruthy()
+      expect(screen.getByTestId("profile-search-result")).toBeTruthy(),
     );
     fireEvent.click(screen.getByTestId("profile-search-result"));
 
@@ -336,7 +356,7 @@ describe("new conversation creation", () => {
     expect(mockedCreate).toHaveBeenCalledWith("rel-ab", {});
     expect(openConversation).toHaveBeenCalledWith(
       "c-new",
-      expect.objectContaining({ conversation_id: "c-new" })
+      expect.objectContaining({ conversation_id: "c-new" }),
     );
   });
 
@@ -346,6 +366,7 @@ describe("new conversation creation", () => {
     mockedSearch.mockResolvedValue([bob]);
     mockedResolve.mockResolvedValue({
       relationship_id: "rel-ab",
+      messaging_consent_established: true,
       participants: [profile("alice", "alice", "Alice Self"), bob],
       peer: bob,
       created_at: "2026-09-01T00:00:00Z",
@@ -356,13 +377,18 @@ describe("new conversation creation", () => {
 
     renderInbox(state, 12);
 
-    fireEvent.click(screen.getByRole("button", { name: /New Conversation/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Find People/ }),
+      ).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Find People/ }));
     fireEvent.change(screen.getByLabelText("Search profiles by username"), {
       target: { value: "bob" },
     });
 
     await waitFor(() =>
-      expect(screen.getByTestId("profile-search-result")).toBeTruthy()
+      expect(screen.getByTestId("profile-search-result")).toBeTruthy(),
     );
     fireEvent.click(screen.getByTestId("profile-search-result"));
 
@@ -372,5 +398,62 @@ describe("new conversation creation", () => {
       origin_project_id: 7,
       origin_thread_id: 12,
     });
+  });
+});
+
+describe("consent integration", () => {
+  it("opens an intro composer without reading Guardian/Project scope for a new pair", async () => {
+    const state = makeState();
+    mockedSearch.mockResolvedValue([bob]);
+    mockedResolve.mockResolvedValue({
+      relationship_id: "new-pair",
+      messaging_consent_established: false,
+      participants: [bob],
+      peer: bob,
+      created_at: "2026-10-02T00:00:00Z",
+      updated_at: "2026-10-02T00:00:00Z",
+    });
+    vi.mocked(sendMessageRequest).mockResolvedValue({
+      request_id: "new-request",
+      relationship_id: "new-pair",
+      sender_profile_id: "alice",
+      recipient_profile_id: "bob",
+      peer: bob,
+      note: "Hi Bob",
+      state: "pending",
+      created_at: "2026-10-02T00:00:00Z",
+      expires_at: "2026-11-01T00:00:00Z",
+      transitioned_at: null,
+      conversation_id: null,
+      first_message_id: null,
+      outgoing: true,
+    });
+    renderInbox(state, 12);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Find People" }),
+      ).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Find People" }));
+    fireEvent.change(screen.getByLabelText("Search profiles by username"), {
+      target: { value: "bob" },
+    });
+    fireEvent.click(await screen.findByTestId("profile-search-result"));
+    await screen.findByRole("form", { name: "Introductory message request" });
+    expect(mockedThreadScope).not.toHaveBeenCalled();
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(state.openConversation).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Introductory note"), {
+      target: { value: "Hi Bob" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(sendMessageRequest).toHaveBeenCalledWith(
+        bob,
+        "Hi Bob",
+        expect.any(String),
+      ),
+    );
+    expect(state.openConversation).not.toHaveBeenCalled();
   });
 });

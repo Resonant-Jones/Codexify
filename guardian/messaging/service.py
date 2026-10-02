@@ -473,6 +473,10 @@ def relationship_payload(
     )
     return {
         "relationship_id": relationship.id,
+        "messaging_consent_established": session.get(
+            DirectMessageConsent, relationship.id
+        )
+        is not None,
         "participants": participants,
         "peer": peer,
         "created_at": relationship.created_at.isoformat(),

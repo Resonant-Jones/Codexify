@@ -1071,6 +1071,7 @@ def test_dm_source_never_touches_guardian_chat_or_federation(seeded):
         REPO_ROOT / "guardian" / "messaging" / "tokens.py",
         REPO_ROOT / "guardian" / "messaging" / "envelope.py",
         REPO_ROOT / "guardian" / "messaging" / "service.py",
+        REPO_ROOT / "guardian" / "messaging" / "requests.py",
     }
     forbidden_prefixes = (
         "guardian.core.chat",
@@ -1456,3 +1457,28 @@ def test_inbox_participant_local_placement_stays_isolated(seeded):
         c for c in a_listing if c["conversation_id"] == conversation["conversation_id"]
     )
     assert a_row["placement"]["project_id"] is None
+
+
+def test_private_preview_mounts_messaging_and_request_username_routes(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+    import guardian.guardian_api as guardian_api
+
+    app_module = importlib.reload(guardian_api)
+    try:
+        assert (
+            "direct_messages" in app_module.app.state.supported_profile_enabled_labels
+        )
+        paths = set(app_module.app.openapi()["paths"])
+        assert {
+            "/api/profile/social-identity",
+            "/api/direct-messages/profiles",
+            "/api/direct-messages/requests",
+            "/api/direct-messages/requests/{request_id}/accept",
+        } <= paths
+    finally:
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+        importlib.reload(guardian_api)

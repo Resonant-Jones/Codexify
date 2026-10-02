@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-09-24
+2026-10-02 (Private Preview messaging consent slice; other qualification limits retained)
 
 ## Interpretation rule
 
@@ -37,7 +37,7 @@ This file is authoritative for:
 - Mainline contains bounded proof for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, and the declared static suites at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical display metadata remains inventory observation.
 - Account import is bounded, not fully supported: isolated proof covers browser-to-materialization and presentation/readback, with later embedding/vector observations.
-- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation/direct messaging remain gated; these are not public Beta support.
+- Private Preview is opt-in: Whoosh'd remains default and DeepSeek is the only admitted cloud lane. ADR-097 enables same-node human direct messaging on `v1-whooshd-deepseek-web`, with explicit message-request consent; account activation retains its existing account gate. Messaging is enabled Preview functionality and remains unavailable in default/public Beta. Evidence and remaining runtime qualification are recorded in [the messaging proof ledger](./private-preview-message-request-proof.md).
 
 ## Not yet true / do not assume
 
