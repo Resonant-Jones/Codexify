@@ -149,6 +149,8 @@ from guardian.protocol_tokens import (
 )
 from guardian.tasks.chat_deadline import (
     ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+    AcceptedChatTaskDeadlineExceeded,
+    accepted_chat_deadline_for_task,
     build_accepted_chat_task_deadline,
 )
 from guardian.queue import task_events
@@ -1437,6 +1439,9 @@ def _execute_completion_attempt(
     cancel_check: Callable[[], bool] | None = None,
     tool_exposure: dict[str, Any] | None = None,
 ) -> CompletionAttemptResult:
+    accepted_deadline = accepted_chat_deadline_for_task(task)
+    if accepted_deadline and datetime.now(UTC) >= accepted_deadline.work_deadline_at:
+        raise AcceptedChatTaskDeadlineExceeded()
     request_id, _ = normalize_request_id(getattr(task, "request_id", None))
     task.request_id = request_id
     attempt_id = generate_attempt_id()
@@ -1497,6 +1502,7 @@ def _execute_completion_attempt(
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
                     "cancel_check": cancel_check,
+                    "accepted_deadline": accepted_deadline,
                     "requested_model_is_authoritative": exact_text_model,
                 },
             ),
@@ -1541,6 +1547,10 @@ def _execute_completion_attempt(
                     chunk_callback(text)
         except ChatTaskCancelled:
             raise
+        except AcceptedChatTaskDeadlineExceeded as exc:
+            _record_attempt_failure(exc)
+            exc.detail["visible_output_emitted"] = bool(collected)
+            raise
         except Exception as exc:
             _record_attempt_failure(exc)
             _terminal_failure_for_exception(
@@ -1550,6 +1560,10 @@ def _execute_completion_attempt(
                 visible_output_emitted=bool(collected),
             )
             raise
+        finally:
+            close_iterator = getattr(iterator, "close", None)
+            if callable(close_iterator):
+                close_iterator()
         visible_output_emitted = bool(collected)
         if not isinstance(terminal, CompletionTerminalEvidence):
             terminal = CompletionTerminalEvidence(
