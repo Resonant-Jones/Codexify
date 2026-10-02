@@ -17,6 +17,29 @@ Guardian, frontend, Tailscale, Whoosh'd, providers, and database state were not 
 
 ## Authentication trace and evidence classes
 
+**Scout sign-in diagnostics, October 2:** Starting HEAD for this slice was
+`b5cb07df6433274e51e768f93752807eedaf8cbc`; branch and #822 ancestry were
+verified. Remote Server status no longer attempts to load a local API key.
+Settings now offers a profile-scoped Keychain ingress check, with refresh using
+the existing registered public client and fixed issuer/resource. No new client,
+secret, access policy, or Guardian credential is introduced. Qualification checks
+the canonical `X-Guardian-Auth-Failure: ACCOUNT_SESSION_INVALID` marker before
+the edge challenge; status alone never establishes account authentication.
+
+Complete SwiftPM suite: 41 tests, zero failures, using the task-local caches and
+`--disable-sandbox` command documented below. Generic simulator build passed.
+An unsigned installed bundle could not read Keychain. A second simulator build
+using the existing development team (`DEVELOPMENT_TEAM=5Q888BY3YZ`, normal
+signing enabled, destination the existing proof simulator) passed and was
+installed without reset/uninstall. It launched with PID 87863. Device Hub then
+showed `No ingress credential is stored for this connection`, rather than the
+Keychain-read error. This proves Keychain-query access and missing credential
+for the selected simulator profile; it does not identify why an earlier browser
+sign-in did not retain a credential. The misleading API-key warning was visibly
+absent in remote mode. The system-browser flow was reopened in this corrected
+build and awaits the operator. Callback, refresh, native admission, Guardian
+handoff, and the complete continuity loop remain unproven.
+
 **Observed live, September 30:** Opening `https://preview.codexify.space` in the Codex browser redirects to the `resonant-constructs.cloudflareaccess.com` Access login. Its heading is `Log in to Codexify Private Preview`; Google and `Send login code` are offered. This establishes an Access application in front of the hostname, beyond ordinary Tunnel ingress. No credentials or codes were entered by the agent.
 
 **Observed browser UI, October 1:** After the operator completed sign-in in Chrome, `/login` displayed `Your workspace is ready` and reported an active session. Continuing opened `/chat`; the sidebar displayed existing threads, and opening an existing thread rendered a four-message conversation. This proves an accessible browser workspace and rendered existing conversation, not a captured protected API response, deployed credential-purpose enforcement, native credential handoff, or Scout continuity. The agent did not inspect browser session storage, cookies, or tokens, and did not send a message or request inference. Serving Vault lineage was subsequently identified below.

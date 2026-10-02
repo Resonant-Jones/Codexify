@@ -64,6 +64,11 @@ struct SettingsAuthView: View {
                             Task { await accessSignIn.signIn(profile: profile) }
                         }
                         .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
+                        Button("Check stored ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.checkStoredIngress(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || !isSavedHostedProfile)
                         Button("Revoke hosted ingress") {
                             let profile = draftProfile
                             Task { await accessSignIn.revoke(profile: profile) }
@@ -302,7 +307,8 @@ struct SettingsAuthView: View {
             .navigationTitle("Settings")
             .onAppear {
                 loadProfile()
-                isKeyStored = keychainStore.hasAPIKey()
+                isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey()
+                if isSavedHostedProfile { accessSignIn.restoreStatus(profile: draftProfile) }
             }
         }
     }

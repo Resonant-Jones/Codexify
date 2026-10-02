@@ -33,6 +33,67 @@ final class ScoutAccessSignIn: NSObject, ObservableObject, ASWebAuthenticationPr
         message = nil
     }
 
+    func restoreStatus(profile: ScoutEndpointProfile) {
+        guard !isWorking, message == nil else { return }
+        do {
+            guard let credential = try store.load(for: profile) else {
+                message = "No ingress credential is stored for this connection. Authorize hosted ingress to continue."
+                return
+            }
+            message = credential.expiresAt > Date()
+                ? "Ingress credential is stored in Keychain. Check stored ingress to qualify admission. Guardian account-session handoff is still required."
+                : "Stored ingress authorization has expired. Check stored ingress to renew the existing grant, or authorize again. Guardian account-session handoff is still required."
+        } catch {
+            message = "Could not read this connection's ingress credential from Keychain."
+        }
+    }
+
+    private func qualify(credential: ScoutAccessOAuth.Credential, profile: ScoutEndpointProfile,
+                         session: URLSession, identity: UUID) async throws {
+        try ScoutAccessOAuth.requireHosted(profile)
+        var probe = URLRequest(url: ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads"))
+        probe.setValue("application/json", forHTTPHeaderField: "Accept")
+        probe.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await session.data(for: probe)
+        guard operation == identity else { throw ScoutAccessOAuthError.superseded }
+        guard let http = response as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
+        message = ScoutIngressQualification(response: http).message(response: http)
+    }
+
+    func checkStoredIngress(profile: ScoutEndpointProfile) async {
+        guard !isWorking else { return }
+        let identity = UUID()
+        operation = identity
+        isWorking = true
+        message = "Checking this connection's stored ingress authorization…"
+        defer { if operation == identity { isWorking = false } }
+        do {
+            guard var credential = try store.load(for: profile) else {
+                message = "No ingress credential is stored for this connection. Authorize hosted ingress to continue."
+                return
+            }
+            let session = networkSession()
+            defer { session.invalidateAndCancel() }
+            if credential.expiresAt <= Date() {
+                let request = try ScoutAccessOAuth.refreshRequest(credential: credential, profile: profile)
+                let (data, response) = try await session.data(for: request)
+                guard operation == identity else { throw ScoutAccessOAuthError.superseded }
+                guard let http = response as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
+                guard http.statusCode == 200 else {
+                    message = "Ingress renewal returned HTTP \(http.statusCode)" + diagnosticRay(http)
+                        + ". Authorize hosted ingress again; no Guardian account session was issued."
+                    return
+                }
+                credential = try ScoutAccessOAuth.Credential.decode(data, retainingRefreshToken: credential.refreshToken)
+                try store.save(credential, for: profile)
+            }
+            try await qualify(credential: credential, profile: profile, session: session, identity: identity)
+        } catch {
+            guard operation == identity else { return }
+            message = "Stored ingress qualification did not finish. No Guardian account session was issued."
+        }
+    }
+
     private func authorize(_ url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(url: url, callbackURLScheme: ScoutAccessOAuth.callback.scheme) { callback, error in
@@ -84,20 +145,7 @@ final class ScoutAccessSignIn: NSObject, ObservableObject, ASWebAuthenticationPr
             try store.save(credential, for: profile)
             message = "Ingress credential stored in Keychain. Checking the separate Guardian boundary…"
             failureStage = "Protected API qualification"
-            var probe = URLRequest(url: ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads"))
-            probe.setValue("application/json", forHTTPHeaderField: "Accept")
-            probe.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
-            let (_, probeResponse) = try await session.data(for: probe)
-            guard operation == identity else { throw ScoutAccessOAuthError.superseded }
-            guard let http = probeResponse as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
-            let challenge = http.value(forHTTPHeaderField: "WWW-Authenticate") ?? ""
-            if challenge.contains("resource_metadata") {
-                message = "Cloudflare Access still requires admission (HTTP \(http.statusCode))" + diagnosticRay(http) + ". Guardian authentication has not been reached."
-            } else if http.statusCode == 401 || http.statusCode == 403 {
-                message = "API returned HTTP \(http.statusCode) after ingress authorization" + diagnosticRay(http) + ". Guardian account handoff remains required; no account session was issued."
-            } else {
-                message = "API returned HTTP \(http.statusCode)" + diagnosticRay(http) + ". No Guardian account session was issued; account authentication remains unqualified."
-            }
+            try await qualify(credential: credential, profile: profile, session: session, identity: identity)
         } catch {
             guard operation == identity else { return }
             // Never display raw callback URLs, response bodies, or system errors containing credential material.

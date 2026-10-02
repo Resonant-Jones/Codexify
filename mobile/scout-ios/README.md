@@ -117,6 +117,12 @@ cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
 The registered public native client uses ASWebAuthenticationSession and PKCE S256.
 In Settings, select remote-session mode, then **Use hosted Codexify** and
 **Authorize hosted ingress**. Complete Google/OTP only in the system browser.
+**Check stored ingress** reads only this connection's Keychain credential, renews
+an expired credential through its existing refresh grant when available, and
+qualifies the protected API response without another browser login. A Guardian
+account-session failure marker establishes that the request reached Guardian;
+an Access challenge or an HTTP status alone does not. Returning to Settings
+restores credential-presence status, not an authenticated-account claim.
 The exact callback is `ai.resonantconstructs.codexify.scout://access-callback`.
 No client secret exists. Ingress credentials remain in a separate profile/origin-scoped
 Keychain record; neither credentials nor callback results belong in proof files.
@@ -127,7 +133,8 @@ remote requests still fail closed under the shared authentication policy. The
 Settings result reports a non-secret HTTP status/Ray ID after token exchange; it
 does not claim an account session. Use **Revoke hosted ingress** to request ingress
 revocation and remove its Keychain credential after confirmation. Automatic
-refresh/restoration and Guardian logout are still pending.
+account-session restoration and Guardian logout are still pending. Ingress
+renewal is attempted only by the explicit stored-ingress check.
 
 Live PKCE/token/admission qualification requires human sign-in in the dedicated
 Scout proof simulator. Do not capture credentials, OTPs, callback codes, or tokens

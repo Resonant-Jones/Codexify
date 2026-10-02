@@ -117,12 +117,23 @@ struct ScoutAccessOAuth {
         return request
     }
 
+    static func refreshRequest(credential: Credential, profile: ScoutEndpointProfile) throws -> URLRequest {
+        try requireHosted(profile)
+        guard let token = credential.refreshToken, !token.isEmpty else {
+            throw ScoutAccessOAuthError.expiredCredential
+        }
+        return formRequest(url: tokenEndpoint, fields: [
+            "grant_type": "refresh_token", "client_id": clientID,
+            "refresh_token": token, "resource": resource.absoluteString
+        ])
+    }
+
     struct Credential: Codable {
         let accessToken: String
         let refreshToken: String?
         let expiresAt: Date
 
-        static func decode(_ data: Data, now: Date = Date()) throws -> Self {
+        static func decode(_ data: Data, now: Date = Date(), retainingRefreshToken: String? = nil) throws -> Self {
             struct Response: Decodable {
                 let access_token: String
                 let token_type: String
@@ -134,7 +145,10 @@ struct ScoutAccessOAuth {
                   response.expires_in.isFinite, response.expires_in > 0 else {
                 throw ScoutAccessOAuthError.invalidResponse
             }
-            return Self(accessToken: response.access_token, refreshToken: response.refresh_token,
+            guard response.refresh_token == nil || response.refresh_token?.isEmpty == false else {
+                throw ScoutAccessOAuthError.invalidResponse
+            }
+            return Self(accessToken: response.access_token, refreshToken: response.refresh_token ?? retainingRefreshToken,
                         expiresAt: now.addingTimeInterval(response.expires_in))
         }
     }

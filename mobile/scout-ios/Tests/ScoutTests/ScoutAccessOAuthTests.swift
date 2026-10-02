@@ -101,6 +101,33 @@ final class ScoutAccessOAuthTests: XCTestCase {
         XCTAssertTrue(called)
     }
 
+    func testRefreshUsesExistingPublicClientAndRejectsOtherConnections() throws {
+        let credential = ScoutAccessOAuth.Credential(accessToken: "fixture", refreshToken: "fixture-refresh", expiresAt: .distantPast)
+        let request = try ScoutAccessOAuth.refreshRequest(credential: credential, profile: profile())
+        XCTAssertEqual(request.url, ScoutAccessOAuth.tokenEndpoint)
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = String(data: request.httpBody!, encoding: .utf8)!
+        XCTAssertTrue(body.contains("grant_type=refresh_token"))
+        XCTAssertTrue(body.contains("resource=https%3A%2F%2Fpreview.codexify.space"))
+        XCTAssertFalse(body.contains("client_secret"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "X-API-Key"))
+        XCTAssertThrowsError(try ScoutAccessOAuth.refreshRequest(credential: credential, profile: profile("https://personal.example")))
+        XCTAssertThrowsError(try ScoutAccessOAuth.refreshRequest(credential: credential, profile: profile(mode: .localAPIKey)))
+        for token in [nil, ""] as [String?] {
+            XCTAssertThrowsError(try ScoutAccessOAuth.refreshRequest(credential: .init(accessToken: "fixture", refreshToken: token, expiresAt: .distantPast), profile: profile()))
+        }
+    }
+
+    func testRefreshRotationAndOmittedRefreshToken() throws {
+        let body = Data(#"{"access_token":"fixture-new","token_type":"Bearer","expires_in":900}"#.utf8)
+        XCTAssertEqual(try ScoutAccessOAuth.Credential.decode(body, retainingRefreshToken: "fixture-old").refreshToken, "fixture-old")
+        let rotated = Data(#"{"access_token":"fixture-new","token_type":"Bearer","expires_in":900,"refresh_token":"fixture-rotated"}"#.utf8)
+        XCTAssertEqual(try ScoutAccessOAuth.Credential.decode(rotated, retainingRefreshToken: "fixture-old").refreshToken, "fixture-rotated")
+        let empty = Data(#"{"access_token":"fixture-new","token_type":"Bearer","expires_in":900,"refresh_token":""}"#.utf8)
+        XCTAssertThrowsError(try ScoutAccessOAuth.Credential.decode(empty, retainingRefreshToken: "fixture-old"))
+    }
+
     func testRandomVerifierLengthAndEncoding() throws {
         let first = try ScoutAccessOAuth.randomValue()
         let second = try ScoutAccessOAuth.randomValue()

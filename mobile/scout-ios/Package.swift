@@ -49,6 +49,7 @@ let package = Package(
                 "Services/ScoutAccessOAuth.swift",
                 "Services/ScoutAccessCredentialStore.swift",
                 "Services/ScoutAccessSignIn.swift",
+                "Services/ScoutIngressQualification.swift",
             ],
             linkerSettings: [
                 .linkedFramework("Security")
