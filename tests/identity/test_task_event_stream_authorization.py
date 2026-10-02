@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -176,8 +177,11 @@ class _RoomSession:
         return records.get((model, key))
 
 
+@pytest.mark.parametrize(
+    "auth_mode,supplemental_auth", [("local", False), ("local", True), ("remote", False)]
+)
 def test_eligible_room_guest_reads_same_room_attempt_without_becoming_owner(
-    task_event_client, monkeypatch
+    task_event_client, monkeypatch, auth_mode, supplemental_auth
 ):
     client, _db, _lookup, redis_read, _attempts = task_event_client
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "inert-task-event-test-secret")
@@ -188,6 +192,8 @@ def test_eligible_room_guest_reads_same_room_attempt_without_becoming_owner(
         invitation_id="invite-a",
     )
     guest_session = _RoomSession()
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", auth_mode)
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
 
     @contextmanager
     def room_db_session():
@@ -202,6 +208,11 @@ def test_eligible_room_guest_reads_same_room_attempt_without_becoming_owner(
     response = client.get(
         "/api/tasks/backend-task-room/events",
         cookies={"codexify_hosted_room_session": token},
+        headers={
+            "X-API-Key": "",
+            **({"Authorization": "Bearer local-supplemental-material"}
+               if supplemental_auth else {}),
+        },
     )
 
     assert response.status_code == 200
@@ -383,3 +394,26 @@ def test_remote_account_principal_cannot_be_overridden_by_user_header(
     else:
         assert "private generated output" not in response.text
         redis_read.assert_not_called()
+
+
+def test_durable_authorization_queries_run_outside_the_event_loop(
+    task_event_client, monkeypatch
+):
+    from guardian import guardian_api
+
+    client, _db, _lookup, redis_read, _attempts = task_event_client
+    authorize = guardian_api.authorize_task_event_read
+    off_loop_checks = []
+
+    def off_loop_authorize(*args, **kwargs):
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        off_loop_checks.append(True)
+        return authorize(*args, **kwargs)
+
+    monkeypatch.setattr(guardian_api, "authorize_task_event_read", off_loop_authorize)
+    response = client.get("/api/tasks/backend-task-a/events")
+
+    assert response.status_code == 200
+    assert off_loop_checks == [True]
+    redis_read.assert_called_once()

@@ -125,3 +125,42 @@ credential-purpose separation. Global local-first defaults remain unchanged.
 This focused route repair does not close the full public-ingress matrix.
 Rerun that matrix from the beginning against the repaired runtime with
 Cloudflare Access still enabled before considering any Access-free canary.
+
+
+## PR #848 reconciliation and bounded review follow-up — 2026-10-02
+
+The conflict reconciliation at `6746bbc640fe8241c287a2cce646bc6ab466e5fc`
+merges `main` at `b04e0d088e7627f29e4476dcf268ca5f0d78faa5`. It retains
+both presence-based mixed-principal rejection and the typed account-session
+failure signal from main. Mixed-principal HTTP 400 responses do not carry
+`X-Guardian-Auth-Failure: ACCOUNT_SESSION_INVALID`.
+
+The bounded review follow-up gates task-event mixed-principal rejection with
+the existing remote/private-preview boundary and offloads synchronous durable
+resource authorization from the async SSE event loop. Authorization still
+finishes before response construction and Redis consumption. Regression
+coverage includes legitimate local guest access with supplemental session
+material, single-lane remote guest access, and off-loop authorization queries.
+
+Focused follow-up validation:
+
+```text
+/Volumes/Dev_SSD/Codexify-main/.venv/bin/pytest -v \
+  tests/identity/test_task_event_stream_authorization.py \
+  tests/identity/test_mixed_principal_boundary.py \
+  tests/routes/test_chat_task_events_lifecycle.py \
+  tests/routes/test_chat_thread_remote_auth.py
+34 passed
+```
+
+**Merge readiness remains HOLD on the non-chat task-family review finding.**
+The generic endpoint has non-chat producers/consumers, while the present
+resource guard requires a durable chat completion attempt. Agent runs,
+delegation, voice, and warmup need an explicit supported-family inventory and
+canonical access/acceptance contract before admitting their streams here.
+Neither Redis existence nor caller-supplied task/thread metadata may supply
+that missing authority. This follow-up does not introduce such a policy or
+claim preserved generic non-chat stream compatibility.
+
+No live deployment, ingress requalification, or Cloudflare mutation occurred.
+The original focused proof and public-ingress HOLD remain historically bounded.

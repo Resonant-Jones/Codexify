@@ -1649,7 +1649,9 @@ async def stream_task_events(
 
     # Authenticate, resolve the durable backend-task mapping, and authorize
     # its canonical thread before constructing a response or reaching Redis.
-    authorize_task_event_read(task_id, principal, chatlog_db=chatlog_db)
+    await asyncio.to_thread(
+        authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         last_id = str(last_event_id_header or last_id_query or "0-0")

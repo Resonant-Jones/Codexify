@@ -990,7 +990,7 @@ def require_task_event_read_principal(
     remote_boundary = is_private_preview() or _auth_mode() == "remote"
     reject_mixed_principal_credentials(
         request,
-        enabled=True,
+        enabled=remote_boundary,
         authorization=authorization,
         gc_session=gc_session,
         operator_key_values=(x_api_key,) if remote_boundary else (),
