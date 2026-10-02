@@ -101,7 +101,7 @@ function parseTaskEventPayload(event: Event): Record<string, unknown> | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object"
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
@@ -586,10 +586,11 @@ export function useInferenceRequestState() {
   }, [state]);
 
   const closeTaskStream = useCallback(() => {
-    taskStreamRef.current?.close();
+    const stream = taskStreamRef.current;
     taskStreamRef.current = null;
     attachedTaskIdRef.current = null;
     delayedLifecycleKeyRef.current = null;
+    stream?.close();
   }, []);
 
   const applyPatch = useCallback((patch: Partial<InferenceRequestState>) => {
@@ -718,27 +719,24 @@ export function useInferenceRequestState() {
       );
       taskStreamRef.current = stream;
 
-      const handleTaskProgress = (event: Event) => {
-        const payload = parseTaskEventPayload(event);
+      const ownsCurrentStream = () =>
+        taskStreamRef.current === stream &&
+        attachedTaskIdRef.current === taskId &&
+        stateRef.current.threadId != null;
+
+      const acceptsTaskPayload = (payload: Record<string, unknown> | null) => {
+        if (!payload || !ownsCurrentStream()) return false;
         const threadId = getTaskEventThreadId(payload);
         const eventTaskId = getTaskEventTaskId(payload);
-        if (stateRef.current.threadId == null) {
-          return;
-        }
-        if (
-          Number.isFinite(threadId) &&
-          stateRef.current.threadId != null &&
-          threadId !== stateRef.current.threadId
-        ) {
-          return;
-        }
-        if (
-          eventTaskId &&
-          attachedTaskIdRef.current &&
-          eventTaskId !== attachedTaskIdRef.current
-        ) {
-          return;
-        }
+        return (
+          (threadId == null || threadId === stateRef.current.threadId) &&
+          (eventTaskId == null || eventTaskId === taskId)
+        );
+      };
+
+      const handleTaskProgress = (event: Event) => {
+        const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         applyPatch({
           taskId,
           phase: "streaming",
@@ -751,25 +749,7 @@ export function useInferenceRequestState() {
 
       const handleTaskState = (event: Event) => {
         const payload = parseTaskEventPayload(event);
-        const threadId = getTaskEventThreadId(payload);
-        const eventTaskId = getTaskEventTaskId(payload);
-        if (stateRef.current.threadId == null) {
-          return;
-        }
-        if (
-          Number.isFinite(threadId) &&
-          stateRef.current.threadId != null &&
-          threadId !== stateRef.current.threadId
-        ) {
-          return;
-        }
-        if (
-          eventTaskId &&
-          attachedTaskIdRef.current &&
-          eventTaskId !== attachedTaskIdRef.current
-        ) {
-          return;
-        }
+        if (!acceptsTaskPayload(payload)) return;
 
         const lifecycleState = normalizeTaskLifecycleState(
           payload?.state ?? payload?.status ?? payload?.lifecycle_state
@@ -835,6 +815,7 @@ export function useInferenceRequestState() {
 
       const handleTaskCompleted = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         const detail =
           typeof payload?.message_id === "number"
             ? INFERENCE_DETAIL_TEXT.COMPLETED_AND_SAVED
@@ -844,6 +825,7 @@ export function useInferenceRequestState() {
 
       const handleTaskCancelled = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         markCancelled(INFERENCE_DETAIL_TEXT.CANCELLED_ACTIVE, {
           timingPatch: extractTimingPatch(payload),
         });
@@ -851,6 +833,7 @@ export function useInferenceRequestState() {
 
       const handleTaskFailed = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         const errorText =
           typeof payload?.error === "string" && payload.error.trim().length > 0
             ? payload.error.trim()
@@ -868,6 +851,7 @@ export function useInferenceRequestState() {
       stream.addEventListener("task.failed", handleTaskFailed as EventListener);
       stream.addEventListener("completion.error", handleTaskFailed as EventListener);
       stream.onerror = () => {
+        if (!ownsCurrentStream()) return;
         if (stateRef.current.phase === "completed" || stateRef.current.phase === "cancelled") {
           return;
         }

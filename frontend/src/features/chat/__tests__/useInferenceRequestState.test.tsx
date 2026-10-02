@@ -103,6 +103,173 @@ describe("useInferenceRequestState", () => {
     eventSources.instances.length = 0;
   });
 
+  const terminalEvents = [
+    "task.completed",
+    "task.cancelled",
+    "task.failed",
+    "completion.error",
+  ];
+  const streamEvents = ["task.progress", "task.state", ...terminalEvents];
+  const request = {
+    threadId: 1,
+    providerId: "local",
+    modelId: "local-model",
+    mode: "default" as const,
+  };
+
+  it.each(terminalEvents.flatMap((type) => [[type, "thread"], [type, "task"]]))(
+    "ignores current-stream terminal %s with foreign %s identity",
+    (type, foreignIdentity) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      const before = result.current.state;
+
+      emitTaskEvent(source, type, {
+        thread_id: foreignIdentity === "thread" ? 2 : 1,
+        task_id: foreignIdentity === "task" ? "foreign-task" : "current-task",
+        error: "Unrelated failure",
+      });
+
+      expect(result.current.state).toEqual(before);
+      expect(source.close).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(streamEvents.flatMap((type) => [[type, true], [type, false]]))(
+    "ignores retired stream %s with explicit identity %s after replacement",
+    (type, explicitIdentity) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("old-task");
+      });
+      const oldSource = eventSources.instances[0];
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[1];
+      const before = result.current.state;
+
+      emitTaskEvent(oldSource, String(type), {
+        ...(explicitIdentity ? { thread_id: 1, task_id: "old-task" } : {}),
+        state: "COMPLETED",
+        error: "Retired task failed",
+        token: "Late output",
+      });
+
+      expect(oldSource.close).toHaveBeenCalledOnce();
+      expect(result.current.state).toEqual(before);
+      expect(source.close).not.toHaveBeenCalled();
+    }
+  );
+
+  it("invalidates stream ownership before closing can dispatch a terminal", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const source = eventSources.instances[0];
+    source.close.mockImplementationOnce(() => {
+      source.emit("task.completed", { thread_id: 1, task_id: "current-task" });
+    });
+    act(() => result.current.reset());
+    expect(source.close).toHaveBeenCalledOnce();
+    expect(result.current.state.phase).toBe("idle");
+    expect(result.current.state.taskId).toBeNull();
+  });
+
+  it("ignores a retired stream transport error after replacement", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("old-task");
+    });
+    const oldSource = eventSources.instances[0];
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const before = result.current.state;
+    act(() => oldSource.emitError());
+    expect(result.current.state).toEqual(before);
+    expect(eventSources.instances[1].close).not.toHaveBeenCalled();
+  });
+
+  it("rejects the retired connection when the same task ID is reattached", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("same-task");
+    });
+    const oldSource = eventSources.instances[0];
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("same-task");
+    });
+    const before = result.current.state;
+    emitTaskEvent(oldSource, "task.completed", { thread_id: 1, task_id: "same-task" });
+    expect(result.current.state).toEqual(before);
+    expect(eventSources.instances[1].close).not.toHaveBeenCalled();
+  });
+
+  it.each(["task.progress", "task.state"])(
+    "does not resurrect completed inference on late %s",
+    (type) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      emitTaskEvent(source, "task.completed", { thread_id: 1, task_id: "current-task" });
+      const completed = result.current.state;
+      emitTaskEvent(source, type, { state: "STREAMING", token: "Late output" });
+      expect(result.current.state).toEqual(completed);
+      expect(result.current.state.phase).toBe("completed");
+      expect(source.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(terminalEvents.flatMap((type) => [[type, true], [type, false]]))(
+    "accepts current stream terminal %s with explicit identity %s",
+    (type, explicitIdentity) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      emitTaskEvent(source, String(type), {
+        ...(explicitIdentity ? { thread_id: 1, task_id: "current-task" } : {}),
+        error: "Current task failed",
+      });
+      const expectedPhase =
+        type === "task.completed" ? "completed" : type === "task.cancelled" ? "cancelled" : "failed";
+      expect(result.current.state.phase).toBe(expectedPhase);
+      expect(result.current.state.taskId).toBeNull();
+      expect(source.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(["invalid-json", "[]", "null", "42", ""])("ignores malformed terminal data %s instead of inventing completion", (data) => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const source = eventSources.instances[0];
+    const before = result.current.state;
+    act(() => source.dispatchEvent(new MessageEvent("task.completed", { data })));
+    expect(result.current.state).toEqual(before);
+    expect(source.close).not.toHaveBeenCalled();
+  });
+
   it("attributes a delayed request with no lifecycle evidence as queued", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const { result } = renderHook(() => useInferenceRequestState());
