@@ -52,3 +52,33 @@ errors in untouched coding_agent_contracts.py, watchdog/contracts.py and
 routes/imprint.py. No Scout handoff module errors were reported. That unrelated
 hook is excluded from the scoped commit retry and remains a recorded limitation;
 this patch does not claim a clean repository-wide type check.
+
+## Bounded preview deployment receipt
+
+Auth source commit: 465497b0cca24dff5551433d9bb5139423a6d004.
+The built image adds only the reviewed Guardian files to the qualified base
+sha256:0f842ac1f9f8fec04af74b253f831aeb872644cbfbb58b839fd25eea37756649.
+Serving image: sha256:c85760cf456e9a09a12983642a1fd6f4f1817903acb86ea3b3791134a84673d5.
+
+Image syntax/hashes were checked in a read-only, network-disabled disposable
+container without production mounts or application startup. The existing Compose
+configuration plus scoped auth override passed config --quiet. Only preview
+backend/frontend were recreated with --no-deps --no-build --pull never. Specific
+read-only source mounts account for the existing Guardian/frontend bind mounts;
+no main-checkout files, workers, database volumes or concurrent proof stacks were
+replaced. The initial duplicate-shell frontend command exited without serving;
+using the existing shell entrypoint corrected it. Both preview services now run.
+
+The serving Guardian auth files match the committed patch hashes; serving
+LoginPage SHA256 is 4852a8de441eef4672c864e28c51baa43b95ea5897cadab0810b2fce3f6a8597.
+Preview origin 127.0.0.1:8081 returns health/login HTTP 200. An unadmitted Scout
+exchange returns 401. Public Access verification keys are reachable from Guardian
+(HTTP 200). DB revision remains a7b9c4d2e6f1; no migration/reset/replacement ran.
+No Cloudflare, OAuth registration, BIC, account ownership or authorization policy
+change occurred. The artifact and override live under
+/Volumes/Dev_SSD/Codexify-scout815-auth/465497b0c on VaultNode. The original Compose
+files and base image provide rollback without a database downgrade.
+
+This establishes bounded deployment only. Canonical account handoff, native
+protected read, task/message continuity and logout denial still require the
+operator's secure sign-in in the actual Scout app. #815 remains open.
