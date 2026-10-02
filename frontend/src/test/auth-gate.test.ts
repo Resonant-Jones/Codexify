@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import api, { setAuthToken } from "@/lib/api";
+import api, { getAuthToken, setAuthToken } from "@/lib/api";
 import {
   __resetAuthStateForTests,
   __setAuthStateForTests,
   checkAuthGate,
   getAuthState,
 } from "@/lib/authState";
+import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
+} from "@/contracts/runtimeTokens";
 
 describe("auth gate", () => {
   const originalAdapter = api.defaults.adapter;
@@ -45,13 +49,13 @@ describe("auth gate", () => {
     expect(debugSpy).toHaveBeenCalled();
   });
 
-  it("first 401 transitions auth state to unauthenticated once", async () => {
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  it("does not invalidate account auth on an unclassified 401", async () => {
     __setAuthStateForTests({
       status: "authenticated",
       ready: true,
       token: "seed-token",
     });
+    setAuthToken("seed-token");
 
     api.defaults.adapter = async (config) =>
       Promise.reject({
@@ -66,13 +70,41 @@ describe("auth gate", () => {
       });
 
     await expect(api.get("/chat/threads")).rejects.toBeTruthy();
-    expect(getAuthState().status).toBe("unauthenticated");
+    expect(getAuthState().status).toBe("authenticated");
     expect(getAuthState().ready).toBe(true);
+    expect(getAuthToken()).toBe("seed-token");
+    expect(window.sessionStorage.getItem("guardian.auth.token")).toBe(
+      "seed-token"
+    );
+  });
+
+  it("invalidates the account session only on the explicit account-auth signal", async () => {
+    __setAuthStateForTests({
+      status: "authenticated",
+      ready: true,
+      token: "seed-token",
+    });
+    setAuthToken("seed-token");
+
+    api.defaults.adapter = async (config) =>
+      Promise.reject({
+        config,
+        response: {
+          data: { detail: "Account session required" },
+          status: 401,
+          statusText: "Unauthorized",
+          headers: {
+            [ACCOUNT_AUTH_FAILURE_HEADER.toLowerCase()]:
+              ACCOUNT_AUTH_FAILURE_CODES.SESSION_INVALID,
+          },
+          config,
+        },
+      });
 
     await expect(api.get("/chat/threads")).rejects.toBeTruthy();
-    const authTransitionLogs = infoSpy.mock.calls.filter((call) =>
-      String(call[0]).includes("[auth] received 401")
-    );
-    expect(authTransitionLogs).toHaveLength(1);
+    expect(getAuthState().status).toBe("unauthenticated");
+    expect(getAuthState().ready).toBe(true);
+    expect(getAuthToken()).toBeNull();
+    expect(window.sessionStorage.getItem("guardian.auth.token")).toBeNull();
   });
 });

@@ -165,6 +165,53 @@ def _urlsafe_b64decode(raw_text: str) -> bytes | None:
         return None
 
 
+def _verified_guest_session_claims(token: str) -> dict[str, Any] | None:
+    """Return signed guest claims without making an expiry decision."""
+    packed = (token or "").strip()
+    if not packed or "." not in packed:
+        return None
+
+    try:
+        payload_b64, sig_b64 = packed.split(".", 1)
+    except ValueError:
+        return None
+
+    payload_bytes = _urlsafe_b64decode(payload_b64)
+    sig_bytes = _urlsafe_b64decode(sig_b64)
+
+    if payload_bytes is None or sig_bytes is None:
+        return None
+
+    # Constant-time signature verification
+    expected_sig = hmac.new(
+        _session_secret(), payload_bytes, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(expected_sig, sig_bytes):
+        return None
+
+    try:
+        claims = json.loads(payload_bytes.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+    # ── Domain separation: reject non-guest-session tokens ─────────────
+    if not isinstance(claims, dict):
+        return None
+    subject = str(claims.get("subject") or "")
+    if subject != _SESSION_SUBJECT:
+        return None
+    return claims
+
+
+def is_verified_guest_session_token(token: str) -> bool:
+    """Classify a signed guest credential without authorizing its use.
+
+    Expiry is intentionally ignored so an expired guest token remains
+    distinguishable from an invalid account-session credential.
+    """
+    return _verified_guest_session_claims(token) is not None
+
+
 def decode_guest_session_token(token: str) -> dict[str, Any]:
     """Decode the claims from a Hosted Room session token.
 
@@ -173,51 +220,8 @@ def decode_guest_session_token(token: str) -> dict[str, Any]:
     Raises ``HTTPException(401)`` when the token is malformed, expired,
     tampered, signed with the wrong key, or has an incorrect subject.
     """
-    packed = (token or "").strip()
-    if not packed or "." not in packed:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "invalid_session", "message": "Invalid session"},
-        )
-
-    try:
-        payload_b64, sig_b64 = packed.split(".", 1)
-    except ValueError:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "invalid_session", "message": "Invalid session"},
-        )
-
-    payload_bytes = _urlsafe_b64decode(payload_b64)
-    sig_bytes = _urlsafe_b64decode(sig_b64)
-
-    if payload_bytes is None or sig_bytes is None:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "invalid_session", "message": "Invalid session"},
-        )
-
-    # Constant-time signature verification
-    expected_sig = hmac.new(
-        _session_secret(), payload_bytes, hashlib.sha256
-    ).digest()
-    if not hmac.compare_digest(expected_sig, sig_bytes):
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "invalid_session", "message": "Invalid session"},
-        )
-
-    try:
-        claims = json.loads(payload_bytes.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "invalid_session", "message": "Invalid session"},
-        )
-
-    # ── Domain separation: reject non-guest-session tokens ─────────────
-    subject = str(claims.get("subject") or "")
-    if subject != _SESSION_SUBJECT:
+    claims = _verified_guest_session_claims(token)
+    if claims is None:
         raise HTTPException(
             status_code=401,
             detail={"error": "invalid_session", "message": "Invalid session"},

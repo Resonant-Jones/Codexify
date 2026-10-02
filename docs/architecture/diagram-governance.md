@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-09-29 (accepted ADR-094 execution-credential authority reviewed; runtime topology diagrams unchanged because the credential contract is not implemented)
+Diagram Review Marker: 2026-09-30 (ADR-095 Inspector and accepted ADR-096 sidebar documentation reconciliation reviewed; runtime topology diagrams unchanged by this docs-only identity correction)
 
 ## Scope
 

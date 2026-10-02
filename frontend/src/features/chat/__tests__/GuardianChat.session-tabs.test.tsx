@@ -105,11 +105,12 @@ vi.mock("@/features/chat/useChat", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = {
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),
@@ -224,11 +225,13 @@ describe("GuardianChat session-tab binding", () => {
   });
 
   it("personalizes the empty-thread copy when a preferred name is available", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     renderPendingDraftThread("Harbor");
+    random.mockRestore();
 
     expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
     expect(
-      await screen.findByText("Welcome back, Harbor. Let’s get started.")
+      await screen.findByText("Welcome back, Harbor.")
     ).toBeInTheDocument();
   });
 
@@ -242,7 +245,7 @@ describe("GuardianChat session-tab binding", () => {
 
     expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
     expect(
-      await screen.findByText("New thread ready. Start typing below.")
+      await screen.findByText("What should we work on?")
     ).toBeInTheDocument();
     expect(screen.queryByText(/Welcome back,/)).not.toBeInTheDocument();
   });

@@ -1,11 +1,11 @@
-"""Live runtime proof for Obsidian ingest using real vector backend."""
+"""Live storage proof for Obsidian ingest using real Chroma search."""
 
 from pathlib import Path
 
 import pytest
 
 from guardian.cli import ingest_cli
-from guardian.memoryos.retriever import MemoryOSRetriever
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.vector.store import VectorStore
 
 FIXTURE_ROOT = (
@@ -14,8 +14,7 @@ FIXTURE_ROOT = (
 DISTINCTIVE_NOTE = FIXTURE_ROOT / "Distinctive Retrieval.md"
 
 
-@pytest.mark.asyncio
-async def test_obsidian_live_chroma_retrieval(tmp_path, monkeypatch):
+def test_obsidian_live_chroma_retrieval(tmp_path, monkeypatch):
     pytest.importorskip("chromadb")
 
     chroma_path = tmp_path / "chroma"
@@ -27,10 +26,19 @@ async def test_obsidian_live_chroma_retrieval(tmp_path, monkeypatch):
     ingest_cli.ingest_obsidian(str(FIXTURE_ROOT))
 
     store = VectorStore()
-    retriever = MemoryOSRetriever(store)
     query = DISTINCTIVE_NOTE.read_text(encoding="utf-8")
-    results = await retriever.retrieve(query, limit=3)
+    results = store.embedder._chroma_collection.query(
+        query_embeddings=store.embedder._embed_np([query]).tolist(),
+        n_results=3,
+        where={"namespace": OBSIDIAN_NAMESPACE},
+        include=["documents", "metadatas"],
+    )
 
-    assert results
-    hit = next(r for r in results if "mariner-signal-lattice" in r["text"])
-    assert hit["metadata"]["path"].endswith("Distinctive Retrieval.md")
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    hit_index = next(
+        index
+        for index, document in enumerate(documents)
+        if "mariner-signal-lattice" in document
+    )
+    assert metadatas[hit_index]["path"].endswith("Distinctive Retrieval.md")

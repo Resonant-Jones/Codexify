@@ -15,15 +15,6 @@
 # normal chat route is logical and Whoosh'd owns its physical mapping. DeepSeek
 # model selection is backed by the provider's live /models inventory; an
 # operator-supplied exact model remains subject to fail-closed validation.
-# Per ADR-074, this profile owns the allowed/default provider posture and
-# declares only the logical local-chat route. Whoosh'd owns that route's
-# physical model mapping; the operator environment may explicitly override it
-# with an exact model, and the Whoosh'd/DeepSeek overlay transports that choice.
-=======
-# operator environment supplies the concrete local chat-model selection and
-# the Whoosh'd/DeepSeek overlay transports it with interpolation. The tracked
-# Qwen default below is restored historical configuration evidence; it is not
-# a claim that Qwen is currently advertised or selected by a running Tester.
 #
 # Route posture: this canonical friends/family tester profile mounts the
 # existing Hosted Room owner/guest route families for private-preview
@@ -115,11 +106,6 @@ provider_contract:
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
   LOCAL_CHAT_MODEL: local-chat
-  # The configured default remains a compatibility fallback when live model
-  # discovery is temporarily unavailable. Successful discovery exposes the
-  # provider-advertised chat roster to the selector.
-=======
-  LOCAL_CHAT_MODEL: qwen3.8-27b-4bit
   DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
 criticality:
   tier0:

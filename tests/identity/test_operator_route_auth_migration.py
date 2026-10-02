@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import fastapi.routing as fastapi_routing
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -94,6 +95,7 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("GET", "/graph", "get_graph"),
     ),
     "guardian.routes.guardian_delegations": (
+        ("GET", "/api/guardian/delegations", "list_guardian_delegations"),
         ("POST", "/api/guardian/delegations", "create_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/approve", "approve_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/cancel", "cancel_guardian_delegation"),
@@ -162,6 +164,13 @@ def _routes(module_name: str) -> list[APIRoute]:
     ]
 
 
+def _effective_app_routes(app: FastAPI) -> list:
+    # FastAPI 0.142+ keeps included routers nested until request/schema use.
+    # Its public iterator exposes the effective path and original endpoint.
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    return list(iter_contexts(app.routes) if iter_contexts else app.routes)
+
+
 def _calls(route: APIRoute) -> Iterator[object]:
     def visit(dependant) -> Iterator[object]:
         for child in dependant.dependencies:
@@ -190,9 +199,9 @@ def _sign_legacy(secret: str) -> str:
     return f"{encode(payload)}.{encode(signature)}"
 
 
-def test_frozen_operator_manifest_has_exactly_57_registrations_in_13_files():
+def test_frozen_operator_manifest_has_exactly_58_registrations_in_13_files():
     assert len(EXPECTED) == 13
-    assert sum(map(len, EXPECTED.values())) == 57
+    assert sum(map(len, EXPECTED.values())) == 58
 
     for module_name, registrations in EXPECTED.items():
         for method, path, handler in registrations:
@@ -214,7 +223,7 @@ def test_frozen_operator_manifest_has_exactly_57_registrations_in_13_files():
 
 def test_frozen_activation_ledger_and_supported_profile_posture():
     assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 24
-    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 28
+    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 29
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
 
@@ -263,10 +272,11 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
         subject="account", purpose=ACCOUNT_SESSION_PURPOSE
     )
     with _build_supported_profile_client(monkeypatch) as client:
+        app_routes = _effective_app_routes(client.app)
         mounted = {
             (method, route.path, route.endpoint.__module__, route.endpoint.__name__)
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
             for method in route.methods
         }
         enabled = [
@@ -276,7 +286,15 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
         ]
         assert len(enabled) == 24
         for module, method, path, handler in enabled:
-            assert (method, path, module, handler) in mounted
+            expected_route = (method, path, module, handler)
+            assert expected_route in mounted, {
+                "expected": expected_route,
+                "same_path": sorted(route for route in mounted if route[1] == path),
+                "same_module": sorted(route for route in mounted if route[2] == module),
+                "enabled_labels": sorted(
+                    client.app.state.supported_profile_enabled_labels
+                ),
+            }
             concrete_path = path
             for segment in path.split("/"):
                 if segment.startswith("{") and segment.endswith("}"):
@@ -295,8 +313,8 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
                 assert (method, path, module, handler) not in mounted
         assert not any(
             route.endpoint.__module__ == "guardian.routes.graph"
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
         )
 
 

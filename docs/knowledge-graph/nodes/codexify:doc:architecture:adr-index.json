@@ -8,7 +8,7 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "ba94237e124424a83813b25b60308368ecccc2d6395fcfea569b10b525e511da",
+  "content_hash": "23fcc455c3edb9ffb2c7a0865208e7983ee468c9dfd15b4de37c611f868bfd6c",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",

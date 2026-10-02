@@ -262,6 +262,7 @@ class DelegationEventType(str, Enum):
 
 
 class ErrorCode(str, Enum):
+    ACCOUNT_SESSION_INVALID = "ACCOUNT_SESSION_INVALID"
     CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED = "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     CHAT_COMPLETE_ENQUEUE_FAILED = "CHAT_COMPLETE_ENQUEUE_FAILED"
@@ -614,6 +615,7 @@ DELEGATION_TERMINAL_EVENT_TYPES: frozenset[str] = frozenset(
     }
 )
 ERROR_CODES: frozenset[str] = frozenset({error_code.value for error_code in ErrorCode})
+ACCOUNT_AUTH_FAILURE_HEADER = "X-Guardian-Auth-Failure"
 ORCHESTRATOR_DECISION_TOKENS: frozenset[str] = frozenset(
     {token.value for token in OrchestratorDecisionToken}
 )
@@ -852,6 +854,7 @@ __all__ = [
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
+    "ACCOUNT_AUTH_FAILURE_HEADER",
     "ORCHESTRATOR_DECISION_TOKENS",
     "ORCHESTRATOR_REASON_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
