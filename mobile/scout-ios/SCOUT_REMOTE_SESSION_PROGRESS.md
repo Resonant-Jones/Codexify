@@ -213,3 +213,37 @@ and Vite build passed. These are source/test/build layers, not live account proo
 The previously observed native ingress admission remains the current live
 checkpoint. Guardian handoff, protected read, complete continuity and logout denial
 must still be executed through the actual app before #815 can close.
+
+
+## October 2: bounded auth deployment and native launch
+
+Backend Git revision: 465497b0c.
+Scout Git revision: 899ad8ff2.
+Both were committed separately without merge, rebase or push.
+
+The preview patch image was built on the exact already qualified base image
+sha256:0f842ac1f9f8fec04af74b253f831aeb872644cbfbb58b839fd25eea37756649.
+Serving patch image:
+sha256:c85760cf456e9a09a12983642a1fd6f4f1817903acb86ea3b3791134a84673d5.
+Hash and Python syntax qualification ran in an isolated image container with no
+network, production mounts, application lifespan or database startup. Compose
+configuration validation passed without printing environment values.
+
+Only preview backend/frontend were recreated with --no-deps --no-build --pull
+never. Reviewed auth files are read-only specific-file mounts; the main checkout,
+workers and concurrent codexify_chat_proof_f091_20261002 stack were preserved.
+The frontend override was corrected to use its existing shell entrypoint after
+an initial duplicate-shell command exited without serving. The corrected frontend
+serves /login. Preview origin is 127.0.0.1:8081: /health and /login return 200;
+unadmitted /api/auth/scout/exchange returns 401. Serving Guardian and LoginPage
+hashes match the committed patch. DB remains at a7b9c4d2e6f1; this deployment ran
+no migration, database reset or replacement operation. No Access/OAuth/BIC change.
+
+The signed Scout build was installed on the existing proof simulator with data
+and Keychain preserved, then launched (PID 3678). Device Hub displays the new
+account-session-required message. These are deployment/launch checks, not an
+account-authenticated read. Device Hub inspection works but input attempts return
+noWindowsAvailable. The operator has been asked to use Settings → Check stored
+ingress → Sign in to Guardian and confirm Continue to Scout in the existing web
+account flow. Guardian handoff and the full #815 loop remain unproven pending that
+secure UI action. No credential values were captured.
