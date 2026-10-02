@@ -157,8 +157,9 @@ for the selected personal connection. Credential-bearing requests cannot follow
 redirects. Profile/account changes reset volatile client projections; Guardian
 remains durable authority.
 
-Source and tests implement this handoff; deployment and authenticated #815 live
-continuity remain separate qualification gates. LLM/operator evidence routes are
+Source and tests implement this handoff. The independent-session amendment and
+approved no-seed guard are deployed and verified on preview; authenticated #815
+live continuity remains a separate qualification gate. LLM/operator evidence routes are
 not promoted to account-authorized routes by this change. App Intents remain
 downstream of operational continuity.
 

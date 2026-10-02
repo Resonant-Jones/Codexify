@@ -119,8 +119,12 @@ alternate header selects this account lane, conflicts are rejected, and failed
 selection cannot fall back to any other credential. The native response contract
 is unchanged, so the previously qualified Swift implementation remains applicable.
 
-Revised backend source passes 68 tests and frontend source passes 13 tests/build.
-Deployment is held because normal backend/Guardian startup invokes seed/bootstrap
-hooks prohibited by the amended approval. A bounded no-seed startup guard needs
-resolution before restart. No migration or new seed operation ran for this amendment.
-Do not initiate the old browser-token handoff while deployment is pending.
+The separately approved bounded no-seed guard is now deployed with the amended
+independent-session handoff. Backend source/guard tests pass 70 cases and guarded
+original-source rollback passes both modes; frontend source retains its 13-test
+and build qualification. Serving source dcd8c2b73 uses the pinned base, direct
+Uvicorn and opt-in flag, preserving default startup elsewhere. The suppression
+marker, health and anonymous denial are qualified; schema/data fingerprints and
+all preserved service identities/configs are unchanged. No migration, seed or
+external access change ran. Secure native sign-in and authenticated continuity
+remain pending; see SCOUT_REMOTE_SESSION_PROGRESS.md for current evidence.

@@ -268,3 +268,36 @@ restarting. No new seed/migration or external access change ran for this amendme
 The currently served first patch still follows the earlier token-transfer design;
 hold account sign-in until the amended independent-session revision is deployed.
 The full authenticated #815 loop remains unproven, and #816–#818 remain downstream.
+
+## October 2: approved no-seed deployment verified
+
+The startup guard was separately approved, implemented and tested. Source commits
+6c6adaa74 and dcd8c2b73 retain default behavior when the flag is absent and suppress
+only the seven identified seed/bootstrap/replay hooks when enabled. The latter
+uses a static marker that survives safe logging. The integrated backend suite
+passes 70 tests and guarded original-source rollback passes both modes. Prior
+frontend qualification remains 13 tests/build; Swift bytes did not change.
+
+The independent native-session amendment is now deployed. Preview serves image
+sha256:f9e7f5ff1e69d03a4f626bdbf99ff6ba032687f7f374517ed1f05a565a99a158
+from dcd8c2b7347632dc196f2181094bc4a1425c4785 on the qualified pinned base.
+Only preview backend/frontend were recreated. The approved direct Uvicorn command
+and CODEXIFY_SKIP_STARTUP_SEEDING=1 are active; the suppression receipt appears
+once. Reviewed Guardian/LoginPage bytes match the serving mounts. Origin health
+and login return 200, anonymous thread reads and unadmitted exchange return 401.
+
+Preserved schema remains a7b9c4d2e6f1. Before/after schema fingerprint, all ten
+recorded table counts/row fingerprints and preserved service identities/configs
+are unchanged, including existing workers and the separate chat-proof stack.
+No migration, seed, import replay, database replacement or external access change
+ran. Rollback retains the pinned prior image and original API source with the same
+tested no-seed guard/direct command for this qualification window.
+
+Device Hub displays “Sign in to Guardian for this connection. No account session
+is stored; no request was sent.” Its coordinate input still reports
+noWindowsAvailable. The operator is asked to open Settings in the existing proof
+simulator, complete Sign in to Guardian / Continue in Scout, and report only the
+resulting status. Ingress may be renewed through its existing authorization flow
+if expired. Independent native session issuance, protected authenticated read,
+logout/revocation denial and full continuity still require live app proof.
+#815 cannot close yet; #816–#818 remain deferred.
