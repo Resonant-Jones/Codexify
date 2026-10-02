@@ -228,3 +228,11 @@ values to these bounded domains; migrations freeze their vocabulary at the
 revision boundary. Participant-local hidden history is separate from lifecycle
 and never creates an `archived` shared request state. Token registration and
 schema presence alone do not establish route enablement or runtime proof.
+
+`MessageRequestError` in the same module owns request/consent error codes:
+`message_request_not_found`, `message_request_unavailable`,
+`messaging_username_required`, `messaging_consent_required`,
+`client_request_key_conflict`, `message_request_note_invalid`,
+`client_request_key_invalid`, `message_request_rate_limited`,
+`message_request_transition_conflict`. Generic initiation failure never
+identifies private suppression policy.

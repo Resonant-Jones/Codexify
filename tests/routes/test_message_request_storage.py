@@ -60,7 +60,7 @@ def _migration(connection, action):
 
 @pytest.fixture
 def request_storage():
-    engine = _new_engine()
+    engine = _new_engine(create_request_tables=False)
     with Session(engine) as session:
         _seed_users(session)
         session.add(

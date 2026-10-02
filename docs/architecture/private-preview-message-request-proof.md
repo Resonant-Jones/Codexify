@@ -20,7 +20,8 @@ No user files were dirty. No push, merge to main or deployment performed.
 2. **Consent service and API:** transactional acceptance; original authorship;
    canonical pair locking; directional pending/idempotency/reverse initiation;
    decline/withdraw/expiry; recipient-controlled suppression; bounded rate;
-   local history cleanup; accepted conversation/message gates. Pending.
+   local history cleanup; accepted conversation/message gates. Implemented;
+   73 focused backend tests pass. Independent-connection Postgres races pass.
 3. **People/Inbox:** claim username, discovery, intro composition, incoming/
    outgoing requests, actions, history/retention, refresh, accepted conversation
    entry using the existing UI. Pending.
@@ -79,3 +80,10 @@ messages and independently read durable history. A third account receives no
 relationship/conversation existence or content. Default Beta exposes no
 messaging capability. Record runtime configuration and evidence separately
 from automated assertions. Do not expose credentials or private account IDs.
+
+## Consent API prerequisite validation
+
+- `python -m pytest tests/routes/test_message_requests.py tests/routes/test_message_request_storage.py tests/routes/test_direct_messages.py -q`: 73 passed.
+- `TEST_DATABASE_URL=<disposable loopback Postgres> python -m pytest tests/migration/test_message_request_postgres.py -q`: 1 passed against PostgreSQL 15. The test upgrades the complete real migration chain, checks historical backfill/continuation, races four duplicate initiations and four acceptance calls on independent connections, races opposite-direction initiations, and verifies downgrade preserves historical messages. No skips.
+- The database was an isolated disposable container, not the user Preview database. This is PostgreSQL service/migration evidence, not authenticated supported-runtime/browser proof.
+- Profile budget locks use Postgres `FOR NO KEY UPDATE` to allow foreign-key `KEY SHARE` checks during opposite-direction initiation. Pair locks serialize consent.

@@ -21,9 +21,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_account_user_scope as get_request_user_scope,
+)
 from guardian.db.models import User
 from guardian.messaging import service
+from guardian.messaging import requests as message_requests
+from guardian.messaging.tokens import MessageRequestState
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,17 @@ class CreateConversationRequest(BaseModel):
     origin_project_id: int | None = None
     origin_thread_id: int | None = None
     project_id: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateMessageRequest(ResolveRelationshipRequest):
+    note: str = Field(min_length=1, max_length=32000)
+    client_request_key: str = Field(min_length=1, max_length=128)
+
+
+class MessageRequestHistoryPreferences(BaseModel):
+    auto_hide_terminal: bool
 
     model_config = ConfigDict(extra="forbid")
 
@@ -151,9 +167,130 @@ def search_profiles(
     """
     db = _db()
     with db.get_session() as session:
-        _require_owner_id(request_user_scope, session)
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        message_requests.require_username(profile)
         profiles = service.search_profiles(session, q, limit=limit)
         return {"ok": True, "profiles": profiles}
+
+
+# MessageRequest is separate from the neutral Relationship primitive.
+@router.post("/api/direct-messages/requests")
+def send_message_request(
+    body: CreateMessageRequest,
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        request, replayed = message_requests.create_request(
+            session,
+            profile,
+            body.destination_node_id,
+            body.destination_profile_id,
+            body.note,
+            body.client_request_key,
+        )
+        return {
+            "ok": True,
+            "replayed": replayed,
+            "request": message_requests.request_payload(session, request, profile),
+        }
+
+
+@router.get("/api/direct-messages/requests")
+def get_message_requests(
+    history: bool = False,
+    limit: int = Query(default=100, ge=1, le=200),
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        return {
+            "ok": True,
+            "requests": message_requests.list_requests(
+                session, profile, history=history, limit=limit
+            ),
+        }
+
+
+def _transition_message_request(request_id, target, scope):
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        request, replayed = message_requests.transition_request(
+            session, profile, request_id, target
+        )
+        return {
+            "ok": True,
+            "replayed": replayed,
+            "request": message_requests.request_payload(session, request, profile),
+        }
+
+
+@router.post("/api/direct-messages/requests/{request_id}/accept")
+def accept_message_request(
+    request_id: str, scope: RequestUserScope = Depends(get_request_user_scope)
+):
+    return _transition_message_request(request_id, MessageRequestState.ACCEPTED, scope)
+
+
+@router.post("/api/direct-messages/requests/{request_id}/decline")
+def decline_message_request(
+    request_id: str, scope: RequestUserScope = Depends(get_request_user_scope)
+):
+    return _transition_message_request(request_id, MessageRequestState.DECLINED, scope)
+
+
+@router.post("/api/direct-messages/requests/{request_id}/withdraw")
+def withdraw_message_request(
+    request_id: str, scope: RequestUserScope = Depends(get_request_user_scope)
+):
+    return _transition_message_request(request_id, MessageRequestState.WITHDRAWN, scope)
+
+
+@router.post("/api/direct-messages/requests/{request_id}/archive")
+def archive_message_request(
+    request_id: str, scope: RequestUserScope = Depends(get_request_user_scope)
+):
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        message_requests.archive_request(session, profile, request_id)
+        return {"ok": True}
+
+
+@router.get("/api/direct-messages/request-history-preferences")
+def get_request_history_preferences(
+    scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        return {"ok": True, **message_requests.history_preferences(session, profile)}
+
+
+@router.put("/api/direct-messages/request-history-preferences")
+def put_request_history_preferences(
+    body: MessageRequestHistoryPreferences,
+    scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    with _db().get_session() as session:
+        profile = service.get_or_create_owned_profile(
+            session, _require_owner_id(scope, session)
+        )
+        return {
+            "ok": True,
+            **message_requests.history_preferences(
+                session, profile, body.auto_hide_terminal
+            ),
+        }
 
 
 # ── Relationships ──────────────────────────────────────────────────────────

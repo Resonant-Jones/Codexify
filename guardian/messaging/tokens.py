@@ -99,6 +99,20 @@ class MessageRequestState(str, Enum):
     EXPIRED = "expired"
 
 
+class MessageRequestError(str, Enum):
+    """Bounded machine-readable consent and request failures."""
+
+    NOT_FOUND = "message_request_not_found"
+    UNAVAILABLE = "message_request_unavailable"
+    USERNAME_REQUIRED = "messaging_username_required"
+    CONSENT_REQUIRED = "messaging_consent_required"
+    KEY_CONFLICT = "client_request_key_conflict"
+    INVALID_NOTE = "message_request_note_invalid"
+    INVALID_KEY = "client_request_key_invalid"
+    RATE_LIMIT = "message_request_rate_limited"
+    TRANSITION_CONFLICT = "message_request_transition_conflict"
+
+
 class DirectMessageConsentSource(str, Enum):
     """Honest provenance for permission to start ordinary direct conversations."""
 
@@ -193,6 +207,7 @@ def normalize_username(raw: str) -> str:
 
 
 __all__ = [
+    "MessageRequestError",
     "MessageRequestState",
     "MESSAGE_REQUEST_STATES",
     "DirectMessageConsentSource",
