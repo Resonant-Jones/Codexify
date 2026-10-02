@@ -1,6 +1,6 @@
 import * as React from "react";
 
-type Variant = "default" | "ghost" | "destructive";
+type Variant = "default" | "ghost" | "destructive" | "system";
 type Size = "sm" | "md" | "lg" | "icon";
 
 export interface ButtonProps
@@ -23,6 +23,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         "bg-transparent text-[var(--text)] hover:bg-[var(--accent-weak)]/20 focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
       destructive:
         "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-700",
+      system:
+        "bg-[var(--system-surface-action)] text-[var(--system-surface-action-foreground)] hover:bg-[var(--system-surface-action-hover)] focus-visible:ring-2 focus-visible:ring-[var(--system-surface-action)]",
     };
     const sizes: Record<Size, { height: string; width?: string; padding?: string; text?: string }> = {
       sm: { height: "h-8", padding: "px-3", text: "text-xs" },

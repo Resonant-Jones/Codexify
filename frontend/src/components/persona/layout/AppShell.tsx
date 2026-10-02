@@ -3,6 +3,7 @@
  * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
+import { getSystemSurfaceTokens } from "@/theme/systemSurfaceTokens";
 import { ChevronRight, Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -2297,6 +2298,7 @@ export default function AppShell({
      consistently use them for spacing, shapes, and color across views.
      ───────────────────────────────────────────────────────────────────────────── */
   const styleVars = {
+    ...getSystemSurfaceTokens(resolved),
     /* === GENERAL LAYOUT TOKENS === */
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
     "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,

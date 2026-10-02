@@ -1,6 +1,9 @@
+import { getSystemSurfaceTokens } from "./systemSurfaceTokens";
+
 type CSSVarMap = Record<string, string>
 
 const BASE_VARS: CSSVarMap = {
+  ...getSystemSurfaceTokens("dark"),
   '--radius-micro': '12px',
   '--radius-tile': '20px',
   '--card-radius': 'var(--radius-tile)',
@@ -58,6 +61,7 @@ export {
   normalizeSurfaceWarmth,
   paperToneLabel,
 } from './paperTone';
+export { getSystemSurfaceTokens } from "./systemSurfaceTokens";
 
 let alreadyInjected = false
 

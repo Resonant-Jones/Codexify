@@ -1,0 +1,182 @@
+.codexify-system-surface {
+  color: var(--text);
+}
+
+.codexify-system-surface__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--shell-gap);
+}
+
+.codexify-system-surface__header,
+.codexify-system-surface__identity,
+.codexify-system-surface__state,
+.codexify-system-surface__actions {
+  display: flex;
+  align-items: center;
+}
+
+.codexify-system-surface__header {
+  justify-content: space-between;
+  gap: var(--shell-gap);
+}
+
+.codexify-system-surface__identity {
+  min-width: 0;
+  gap: calc(var(--card-pad) / 2);
+}
+
+.codexify-system-surface__mark {
+  display: inline-block;
+  width: calc(var(--card-pad) * 1.5);
+  height: calc(var(--card-pad) * 1.5);
+  flex: 0 0 auto;
+  background-color: var(--text);
+  mask-mode: alpha;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-source-type: alpha;
+  -webkit-mask-size: contain;
+}
+
+.codexify-system-surface__speaker {
+  color: var(--text);
+}
+
+.codexify-system-surface__metadata {
+  color: var(--text-subtle);
+  text-align: right;
+}
+
+.codexify-system-surface__message {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: calc(var(--card-pad) * 1.25);
+}
+
+.codexify-system-surface__state {
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: calc(var(--card-pad) / 2);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  padding: calc(var(--card-pad) / 3) calc(var(--card-pad) * 0.75);
+  background: var(--surface-soft);
+}
+
+.codexify-system-surface__state[data-tone="neutral"] {
+  color: var(--text-subtle);
+}
+
+.codexify-system-surface__state[data-tone="success"] {
+  border-color: color-mix(in oklab, var(--system-surface-success) 34%, var(--panel-border));
+  background: color-mix(in oklab, var(--system-surface-success) 9%, var(--panel-bg));
+  color: var(--system-surface-success);
+}
+
+.codexify-system-surface__state[data-tone="attention"] {
+  border-color: color-mix(in oklab, var(--system-surface-attention) 34%, var(--panel-border));
+  background: color-mix(in oklab, var(--system-surface-attention) 9%, var(--panel-bg));
+  color: var(--system-surface-attention);
+}
+
+.codexify-system-surface__state[data-tone="error"] {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
+.codexify-system-surface__state-icon {
+  width: calc(var(--card-pad) * 1.1);
+  height: calc(var(--card-pad) * 1.1);
+  flex: 0 0 auto;
+}
+
+.codexify-system-surface__status-label,
+.codexify-system-surface__category {
+  white-space: nowrap;
+}
+
+.codexify-system-surface__status-label {
+  text-transform: none;
+}
+
+.codexify-system-surface__category {
+  text-transform: uppercase;
+}
+
+.codexify-system-surface__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: calc(var(--card-pad) / 2);
+}
+
+.codexify-system-surface__title {
+  margin: 0;
+  color: var(--text);
+}
+
+.codexify-system-surface__description {
+  color: var(--muted);
+}
+
+.codexify-system-surface__details {
+  min-width: 0;
+  border-top: 1px solid var(--panel-border);
+  padding-top: var(--card-pad);
+}
+
+.codexify-system-surface__actions {
+  flex-wrap: wrap;
+  gap: var(--card-pad);
+  border-top: 1px solid var(--panel-border);
+  padding-top: var(--card-pad);
+}
+
+.codexify-system-surface-screen {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: var(--shell-gap);
+}
+
+.codexify-system-surface-screen__dialog {
+  width: 100%;
+}
+
+.codexify-system-surface-screen__detail {
+  min-width: 0;
+  border-top: 1px solid var(--panel-border);
+  padding-top: var(--card-pad);
+}
+
+.codexify-system-surface-screen__detail-title {
+  margin: 0;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+}
+
+.codexify-system-surface-screen__detail-copy {
+  margin: calc(var(--card-pad) / 2) 0 0;
+  color: var(--text);
+}
+
+.codexify-system-surface-screen__action-note {
+  margin: 0;
+  color: var(--text-subtle);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .codexify-system-surface .fc-bezel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
