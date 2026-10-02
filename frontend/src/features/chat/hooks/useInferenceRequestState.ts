@@ -65,7 +65,7 @@ const INFERENCE_DETAIL_TEXT = {
   CANCELLED_ACTIVE: "The current response was cancelled.",
   CANCEL_THINKING: "Cancelling the current reasoning pass…",
   CANCEL_RESPONSE: "Cancelling the current response…",
-  CANCEL_FAILED: "Guardian could not cancel the active task.",
+  CANCEL_FAILED: "The stop request could not be confirmed. Continuing to observe the task.",
   DEGRADED_STREAMING:
     "Provider visibility is degraded; still waiting for the next stream event.",
   DEGRADED_TERMINAL:
@@ -579,6 +579,7 @@ export function useInferenceRequestState() {
   const stateRef = useRef(state);
   const taskStreamRef = useRef<GuardianEventSource | null>(null);
   const attachedTaskIdRef = useRef<string | null>(null);
+  const cancelRequestRef = useRef<object | null>(null);
   const delayedLifecycleKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -590,6 +591,7 @@ export function useInferenceRequestState() {
     taskStreamRef.current = null;
     attachedTaskIdRef.current = null;
     delayedLifecycleKeyRef.current = null;
+    cancelRequestRef.current = null;
     stream?.close();
   }, []);
 
@@ -936,30 +938,41 @@ export function useInferenceRequestState() {
   }, [applyPatch, state]);
 
   const requestCancel = useCallback(async () => {
-    const taskId = stateRef.current.taskId;
-    if (!taskId) return false;
+    const { taskId, threadId, mode } = stateRef.current;
+    const stream = taskStreamRef.current;
+    if (!taskId || !stream || !isActiveInferencePhase(stateRef.current.phase)) return false;
+    const cancelRequest = {};
+    cancelRequestRef.current = cancelRequest;
+    const ownsCancelRequest = () =>
+      cancelRequestRef.current === cancelRequest &&
+      taskStreamRef.current === stream &&
+      attachedTaskIdRef.current === taskId &&
+      stateRef.current.threadId === threadId;
     applyPatch({
       isPendingCancel: true,
       detailText:
-        stateRef.current.mode === "think"
+        mode === "think"
           ? INFERENCE_DETAIL_TEXT.CANCEL_THINKING
           : INFERENCE_DETAIL_TEXT.CANCEL_RESPONSE,
     });
     try {
       await api.post(`/api/tasks/${encodeURIComponent(taskId)}/cancel`);
       return true;
-    } catch (error: any) {
-      markFailed(
-        error?.response?.data?.detail ||
-          error?.message ||
-          "Unable to stop the current request.",
-        {
+    } catch {
+      if (ownsCancelRequest()) {
+        // A stop POST failure supplies no terminal evidence for the task.
+        applyPatch({
+          isPendingCancel: false,
           detailText: INFERENCE_DETAIL_TEXT.CANCEL_FAILED,
-        }
-      );
+        });
+      }
       return false;
+    } finally {
+      if (cancelRequestRef.current === cancelRequest) {
+        cancelRequestRef.current = null;
+      }
     }
-  }, [applyPatch, markFailed]);
+  }, [applyPatch]);
 
   useEffect(() => () => closeTaskStream(), [closeTaskStream]);
 

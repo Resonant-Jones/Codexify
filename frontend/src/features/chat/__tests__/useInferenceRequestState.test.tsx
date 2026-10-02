@@ -270,6 +270,168 @@ describe("useInferenceRequestState", () => {
     expect(source.close).not.toHaveBeenCalled();
   });
 
+  function deferCancelPost() {
+    let resolve!: (value: unknown) => void;
+    let reject!: (reason: Error) => void;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    apiSpies.post.mockReturnValueOnce(promise);
+    return { resolve, reject };
+  }
+
+  it.each(["default", "think"] as const)(
+    "keeps the %s task observable when its stop POST fails",
+    async (mode) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest({ ...request, mode });
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      const before = result.current.state;
+      apiSpies.post.mockRejectedValueOnce(new Error("Stop request unavailable"));
+      await act(async () => {
+        expect(await result.current.requestCancel()).toBe(false);
+      });
+      expect(result.current.state.phase).toBe(before.phase);
+      expect(result.current.state.taskId).toBe("current-task");
+      expect(result.current.state.statusText).toBe(before.statusText);
+      expect(result.current.state.errorText).toBeNull();
+      expect(result.current.state.isPendingCancel).toBe(false);
+      expect(result.current.state.canCancel).toBe(true);
+      expect(result.current.state.detailText).toContain("stop request");
+      expect(result.current.state.detailText).toContain("observ");
+      expect(describeInferenceRequestState(result.current.state).canonicalState).not.toBe("provider_error");
+      expect(source.close).not.toHaveBeenCalled();
+      emitTaskEvent(source, "task.progress", { task_id: "current-task", token: "Still producing" });
+      expect(result.current.state.phase).toBe("streaming");
+      emitTaskEvent(source, "task.completed", { task_id: "current-task", thread_id: 1 });
+      expect(result.current.state.phase).toBe("completed");
+      expect(source.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(["task.completed", "task.cancelled", "task.failed"])(
+    "waits for %s after the stop POST is accepted",
+    async (type) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const source = eventSources.instances[0];
+      apiSpies.post.mockResolvedValueOnce({ data: { ok: true, cancel_requested: true } });
+      await act(async () => {
+        expect(await result.current.requestCancel()).toBe(true);
+      });
+      expect(result.current.state.taskId).toBe("current-task");
+      expect(result.current.state.phase).toBe("sending");
+      expect(source.close).not.toHaveBeenCalled();
+      emitTaskEvent(source, type, { thread_id: 1, task_id: "current-task", error: "Actual worker failure" });
+      expect(result.current.state.phase).toBe(
+        type === "task.completed" ? "completed" : type === "task.cancelled" ? "cancelled" : "failed"
+      );
+      expect(source.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(["task.completed", "task.cancelled", "task.failed"])(
+    "preserves authoritative %s when the stop POST rejects later",
+    async (type) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const post = deferCancelPost();
+      let cancel!: Promise<boolean>;
+      act(() => { cancel = result.current.requestCancel(); });
+      emitTaskEvent(eventSources.instances[0], type, {
+        thread_id: 1, task_id: "current-task", error: "Actual worker failure",
+      });
+      const terminal = result.current.state;
+      await act(async () => {
+        post.reject(new Error("Late stop error"));
+        expect(await cancel).toBe(false);
+      });
+      expect(result.current.state).toEqual(terminal);
+      expect(eventSources.instances[0].close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(["current-task", "new-task"])(
+    "ignores an old stop rejection after attaching replacement stream %s",
+    async (replacementTaskId) => {
+      const { result } = renderHook(() => useInferenceRequestState());
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask("current-task");
+      });
+      const post = deferCancelPost();
+      let cancel!: Promise<boolean>;
+      act(() => { cancel = result.current.requestCancel(); });
+      act(() => {
+        result.current.startRequest(request);
+        result.current.attachTask(replacementTaskId);
+      });
+      const current = result.current.state;
+      await act(async () => {
+        post.reject(new Error("Retired stop error"));
+        expect(await cancel).toBe(false);
+      });
+      expect(result.current.state).toEqual(current);
+      expect(eventSources.instances[1].close).not.toHaveBeenCalled();
+    }
+  );
+
+  it("ignores a stop rejection after resetting observation", async () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const post = deferCancelPost();
+    let cancel!: Promise<boolean>;
+    act(() => { cancel = result.current.requestCancel(); });
+    act(() => result.current.reset());
+    const idle = result.current.state;
+    await act(async () => {
+      post.reject(new Error("Late stop error"));
+      expect(await cancel).toBe(false);
+    });
+    expect(result.current.state).toEqual(idle);
+  });
+
+  it("does not let an older stop failure clear a newer pending stop", async () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const first = deferCancelPost();
+    let firstCancel!: Promise<boolean>;
+    act(() => { firstCancel = result.current.requestCancel(); });
+    const second = deferCancelPost();
+    let secondCancel!: Promise<boolean>;
+    act(() => { secondCancel = result.current.requestCancel(); });
+    const pending = result.current.state;
+    await act(async () => {
+      first.reject(new Error("Older stop error"));
+      expect(await firstCancel).toBe(false);
+    });
+    expect(result.current.state).toEqual(pending);
+    expect(result.current.state.isPendingCancel).toBe(true);
+    await act(async () => {
+      second.reject(new Error("Latest stop error"));
+      expect(await secondCancel).toBe(false);
+    });
+    expect(result.current.state.phase).toBe("sending");
+    expect(result.current.state.isPendingCancel).toBe(false);
+    expect(eventSources.instances[0].close).not.toHaveBeenCalled();
+  });
+
   it("attributes a delayed request with no lifecycle evidence as queued", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const { result } = renderHook(() => useInferenceRequestState());

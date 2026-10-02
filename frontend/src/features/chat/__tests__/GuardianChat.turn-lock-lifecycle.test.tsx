@@ -713,42 +713,51 @@ describe("GuardianChat turn lock lifecycle", () => {
     expect(chatMocks.finalizeCompletionSession).toHaveBeenCalled();
   });
 
-  it("cancelling inference releases lock and clears request-scoped state", async () => {
-    renderChat();
-    await screen.findByTestId("composer-stub");
-
-    fireEvent.click(screen.getByTestId("composer-send"));
-    await waitFor(() => {
-      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
-    });
-
-    inferenceMocks.requestCancel.mockResolvedValueOnce(false);
-    fireEvent.click(screen.getByTestId("chat-cancel"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
-    });
-    expect(inferenceMocks.requestCancel).toHaveBeenCalled();
-    expect(inferenceMocks.reset).toHaveBeenCalled();
-  });
-
-  it("provider switch during active request unwinds lock and keeps composer usable", async () => {
+  it.each(
+    ["stop", "provider"].flatMap((action) =>
+      [true, false].flatMap((accepted) =>
+        ["task.completed", "task.cancelled", "task.failed"].map((terminal) => [action, accepted, terminal] as const)
+      )
+    )
+  )("keeps ownership after %s POST acceptance %s until %s", async (action, accepted, terminal) => {
     const { onSessionProviderChange } = renderChat();
     await screen.findByTestId("composer-stub");
-
     fireEvent.click(screen.getByTestId("composer-send"));
-    await waitFor(() => {
-      expect(chatMocks.startCompletion).toHaveBeenCalled();
-    });
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    const resetsBefore = inferenceMocks.reset.mock.calls.length;
+    const endsBefore = chatMocks.endCompletion.mock.calls.length;
+    inferenceMocks.requestCancel.mockResolvedValueOnce(accepted);
+    fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
+    await waitFor(() => expect(inferenceMocks.requestCancel).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(inferenceMocks.reset).toHaveBeenCalledTimes(resetsBefore);
+    expect(chatMocks.endCompletion).toHaveBeenCalledTimes(endsBefore);
+    expect(inferenceMocks.state.taskId).toBe("task-1");
+    expect(inferenceMocks.state.phase).toBe("streaming");
+    if (action === "provider") expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    expect(chatMocks.startCompletion).toHaveBeenCalledOnce();
+    emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Actual task failure" });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(inferenceMocks.state.phase).toBe(
+      terminal === "task.completed" ? "completed" : terminal === "task.cancelled" ? "cancelled" : "failed"
+    );
+  });
 
-    fireEvent.click(screen.getByTestId("composer-provider-switch"));
-
-    await waitFor(() => {
-      expect(inferenceMocks.requestCancel).toHaveBeenCalled();
-    });
-    expect(inferenceMocks.reset).toHaveBeenCalled();
-    expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
-    expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
-    expect(screen.getByTestId("composer-send")).toBeEnabled();
+  it.each(["stop", "provider"])("keeps the lease while %s POST is still pending", async (action) => {
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    let resolveCancel!: (accepted: boolean) => void;
+    inferenceMocks.requestCancel.mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveCancel = resolve; }));
+    const resetsBefore = inferenceMocks.reset.mock.calls.length;
+    fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(inferenceMocks.reset).toHaveBeenCalledTimes(resetsBefore);
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    await act(async () => { resolveCancel(false); });
+    expect(inferenceMocks.state.phase).toBe("cancelled");
   });
 });

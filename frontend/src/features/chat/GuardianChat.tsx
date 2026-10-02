@@ -3828,15 +3828,8 @@ export function GuardianChat({
     [composerInferenceState]
   );
   const handleCancelInference = () => {
-    const releaseThreadId =
-      inferenceRequest.state.threadId ??
-      completionState.activeThreadId ??
-      effectiveThreadId;
+    // Keep observing the attempt until its terminal outcome is known.
     void inferenceRequest.requestCancel();
-    releaseTurnLease(releaseThreadId, {
-      clearCompletion: true,
-      clearInference: true,
-    });
   };
   const handleSwitchToNoThink = () => {
     if (effectiveThreadId == null) return;
@@ -3844,13 +3837,14 @@ export function GuardianChat({
     const selection = resolveCompletionSelection({
       reasoningMode: "no_think",
     });
-    pendingFastRetryRef.current = {
+    const pendingRetry = {
       threadId: effectiveThreadId,
       providerId: selection.providerId,
       modelId: selection.modelId,
     };
+    pendingFastRetryRef.current = pendingRetry;
     void inferenceRequest.requestCancel().then((ok) => {
-      if (!ok) {
+      if (!ok && pendingFastRetryRef.current === pendingRetry) {
         pendingFastRetryRef.current = null;
       }
     });
@@ -4657,10 +4651,6 @@ export function GuardianChat({
                     isTurnLocked(activeRequestThreadId)
                   ) {
                     void inferenceRequest.requestCancel();
-                    releaseTurnLease(activeRequestThreadId, {
-                      clearCompletion: true,
-                      clearInference: true,
-                    });
                   }
 
                   const nextProvider =
