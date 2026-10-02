@@ -21,6 +21,7 @@ extension_posture:
     - plugin_sdk
 route_posture:
   enabled:
+    - onboarding
     - health
     - dashboard
     - admin
@@ -53,6 +54,7 @@ route_posture:
     - google_drive_setup
     - memory_vault
   quarantined:
+    - llm_overrides
     - neo
     - iddb
     - backfill

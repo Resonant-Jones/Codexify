@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from guardian.core.db import GuardianDB
-from guardian.core.dependencies import RequestUserScope, get_request_user_scope
+from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
 from guardian.tts.backends.qwen3 import Qwen3TTSBackend
 from guardian.tts.config import get_local_tts_config
 from guardian.tts.profiles import (

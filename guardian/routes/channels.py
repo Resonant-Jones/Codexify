@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from guardian.core.dependencies import get_request_user_id, require_api_key
+from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
 from guardian.db import models as db_models
 
 router = APIRouter(

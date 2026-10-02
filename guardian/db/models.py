@@ -1330,6 +1330,28 @@ class ChatThread(Base):
     )
 
 
+class ChatCompletionAttempt(Base):
+    """Durable identity and thread binding for one queued chat completion."""
+
+    __tablename__ = "chat_completion_attempts"
+
+    request_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    backend_task_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True
+    )
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
 class ChatMessage(Base):
     """Individual messages within threads."""
 
@@ -7072,3 +7094,44 @@ class MemoryProvenance(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class UserOnboardingState(Base):
+    """Account-owned introduction progress; separate from identity policy."""
+
+    __tablename__ = "user_onboarding_state"
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    onboarding_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="not_started"
+    )
+    last_step_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    desktop_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    mobile_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    contextual_tips_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('not_started', 'in_progress', 'skipped', 'completed')",
+            name="user_onboarding_status_check",
+        ),
+        CheckConstraint("onboarding_version = 1", name="user_onboarding_version_check"),
+    )

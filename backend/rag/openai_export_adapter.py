@@ -7,6 +7,8 @@ import json
 import logging
 import mimetypes
 import re
+import sqlite3
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -384,11 +386,7 @@ def build_openai_export_asset_evidence_index(
     else:
         return {}
 
-    try:
-        conversations = adapter.extract_conversations(inventory)
-    except Exception:
-        logger.exception("Unable to build OpenAI image evidence index")
-        return {}
+    conversations = adapter.iter_conversations(inventory)
 
     asset_alias_counts: dict[str, int] = {}
     for record in inventory.files:
@@ -601,6 +599,33 @@ class OpenAIExportFileClassifier:
         record.detected_kind = "unknown_binary"
 
     def _probe_json(self, record: OpenAIExportFileRecord) -> None:
+        with Path(record.absolute_path).open("r", encoding="utf-8-sig") as source:
+            is_array = source.read(4096).lstrip().startswith("[")
+        if is_array:
+            try:
+                first_items: list[Any] = []
+                first_dict: dict[str, Any] | None = None
+                count = 0
+                for item in _iter_json_array(Path(record.absolute_path)):
+                    if count < 5:
+                        first_items.append(item)
+                    if first_dict is None and isinstance(item, dict):
+                        first_dict = item
+                    count += 1
+            except Exception as exc:
+                record.parse_error = str(exc)
+                if self._probe_jsonl(record):
+                    return
+                record.detected_kind = "invalid_json"
+                record.parse_success = False
+                return
+            record.parse_success = True
+            record.detected_kind = "json_array"
+            record.json_item_count = count
+            if first_dict is not None:
+                record.top_level_json_keys = sorted(str(key) for key in first_dict)
+            record.conversation_candidate = _payload_has_conversation_shape(first_items)
+            return
         try:
             payload = Path(record.absolute_path).read_text(
                 encoding="utf-8-sig"
@@ -641,9 +666,8 @@ class OpenAIExportFileClassifier:
 
     def _probe_jsonl(self, record: OpenAIExportFileRecord) -> bool:
         try:
-            lines = Path(record.absolute_path).read_text(
-                encoding="utf-8-sig"
-            ).splitlines()
+            with Path(record.absolute_path).open("r", encoding="utf-8-sig") as source:
+                lines = [line for _, line in zip(range(_JSON_PREVIEW_LINES), source)]
         except Exception as exc:
             record.parse_error = str(exc)
             return False
@@ -740,6 +764,11 @@ class OpenAILegacyExportAdapter:
     def extract_conversations(
         self, inventory: OpenAIExportInventory
     ) -> list[dict[str, Any]]:
+        return list(self.iter_conversations(inventory))
+
+    def iter_conversations(
+        self, inventory: OpenAIExportInventory, *, scratch_dir: Path | None = None
+    ) -> Iterator[dict[str, Any]]:
         candidates = [
             record
             for record in inventory.files
@@ -752,11 +781,8 @@ class OpenAILegacyExportAdapter:
             )
 
         record = sorted(candidates, key=lambda item: item.path)[0]
-        payload = _load_json_record(record)
-        return _extract_conversation_records(
-            payload,
-            source_path=record.path,
-            export_format="legacy",
+        yield from _iter_normalized_conversations(
+            [record], export_format="legacy", scratch_dir=scratch_dir
         )
 
 
@@ -766,35 +792,90 @@ class OpenAIShardedExportAdapter:
     def extract_conversations(
         self, inventory: OpenAIExportInventory
     ) -> list[dict[str, Any]]:
-        conversations: list[dict[str, Any]] = []
-        per_message_records: list[tuple[dict[str, Any], str]] = []
+        return list(self.iter_conversations(inventory))
 
-        for record in inventory.files:
-            if record.detected_kind not in {"json_object", "json_array", "jsonl"}:
-                continue
-            try:
-                for payload in _iter_json_payloads(record):
-                    extracted, message_records = _extract_conversation_payload(
-                        payload,
-                        source_path=record.path,
-                        export_format="sharded",
-                    )
-                    conversations.extend(extracted)
-                    per_message_records.extend(message_records)
-            except Exception as exc:
-                logger.warning(
-                    "Skipping OpenAI export JSON payload path=%s error=%s",
-                    record.path,
-                    exc,
-                )
-
-        conversations.extend(
-            _synthesize_conversations_from_message_records(
-                per_message_records,
-                export_format="sharded",
-            )
+    def iter_conversations(
+        self,
+        inventory: OpenAIExportInventory,
+        *,
+        scratch_dir: Path | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield in legacy adapter order without retaining the export corpus."""
+        yield from _iter_normalized_conversations(
+            inventory.files, export_format="sharded", scratch_dir=scratch_dir
         )
-        return _dedupe_conversations(conversations)
+
+
+def _iter_normalized_conversations(
+    records: Iterable[OpenAIExportFileRecord],
+    *,
+    export_format: str,
+    scratch_dir: Path | None,
+) -> Iterator[dict[str, Any]]:
+    seen: set[str] = set()
+    with TemporaryDirectory(prefix="openai-messages-", dir=scratch_dir) as tmp:
+        with sqlite3.connect(Path(tmp) / "messages.sqlite3") as db:
+            db.execute("PRAGMA journal_mode=OFF")
+            db.execute(
+                "CREATE TABLE messages (conversation_id TEXT, ordinal INTEGER, "
+                "sort_key REAL, source_path TEXT, payload TEXT)"
+            )
+            ordinal = 0
+            for record in records:
+                if record.detected_kind not in {"json_object", "json_array", "jsonl"}:
+                    continue
+                try:
+                    for payload in _iter_json_payloads(record):
+                        extracted, message_records = _extract_conversation_payload(
+                            payload, source_path=record.path, export_format=export_format
+                        )
+                        for conversation in extracted:
+                            source_id = _conversation_identity(conversation)
+                            if source_id not in seen:
+                                seen.add(source_id)
+                                yield conversation
+                        for message, source_path in message_records:
+                            conversation_id = _coerce_nonempty(
+                                message.get("conversation_id")
+                                or message.get("thread_id")
+                                or message.get("chat_id")
+                            )
+                            if conversation_id:
+                                db.execute(
+                                    "INSERT INTO messages VALUES (?, ?, ?, ?, ?)",
+                                    (conversation_id, ordinal,
+                                     _timestamp_sort_key(message), source_path,
+                                     json.dumps(message)),
+                                )
+                            ordinal += 1
+                except sqlite3.Error:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping OpenAI export JSON payload path=%s error=%s",
+                        record.path, exc,
+                    )
+            db.execute(
+                "CREATE INDEX messages_order ON messages(conversation_id, sort_key, ordinal)"
+            )
+            for (conversation_id,) in db.execute(
+                "SELECT DISTINCT conversation_id FROM messages ORDER BY conversation_id"
+            ):
+                rows = [
+                    (json.loads(payload), source_path)
+                    for payload, source_path in db.execute(
+                        "SELECT payload, source_path FROM messages "
+                        "WHERE conversation_id = ? ORDER BY sort_key, ordinal",
+                        (conversation_id,),
+                    )
+                ]
+                for conversation in _synthesize_conversations_from_message_records(
+                    rows, export_format=export_format
+                ):
+                    source_id = _conversation_identity(conversation)
+                    if source_id not in seen:
+                        seen.add(source_id)
+                        yield conversation
 
 
 def diagnose_openai_export_path(
@@ -982,7 +1063,14 @@ def _has_conversation_payload(record: OpenAIExportFileRecord) -> bool:
     if not record.conversation_candidate:
         return True  # Let schema detection handle non-candidates
     try:
-        payload = _load_json_record(record)
+        if record.detected_kind == "json_array":
+            payload = []
+            for index, item in enumerate(_iter_json_payloads(record)):
+                if index >= 5:
+                    break
+                payload.append(item)
+        else:
+            payload = _load_json_record(record)
     except Exception:
         return False
     return _payload_has_conversation_shape(payload) and not _payload_is_manifest(
@@ -1033,7 +1121,10 @@ def _load_json_record(record: OpenAIExportFileRecord) -> Any:
 
 
 def _iter_json_payloads(record: OpenAIExportFileRecord) -> Iterator[Any]:
-    if record.detected_kind in {"json_object", "json_array"}:
+    if record.detected_kind == "json_array":
+        yield from _iter_json_array(Path(record.absolute_path))
+        return
+    if record.detected_kind == "json_object":
         yield _load_json_record(record)
         return
     if record.detected_kind == "jsonl":
@@ -1044,10 +1135,78 @@ def _iter_json_payloads(record: OpenAIExportFileRecord) -> Iterator[Any]:
                     yield json.loads(raw)
 
 
+def _iter_json_array(path: Path) -> Iterator[Any]:
+    """Decode one top-level array element at a time from a source file."""
+    decoder = json.JSONDecoder()
+    with path.open("r", encoding="utf-8-sig") as source:
+        buffer = ""
+        position = 0
+        eof = False
+
+        def fill() -> bool:
+            nonlocal buffer, eof
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                eof = True
+                return False
+            buffer += chunk
+            return True
+
+        def token() -> str:
+            nonlocal buffer, position
+            while True:
+                while position < len(buffer) and buffer[position].isspace():
+                    position += 1
+                if position < len(buffer):
+                    return buffer[position]
+                if eof or not fill():
+                    raise ValueError("Incomplete JSON array")
+
+        if token() != "[":
+            raise ValueError("Expected JSON array")
+        position += 1
+        if token() == "]":
+            if buffer[position + 1:].strip():
+                raise ValueError("Trailing content after JSON array")
+            for chunk in iter(lambda: source.read(1024 * 1024), ""):
+                if chunk.strip():
+                    raise ValueError("Trailing content after JSON array")
+            return
+        while True:
+            while True:
+                try:
+                    value, end = decoder.raw_decode(buffer, position)
+                    if end == len(buffer) and not eof and fill():
+                        continue
+                    break
+                except json.JSONDecodeError:
+                    if eof or not fill():
+                        raise
+            position = end
+            delimiter = token()
+            if delimiter not in {",", "]"}:
+                raise ValueError("Malformed JSON array delimiter")
+            yield value
+            if delimiter == "]":
+                if buffer[position + 1:].strip():
+                    raise ValueError("Trailing content after JSON array")
+                for chunk in iter(lambda: source.read(1024 * 1024), ""):
+                    if chunk.strip():
+                        raise ValueError("Trailing content after JSON array")
+                return
+            position += 1
+            if position > 1024 * 1024:
+                buffer = buffer[position:]
+                position = 0
+            token()
+
+
 def _payload_has_conversation_shape(payload: Any) -> bool:
     if isinstance(payload, dict):
         keys = set(str(key) for key in payload.keys())
         if "mapping" in keys or "messages" in keys:
+            return True
+        if _looks_like_per_message_record(payload):
             return True
         if len(keys & _CONVERSATION_HINT_KEYS) >= 3:
             return True
@@ -1398,16 +1557,21 @@ def _dedupe_conversations(
 ) -> list[dict[str, Any]]:
     deduped: dict[str, dict[str, Any]] = {}
     for conversation in conversations:
-        source_id = _coerce_nonempty(
-            conversation.get("id") or conversation.get("conversation_id")
-        )
-        if not source_id:
-            source_id = _build_stable_id("openai-thread", conversation)
-            conversation["id"] = source_id
-            conversation["conversation_id"] = source_id
+        source_id = _conversation_identity(conversation)
         if source_id not in deduped:
             deduped[source_id] = conversation
     return list(deduped.values())
+
+
+def _conversation_identity(conversation: dict[str, Any]) -> str:
+    source_id = _coerce_nonempty(
+        conversation.get("id") or conversation.get("conversation_id")
+    )
+    if not source_id:
+        source_id = _build_stable_id("openai-thread", conversation)
+        conversation["id"] = source_id
+        conversation["conversation_id"] = source_id
+    return source_id
 
 
 def guess_mime_type(record: OpenAIExportFileRecord) -> str | None:

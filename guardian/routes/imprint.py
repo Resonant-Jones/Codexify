@@ -26,7 +26,7 @@ from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt_inspection_metadata,
 )
 from guardian.cognition.system_profiles.resolver import resolve_thread_system_profile
-from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.core.dependencies import get_account_user as get_current_user, require_account_session as require_api_key
 from guardian.services import (
     iddb_settings_service,
     imprint_proposal_service,

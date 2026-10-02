@@ -6,7 +6,7 @@
 >
 > Governing ADR: [ADR-084](./adr/084-unified-account-owned-memory-store.md)
 >
-> Last updated: 2026-09-04
+> Last updated: 2026-09-25
 
 ## 1. Purpose
 
@@ -68,10 +68,19 @@ ordinary_memory_payloads
 
 personal_facts
 ├── fact key/value
-├── Personal Fact review and activation authority
+├── promoted Personal Fact review and activation authority
 ├── guardrails
-├── evidence
+├── promoted-fact evidence readback through candidate lineage
 └── revisions
+
+memory_records (candidate_unreviewed_fact)
+├── intact raw proposed key and proposed value
+├── nullable bounded promotable fact_key
+├── pre-promotion guardrail and review authority
+└── optional lineage to personal_facts
+
+memory_provenance
+└── candidate-linked source evidence independent of promotion
 
 memory_persona_links
 └── typed attribution to stable persona subjects
@@ -124,31 +133,137 @@ single reversible soft-removal state.
 
 ### 3.4 Personal Facts authority
 
-For Personal Facts:
+For promoted Personal Facts:
 
-- `personal_facts.status` remains authoritative for fact review meaning;
+- `personal_facts.status` remains authoritative for promoted-fact review meaning;
 - `personal_facts.is_active` remains authoritative for fact activation until a
   separately approved migration changes it;
 - the Memory Store must not persist an independently mutable Personal Fact
-  `review_state`, `activation_state`, or `ambient_eligible` flag;
+  activation state or `ambient_eligible` flag;
 - the unified read model derives review and lifecycle posture from the Personal
-  Facts service; and
-- every transition passes through the Personal Facts service in the same
-  transaction as shared metadata and revision changes.
+  Facts service after promotion; and
+- promoted-fact transitions pass through the Personal Facts service in the
+  same transaction as shared metadata and revision changes.
+
+Before promotion, the single `candidate_unreviewed_fact` UMS record is the
+review, guardrail, and quarantine authority. Its state and evidence do not
+require a `personal_facts` row. The Personal Facts service governs candidate
+transitions and the promotion transaction, but service ownership is not a
+reason to store candidate authority in `personal_facts`. The candidate record
+remains lineage after promotion; it cannot act as a second active fact.
 
 The compatibility resolver is:
 
 | Personal Fact state | Unified read posture |
 | --- | --- |
 | `status=verified` and `is_active=true` | approved and active, subject to all other policy gates |
-| `status=candidate` | pending and ambient-excluded |
-| `status=disputed` | disputed and ambient-excluded |
-| legacy `status=archived` | retired and ambient-excluded; no synthetic independent review value is written |
+| legacy `status=candidate` | pending and ambient-excluded until candidate reconciliation |
+| legacy `status=disputed` | disputed and ambient-excluded until candidate reconciliation |
+| legacy `status=archived` | retired and ambient-excluded until candidate reconciliation; no synthetic independent review value is written |
 | any `is_active=false` fact | inactive/retired and ambient-excluded |
 
 Shared scope, retention, context posture, hold, priority, provenance, and
 persona attribution may be stored beside a Personal Fact. Those fields do not
 override the Personal Facts lifecycle.
+
+#### Pre-promotion candidate authority amendment
+
+`candidate_unreviewed_fact` remains the one canonical UMS candidate species.
+Its name records its origin as a proposal; the same stable candidate identity
+survives rejection, quarantine, and promotion as non-active lineage. A
+candidate has `raw_fact_key` (`Text`, required, no 255-character limit) and
+`fact_value` (`Text`, required) before eligibility is decided. `raw_fact_key`
+preserves the extracted semantic proposal intact, including a proposal longer
+than 255 characters. `fact_key` is a distinct nullable `String(255)` canonical
+key. Equal string values do not collapse their different authority roles.
+
+Only existing, meaning-preserving normalization may assign `fact_key` after
+guardrails establish eligibility. Truncation, opaque hashing, or lossy
+compression cannot turn an unpromotable proposal into an eligible key. The
+candidate's raw key and evidence remain available for account-authorized
+inspection; neither confers Personal Facts runtime eligibility.
+
+The candidate owns two independent, typed pre-promotion dimensions:
+
+| Field | Canonical values | Authority |
+| --- | --- | --- |
+| `candidate_guardrail_status` | `reviewable`, `quarantined`, `discarded`, `promotion_blocked` | Guardrail disposition, using the existing Personal Facts guardrail vocabulary. |
+| `candidate_review_state` | `pending`, `approved`, `rejected`, `disputed` | Account-user review decision, using the existing UMS review vocabulary. |
+| `candidate_reason_code` | Existing canonical Personal Facts reason token, nullable only when no reason applies | Machine-readable reason for the current disposition; `excessive_key_length` identifies an overlong proposal. |
+
+These are target contract values, not a claim that the current runtime has
+registered them as cross-surface protocol tokens. The current classifier
+returns `quarantine`/`discard` dispositions while the guardrails contract
+names `quarantined`/`discarded` guardrail states. The later implementation
+must reconcile that legacy input at one boundary and register the accepted
+serialized values before persistence or API use; it must not store both
+spellings as aliases. ADR-090 remains responsible for the exact Personal
+Facts guardrail-to-candidate binding.
+
+New candidates start `pending`. A `quarantined`, `discarded`, or
+`promotion_blocked` candidate cannot be approved or promoted. An account-user
+rejection or dispute is retained on the candidate; ordinary replay cannot
+reset it. `approved` is recorded only in the promotion transaction, after
+`reviewable` eligibility and a non-null bounded `fact_key` are proven. The
+candidate decision timestamp and append-only transition audit preserve who
+acted, when, and why under §4.2. No new serialized aliases are introduced.
+
+Promotion is one account-authorized transition from UMS candidate to a
+`personal_facts` row. It creates or resolves the fact idempotently, retains the
+candidate identity, and records `promoted_personal_fact_id` as stable lineage
+to the same-account fact. The promoted row owns canonical key/value,
+verification, activation, and runtime behavior. The candidate's approved
+review/disposition snapshot is frozen at promotion; later fact review changes
+only `personal_facts` authority. Promotion does not itself bypass the
+verified-and-active ADR-013 runtime gate. Candidate evidence is linked
+through the candidate's `memory_provenance` rows; promotion may expose that
+lineage for fact inspection but must not duplicate it as another evidence
+authority. A missing or cross-account promotion target fails closed. The
+physical FK direction may vary only if this same-account, stable-ID readback
+and atomic transition remain enforceable.
+
+An overlong candidate that cannot yield a meaning-preserving bounded key is
+retained with intact `raw_fact_key`, a null
+`fact_key`, `candidate_guardrail_status=quarantined`,
+`candidate_reason_code=excessive_key_length`, `candidate_review_state=pending`,
+and linked evidence. It requires no `personal_facts` row and cannot enter
+Personal Facts retrieval or provider context. An authorized review surface may
+inspect it as evidence without activating it.
+
+`memory_provenance` is the existing UMS candidate evidence family: its rows
+attach to candidate `memory_id` before promotion and survive quarantine.
+Candidate evidence must carry a stable source reference or locator, source
+type, source role and timestamp when known, and sufficient bounded source
+excerpt or durable locator for human review. A locator must remain resolvable
+after staging cleanup and through export/restore; otherwise a reviewable
+excerpt must be retained. A candidate without resolvable
+evidence remains `promotion_blocked` or `quarantined`; it cannot be promoted.
+Erasure removes candidate evidence with the candidate under §12.
+
+Candidate replay identity is independent of nullable `fact_key` and promoted
+fact ID. `candidate_replay_fingerprint` is a versioned, deterministic
+fingerprint of source system, stable source record/message or
+evidence identity, candidate species, intact raw proposal fingerprint, and
+the extraction semantics version needed to distinguish deliberate
+re-evaluation. Account authority is enforced by the composite
+`(user_id, candidate_replay_fingerprint)` lookup; the fingerprint excludes
+local database row IDs and physical `user_id` so account restore can remap
+ownership and chat references while preserving candidate identity. A stable
+source ID or exported evidence identity must be available; otherwise creation
+fails closed rather than using arrival order. It never replaces `raw_fact_key` as
+user-facing truth. Neither
+insertion/batch/arrival order nor import-job ID alone is identity. Under the
+same extraction semantics, replay resolves the existing candidate and retains
+its review, quarantine, rejection, evidence, and promotion lineage. A changed
+extractor or policy, or a human correction, uses an explicit audited
+re-evaluation/successor operation; it cannot silently reset the prior
+candidate. A successor links to its predecessor and starts pending under the
+new semantics. Account-scoped purge tombstones are checked before creation.
+
+This is target architecture. The current `memory_records` schema and legacy
+`personal_facts` compatibility readers do not implement these candidate
+fields, transitions, or evidence snapshots. The existing verified/active
+Personal Facts runtime filter under ADR-013 remains unchanged.
 
 If transitional storage contains both envelope account identity and
 `personal_facts.user_id`, writes must resolve one authenticated account
@@ -171,7 +286,9 @@ ambient_eligible =
 ```
 
 For ordinary memory, review and lifecycle authority come from the ordinary
-payload. For Personal Facts, they come from the Personal Facts lifecycle.
+payload. For promoted Personal Facts, they come from the Personal Facts
+lifecycle. Candidates are never ambient-eligible, regardless of their review
+state, activation timestamps, or context posture.
 
 `no_exclusion_applies` includes diary exclusions, sensitive-identity policy,
 Project or thread exclusions, purge tombstones, unresolved ownership conflicts,
@@ -239,6 +356,16 @@ authority-relevant write records:
 
 Importer/classifier content never replaces an approved revision in place. It
 creates a new pending candidate or pending proposed revision.
+
+For Personal Fact candidates, `memory_records` owns current guardrail and
+review state. Each candidate disposition, user decision, correction,
+re-evaluation, and promotion also produces append-only UMS revision/intent
+evidence with actor, previous/new state, reason, and time. That audit is
+historical evidence, never a second mutable review authority. The exact
+revision storage design remains deferred under §4.15; the implementation
+slice must freeze it and its export family before candidate writes are
+enabled. The current three-table UMS-03D substrate does not provide this
+candidate transition audit.
 
 ### 4.3 Stable persona subjects
 
@@ -694,9 +821,10 @@ The minimum semantic species required by current persistence are:
    authorized classifier path. Review and activation authority remain
    Personal Facts service authority.
 
-3. **Candidate / unreviewed fact.** A pending fact that has not been
-   approved. Today this is the `personal_facts` row family in the
-   `status ∈ {candidate, disputed, archived}` subset, the live-chat
+3. **Candidate / unreviewed fact.** An extracted proposal before promotion;
+   the species token continues to identify its retained lineage after a
+   review decision or promotion. Today this is the `personal_facts` row
+   family in the `status ∈ {candidate, disputed, archived}` subset, the live-chat
    pipeline `runtime_extraction` evidence, and the
    `chatgpt_import` / `claude_import` imported facts before approval.
    Storage of a candidate is durable collection; ambient influence
@@ -722,7 +850,13 @@ For each species the contract fixes:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Episodic / semantic memory | `episodic_semantic_memory` | user (Vault, explicit remember) or legacy ordinary-memory writer | yes, by default | yes | yes (§4.10) | mutable in place; revisioned on authority transitions | `memory_entries` row, all silos |
 | Verified personal fact | `verified_personal_fact` | Personal Facts service only | yes (already verified) | yes | yes (Personal Facts evidence trail) | revisioned, append-only mutations | `personal_facts` row where `status='verified'` AND `is_active=true` |
-| Candidate / unreviewed fact | `candidate_unreviewed_fact` | Personal Facts service or import pipeline | required before ambient | yes (explicit grant only) | yes (Personal Facts evidence) | revisioned, append-only mutations | `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false` |
+| Candidate / unreviewed fact | `candidate_unreviewed_fact` | Personal Facts service or import pipeline | required before any promotion; never ambient as candidate | account-authorized inspection only for quarantined/rejected candidates | yes (candidate-linked `memory_provenance` in target; legacy Personal Facts evidence during compatibility reads) | revisioned, append-only mutations | legacy `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false`; target UMS candidate under §3.4 |
+
+The last column is a **legacy compatibility map**, not target candidate
+authority. The UMS candidate record owns pre-promotion state and evidence
+after the authorized migration; the existing read-only legacy adapter may
+continue to project older `personal_facts` rows until reconciliation. It
+cannot represent an overlong raw proposal that was never persisted.
 
 #### 4.8.1 Amendment provenance
 
@@ -808,13 +942,15 @@ states. The contract freezes their independence:
 - **stored** — a row exists and is queryable by its owner through a
   scoped query path;
 - **retrievable** — the owner may issue an explicit recall grant that
-  resolves the row and renders it into a turn-scoped context;
+  resolves an eligible ordinary memory and renders it into a
+  turn-scoped context; Personal Fact candidates have an account-authorized
+  inspection path but no provider-context recall path;
 - **ambient-eligible** — the row may enter provider context without
   an explicit recall grant, only after all policy gates in §3.5 pass.
 
 A record may be stored without being ambient-eligible (every candidate
-fact). A record may be retrievable without being ambient-eligible
-(every imported fact in dormant posture). A record may become
+fact). An ordinary imported memory may be retrievable without being
+ambient-eligible while dormant. A record may become
 ambient-eligible only after review authority and activation authority
 both approve, the policy gates in §3.5 pass, and the explicit user
 consent state permits collection.
@@ -891,6 +1027,8 @@ Compatibility reads must:
 
 The matrix below names every durable memory-bearing source identified
 in §4.6 and assigns its canonical envelope read-projection shape.
+It describes existing legacy compatibility reads, not the target authority
+for newly extracted Personal Fact candidates under §3.4.
 Where a source cannot be mapped without inventing authority, the row
 is marked `not safely mappable` and the failure reason is recorded.
 
@@ -963,8 +1101,12 @@ them. UMS-03B is the next slice authorized on PASS of UMS-03A.
 
 ### 4.16 Canonical memory persistence schema (UMS-03C)
 
-UMS-03C freezes the physical persistence contract that UMS-03D will
-implement. It is DDL-contract precision: table identity, column
+UMS-03C froze the original physical persistence contract implemented by
+UMS-03D. The candidate-authority amendment in §3.4 and this section is
+the **target schema for a later additive migration**, not a description of
+the deployed ORM or current database. It changes the candidate columns,
+candidate payload CHECK, and candidate evidence fields without adding a
+second candidate table. The contract is DDL-contract precision: table identity, column
 identity, type, nullability, defaults, foreign-key authority,
 uniqueness, token-derived CHECK constraints, payload placement,
 Persona-link structure, governance representation, FK delete
@@ -1025,9 +1167,18 @@ by relational foreign key.
 | `project_id`          | `Integer` FK `projects.id`    | NULL    | NULL      | Optional Project scope; `NULL` means account scope; ON DELETE RESTRICT |
 | `semantic_species`    | `String(32)`                  | NOT NULL | —        | Closed `MemorySemanticSpecies` value (only the three frozen values; no aliases) |
 | `text_content`        | `Text`                        | NULL    | NULL      | Free-text content for `episodic_semantic_memory`; non-authority payload |
-| `fact_key`            | `String(255)`                 | NULL    | NULL      | Fact identifier for personal-fact species; non-authority payload |
-| `fact_value`          | `Text`                        | NULL    | NULL      | Fact content for personal-fact species; non-authority payload |
+| `raw_fact_key`        | `Text`                        | NULL    | NULL      | Intact proposed key; required for candidate species, never a promoted key by itself |
+| `fact_key`            | `String(255)`                 | NULL    | NULL      | Canonical promotable key; nullable for candidates until guardrail eligibility |
+| `fact_value`          | `Text`                        | NULL    | NULL      | Proposed value for candidates; canonical value for verified facts |
 | `fact_confidence`     | `Float` (range 0.0–1.0)       | NULL    | NULL      | Fact confidence for personal-fact species; non-authority payload |
+| `candidate_replay_fingerprint` | `String(128)`        | NULL    | NULL      | Portable versioned candidate replay fingerprint; uniqueness is account-scoped with `user_id` |
+| `candidate_extraction_version` | `String(64)`         | NULL    | NULL      | Extraction/policy semantics version used in candidate identity |
+| `candidate_guardrail_status` | `String(32)`           | NULL    | NULL      | Candidate guardrail disposition; required only for candidate species |
+| `candidate_review_state` | `String(32)`               | NULL    | NULL      | Candidate pre-promotion review authority; required only for candidate species |
+| `candidate_reason_code` | `String(64)`                | NULL    | NULL      | Canonical reason for candidate disposition where applicable |
+| `candidate_decided_at` | `TIMESTAMP(timezone=True)`   | NULL    | NULL      | Time of the latest account-user candidate review decision |
+| `candidate_predecessor_id` | `String(36)`             | NULL    | NULL      | Same-account predecessor candidate for explicit re-evaluation |
+| `promoted_personal_fact_id` | `BigInteger`             | NULL    | NULL      | Local same-account link to the promoted `personal_facts.id`; archive restore remaps it |
 | `reviewed_at`         | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which user review first approved the row; non-NULL means reviewed |
 | `activated_at`        | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which the row became ambient-eligible; non-NULL means activated |
 | `pinned`              | `Boolean`                     | NOT NULL | `false`  | Priority flag; pinning changes priority only, not truth or ownership |
@@ -1068,19 +1219,68 @@ DB-enforced invariants (CHECK / UNIQUE / FK):
 - `CHECK (fact_confidence IS NULL OR (fact_confidence >= 0.0
   AND fact_confidence <= 1.0))` — preserves the current
   `personal_facts.confidence` semantic.
-- `CHECK ((project_id IS NULL) OR (text_content IS NOT NULL OR
-  fact_key IS NOT NULL))` — every row must carry some
-  species-appropriate payload; pure shells are rejected.
+- `CHECK (text_content IS NOT NULL OR raw_fact_key IS NOT NULL OR
+  fact_key IS NOT NULL)` — every row carries a species-appropriate
+  payload, including a candidate with no canonical `fact_key`.
 - `CHECK (semantic_species = 'episodic_semantic_memory'
   IMPLIES (text_content IS NOT NULL AND fact_key IS NULL AND
-  fact_value IS NULL AND fact_confidence IS NULL))` — the
+  raw_fact_key IS NULL AND fact_value IS NULL AND
+  fact_confidence IS NULL AND candidate_review_state IS NULL))` — the
   episodic species must use the text payload and must not
   use the fact payload.
-- `CHECK (semantic_species IN ('verified_personal_fact',
-  'candidate_unreviewed_fact') IMPLIES (fact_key IS NOT NULL
-  AND fact_value IS NOT NULL AND text_content IS NULL))` —
-  the personal-fact species must use the fact payload and must
-  not use the text payload.
+- `CHECK (semantic_species = 'verified_personal_fact' IMPLIES
+  (fact_key IS NOT NULL AND fact_value IS NOT NULL AND
+  raw_fact_key IS NULL AND text_content IS NULL AND
+  candidate_review_state IS NULL))` — a verified-fact record has
+  the canonical fact payload, not candidate authority.
+- `CHECK (semantic_species = 'candidate_unreviewed_fact' IMPLIES
+  (raw_fact_key IS NOT NULL AND fact_value IS NOT NULL AND
+  text_content IS NULL AND candidate_replay_fingerprint IS NOT NULL
+  AND candidate_guardrail_status IS NOT NULL AND
+  candidate_review_state IS NOT NULL AND activated_at IS NULL))` —
+  a candidate remains representable with `fact_key IS NULL`,
+  including when `raw_fact_key` exceeds 255 characters.
+- `CHECK (semantic_species = 'candidate_unreviewed_fact' AND
+  candidate_guardrail_status <> 'reviewable' IMPLIES fact_key IS NULL)`
+  — only a guardrail-eligible candidate may receive a canonical key.
+- `CHECK (semantic_species = 'candidate_unreviewed_fact' AND
+  candidate_review_state = 'approved' IMPLIES
+  (candidate_guardrail_status = 'reviewable' AND fact_key IS NOT NULL
+  AND promoted_personal_fact_id IS NOT NULL))` — approval and
+  promotion are one transition; no candidate becomes an active fact.
+- `CHECK (promoted_personal_fact_id IS NULL OR
+  (semantic_species = 'candidate_unreviewed_fact' AND
+  candidate_review_state = 'approved'))` — promotion lineage exists
+  only on an approved candidate. The service additionally proves
+  same-account ownership and fact existence transactionally.
+- `CHECK (semantic_species = 'candidate_unreviewed_fact' OR
+  (raw_fact_key IS NULL AND candidate_replay_fingerprint IS NULL AND
+  candidate_extraction_version IS NULL AND
+  candidate_guardrail_status IS NULL AND candidate_review_state IS NULL
+  AND candidate_reason_code IS NULL AND candidate_decided_at IS NULL
+  AND candidate_predecessor_id IS NULL AND
+  promoted_personal_fact_id IS NULL))` — non-candidate rows cannot
+  carry a second candidate authority.
+- `CHECK (candidate_review_state IS NULL OR candidate_review_state
+  IN ('pending', 'approved', 'rejected', 'disputed'))` and
+  `CHECK (candidate_guardrail_status IS NULL OR
+  candidate_guardrail_status IN ('reviewable', 'quarantined',
+  'discarded', 'promotion_blocked'))` — reuse the existing UMS and
+  Personal Facts vocabularies without aliases.
+- `CHECK (semantic_species <> 'candidate_unreviewed_fact' OR
+  (candidate_review_state = 'pending' AND candidate_decided_at IS NULL)
+  OR (candidate_review_state <> 'pending' AND
+  candidate_decided_at IS NOT NULL))` — a durable user decision carries
+  its timestamp; ordinary replay preserves it.
+- `CHECK (semantic_species <> 'candidate_unreviewed_fact' OR
+  candidate_guardrail_status = 'reviewable' OR
+  candidate_reason_code IS NOT NULL)` — a blocked/quarantined/discarded
+  candidate carries a machine-readable reason.
+- `UNIQUE (user_id, candidate_replay_fingerprint)` for non-null
+  fingerprints; ordinary replay resolves the existing candidate.
+- The optional `candidate_predecessor_id` resolves to a candidate
+  in the same account; a successor is created only by an explicit
+  re-evaluation operation, never by ordinary replay.
 - `CHECK (activated_at IS NULL OR (reviewed_at IS NOT NULL
   AND activated_at >= reviewed_at))` — a row may not be
   activated before it is reviewed. Activation may be
@@ -1345,7 +1545,9 @@ writers, dual reads, legacy backfill, authority cutover, or
 export / restore. The UMS-03D proof receipt
 (`docs/architecture/proofs/runtime/2026-09-07-ums03d-canonical-memory-persistence-proof.md`)
 records the qualification evidence. The frozen §4.16 contract
-is unchanged by UMS-03D.
+was unchanged by UMS-03D. The later candidate-authority amendment does not
+retroactively change that proof or the installed schema; its new fields and
+CHECK rules remain unimplemented.
 
 #### 4.16.3 Persona-attribution table — `memory_persona_links`
 
@@ -1422,6 +1624,11 @@ without becoming a parallel authority surface.
 | `source_export_fingerprint`  | `String(128)`                 | NULL    | NULL    | Opaque export hash when the material came from an export |
 | `source_subject_kind`        | `String(32)`                  | NULL    | NULL    | `chat`, `vault`, `importer`, `classifier`, or future-registered |
 | `source_subject_id`          | `String(255)`                 | NULL    | NULL    | Stable identifier of the originating surface entity when present |
+| `source_type`                | `String(64)`                  | NULL    | NULL    | Source evidence type for candidate review; required on candidate-linked evidence |
+| `source_role`                | `String(32)`                  | NULL    | NULL    | Authorial role when known; unknown role is retained as uncertainty, not inferred |
+| `source_excerpt`             | `Text`                        | NULL    | NULL    | Bounded review excerpt when a source locator alone cannot support review; purged with the candidate |
+| `source_locator`             | `Text`                        | NULL    | NULL    | Stable, resolvable locator to source evidence when an excerpt is absent |
+| `source_timestamp`           | `TIMESTAMP(timezone=True)`    | NULL    | NULL    | Source event time when known, distinct from lineage-row creation |
 | `is_imported`                | `Boolean`                     | NOT NULL | `false` | Imported-vs-native posture; provenance is durable even for native rows but `is_imported=true` rows came from an external source |
 | `extensions`                 | `JSONB`                       | NULL    | NULL    | Auxiliary non-authority metadata only |
 | `created_at`                 | `TIMESTAMP(timezone=True)`    | NOT NULL | `now()`| Provenance row creation timestamp |
@@ -1459,6 +1666,15 @@ semantics for ordinary memories. There is no
 multiple lineage records by source would erase the very
 revision evidence the table exists to preserve.
 
+For a candidate, at least one same-account `memory_provenance` row with
+`source_type` and a resolvable source reference/locator or reviewable bounded
+`source_excerpt` is required before promotion. The service enforces this
+cross-row invariant in the candidate/promotion transaction. An unresolvable
+source keeps the candidate quarantined or promotion-blocked. These typed
+columns extend the existing provenance family; `extensions` cannot become
+evidence, review, or disposition authority. Candidate evidence remains linked
+to candidate `memory_id` after promotion and follows candidate erasure.
+
 #### 4.16.5 Payload strategy decision
 
 The UMS-03A deferred question "shared typed columns vs.
@@ -1472,8 +1688,9 @@ is resolved as follows:
   tables. None of this data is stored in JSON.
 - **Species-specific non-authority content** lives in
   **typed columns on the same canonical envelope**
-  (`text_content`, `fact_key`, `fact_value`,
-  `fact_confidence`). The `semantic_species` CHECK
+  (`text_content`, `raw_fact_key`, `fact_key`, `fact_value`,
+  `fact_confidence`). Candidate governance and lineage use the
+  typed candidate columns above. The `semantic_species` CHECK
   constraints above enforce which combination is valid per
   species. This preserves semantic distinction (the three
   species keep their distinct shapes) without inventing a
@@ -1527,11 +1744,11 @@ protocol-token vocabulary invented:
 - `ambiently influential` — not stored; computed at read
   time per §3.5. No canonical column is added for it.
 
-Boolean and timestamp columns preserve all required
-distinctions without losing current source semantics. No
-monolithic lifecycle enum is introduced. The two
-lifecycle-event timestamps plus the pin / hold booleans
-are the full governance physical representation.
+Boolean and timestamp columns preserve the ordinary/verified
+memory distinctions without losing current source semantics.
+No monolithic lifecycle enum is introduced. Candidate review
+and guardrail authority additionally use the typed candidate
+columns in §4.16.2; they do not override promoted-fact state.
 
 #### 4.16.7 Cross-table integrity invariants
 
@@ -1614,10 +1831,10 @@ ranking, and UI grouping. Those concerns are owned by UMS-10
 and will not be persisted as canonical `memory_records`
 data.
 
-#### 4.16.10 First-migration posture
+#### 4.16.10 Historical first-migration posture
 
-UMS-03D is authorized to introduce the canonical schema
-above as one new Alembic revision whose properties are:
+UMS-03D introduced the original canonical schema as one Alembic
+revision. The requirements recorded for that historical slice were:
 
 - The migration is **additive only**.
 - The three new tables are created empty.
@@ -1652,8 +1869,51 @@ The migration's acceptance criteria are:
   upgrade.
 
 The runtime cutover that promotes the canonical tables to
-durable authority belongs to a later UMS-03 slice and is
-explicitly not in UMS-03D.
+durable authority was explicitly not in UMS-03D.
+
+#### 4.16.10a Candidate-authority migration target
+
+The amended candidate shape requires a later, separately authorized additive
+schema and service migration. It must add the typed candidate and evidence
+fields above, replace the old candidate `fact_key IS NOT NULL` payload CHECK,
+and preserve the original three UMS families. It cannot assume UMS-03D or
+UMS-04 round-trip proof covers the amended shape.
+
+Migration first inventories current `memory_records` candidates and legacy
+`personal_facts` review rows by account. For a current UMS candidate with a
+bounded `fact_key`, it copies that complete key into `raw_fact_key`; it retains
+`fact_key` only if the key is independently eligible under the guardrails.
+It preserves `memory_id`, account, provenance, timestamps, and any existing
+review meaning. It never invents a longer original from a possibly truncated
+key. Ambiguous or missing evidence fails reconciliation rather than receiving
+fabricated authority.
+
+Existing `personal_facts` rows remain in place during reconciliation.
+Legacy `status ∈ {candidate, disputed}` rows are mapped into the UMS
+candidate with deterministic identity from portable source/evidence identity,
+candidate species, and the available proposal. The legacy fact ID is retained
+as a reconciliation reference, never as the sole replay identity. The
+existing key is copied as the available legacy proposal, with provenance
+that identifies its legacy origin; migration does not claim an earlier raw
+string was recovered if it was never stored. Original review disposition,
+evidence, revisions, and times are preserved.
+An archived legacy row is classified from its revision history as either a
+pre-promotion candidate or a retired promoted fact. If the history cannot
+prove which, migration reports an unreconciled case and leaves it unchanged.
+Verified rows, including verified but inactive rows, keep their
+`personal_facts.id`; where source provenance proves a predecessor candidate,
+migration links that UMS candidate to the
+existing promoted fact. Where it cannot prove lineage, it reports an explicit
+unreconciled case and leaves the promoted fact intact; it does not manufacture
+candidate approval or change fact identity. Legacy compatibility reads remain
+read-only until per-account reconciliation and canonical readback pass.
+
+The migration is deterministic, idempotent, and non-destructive until
+same-account identity, evidence, review disposition, promotion linkage, and
+export/restore readback are verified. A retry resolves the same candidate
+instead of creating another. Future pre-promotion writes then use the UMS
+candidate only; `personal_facts` receives rows only on promotion. This is a
+target migration contract, not a migration executed by this amendment.
 
 #### 4.16.11 ORM/Alembic parity requirement
 
@@ -1828,6 +2088,13 @@ UMS-04A is architecture only. No export or restore implementation
 is written in UMS-04A. The full implementation is decomposed
 into UMS-04B (export serialization), UMS-04C (restore
 reconstruction), and UMS-04D (round-trip qualification).
+
+UMS-04B/C/D subsequently implemented and qualified the original UMS
+field set. Those receipts remain historical proof of that shape only.
+The candidate-authority fields in §3.4, §4.16.2, and §4.16.4 require a
+later export/restore schema version and fresh round-trip qualification.
+The existing legacy candidate compatibility projection remains a read-only
+view of `personal_facts`, not authority for a newly extracted raw candidate.
 
 #### 4.16.13 Explicit deferrals
 
@@ -2020,9 +2287,9 @@ ownership, experience, or identity.
 
 ## 7. Untrusted recall rendering
 
-Dormant imports, pending/rejected/disputed memories, web/tool evidence, and
-quarantined candidates enter provider context only under a valid explicit
-grant and only in an inert evidence layer:
+Dormant imports, pending/rejected/disputed ordinary memories, and web/tool
+evidence enter provider context only under a valid explicit grant and only in
+an inert evidence layer:
 
 ```text
 UNTRUSTED MEMORY EVIDENCE
@@ -2034,6 +2301,11 @@ Record ID: <stable id>
 Content: <bounded content>
 END UNTRUSTED MEMORY EVIDENCE
 ```
+
+Personal Fact candidates, including quarantined, rejected, and
+promotion-blocked candidates, remain outside provider context and Personal
+Facts retrieval. Account-authorized review may inspect them without a
+provider recall grant.
 
 The block is constructed outside model-generated text and is never placed in a
 system, developer, persona, policy, or tool-authority layer.
@@ -2195,6 +2467,10 @@ Memory is part of ADR-005's AccountBoundary. The account archive must include:
 
 - shared memory records and ordinary payloads;
 - Personal Facts, evidence, revisions, and guardrail state;
+- UMS candidate identity, intact `raw_fact_key`, nullable `fact_key`,
+  proposed value, guardrail/review disposition and reason, extraction
+  semantics version, candidate transition audit, source evidence, predecessor
+  and promotion lineage;
 - stable persona subjects, required bindings, and memory-persona links;
 - provenance and source-entity mappings;
 - review, lifecycle, context posture, retention, hold, and priority state;
@@ -2209,6 +2485,9 @@ Restore must:
 - rebind all entities to the authenticated destination account;
 - never query or mutate another account's boundary;
 - preserve Personal Facts authority without manufacturing envelope review;
+- preserve candidate quarantine, rejection, decision times, evidence links,
+  replay identity, and optional promoted-fact linkage without promoting or
+  resetting a candidate;
 - preserve dormant/imported/rejected posture;
 - preserve purge suppression across export and restore;
 - validate Project ownership under ADR-081;
@@ -2219,6 +2498,15 @@ Restore must:
 New imported-memory and automatic-suggestion writes remain disabled until the
 current exporter no longer lists memory and Personal Facts as omitted families
 and round-trip proof is green.
+
+The existing UMS-04 proof covers the pre-amendment schema only. Its successful
+round trip does not qualify the candidate fields added here. The next export
+schema/version and its proof must include the amended candidate and evidence
+fields before candidate ingestion or authority cutover is enabled. Restore
+preserves `memory_id` and evidence identities, resolves `personal_facts`
+lineage through the existing account restore mapping, and fails closed on
+missing or cross-account links. It never derives candidate identity from
+arrival order or canonical `fact_key`.
 
 ## 11. Decay and projection behavior
 
@@ -2246,11 +2534,21 @@ preview of the exact target and affected linked evidence. It removes or
 cryptographically destroys:
 
 - canonical content;
+- raw candidate proposals, candidate disposition/review content, linked
+  evidence and excerpts, and any promoted-fact lineage that would reveal
+  the erased candidate;
 - content-bearing revisions and evidence excerpts;
 - persona links where they reveal the erased record;
 - vectors, summaries, caches, and heat projections;
 - queued derived work and retry payloads; and
 - exported working artifacts under the application's immediate control.
+
+For a promoted candidate, the purge preview includes its linked Personal
+Fact. The operation must remove both when the fact relies on that candidate
+for provenance, or fail closed until an explicit account-user action defines
+a safe narrower target with independently sufficient provenance. A lineage
+FK or legacy evidence row cannot make candidate erasure impossible. Account
+purge removes candidate, promoted fact, and their evidence together.
 
 The purge may retain only a minimum non-content tombstone:
 
@@ -2276,6 +2574,12 @@ Re-import rules:
 
 - the same source atom is suppressed across repeated imports and new import
   jobs;
+- a quarantined or rejected candidate that has not been purged resolves to
+  its existing disposition on ordinary replay; a purged candidate is
+  suppressed by the account-scoped non-content tombstone;
+- candidate suppression uses the existing versioned source-atom tombstone
+  scheme; it never retains `raw_fact_key`, evidence excerpts, or a directly
+  reversible content token in the tombstone;
 - suppression is reported without recreating content;
 - importer retries are idempotent;
 - no model or infrastructure Operator can clear suppression;
@@ -2386,7 +2690,8 @@ capability checks, provenance, and explicit conflict handling.
 
 Later implementation is incomplete until tests prove:
 
-1. Personal Facts have one review/activation authority and mismatches fail
+1. UMS candidates have one pre-promotion review/quarantine authority;
+   `personal_facts` owns promoted-fact review/activation; mismatches fail
    closed.
 2. Review, lifecycle, posture, hold, and priority remain orthogonal.
 3. Pin does not approve or suspend decay; hold does suspend decay.

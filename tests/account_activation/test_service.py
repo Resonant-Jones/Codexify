@@ -38,6 +38,8 @@ def session_factory():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
     User.__table__.create(engine)
     AccountActivationCapability.__table__.create(engine)
     with engine.begin() as connection:
@@ -341,6 +343,37 @@ def test_user_creation_failure_rolls_back_without_consuming(
         assert capability.consumed_at is None
         assert capability.resulting_user_id is None
         assert session.get(User, "recipient@example.com") is None
+
+
+def test_failure_after_user_flush_rolls_back_user_and_consumption(
+    session_factory, monkeypatch
+):
+    with session_factory() as session:
+        issued = _issue(session)
+        session.commit()
+        activation_id = issued.capability.activation_id
+
+    from guardian.account_activation import service
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("audit failed")
+
+    monkeypatch.setattr(service, "_record_activation_audit", fail_audit)
+    with session_factory() as session:
+        with pytest.raises(RuntimeError, match="audit failed"):
+            redeem_activation(
+                session,
+                raw_token=issued.raw_token,
+                password="recipient-password",
+                now=NOW + timedelta(minutes=1),
+            )
+        session.rollback()
+
+    with session_factory() as session:
+        assert session.get(User, "recipient@example.com") is None
+        capability = session.get(AccountActivationCapability, activation_id)
+        assert capability.consumed_at is None
+        assert capability.resulting_user_id is None
 
 
 def test_revoke_rejects_terminal_transition(session_factory):

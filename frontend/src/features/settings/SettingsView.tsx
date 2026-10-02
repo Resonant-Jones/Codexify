@@ -1,3 +1,4 @@
+import HelpAndLearning from "@/features/onboarding/HelpAndLearning";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -5,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import SegmentedThemeControl from "@/components/controls/SegmentedThemeControl";
 import { ThemeMode, ExtColors } from "@/types/ui";
-import { ImagePlus } from "lucide-react";
+import { ChevronRight, ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import {
@@ -373,6 +374,7 @@ export function SettingsView({
     }
     return storedTab ?? "appearance";
   });
+  const [advancedAppearanceOpen, setAdvancedAppearanceOpen] = useState(false);
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
     feedback: null,
@@ -783,7 +785,6 @@ export function SettingsView({
       const url = String(rd.result || "");
       setWallpaper(url);
       if (typeof window !== "undefined") {
-        localStorage.setItem("cfy.wallpaper", url);
         // Mark that the user has uploaded a file at least once
         localStorage.setItem("cfy.hasUserUpload", "true");
       }
@@ -795,7 +796,6 @@ export function SettingsView({
   function clearWallpaper() {
     setWallpaper(null);
     setFileLabel("");
-    if (typeof window !== "undefined") localStorage.removeItem("cfy.wallpaper");
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -1038,6 +1038,7 @@ export function SettingsView({
               className="flex min-h-full w-full min-w-0 flex-col gap-[var(--shell-gap)]"
               style={{ maxWidth: SETTINGS_DENSITY.contentMaxWidth }}
             >
+            <HelpAndLearning />
             {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
@@ -1158,57 +1159,17 @@ export function SettingsView({
             </div>
 
             <div className="space-y-[calc(var(--radius-micro)/2)]">
-              <div style={SETTINGS_DENSITY.sectionTitle}>Background Accents</div>
-              <p className="text-xs" style={{ color: "var(--muted)" }}>Base color (used when no wallpaper)</p>
+              <div style={SETTINGS_DENSITY.sectionTitle}>System Accent</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Primary interface accent and base scene color when no wallpaper is active.
+              </p>
               <Input
                 type="color"
                 value={baseColor}
                 onChange={(e) => setBaseColor(e.target.value)}
-                aria-label="Base color"
+                aria-label="System Accent"
                 className="color-swatch"
               />
-            </div>
-
-            <div className="space-y-[calc(var(--radius-micro)/2)]">
-              <div style={SETTINGS_DENSITY.sectionTitle}>File Type Colors</div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-[var(--shell-gap)] max-w-md">
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PDF</span>
-                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOC</span>
-                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>MD</span>
-                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PNG</span>
-                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>SKETCH</span>
-                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>TXT</span>
-                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOCX</span>
-                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>JPEG</span>
-                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" />
-                </div>
-                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
-                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>CODEX</span>
-                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
-                </div>
-              </div>
             </div>
 
             </div>
@@ -1320,73 +1281,148 @@ export function SettingsView({
               </div>
             </div>
 
+            </div>
+            </div>
             <div
-              className="space-y-[calc(var(--radius-micro)/2)]"
-              data-testid="background-treatment-section"
+              data-testid="settings-advanced-appearance"
+              className="mt-[var(--shell-gap)] border-t border-[var(--panel-border)] pt-[var(--shell-gap)]"
             >
-              <div style={SETTINGS_DENSITY.sectionTitle}>Background Treatment</div>
-              <p className="text-xs" style={{ color: "var(--muted)" }}>
-                Adjust wallpaper depth and fade.
-              </p>
-              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
-                <div className="grid grid-cols-1 gap-[var(--shell-gap)] sm:grid-cols-2">
-                  <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
-                    <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
-                      <label
-                        htmlFor="depth-slider"
-                        className="text-sm font-medium"
-                        style={SETTINGS_DENSITY.sectionTitle}
-                      >
-                        Depth
-                      </label>
-                      <span
-                        className="text-xs font-semibold tabular-nums"
-                        style={{ color: "var(--text)" }}
-                      >
-                        {depth}
-                      </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-between px-0 text-sm"
+                style={{ color: "var(--muted)" }}
+                aria-expanded={advancedAppearanceOpen}
+                aria-controls="settings-advanced-appearance-content"
+                onClick={() => setAdvancedAppearanceOpen((open) => !open)}
+              >
+                <span>Advanced Appearance</span>
+                <ChevronRight
+                  aria-hidden="true"
+                  className={`h-4 w-4 ${advancedAppearanceOpen ? "rotate-90" : ""}`}
+                />
+              </Button>
+              <div
+                id="settings-advanced-appearance-content"
+                data-testid="settings-advanced-appearance-content"
+                hidden={!advancedAppearanceOpen}
+                className={advancedAppearanceOpen
+                  ? "grid min-w-0 grid-cols-1 gap-[var(--shell-gap)] pt-[var(--shell-gap)] lg:grid-cols-2"
+                  : "hidden"}
+              >
+                {advancedAppearanceOpen && (
+                  <>
+                    <div className="space-y-[calc(var(--radius-micro)/2)]">
+                      <div style={SETTINGS_DENSITY.sectionTitle}>File Type Colors</div>
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-[var(--shell-gap)] max-w-md">
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PDF</span>
+                          <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOC</span>
+                          <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>MD</span>
+                          <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PNG</span>
+                          <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>SKETCH</span>
+                          <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>TXT</span>
+                          <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOCX</span>
+                          <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>JPEG</span>
+                          <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" />
+                        </div>
+                        <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                          <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>CODEX</span>
+                          <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
+                        </div>
+                      </div>
                     </div>
-                    <SettingsRangeControl
-                      id="depth-slider"
-                      data-testid="depth-slider"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={depth}
-                      onChange={(e) => setDepth(Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
-                    <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
-                      <label
-                        htmlFor="fade-slider"
-                        className="text-sm font-medium"
-                        style={SETTINGS_DENSITY.sectionTitle}
-                      >
-                        Fade
-                      </label>
-                      <span
-                        className="text-xs font-semibold tabular-nums"
-                        style={{ color: "var(--text)" }}
-                      >
-                        {fade}
-                      </span>
-                    </div>
-                    <SettingsRangeControl
-                      id="fade-slider"
-                      data-testid="fade-slider"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={fade}
-                      onChange={(e) => setFade(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            </div>
+                    <div
+                      className="space-y-[calc(var(--radius-micro)/2)]"
+                      data-testid="background-treatment-section"
+                    >
+                      <div style={SETTINGS_DENSITY.sectionTitle}>Background Treatment</div>
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>
+                        Adjust wallpaper depth and fade.
+                      </p>
+                      <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+                        <div className="grid grid-cols-1 gap-[var(--shell-gap)] sm:grid-cols-2">
+                          <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
+                            <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                              <label
+                                htmlFor="depth-slider"
+                                className="text-sm font-medium"
+                                style={SETTINGS_DENSITY.sectionTitle}
+                              >
+                                Depth
+                              </label>
+                              <span
+                                className="text-xs font-semibold tabular-nums"
+                                style={{ color: "var(--text)" }}
+                              >
+                                {depth}
+                              </span>
+                            </div>
+                            <SettingsRangeControl
+                              id="depth-slider"
+                              data-testid="depth-slider"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={depth}
+                              onChange={(e) => setDepth(Number(e.target.value))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
+                            <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                              <label
+                                htmlFor="fade-slider"
+                                className="text-sm font-medium"
+                                style={SETTINGS_DENSITY.sectionTitle}
+                              >
+                                Fade
+                              </label>
+                              <span
+                                className="text-xs font-semibold tabular-nums"
+                                style={{ color: "var(--text)" }}
+                              >
+                                {fade}
+                              </span>
+                            </div>
+                            <SettingsRangeControl
+                              id="fade-slider"
+                              data-testid="fade-slider"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={fade}
+                              onChange={(e) => setFade(Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </SettingsSectionCard>
         )}

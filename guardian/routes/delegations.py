@@ -18,7 +18,7 @@ from guardian.core.delegation_service import (
     DelegationNotFoundError,
     DelegationService,
 )
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import require_operator_auth
 from guardian.protocol_tokens import AcceptanceStatus, DelegationEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/delegations",
     tags=["Delegations"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_operator_auth)],
 )
 
 _service = DelegationService()

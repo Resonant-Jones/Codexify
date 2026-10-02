@@ -157,10 +157,10 @@ def test_no_ambient_write_service_in_workers():
 
 
 def test_route_requires_auth():
-    """Route module uses require_api_key dependency."""
+    """Route module uses explicit operator authentication."""
     from guardian.routes import continuity_operator as co
     source = inspect.getsource(co)
-    assert "require_api_key" in source
+    assert "require_operator_auth" in source
     assert "Depends" in source
 
 
