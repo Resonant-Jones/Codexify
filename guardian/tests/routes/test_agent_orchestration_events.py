@@ -660,7 +660,7 @@ async def test_execute_coding_task_propagates_campaign_runner_ids(
     assert deployment["spec_json"]["work_order_id"] == "wo_abc"
 
 
-def test_execute_coding_task_route_accepts_codex_adapter_kind(
+def test_execute_coding_task_route_accepts_pi_codex_runner_adapter_kind(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
@@ -680,7 +680,7 @@ def test_execute_coding_task_route_accepts_codex_adapter_kind(
             attempt_id="attempt-route",
             user_id="local-user",
             project_id="17",
-            adapter_kind="codex",
+            adapter_kind="pi_codex_runner",
             instructions="Patch the failing seam.",
             repo_root="/workspace/repo",
             context_summary="source thread summary",
@@ -710,7 +710,7 @@ def test_execute_coding_task_route_accepts_codex_adapter_kind(
 
     deployment = local_store.get_deployment(body["deployment_id"])
     assert deployment is not None
-    assert deployment["spec_json"]["adapter_kind"] == "codex"
+    assert deployment["spec_json"]["adapter_kind"] == "pi_codex_runner"
 
 
 def test_execute_coding_task_route_rejects_unknown_adapter_kind(
@@ -733,7 +733,7 @@ def test_execute_coding_task_route_rejects_unknown_adapter_kind(
             attempt_id="attempt-reject",
             user_id="local-user",
             project_id="17",
-            adapter_kind="codex",
+            adapter_kind="pi_codex_runner",
             instructions="Patch the failing seam.",
             repo_root="/workspace/repo",
             context_summary="source thread summary",

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import RequestUserScope, get_request_user_scope
+from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
 from guardian.db.models import User
 from guardian.messaging import service
 

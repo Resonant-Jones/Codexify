@@ -14,8 +14,8 @@ from guardian.core import event_bus
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import (
     RequestUserScope,
-    get_request_user_scope,
-    require_api_key,
+    get_account_user_scope as get_request_user_scope,
+    require_account_session as require_api_key,
 )
 from guardian.core.media_signing import sign_media_url
 from guardian.db import models

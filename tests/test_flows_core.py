@@ -86,6 +86,7 @@ def _build_flows_router_test_client():
     previous_dependencies_module = sys.modules.get("guardian.core.dependencies")
     stub = types.ModuleType("guardian.core.dependencies")
     stub.require_api_key = lambda: "test-key"  # noqa: E731
+    stub.require_operator_auth = lambda: "test-key"  # noqa: E731
     sys.modules["guardian.core.dependencies"] = stub
 
     module_path = (

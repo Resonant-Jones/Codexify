@@ -1,6 +1,10 @@
 import React from "react";
 
 import Textarea from "@/components/ui/textarea";
+import api from "@/lib/api";
+
+import WorkspaceNoteSaveModal from "./WorkspaceNoteSaveModal";
+import { rememberNoteFormat, type NoteFormat } from "../noteSave";
 
 import { useWorkspaceScratchpadState } from "../state/useWorkspaceScratchpadState";
 
@@ -58,6 +62,8 @@ export default function WorkspaceScratchpadPanel({
   const textareaId = React.useId();
   const statusId = `${textareaId}-status`;
   const [statusMessage, setStatusMessage] = React.useState("");
+  const [saveSnapshot, setSaveSnapshot] = React.useState<string | null>(null);
+  const saveTriggerRef = React.useRef<HTMLButtonElement>(null);
   const hasContent = text.length > 0;
   const scratchpadPlaceholder =
     "Stage plaintext notes, prompts, or fragments before moving them into the composer.";
@@ -75,8 +81,29 @@ export default function WorkspaceScratchpadPanel({
 
   const handleClear = React.useCallback(() => {
     clear();
-    setStatusMessage("Scratchpad cleared.");
+    setStatusMessage("Notes draft cleared.");
   }, [clear]);
+
+  const closeSaveModal = React.useCallback(() => {
+    setSaveSnapshot(null);
+    saveTriggerRef.current?.focus();
+  }, []);
+
+  const handleSave = React.useCallback(async (title: string, format: NoteFormat) => {
+    const threadId = Number(threadIdentity);
+    if (!Number.isSafeInteger(threadId) || threadId <= 0) {
+      throw new Error("Select a saved thread before saving this Note.");
+    }
+    const response = await api.post<{ filename: string }>("/documents/notes", {
+      thread_id: threadId,
+      title,
+      content: saveSnapshot,
+      format,
+    });
+    rememberNoteFormat(format);
+    setStatusMessage(`Saved ${response.data.filename} to this thread and project.`);
+    closeSaveModal();
+  }, [closeSaveModal, saveSnapshot, threadIdentity]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -91,7 +118,7 @@ export default function WorkspaceScratchpadPanel({
       <Textarea
         id={textareaId}
         data-testid="workspace-scratchpad-textarea"
-        aria-label="Scratchpad"
+        aria-label="Notes"
         aria-describedby={statusId}
         value={text}
         rows={12}
@@ -112,6 +139,16 @@ export default function WorkspaceScratchpadPanel({
         data-testid="workspace-scratchpad-actions"
         className="flex flex-wrap items-center justify-center gap-1.5"
       >
+        <button
+          ref={saveTriggerRef}
+          type="button"
+          className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-semibold disabled:opacity-35"
+          style={{ color: "var(--text-on-accent)", background: "var(--accent)" }}
+          disabled={!text.trim()}
+          onClick={() => setSaveSnapshot(text)}
+        >
+          Save
+        </button>
         <button
           type="button"
           className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-medium opacity-80 transition-opacity hover:opacity-100 active:opacity-70 disabled:opacity-35"
@@ -159,8 +196,15 @@ export default function WorkspaceScratchpadPanel({
         className="text-center text-[11px]"
         style={{ color: "var(--text-subtle)" }}
       >
-        {statusMessage || "Scratchpad stays local to this browser."}
+        {statusMessage || "Notes draft stays local to this browser until Save."}
       </div>
+      {saveSnapshot !== null && (
+        <WorkspaceNoteSaveModal
+          content={saveSnapshot}
+          onClose={closeSaveModal}
+          onSave={handleSave}
+        />
+      )}
     </div>
   );
 }

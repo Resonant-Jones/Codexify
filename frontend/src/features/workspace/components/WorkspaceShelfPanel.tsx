@@ -1,26 +1,20 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
 import PreviewTile from "@/components/ui/PreviewTile";
 import { isAgentUpdatedWorkspaceItem } from "../workspaceArtifactSignals";
+import {
+  normalizeWorkspaceMediaUrl,
+  type WorkspaceDocumentRecord,
+  type WorkspaceImageRecord,
+  type WorkspaceSelection,
+} from "../workspaceSelection";
 
-type MediaBase = {
-  id: string;
-  src_url: string;
-  filename?: string;
-  caption?: string;
-  mime_type?: string;
-  filesize?: number;
-  created_at?: string;
-  project_id?: string | number;
-  thread_id?: string | number;
-  source_tag?: string | null;
-};
-
-type DocumentItem = MediaBase;
-type ImageItem = MediaBase;
-
-type ShelfItem = { kind: "document"; item: DocumentItem } | { kind: "image"; item: ImageItem };
+type MediaBase = WorkspaceDocumentRecord;
+type DocumentItem = WorkspaceDocumentRecord;
+type ImageItem = WorkspaceImageRecord;
+type ShelfItem = WorkspaceSelection;
 
 const WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY = "cfy.workspace.shelf.agent-read.v1";
 
@@ -42,10 +36,7 @@ function loadShelfReadState(): ShelfReadState {
 function persistShelfReadState(state: ShelfReadState) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY,
-      JSON.stringify(state)
-    );
+    window.localStorage.setItem(WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Local persistence is best effort for this first-pass UX state.
   }
@@ -72,7 +63,8 @@ function getUnreadIndicatorTestId(item: ShelfItem): string {
 }
 
 function documentItemToFile(doc: DocumentItem) {
-  const name = doc.filename || "Untitled";
+  const name =
+    doc.filename || (doc.title && doc.format ? `${doc.title}.${doc.format}` : "Untitled");
   const extMatch = name.match(/\.([^.]+)$/);
   const ext = extMatch ? extMatch[1].toLowerCase() : undefined;
   return {
@@ -84,6 +76,19 @@ function documentItemToFile(doc: DocumentItem) {
     type: "file" as const,
     embeddingStatus: undefined,
     embeddingError: undefined,
+  };
+}
+
+function normalizeArtifact(doc: DocumentItem): DocumentItem {
+  if (doc.artifact_type !== "generated") return doc;
+  return {
+    ...doc,
+    filename:
+      doc.filename ||
+      (doc.title && doc.format ? `${doc.title}.${doc.format}` : doc.title || "Untitled"),
+    src_url:
+      doc.src_url ||
+      `/api/media/document-artifacts/${encodeURIComponent(doc.id)}?artifact_type=generated`,
   };
 }
 
@@ -106,14 +111,6 @@ function isPdf(item: MediaBase) {
   const mt = (item.mime_type || "").toLowerCase();
   const fn = (item.filename || "").toLowerCase();
   return mt.includes("pdf") || fn.endsWith(".pdf");
-}
-
-function normalizeUrl(srcUrl: string) {
-  try {
-    return new URL(srcUrl, window.location.origin).toString();
-  } catch {
-    return srcUrl;
-  }
 }
 
 type WorkspaceShelfPanelProps = {
@@ -148,9 +145,7 @@ export default function WorkspaceShelfPanel({
     projectDocuments: [],
     projectImages: [],
   });
-  const [shelfReadState, setShelfReadState] = useState<ShelfReadState>(() =>
-    loadShelfReadState()
-  );
+  const [shelfReadState, setShelfReadState] = useState<ShelfReadState>(() => loadShelfReadState());
 
   const apiKey = (import.meta as any).env?.VITE_GUARDIAN_API_KEY as string | undefined;
 
@@ -187,10 +182,16 @@ export default function WorkspaceShelfPanel({
         const threadQp = new URLSearchParams({ thread_id: tid });
         queries.push({ key: "thread", qp: threadQp });
         promises.push(
-          fetch(`${base}/media/documents?${threadQp.toString()}`, {
-            headers,
-            signal: ac.signal,
-          }).then((r) => r.json())
+          fetch(
+            `${base}/media/document-artifacts?${threadQp.toString()}`,
+            buildAuthenticatedFetchInit({
+              headers,
+              signal: ac.signal,
+            })
+          ).then((r) => {
+            if (!r.ok) throw new Error(`Document listing failed (${r.status})`);
+            return r.json();
+          })
         );
         promises.push(
           fetch(`${base}/media/images?${threadQp.toString()}`, {
@@ -204,10 +205,16 @@ export default function WorkspaceShelfPanel({
         const projectQp = new URLSearchParams({ project_id: pid });
         queries.push({ key: "project", qp: projectQp });
         promises.push(
-          fetch(`${base}/media/documents?${projectQp.toString()}`, {
-            headers,
-            signal: ac.signal,
-          }).then((r) => r.json())
+          fetch(
+            `${base}/media/document-artifacts?${projectQp.toString()}`,
+            buildAuthenticatedFetchInit({
+              headers,
+              signal: ac.signal,
+            })
+          ).then((r) => {
+            if (!r.ok) throw new Error(`Document listing failed (${r.status})`);
+            return r.json();
+          })
         );
         promises.push(
           fetch(`${base}/media/images?${projectQp.toString()}`, {
@@ -235,13 +242,13 @@ export default function WorkspaceShelfPanel({
         if (q.key === "thread") {
           const docs = asArray<DocumentItem>(results[idx], ["documents", "items", "data"]);
           const imgs = asArray<ImageItem>(results[idx + 1], ["images", "items", "data"]);
-          newState.threadDocuments = docs;
+          newState.threadDocuments = docs.map(normalizeArtifact);
           newState.threadImages = imgs;
           idx += 2;
         } else if (q.key === "project") {
           const docs = asArray<DocumentItem>(results[idx], ["documents", "items", "data"]);
           const imgs = asArray<ImageItem>(results[idx + 1], ["images", "items", "data"]);
-          newState.projectDocuments = docs;
+          newState.projectDocuments = docs.map(normalizeArtifact);
           newState.projectImages = imgs;
           idx += 2;
         }
@@ -326,25 +333,22 @@ export default function WorkspaceShelfPanel({
     const shelfItem: ShelfItem = { kind: "document", item: doc };
     return (
       <div
-      key={doc.id}
-      className="relative"
-      draggable
-      onDragStart={(event) => {
-        try {
-          event.dataTransfer.setData(
-            "application/x-cfy-asset",
-            JSON.stringify({ kind: "document", item: doc })
-          );
-          event.dataTransfer.effectAllowed = "copy";
-        } catch {}
-      }}
-    >
-      {renderUnreadIndicator(shelfItem)}
-      <DocumentTile
-        file={documentItemToFile(doc)}
-        onClick={() => handleItemClick(shelfItem)}
-      />
-    </div>
+        key={doc.id}
+        className="relative"
+        draggable
+        onDragStart={(event) => {
+          try {
+            event.dataTransfer.setData(
+              "application/x-cfy-asset",
+              JSON.stringify({ kind: "document", item: doc })
+            );
+            event.dataTransfer.effectAllowed = "copy";
+          } catch {}
+        }}
+      >
+        {renderUnreadIndicator(shelfItem)}
+        <DocumentTile file={documentItemToFile(doc)} onClick={() => handleItemClick(shelfItem)} />
+      </div>
     );
   };
 
@@ -352,41 +356,48 @@ export default function WorkspaceShelfPanel({
     const shelfItem: ShelfItem = { kind: "image", item: img };
     return (
       <div
-      key={img.id}
-      className="relative"
-      draggable
-      onDragStart={(event) => {
-        try {
-          event.dataTransfer.setData(
-            "application/x-cfy-asset",
-            JSON.stringify({ kind: "image", item: img })
-          );
-          event.dataTransfer.effectAllowed = "copy";
-        } catch {}
-      }}
-    >
-      {renderUnreadIndicator(shelfItem)}
-      <PreviewTile
-        tone="panel"
-        className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
+        key={img.id}
+        className="relative cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        role="button"
+        tabIndex={0}
+        aria-label={`Inspect image ${titleFor(img)}`}
         onClick={() => handleItemClick(shelfItem)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handleItemClick(shelfItem);
+          }
+        }}
+        draggable
+        onDragStart={(event) => {
+          try {
+            event.dataTransfer.setData(
+              "application/x-cfy-asset",
+              JSON.stringify({ kind: "image", item: img })
+            );
+            event.dataTransfer.effectAllowed = "copy";
+          } catch {}
+        }}
       >
-        <div className="min-h-[112px]">
-          <div className="rounded-[10px] aspect-[4/3] overflow-hidden">
-            <img
-              src={normalizeUrl(img.src_url)}
-              alt={img.caption || titleFor(img)}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
+        {renderUnreadIndicator(shelfItem)}
+        <PreviewTile
+          tone="panel"
+          className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
+        >
+          <div className="min-h-[112px]">
+            <div className="rounded-[10px] aspect-[4/3] overflow-hidden">
+              <img
+                src={normalizeWorkspaceMediaUrl(img.src_url) ?? undefined}
+                alt={img.caption || titleFor(img)}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            </div>
+            <div className="mt-2 text-sm font-medium truncate">{img.caption || titleFor(img)}</div>
+            <div className="text-xs opacity-70 truncate">&nbsp;</div>
           </div>
-          <div className="mt-2 text-sm font-medium truncate">
-            {img.caption || titleFor(img)}
-          </div>
-          <div className="text-xs opacity-70 truncate">&nbsp;</div>
-        </div>
-      </PreviewTile>
-    </div>
+        </PreviewTile>
+      </div>
     );
   };
 
@@ -397,10 +408,7 @@ export default function WorkspaceShelfPanel({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
       <div className="flex items-center justify-between gap-3">
-        <span
-          className="text-sm font-semibold"
-          style={{ color: "var(--text)" }}
-        >
+        <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
           Shelf
         </span>
         <span

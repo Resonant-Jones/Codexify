@@ -12,10 +12,9 @@
 # ADR-052 only for the exact local-model pin and configuration authority).
 #
 # Per ADR-074, this profile owns the allowed/default provider posture. The
-# operator environment supplies the concrete local chat-model selection and
-# the Whoosh'd/DeepSeek overlay transports it with interpolation. The tracked
-# Qwen default below is restored historical configuration evidence; it is not
-# a claim that Qwen is currently advertised or selected by a running Tester.
+# normal chat route is logical and Whoosh'd owns its physical mapping. DeepSeek
+# model selection is backed by the provider's live /models inventory; an
+# operator-supplied exact model remains subject to fail-closed validation.
 #
 # Route posture: this canonical friends/family tester profile mounts the
 # existing Hosted Room owner/guest route families for private-preview
@@ -45,6 +44,7 @@ extension_posture:
     - plugin_sdk
 route_posture:
   enabled:
+    - onboarding
     - health
     - dashboard
     - chat
@@ -68,6 +68,7 @@ route_posture:
     - command_bus
     - memory_vault
   quarantined:
+    - llm_overrides
     - neo
     - imprint
     - system_prompt
@@ -104,7 +105,7 @@ provider_contract:
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
-  LOCAL_CHAT_MODEL: qwen3.8-27b-4bit
+  LOCAL_CHAT_MODEL: local-chat
   DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
 criticality:
   tier0:

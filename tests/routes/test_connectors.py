@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 
 # Import functions to test
 from guardian.routes.connectors import (
@@ -511,6 +511,7 @@ def test_connectors_public_allowlist_accepts_valid_bearer(monkeypatch):
         session_token, _expires = issue_session_token(
             subject="connectors-route-auth-test",
             ttl_seconds=60,
+            purpose=ACCOUNT_SESSION_PURPOSE,
         )
         response = client.get(
             "/api/connectors",

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +15,8 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 import guardian as guardian_pkg
 import guardian.routes as guardian_routes_pkg
 from guardian.core.dependencies import RequestUserScope
+from guardian.db.models import ChatCompletionAttempt
+from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
 
@@ -136,11 +139,54 @@ def _mock_redis_queue_for_chat_routes():
 
 
 def _stale_lock():
-    return SimpleNamespace(
-        owner_task_id="task-stale",
-        lease_ttl_seconds=30,
-        lease_expires_at="2026-03-13T12:00:30+00:00",
+    return build_turn_lock_envelope(
+        1,
+        "task-stale",
+        turn_id="turn-stale",
+        ttl_seconds=30,
+        acquired_at="2026-03-13T12:00:00+00:00",
+        lease_token="stale-route-test-lease",
     )
+
+
+def _acquired_turn_lock(
+    thread_id: int,
+    owner_task_id: str,
+    *,
+    turn_id: str,
+    source: str,
+    ttl_seconds: int,
+    return_envelope: bool,
+) -> TurnLockEnvelope:
+    assert return_envelope is True
+    return build_turn_lock_envelope(
+        thread_id,
+        owner_task_id,
+        turn_id=turn_id,
+        source=source,
+        ttl_seconds=ttl_seconds,
+        acquired_at="2026-09-26T12:00:00+00:00",
+        lease_token="route-test-lease",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _renew_acquired_turn_lock(monkeypatch):
+    """Model the successful Redis lease renewal after route-level acquisition."""
+
+    def _renew(thread_id, lock, *, ttl_seconds, return_envelope):
+        assert isinstance(lock, TurnLockEnvelope)
+        assert thread_id == lock.thread_id
+        assert return_envelope is True
+        renewed_at = datetime.fromisoformat(lock.acquired_at) + timedelta(seconds=10)
+        return replace(
+            lock,
+            renewed_at=renewed_at.isoformat(),
+            lease_expires_at=(renewed_at + timedelta(seconds=ttl_seconds)).isoformat(),
+            lease_ttl_seconds=ttl_seconds,
+        )
+
+    monkeypatch.setattr("guardian.core.chat_completion_service.renew_turn_lock", _renew)
 
 
 def _terminal_evidence(
@@ -928,7 +974,7 @@ class TestChatCompletePost:
         captured: dict[str, object] = {}
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -949,6 +995,17 @@ class TestChatCompletePost:
         assert getattr(task, "thread_id") == 1
         assert getattr(task, "turn_lock_owner") == data["task_id"]
         assert captured.get("queue_name") == "codexify:queue:chat"
+        added_attempts = [
+            call.args[0]
+            for call in (
+                mock_db._sa_session.return_value.__enter__.return_value.add.call_args_list
+            )
+            if isinstance(call.args[0], ChatCompletionAttempt)
+        ]
+        assert len(added_attempts) == 1
+        assert added_attempts[0].backend_task_id == data["task_id"]
+        assert added_attempts[0].thread_id == 1
+        assert added_attempts[0].turn_id == getattr(task, "turn_id")
 
     def test_complete_missing_lifecycle_start_returns_degraded_acceptance(
         self, test_client, mock_db, monkeypatch
@@ -973,7 +1030,7 @@ class TestChatCompletePost:
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -1044,7 +1101,9 @@ class TestChatCompletePost:
 
         def _acquire(*args, **kwargs):
             acquire_calls["count"] += 1
-            return None if acquire_calls["count"] == 1 else True
+            if acquire_calls["count"] == 1:
+                return None
+            return _acquired_turn_lock(*args, **kwargs)
 
         monkeypatch.setattr("guardian.core.chat_completion_service.acquire_turn_lock", _acquire)
         monkeypatch.setattr(
@@ -1161,12 +1220,18 @@ class TestChatCompletePost:
     def test_complete_depth_contract_non_deep_request(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": 7,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1194,12 +1259,18 @@ class TestChatCompletePost:
     def test_complete_depth_contract_deep_no_project(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": None}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": None,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1223,13 +1294,19 @@ class TestChatCompletePost:
     def test_complete_depth_contract_deep_project_light(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": 7,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.get_project_identity_depth.return_value = "light"
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1253,7 +1330,12 @@ class TestChatCompletePost:
     def test_complete_depth_contract_deep_policy_rejected(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": 7,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.get_project_identity_depth.return_value = "deep"
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
@@ -1263,7 +1345,8 @@ class TestChatCompletePost:
             lambda *_a, **_k: False,
         )
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1287,7 +1370,12 @@ class TestChatCompletePost:
     def test_complete_depth_contract_deep_allowed(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": 7,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.get_project_identity_depth.return_value = "deep"
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
@@ -1297,7 +1385,8 @@ class TestChatCompletePost:
             lambda *_a, **_k: True,
         )
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1321,7 +1410,12 @@ class TestChatCompletePost:
     def test_complete_depth_contract_exception_logs_once(
         self, test_client, mock_db, monkeypatch
     ):
-        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "project_id": 7,
+            "active_profile_id": None,
+            "active_profile_revision": None,
+        }
         mock_db.get_project_identity_depth.side_effect = RuntimeError("boom")
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
@@ -1331,7 +1425,8 @@ class TestChatCompletePost:
             "guardian.routes.chat.logger.exception", exception_spy
         )
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
@@ -1364,7 +1459,7 @@ class TestChatCompletePost:
         captured: dict[str, object] = {}
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -1406,7 +1501,7 @@ class TestChatCompletePost:
 
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -1426,7 +1521,7 @@ class TestChatCompletePost:
 
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.release_turn_lock",
@@ -1476,7 +1571,7 @@ class TestChatCompletePost:
 
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -1500,7 +1595,7 @@ class TestChatCompletePost:
 
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
@@ -1883,7 +1978,7 @@ class TestApiChatAlias:
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.acquire_turn_lock",
-            lambda *a, **k: True,
+            lambda *a, **k: _acquired_turn_lock(*a, **k),
         )
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",

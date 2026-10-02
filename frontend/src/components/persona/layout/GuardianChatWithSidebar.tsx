@@ -355,6 +355,12 @@ type GuardianChatWithSidebarProps = {
   onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
   frameFirstMobile?: boolean;
   mobileFramePrelude?: React.ReactNode;
+  browserFocused?: boolean;
+  focusedSidebarOpen?: boolean;
+  focusedSidebarPinned?: boolean;
+  onFocusedSidebarOpenChange?: (open: boolean) => void;
+  onFocusedSidebarPinnedChange?: (pinned: boolean) => void;
+  focusedShelfStyle?: React.CSSProperties;
 };
 
 export default function GuardianChatWithSidebar({
@@ -381,6 +387,12 @@ export default function GuardianChatWithSidebar({
   onApplicationNavigationExpandedChange,
   frameFirstMobile = false,
   mobileFramePrelude,
+  browserFocused = false,
+  focusedSidebarOpen = false,
+  focusedSidebarPinned = false,
+  onFocusedSidebarOpenChange,
+  onFocusedSidebarPinnedChange,
+  focusedShelfStyle,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -434,7 +446,7 @@ export default function GuardianChatWithSidebar({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
-  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
+  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split" && !browserFocused;
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const projectListRef = React.useRef(projectCache.projectList);
@@ -511,7 +523,7 @@ export default function GuardianChatWithSidebar({
   const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
   const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
-  const { wallpaperUrl } = useWallpaperUrl();
+  const { renderableWallpaperUrl } = useWallpaperUrl();
   const {
     ready: routeCapabilitiesReady,
     states: routeCapabilityStates,
@@ -808,13 +820,17 @@ export default function GuardianChatWithSidebar({
   const guardianPresentationMode = isPromptFirstStart
     ? "landing"
     : "conversation";
-  const isSidebarOpen = isDesktopLayout
+  const isSidebarOpen = browserFocused
+    ? focusedSidebarOpen
+    : isDesktopLayout
     ? guardianPresentationMode === "landing"
       ? isLandingSidebarOpen
       : sidebarIntro === "suppressed" ? false : isSidebarVisible
     : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
-  const guardianLayoutMode = mobileShellProfile.guardian.singleLane
+  const guardianLayoutMode = browserFocused
+    ? "collapsed_drawer"
+    : mobileShellProfile.guardian.singleLane
     ? "single_lane"
     : isDesktopLayout
       ? "split"
@@ -826,7 +842,9 @@ export default function GuardianChatWithSidebar({
         updateSidebarIntro("acknowledged");
         setSidebarRevealAttention(false);
       }
-      if (isDesktopLayout) {
+      if (browserFocused) {
+        onFocusedSidebarOpenChange?.(next);
+      } else if (isDesktopLayout) {
         if (guardianPresentationMode === "landing") {
           setIsLandingSidebarOpen(next);
         } else {
@@ -836,7 +854,7 @@ export default function GuardianChatWithSidebar({
         setIsMobileSidebarOpen(next);
       }
     },
-    [guardianPresentationMode, isDesktopLayout, updateSidebarIntro]
+    [browserFocused, guardianPresentationMode, isDesktopLayout, onFocusedSidebarOpenChange, updateSidebarIntro]
   );
 
   const closeMobileToolsMenu = React.useCallback(() => {
@@ -1922,7 +1940,12 @@ export default function GuardianChatWithSidebar({
         onNavigateApplicationView?.(nextView)
       }
       returnFocusRef={mobileSidebarTriggerRef}
-      wallpaperUrl={wallpaperUrl}
+      wallpaperUrl={renderableWallpaperUrl}
+      presentation={browserFocused ? "shelf" : "modal"}
+      pinned={browserFocused && focusedSidebarPinned}
+      onPinnedChange={onFocusedSidebarPinnedChange}
+      onShelfPointerLeave={browserFocused && !focusedSidebarPinned ? closeSidebar : undefined}
+      shellStyle={browserFocused ? focusedShelfStyle : undefined}
     >
       <SidebarRoot
         threads={threads}
@@ -1995,7 +2018,7 @@ export default function GuardianChatWithSidebar({
           >
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={wallpaperUrl}
+                wallpaperUrl={renderableWallpaperUrl}
                 className="h-full w-full rounded-[var(--card-radius)]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}

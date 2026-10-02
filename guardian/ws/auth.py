@@ -8,8 +8,13 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, WebSocket
 
-from guardian.core.dependencies import verify_api_key
+from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
+    verify_session_token,
+    verify_session_token_for_purpose,
+)
 from guardian.core.auth_dependencies import resolve_session_user_id
+from guardian.core.dependencies import _auth_mode, verify_api_key
 from guardian.core.preview_access import is_private_preview, role_for_preview_email
 from guardian.ws.protocol import enforce_payload_size
 
@@ -26,11 +31,19 @@ class WSAuthError(Exception):
 
 
 def _validate_api_key(token: str) -> str:
-    if is_private_preview():
+    preview = is_private_preview()
+    if preview or _auth_mode() == "remote":
+        if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
+            raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
+        valid, signed_subject = verify_session_token(token)
+        if not valid or not signed_subject:
+            raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
         user_id = resolve_session_user_id(f"Bearer {token}", None)
-        if user_id and role_for_preview_email(user_id):
-            return token
-        raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
+        if not user_id or user_id != signed_subject:
+            raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
+        if preview and not role_for_preview_email(user_id):
+            raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
+        return token
     try:
         return verify_api_key(x_api_key=token, authorization=None)
     except HTTPException as exc:

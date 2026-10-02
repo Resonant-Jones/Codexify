@@ -23,7 +23,6 @@ import {
 } from "@/lib/runtimeConfig";
 import {
   checkAuthGate,
-  markAuthUnauthenticatedFrom401,
   useAuthState,
 } from "@/lib/authState";
 import { SessionSpine } from "@/state/session/SessionSpine";
@@ -368,6 +367,21 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       return;
     }
 
+    // /api/events is an operator/global outbox. Remote Guardian login stores
+    // an account_session, which must not be presented as operator authority.
+    if (getRuntimeConfigSync().authMode === "remote") {
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingConnectedRef.current = null;
+      connectedRef.current = false;
+      setConnected(false);
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED);
+      setStatusUpdatedAt(Date.now());
+      return;
+    }
+
     const authInit = buildAuthenticatedFetchInit({
       headers: {
         Accept: "text/event-stream",
@@ -406,9 +420,6 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
         withCredentials: authInit.credentials === "include",
         authSource: resolveLiveEventsAuthSource(),
         apiKeyPresent,
-        onUnauthorized: () => {
-          markAuthUnauthenticatedFrom401();
-        },
       },
       (event) => {
         if (cancelled || isUnmountedRef.current) return;

@@ -12,6 +12,7 @@ import {
 } from "@/lib/assetActions";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { setWallpaperPreference } from "@/lib/wallpaperPreference";
 import TileShell, { type TileShellSizeVariant } from "@/components/surface/TileShell";
 import "./media.css";
 
@@ -72,6 +73,12 @@ export function MediaTile({
 
   const contextMenuItems = React.useMemo(
     () => [
+      {
+        label: "Set as wallpaper",
+        onSelect: () => {
+          setWallpaperPreference(resolvedSrc);
+        },
+      },
       ...(canDownload
         ? [{ label: "Download", onSelect: handleDownload }]
         : []),
@@ -79,7 +86,7 @@ export function MediaTile({
         ? [{ label: "Delete", onSelect: handleDelete, destructive: true }]
         : []),
     ],
-    [canDelete, canDownload, handleDelete, handleDownload]
+    [canDelete, canDownload, handleDelete, handleDownload, resolvedSrc]
   );
 
   if (isDeleted) return null;

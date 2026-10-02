@@ -24,7 +24,7 @@ from guardian.account_observability.tokens import (
     ATTRIBUTION_COOKIE_NAME,
     AccountObservabilityInviteAuditAction,
 )
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import resolve_session_user_id
 from guardian.core.passwords import hash_password, verify_password
@@ -264,7 +264,9 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
             session.commit()
 
         token, expires_at = issue_session_token(
-            subject=user.id, ttl_seconds=DEFAULT_SESSION_TTL_SECONDS
+            subject=user.id,
+            ttl_seconds=DEFAULT_SESSION_TTL_SECONDS,
+            purpose=ACCOUNT_SESSION_PURPOSE,
         )
         get_session_store().store(
             token,

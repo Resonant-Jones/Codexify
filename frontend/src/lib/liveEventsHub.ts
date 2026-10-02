@@ -810,7 +810,11 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
     withCredentials: config.withCredentials,
     onUnauthorized: () => {
       lastHttpStatus = 401;
-      transportErrorClass = null;
+      lastErrorAt = Date.now();
+      transportErrorClass = "unauthorized";
+      readyState = GuardianEventSource.CLOSED;
+      connectionStatus = "disconnected";
+      notifyStatus();
       config.onUnauthorized?.();
     },
     autoReconnect: false,

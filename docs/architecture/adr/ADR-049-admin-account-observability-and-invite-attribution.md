@@ -18,7 +18,7 @@ aliases:
 
 ## Status
 
-Accepted; Slices 1–3 implemented internally
+Accepted; Slices 1–3 implemented internally; five-route human-admin capability gate qualified by focused tests
 
 The runtime heartbeat and retention slice implemented on top of this ADR is
 contract-aligned and does not authorize the deferred operator snapshot,
@@ -90,14 +90,47 @@ Presence-session rows: 30 days. Guest-session/attribution rows: 90 days (unless 
 
 Hourly activity and geography aggregates are retained for 13 months. Daily registration and invite-conversion aggregates are retained as long-term non-content business aggregates. These aggregates are non-reidentifiable for small cohorts due to the `other_or_suppressed` threshold (fewer than 3 distinct users).
 
-### 9. Operator access is explicitly authorized and dual-authority-compatible
+### 9. Human operator access uses two gates and one principal
 
-The analytics snapshot requires:
-- An authenticated Guardian human session.
-- Explicit operator/admin role authorization.
-- The server-held Guardian service credential where the current dashboard dual-authority boundary requires it.
+"Dual authority" on human-operated account-observability surfaces means
+**dual-gate, single-principal** access. The sole request principal is a valid
+`account_session` resolved to a canonical human account. That account supplies
+the audit actor and must have the required Guardian-owned admin authorization.
+Admin status is authorization on the account, not another principal. The
+server-held Guardian service key, where required, is an independent
+non-principal capability gate: it supplies no account identity, operator
+identity, ownership, or `RequestUserScope` and cannot authorize by itself.
 
-Browser JavaScript must never receive `GUARDIAN_API_KEY`. Frontend code must not maintain an independent admin list.
+This pattern governs the implemented operator invite and retention routes and
+the deferred account-observability snapshot and active-account projections.
+The five implemented invite and retention operations validate the exact
+`account_session` purpose before resolving its approved session and persisted
+`User`, require that account's `admin` role (and current private-preview
+approval where applicable), then validate the separate `X-API-Key` service
+capability before performing the operation. General mixed-principal rejection
+remains a separate ADR-092 migration obligation. A non-admin
+account cannot be elevated by the service key or by an admin token alone.
+Audit attribution remains the canonical human account, never the key,
+`subject="web"`, an operator-session pseudo-user, or a local fallback.
+
+A signed `operator_session` remains a principal-bearing credential for
+machine/operator control-plane routes such as Continuity. It is not a service
+capability for these human-account routes. Presenting it together with an
+`account_session` remains mixed-principal authentication under ADR-092.
+The same raw Guardian key may serve as operator authority only at an explicit
+operator-auth dependency, or as a non-principal capability only at an explicit
+service-capability dependency. One request boundary must not interpret it as
+both. The five account-observability invite and retention operations now use
+`require_service_capability` for that non-principal gate. This route-scoped
+qualification does not establish strict account-purpose validation on other
+routes or live public-ingress qualification.
+
+The existing `GET /api/dashboard/snapshot` is a per-viewer projection for
+both admin and guest accounts. It requires a human session and service key but
+does not become admin-only through this decision. Any future admin-only
+dashboard action or account-observability projection uses the admin gate above.
+Browser JavaScript must never receive `GUARDIAN_API_KEY`. Frontend code must
+not maintain an independent admin list.
 
 ### 10. Missing data remains unknown rather than becoming zero
 
@@ -160,7 +193,7 @@ Rejected. Cross-device probabilistic identification (fingerprinting, IP correlat
 - First-party invite attribution without fingerprints protects guest privacy.
 - Explicit retention periods prevent unbounded telemetry accumulation.
 - Distinct `zero`/`unknown`/`unavailable`/`stale`/`suppressed` states prevent false confidence in analytics.
-- Dual-authority operator access preserves the existing Guardian security model.
+- Dual-gate, single-principal operator access preserves independent human and service admission checks.
 - Small-cohort suppression protects individual privacy in aggregate views.
 
 ### Negative

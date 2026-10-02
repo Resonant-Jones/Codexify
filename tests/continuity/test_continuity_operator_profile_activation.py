@@ -197,15 +197,15 @@ def test_route_still_authenticated():
     """Route must require API key even in test profile.
 
     The auth dependency is verified by inspecting the route source —
-    the ``require_api_key`` dependency is imported and used in
+    the ``require_operator_auth`` dependency is imported and used in
     the route's Depends() call.  Full auth integration testing
     requires the complete FastAPI app with its auth middleware chain.
     """
     import guardian.routes.continuity_operator as co
 
     source = inspect.getsource(co)
-    # Verify require_api_key is used in a Depends() call
-    assert "require_api_key" in source
+    # Verify the explicit operator dependency is used in a Depends() call.
+    assert "require_operator_auth" in source
     assert "Depends" in source
 
 

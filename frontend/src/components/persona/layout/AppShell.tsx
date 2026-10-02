@@ -1,3 +1,4 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -31,6 +32,7 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
+import UnifiedDesktopCompositor, { type BrowserPresentation } from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -39,7 +41,11 @@ import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
-import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import {
+  setWallpaperPreference,
+  WALLPAPER_CHANGE_EVENT,
+  WALLPAPER_STORAGE_KEY,
+} from "@/lib/wallpaperPreference";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth, {
   formatRuntimeHealthDiagnostics,
@@ -1360,6 +1366,19 @@ export default function AppShell({
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
+  const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
+  const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
+  const [focusedSidebarPinned, setFocusedSidebarPinned] = useState(false);
+  const handleBrowserPresentationChange = useCallback((next: BrowserPresentation) => {
+    setBrowserPresentation(next);
+    const focused = next === "focused";
+    setFocusedSidebarOpen(focused);
+    setFocusedSidebarPinned(focused);
+  }, []);
+  const setFocusedSidebarVisibility = useCallback((open: boolean) => {
+    setFocusedSidebarOpen(open);
+    if (!open) setFocusedSidebarPinned(false);
+  }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
       () => isPrimaryMobileApplicationView(view) && view !== "guardian"
@@ -1485,7 +1504,24 @@ export default function AppShell({
       window.removeEventListener("cfy:threads:refresh", syncRouteState as EventListener);
     };
   }, []);
-  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem("cfy.wallpaper")));
+  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem(WALLPAPER_STORAGE_KEY)));
+  const selectedWallpaperMedia = useRenderableMediaSrc(wallpaper);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === WALLPAPER_STORAGE_KEY) setWallpaper(event.newValue);
+    };
+    const onWallpaperChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ url: string | null }>).detail;
+      setWallpaper(detail?.url ?? null);
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
+    };
+  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      📄 SECTION: Document and Gallery State
@@ -2045,7 +2081,7 @@ export default function AppShell({
     return { background: `linear-gradient(to bottom, ${start}, ${end})` } as React.CSSProperties;
   })();
   const backgroundStyle: React.CSSProperties = (() => {
-    if (!wallpaper) return bgStyleNoWallpaper;
+    if (!wallpaper || !selectedWallpaperMedia.src) return bgStyleNoWallpaper;
     // Overlay gradient with alpha to bias the scene per theme
     const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
     const f = clamp(fade);
@@ -2062,7 +2098,7 @@ export default function AppShell({
       end = `rgba(255,255,255,${(d * 0.25).toFixed(3)})`;
     }
     return {
-      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${wallpaper})`,
+      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${selectedWallpaperMedia.src})`,
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -2117,6 +2153,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const isFocusedBrowser = browserPresentation === "focused" && !isPhoneShell;
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -2128,6 +2165,7 @@ export default function AppShell({
     isPhoneFrameFirstShell && view === "guardian";
   const isNonGuardianPhoneFrameShell =
     isPhoneFrameFirstShell && view !== "guardian";
+  const showFocusedAppSidebar = isFocusedBrowser && view !== "guardian";
   useEffect(() => {
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
@@ -2390,11 +2428,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -2807,6 +2846,7 @@ export default function AppShell({
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
   }, [wallpaper, gallery]);
+  const activeWallpaperMedia = useRenderableMediaSrc(activeWallpaper);
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }
@@ -3221,7 +3261,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     view === "documents" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3254,19 +3294,27 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     <MobileAppSidebarDrawer
-      isOpen={isPhoneSidebarOpen}
-      onClose={() => setIsPhoneSidebarOpen(false)}
+      isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
+      onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
+      presentation={showFocusedAppSidebar ? "shelf" : "modal"}
+      pinned={showFocusedAppSidebar && focusedSidebarPinned}
+      onPinnedChange={(pinned) => {
+        setFocusedSidebarPinned(pinned);
+        if (pinned) setFocusedSidebarOpen(true);
+      }}
+      onShelfPointerLeave={showFocusedAppSidebar && !focusedSidebarPinned ? () => setFocusedSidebarVisibility(false) : undefined}
+      shellStyle={showFocusedAppSidebar ? styleVars as React.CSSProperties : undefined}
       isApplicationNavigationExpanded={isApplicationNavigationExpanded}
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={view as MobileApplicationView}
+      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
@@ -3408,8 +3456,18 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
+    <UnifiedDesktopCompositor
+      enabled={!isPhoneShell}
+      shellStyle={styleVars as React.CSSProperties}
+      presentation={browserPresentation}
+      onPresentationChange={handleBrowserPresentationChange}
+      focusedSidebarOpen={focusedSidebarOpen}
+      focusedSidebarPinned={focusedSidebarPinned}
+      onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
+    >
     <div
-      className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
+      className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
@@ -3459,7 +3517,7 @@ export default function AppShell({
       {/* Global outer glass skin */}
       <div className="absolute inset-0 -z-10 pointer-events-none rounded-[var(--viewport-radius)] overflow-hidden">
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--viewport-radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3496,7 +3554,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3548,7 +3606,7 @@ export default function AppShell({
             {/* glass backdrop */}
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
+                wallpaperUrl={activeWallpaperMedia.src || null}
                 className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
@@ -3996,6 +4054,15 @@ export default function AppShell({
                         }
                         frameFirstMobile={isNarrowGuardianFrameShell}
                         mobileFramePrelude={guardianMobileFramePrelude}
+                        browserFocused={isFocusedBrowser}
+                        focusedSidebarOpen={focusedSidebarOpen}
+                        focusedSidebarPinned={focusedSidebarPinned}
+                        onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
+                        onFocusedSidebarPinnedChange={(pinned) => {
+                          setFocusedSidebarPinned(pinned);
+                          if (pinned) setFocusedSidebarOpen(true);
+                        }}
+                        focusedShelfStyle={styleVars as React.CSSProperties}
                       />
                     </ErrorBoundary>
                   </div>
@@ -4103,7 +4170,7 @@ export default function AppShell({
                     systemPrompt={systemPrompt}
                     setSystemPrompt={setSystemPrompt}
                     wallpaper={wallpaper}
-                    setWallpaper={setWallpaper}
+                    setWallpaper={setWallpaperPreference}
                     extColors={extColors}
                     setExtColors={setExtColors}
                     dashboardThreadRows={dashboardThreadRows}
@@ -4241,6 +4308,7 @@ export default function AppShell({
           y={galleryMenu.y}
           onClose={() => setGalleryMenu(null)}
           items={[
+            ...(galleryMenu.src ? [{ label: "Set as wallpaper", onClick: () => { setWallpaperPreference(galleryMenu.src!); } }] : []),
             ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;
@@ -4258,5 +4326,7 @@ export default function AppShell({
         />
       )}
     </div>
+    </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }

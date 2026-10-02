@@ -11,8 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 from guardian.core.dependencies import (
     chatlog_db,
-    get_request_user_id,
-    require_api_key,
+    get_account_user_id as get_request_user_id,
+    require_account_session as require_api_key,
 )
 from guardian.services.account_restore import (
     AccountRestoreError,

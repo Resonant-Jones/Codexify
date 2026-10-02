@@ -186,4 +186,29 @@ describe("DashboardGallery mobile interaction feedback", () => {
     fireEvent.click(tile);
     expect(tile).toHaveAttribute("data-press-feedback", "idle");
   });
+
+  it("offers wallpaper setting alongside the existing dashboard image actions", () => {
+    const onAddToThread = vi.fn();
+    render(
+      <DashboardGallery
+        items={[{
+          id: "wallpaper-image",
+          src: "/media/images/dashboard-wallpaper.png?sig=stable",
+          prompt: "Wallpaper image",
+        }]}
+        onOpenPreview={vi.fn()}
+        onAddToThread={onAddToThread}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Wallpaper image" }));
+    expect(screen.getByRole("menuitem", { name: "Set as wallpaper" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Add to Thread" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Download" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+    expect(localStorage.getItem("cfy.wallpaper")).toBe(
+      "http://backend.test/media/images/dashboard-wallpaper.png?sig=stable"
+    );
+  });
 });

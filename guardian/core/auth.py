@@ -22,6 +22,10 @@ from typing import Any, Optional, Tuple
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 
+ACCOUNT_SESSION_PURPOSE = "account_session"
+OPERATOR_SESSION_PURPOSE = "operator_session"
+
+
 @dataclass(frozen=True)
 class AuthenticatedUser:
     """Minimal auth context returned by dependencies."""
@@ -58,13 +62,20 @@ def _session_secret() -> bytes:
 
 
 def issue_session_token(
-    subject: str = "web", ttl_seconds: int = 24 * 3600
+    subject: str = "web",
+    ttl_seconds: int = 24 * 3600,
+    *,
+    purpose: str,
 ) -> tuple[str, int]:
     """
     Issue an HMAC-signed opaque session token.
 
     Returns `(token, expires_at_epoch_seconds)`.
     """
+    purpose_value = str(purpose or "").strip()
+    if not purpose_value:
+        raise ValueError("purpose is required")
+
     now = int(time.time())
     exp = now + int(ttl_seconds)
     nonce = secrets.token_urlsafe(10)
@@ -73,6 +84,7 @@ def issue_session_token(
             "subject": subject,
             "exp": exp,
             "nonce": nonce,
+            "purpose": purpose_value,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -86,6 +98,98 @@ def issue_session_token(
         )
     )
     return packed, exp
+
+
+def _verified_session_token_claims(token: str) -> dict[str, Any] | None:
+    """Return structurally valid claims from a signed current-format token."""
+    try:
+        packed = (token or "").strip()
+        if not packed or packed.count(".") != 1:
+            return None
+        payload_b64, sig_b64 = packed.split(".", 1)
+
+        def decode(raw_text: str) -> bytes | None:
+            padded = raw_text + ("=" * (-len(raw_text) % 4))
+            try:
+                return base64.urlsafe_b64decode(padded.encode("ascii"))
+            except Exception:
+                return None
+
+        payload = decode(payload_b64)
+        signature = decode(sig_b64)
+        if payload is None or signature is None:
+            return None
+        expected_signature = hmac.new(
+            _session_secret(), payload, hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+
+        claims = json.loads(payload.decode("utf-8"))
+        subject = str(claims.get("subject") or "").strip()
+        nonce = str(claims.get("nonce") or "").strip()
+        purpose = str(claims.get("purpose") or "").strip()
+        int(claims.get("exp") or 0)
+        if not subject or not nonce or not purpose:
+            return None
+        return claims
+    except Exception:
+        return None
+
+
+def get_verified_session_token_purpose(token: str) -> str | None:
+    """Read a signed token's class for failure classification only.
+
+    Expiry is intentionally not checked here: an expired signed token still
+    identifies which credential lane was presented. Callers must use
+    ``verify_session_token_for_purpose`` to authorize a request.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return None
+    return str(claims.get("purpose") or "").strip() or None
+
+
+def verify_session_token_for_purpose(
+    token: str, expected_purpose: str
+) -> bool:
+    """Validate a current-format signed session token for one exact purpose.
+
+    Unlike the compatibility verifier below, this validator requires the
+    canonical two-part HMAC format and all current claims, including nonce
+    and purpose. Legacy purpose-less tokens cannot cross this boundary.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return False
+    try:
+        return bool(
+            str(claims.get("purpose") or "").strip() == expected_purpose
+            and int(claims.get("exp") or 0) >= int(time.time())
+        )
+    except Exception:
+        return False
+
+
+def resolve_account_session_subject(token: str) -> str:
+    """Validate an account credential before consulting its session mapping.
+
+    A stored mapping is evidence of session approval, never a substitute for
+    the signed subject or the exact account-session purpose.
+    """
+    if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    valid, subject = verify_session_token(token)
+    if not valid or not subject:
+        raise HTTPException(status_code=401, detail="Account session required")
+
+    from guardian.core.session_store import get_session_store
+
+    stored_user_id = get_session_store().verify(token)
+    if stored_user_id and stored_user_id != subject:
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    return subject
 
 
 def verify_session_token(token: str) -> tuple[bool, str | None]:
@@ -178,6 +282,21 @@ def require_auth(
 
     Returns the identity descriptor string on success, raises 401 on failure.
     """
+    from guardian.core.dependencies import _auth_mode
+    from guardian.core.preview_access import is_private_preview, role_for_preview_email
+
+    if is_private_preview() or _auth_mode() == "remote":
+        from guardian.core.auth_dependencies import extract_session_token
+
+        token = extract_session_token(authorization, gc_session)
+        subject = resolve_account_session_subject(token or "")
+        if is_private_preview():
+            from guardian.core.session_store import get_session_store
+
+            if get_session_store().verify(token) != subject or not role_for_preview_email(subject):
+                raise HTTPException(status_code=401, detail="Private preview account required")
+        return f"session:{subject}"
+
     candidate_key = x_api_key or x_guardian_key
     ident = extract_auth_identity(candidate_key, authorization, gc_session)
     if ident:
@@ -200,7 +319,15 @@ def require_user(
     - Optionally allows a user identifier to be supplied via the
       `X-Guardian-Identity` header; otherwise falls back to the auth identity.
     """
-    user_id = identity or auth_identity
+    from guardian.core.dependencies import _auth_mode
+    from guardian.core.preview_access import is_private_preview
+
+    if is_private_preview() or _auth_mode() == "remote":
+        # require_auth has already validated the exact account purpose and
+        # preview policy. Caller-supplied identity cannot replace that subject.
+        user_id = auth_identity.removeprefix("session:")
+    else:
+        user_id = identity or auth_identity
     return AuthenticatedUser(id=user_id, kind=auth_identity)
 
 

@@ -46,6 +46,8 @@ class _ActivationDb:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        with engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         User.__table__.create(engine)
         AccountActivationCapability.__table__.create(engine)
         with engine.begin() as connection:
@@ -85,9 +87,10 @@ class _ActivationDb:
 
 
 @pytest.fixture
-def activation_client():
+def activation_client(monkeypatch):
     from guardian.routes import auth
 
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "test-activation-session-secret")
     db = _ActivationDb()
     app = FastAPI()
     app.include_router(auth.api_router)

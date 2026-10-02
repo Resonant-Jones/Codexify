@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 
 from backend.rag.openai_export_conversation_import import (
     ImportDiagnostics,
@@ -39,6 +41,71 @@ _SCOPED_IMPORT_MODULE_NAMES = (
     "guardian.core.chatlog_postgres",
     "guardian.core.pgdb",
 )
+
+
+@pytest.fixture
+def transaction_postgres_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[str, None, None]:
+    """Upgrade a disposable database for the PostgreSQL transaction proof."""
+    base_url = os.getenv("TEST_DATABASE_URL")
+    if not base_url:
+        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql
+    from alembic import command
+    from alembic.config import Config
+
+    database_name = f"codexify_import_tx_{uuid.uuid4().hex[:12]}"
+    parsed_url = make_url(base_url)
+    admin_url = parsed_url.set(database="postgres").render_as_string(
+        hide_password=False
+    )
+    database_url = parsed_url.set(database=database_name).render_as_string(
+        hide_password=False
+    )
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    try:
+        monkeypatch.setenv("DATABASE_URL", database_url)
+        repo_root = Path(__file__).resolve().parents[2]
+        config = Config(str(repo_root / "backend" / "alembic.ini"))
+        config.set_main_option("sqlalchemy.url", database_url)
+        config.set_main_option(
+            "script_location", str(repo_root / "guardian" / "db" / "migrations")
+        )
+        # Options are loaded above. Keep the migration environment from calling
+        # fileConfig and disabling application loggers in the shared test process.
+        config.config_file_name = None
+        command.upgrade(config, "head")
+        engine = sa.create_engine(
+            parsed_url.set(drivername="postgresql+psycopg", database=database_name),
+            future=True,
+        )
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO users (id, username, password_hash, role) "
+                        "VALUES ('local', 'local-import-test', 'test', 'guest') "
+                        "ON CONFLICT (id) DO NOTHING"
+                    )
+                )
+        finally:
+            engine.dispose()
+        yield database_url
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            conn.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                    sql.Identifier(database_name)
+                )
+            )
 
 
 class ImportModules(NamedTuple):
@@ -947,6 +1014,95 @@ def test_order_flags_work_with_embedding_deferral(
     assert diag.conversations_imported == 2
 
 
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [
+        ("file", ["b", "c", "d", "a"]),
+        ("newest", ["b", "c", "a", "d"]),
+        ("updated", ["b", "c", "a", "d"]),
+        ("oldest", ["d", "b", "c", "a"]),
+    ],
+)
+def test_spooled_order_keeps_global_stable_ties_and_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    order: str, expected: list[str],
+) -> None:
+    import backend.rag.openai_export_conversation_import as module
+
+    root = tmp_path / "export"
+    rows = [
+        _build_mapping_conversation([("user", "A", 30)], conversation_id="a"),
+        _build_mapping_conversation([("user", "B", 10)], conversation_id="b"),
+        _build_mapping_conversation([("user", "C", 10)], conversation_id="c"),
+        _build_mapping_conversation([("user", "D", 0)], conversation_id="d"),
+    ]
+    rows[1]["update_time"] = 40
+    rows[2]["update_time"] = 40
+    rows[3].pop("create_time")
+    rows[3].pop("update_time")
+    _write_sharded_conversations(root, rows)
+
+    seen: list[str] = []
+    callbacks: list[tuple[int, int, list[str]]] = []
+
+    def fake_batch(*, conversations, **_kwargs):
+        seen.extend(str(item["id"]) for item in conversations)
+        return {"threads_imported": len(conversations), "messages_imported": len(conversations)}
+
+    monkeypatch.setattr(module, "_import_conversation_batch", fake_batch)
+    monkeypatch.setattr(module, "_confirmed_conversation_counts", lambda conversations, **_kwargs: {
+        str(item["id"]): 1 for item in conversations
+    })
+    diag = import_openai_export_conversations(
+        root, user_id="tester", order=order,
+        diagnostic_dir=tmp_path / "diagnostics", batch_conversations=2,
+        on_batch_committed=lambda batch: callbacks.append((
+            batch["batch_number"], batch["batch_total"], batch["conversation_ids"]
+        )),
+    )
+    assert diag.errors == []
+    assert seen == expected
+    assert callbacks == [(1, 2, expected[:2]), (2, 2, expected[2:])]
+    assert diag.conversations_discovered == 4
+    assert diag.conversations_accepted == 4
+    assert not list((tmp_path / "diagnostics").glob("openai-order-*"))
+
+
+def test_spooled_resume_uses_source_ids_across_batch_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import backend.rag.openai_export_conversation_import as module
+
+    root = tmp_path / "export"
+    _write_conversations_json(root, [
+        _build_mapping_conversation([("user", str(index), float(index))],
+                                    conversation_id=f"source-{index}")
+        for index in range(5)
+    ])
+    calls: list[list[str]] = []
+
+    def fake_batch(*, conversations, **_kwargs):
+        calls.append([str(item["id"]) for item in conversations])
+        return {"threads_imported": len(conversations), "messages_imported": len(conversations)}
+
+    monkeypatch.setattr(module, "_import_conversation_batch", fake_batch)
+    monkeypatch.setattr(module, "_confirmed_conversation_counts", lambda conversations, **_kwargs: {
+        str(item["id"]): 1 for item in conversations
+    })
+    kwargs = dict(user_id="tester", diagnostic_dir=tmp_path / "diagnostics",
+                  checkpoint_path=str(tmp_path / "checkpoint"),
+                  batch_conversations=2, resume=True)
+    first = import_openai_export_conversations(root, **kwargs)
+    assert first.errors == []
+    assert calls == [["source-0", "source-1"], ["source-2", "source-3"], ["source-4"]]
+    calls.clear()
+    replay = import_openai_export_conversations(root, **kwargs)
+    assert replay.errors == []
+    assert calls == []
+    assert replay.conversations_skipped_checkpoint == 5
+    assert replay.conversations_imported == 0
+
+
 def test_idempotent_rerun_with_deferred_embeddings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1161,11 +1317,10 @@ def test_postgres_source_identity_replay_keeps_canonical_ids() -> None:
 
 def test_postgres_conversation_transaction_rolls_back_and_replays(
     monkeypatch: pytest.MonkeyPatch,
+    transaction_postgres_url: str,
 ) -> None:
     """A failure after the second provenance update cannot commit a fragment."""
-    database_url = os.getenv("TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("TEST_DATABASE_URL is required for the PostgreSQL transaction test")
+    database_url = transaction_postgres_url
     psycopg = pytest.importorskip("psycopg")
     from guardian.core.pgdb import PgDB
 

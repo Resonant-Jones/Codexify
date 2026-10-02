@@ -4,10 +4,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.tasks.types import ChatCompletionTask
+from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.workers import chat_worker
 
 
-def test_worker_replaces_blank_output(monkeypatch):
+@pytest.mark.parametrize("has_terminal_evidence", [True, False])
+def test_worker_replaces_blank_output_only_after_successful_terminal(
+    monkeypatch, has_terminal_evidence
+):
     mock_db = MagicMock()
     mock_db.create_message.return_value = 123
     mock_db.write_audit_log = MagicMock()
@@ -43,16 +47,25 @@ def test_worker_replaces_blank_output(monkeypatch):
     monkeypatch.setattr(
         chat_worker, "_build_messages_for_llm", fake_build_messages
     )
+    completion = {"assistant_text": ""}
+    if has_terminal_evidence:
+        completion["terminal_evidence"] = successful_non_stream_terminal(
+            provider="local", model="model", finish_reason="stop"
+        ).as_dict()
     monkeypatch.setattr(
         chat_worker._chat_completion_service,
         "_execute_bounded_tool_turn_completion",
-        lambda *args, **kwargs: {"assistant_text": ""},
+        lambda *args, **kwargs: completion,
     )
 
     task = ChatCompletionTask(
         user_id="local", thread_id=1, provider="local", model="model"
     )
     chat_worker._run_chat_task(task)
+
+    if not has_terminal_evidence:
+        mock_db.create_message.assert_not_called()
+        return
 
     args, _kwargs = mock_db.create_message.call_args
     assert args[0] == 1
