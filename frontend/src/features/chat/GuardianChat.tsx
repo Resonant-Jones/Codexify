@@ -3046,6 +3046,23 @@ export function GuardianChat({
           return;
         }
       } else {
+        const matchesCurrentCompletion =
+          completionState.activeThreadId === tid &&
+          completionState.activeTaskId === eventTaskId;
+        const matchesCurrentInference =
+          inferenceRequest.state.threadId === tid &&
+          inferenceRequest.state.taskId === eventTaskId;
+        if (!matchesCurrentCompletion && !matchesCurrentInference) {
+          return;
+        }
+        // A prior completion tracker cannot terminalize a newer inference.
+        if (
+          isActiveInferencePhase(inferenceRequest.state.phase) &&
+          !matchesCurrentInference
+        ) {
+          return;
+        }
+
         if (eventTurnId) {
           updateCompletionSessionTurnId(eventTaskId, eventTurnId);
         }
