@@ -40,9 +40,9 @@ USERNAME_MAX_LENGTH: Final[int] = 32
 # hyphen; must start and end with a letter or digit.  The normalized value is
 # always stored lowercase, so the stored username *is* the case-insensitive
 # canonical form.  No Unicode normalization is attempted in V1.
-_USERNAME_GRAMMAR: Final[str] = (
-    f"^[a-z0-9][a-z0-9_-]{{{USERNAME_MIN_LENGTH - 2},{USERNAME_MAX_LENGTH - 2}}}[a-z0-9]$"
-)
+_USERNAME_GRAMMAR: Final[
+    str
+] = f"^[a-z0-9][a-z0-9_-]{{{USERNAME_MIN_LENGTH - 2},{USERNAME_MAX_LENGTH - 2}}}[a-z0-9]$"
 USERNAME_PATTERN: Final[re.Pattern[str]] = re.compile(_USERNAME_GRAMMAR)
 
 # Names reserved for system surfaces and future mention aliases.  A human
@@ -89,6 +89,31 @@ class DirectMessageContentType(str, Enum):
     TEXT_PLAIN = "text/plain"
 
 
+class MessageRequestState(str, Enum):
+    """Shared request lifecycle; participant visibility is a separate domain."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    WITHDRAWN = "withdrawn"
+    EXPIRED = "expired"
+
+
+class DirectMessageConsentSource(str, Enum):
+    """Honest provenance for permission to start ordinary direct conversations."""
+
+    HISTORICAL_CONVERSATION = "historical_conversation"
+    ACCEPTED_REQUEST = "accepted_request"
+
+
+MESSAGE_REQUEST_STATES: Final[frozenset[str]] = frozenset(
+    state.value for state in MessageRequestState
+)
+DM_CONSENT_SOURCES: Final[frozenset[str]] = frozenset(
+    source.value for source in DirectMessageConsentSource
+)
+
+
 USERNAME_STATES: Final[frozenset[str]] = frozenset(
     state.value for state in UsernameState
 )
@@ -131,6 +156,14 @@ def validate_dm_content_type(value: str | DirectMessageContentType) -> str:
     return _validate_token(value, DM_CONTENT_TYPES, "direct-message content type")
 
 
+def validate_message_request_state(value: str | MessageRequestState) -> str:
+    return _validate_token(value, MESSAGE_REQUEST_STATES, "message request state")
+
+
+def validate_dm_consent_source(value: str | DirectMessageConsentSource) -> str:
+    return _validate_token(value, DM_CONSENT_SOURCES, "direct-message consent source")
+
+
 def normalize_username(raw: str) -> str:
     """Return the canonical lowercase social username for *raw*.
 
@@ -160,6 +193,12 @@ def normalize_username(raw: str) -> str:
 
 
 __all__ = [
+    "MessageRequestState",
+    "MESSAGE_REQUEST_STATES",
+    "DirectMessageConsentSource",
+    "DM_CONSENT_SOURCES",
+    "validate_message_request_state",
+    "validate_dm_consent_source",
     "DIRECT_MESSAGE_CONTENT_TYPES",
     "DIRECT_MESSAGE_CONVERSATION_KINDS",
     "DM_CONVERSATION_KINDS",

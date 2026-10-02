@@ -218,3 +218,13 @@ meaning.
 - No route/queue contract redesigns or new semantics.
 - No migration of unrelated subsystems (collaboration, federation, tools).
 - No full-repo refactor of existing literals in this task.
+
+## Message-request consent domain (ADR-097)
+
+`guardian.messaging.tokens` owns `MessageRequestState` (`pending`, `accepted`,
+`declined`, `withdrawn`, `expired`) and `DirectMessageConsentSource`
+(`historical_conversation`, `accepted_request`). The ORM constrains persisted
+values to these bounded domains; migrations freeze their vocabulary at the
+revision boundary. Participant-local hidden history is separate from lifecycle
+and never creates an `archived` shared request state. Token registration and
+schema presence alone do not establish route enablement or runtime proof.
