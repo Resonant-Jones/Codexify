@@ -1,4 +1,4 @@
-"""Canonical local TTS adapter contracts."""
+"""Canonical provider-neutral TTS adapter contracts."""
 
 from __future__ import annotations
 
@@ -18,6 +18,13 @@ class TTSBackendStatus(StrEnum):
     UNAVAILABLE = "backend_unavailable"
     RENDER_SUCCEEDED = "render_succeeded"
     RENDER_FAILED = "render_failed"
+    UNKNOWN = "unknown"
+
+
+class TTSBackendCapability(StrEnum):
+    """Declared adapter features; declarations are not synthesis proof."""
+
+    VOICE_SAMPLE_PATH = "voice_sample_path"
 
 
 TTS_OUTPUT_FORMATS = ("wav", "mp3")
@@ -49,6 +56,20 @@ class TTSBackendInfo:
     local_only: bool = True
     output_formats: tuple[str, ...] = ("wav",)
     supports_voice_sample_path: bool = False
+    capabilities: tuple[TTSBackendCapability, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Preserve the existing Qwen declaration without changing its adapter.
+        if self.supports_voice_sample_path:
+            object.__setattr__(
+                self,
+                "capabilities",
+                tuple(
+                    dict.fromkeys(
+                        (*self.capabilities, TTSBackendCapability.VOICE_SAMPLE_PATH)
+                    )
+                ),
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -56,15 +77,26 @@ class TTSBackendInfo:
 
 @dataclass(frozen=True)
 class TTSHealthProbe:
+    """Independent evidence, with None meaning unestablished/not applicable.
+
+    Local installation fields remain compatible with Qwen. Remote adapters
+    leave them unset. No evidence field implies another or release support.
+    """
+
     backend_id: str
     status: TTSBackendStatus
-    installed: bool
-    model_files_available: bool
-    importable: bool
-    healthy: bool
+    installed: bool | None = None
+    model_files_available: bool | None = None
+    importable: bool | None = None
+    healthy: bool | None = None
     failure_reason: str | None = None
     setup_hint: str | None = None
     details: dict[str, Any] = field(default_factory=dict)
+    configured: bool | None = None
+    credential_available: bool | None = None
+    egress_allowed: bool | None = None
+    reachable: bool | None = None
+    synthesis_proven: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
