@@ -390,6 +390,8 @@ describe("Guardian mobile application navigation", () => {
       expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.threads).toEqual(
         expect.arrayContaining([expect.objectContaining({ id: "7", title: "Thread Seven" })])
       );
+      expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.projectId).toBe("2");
+      expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.activeId).toBe("7");
     });
     const desktopState = sidebarPropsSpy.mock.calls.at(-1)?.[0];
     const primaryFrame = screen.getByTestId("guardian-primary-frame");
