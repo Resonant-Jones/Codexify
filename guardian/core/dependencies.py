@@ -561,7 +561,14 @@ def _is_remote_single_user_account_jwt(token: str) -> bool:
     if not raw:
         return False
 
-    for secret in _remote_token_secrets():
+    # The raw Guardian API key is operator material, not an account JWT signer.
+    account_secrets = []
+    for env_name in ("GUARDIAN_SESSION_SECRET", "GUARDIAN_JWT_SECRET"):
+        secret = (os.getenv(env_name) or "").strip()
+        if secret and secret not in account_secrets:
+            account_secrets.append(secret)
+
+    for secret in account_secrets:
         try:
             claims = jwt.decode(
                 raw,
@@ -1053,7 +1060,7 @@ def _verify_task_event_account_session(
     request: Request,
     authorization: Optional[str],
     gc_session: Optional[str],
-) -> str:
+) -> RequestUserScope | None:
     """Preserve task-event's supported remote JWT lane without widening other routes."""
     token = extract_session_token(authorization, gc_session)
     if (
@@ -1062,13 +1069,22 @@ def _verify_task_event_account_session(
         and _auth_mode() == "remote"
         and _is_remote_single_user_account_jwt(token)
     ):
-        return token
-    return verify_account_session(
+        # A remote single-user JWT uses the configured canonical single-user
+        # identity. Force the shared thread reader to compare that owner before
+        # task events reach Redis; the JWT subject does not invent an account map.
+        account_id = get_single_user_id()
+        return RequestUserScope(
+            user_id=account_id,
+            account_id=account_id,
+            multi_user_enabled=True,
+        )
+    verify_account_session(
         request=request,
         x_api_key=None,
         authorization=authorization,
         gc_session=gc_session,
     )
+    return None
 
 
 def require_task_event_read_principal(
@@ -1124,7 +1140,11 @@ def require_task_event_read_principal(
     if remote_boundary:
         # Require the exact account-session class before resolving account
         # identity. Operator sessions and raw API keys cannot become users.
-        _verify_task_event_account_session(request, authorization, gc_session)
+        jwt_principal = _verify_task_event_account_session(
+            request, authorization, gc_session
+        )
+        if jwt_principal is not None:
+            return jwt_principal
     else:
         # Preserve local API-key/session operation, but do not allow a
         # supplemental X-User-Id header to establish the local principal.

@@ -145,6 +145,24 @@ def test_remote_account_purpose_jwt_reads_owner_task_after_durable_authorization
     assert order == ["attempt", "thread", "redis"]
 
 
+def test_remote_account_jwt_cannot_read_a_thread_owned_by_another_account(
+    task_event_client, monkeypatch
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    _configure_remote_single_user(monkeypatch)
+
+    response = client.get(
+        "/api/tasks/backend-task-room/events",
+        headers={"Authorization": f"Bearer {_account_jwt()}", "X-API-Key": ""},
+    )
+
+    assert response.status_code == 403
+    lookup.assert_called_once()
+    db.get_chat_thread.assert_called_once_with(19)
+    redis_read.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "token_factory",
     [
@@ -153,6 +171,7 @@ def test_remote_account_purpose_jwt_reads_owner_task_after_durable_authorization
         lambda: _account_jwt(purpose=None),
         lambda: _account_jwt(exp=int(time.time()) - 60),
         lambda: _account_jwt(secret="untrusted-signing-secret"),
+        lambda: _account_jwt(secret="task-event-operator-key"),
         lambda: "malformed.jwt.token",
     ],
     ids=[
@@ -161,6 +180,7 @@ def test_remote_account_purpose_jwt_reads_owner_task_after_durable_authorization
         "missing-purpose",
         "expired",
         "bad-signature",
+        "operator-key-signature",
         "malformed",
     ],
 )
