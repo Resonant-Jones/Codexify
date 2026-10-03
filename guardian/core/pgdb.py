@@ -39,6 +39,10 @@ from guardian.db.models import (
 from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
+from .chat_postgres_deadline import (
+    accepted_postgres_queries_active,
+    connect_with_query_bounds,
+)
 from .default_project import canonicalize_default_project, resolve_project_id_or_default
 
 _DEFAULT_USER_ID = "local"
@@ -130,7 +134,11 @@ class PgDB(ChatDB):
         """
         self.dsn = self._normalize_dsn(dsn)
         self._sa_url = self._build_sqlalchemy_url(self.dsn)
-        self._sa_engine = create_engine(self._sa_url, future=True)
+        self._sa_engine = create_engine(
+            self._sa_url,
+            future=True,
+            creator=lambda: connect_with_query_bounds(self.dsn),
+        )
         self._SessionLocal = sessionmaker(
             bind=self._sa_engine, autoflush=False, autocommit=False
         )
@@ -172,6 +180,8 @@ class PgDB(ChatDB):
         scoped = self._conversation_connection.get()
         if scoped is not None:
             return _BorrowedConversationConnection(scoped)
+        if accepted_postgres_queries_active():
+            return connect_with_query_bounds(self.dsn, row_factory=dict_row)
         return psycopg.connect(self.dsn, row_factory=dict_row)
 
     @contextmanager
@@ -199,7 +209,12 @@ class PgDB(ChatDB):
             yield session
             session.commit()
         except Exception:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception:
+                # A deadline-closed connection cannot roll back on the wire.
+                # Discard it without replacing the authoritative failure.
+                session.invalidate()
             raise
         finally:
             session.close()

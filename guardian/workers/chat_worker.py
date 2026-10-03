@@ -41,6 +41,10 @@ from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
 )
+from guardian.core.chat_postgres_deadline import (
+    accepted_postgres_query_scope,
+    use_postgres_terminal_budget,
+)
 from guardian.core.completion_terminal import (
     CompletionTerminalError,
     require_successful_terminal,
@@ -2382,6 +2386,7 @@ def _run_chat_completion_task_compat(
     if not persist_assistant_message:
         return result
 
+    use_postgres_terminal_budget()
     if hosted_room_context is not None:
         hosted_room_context = validate_hosted_room_completion_context(
             dependencies.chatlog_db,
@@ -2455,6 +2460,13 @@ def _run_chat_completion_task_compat(
             "final_provider_truth": final_provider_truth,
             "execution": execution,
         }
+        if isinstance(exc, AcceptedChatTaskDeadlineExceeded):
+            # Generation succeeded; preserve the deadline disposition together
+            # with observed execution and exact provider/model resolution.
+            deadline_message = exc.detail["message"]
+            exc.detail.update(persistence_meta)
+            exc.detail["message"] = deadline_message
+            raise
         logger.error(
             "[chat-worker] assistant_message_persist_failed thread_id=%s attempted_provider=%s attempted_model=%s final_provider=%s final_model=%s chars=%s",
             task.thread_id,
@@ -2559,6 +2571,25 @@ run_chat_completion_task = _run_chat_completion_task_compat
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
+    try:
+        deadline = accepted_chat_deadline_for_task(task)
+        invalid = False
+    except ValueError:
+        # Keep the existing worker failure path, but never fall back to an
+        # unbounded database query for a malformed present snapshot.
+        deadline = None
+        invalid = True
+    query_clock = time.monotonic()
+    with accepted_postgres_query_scope(
+        deadline,
+        now=datetime.now(timezone.utc),
+        monotonic_at_wall=query_clock,
+        invalid=invalid,
+    ):
+        _run_chat_task_with_query_budget(task)
+
+
+def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
     if not str(getattr(task, "user_id", "") or "").strip():
         raise ValueError("ChatCompletionTask missing user_id")
     run_id = uuid.uuid4().hex
@@ -2642,6 +2673,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id=turn_id,
         )
         if existing_message_id is not None:
+            use_postgres_terminal_budget()
             attempt_linked = _record_chat_completion_attempt_link(
                 task, existing_message_id
             )
@@ -2682,6 +2714,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             return
 
         if is_cancelled(task.task_id):
+            use_postgres_terminal_budget()
             _record_chat_completion_attempt_terminal(
                 task, TaskEventType.TASK_CANCELLED.value
             )
@@ -2714,6 +2747,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 turn_id=turn_id,
             )
             if existing_message_id is not None:
+                use_postgres_terminal_budget()
                 attempt_linked = _record_chat_completion_attempt_link(
                     task, existing_message_id
                 )
@@ -2813,6 +2847,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             state_callback=_state_callback,
         )
         completion_result = result
+        use_postgres_terminal_budget()
         terminal_evidence = require_successful_terminal(result)
         if result.get("persistence_outcome") != "persisted":
             raise RuntimeError("assistant_persistence_not_confirmed")
@@ -3096,6 +3131,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
     except ChatTaskCancelled as exc:
+        use_postgres_terminal_budget()
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_CANCELLED.value
         )
@@ -3139,6 +3175,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id,
         )
     except Exception as exc:
+        use_postgres_terminal_budget()
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_FAILED.value
         )
