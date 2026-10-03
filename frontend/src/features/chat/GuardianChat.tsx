@@ -970,6 +970,7 @@ export function GuardianChat({
   onSessionModelChange,
   onSessionInferenceModeChange,
   onSessionDraftChange,
+  assistantMessageRefresh,
   compactMobileHeader = false,
   compactMobile = false,
 }: {
@@ -1021,6 +1022,7 @@ export function GuardianChat({
   onSessionModelChange?: (modelId: string) => void;
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
+  assistantMessageRefresh?: { threadId: number; sequence: number } | null;
   compactMobileHeader?: boolean;
   compactMobile?: boolean;
 }) {
@@ -3170,6 +3172,13 @@ export function GuardianChat({
     subscribe,
     updateCompletionSessionTurnId,
   ]);
+  useEffect(() => {
+    const threadId = assistantMessageRefresh?.threadId;
+    if (threadId == null || Number(activeThread?.id) !== threadId) return;
+    void refreshSnapshot(threadId, "assistant-message-created").catch(
+      () => undefined
+    );
+  }, [activeThread?.id, assistantMessageRefresh, refreshSnapshot]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;

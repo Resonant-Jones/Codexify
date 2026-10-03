@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,11 @@ import GuardianChatWithSidebar, {
   __resetThreadRefreshGuardForTests,
 } from "../GuardianChatWithSidebar";
 
+type MockLiveEvent = {
+  type: string;
+  data: Record<string, unknown>;
+};
+
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -21,15 +26,21 @@ const apiSpies = vi.hoisted(() => ({
 const sessionState = vi.hoisted(() => ({
   activeThreadId: null as string | null,
 }));
+const liveEvents = vi.hoisted(() => ({
+  subscriptions: new Map<string, Array<(event: MockLiveEvent) => void>>(),
+}));
 
 vi.mock("@/features/chat/GuardianChat", () => ({
   default: (props: {
     activeThread?: { id?: string } | null;
+    assistantMessageRefresh?: { threadId: number; sequence: number } | null;
     providerRuntimeState?: string | null;
   }) => (
     <div
       data-testid="guardian-chat-mock"
       data-provider-runtime-state={props.providerRuntimeState ?? "unknown"}
+      data-assistant-refresh-thread-id={props.assistantMessageRefresh?.threadId}
+      data-assistant-refresh-sequence={props.assistantMessageRefresh?.sequence}
     >
       {props.activeThread?.id === "7" ? (
         <article aria-label="Completed assistant response">
@@ -49,7 +60,21 @@ vi.mock("@/components/sidebar/useProjectsCache", () => ({
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({ subscribe: () => () => {} }),
+  useLiveEvents: () => ({
+    subscribe: (eventType: string, callback: (event: MockLiveEvent) => void) => {
+      const callbacks = liveEvents.subscriptions.get(eventType) ?? [];
+      callbacks.push(callback);
+      liveEvents.subscriptions.set(eventType, callbacks);
+      return () => {
+        liveEvents.subscriptions.set(
+          eventType,
+          (liveEvents.subscriptions.get(eventType) ?? []).filter(
+            (candidate) => candidate !== callback
+          )
+        );
+      };
+    },
+  }),
 }));
 
 vi.mock("@/hooks/useWallpaperUrl", () => ({
@@ -203,6 +228,7 @@ describe("GuardianChatWithSidebar terminal projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetThreadRefreshGuardForTests();
+    liveEvents.subscriptions.clear();
     sessionState.activeThreadId = null;
     window.history.replaceState({}, "", "/chat");
     window.localStorage.clear();
@@ -248,6 +274,35 @@ describe("GuardianChatWithSidebar terminal projection", () => {
       "Durable assistant output"
     );
     expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.READY);
+  });
+
+  it("forwards a persisted assistant event to the matching active chat snapshot", async () => {
+    sessionState.activeThreadId = "7";
+    window.history.replaceState({}, "", "/chat/7");
+
+    renderShell(PROVIDER_RUNTIME_STATES.READY);
+    await screen.findByLabelText("Completed assistant response");
+
+    const callbacks = liveEvents.subscriptions.get("message.created") ?? [];
+    expect(callbacks.length).toBeGreaterThan(0);
+
+    act(() => {
+      for (const callback of callbacks) {
+        callback({
+          type: "message.created",
+          data: { thread_id: 7, role: "assistant", content: "Persisted reply" },
+        });
+      }
+    });
+
+    expect(screen.getByTestId("guardian-chat-mock")).toHaveAttribute(
+      "data-assistant-refresh-thread-id",
+      "7"
+    );
+    expect(screen.getByTestId("guardian-chat-mock")).toHaveAttribute(
+      "data-assistant-refresh-sequence",
+      "1"
+    );
   });
 
   it("stays non-queued when an idle completed thread is remounted", async () => {

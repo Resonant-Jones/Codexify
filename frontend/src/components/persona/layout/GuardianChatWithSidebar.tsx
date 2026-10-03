@@ -452,6 +452,10 @@ export default function GuardianChatWithSidebar({
   const projectListRef = React.useRef(projectCache.projectList);
   projectListRef.current = projectCache.projectList;
   const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [assistantMessageRefresh, setAssistantMessageRefresh] = React.useState<{
+    threadId: number;
+    sequence: number;
+  } | null>(null);
   const lastSidebarSnapshotSignatureRef = React.useRef<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [threadsHasMore, setThreadsHasMore] = React.useState(true);
@@ -1701,6 +1705,15 @@ export default function GuardianChatWithSidebar({
     const offMessage = subscribe("message.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] message.created", payload);
+      if (String(payload?.role ?? "").trim().toLowerCase() === "assistant") {
+        const assistantThreadId = Number(payload?.thread_id ?? payload?.threadId);
+        if (Number.isFinite(assistantThreadId)) {
+          setAssistantMessageRefresh((previous) => ({
+            threadId: assistantThreadId,
+            sequence: (previous?.sequence ?? 0) + 1,
+          }));
+        }
+      }
       const rawId = payload?.thread_id ?? payload?.threadId ?? payload?.id;
       if (rawId == null) {
         return;
@@ -2274,6 +2287,7 @@ export default function GuardianChatWithSidebar({
                   providerRuntimeState={providerRuntimeState}
                   runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
+                  assistantMessageRefresh={assistantMessageRefresh}
                   workspaceProjectId={selectedProjectId}
                   workspaceProjectName={selectedProjectName}
                   projectOptions={projectCache.projectList}
