@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-02 (Private Preview messaging consent slice; other qualification limits retained)
+2026-10-03
 
 ## Interpretation rule
 
@@ -18,60 +18,56 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated private-preview lane. Mainline now has bounded account-import evidence through staging, canonical materialization, owner-visible readback, and automatic embedding/vector parity in isolated runtimes. The latest natural import-to-recall attempt stopped before recall after proof-environment interruption; the latest complete supported-Compose qualification remains `HOLD`. No 2026-09-24 implementation or qualification changed that posture.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, mainline merged chat lifecycle/deadline repairs, qualification and operator-inspection scaffolding, bounded Campaign Engine and Codex App Server delivery work, and consent-gated human messaging. The latest complete supported-Compose qualification remains `HOLD`: current-tip proof covered ordinary chat and bounded failure/cancellation cases but found a new-thread browser transcript projection gap and stopped before restart or shutdown qualification.
 
 ## What changed recently
 
-- Merged account-import browser staging, queue/worker materialization, ownership/provenance readback, and focused regression coverage.
-- Added bounded live evidence for imported-message embedding handoff and backend/worker vector parity; no provider completion was established.
-- Natural import-to-recall R3 was blocked at folder upload; R4 reached materialization and vector parity but was interrupted before recall.
-- Fixed the newest-message history window and canonicalized inline chat-document context; the continuity probe keeps reported runtime symptoms unlocalized.
-- Merged Guardian/Persona surface and canonical UI-geometry repairs with focused frontend tests; no release claim widened.
-- The 2026-09-24 mainline accounting log records no same-day implementation or qualification work.
-- On `feature/ums-continued`, UMS-05A through UMS-05C6 are closed: the branch adds the internal Memory Vault read surface and qualified pin, hold, Project-scope, Persona-attribution, and direct-creation mutations. UMS-05C7 is authorized; UMS-05C8+, UMS-05D+, and UMS-06+ remain unauthorized. These results are branch-local and do not change current-`main`, Preview, Beta, or release qualification.
+- Merged chat stream ownership, queued cancellation, deadline enforcement, fast-mode handoff, and frontend failure-state repairs with focused coverage.
+- Recorded current-tip supported-Compose evidence: ordinary API chat, unavailable explicit-model rejection without assistant fallback, durable readback, and in-flight cancellation passed; browser new-thread transcript coherence failed until reload.
+- Merged Private Preview message-request storage, consent, discovery, Inbox, route gating, and an isolated two-browser/durable-readback proof; default Beta remains excluded.
+- Merged the qualification registry and onboarding/Tips surfaces, plus the internal Configuration Inspector; these are status or operator capabilities, not release-support expansion.
+- Merged native execution-channel/Codex App Server delivery and bounded source-thread return proof; generalized channel support and public Beta support remain unproven.
+- The audit base was clean at `c5c14da8d` and aligned with `origin/main`; this audit commit is local, and only committed mainline evidence counts.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose with `v1-local-core-web-mcp`, `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The Beta Supported contract covers local inference, ordinary chat, durable threads/messages/tasks, document upload/embed/readback, workspace retrieval, identity/ownership, migrations, and operator diagnostics; qualification is a separate gate.
-- Mainline contains bounded proof for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, and the declared static suites at evaluated tips.
-- `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical display metadata remains inventory observation.
-- Account import is bounded, not fully supported: isolated proof covers browser-to-materialization and presentation/readback, with later embedding/vector observations.
-- Private Preview is opt-in: Whoosh'd remains default and DeepSeek is the only admitted cloud lane. ADR-097 enables same-node human direct messaging on `v1-whooshd-deepseek-web`, with explicit message-request consent; account activation retains its existing account gate. Messaging is enabled Preview functionality and remains unavailable in default/public Beta. Evidence and remaining runtime qualification are recorded in [the messaging proof ledger](./private-preview-message-request-proof.md).
+- Mainline has bounded proof for topology, migrations, health, durable readback, retrieval provenance, queue/worker lifecycle, locks, and declared static suites at their evaluated tips.
+- The current-tip chat proof observed local provider/runtime identity, exact ordinary API completion, fail-closed unavailable-model behavior, cancellation, and no assistant persistence on failure/cancel paths.
+- Private Preview messaging is enabled only on its admitted profile with explicit request consent; the isolated proof does not qualify the user's live Preview, provider execution, federation, or public Beta.
 
 ## Not yet true / do not assume
 
-- Do not call the supported path release-ready: the latest complete qualification is `HOLD`.
-- Do not infer a complete account-import recall path, provider injection, persisted answer, or negative scope control from the partial R4 proof.
-- Do not treat focused tests, isolated import proofs, UI geometry repairs, direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, or Pi work as public Beta support without current-main qualification.
-- Do not infer restart/post-restart proof from the pre-repair supported-Compose qualification.
-- Do not treat local `main` being 14 commits ahead of `origin/main`, or the staged unrelated dev-log deletion, as release or runtime evidence.
+- Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
+- Do not infer browser transcript coherence, restart recovery, graceful drain, or full retry/event persistence from the bounded current-tip proof.
+- Do not infer complete account-import recall, provider context, answer persistence, or negative scope control from partial import evidence.
+- Do not treat focused tests, isolated proofs, Campaign Engine, Codex App Server, Configuration Inspector, onboarding, sidebar, messaging, activation, connectors, Watchdog, retention, hosted sandbox, Atlas, or Pi work as public Beta support without current-main qualification.
+- Do not treat architecture contracts, qualification scaffolding, or branch-local/runtime-intent evidence as shipped behavior beyond the committed mainline scope.
 
 ## Active blockers
 
-- Run the complete supported-Compose qualification against repaired current `main`, including exact-model rejection, restart recovery, browser/event/provenance coherence, and ordinary chat after restart.
-- Resolve the neighboring explicit-model worker-test contradiction and retain fail-closed behavior with no silent substitution.
-- Complete a fresh isolated natural import-to-recall run through provider context, answer persistence, and a negative scope control.
-- Requalify private-preview activation, Chroma/application, provider/persistence/isolation, and approved non-admin canary paths.
-- Reconcile a clean intended publication baseline; no push or remote publication is implied by this audit.
-- ADR-087 graceful shutdown/finite drain, Tester bind-readiness, browser/import, connector, Watchdog, retention, hosted-sandbox, and other bounded gates remain open where not directly covered above.
+- Reproduce and repair the current-tip new-thread authored-message projection gap, then rerun browser, event, persistence, and ordinary-chat proof.
+- Run a complete supported-Compose qualification on the frozen current `main`, including health/inventory, exact-model rejection, restart recovery, retry/cancellation, terminal provenance, and graceful shutdown.
+- Complete an uninterrupted natural account-import run through retrieval, provider context, answer persistence, and a negative scope control.
+- Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, non-admin canary, and the merged messaging path on the intended deployed tip.
+- Close remaining bounded gates for Tester bind-readiness, connectors, Watchdog, retention, hosted sandbox, and other claimed non-default paths before promoting them.
 
 ## This week's priorities
 
-1. Freeze repaired current `main` and run the full supported-Compose proof bundle.
-2. Close the explicit-model test contradiction and verify rejection before provider execution.
-3. Prove uninterrupted account import through retrieval, provider input, answer persistence, and scope isolation.
-4. Requalify the gated private-preview and remaining release-boundary paths on the same intended tip.
-5. Reconcile publication baseline and update release claims only from resulting evidence.
+1. Repair the browser projection seam and rerun the current-tip Compose proof bundle.
+2. Freeze the evaluated `main` tip and close exact-model, retry, restart, and shutdown evidence.
+3. Prove account import through recall, provider input, answer persistence, and scope isolation.
+4. Requalify the intended Private Preview deployment, including consent-gated messaging and its provider/persistence boundaries.
+5. Update qualification status and release claims only from those results.
 
 ## Release definition right now
 
 - [x] Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.
-- [x] Mainline has bounded repair and qualification evidence for terminal projection, retrieval provenance, static lifecycle reliability, and partial account import.
-- [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval provenance, browser terminal state, event delivery, and restart recovery.
-- [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
-- [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, account-import recall, and claimed-path gates are green on the same evaluated tip.
-- [ ] Preview lanes and the intended publication baseline have current evidence where claimed.
+- [x] Mainline has bounded evidence for chat terminal ownership, retrieval provenance, queue/deadline/cancellation boundaries, and partial account import.
+- [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval provenance, browser transcript, event delivery, restart recovery, and graceful shutdown.
+- [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted on the evaluated tip.
+- [ ] Queue/worker, lock, migration, account-import recall, and every claimed Preview or non-default path are green under their own current evidence.
 
 ## How to read the rest of the KB
 
