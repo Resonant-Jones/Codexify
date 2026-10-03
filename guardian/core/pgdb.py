@@ -1579,6 +1579,88 @@ class PgDB(ChatDB):
             raise RuntimeError("Failed to insert chat message")
         return message_id
 
+    def create_assistant_message_for_completion_attempt(
+        self,
+        *,
+        thread_id: int,
+        content: str,
+        request_id: str,
+        backend_task_id: str,
+        turn_id: str,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
+    ) -> tuple[int, bool]:
+        """Persist a successful assistant and bind it to its attempt atomically."""
+        with self.conversation_transaction():
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT request_id, thread_id, turn_id, completed_message_id
+                        FROM chat_completion_attempts
+                        WHERE backend_task_id = %s
+                        FOR UPDATE
+                        """,
+                        (backend_task_id,),
+                    )
+                    attempt = cur.fetchone()
+
+            if attempt is not None:
+                if (
+                    attempt["request_id"] != request_id
+                    or attempt["thread_id"] != thread_id
+                    or attempt["turn_id"] != turn_id
+                ):
+                    raise ValueError(
+                        "Completion task identity does not match its durable attempt"
+                    )
+                if attempt["completed_message_id"] is not None:
+                    existing_message_id = int(attempt["completed_message_id"])
+                    with self._connect() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                SELECT id FROM chat_messages
+                                WHERE id = %s AND thread_id = %s AND role = 'assistant'
+                                """,
+                                (existing_message_id, thread_id),
+                            )
+                            if cur.fetchone() is None:
+                                raise ValueError(
+                                    "Completion attempt points to no assistant in its thread"
+                                )
+                    return existing_message_id, True
+
+            message_id = self.create_message(
+                thread_id,
+                "assistant",
+                content,
+                hosted_room_participant_id=hosted_room_participant_id,
+                sender_display_name_snapshot=sender_display_name_snapshot,
+            )
+            if attempt is None:
+                return message_id, False
+
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_completion_attempts
+                        SET completed_message_id = %s
+                        WHERE request_id = %s
+                          AND backend_task_id = %s
+                          AND thread_id = %s
+                          AND turn_id = %s
+                          AND completed_message_id IS NULL
+                        """,
+                        (message_id, request_id, backend_task_id, thread_id, turn_id),
+                    )
+                    if cur.rowcount != 1:
+                        raise RuntimeError(
+                            "Completion attempt changed before assistant binding"
+                        )
+            return message_id, True
+
     def record_thread_move(
         self,
         thread_id: int,

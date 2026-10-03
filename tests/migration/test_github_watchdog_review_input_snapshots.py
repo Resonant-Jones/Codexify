@@ -42,7 +42,7 @@ def test_review_input_snapshot_migration_is_the_single_new_head() -> None:
     script = ScriptDirectory.from_config(
         Config(str(REPO_ROOT / "backend" / "alembic.ini"))
     )
-    assert script.get_heads() == ["9e52b1d3c8fa"]
+    assert script.get_heads() == ["b7e6d42c91af"]
 
 
 def test_review_input_snapshot_schema_is_attempt_bound_and_bounded() -> None:

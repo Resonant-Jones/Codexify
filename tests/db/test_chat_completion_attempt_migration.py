@@ -119,3 +119,123 @@ def test_upgrade_preserves_chat_data_and_adds_authority(disposable_database):
     assert get_chat_completion_attempt_by_task_id(repo, "task-a")["accepted_at"] is not None
     assert get_chat_completion_attempt_by_task_id(repo, "task-b")["accepted_at"] is None
     engine.dispose()
+
+
+@pytest.mark.integration
+def test_assistant_and_attempt_success_link_commit_atomically(disposable_database):
+    psycopg = pytest.importorskip("psycopg")
+    config, test_url = disposable_database
+    command.upgrade(config, "head")
+    engine = sa.create_engine(test_url)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES ('atomic-account', 'atomic-account', 'inert-test-hash', 'guest')"
+            )
+        )
+        thread_id = connection.execute(
+            sa.text(
+                "INSERT INTO chat_threads (user_id, title) "
+                "VALUES ('atomic-account', 'Atomic completion') RETURNING id"
+            )
+        ).scalar_one()
+
+    repo = PgDB(test_url.render_as_string(hide_password=False))
+    create_chat_completion_attempt(
+        repo,
+        request_id="atomic-request",
+        backend_task_id="atomic-task",
+        thread_id=thread_id,
+        turn_id="atomic-turn",
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """CREATE FUNCTION reject_completion_link() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN
+                    IF NEW.completed_message_id IS NOT NULL THEN
+                        RAISE EXCEPTION 'injected link failure';
+                    END IF;
+                    RETURN NEW;
+                END; $$"""
+            )
+        )
+        connection.execute(
+            sa.text(
+                "CREATE TRIGGER reject_completion_link BEFORE UPDATE "
+                "ON chat_completion_attempts FOR EACH ROW "
+                "EXECUTE FUNCTION reject_completion_link()"
+            )
+        )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="injected link failure"):
+        repo.create_assistant_message_for_completion_attempt(
+            thread_id=thread_id,
+            content="must roll back",
+            request_id="atomic-request",
+            backend_task_id="atomic-task",
+            turn_id="atomic-turn",
+        )
+
+    with engine.begin() as connection:
+        connection.execute(sa.text("DROP TRIGGER reject_completion_link ON chat_completion_attempts"))
+        connection.execute(sa.text("DROP FUNCTION reject_completion_link()"))
+    with engine.connect() as connection:
+        assert connection.execute(
+            sa.text(
+                "SELECT count(*) FROM chat_messages "
+                "WHERE thread_id = :thread_id AND content = 'must roll back'"
+            ),
+            {"thread_id": thread_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            sa.text(
+                "SELECT completed_message_id FROM chat_completion_attempts "
+                "WHERE backend_task_id = 'atomic-task'"
+            )
+        ).scalar_one() is None
+
+    message_id, linked = repo.create_assistant_message_for_completion_attempt(
+        thread_id=thread_id,
+        content="committed together",
+        request_id="atomic-request",
+        backend_task_id="atomic-task",
+        turn_id="atomic-turn",
+    )
+    assert linked is True
+    repeated_message_id, repeated_linked = (
+        repo.create_assistant_message_for_completion_attempt(
+            thread_id=thread_id,
+            content="must not create another assistant",
+            request_id="atomic-request",
+            backend_task_id="atomic-task",
+            turn_id="atomic-turn",
+        )
+    )
+    assert repeated_linked is True
+    assert repeated_message_id == message_id
+    with engine.connect() as connection:
+        message = connection.execute(
+            sa.text(
+                "SELECT thread_id, role, content FROM chat_messages WHERE id = :message_id"
+            ),
+            {"message_id": message_id},
+        ).one()
+        linked_message_id = connection.execute(
+            sa.text(
+                "SELECT completed_message_id FROM chat_completion_attempts "
+                "WHERE backend_task_id = 'atomic-task'"
+            )
+        ).scalar_one()
+    assert tuple(message) == (thread_id, "assistant", "committed together")
+    assert linked_message_id == message_id
+    with engine.connect() as connection:
+        assert connection.execute(
+            sa.text(
+                "SELECT count(*) FROM chat_messages "
+                "WHERE thread_id = :thread_id AND role = 'assistant'"
+            ),
+            {"thread_id": thread_id},
+        ).scalar_one() == 1
+    engine.dispose()

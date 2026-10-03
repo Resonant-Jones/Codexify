@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
+from typing import Annotated, Any, AsyncGenerator, Dict, List, Literal, Optional
 from urllib.parse import quote, unquote
 
 from fastapi import (
@@ -58,6 +58,7 @@ from guardian.conversation_origin import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
+from guardian.core.db import list_chat_completion_attempts_for_thread
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )
@@ -2410,13 +2411,14 @@ def chat_list_tasks(
     thread_id: int,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Return task lifecycle receipts for a thread.
 
-    Returns a list of task receipts derived from persisted task
-    identity tracking and task-event terminal-state evidence.
-    Missing or non-terminal tasks are reported honestly without
-    fabricating completion.
+    Durable attempt rows establish task identity. Redis task events remain
+    observation evidence; a persisted assistant link establishes completion
+    when terminal events are no longer available.
     """
     thread = chatlog_db.get_chat_thread(thread_id)
     if not thread:
@@ -2427,15 +2429,28 @@ def chat_list_tasks(
         thread=thread,
     )
 
-    metadata = _fetch_thread_metadata(thread_id)
-    task_id = _thread_latest_task_id(thread_id, metadata)
-
+    attempts = list_chat_completion_attempts_for_thread(
+        chatlog_db, thread_id, limit=limit + 1, offset=offset
+    )
     receipts: list[dict[str, Any]] = []
-    if task_id:
-        state = task_events.describe_terminal_state(task_id)
+    for attempt in attempts[:limit]:
+        task_id = attempt["backend_task_id"]
+        if attempt.get("completed_message_id") is not None:
+            state = {
+                "state": "terminal",
+                "event_type": "task.completed",
+                "reason": "durable_completion_recorded",
+            }
+        else:
+            state = task_events.describe_terminal_state(task_id)
         receipts.append(
             {
                 "task_id": task_id,
+                **{
+                    key: value
+                    for key, value in attempt.items()
+                    if key != "backend_task_id"
+                },
                 "state": state.get("state"),
                 "event_type": state.get("event_type"),
                 "reason": state.get("reason"),
@@ -2447,6 +2462,10 @@ def chat_list_tasks(
         "thread_id": thread_id,
         "tasks": receipts,
         "count": len(receipts),
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + len(receipts),
+        "has_more": len(attempts) > limit,
     }
 
 

@@ -1344,6 +1344,9 @@ class ChatCompletionAttempt(Base):
         index=True,
     )
     turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    completed_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )

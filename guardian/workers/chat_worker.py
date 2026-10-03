@@ -51,7 +51,7 @@ from guardian.core.config import (
     get_settings,
     validate_llm_config,
 )
-from guardian.core.db import GuardianDB
+from guardian.core.db import GuardianDB, record_chat_completion_attempt_success
 from guardian.core.hosted_room_completion_context import (
     ValidatedHostedRoomCompletionContext,
     validate_hosted_room_completion_context,
@@ -469,6 +469,36 @@ def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | N
         thread_id=thread_id,
         turn_id=turn_id,
     )
+
+
+def _record_chat_completion_attempt_link(
+    task: ChatCompletionTask, assistant_message_id: int
+) -> bool:
+    try:
+        recorded = record_chat_completion_attempt_success(
+            dependencies.chatlog_db,
+            request_id=task.request_id,
+            backend_task_id=task.task_id,
+            thread_id=task.thread_id,
+            turn_id=_extract_turn_id(task),
+            assistant_message_id=assistant_message_id,
+        )
+        if not recorded:
+            logger.warning(
+                "[chat-worker] durable_completion_link_unavailable thread_id=%s task_id=%s request_id=%s",
+                task.thread_id,
+                task.task_id,
+                task.request_id,
+            )
+        return recorded
+    except Exception:
+        logger.exception(
+            "[chat-worker] durable_completion_link_failed thread_id=%s task_id=%s request_id=%s",
+            task.thread_id,
+            task.task_id,
+            task.request_id,
+        )
+        return False
 
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
@@ -2172,7 +2202,35 @@ def _run_chat_completion_task_compat(
         )
 
     try:
-        if hosted_room_context is None:
+        atomic_persist = getattr(
+            type(dependencies.chatlog_db),
+            "create_assistant_message_for_completion_attempt",
+            None,
+        )
+        if callable(atomic_persist):
+            atomic_persist = getattr(
+                dependencies.chatlog_db,
+                "create_assistant_message_for_completion_attempt",
+            )
+            message_id, completion_attempt_linked = atomic_persist(
+                thread_id=task.thread_id,
+                content=assistant_text,
+                request_id=task.request_id,
+                backend_task_id=task.task_id,
+                turn_id=_extract_turn_id(task),
+                hosted_room_participant_id=(
+                    hosted_room_context.actor_participant_id
+                    if hosted_room_context is not None
+                    else None
+                ),
+                sender_display_name_snapshot=(
+                    hosted_room_context.sender_display_name_snapshot
+                    if hosted_room_context is not None
+                    else None
+                ),
+            )
+            result["_durable_completion_linked"] = completion_attempt_linked
+        elif hosted_room_context is None:
             message_id = dependencies.chatlog_db.create_message(
                 task.thread_id,
                 "assistant",
@@ -2190,6 +2248,7 @@ def _run_chat_completion_task_compat(
                     hosted_room_context.sender_display_name_snapshot
                 ),
             )
+            result["_durable_completion_linked"] = False
     except Exception as exc:
         persistence_meta = {
             "error": "assistant_message_persist_failed",
@@ -2395,6 +2454,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id=turn_id,
         )
         if existing_message_id is not None:
+            _record_chat_completion_attempt_link(task, existing_message_id)
             duration_ms = int((time.monotonic() - started) * 1000)
             terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             logger.warning(
@@ -2453,6 +2513,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 turn_id=turn_id,
             )
             if existing_message_id is not None:
+                _record_chat_completion_attempt_link(task, existing_message_id)
                 duration_ms = int((time.monotonic() - started) * 1000)
                 terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
                 logger.warning(
@@ -2600,6 +2661,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 task.task_id,
             )
             raise RuntimeError("assistant_message_missing")
+
+        durable_completion_linked = result.pop("_durable_completion_linked", False)
+        if durable_completion_linked is not True:
+            _record_chat_completion_attempt_link(task, message_id)
 
         cached_anchor = _cache_turn_completion_anchor(
             thread_id=task.thread_id,

@@ -1,159 +1,147 @@
-"""
-Proof-level tests for the thread task receipts route.
+"""Thread receipts discover durable identity after reload, without replay."""
 
-Verifies:
-- GET /api/chat/{thread_id}/tasks returns expected shape
-- Returns empty task list for threads with no tracked tasks
-- Returns task receipt when a task has been tracked and has terminal evidence
-"""
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock, patch
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from guardian.routes import chat
 
 
-@pytest.fixture(autouse=True)
-def _hermetic_redis():
-    """Ensure in-memory Redis is active for deterministic tests."""
-    from guardian.queue import redis_queue
-
-    redis_queue._CLIENT = redis_queue._InMemoryRedis()
-    redis_queue._QUEUE_CLIENT = redis_queue._CLIENT
-
-
-def _mock_thread_scope():
-    """Return a mock RequestUserScope that passes all scope checks."""
-    scope = MagicMock()
-    scope.user_id = 1
-    scope.account_id = 1
-    scope.scope = "single_user"
-    return scope
+def _attempt(task="task-a", request="request-a", completed_message_id=None):
+    return {
+        "request_id": request,
+        "backend_task_id": task,
+        "thread_id": 11,
+        "turn_id": "turn-a",
+        "completed_message_id": completed_message_id,
+        "created_at": "2026-10-02T00:00:00Z",
+        "accepted_at": "2026-10-02T00:00:01Z",
+    }
 
 
-class TestThreadTasksRoute:
-    """Proof that chat_list_tasks returns expected shape."""
-
-    @patch("guardian.routes.chat.chatlog_db")
-    def test_no_tasks_for_untracked_thread(self, mock_db):
-        from guardian.routes.chat import chat_list_tasks
-        import guardian.routes.chat as crc
-
-        mock_db.get_chat_thread.return_value = {"id": 99999, "title": "Test"}
-
-        _orig_require = crc._require_thread_account_scope
-        crc._require_thread_account_scope = lambda *a, **kw: None
-
-        try:
-            result = chat_list_tasks(
-                thread_id=99999,
-                api_key="test-api-key",
-                request_user_scope=_mock_thread_scope(),
-            )
-        finally:
-            crc._require_thread_account_scope = _orig_require
-
-        assert result["ok"] is True
-        assert result["thread_id"] == 99999
-        assert result["tasks"] == []
-        assert result["count"] == 0
-
-    @patch("guardian.routes.chat.chatlog_db")
-    def test_returns_task_receipt_when_tracked(self, mock_db):
-        from guardian.routes.chat import (
-            _thread_latest_task,
-            chat_list_tasks,
-        )
-        from guardian.queue import redis_queue
-        import guardian.routes.chat as crc
-
-        mock_db.get_chat_thread.return_value = {"id": 1, "title": "Test"}
-
-        # Write terminal event into the mock Redis stream
-        client = redis_queue.get_queue_redis_client()
-        stream_key = "codexify:task:task-test-1:events"
-        client.xadd(stream_key, {
-            "type": "task.created",
-            "task_id": "task-test-1",
-            "data": "{}",
-            "created_at": "2024-01-01T00:00:00Z",
-        })
-        client.xadd(stream_key, {
-            "type": "task.completed",
-            "task_id": "task-test-1",
-            "data": '{"ok":true}',
-            "created_at": "2024-01-01T00:00:01Z",
-        })
-
-        _thread_latest_task[1] = "task-test-1"
-
-        _orig_require = crc._require_thread_account_scope
-        crc._require_thread_account_scope = lambda *a, **kw: None
-
-        try:
-            result = chat_list_tasks(
-                thread_id=1,
-                api_key="test-api-key",
-                request_user_scope=_mock_thread_scope(),
-            )
-        finally:
-            crc._require_thread_account_scope = _orig_require
-            _thread_latest_task.pop(1, None)
-
-        assert result["ok"] is True
-        assert result["count"] == 1
-        assert result["tasks"][0]["task_id"] == "task-test-1"
-        assert result["tasks"][0]["state"] == "terminal"
-        assert result["tasks"][0]["event_type"] == "task.completed"
-
-    @patch("guardian.routes.chat.chatlog_db")
-    def test_reports_nonterminal_task_honestly(self, mock_db):
-        from guardian.routes.chat import (
-            _thread_latest_task,
-            chat_list_tasks,
-        )
-        from guardian.queue import redis_queue
-        import guardian.routes.chat as crc
-
-        mock_db.get_chat_thread.return_value = {"id": 2, "title": "Test"}
-
-        client = redis_queue.get_queue_redis_client()
-        stream_key = "codexify:task:task-progress-1:events"
-        client.xadd(stream_key, {
-            "type": "task.created",
-            "task_id": "task-progress-1",
-            "data": "{}",
-            "created_at": "2024-01-01T00:00:00Z",
-        })
-
-        _thread_latest_task[2] = "task-progress-1"
-
-        _orig_require = crc._require_thread_account_scope
-        crc._require_thread_account_scope = lambda *a, **kw: None
-
-        try:
-            result = chat_list_tasks(
-                thread_id=2,
-                api_key="test-api-key",
-                request_user_scope=_mock_thread_scope(),
-            )
-        finally:
-            crc._require_thread_account_scope = _orig_require
-            _thread_latest_task.pop(2, None)
-
-        assert result["ok"] is True
-        assert result["count"] == 1
-        assert result["tasks"][0]["task_id"] == "task-progress-1"
-        assert result["tasks"][0]["state"] == "nonterminal"
-        assert result["tasks"][0]["event_type"] is None
+@pytest.fixture
+def receipt_route(monkeypatch):
+    db = MagicMock()
+    db.get_chat_thread.return_value = {"id": 11, "user_id": "account-a", "metadata": {}}
+    monkeypatch.setattr(chat, "chatlog_db", db)
+    attempts = MagicMock(return_value=[])
+    monkeypatch.setattr(chat, "list_chat_completion_attempts_for_thread", attempts)
+    evidence = MagicMock(
+        return_value={
+            "state": "unknown",
+            "event_type": None,
+            "reason": "task_events_missing",
+        }
+    )
+    monkeypatch.setattr(chat.task_events, "describe_terminal_state", evidence)
+    monkeypatch.setattr(chat, "_require_thread_account_scope", lambda *a, **kw: None)
+    return db, attempts, evidence
 
 
-class TestThreadTasksRouteRegistration:
-    """Proof the route is registered on the chat router."""
+def test_receipts_use_durable_attempts_and_ignore_process_cache(
+    receipt_route, monkeypatch
+):
+    db, attempts, evidence = receipt_route
+    monkeypatch.setitem(chat._thread_latest_task, 11, "unbound-cache-task")
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+    assert result["tasks"] == []
+    attempts.assert_called_once_with(db, 11, limit=101, offset=0)
+    evidence.assert_not_called()
 
-    def test_route_is_registered(self):
-        from guardian.routes.chat import router
 
-        paths = [route.path for route in router.routes]
-        assert "/threads/{thread_id}/tasks" in paths or \
-               "/chat/threads/{thread_id}/tasks" in paths, (
-            "Expected /threads/{thread_id}/tasks in chat router paths"
-        )
+def test_durable_assistant_link_recovers_completion_without_redis(receipt_route):
+    _, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt(completed_message_id=73)]
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+    assert result["tasks"] == [
+        {
+            "task_id": "task-a",
+            "request_id": "request-a",
+            "thread_id": 11,
+            "turn_id": "turn-a",
+            "completed_message_id": 73,
+            "created_at": "2026-10-02T00:00:00Z",
+            "accepted_at": "2026-10-02T00:00:01Z",
+            "state": "terminal",
+            "event_type": "task.completed",
+            "reason": "durable_completion_recorded",
+        }
+    ]
+    evidence.assert_not_called()
+
+
+def test_unlinked_attempt_retains_observation_uncertainty(receipt_route):
+    _, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt()]
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+    assert result["tasks"][0]["state"] == "unknown"
+    assert result["tasks"][0]["event_type"] is None
+    evidence.assert_called_once_with("task-a")
+
+
+def test_unlinked_attempt_preserves_terminal_event_evidence(receipt_route):
+    _, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt()]
+    evidence.return_value = {
+        "state": "terminal",
+        "event_type": "task.failed",
+        "reason": "terminal_event_found",
+    }
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+    assert result["tasks"][0]["event_type"] == "task.failed"
+    assert result["tasks"][0]["reason"] == "terminal_event_found"
+
+
+def test_receipt_pagination_is_bounded(receipt_route):
+    db, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt(), _attempt("task-b", "request-b")]
+    result = chat.chat_list_tasks(
+        11,
+        api_key="inert",
+        request_user_scope=MagicMock(),
+        limit=1,
+        offset=4,
+    )
+    assert [item["task_id"] for item in result["tasks"]] == ["task-a"]
+    assert result["has_more"] is True
+    assert result["next_offset"] == 5
+    attempts.assert_called_once_with(db, 11, limit=2, offset=4)
+    evidence.assert_called_once_with("task-a")
+
+
+def test_missing_or_foreign_thread_is_rejected_before_attempt_read(
+    receipt_route, monkeypatch
+):
+    db, attempts, evidence = receipt_route
+
+    def require_scope(*_args, thread=None, **_kwargs):
+        if thread and thread.get("user_id") == "account-b":
+            raise HTTPException(status_code=403, detail="forbidden")
+
+    monkeypatch.setattr(chat, "_require_thread_account_scope", require_scope)
+    for thread, expected in [(None, 404), ({"id": 11, "user_id": "account-b"}, 403)]:
+        db.get_chat_thread.return_value = thread
+        with pytest.raises(HTTPException) as exc:
+            chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+        assert exc.value.status_code == expected
+    attempts.assert_not_called()
+    evidence.assert_not_called()
+
+
+def test_thread_task_route_is_registered():
+    assert "/chat/threads/{thread_id}/tasks" in [r.path for r in chat.router.routes]
+
+
+def test_http_pagination_rejects_unbounded_query_values(receipt_route):
+    _, attempts, _ = receipt_route
+    app = FastAPI()
+    app.include_router(chat.router)
+    app.dependency_overrides[chat.require_api_key] = lambda: "inert"
+    app.dependency_overrides[chat.get_request_user_scope] = lambda: MagicMock()
+    client = TestClient(app)
+    for query in ("limit=0", "limit=101", "offset=-1"):
+        response = client.get("/chat/threads/11/tasks?" + query)
+        assert response.status_code == 422
+    attempts.assert_not_called()

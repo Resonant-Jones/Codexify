@@ -87,6 +87,51 @@ def mark_chat_completion_attempt_accepted(
         attempt.accepted_at = datetime.now(timezone.utc)
 
 
+def record_chat_completion_attempt_success(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    assistant_message_id: int,
+) -> bool:
+    """Bind an already-persisted assistant to its exact durable attempt."""
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id,
+                backend_task_id=backend_task_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
+            .one_or_none()
+        )
+        if attempt is None:
+            return False
+        message = (
+            session.query(ChatMessage.id)
+            .filter_by(
+                id=assistant_message_id,
+                thread_id=thread_id,
+                role="assistant",
+            )
+            .one_or_none()
+        )
+        if message is None:
+            raise ValueError(
+                "Successful completion message is not an assistant in its thread"
+            )
+        if (
+            attempt.completed_message_id is not None
+            and attempt.completed_message_id != assistant_message_id
+        ):
+            raise ValueError("Completion attempt is already bound to another assistant")
+        attempt.completed_message_id = assistant_message_id
+        return True
+
+
 def get_chat_completion_attempt_by_task_id(
     chatlog_db: Any, backend_task_id: str
 ) -> Optional[Dict[str, Any]]:
@@ -104,9 +149,55 @@ def get_chat_completion_attempt_by_task_id(
             "backend_task_id": attempt.backend_task_id,
             "thread_id": attempt.thread_id,
             "turn_id": attempt.turn_id,
+            "completed_message_id": attempt.completed_message_id,
             "created_at": attempt.created_at,
             "accepted_at": attempt.accepted_at,
         }
+
+
+def list_chat_completion_attempts_for_thread(
+    chatlog_db: Any, thread_id: int, *, limit: int = 100, offset: int = 0
+) -> List[Dict[str, Any]]:
+    """Read durable task identities for an already-authorized thread."""
+    with chatlog_db._sa_session() as session:
+        attempts = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(thread_id=thread_id)
+            .order_by(
+                ChatCompletionAttempt.created_at.desc(),
+                ChatCompletionAttempt.request_id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        rows: List[Dict[str, Any]] = []
+        for attempt in attempts:
+            completed_message_id = attempt.completed_message_id
+            if completed_message_id is not None:
+                assistant = (
+                    session.query(ChatMessage.id)
+                    .filter_by(
+                        id=completed_message_id,
+                        thread_id=thread_id,
+                        role="assistant",
+                    )
+                    .one_or_none()
+                )
+                if assistant is None:
+                    completed_message_id = None
+            rows.append(
+                {
+                    "request_id": attempt.request_id,
+                    "backend_task_id": attempt.backend_task_id,
+                    "thread_id": attempt.thread_id,
+                    "turn_id": attempt.turn_id,
+                    "completed_message_id": completed_message_id,
+                    "created_at": attempt.created_at,
+                    "accepted_at": attempt.accepted_at,
+                }
+            )
+        return rows
 
 
 def _default_user_id() -> str:

@@ -214,6 +214,15 @@ before queue visibility; ordinary chat and Hosted Room completion producers
 share this acceptance invariant. The complete request-state and replay model
 below is still a contract, not a fully persisted backend lifecycle.
 
+After successful-terminal validation, the PostgreSQL chat adapter persists the
+canonical assistant message and binds its ID to the exact completion attempt
+in one transaction. The binding includes request, backend task, thread, and
+turn identity; a retry of the same task reuses the already-linked assistant
+instead of creating another. Thread task receipts discover attempts from
+Postgres and may report `task.completed` from this durable link when Redis
+terminal events are unavailable. Redis remains observation evidence for
+attempts without a durable assistant link.
+
 ```ts
 export interface ChatTurnMessage {
   messageId: string; // stable authored turn identity
