@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -25,8 +26,14 @@ from guardian.db.models import (
     DirectMessage,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
+    DirectMessageConsent,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
+    MessageRequest,
+    MessageRequestAttempt,
+    MessageRequestPreferences,
+    MessageRequestSuppression,
+    MessageRequestVisibility,
     ThreadSpaceNode,
     User,
     UserProfile,
@@ -44,11 +51,20 @@ TABLE_ORDER = (
     DirectMessageConversation.__table__,
     DirectMessageConversationPlacement.__table__,
     DirectMessage.__table__,
+    MessageRequest.__table__,
+    MessageRequestAttempt.__table__,
+    DirectMessageConsent.__table__,
+    MessageRequestSuppression.__table__,
+    MessageRequestPreferences.__table__,
+    MessageRequestVisibility.__table__,
 )
 
 
 def _new_engine(
-    db_url: str = "sqlite+pysqlite:///:memory:", *, create_tables: bool = True
+    db_url: str = "sqlite+pysqlite:///:memory:",
+    *,
+    create_tables: bool = True,
+    create_request_tables: bool = True,
 ):
     engine = create_engine(
         db_url,
@@ -86,6 +102,8 @@ def _new_engine(
                 )
             )
         for table in TABLE_ORDER[1:]:
+            if not create_request_tables and table in TABLE_ORDER[8:]:
+                continue
             table.create(engine)
     return engine
 
@@ -256,6 +274,7 @@ def test_rename_keeps_profile_id_and_conversations(seeded):
             "destination_profile_id": profile_b["profile_id"],
         },
     ).json()["relationship"]
+    _historical_consent(seeded, relationship["relationship_id"])
     conversation_id = client_a.post(
         f"/api/direct-messages/relationships/{relationship['relationship_id']}"
         "/conversations",
@@ -306,8 +325,7 @@ def test_nonlocal_destination_rejected_without_federation(seeded):
     assert response.json()["detail"]["error"] == "unsupported_nonlocal_destination"
     # No relationship was created for the nonlocal attempt.
     assert (
-        client_a.get("/api/direct-messages/relationships").json()["relationships"]
-        == []
+        client_a.get("/api/direct-messages/relationships").json()["relationships"] == []
     )
 
 
@@ -353,6 +371,7 @@ def test_search_resolves_safe_social_identity(seeded):
 
 def test_unclaimed_usernames_are_not_discoverable(seeded):
     client = _make_client(seeded, "user-a@example.com")
+    _claim_username(client, "searcher")
     response = client.get("/api/direct-messages/profiles", params={"q": "user"})
     assert response.status_code == 200
     assert response.json()["profiles"] == []
@@ -361,17 +380,43 @@ def test_unclaimed_usernames_are_not_discoverable(seeded):
 # ── Conversations ─────────────────────────────────────────────────────────
 
 
-def _two_profiles(seeded):
+def _historical_consent(engine, relationship_id):
+    """Existing-domain tests use an already established historical pair.
+
+    New request tests opt out. Real migration backfill is tested separately;
+    this fixture exercises continued pair permission without synthetic requests.
+    """
+    with sessionmaker(bind=engine)() as session:
+        session.add(
+            DirectMessageConsent(
+                relationship_id=relationship_id,
+                source="historical_conversation",
+                established_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+
+def _two_profiles(seeded, *, established=True):
     client_a = _make_client(seeded, "user-a@example.com")
     client_b = _make_client(seeded, "user-b@example.com")
     profile_a = _claim_username(client_a, "alice").json()["profile"]
     profile_b = _claim_username(client_b, "bob").json()["profile"]
     assert profile_a["node_id"] == profile_b["node_id"]
+    if established:
+        relationship_id = client_a.post(
+            "/api/direct-messages/relationships",
+            json={
+                "destination_node_id": profile_b["node_id"],
+                "destination_profile_id": profile_b["profile_id"],
+            },
+        ).json()["relationship"]["relationship_id"]
+        _historical_consent(seeded, relationship_id)
     return client_a, client_b, profile_a, profile_b
 
 
 def test_relationship_resolve_is_canonical_without_creating_conversation(seeded):
-    client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
+    client_a, client_b, profile_a, profile_b = _two_profiles(seeded, established=False)
     payload_ab = {
         "destination_node_id": profile_b["node_id"],
         "destination_profile_id": profile_b["profile_id"],
@@ -400,9 +445,9 @@ def test_relationship_resolve_is_canonical_without_creating_conversation(seeded)
         ] == [relationship_id]
 
     client_c = _make_client(seeded, "user-c@example.com")
-    assert client_c.get("/api/direct-messages/relationships").json()[
-        "relationships"
-    ] == []
+    assert (
+        client_c.get("/api/direct-messages/relationships").json()["relationships"] == []
+    )
 
     with seeded.connect() as connection:
         assert connection.execute(
@@ -440,9 +485,9 @@ def test_relationship_owns_multiple_distinct_conversations(seeded):
     assert second.status_code == 200
     first_conversation = first.json()["conversation"]
     second_conversation = second.json()["conversation"]
-    assert first_conversation["conversation_id"] != second_conversation[
-        "conversation_id"
-    ]
+    assert (
+        first_conversation["conversation_id"] != second_conversation["conversation_id"]
+    )
     assert first_conversation["relationship_id"] == relationship_id
     assert second_conversation["relationship_id"] == relationship_id
 
@@ -460,9 +505,11 @@ def test_relationship_owns_multiple_distinct_conversations(seeded):
     }
 
     with seeded.connect() as connection:
-        rows = connection.execute(
-            select(DirectMessageConversation.relationship_id)
-        ).scalars().all()
+        rows = (
+            connection.execute(select(DirectMessageConversation.relationship_id))
+            .scalars()
+            .all()
+        )
     assert rows == [relationship_id, relationship_id]
 
 
@@ -497,8 +544,7 @@ def test_project_origin_defaults_creator_placement_and_stays_immutable(seeded):
                 DirectMessageConversationPlacement.profile_id,
                 DirectMessageConversationPlacement.project_id,
             ).where(
-                DirectMessageConversationPlacement.conversation_id
-                == conversation_id
+                DirectMessageConversationPlacement.conversation_id == conversation_id
             )
         ).all()
     assert dict(placements) == {
@@ -506,14 +552,12 @@ def test_project_origin_defaults_creator_placement_and_stays_immutable(seeded):
         profile_b["profile_id"]: None,
     }
 
-    peer_view = client_b.get(
-        f"/api/direct-messages/conversations/{conversation_id}"
-    )
+    peer_view = client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
     assert peer_view.status_code == 200
     peer_conversation = peer_view.json()["conversation"]
-    assert peer_conversation["origin"]["created_by_profile_id"] == profile_a[
-        "profile_id"
-    ]
+    assert (
+        peer_conversation["origin"]["created_by_profile_id"] == profile_a["profile_id"]
+    )
     assert peer_conversation["origin"]["origin_project_id"] is None
     assert peer_conversation["origin"]["origin_thread_id"] is None
     assert peer_conversation["placement"]["project_id"] is None
@@ -580,14 +624,10 @@ def test_thread_origin_requires_owner_access_and_matching_project(seeded):
         json={"origin_project_id": 102, "origin_thread_id": 1001},
     )
     assert mismatch.status_code == 422
-    assert mismatch.json()["detail"]["error"] == (
-        "origin_thread_project_mismatch"
-    )
+    assert mismatch.json()["detail"]["error"] == ("origin_thread_project_mismatch")
 
     with seeded.connect() as connection:
-        count = connection.execute(
-            select(DirectMessageConversation.id)
-        ).scalars().all()
+        count = connection.execute(select(DirectMessageConversation.id)).scalars().all()
     assert count == [conversation["conversation_id"]]
 
 
@@ -640,8 +680,7 @@ def test_pair_resolution_is_relationship_scoped_and_endpoint_replaced(seeded):
     assert len(listing.json()["conversations"]) == 2
     client_c = _make_client(seeded, "user-c@example.com")
     assert (
-        client_c.get("/api/direct-messages/conversations").json()["conversations"]
-        == []
+        client_c.get("/api/direct-messages/conversations").json()["conversations"] == []
     )
 
 
@@ -764,6 +803,14 @@ def test_persistence_survives_reopen(tmp_path):
                 profile_b.node_id,
                 profile_b.profile_id,
             )
+            session.add(
+                DirectMessageConsent(
+                    relationship_id=relationship.id,
+                    source="historical_conversation",
+                    established_at=datetime.now(timezone.utc),
+                )
+            )
+            session.commit()
             conversation = service_module.create_conversation(
                 session, relationship, profile_a
             )
@@ -848,11 +895,15 @@ def test_idempotency_key_reuse_rejects_changed_message(seeded):
     assert conflict.json()["detail"]["error"] == "client_message_key_conflict"
 
     with seeded.begin() as connection:
-        message_bodies = connection.execute(
-            select(DirectMessage.body).where(
-                DirectMessage.conversation_id == conversation_id
+        message_bodies = (
+            connection.execute(
+                select(DirectMessage.body).where(
+                    DirectMessage.conversation_id == conversation_id
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert message_bodies == ["original"]
 
 
@@ -1020,6 +1071,7 @@ def test_dm_source_never_touches_guardian_chat_or_federation(seeded):
         REPO_ROOT / "guardian" / "messaging" / "tokens.py",
         REPO_ROOT / "guardian" / "messaging" / "envelope.py",
         REPO_ROOT / "guardian" / "messaging" / "service.py",
+        REPO_ROOT / "guardian" / "messaging" / "requests.py",
     }
     forbidden_prefixes = (
         "guardian.core.chat",
@@ -1143,9 +1195,9 @@ def test_inbox_listing_is_participant_scoped_and_third_party_gets_404(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
     client_c = _make_client(seeded, "user-c@example.com")
     _claim_username(client_c, "carol")
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     first = _inbox_conversation(client_a, relationship_id)
     second = _inbox_conversation(client_a, relationship_id)
 
@@ -1164,9 +1216,9 @@ def test_inbox_listing_is_participant_scoped_and_third_party_gets_404(seeded):
         second["conversation_id"],
     }
 
-    assert client_c.get("/api/direct-messages/conversations").json()[
-        "conversations"
-    ] == []
+    assert (
+        client_c.get("/api/direct-messages/conversations").json()["conversations"] == []
+    )
     denied = client_c.get(
         f"/api/direct-messages/conversations/{first['conversation_id']}"
     )
@@ -1176,9 +1228,9 @@ def test_inbox_listing_is_participant_scoped_and_third_party_gets_404(seeded):
 
 def test_inbox_three_conversations_stay_distinct_with_stable_relationship(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
 
     first = _inbox_conversation(client_a, relationship_id)
     second = _inbox_conversation(client_a, relationship_id)
@@ -1193,9 +1245,7 @@ def test_inbox_three_conversations_stay_distinct_with_stable_relationship(seeded
     for conversation in (first, second, third):
         assert conversation["relationship_id"] == relationship_id
 
-    listing = client_a.get("/api/direct-messages/conversations").json()[
-        "conversations"
-    ]
+    listing = client_a.get("/api/direct-messages/conversations").json()["conversations"]
     assert [c["conversation_id"] for c in listing] == list(reversed(ids))
     for conversation in listing:
         assert conversation["relationship_id"] == relationship_id
@@ -1203,9 +1253,9 @@ def test_inbox_three_conversations_stay_distinct_with_stable_relationship(seeded
 
 def test_inbox_latest_message_projection_matches_its_conversation(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     first = _inbox_conversation(client_a, relationship_id)
     second = _inbox_conversation(client_a, relationship_id)
 
@@ -1249,17 +1299,15 @@ def test_inbox_latest_message_projection_matches_its_conversation(seeded):
 
 def test_inbox_latest_message_preview_is_bounded(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     conversation = _inbox_conversation(client_a, relationship_id)
     long_body = ("word " * 40).strip()  # > 160 chars once joined with spaces
     assert len(long_body) > 160
     _inbox_send(client_a, conversation["conversation_id"], long_body)
 
-    listing = client_a.get("/api/direct-messages/conversations").json()[
-        "conversations"
-    ]
+    listing = client_a.get("/api/direct-messages/conversations").json()["conversations"]
     preview = next(
         c["latest_message"]["preview"]
         for c in listing
@@ -1272,16 +1320,14 @@ def test_inbox_latest_message_preview_is_bounded(seeded):
 
 def test_inbox_activity_ordering_is_deterministic(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     first = _inbox_conversation(client_a, relationship_id)
     second = _inbox_conversation(client_a, relationship_id)
 
     # No activity: newest conversation first (server order, id desc).
-    listing = client_a.get("/api/direct-messages/conversations").json()[
-        "conversations"
-    ]
+    listing = client_a.get("/api/direct-messages/conversations").json()["conversations"]
     assert [c["conversation_id"] for c in listing] == [
         second["conversation_id"],
         first["conversation_id"],
@@ -1289,9 +1335,7 @@ def test_inbox_activity_ordering_is_deterministic(seeded):
 
     # Activity on the older conversation moves it to the top.
     _inbox_send(client_b, first["conversation_id"], "bump")
-    listing = client_a.get("/api/direct-messages/conversations").json()[
-        "conversations"
-    ]
+    listing = client_a.get("/api/direct-messages/conversations").json()["conversations"]
     assert [c["conversation_id"] for c in listing] == [
         first["conversation_id"],
         second["conversation_id"],
@@ -1301,9 +1345,9 @@ def test_inbox_activity_ordering_is_deterministic(seeded):
 
 def test_inbox_payload_never_exposes_email_or_user_id(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     conversation = _inbox_conversation(client_a, relationship_id)
     _inbox_send(client_a, conversation["conversation_id"], "private hello")
 
@@ -1319,17 +1363,19 @@ def test_inbox_payload_never_exposes_email_or_user_id(seeded):
     def _forbidden(node, path="root"):
         if isinstance(node, dict):
             for key, value in node.items():
-                assert key not in {"email", "user_id", "owning_user_id"}, (
-                    f"forbidden key {key!r} at {path}"
-                )
+                assert key not in {
+                    "email",
+                    "user_id",
+                    "owning_user_id",
+                }, f"forbidden key {key!r} at {path}"
                 _forbidden(value, f"{path}.{key}")
         elif isinstance(node, list):
             for index, item in enumerate(node):
                 _forbidden(item, f"{path}[{index}]")
         elif isinstance(node, str):
-            assert "@" not in node and node != "user-a@example.com", (
-                f"suspicious string at {path}"
-            )
+            assert (
+                "@" not in node and node != "user-a@example.com"
+            ), f"suspicious string at {path}"
 
     for surface in surfaces:
         _forbidden(surface)
@@ -1337,9 +1383,9 @@ def test_inbox_payload_never_exposes_email_or_user_id(seeded):
 
 def test_inbox_hides_unauthorized_origin_from_peer_listing(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     conversation = _inbox_conversation(
         client_a, relationship_id, body={"origin_project_id": 101}
     )
@@ -1363,9 +1409,9 @@ def test_inbox_hides_unauthorized_origin_from_peer_listing(seeded):
 
 def test_inbox_never_exposes_peer_placement(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     conversation = _inbox_conversation(client_a, relationship_id)
 
     moved = client_a.patch(
@@ -1394,9 +1440,9 @@ def test_inbox_never_exposes_peer_placement(seeded):
 
 def test_inbox_participant_local_placement_stays_isolated(seeded):
     client_a, client_b, profile_a, profile_b = _two_profiles(seeded)
-    relationship_id = _inbox_relationship(
-        client_a, client_b, profile_a, profile_b
-    )["relationship_id"]
+    relationship_id = _inbox_relationship(client_a, client_b, profile_a, profile_b)[
+        "relationship_id"
+    ]
     conversation = _inbox_conversation(client_a, relationship_id)
 
     client_b.patch(
@@ -1411,3 +1457,28 @@ def test_inbox_participant_local_placement_stays_isolated(seeded):
         c for c in a_listing if c["conversation_id"] == conversation["conversation_id"]
     )
     assert a_row["placement"]["project_id"] is None
+
+
+def test_private_preview_mounts_messaging_and_request_username_routes(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+    import guardian.guardian_api as guardian_api
+
+    app_module = importlib.reload(guardian_api)
+    try:
+        assert (
+            "direct_messages" in app_module.app.state.supported_profile_enabled_labels
+        )
+        paths = set(app_module.app.openapi()["paths"])
+        assert {
+            "/api/profile/social-identity",
+            "/api/direct-messages/profiles",
+            "/api/direct-messages/requests",
+            "/api/direct-messages/requests/{request_id}/accept",
+        } <= paths
+    finally:
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+        importlib.reload(guardian_api)

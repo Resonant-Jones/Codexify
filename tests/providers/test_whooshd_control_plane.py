@@ -342,3 +342,28 @@ def test_call_local_success_retains_bounded_runtime_provenance(monkeypatch):
     assert normalized.runtime_provenance.request_id == "request-11"
     assert "prompt-secret" not in json.dumps(normalized.runtime_provenance.as_dict())
     assert "assistant-output" not in json.dumps(normalized.runtime_provenance.as_dict())
+
+
+def test_error_body_preserves_accepted_task_deadline(monkeypatch):
+    from guardian.tasks.chat_deadline import AcceptedChatTaskDeadlineExceeded
+
+    response = _Response({"http_status": 404})
+    failure = AcceptedChatTaskDeadlineExceeded(attempted=True)
+
+    def expired_body():
+        raise failure
+
+    monkeypatch.setattr(response, "json", expired_body)
+    with pytest.raises(AcceptedChatTaskDeadlineExceeded) as caught:
+        parse_whooshd_error(response)
+    assert caught.value is failure
+
+
+def test_malformed_versioned_error_body_remains_unclassified(monkeypatch):
+    response = _Response({"http_status": 404})
+
+    def malformed_body():
+        raise ValueError("invalid JSON")
+
+    monkeypatch.setattr(response, "json", malformed_body)
+    assert parse_whooshd_error(response) is None

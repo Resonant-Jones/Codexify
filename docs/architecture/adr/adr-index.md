@@ -282,3 +282,5 @@ Use the broader corpus for:
 * runtime contracts
 * API-level specifications
 * implementation guides
+
+97. [[097-private-preview-message-requests-and-consent|ADR-097 Private Preview Message Requests and Consent]] — Accepted for the authorized same-node human messaging slice; distinct MessageRequest lifecycle and participant-local history, neutral Relationship, consent at Conversation initiation, atomic original-author materialization, directional suppression, honest historical compatibility, Private Preview enablement and default Beta exclusion. Implementation/proof remains tracked separately.

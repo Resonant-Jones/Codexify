@@ -26,6 +26,7 @@ export interface InferenceRequestState {
   statusText: string | null;
   detailText: string | null;
   errorText: string | null;
+  failureCode?: string | null;
   queuedAt?: string | null;
   awaitingModelAt?: string | null;
   awaitingFirstTokenAt?: string | null;
@@ -54,6 +55,7 @@ export function createIdleInferenceRequestState(): InferenceRequestState {
     statusText: null,
     detailText: null,
     errorText: null,
+    failureCode: null,
     queuedAt: null,
     awaitingModelAt: null,
     awaitingFirstTokenAt: null,

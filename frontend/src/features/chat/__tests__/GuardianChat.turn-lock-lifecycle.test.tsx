@@ -37,6 +37,29 @@ const liveEventsMock = vi.hoisted(() => {
   return { handlers, subscribe };
 });
 
+const taskSources = vi.hoisted(() => ({
+  instances: [] as (EventTarget & {
+    url: string;
+    close: ReturnType<typeof vi.fn>;
+  })[],
+}));
+
+vi.mock("@/lib/guardianEventSource", () => {
+  class GuardianEventSource extends EventTarget {
+    static CLOSED = 2;
+    readonly url: string;
+    readyState = 1;
+    onerror: ((event: Event) => void) | null = null;
+    close = vi.fn(() => { this.readyState = 2; });
+    constructor(url: string) {
+      super();
+      this.url = url;
+      taskSources.instances.push(this);
+    }
+  }
+  return { GuardianEventSource };
+});
+
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -164,6 +187,8 @@ const inferenceMocks = vi.hoisted(() => {
 
   return {
     state,
+    realHook: false,
+    onTaskCancelled: undefined as ((threadId: number, taskId: string) => void) | undefined,
     requestCancel: vi.fn(async () => true),
     reset,
     startRequest: vi.fn(
@@ -225,6 +250,7 @@ const inferenceMocks = vi.hoisted(() => {
 
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
+  buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
@@ -299,10 +325,20 @@ vi.mock("@/features/guardian/components/Composer", () => ({
 }));
 
 vi.mock("@/features/chat/ChatView", () => ({
-  default: ({ onCancelInference }: { onCancelInference?: () => void }) => (
-    <button type="button" data-testid="chat-cancel" onClick={() => onCancelInference?.()}>
-      Cancel inference
-    </button>
+  default: ({ onCancelInference, onSwitchToFast, inferenceState }: {
+    onCancelInference?: () => void;
+    onSwitchToFast?: () => void;
+    inferenceState?: { taskId?: string | null };
+  }) => (
+    <>
+      <output data-testid="inference-task-id">{inferenceState?.taskId ?? ""}</output>
+      <button type="button" data-testid="chat-cancel" onClick={() => onCancelInference?.()}>
+        Cancel inference
+      </button>
+      <button type="button" data-testid="chat-fast" onClick={() => onSwitchToFast?.()}>
+        Switch to fast
+      </button>
+    </>
   ),
 }));
 
@@ -349,7 +385,8 @@ vi.mock("@/hooks/useLiveEvents", () => {
   };
 });
 
-vi.mock("@/features/chat/hooks/useInferenceRequestState", () => {
+vi.mock("@/features/chat/hooks/useInferenceRequestState", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/chat/hooks/useInferenceRequestState")>();
   const hookValue = {
     state: inferenceMocks.state,
     startRequest: inferenceMocks.startRequest,
@@ -363,13 +400,18 @@ vi.mock("@/features/chat/hooks/useInferenceRequestState", () => {
   return {
     describeInferenceRequestState: (
       state: { phase?: string } | null | undefined
-    ) => ({
-      canonicalState: state?.phase ?? "idle",
-      delayDetailText: null,
-      isDelayed: false,
-      timings: {},
-    }),
-    useInferenceRequestState: () => hookValue,
+    ) => inferenceMocks.realHook && state
+      ? actual.describeInferenceRequestState(state as any)
+      : ({
+        canonicalState: state?.phase ?? "idle",
+        delayDetailText: null,
+        isDelayed: false,
+        timings: {},
+      }),
+    useInferenceRequestState: (options?: { onTaskCancelled?: (threadId: number, taskId: string) => void }) => {
+      inferenceMocks.onTaskCancelled = options?.onTaskCancelled;
+      return inferenceMocks.realHook ? actual.useInferenceRequestState(options) : hookValue;
+    },
   };
 });
 
@@ -460,12 +502,13 @@ function renderChat(overrides: {
   const onSessionProviderChange =
     overrides.onSessionProviderChange ?? vi.fn();
 
-  render(
+  const onSendMessage = vi.fn().mockResolvedValue(undefined);
+  const element = (
     <GuardianChat
       guardianName="Guardian"
       userName="tester"
       activeThread={{ id: "1", title: "Thread 1" } as any}
-      onSendMessage={vi.fn().mockResolvedValue(undefined)}
+      onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
       sessionTabs={[
         {
@@ -487,7 +530,13 @@ function renderChat(overrides: {
     />
   );
 
-  return { onSessionProviderChange };
+  const view = render(element);
+  return {
+    onSessionProviderChange,
+    onSendMessage,
+    unmount: view.unmount,
+    rerenderChat: () => view.rerender(<GuardianChat {...element.props} />),
+  };
 }
 
 describe("GuardianChat turn lock lifecycle", () => {
@@ -499,6 +548,8 @@ describe("GuardianChat turn lock lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     liveEventsMock.handlers.clear();
+    taskSources.instances.length = 0;
+    inferenceMocks.realHook = false;
     chatMocks.resetState();
     inferenceMocks.reset();
     inferenceMocks.requestCancel.mockResolvedValue(true);
@@ -551,6 +602,7 @@ describe("GuardianChat turn lock lifecycle", () => {
 
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
@@ -577,6 +629,7 @@ describe("GuardianChat turn lock lifecycle", () => {
 
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
@@ -590,42 +643,422 @@ describe("GuardianChat turn lock lifecycle", () => {
     });
   });
 
-  it("cancelling inference releases lock and clears request-scoped state", async () => {
+  const terminalEvents = [
+    "task.completed",
+    "task.failed",
+    "task.cancelled",
+    "completion.error",
+  ];
+
+  it.each(
+    terminalEvents.flatMap((event) => [
+      [event, 2, "foreign-task"],
+      [event, 1, "stale-task"],
+      [event, 2, "task-1"],
+    ])
+  )("ignores unrelated terminal %s from thread %s task %s", async (event, threadId, taskId) => {
     renderChat();
     await screen.findByTestId("composer-stub");
-
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
-    inferenceMocks.requestCancel.mockResolvedValueOnce(false);
-    fireEvent.click(screen.getByTestId("chat-cancel"));
+    emitLiveEvent(String(event), {
+      thread_id: threadId,
+      task_id: taskId,
+      turn_id: "unrelated-turn",
+      error: "Unrelated request failed",
+    });
+
+    expect(inferenceMocks.state.phase).toBe("streaming");
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(chatMocks.endCompletion).not.toHaveBeenCalled();
+    expect(chatMocks.finalizeCompletionSession).not.toHaveBeenCalled();
+    expect(chatMocks.updateCompletionSessionTurnId).not.toHaveBeenCalled();
+    expect(inferenceMocks.markCompleted).not.toHaveBeenCalled();
+    expect(inferenceMocks.markFailed).not.toHaveBeenCalled();
+    expect(inferenceMocks.markCancelled).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    terminalEvents.flatMap((event) => [[event, 1], [event, 2]])
+  )("ignores prior completion %s while newer inference owns thread %s", async (event, threadId) => {
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    });
+
+    act(() => {
+      inferenceMocks.startRequest({
+        threadId: Number(threadId),
+        providerId: "local",
+        modelId: "local-model",
+        mode: "default",
+      });
+      inferenceMocks.attachTask("newer-task");
+    });
+    emitLiveEvent(String(event), {
+      thread_id: 1,
+      task_id: "task-1",
+      error: "Prior request failed",
+    });
+
+    expect(inferenceMocks.state.phase).toBe("streaming");
+    expect(inferenceMocks.state.taskId).toBe("newer-task");
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(chatMocks.finalizeCompletionSession).not.toHaveBeenCalled();
+    expect(inferenceMocks.markCompleted).not.toHaveBeenCalled();
+    expect(inferenceMocks.markFailed).not.toHaveBeenCalled();
+    expect(inferenceMocks.markCancelled).not.toHaveBeenCalled();
+  });
+
+  it.each(terminalEvents)("accepts owned completion %s when inference is inactive", async (event) => {
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    });
+    act(() => { inferenceMocks.reset(); });
+    emitLiveEvent(event, { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => {
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
+    });
+    expect(chatMocks.finalizeCompletionSession).toHaveBeenCalledWith({
+      taskId: "task-1",
+      terminalState: event === "task.completed" ? "completed"
+        : event === "task.cancelled" ? "cancelled"
+          : event === "completion.error" ? "error" : "failed",
+    });
+  });
+
+  it.each(terminalEvents)("accepts current task terminal %s", async (event) => {
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => {
+      expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1");
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    });
+
+    emitLiveEvent(event, {
+      thread_id: 1,
+      task_id: "task-1",
+      error: "Current request failed",
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
     });
-    expect(inferenceMocks.requestCancel).toHaveBeenCalled();
-    expect(inferenceMocks.reset).toHaveBeenCalled();
+    const expectedPhase =
+      event === "task.completed"
+        ? "completed"
+        : event === "task.cancelled"
+          ? "cancelled"
+          : "failed";
+    expect(inferenceMocks.state.phase).toBe(expectedPhase);
+    expect(chatMocks.finalizeCompletionSession).toHaveBeenCalled();
   });
 
-  it("provider switch during active request unwinds lock and keeps composer usable", async () => {
+  function completeCalls() {
+    return apiMock.post.mock.calls.filter(([url]) => url === "/chat/1/complete");
+  }
+
+  async function startThinkingTurn() {
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    inferenceMocks.state.mode = "think";
+    return view;
+  }
+
+  async function allowRetryTimer() {
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 220)); });
+  }
+
+  it.each(["global", "stream"].flatMap((feed) => ["accepted", "pending", "late-failure"].map((post) => [feed, post] as const)))(
+    "resumes one fast completion after owned %s cancellation with %s stop POST",
+    async (feed, post) => {
+      const view = await startThinkingTurn();
+      let finishStop!: (accepted: boolean) => void;
+      if (post !== "accepted") {
+        inferenceMocks.requestCancel.mockReturnValueOnce(new Promise<boolean>((resolve) => { finishStop = resolve; }));
+      }
+      apiMock.post.mockImplementation(async (url: string) => (
+        url === "/chat/1/complete" ? { data: { task_id: "task-fast" } } : { data: {} }
+      ));
+      fireEvent.click(screen.getByTestId("chat-fast"));
+      await allowRetryTimer();
+      expect(completeCalls()).toHaveLength(1);
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+      if (feed === "global") {
+        emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+      } else {
+        act(() => {
+          inferenceMocks.onTaskCancelled?.(1, "task-1");
+          inferenceMocks.markCancelled();
+        });
+        view.rerenderChat();
+      }
+      // Duplicate delivery from both observations must coalesce into one retry.
+      emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+      act(() => inferenceMocks.onTaskCancelled?.(1, "task-1"));
+      if (post === "late-failure") await act(async () => { finishStop(false); });
+      await waitFor(() => expect(completeCalls()).toHaveLength(2));
+      expect(completeCalls()[1][1]).toEqual(expect.objectContaining({
+        provider: "local", model: "local-model", reasoning_mode: "no_think",
+      }));
+      expect(view.onSendMessage).toHaveBeenCalledOnce();
+      expect(apiMock.post.mock.calls.some(([url]) => String(url).endsWith("/messages"))).toBe(false);
+      expect(inferenceMocks.attachTask).toHaveBeenLastCalledWith("task-fast");
+      expect(inferenceMocks.state.mode).toBe("no_think");
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+      if (post === "pending") await act(async () => { finishStop(true); });
+      emitLiveEvent("task.completed", { thread_id: 1, task_id: "task-fast" });
+      await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+      await allowRetryTimer();
+      expect(completeCalls()).toHaveLength(2);
+    }
+  );
+
+  it.each(["task.completed", "task.failed"])("does not fast-retry when %s wins the cancellation race", async (terminal) => {
+    await startThinkingTurn();
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Worker failure" });
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
+  });
+
+  it.each([{ thread_id: 1, task_id: "foreign-task" }, { thread_id: 2, task_id: "task-1" }])(
+    "does not fast-retry after foreign cancellation %j", async (payload) => {
+      await startThinkingTurn();
+      fireEvent.click(screen.getByTestId("chat-fast"));
+      emitLiveEvent("task.cancelled", payload);
+      await allowRetryTimer();
+      expect(completeCalls()).toHaveLength(1);
+      expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    }
+  );
+
+  it("does not fast-retry when the stop POST fails before cancellation", async () => {
+    await startThinkingTurn();
+    inferenceMocks.requestCancel.mockResolvedValueOnce(false);
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    await act(async () => { await Promise.resolve(); });
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it("invalidates scheduled fast retry when the user starts a newer turn", async () => {
+    const view = await startThinkingTurn();
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(view.onSendMessage).toHaveBeenCalledTimes(2));
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(2);
+    expect(completeCalls()[1][1].reasoning_mode).not.toBe("no_think");
+  });
+
+  it("keeps the existing bounded turn-lock backoff before admitting fast completion", async () => {
+    await startThinkingTurn();
+    let retries = 0;
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url !== "/chat/1/complete") return { data: {} };
+      if (++retries === 1) throw Object.assign(new Error("Turn locked"), {
+        response: { status: 429, data: { detail: "completion_turn_locked" } },
+      });
+      return { data: { task_id: "task-fast" } };
+    });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenLastCalledWith("task-fast"), { timeout: 1800 });
+    expect(completeCalls()).toHaveLength(3);
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+  });
+
+  it("releases the synthetic lease after all four fast admissions remain locked", async () => {
+    const view = await startThinkingTurn();
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url !== "/chat/1/complete") return { data: {} };
+      throw Object.assign(new Error("Request failed with status code 429"), {
+        response: { status: 429, data: { detail: { error: "turn_in_flight" } } },
+      });
+    });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(completeCalls()).toHaveLength(5), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(inferenceMocks.attachTask).toHaveBeenCalledTimes(1);
+    expect(inferenceMocks.reset).toHaveBeenCalled();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(5);
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    apiMock.post.mockResolvedValue({ data: { task_id: "next-user-task" } });
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(view.onSendMessage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenLastCalledWith("next-user-task"));
+  });
+
+  it.each(["stop", "provider"])("a later %s supersedes a scheduled fast handoff", async (action) => {
+    await startThinkingTurn();
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it("does not fast-retry from a legacy cancellation without task identity", async () => {
+    await startThinkingTurn();
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1 });
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it("invalidates a scheduled fast handoff when the component unmounts", async () => {
+    const view = await startThinkingTurn();
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    view.unmount();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it("projects failed fast admission without another authored turn", async () => {
+    const view = await startThinkingTurn();
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/chat/1/complete") throw Object.assign(new Error("Queue unavailable"), {
+        response: { status: 503, data: { detail: "queue_unavailable" } },
+      });
+      return { data: {} };
+    });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(completeCalls()).toHaveLength(2));
+    expect(inferenceMocks.state.phase).toBe("failed");
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+  });
+
+  it.each(["accepted", "late-failure"])("uses the actual hook for stream cancellation and %s stop POST", async (post) => {
+    inferenceMocks.realHook = true;
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
+    expect(taskSources.instances).toHaveLength(1);
+    let finishStop!: (response: unknown) => void;
+    let rejectStop!: (error: Error) => void;
+    apiMock.post.mockImplementation((url: string) => {
+      if (url === "/chat/1/complete") return Promise.resolve({ data: { task_id: "task-fast" } });
+      if (url === "/api/tasks/task-1/cancel") {
+        return new Promise((resolve, reject) => { finishStop = resolve; rejectStop = reject; });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/api/tasks/task-1/cancel"));
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+    const original = taskSources.instances[0];
+    act(() => original.dispatchEvent(new MessageEvent("task.cancelled", {
+      data: JSON.stringify({ thread_id: 1, task_id: "task-1" }),
+    })));
+    if (post === "late-failure") await act(async () => { rejectStop(new Error("Late stop error")); });
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-fast"));
+    expect(taskSources.instances).toHaveLength(2);
+    expect(original.close).toHaveBeenCalledOnce();
+    expect(completeCalls()).toHaveLength(2);
+    expect(completeCalls()[1][1]).toEqual(expect.objectContaining({ reasoning_mode: "no_think" }));
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    if (post === "accepted") await act(async () => { finishStop({ data: { cancel_requested: true } }); });
+    const current = taskSources.instances[1];
+    expect(current.close).not.toHaveBeenCalled();
+    act(() => current.dispatchEvent(new MessageEvent("task.completed", {
+      data: JSON.stringify({ thread_id: 1, task_id: "task-fast", message_id: 100 }),
+    })));
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(current.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["task.failed", "completion.error"])("projects owned global deadline %s through the actual hook", async (type) => {
+    inferenceMocks.realHook = true;
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
+    emitLiveEvent(type, {
+      thread_id: 1, task_id: "task-1",
+      failure_code: "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+      error: "Accepted chat task work deadline exceeded.",
+      provider_request_started: false, first_output_observed: false,
+      completed_at: "2026-04-05T00:00:01.000Z",
+    });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable");
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it.each(
+    ["stop", "provider"].flatMap((action) =>
+      [true, false].flatMap((accepted) =>
+        ["task.completed", "task.cancelled", "task.failed"].map((terminal) => [action, accepted, terminal] as const)
+      )
+    )
+  )("keeps ownership after %s POST acceptance %s until %s", async (action, accepted, terminal) => {
     const { onSessionProviderChange } = renderChat();
     await screen.findByTestId("composer-stub");
-
     fireEvent.click(screen.getByTestId("composer-send"));
-    await waitFor(() => {
-      expect(chatMocks.startCompletion).toHaveBeenCalled();
-    });
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    const resetsBefore = inferenceMocks.reset.mock.calls.length;
+    const endsBefore = chatMocks.endCompletion.mock.calls.length;
+    inferenceMocks.requestCancel.mockResolvedValueOnce(accepted);
+    fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
+    await waitFor(() => expect(inferenceMocks.requestCancel).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(inferenceMocks.reset).toHaveBeenCalledTimes(resetsBefore);
+    expect(chatMocks.endCompletion).toHaveBeenCalledTimes(endsBefore);
+    expect(inferenceMocks.state.taskId).toBe("task-1");
+    expect(inferenceMocks.state.phase).toBe("streaming");
+    if (action === "provider") expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    expect(chatMocks.startCompletion).toHaveBeenCalledOnce();
+    emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Actual task failure" });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(inferenceMocks.state.phase).toBe(
+      terminal === "task.completed" ? "completed" : terminal === "task.cancelled" ? "cancelled" : "failed"
+    );
+  });
 
-    fireEvent.click(screen.getByTestId("composer-provider-switch"));
-
-    await waitFor(() => {
-      expect(inferenceMocks.requestCancel).toHaveBeenCalled();
-    });
-    expect(inferenceMocks.reset).toHaveBeenCalled();
-    expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
-    expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
-    expect(screen.getByTestId("composer-send")).toBeEnabled();
+  it.each(["stop", "provider"])("keeps the lease while %s POST is still pending", async (action) => {
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    let resolveCancel!: (accepted: boolean) => void;
+    inferenceMocks.requestCancel.mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveCancel = resolve; }));
+    const resetsBefore = inferenceMocks.reset.mock.calls.length;
+    fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(inferenceMocks.reset).toHaveBeenCalledTimes(resetsBefore);
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    await act(async () => { resolveCancel(false); });
+    expect(inferenceMocks.state.phase).toBe("cancelled");
   });
 });

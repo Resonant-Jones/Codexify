@@ -22,6 +22,8 @@ export type DirectMessageSocialProfile = {
 
 export type DirectMessageRelationship = {
   relationship_id: string;
+  /** Ordinary DM permission only; never Contact/trust/resource authority. */
+  messaging_consent_established: boolean;
   participants: DirectMessageSocialProfile[];
   /** Caller-relative: the OTHER participant, or null (defensive). */
   peer: DirectMessageSocialProfile | null;
@@ -103,7 +105,9 @@ function errorCodeFromDetail(detail: unknown): string | null {
   return typeof record.error === "string" ? record.error : null;
 }
 
-export function normalizeDirectMessageError(error: unknown): DirectMessageApiError {
+export function normalizeDirectMessageError(
+  error: unknown,
+): DirectMessageApiError {
   if (error instanceof DirectMessageApiError) return error;
   const responseStatus = (error as { response?: { status?: unknown } } | null)
     ?.response?.status;
@@ -111,48 +115,50 @@ export function normalizeDirectMessageError(error: unknown): DirectMessageApiErr
     typeof responseStatus === "number"
       ? responseStatus
       : typeof (error as { status?: unknown } | null)?.status === "number"
-        ? ((error as { status: number }).status)
+        ? (error as { status: number }).status
         : 0;
-  const code = errorCodeFromDetail(
-    (error as { response?: { data?: { detail?: unknown } } } | null)?.response
-      ?.data?.detail
-  );
-  return new DirectMessageApiError(
-    status,
-    error instanceof Error ? error.message : "Direct messaging request failed",
-    code
-  );
+  const detail = (error as { response?: { data?: { detail?: unknown } } } | null)
+    ?.response?.data?.detail;
+  const code = errorCodeFromDetail(detail);
+  let message = error instanceof Error ? error.message : "Direct messaging request failed";
+  if (typeof detail === "string") message = detail;
+  else if (Array.isArray(detail)) {
+    const messages = detail.map((item) => item?.msg)
+      .filter((value): value is string => typeof value === "string");
+    if (messages.length) message = messages.join("; ");
+  } else if (detail && typeof detail === "object") {
+    // Only the backend's safe explanatory field is presentation text. Never
+    // stringify the detail object or disclose unrelated diagnostic fields.
+    const safeMessage = (detail as { message?: unknown }).message;
+    if (typeof safeMessage === "string") message = safeMessage;
+  }
+  return new DirectMessageApiError(status, message, code);
 }
 
-export async function claimSocialIdentityUsername(username: string): Promise<DirectMessageSocialProfile> {
+export async function claimSocialIdentityUsername(
+  username: string,
+): Promise<DirectMessageSocialProfile> {
   try {
-    const response = await api.put<{ profile: DirectMessageSocialProfile }>("/api/profile/social-identity", { username });
+    const response = await api.put<{ profile: DirectMessageSocialProfile }>(
+      "/api/profile/social-identity",
+      { username },
+    );
     return response.data.profile;
   } catch (error) {
-    const normalized = normalizeDirectMessageError(error);
-    const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-    if (typeof detail === "string") normalized.message = detail;
-    else if (Array.isArray(detail)) {
-      const messages = detail.map(item => item?.msg).filter((value): value is string => typeof value === "string");
-      if (messages.length) normalized.message = messages.join("; ");
-    } else if (detail && typeof detail === "object") {
-      const message = (detail as { message?: unknown }).message;
-      if (typeof message === "string") normalized.message = message;
-    }
-    throw normalized;
+    throw normalizeDirectMessageError(error);
   }
 }
 
 export async function fetchOwnSocialIdentity(): Promise<DirectMessageSocialProfile> {
   const response = await api.get<{ profile: DirectMessageSocialProfile }>(
-    "/api/profile/social-identity"
+    "/api/profile/social-identity",
   );
   return response.data.profile;
 }
 
 export async function searchDirectMessageProfiles(
   query: string,
-  limit = 20
+  limit = 20,
 ): Promise<DirectMessageSocialProfile[]> {
   try {
     const response = await api.get<{
@@ -172,7 +178,7 @@ export async function searchDirectMessageProfiles(
 
 export async function resolveDirectMessageRelationship(
   destinationNodeId: string,
-  destinationProfileId: string
+  destinationProfileId: string,
 ): Promise<DirectMessageRelationship> {
   try {
     const response = await api.post<{
@@ -217,14 +223,14 @@ export async function fetchDirectMessageConversations(): Promise<
 }
 
 export async function fetchRelationshipConversations(
-  relationshipId: string
+  relationshipId: string,
 ): Promise<DirectMessageConversation[]> {
   try {
     const response = await api.get<{
       ok: boolean;
       conversations: DirectMessageConversation[];
     }>(
-      `/api/direct-messages/relationships/${encodeURIComponent(relationshipId)}/conversations`
+      `/api/direct-messages/relationships/${encodeURIComponent(relationshipId)}/conversations`,
     );
     return response.data.conversations ?? [];
   } catch (error) {
@@ -240,7 +246,7 @@ export async function fetchRelationshipConversations(
  */
 export async function createDirectMessageConversation(
   relationshipId: string,
-  origin: ConversationOriginInput = {}
+  origin: ConversationOriginInput = {},
 ): Promise<DirectMessageConversation> {
   const body: Record<string, unknown> = {};
   if (origin.origin_project_id != null) {
@@ -255,7 +261,7 @@ export async function createDirectMessageConversation(
       conversation: DirectMessageConversation;
     }>(
       `/api/direct-messages/relationships/${encodeURIComponent(relationshipId)}/conversations`,
-      body
+      body,
     );
     return response.data.conversation;
   } catch (error) {
@@ -268,20 +274,20 @@ export async function createDirectMessageConversation(
  * returns a new Conversation_ID while the Relationship is reused.
  */
 export function createGeneralDirectMessageConversation(
-  relationshipId: string
+  relationshipId: string,
 ): Promise<DirectMessageConversation> {
   return createDirectMessageConversation(relationshipId, {});
 }
 
 export async function fetchDirectMessageConversation(
-  conversationId: string
+  conversationId: string,
 ): Promise<DirectMessageConversation> {
   try {
     const response = await api.get<{
       ok: boolean;
       conversation: DirectMessageConversation;
     }>(
-      `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}`
+      `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}`,
     );
     return response.data.conversation;
   } catch (error) {
@@ -291,7 +297,7 @@ export async function fetchDirectMessageConversation(
 
 export async function fetchDirectMessageMessages(
   conversationId: string,
-  options: { limit?: number; beforeId?: string | null } = {}
+  options: { limit?: number; beforeId?: string | null } = {},
 ): Promise<DirectMessageEnvelope[]> {
   try {
     const response = await api.get<{
@@ -304,7 +310,7 @@ export async function fetchDirectMessageMessages(
           limit: Math.min(Math.max(options.limit ?? 200, 1), 200),
           ...(options.beforeId ? { before_id: options.beforeId } : {}),
         },
-      }
+      },
     );
     return response.data.messages ?? [];
   } catch (error) {
@@ -319,14 +325,14 @@ export async function fetchDirectMessageMessages(
 export async function sendDirectMessage(
   conversationId: string,
   body: string,
-  clientMessageKey?: string
+  clientMessageKey?: string,
 ): Promise<DirectMessageSendResult> {
   const payloadBody: Record<string, unknown> = { body };
   if (clientMessageKey) payloadBody.client_message_key = clientMessageKey;
   try {
     const response = await api.post<DirectMessageSendResult>(
       `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}/messages`,
-      payloadBody
+      payloadBody,
     );
     return response.data;
   } catch (error) {
@@ -343,7 +349,7 @@ export async function sendDirectMessage(
  * is never guessed from local UI assumptions.
  */
 export async function fetchThreadProjectScope(
-  threadId: number
+  threadId: number,
 ): Promise<number | null> {
   try {
     const response = await api.get<{
@@ -365,9 +371,8 @@ export async function fetchThreadProjectScope(
 export async function fetchProjectLabelMap(): Promise<Map<number, string>> {
   const labels = new Map<number, string>();
   try {
-    const response = await api.get<Array<{ id?: unknown; name?: unknown }>>(
-      "/api/projects"
-    );
+    const response =
+      await api.get<Array<{ id?: unknown; name?: unknown }>>("/api/projects");
     for (const entry of Array.isArray(response.data) ? response.data : []) {
       const id = typeof entry.id === "number" ? entry.id : Number(entry.id);
       if (Number.isFinite(id) && typeof entry.name === "string") {
@@ -382,7 +387,7 @@ export async function fetchProjectLabelMap(): Promise<Map<number, string>> {
 
 /** Bounded presentation label for a social profile. */
 export function peerPresentationLabel(
-  profile: DirectMessageSocialProfile | null | undefined
+  profile: DirectMessageSocialProfile | null | undefined,
 ): string {
   if (!profile) return "Profile";
   const display = (profile.display_name ?? "").trim();
@@ -407,7 +412,7 @@ export type PeerFilterOption = {
  * position).
  */
 export function buildPeerFilterOptions(
-  conversations: readonly DirectMessageConversation[]
+  conversations: readonly DirectMessageConversation[],
 ): PeerFilterOption[] {
   const options: PeerFilterOption[] = [];
   const seen = new Set<string>();
@@ -432,10 +437,115 @@ export function buildPeerFilterOptions(
  */
 export function filterConversationsByRelationship(
   conversations: readonly DirectMessageConversation[],
-  relationshipId: string | null
+  relationshipId: string | null,
 ): DirectMessageConversation[] {
   if (relationshipId === null) return [...conversations];
   return conversations.filter(
-    (conversation) => conversation.relationship_id === relationshipId
+    (conversation) => conversation.relationship_id === relationshipId,
   );
+}
+
+/** Canonical ADR-097 shared lifecycle; hidden history is participant-local. */
+export type MessageRequestState =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "withdrawn"
+  | "expired";
+export type DirectMessageRequest = {
+  request_id: string;
+  relationship_id: string;
+  sender_profile_id: string;
+  recipient_profile_id: string;
+  peer: DirectMessageSocialProfile;
+  note: string;
+  state: MessageRequestState;
+  created_at: string;
+  expires_at: string;
+  transitioned_at: string | null;
+  conversation_id: string | null;
+  first_message_id: string | null;
+  outgoing: boolean;
+};
+
+export async function fetchMessageRequests(
+  history = false,
+): Promise<DirectMessageRequest[]> {
+  try {
+    const response = await api.get<{ requests: DirectMessageRequest[] }>(
+      "/api/direct-messages/requests",
+      { params: { history, limit: 100 } },
+    );
+    return response.data.requests;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+export async function sendMessageRequest(
+  peer: DirectMessageSocialProfile,
+  note: string,
+  key: string,
+): Promise<DirectMessageRequest> {
+  try {
+    const response = await api.post<{ request: DirectMessageRequest }>(
+      "/api/direct-messages/requests",
+      {
+        destination_node_id: peer.node_id,
+        destination_profile_id: peer.profile_id,
+        note,
+        client_request_key: key,
+      },
+    );
+    return response.data.request;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+export async function transitionMessageRequest(
+  id: string,
+  action: "accept" | "decline" | "withdraw",
+): Promise<DirectMessageRequest> {
+  try {
+    const response = await api.post<{ request: DirectMessageRequest }>(
+      `/api/direct-messages/requests/${encodeURIComponent(id)}/${action}`,
+    );
+    return response.data.request;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+export async function archiveMessageRequest(id: string): Promise<void> {
+  try {
+    await api.post(
+      `/api/direct-messages/requests/${encodeURIComponent(id)}/archive`,
+    );
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+export async function fetchMessageRequestHistoryPreference(): Promise<boolean> {
+  try {
+    const response = await api.get<{ auto_hide_terminal: boolean }>(
+      "/api/direct-messages/request-history-preferences",
+    );
+    return response.data.auto_hide_terminal;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+export async function setMessageRequestHistoryPreference(
+  enabled: boolean,
+): Promise<void> {
+  try {
+    await api.put("/api/direct-messages/request-history-preferences", {
+      auto_hide_terminal: enabled,
+    });
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
 }

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import api, { buildAuthenticatedFetchInit } from "@/lib/api";
-import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
+import {
+  ACCEPTED_TASK_DEADLINE_DETAIL_TEXT,
+  describeTaskFailureDetailText,
+  isAcceptedTaskDeadlineFailure,
+} from "@/features/chat/requestFailurePresentation";
+import { CHAT_REQUEST_STATES } from "@/contracts/runtimeTokens";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -39,6 +44,7 @@ const INFERENCE_LIFECYCLE_STATE = {
   STREAMING: "streaming",
   COMPLETED: "completed",
   PROVIDER_ERROR: "provider_error",
+  FAILED_RETRYABLE: CHAT_REQUEST_STATES.FAILED_RETRYABLE,
   DEGRADED: "degraded",
   CANCELLED: "cancelled",
 } as const;
@@ -65,7 +71,7 @@ const INFERENCE_DETAIL_TEXT = {
   CANCELLED_ACTIVE: "The current response was cancelled.",
   CANCEL_THINKING: "Cancelling the current reasoning pass…",
   CANCEL_RESPONSE: "Cancelling the current response…",
-  CANCEL_FAILED: "Guardian could not cancel the active task.",
+  CANCEL_FAILED: "The stop request could not be confirmed. Continuing to observe the task.",
   DEGRADED_STREAMING:
     "Provider visibility is degraded; still waiting for the next stream event.",
   DEGRADED_TERMINAL:
@@ -101,7 +107,7 @@ function parseTaskEventPayload(event: Event): Record<string, unknown> | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object"
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
@@ -262,6 +268,7 @@ type LifecycleTimingState = Pick<
   | "statusText"
   | "detailText"
   | "errorText"
+  | "failureCode"
   | "queuedAt"
   | "awaitingModelAt"
   | "awaitingFirstTokenAt"
@@ -274,7 +281,7 @@ function buildDelayedDetailText(
   state: Pick<LifecycleTimingState, "taskId">,
   canonicalState: Exclude<
     InferenceLifecycleState,
-    "idle" | "completed" | "provider_error" | "degraded" | "cancelled"
+    "idle" | "completed" | "provider_error" | "failed_retryable" | "degraded" | "cancelled"
   >,
   sendElapsedMs: number
 ): string {
@@ -360,12 +367,17 @@ export function describeInferenceRequestState(
   };
 
   let canonicalState: InferenceLifecycleState = INFERENCE_LIFECYCLE_STATE.IDLE;
-  if (state.phase === "completed" || completedAtMs != null) {
-    canonicalState = INFERENCE_LIFECYCLE_STATE.COMPLETED;
-  } else if (state.phase === "failed" || state.errorText) {
-    canonicalState = INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR;
+  // completed_at records terminal timing for failures and cancellations too.
+  if (state.phase === "failed" || state.errorText) {
+    canonicalState = isAcceptedTaskDeadlineFailure({
+      failure_code: state.failureCode,
+    })
+      ? INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE
+      : INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR;
   } else if (state.phase === "cancelled") {
     canonicalState = INFERENCE_LIFECYCLE_STATE.CANCELLED;
+  } else if (state.phase === "completed" || completedAtMs != null) {
+    canonicalState = INFERENCE_LIFECYCLE_STATE.COMPLETED;
   } else if (isExplicitDegradedState(state)) {
     canonicalState = INFERENCE_LIFECYCLE_STATE.DEGRADED;
   } else if (state.phase === "streaming" || firstVisibleProgressAtMs != null) {
@@ -383,6 +395,7 @@ export function describeInferenceRequestState(
     sendElapsedMs >= INFERENCE_SLOW_PATH_MS &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.COMPLETED &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR &&
+    canonicalState !== INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.CANCELLED;
 
   const delayedState =
@@ -572,13 +585,18 @@ function buildStatePatch(
   };
 }
 
-export function useInferenceRequestState() {
+export function useInferenceRequestState(options: {
+  onTaskCancelled?: (threadId: number, taskId: string) => void;
+} = {}) {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const [state, setState] = useState<InferenceRequestState>(
     createIdleInferenceRequestState()
   );
   const stateRef = useRef(state);
   const taskStreamRef = useRef<GuardianEventSource | null>(null);
   const attachedTaskIdRef = useRef<string | null>(null);
+  const cancelRequestRef = useRef<object | null>(null);
   const delayedLifecycleKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -586,10 +604,12 @@ export function useInferenceRequestState() {
   }, [state]);
 
   const closeTaskStream = useCallback(() => {
-    taskStreamRef.current?.close();
+    const stream = taskStreamRef.current;
     taskStreamRef.current = null;
     attachedTaskIdRef.current = null;
     delayedLifecycleKeyRef.current = null;
+    cancelRequestRef.current = null;
+    stream?.close();
   }, []);
 
   const applyPatch = useCallback((patch: Partial<InferenceRequestState>) => {
@@ -630,19 +650,28 @@ export function useInferenceRequestState() {
       errorText: string,
       options: {
         detailText?: string | null;
+        failureCode?: string | null;
         timingPatch?: Partial<InferenceRequestState>;
       } = {}
     ) => {
       closeTaskStream();
+      const deadlineExceeded = isAcceptedTaskDeadlineFailure({
+        failure_code: options.failureCode,
+      });
       applyPatch({
         ...options.timingPatch,
         phase: "failed",
         taskId: null,
-        statusText: INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
+        statusText: deadlineExceeded
+          ? "Request time limit reached."
+          : INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
         detailText:
           options.detailText ??
-          INFERENCE_DETAIL_TEXT.PROVIDER_ERROR,
+          (deadlineExceeded
+            ? ACCEPTED_TASK_DEADLINE_DETAIL_TEXT
+            : INFERENCE_DETAIL_TEXT.PROVIDER_ERROR),
         errorText,
+        failureCode: options.failureCode ?? null,
         canCancel: false,
         canSwitchToFast: false,
         isPendingCancel: false,
@@ -664,6 +693,7 @@ export function useInferenceRequestState() {
         statusText: null,
         detailText,
         errorText: null,
+        failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
         isPendingCancel: false,
@@ -685,6 +715,7 @@ export function useInferenceRequestState() {
         statusText: null,
         detailText,
         errorText: null,
+        failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
         isPendingCancel: false,
@@ -718,27 +749,24 @@ export function useInferenceRequestState() {
       );
       taskStreamRef.current = stream;
 
-      const handleTaskProgress = (event: Event) => {
-        const payload = parseTaskEventPayload(event);
+      const ownsCurrentStream = () =>
+        taskStreamRef.current === stream &&
+        attachedTaskIdRef.current === taskId &&
+        stateRef.current.threadId != null;
+
+      const acceptsTaskPayload = (payload: Record<string, unknown> | null) => {
+        if (!payload || !ownsCurrentStream()) return false;
         const threadId = getTaskEventThreadId(payload);
         const eventTaskId = getTaskEventTaskId(payload);
-        if (stateRef.current.threadId == null) {
-          return;
-        }
-        if (
-          Number.isFinite(threadId) &&
-          stateRef.current.threadId != null &&
-          threadId !== stateRef.current.threadId
-        ) {
-          return;
-        }
-        if (
-          eventTaskId &&
-          attachedTaskIdRef.current &&
-          eventTaskId !== attachedTaskIdRef.current
-        ) {
-          return;
-        }
+        return (
+          (threadId == null || threadId === stateRef.current.threadId) &&
+          (eventTaskId == null || eventTaskId === taskId)
+        );
+      };
+
+      const handleTaskProgress = (event: Event) => {
+        const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         applyPatch({
           taskId,
           phase: "streaming",
@@ -751,25 +779,7 @@ export function useInferenceRequestState() {
 
       const handleTaskState = (event: Event) => {
         const payload = parseTaskEventPayload(event);
-        const threadId = getTaskEventThreadId(payload);
-        const eventTaskId = getTaskEventTaskId(payload);
-        if (stateRef.current.threadId == null) {
-          return;
-        }
-        if (
-          Number.isFinite(threadId) &&
-          stateRef.current.threadId != null &&
-          threadId !== stateRef.current.threadId
-        ) {
-          return;
-        }
-        if (
-          eventTaskId &&
-          attachedTaskIdRef.current &&
-          eventTaskId !== attachedTaskIdRef.current
-        ) {
-          return;
-        }
+        if (!acceptsTaskPayload(payload)) return;
 
         const lifecycleState = normalizeTaskLifecycleState(
           payload?.state ?? payload?.status ?? payload?.lifecycle_state
@@ -813,11 +823,16 @@ export function useInferenceRequestState() {
               : "Guardian could not finish the response.";
           markFailed(errorText, {
             detailText: describeTaskFailureDetailText(payload),
+            failureCode:
+              typeof payload?.failure_code === "string" ? payload.failure_code : null,
             timingPatch,
           });
           return;
         }
         if (lifecycleState === TASK_LIFECYCLE_STATE.CANCELLED) {
+          if (stateRef.current.threadId != null) {
+            optionsRef.current.onTaskCancelled?.(stateRef.current.threadId, taskId);
+          }
           markCancelled(INFERENCE_DETAIL_TEXT.CANCELLED_ACTIVE, {
             timingPatch,
           });
@@ -835,6 +850,7 @@ export function useInferenceRequestState() {
 
       const handleTaskCompleted = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         const detail =
           typeof payload?.message_id === "number"
             ? INFERENCE_DETAIL_TEXT.COMPLETED_AND_SAVED
@@ -844,6 +860,10 @@ export function useInferenceRequestState() {
 
       const handleTaskCancelled = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
+        if (stateRef.current.threadId != null) {
+          optionsRef.current.onTaskCancelled?.(stateRef.current.threadId, taskId);
+        }
         markCancelled(INFERENCE_DETAIL_TEXT.CANCELLED_ACTIVE, {
           timingPatch: extractTimingPatch(payload),
         });
@@ -851,12 +871,15 @@ export function useInferenceRequestState() {
 
       const handleTaskFailed = (event: Event) => {
         const payload = parseTaskEventPayload(event);
+        if (!acceptsTaskPayload(payload)) return;
         const errorText =
           typeof payload?.error === "string" && payload.error.trim().length > 0
             ? payload.error.trim()
             : "Guardian could not finish the response.";
         markFailed(errorText, {
           detailText: describeTaskFailureDetailText(payload),
+          failureCode:
+            typeof payload?.failure_code === "string" ? payload.failure_code : null,
           timingPatch: extractTimingPatch(payload),
         });
       };
@@ -868,6 +891,7 @@ export function useInferenceRequestState() {
       stream.addEventListener("task.failed", handleTaskFailed as EventListener);
       stream.addEventListener("completion.error", handleTaskFailed as EventListener);
       stream.onerror = () => {
+        if (!ownsCurrentStream()) return;
         if (stateRef.current.phase === "completed" || stateRef.current.phase === "cancelled") {
           return;
         }
@@ -896,6 +920,7 @@ export function useInferenceRequestState() {
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.COMPLETED ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.DEGRADED ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR ||
+      snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.CANCELLED
     ) {
       delayedLifecycleKeyRef.current = null;
@@ -918,6 +943,7 @@ export function useInferenceRequestState() {
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.COMPLETED ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.DEGRADED ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR ||
+        currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.CANCELLED ||
         currentSnapshot.delayDetailText == null ||
         !currentSnapshot.isDelayed
@@ -952,30 +978,41 @@ export function useInferenceRequestState() {
   }, [applyPatch, state]);
 
   const requestCancel = useCallback(async () => {
-    const taskId = stateRef.current.taskId;
-    if (!taskId) return false;
+    const { taskId, threadId, mode } = stateRef.current;
+    const stream = taskStreamRef.current;
+    if (!taskId || !stream || !isActiveInferencePhase(stateRef.current.phase)) return false;
+    const cancelRequest = {};
+    cancelRequestRef.current = cancelRequest;
+    const ownsCancelRequest = () =>
+      cancelRequestRef.current === cancelRequest &&
+      taskStreamRef.current === stream &&
+      attachedTaskIdRef.current === taskId &&
+      stateRef.current.threadId === threadId;
     applyPatch({
       isPendingCancel: true,
       detailText:
-        stateRef.current.mode === "think"
+        mode === "think"
           ? INFERENCE_DETAIL_TEXT.CANCEL_THINKING
           : INFERENCE_DETAIL_TEXT.CANCEL_RESPONSE,
     });
     try {
       await api.post(`/api/tasks/${encodeURIComponent(taskId)}/cancel`);
       return true;
-    } catch (error: any) {
-      markFailed(
-        error?.response?.data?.detail ||
-          error?.message ||
-          "Unable to stop the current request.",
-        {
+    } catch {
+      if (ownsCancelRequest()) {
+        // A stop POST failure supplies no terminal evidence for the task.
+        applyPatch({
+          isPendingCancel: false,
           detailText: INFERENCE_DETAIL_TEXT.CANCEL_FAILED,
-        }
-      );
+        });
+      }
       return false;
+    } finally {
+      if (cancelRequestRef.current === cancelRequest) {
+        cancelRequestRef.current = null;
+      }
     }
-  }, [applyPatch, markFailed]);
+  }, [applyPatch]);
 
   useEffect(() => () => closeTaskStream(), [closeTaskStream]);
 
