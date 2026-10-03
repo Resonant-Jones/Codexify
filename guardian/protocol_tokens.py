@@ -211,6 +211,47 @@ class ExecutorId(str, Enum):
     OPENCODE = "opencode"
 
 
+class CodexExecutionInterface(str, Enum):
+    """Explicit Codex-native interfaces within the existing Codex channel."""
+
+    APP_SERVER = "app_server"
+
+
+class CodexAppServerProtocolVersion(str, Enum):
+    V2 = "v2"
+
+
+class CodexAppServerShutdownStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    CLEAN_EXIT = "clean_exit"
+    EXITED_BEFORE_CLOSE = "exited_before_close"
+    TERMINATED = "terminated"
+    KILLED = "killed"
+
+
+class CodexAppServerFailureKind(str, Enum):
+    EXECUTION_INTERFACE_UNSUPPORTED = "execution_interface_unsupported"
+    BINARY_NOT_FOUND = "binary_not_found"
+    SPAWN_FAILED = "spawn_failed"
+    INITIALIZATION_FAILED = "initialization_failed"
+    MALFORMED_PROTOCOL = "malformed_protocol"
+    THREAD_START_FAILED = "thread_start_failed"
+    TURN_START_FAILED = "turn_start_failed"
+    TURN_FAILED = "turn_failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+    PREMATURE_PROCESS_EXIT = "premature_process_exit"
+    UNSUPPORTED_INTERACTION = "unsupported_interaction"
+    SHUTDOWN_FAILED = "shutdown_failed"
+
+
+class ExecutionEvidenceStatus(str, Enum):
+    OBSERVED = "observed"
+    CONFIGURED_ONLY = "configured_only"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
 class ExecutorReleasePosture(str, Enum):
     OFFICIAL = "official"
     OPTIONAL = "optional"
@@ -280,6 +321,17 @@ class ErrorCode(str, Enum):
     DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
     DELEGATION_EXECUTOR_NONZERO_EXIT = "DELEGATION_EXECUTOR_NONZERO_EXIT"
     DELEGATION_EXECUTOR_SPAWN_FAILED = "DELEGATION_EXECUTOR_SPAWN_FAILED"
+    DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED = (
+        "DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED"
+    )
+    DELEGATION_EXECUTOR_CANCELLED = "DELEGATION_EXECUTOR_CANCELLED"
+    CODEX_APP_SERVER_PROTOCOL_ERROR = "CODEX_APP_SERVER_PROTOCOL_ERROR"
+    CODEX_APP_SERVER_REQUEST_FAILED = "CODEX_APP_SERVER_REQUEST_FAILED"
+    CODEX_APP_SERVER_TURN_FAILED = "CODEX_APP_SERVER_TURN_FAILED"
+    CODEX_APP_SERVER_UNSUPPORTED_INTERACTION = (
+        "CODEX_APP_SERVER_UNSUPPORTED_INTERACTION"
+    )
+    CODEX_APP_SERVER_SHUTDOWN_FAILED = "CODEX_APP_SERVER_SHUTDOWN_FAILED"
     WORKTREE_LEASE_REQUIRED = "WORKTREE_LEASE_REQUIRED"
     WORKTREE_LEASE_NOT_FOUND = "WORKTREE_LEASE_NOT_FOUND"
     WORKTREE_LEASE_NOT_ACTIVE = "WORKTREE_LEASE_NOT_ACTIVE"
@@ -576,6 +628,21 @@ DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
 )
 EXECUTOR_IDS: frozenset[str] = frozenset({executor.value for executor in ExecutorId})
+CODEX_EXECUTION_INTERFACES: frozenset[str] = frozenset(
+    {interface.value for interface in CodexExecutionInterface}
+)
+CODEX_APP_SERVER_PROTOCOL_VERSIONS: frozenset[str] = frozenset(
+    {version.value for version in CodexAppServerProtocolVersion}
+)
+CODEX_APP_SERVER_SHUTDOWN_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in CodexAppServerShutdownStatus}
+)
+CODEX_APP_SERVER_FAILURE_KINDS: frozenset[str] = frozenset(
+    {kind.value for kind in CodexAppServerFailureKind}
+)
+EXECUTION_EVIDENCE_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in ExecutionEvidenceStatus}
+)
 EXECUTOR_RELEASE_POSTURES: frozenset[str] = frozenset(
     {posture.value for posture in ExecutorReleasePosture}
 )
@@ -791,6 +858,11 @@ __all__ = [
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
+    "CodexExecutionInterface",
+    "CodexAppServerProtocolVersion",
+    "CodexAppServerShutdownStatus",
+    "CodexAppServerFailureKind",
+    "ExecutionEvidenceStatus",
     "ExecutorReleasePosture",
     "ExecutorAuthMode",
     "ExecutorAvailabilityState",
@@ -843,6 +915,11 @@ __all__ = [
     "TRACE_SUPPRESSION_REASONS",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
+    "CODEX_EXECUTION_INTERFACES",
+    "CODEX_APP_SERVER_PROTOCOL_VERSIONS",
+    "CODEX_APP_SERVER_SHUTDOWN_STATUSES",
+    "CODEX_APP_SERVER_FAILURE_KINDS",
+    "EXECUTION_EVIDENCE_STATUSES",
     "EXECUTOR_RELEASE_POSTURES",
     "EXECUTOR_AUTH_MODES",
     "EXECUTOR_AVAILABILITY_STATES",

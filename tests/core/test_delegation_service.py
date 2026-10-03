@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import json
 
-from guardian.core.delegation_service import DelegationService
+import pytest
+
+from guardian.core.delegation_service import (
+    DelegationExecutionInterfaceError,
+    DelegationService,
+)
 from guardian.core.executors.base import (
     CodexifyExecutorRequest,
     ExecutorTerminalResult,
 )
 from guardian.core.executors.codex_executor import CodexExecutor
+from guardian.core.executors.codex_app_server_executor import (
+    CodexAppServerExecutor,
+)
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
+    CodexExecutionInterface,
     DelegationExecutorName,
     DelegationJobStatus,
 )
@@ -73,6 +82,47 @@ def test_approval_creates_job_and_enqueue_payload() -> None:
     queued_job = service.mark_job_queued(approval.job.delegation_id)
     assert queued_job.status == DelegationJobStatus.QUEUED.value
     assert queued_job.queued_at is not None
+
+
+def test_explicit_app_server_selection_is_preserved_and_resolved() -> None:
+    service = DelegationService()
+    request = _request()
+    request.context["source_message_id"] = 77
+    request.context["execution_interface"] = CodexExecutionInterface.APP_SERVER.value
+    packet = service.draft_packet(request)
+
+    approval = service.approve_packet(packet.packet_id)
+    executor = service.resolve_executor(
+        approval.job.executor,
+        context=approval.job.context,
+    )
+    executor_request = service.build_executor_request(
+        approval.job,
+        packet=packet,
+        task=approval.task,
+    )
+
+    assert isinstance(executor, CodexAppServerExecutor)
+    assert executor_request.context["execution_interface"] == "app_server"
+    assert executor_request.metadata["execution_interface"] == "app_server"
+    assert executor_request.thread_id == 42
+    assert executor_request.source_message_id == 77
+
+
+def test_unsupported_execution_interface_fails_before_job_creation() -> None:
+    service = DelegationService()
+    request = _request()
+    request.context["execution_interface"] = "unknown_interface"
+    packet = service.draft_packet(request)
+
+    with pytest.raises(DelegationExecutionInterfaceError) as error:
+        service.approve_packet(packet.packet_id)
+
+    assert error.value.error_code == "DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED"
+    assert service.get_job_by_packet(packet.packet_id) is None
+    persisted_packet = service.get_packet(packet.packet_id)
+    assert persisted_packet is not None
+    assert persisted_packet.status == DelegationJobStatus.DRAFT.value
 
 
 def test_build_executor_request_preserves_lineage_fields() -> None:
