@@ -40,6 +40,7 @@ from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
 from .chat_postgres_deadline import (
+    AcceptedDeadlineQueuePool,
     accepted_postgres_queries_active,
     connect_with_query_bounds,
 )
@@ -137,6 +138,7 @@ class PgDB(ChatDB):
         self._sa_engine = create_engine(
             self._sa_url,
             future=True,
+            poolclass=AcceptedDeadlineQueuePool,
             creator=lambda: connect_with_query_bounds(self.dsn),
         )
         self._SessionLocal = sessionmaker(

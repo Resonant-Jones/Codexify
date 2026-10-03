@@ -1,7 +1,7 @@
 """ADR-087 query bounds for worker-owned PgDB operations.
 
-This scope bounds native query polling, not DNS, connection establishment,
-pool admission, or remote commit acknowledgement. It never creates a budget.
+This scope bounds native query polling and pool waiting, not DNS, connection
+establishment or remote commit acknowledgement. It never creates a budget.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 
 import psycopg
 from psycopg import waiting
+from sqlalchemy.pool import QueuePool
+from sqlalchemy.util import queue as pool_queue
 
 from guardian.tasks.chat_deadline import (
     AcceptedChatTaskDeadline,
@@ -81,6 +83,43 @@ def use_postgres_terminal_budget() -> None:
     value = _budget.get()
     if value is not None:
         value.terminal = True
+
+
+class AcceptedDeadlineQueue(pool_queue.Queue):
+    """Clip each pool borrower without changing the pool's shared timeout."""
+
+    def get(self, block=True, timeout=None):
+        budget = _budget.get()
+        if budget is None:
+            return super().get(block, timeout)
+        # SQLAlchemy's queue uses an RLock. Hold it through the post-admission
+        # check so an expired borrower can restore the entry before another
+        # thread fills the slot. No connection has been checked out yet.
+        while not self.mutex.acquire(timeout=budget.remaining()):
+            budget.remaining()
+        try:
+            remaining = budget.remaining()
+            clipped = remaining if timeout is None else min(timeout, remaining)
+            try:
+                item = super().get(block, clipped)
+            except pool_queue.Empty:
+                budget.remaining()
+                raise
+            try:
+                budget.remaining()
+            except (AcceptedChatTaskDeadlineExceeded, ValueError):
+                self._put(item)
+                self.not_empty.notify()
+                raise
+            return item
+        finally:
+            self.mutex.release()
+
+
+class AcceptedDeadlineQueuePool(QueuePool):
+    """Keep normal QueuePool capacity/reset semantics with scoped queue waits."""
+
+    _queue_class = AcceptedDeadlineQueue
 
 
 class AcceptedDeadlineConnection(psycopg.Connection):
