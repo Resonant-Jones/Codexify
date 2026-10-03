@@ -105,6 +105,7 @@
       "changed_commits": [
         "021b78db7e84bf9299a53365a23c84a2d55d5356",
         "0233ddc345b2cf7b9a1c9a9e9b67b5e153bbf6e6",
+        "028f90340208b23e36a0b6a42eadf084b806afd8",
         "05989b3ad2154b8f70deb74a3b5d1a954e8401b2",
         "0755503ec85390d57b5204aa554fabd334738ec9",
         "07902a746313153ec479f39038606c3e7817741c",
@@ -162,9 +163,11 @@
         "77ad9e9cb4c7eb3d404558957e42b0540dfd1c0f",
         "7abaf09027f5335ae9dd57b5a3bf2a1028176690",
         "7c2985bb9285be4292ce6859e6a93b41941d4fb9",
+        "864f3d127421abce250c8746e9f162a5ba080620",
         "88c3bcb3191364eb4fecc15fec444405b0982d5b",
         "89b59efff6189ec305361f077c7ec2095d1bd34c",
         "89f2fb6aa1c3b025859b74f79d2a542da9a6cdca",
+        "8eb6b53fe8530ff172c6a26ee92d8ab0c420dd2a",
         "91b437f87e567a55fbcf539376d0450f83ae24ec",
         "94eb437ebffd5cbaa61c02c4add953e506632c98",
         "97e7006e1eae092c4554b147175a301ea2717a6d",
@@ -180,7 +183,9 @@
         "af1f072847bd06d163caed7917973661648614ed",
         "b04e0d088e7627f29e4476dcf268ca5f0d78faa5",
         "b6bdd84f92147066ebb4e24356a97f2507571fe4",
+        "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648",
         "bad9b5b5288027cb297285633be93ae3365b7666",
+        "bbd3a5f3d4d745e727262f439538caad0fb2ccd2",
         "bc065837d53c33223c225bfc37145fb1399f4192",
         "be19226784d55e775cbcb7d7087eada14852e0cd",
         "c0894887c8eaa6c2653ab42dfa869e718902de46",
@@ -199,6 +204,7 @@
         "e098e137fb2dc8b965efeccec5beb3df676935a7",
         "e19cfff77f8668ea0186a613c18bc991091419dd",
         "e51219a70e3774ca2bc8ccab5de50eb4820ab16f",
+        "e6cdbe6fa80f1901be6d063149d696f023f58053",
         "e7cdae17d4a102612fc4b4ab41ab8c50180c237b",
         "e863ecbb38870df6618fa5be345a2ea23210ab47",
         "ead44a8c06c623255577aab70ac33417f4767b70",
@@ -288,12 +294,16 @@
       "anchor_path": "guardian/workers/",
       "changed_commits": [
         "0233ddc345b2cf7b9a1c9a9e9b67b5e153bbf6e6",
+        "028f90340208b23e36a0b6a42eadf084b806afd8",
         "0798be4eecac395fd71e7c48056ba704a9af9b0e",
         "1d1fe36a8a82070f9b2a54be18967865343b1d8e",
         "20788cda132602c53246c6ea19146b45e8e90c41",
         "458b298fc6dd812e9928f32ccd95a568f60be445",
         "56c980914142e2affba76d755c30fa20fb8bccb6",
-        "745432f19a2abf2492ae07e9a5bad037a07c1900"
+        "745432f19a2abf2492ae07e9a5bad037a07c1900",
+        "864f3d127421abce250c8746e9f162a5ba080620",
+        "8eb6b53fe8530ff172c6a26ee92d8ab0c420dd2a",
+        "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648"
       ],
       "document_id": "codexify:doc:architecture:kb-entrypoint",
       "path": "docs/architecture/README.md"
@@ -308,11 +318,11 @@
     }
   ],
   "coverage_gaps": [],
-  "generated_at": "2026-10-02T23:05:06-04:00",
+  "generated_at": "2026-10-02T23:08:38-04:00",
   "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
   "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
   "record_type": "stale_documents_report",
-  "repository_revision": "458b298fc6dd812e9928f32ccd95a568f60be445",
+  "repository_revision": "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648",
   "schema_version": "1.0.0",
   "stale_documents": [
     {

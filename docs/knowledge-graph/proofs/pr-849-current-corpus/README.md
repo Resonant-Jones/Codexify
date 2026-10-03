@@ -2,9 +2,12 @@
 
 ## Scope and source
 
-Source commit: `458b298fc6dd812e9928f32ccd95a568f60be445` on
+Source commit: `b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648` on
 `feature/user-messaging-and-discovery`, following reviewed head
 `0f305806795742e102b7ae057c4ec13f99512a99`.
+Integration merged current main `864f3d127` through #850 without conflicts.
+The source commit above includes the three fixes and that current-main basis.
+
 This proof is branch-local integration evidence, not merge, deployment or
 post-merge Private Preview qualification. ADR-097 and messaging authority remain
 unchanged. Current `origin/main` at reconciliation was
@@ -65,7 +68,7 @@ Reproduce from repository root:
 from pathlib import Path
 from scripts.knowledge_graph import validate_and_generate_dlg as dlg
 root = Path.cwd()
-revision = "458b298fc6dd812e9928f32ccd95a568f60be445"
+revision = "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648"
 import subprocess
 created_at = subprocess.check_output(
     ["git", "show", "-s", "--format=%cI", revision], text=True

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T23:05:06-04:00",
+  "generated_at": "2026-10-02T23:08:38-04:00",
   "graph_id": "codexify:graph:document-lifecycle",
   "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
   "illustrative": false,
@@ -989,7 +989,7 @@
   ],
   "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
   "record_type": "document_graph",
-  "repository_revision": "458b298fc6dd812e9928f32ccd95a568f60be445",
+  "repository_revision": "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648",
   "schema_version": "1.0.0",
   "supersession_set": []
 }
