@@ -1,3 +1,5 @@
+import type { ToolCommandFailureReason } from "@/contracts/runtimeTokens";
+
 export type ComposerInferenceMode = "default" | "no_think" | "think";
 
 export type InferenceLatencyMetric = {
@@ -27,6 +29,7 @@ export interface InferenceRequestState {
   detailText: string | null;
   errorText: string | null;
   failureCode?: string | null;
+  toolLoopStopReason?: ToolCommandFailureReason | null;
   queuedAt?: string | null;
   awaitingModelAt?: string | null;
   awaitingFirstTokenAt?: string | null;
@@ -56,6 +59,7 @@ export function createIdleInferenceRequestState(): InferenceRequestState {
     detailText: null,
     errorText: null,
     failureCode: null,
+    toolLoopStopReason: null,
     queuedAt: null,
     awaitingModelAt: null,
     awaitingFirstTokenAt: null,

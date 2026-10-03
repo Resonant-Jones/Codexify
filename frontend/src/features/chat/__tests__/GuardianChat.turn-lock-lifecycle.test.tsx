@@ -993,6 +993,27 @@ describe("GuardianChat turn lock lifecycle", () => {
     expect(current.close).toHaveBeenCalledOnce();
   });
 
+  it.each(["task.failed", "completion.error"].flatMap((type) =>
+    ["tool_command_failed", "tool_command_blocked"].map((reason) => [type, reason])
+  ))("projects owned global command failure %s: %s through the actual hook", async (type, reason) => {
+    inferenceMocks.realHook = true;
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
+    emitLiveEvent(type, {
+      thread_id: 1, task_id: "task-1", toolTurnState: "failed",
+      loopStopReason: reason, error: reason,
+      completed_at: "2026-04-05T00:00:01.000Z",
+    });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed");
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
   it.each(["task.failed", "completion.error"])("projects owned global deadline %s through the actual hook", async (type) => {
     inferenceMocks.realHook = true;
     const view = renderChat();

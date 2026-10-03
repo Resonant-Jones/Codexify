@@ -96,7 +96,10 @@ import {
   describeInferenceRequestState,
   useInferenceRequestState,
 } from "@/features/chat/hooks/useInferenceRequestState";
-import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
+import {
+  describeTaskFailureDetailText,
+  getToolCommandFailureReason,
+} from "@/features/chat/requestFailurePresentation";
 import {
   formatRuntimeHealthDiagnostics,
   type RuntimeHealthStatus,
@@ -3128,6 +3131,7 @@ export function GuardianChat({
           String(payload?.error || "Guardian could not finish the response."),
           {
             detailText: describeTaskFailureDetailText(payload),
+            toolLoopStopReason: getToolCommandFailureReason(payload),
             failureCode:
               typeof payload?.failure_code === "string" ? payload.failure_code : null,
           }
