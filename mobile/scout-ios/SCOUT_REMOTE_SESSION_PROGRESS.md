@@ -336,3 +336,14 @@ host lane. The existing origin proxy also needs a bounded query/referrer-free
 logging override before sign-in because its default logs include the request
 URI. Routing and ingress/access policy remain unchanged. Installation/deployment
 and operator-authenticated continuity are separate remaining proof gates.
+
+The authentication qualification source is committed as `3f6d1cdcd`; its signed
+build is installed and launched in the existing proof Simulator, preserving app
+configuration and Keychain. Device Hub Settings exposes all nine stage rows,
+initially Waiting/pending. The corresponding backend/browser slice `f231ef3cf`
+is deployed on VaultNode with the bounded safe origin logger. Serving bytes,
+health, no-seed posture, anonymous denial and synthetic query redaction are
+verified. Schema and ten preserved table fingerprints match before/after;
+eighteen other services are unchanged. The operator was asked for one Guardian
+sign-in. Protected native read, full #815 continuity and logout are still pending.
+No account provisioning, password, role, approval or Cloudflare change occurred.
