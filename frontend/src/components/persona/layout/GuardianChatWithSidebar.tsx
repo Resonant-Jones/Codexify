@@ -151,6 +151,11 @@ function isCanonicalGuardianStartRoute(): boolean {
   return window.location.pathname === "/" || window.location.pathname === "/chat";
 }
 
+function readRouteThreadId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.location.pathname.match(/\/chat\/(\d+)/)?.[1] ?? null;
+}
+
 // Presentation only: thread identity continues to belong to SessionSpine.
 const GUARDIAN_PRESENTATION_KEY = "cfy.guardian.presentation";
 const GUARDIAN_SIDEBAR_INTRO_KEY = "cfy.guardian.sidebarIntro";
@@ -451,7 +456,7 @@ export default function GuardianChatWithSidebar({
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const projectListRef = React.useRef(projectCache.projectList);
   projectListRef.current = projectCache.projectList;
-  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [activeId, setActiveId] = React.useState<string | null>(readRouteThreadId);
   const [assistantMessageRefresh, setAssistantMessageRefresh] = React.useState<{
     threadId: number;
     sequence: number;
@@ -545,10 +550,7 @@ export default function GuardianChatWithSidebar({
   });
 
   const resolveRouteThreadId = React.useCallback((): string | null => {
-    if (typeof window === "undefined") return null;
-    const match = window.location.pathname.match(/\/chat\/(\d+)/);
-    if (match && match[1]) return match[1];
-    return null;
+    return readRouteThreadId();
   }, []);
 
   React.useEffect(() => {

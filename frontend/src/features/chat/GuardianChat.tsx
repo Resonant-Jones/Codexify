@@ -2681,7 +2681,7 @@ export function GuardianChat({
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     void activateThread(effectiveThreadId);
   }, [activateThread, effectiveThreadId]);
   useEffect(() => {

@@ -25,6 +25,7 @@ const apiSpies = vi.hoisted(() => ({
 }));
 const sessionState = vi.hoisted(() => ({
   activeThreadId: null as string | null,
+  hydratePromise: null as Promise<unknown> | null,
 }));
 const liveEvents = vi.hoisted(() => ({
   subscriptions: new Map<string, Array<(event: MockLiveEvent) => void>>(),
@@ -144,7 +145,11 @@ vi.mock("@/state/session/SessionStateStore", () => ({
 
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
-    hydrate = vi.fn(async () => null);
+    hydrate = vi.fn(async (options?: { threadId?: string }) => {
+      const result = await (sessionState.hydratePromise ?? Promise.resolve(null));
+      if (options?.threadId) sessionState.activeThreadId = options.threadId;
+      return result;
+    });
     getDraft = vi.fn(() => "");
     getActiveTab = vi.fn(() =>
       sessionState.activeThreadId
@@ -230,6 +235,7 @@ describe("GuardianChatWithSidebar terminal projection", () => {
     __resetThreadRefreshGuardForTests();
     liveEvents.subscriptions.clear();
     sessionState.activeThreadId = null;
+    sessionState.hydratePromise = null;
     window.history.replaceState({}, "", "/chat");
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -274,6 +280,21 @@ describe("GuardianChatWithSidebar terminal projection", () => {
       "Durable assistant output"
     );
     expectProviderStatusHidden(PROVIDER_RUNTIME_STATES.READY);
+  });
+
+  it("selects an explicit thread route before session hydration completes", async () => {
+    window.history.replaceState({}, "", "/chat/7");
+    let finishHydration!: () => void;
+    sessionState.hydratePromise = new Promise<void>((resolve) => {
+      finishHydration = resolve;
+    });
+
+    renderShell(PROVIDER_RUNTIME_STATES.READY);
+
+    expect(screen.getByLabelText("Completed assistant response")).toHaveTextContent(
+      "Durable assistant output"
+    );
+    await act(async () => finishHydration());
   });
 
   it("forwards a persisted assistant event to the matching active chat snapshot", async () => {
