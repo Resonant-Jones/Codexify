@@ -41,6 +41,10 @@ from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
 )
+from guardian.core.chat_redis_deadline import (
+    accepted_redis_scope,
+    use_redis_terminal_budget,
+)
 from guardian.core.chat_postgres_deadline import (
     accepted_postgres_query_scope,
     use_postgres_terminal_budget,
@@ -2387,6 +2391,7 @@ def _run_chat_completion_task_compat(
         return result
 
     use_postgres_terminal_budget()
+    use_redis_terminal_budget()
     if hosted_room_context is not None:
         hosted_room_context = validate_hosted_room_completion_context(
             dependencies.chatlog_db,
@@ -2580,9 +2585,15 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         deadline = None
         invalid = True
     query_clock = time.monotonic()
+    query_wall = datetime.now(timezone.utc)
     with accepted_postgres_query_scope(
         deadline,
-        now=datetime.now(timezone.utc),
+        now=query_wall,
+        monotonic_at_wall=query_clock,
+        invalid=invalid,
+    ), accepted_redis_scope(
+        deadline,
+        now=query_wall,
         monotonic_at_wall=query_clock,
         invalid=invalid,
     ):
@@ -2674,6 +2685,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         )
         if existing_message_id is not None:
             use_postgres_terminal_budget()
+            use_redis_terminal_budget()
             attempt_linked = _record_chat_completion_attempt_link(
                 task, existing_message_id
             )
@@ -2715,6 +2727,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
 
         if is_cancelled(task.task_id):
             use_postgres_terminal_budget()
+            use_redis_terminal_budget()
             _record_chat_completion_attempt_terminal(
                 task, TaskEventType.TASK_CANCELLED.value
             )
@@ -2748,6 +2761,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
             )
             if existing_message_id is not None:
                 use_postgres_terminal_budget()
+                use_redis_terminal_budget()
                 attempt_linked = _record_chat_completion_attempt_link(
                     task, existing_message_id
                 )
@@ -2848,6 +2862,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         )
         completion_result = result
         use_postgres_terminal_budget()
+        use_redis_terminal_budget()
         terminal_evidence = require_successful_terminal(result)
         if result.get("persistence_outcome") != "persisted":
             raise RuntimeError("assistant_persistence_not_confirmed")
@@ -3132,6 +3147,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         )
     except ChatTaskCancelled as exc:
         use_postgres_terminal_budget()
+        use_redis_terminal_budget()
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_CANCELLED.value
         )
@@ -3176,6 +3192,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         )
     except Exception as exc:
         use_postgres_terminal_budget()
+        use_redis_terminal_budget()
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_FAILED.value
         )
@@ -3304,6 +3321,9 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
             exc,
         )
     finally:
+        # Owner cleanup is terminal work even after an early worker exception.
+        use_postgres_terminal_budget()
+        use_redis_terminal_budget()
         owner = str(getattr(task, "turn_lock_owner", "") or "").strip()
         if not owner:
             owner = str(task.task_id or "").strip()
@@ -3323,6 +3343,22 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
                     owner,
                     exc,
                 )
+
+
+def _chat_task_cancelled_before_dispatch(task: ChatCompletionTask) -> bool:
+    """Bound accepted pre-dispatch observation; never drop an accepted task."""
+    try:
+        deadline = accepted_chat_deadline_for_task(task)
+        with accepted_redis_scope(deadline):
+            _publish_worker_heartbeat("active")
+            return is_cancelled(task.task_id)
+    except (AcceptedChatTaskDeadlineExceeded, ValueError):
+        # Run the same authoritative worker lifecycle inline for expired or
+        # malformed snapshots, rather than enqueueing replacement work.
+        return True
+    except Exception as exc:
+        logger.warning("[chat-worker] pre-dispatch cancellation unavailable: %s", exc)
+        return False
 
 
 def _initialize_worker() -> None:
@@ -3363,7 +3399,6 @@ def run_forever() -> None:
 
             if not payload:
                 continue
-            _publish_worker_heartbeat("active")
             try:
                 task = task_from_dict(payload)
             except Exception as exc:
@@ -3386,7 +3421,7 @@ def run_forever() -> None:
             # Already-authoritative cancellations must not queue behind busy
             # completion slots. Use the same lifecycle and owner-guarded finally
             # as executor work, including persisted-turn deduplication.
-            if is_cancelled(task.task_id):
+            if _chat_task_cancelled_before_dispatch(task):
                 _run_chat_task(task)
                 continue
             executor.submit(_run_chat_task, task)
