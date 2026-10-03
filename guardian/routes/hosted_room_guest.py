@@ -46,7 +46,10 @@ from guardian.core.chat_completion_service import (
     ChatCompletionEnqueueError,
     enqueue_chat_completion,
 )
-from guardian.core.auth import reject_mixed_principal_credentials
+from guardian.core.auth import (
+    reject_mixed_principal_credentials,
+    reject_non_guest_bootstrap_credentials,
+)
 from guardian.core.dependencies import _auth_mode
 from guardian.core.request_correlation import normalize_request_id
 from guardian.core.preview_access import is_private_preview
@@ -336,6 +339,10 @@ def exchange_invitation(
     reused.
     """
     _reject_mixed_guest_request(request)
+    reject_non_guest_bootstrap_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+    )
     token = body.invitation_token  # already validated by Pydantic
 
     # Hash the supplied token to look up the invitation

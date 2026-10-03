@@ -141,6 +141,23 @@ def reject_mixed_principal_credentials(
         _raise_mixed_principal_credentials()
 
 
+def reject_non_guest_bootstrap_credentials(request: Request, *, enabled: bool) -> None:
+    """Exclude session-selector material from a guest-only bootstrap.
+
+    Any nonempty Authorization or gc_session value would coexist with the
+    issued guest cookie, including malformed or expired material. This narrow
+    presence check grants no authority and performs no credential validation.
+    """
+    if enabled and any(
+        value and value.strip()
+        for value in (
+            request.headers.get("Authorization"),
+            request.cookies.get("gc_session"),
+        )
+    ):
+        _raise_mixed_principal_credentials()
+
+
 def _raise_mixed_principal_credentials() -> None:
     raise HTTPException(
         status_code=400,

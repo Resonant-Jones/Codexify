@@ -397,7 +397,9 @@ def test_undecodable_or_oversized_presence_is_not_a_500(monkeypatch, token):
 @pytest.mark.parametrize(
     "mode,exposure", [("remote", "local_safe"), ("local", "private_preview")]
 )
-@pytest.mark.parametrize("mix", ["account_operator", "guest_account"])
+@pytest.mark.parametrize(
+    "mix", ["account_operator", "guest_account", "guest_operator"]
+)
 def test_mixed_invitation_exchange_keeps_the_invitation_unconsumed(
     invitation_client, mock_db, monkeypatch, mode, exposure, mix
 ):
@@ -426,7 +428,9 @@ def test_mixed_invitation_exchange_keeps_the_invitation_unconsumed(
     response = invitation_client.post(
         "/api/hosted-room-invitations/exchange",
         json={"invitation_token": token},
-        headers={"Authorization": f"Bearer {account}"},
+        headers={
+            "Authorization": f"Bearer {operator if mix == 'guest_operator' else account}"
+        },
         cookies=cookies,
     )
     _assert_mixed(response)
@@ -452,6 +456,117 @@ def test_mixed_invitation_exchange_keeps_the_invitation_unconsumed(
     assert accepted.status_code == 200, accepted.text
     with mock_db.get_session() as session:
         assert session.get(HostedRoomInvite, invite_id).status == "accepted"
+
+
+@pytest.mark.parametrize(
+    "mode,exposure", [("remote", "local_safe"), ("local", "private_preview")]
+)
+@pytest.mark.parametrize("selector", ["authorization", "gc_session"])
+@pytest.mark.parametrize(
+    "credential_kind",
+    [
+        "account_session",
+        "operator_session",
+        "account_jwt",
+        "operator_jwt",
+        "expired_operator",
+        "malformed",
+    ],
+)
+def test_guest_bootstrap_rejects_non_guest_selector_before_lookup_and_allows_clean_retry(
+    invitation_client, mock_db, monkeypatch, mode, exposure, selector, credential_kind
+):
+    from guardian.routes import hosted_room_guest
+    from guardian.db.models import HostedRoomInvite, HostedRoomParticipant
+    from sqlalchemy import select
+
+    room_id = _create_room(invitation_client)
+    invite_id, token = _create_invite(invitation_client, room_id)
+    _configure_remote(monkeypatch)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", mode)
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", exposure)
+    purpose = (
+        ACCOUNT_SESSION_PURPOSE
+        if credential_kind.startswith("account")
+        else OPERATOR_SESSION_PURPOSE
+    )
+    if credential_kind == "malformed":
+        credential = "malformed-session-material"
+    elif credential_kind.endswith("jwt"):
+        credential = _presence_token(json.dumps({"purpose": purpose}).encode(), jwt=True)
+    else:
+        credential, _ = issue_session_token(
+            subject="bootstrap-test",
+            purpose=purpose,
+            ttl_seconds=-60 if credential_kind == "expired_operator" else 3600,
+        )
+
+    forbidden_validation = Mock(
+        side_effect=AssertionError("guest bootstrap must not authenticate other lanes")
+    )
+    monkeypatch.setattr(auth, "verify_session_token", forbidden_validation)
+    monkeypatch.setattr(
+        dependencies, "resolve_account_session_subject", forbidden_validation
+    )
+    monkeypatch.setattr(hosted_room_guest, "decode_principal", forbidden_validation)
+    db_access = Mock(wraps=hosted_room_guest._require_db)
+    guest_token = Mock(wraps=hosted_room_guest.issue_guest_session_token)
+    guest_cookie = Mock(wraps=hosted_room_guest.set_session_cookie)
+    monkeypatch.setattr(hosted_room_guest, "_require_db", db_access)
+    monkeypatch.setattr(hosted_room_guest, "issue_guest_session_token", guest_token)
+    monkeypatch.setattr(hosted_room_guest, "set_session_cookie", guest_cookie)
+    invitation_client.cookies.clear()
+    headers = (
+        {"Authorization": f"Bearer {credential}"}
+        if selector == "authorization"
+        else {}
+    )
+    if selector == "gc_session":
+        invitation_client.cookies.set("gc_session", credential)
+    response = invitation_client.post(
+        "/api/hosted-room-invitations/exchange",
+        json={"invitation_token": token},
+        headers=headers,
+    )
+
+    _assert_mixed(response)
+    db_access.assert_not_called()
+    forbidden_validation.assert_not_called()
+    guest_token.assert_not_called()
+    guest_cookie.assert_not_called()
+    assert "set-cookie" not in response.headers
+    if selector == "gc_session":
+        assert invitation_client.cookies.get("gc_session") == credential
+    with mock_db.get_session() as session:
+        invite = session.get(HostedRoomInvite, invite_id)
+        assert invite.status == "pending" and invite.accepted_at is None
+        assert (
+            session.scalars(
+                select(HostedRoomParticipant).where(
+                    HostedRoomParticipant.invitation_id == invite_id
+                )
+            ).all()
+            == []
+        )
+
+    invitation_client.cookies.clear()
+    accepted = invitation_client.post(
+        "/api/hosted-room-invitations/exchange", json={"invitation_token": token}
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert "codexify_hosted_room_session=" in accepted.headers["set-cookie"]
+    guest_token.assert_called_once()
+    guest_cookie.assert_called_once()
+    with mock_db.get_session() as session:
+        invite = session.get(HostedRoomInvite, invite_id)
+        assert invite.status == "accepted" and invite.accepted_at is not None
+        participants = session.scalars(
+            select(HostedRoomParticipant).where(
+                HostedRoomParticipant.invitation_id == invite_id
+            )
+        ).all()
+        assert len(participants) == 1
+        assert participants[0].id == accepted.json()["participant"]["id"]
 
 
 def test_local_invitation_exchange_preserves_existing_supplemental_credentials(
