@@ -6327,6 +6327,7 @@ def _execute_bounded_tool_turn_completion(
             execution_lane="tools",
             allow_write_execution=False,
             confirmation_granted=False,
+            **({"accepted_deadline": accepted_deadline} if accepted_deadline else {}),
         )
         command_result = (
             asyncio.run(invoke_result)

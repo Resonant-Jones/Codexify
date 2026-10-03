@@ -197,3 +197,19 @@ def test_command_error_before_deadline_keeps_existing_failure(loop):
     assert str(caught.value) == "tool_command_execution_failed"
     assert loop["invoke"].call_count == 1
     assert loop["provider"].call_count == 1
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_tool_invoke_inherits_exact_snapshot_without_public_payload_fields(
+    loop, legacy
+):
+    if legacy:
+        for key in loop["snapshot"]:
+            setattr(loop["task"], key, None)
+    run(loop)
+    kwargs = loop["invoke"].call_args.kwargs
+    if legacy:
+        assert "accepted_deadline" not in kwargs
+    else:
+        assert kwargs["accepted_deadline"].to_dict() == loop["snapshot"]
+    assert not any("deadline" in key for key in kwargs["payload"].model_dump())
