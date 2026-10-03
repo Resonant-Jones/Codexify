@@ -74,10 +74,16 @@ does not prove the browser's visible cancel/retry controls, retry after provider
 failure or authoritative deadline failure, active-task crash recovery, or
 graceful shutdown.
 
-The retry stream delivered `task.state` and `task.running` before
-`task.created`. All three events were present, and the terminal event and
-durable transcript agreed, but this observed event chronology is not yet
-explained or qualified. The `chat_completion_attempts` rows also still lack
-terminal status and `completed_message_id`; the full backend request/replay
-lifecycle remains unimplemented per the Chat Runtime Contract. Do not treat
-this proof as closing either follow-up.
+The raw Redis stream confirmed `task.state` and `task.running` were appended
+before `task.created`. This matches the accepted producer order: shared
+acceptance enqueues first, then publishes the best-effort `task.created`
+breadcrumb, so a fast worker can publish execution evidence first. The event
+order is therefore append order, not a guarantee that acceptance breadcrumbs
+precede worker events. A Command Center regression from this order and its
+branch-local projection repair are recorded in
+[`2026-10-03-chat-command-center-late-created-projection.md`](./2026-10-03-chat-command-center-late-created-projection.md).
+
+The `chat_completion_attempts` rows still lack terminal status and
+`completed_message_id`; the full backend request/replay lifecycle remains
+unimplemented per the Chat Runtime Contract. This proof does not close that
+follow-up.
