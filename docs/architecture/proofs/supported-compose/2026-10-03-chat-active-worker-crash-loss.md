@@ -1,11 +1,12 @@
-# Active chat worker crash loss proof
+# Active chat worker termination after dequeue proof
 
 Date: 2026-10-03. Classification: `PROOF_REQUIRED`. Evaluated path:
 `v1-local-core-web-mcp` retained Compose project
 `codexify_chat_proof_f091_20261002`. The test used a disposable local chat
-thread and a real ordinary API completion. No task was replayed automatically;
-the worker was manually restarted after the crash. This is a verified failure,
-not a qualification pass.
+thread and a real ordinary API completion. The worker container was stopped
+with operator-issued `docker kill` after dequeue, then manually restarted. This
+is a verified queue-loss and retry-blocking failure, not a qualification pass
+or evidence about automatic restart after an unexpected process exit.
 
 ## Atomic Task Spec
 
@@ -19,7 +20,7 @@ execution state.
 
 Goal: determine whether a task accepted and dequeued by `worker-chat` receives
 durable terminal evidence, safe lock cleanup, and explicit-retry availability
-when the worker process is killed before completion.
+when the worker container is stopped before completion.
 
 Files:
 - `guardian/queue/redis_queue.py`
@@ -66,9 +67,11 @@ The API created thread `32`, persisted authored user message `72`, and accepted
 request `req_crash_759e31849235` as task
 `4ab0d289-ba46-46cc-9900-7c46b2f9b50e` for turn
 `61377848-45a5-4098-8f17-9082a88ec02b`. Redis `XRANGE` showed the task had been
-dequeued and entered worker execution. `worker-chat` was killed immediately
-after observing `task.running` and before any terminal event or assistant
-message.
+dequeued and entered worker execution. The `worker-chat` container was stopped
+with operator-issued `docker kill` immediately after observing `task.running`
+and before any terminal event or assistant message. This action does not
+simulate an unexpected PID 1 process exit; behavior under that failure and
+Docker's automatic restart response remain unproven.
 
 ## Observed state after the worker restart
 
@@ -79,14 +82,16 @@ message.
 | Postgres attempt | Request/task/thread/turn matched; `accepted_at` set; no execution-state or terminal-status column |
 | Durable transcript | One user row (`72`); no assistant row |
 | Canonical turn lock | `turn_lock:32` remained; `PTTL` was `758613` ms after restart and readback |
-| Worker process | `docker kill` left the container exited with restart count `0` despite `unless-stopped`; manual `docker start` restored it to `running` |
+| Worker container | Operator-issued `docker kill` left the container exited; manual `docker start` restored it to `running`. This is consistent with an explicitly stopped container and does not test `unless-stopped` recovery after an unexpected process exit |
 | Explicit retry | Same thread and turn with a new request ID returned HTTP `429`, detail `turn_in_flight`; no second attempt was accepted |
 | Stack restoration | Backend health returned HTTP 200; worker running; queue still empty |
 
-The original attempt remains accepted without terminal status. Worker startup
-did not requeue or terminalize it. The completion UI was not browser-observed
-during this proof; the last persisted event remains nonterminal. The retry
-failure is a fresh API observation, not an inference from unit tests.
+The original attempt remains accepted without terminal status. Manual worker
+restart did not requeue or terminalize it. The completion UI was not
+browser-observed during this proof; the last persisted event remains
+nonterminal. The retry failure is a fresh API observation, not an inference
+from unit tests. Automatic worker recovery after an unexpected PID 1 exit was
+not established.
 
 ## Authority frontier
 
