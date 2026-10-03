@@ -5999,6 +5999,12 @@ def _execute_bounded_tool_turn_completion(
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     current_messages = [dict(message) for message in messages_for_llm]
+    accepted_deadline = accepted_chat_deadline_for_task(task)
+
+    def _require_tool_work_budget() -> None:
+        if accepted_deadline and datetime.now(UTC) >= accepted_deadline.work_deadline_at:
+            raise AcceptedChatTaskDeadlineExceeded(attempted=True)
+
     request_id = _completion_request_id(task) or None
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     final_provider = provider
@@ -6187,6 +6193,7 @@ def _execute_bounded_tool_turn_completion(
             response_correlation=first_attempt.response_correlation,
         )
 
+    _require_tool_work_budget()
     tool_turn_id = str(uuid.uuid4())
     if provider == "deepseek" and normalized_first_output.tool_call_count != 1:
         raise ToolLoopExecutionError(
@@ -6309,6 +6316,7 @@ def _execute_bounded_tool_turn_completion(
     )
     from guardian.routes import command_bus as command_bus_routes
 
+    _require_tool_work_budget()
     try:
         invoke_result = execute_invoke(
             payload=invoke_request,
@@ -6326,6 +6334,14 @@ def _execute_bounded_tool_turn_completion(
             else invoke_result
         )
     except Exception as exc:
+        if (
+            isinstance(exc, HTTPException)
+            and isinstance(exc.detail, dict)
+            and exc.detail.get("failure_code")
+            == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
+        ):
+            raise
+        _require_tool_work_budget()
         command_error = {
             "error": str(exc),
             "error_type": exc.__class__.__name__,
@@ -6345,6 +6361,7 @@ def _execute_bounded_tool_turn_completion(
             },
         ) from exc
 
+    _require_tool_work_budget()
     if not isinstance(command_result, dict):
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
