@@ -1,13 +1,16 @@
 """ADR-087 query bounds for worker-owned PgDB operations.
 
-This scope bounds native connection/query polling and pool waiting, not DNS
-resolution or remote commit acknowledgement. It never creates a budget.
+This scope bounds hostname resolution, native connection/query polling and pool
+waiting, not remote commit acknowledgement. It never creates a budget.
 """
 
 from __future__ import annotations
 
 import math
+import json
 import selectors
+import subprocess
+import sys
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -16,6 +19,7 @@ from datetime import datetime, timezone
 
 import psycopg
 from psycopg import waiting
+from psycopg._conninfo_utils import get_param, is_ip_address, split_attempts
 from psycopg.conninfo import conninfo_to_dict, timeout_from_conninfo
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import queue as pool_queue
@@ -123,8 +127,126 @@ class AcceptedDeadlineQueuePool(QueuePool):
     _queue_class = AcceptedDeadlineQueue
 
 
+_DNS_RESOLVE_PROGRAM = """
+import json, sys
+import psycopg
+from psycopg._conninfo_attempts import conninfo_attempts
+params = json.load(sys.stdin)
+# Ordering/target policy is applied once by the parent driver's connect().
+params.update(target_session_attrs='any', load_balance_hosts='disable')
+try:
+    answer = {'attempts': conninfo_attempts(params)}
+except psycopg.Error as error:
+    answer = {'error': str(error)}
+print(json.dumps(answer))
+"""
+
+
+def _resolve_dns_params(params, budget):
+    """Run the driver's NSS resolver in an owned, interruptible local process."""
+    remaining = budget.remaining()
+    policy = timeout_from_conninfo(params)
+    policy_end = time.monotonic() + policy if policy > 0 else None
+    # Only addressing inputs cross the pipe: no DSN, user, password or database.
+    addressing = {
+        key: value
+        for key in ("host", "hostaddr", "port")
+        if (value := get_param(params, key)) is not None
+    }
+    child = subprocess.Popen(
+        [sys.executable, "-I", "-c", _DNS_RESOLVE_PROGRAM],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        payload = json.dumps(addressing)
+        while True:
+            remaining = budget.remaining()
+            if policy_end is not None:
+                policy_remaining = policy_end - time.monotonic()
+                if policy_remaining <= 0:
+                    raise psycopg.errors.ConnectionTimeout(
+                        "hostname resolution timeout expired"
+                    )
+                remaining = min(remaining, policy_remaining)
+            try:
+                output, _ = child.communicate(payload, timeout=remaining)
+            except subprocess.TimeoutExpired:
+                payload = None
+                continue
+            budget.remaining()
+            if policy_end is not None and time.monotonic() >= policy_end:
+                raise psycopg.errors.ConnectionTimeout(
+                    "hostname resolution timeout expired"
+                )
+            if child.returncode:
+                raise psycopg.OperationalError("PostgreSQL hostname resolver failed")
+            try:
+                answer = json.loads(output)
+                if "error" in answer:
+                    raise psycopg.OperationalError(answer["error"])
+                return answer["attempts"]
+            except (ValueError, KeyError, TypeError) as error:
+                raise psycopg.OperationalError(
+                    "PostgreSQL hostname resolver returned invalid output"
+                ) from error
+    finally:
+        # SIGKILL interrupts a blocked native resolver, unlike cancelling a
+        # Python future. Reap this owned child; no resolver thread is discarded.
+        if child.poll() is None:
+            try:
+                child.kill()
+            except ProcessLookupError:
+                pass
+        child.wait()
+        for stream in (child.stdin, child.stdout):
+            if stream is not None:
+                stream.close()
+
+
 class AcceptedDeadlineConnection(psycopg.Connection):
     """Close native query I/O on parent expiry, without background workers."""
+
+    @classmethod
+    def _get_connection_params(cls, conninfo, **kwargs):
+        params = super()._get_connection_params(conninfo, **kwargs)
+        budget = _budget.get()
+        if budget is None:
+            return params
+        budget.remaining()
+        if get_param(params, "service"):
+            # Service files can hide a second libpq-owned hostname resolution.
+            # This accepted path cannot enforce its bound; ADR-087 fails closed.
+            raise psycopg.OperationalError(
+                "Accepted chat PostgreSQL connections cannot bound service-file "
+                "hostname resolution; configure host/hostaddr directly"
+            )
+        needs_dns = False
+        for attempt in split_attempts(params):
+            host = get_param(attempt, "host")
+            if (
+                host
+                and not host.startswith("/")
+                and host[1:2] != ":"
+                and not get_param(attempt, "hostaddr")
+                and not is_ip_address(host)
+            ):
+                needs_dns = True
+                break
+        if not needs_dns:
+            return params
+        attempts = _resolve_dns_params(params, budget)
+        budget.remaining()
+        # Preserve original hostname for TLS/authentication. Expand addresses
+        # and corresponding ports exactly in driver order; target/load-balance
+        # policy remains with upstream connect(), applied once after resolution.
+        for key in ("host", "hostaddr", "port"):
+            values = [get_param(attempt, key) or "" for attempt in attempts]
+            if any(values):
+                params[key] = ",".join(values)
+        return params
 
     @classmethod
     def _connect_gen(cls, conninfo="", **kwargs):
