@@ -1,0 +1,87 @@
+{
+  "corpus": {
+    "edge_count": 13,
+    "node_count": 10,
+    "predicate_counts": {
+      "depends_on": 6,
+      "evidence_for": 5,
+      "governed_by": 2
+    }
+  },
+  "errors": [],
+  "generated_at": "2026-10-02T23:05:06-04:00",
+  "generated_findings": {
+    "adr_number_collision_count": 0,
+    "authority_conflict_count": 0,
+    "changed_anchor_count": 10,
+    "freshness_coverage_gap_count": 0,
+    "orphan_count": 0,
+    "stale_document_count": 5,
+    "supersession_count": 0
+  },
+  "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
+  "repository_revision": "458b298fc6dd812e9928f32ccd95a568f60be445",
+  "result": "pass",
+  "tool": "scripts/knowledge_graph/validate_and_generate_dlg.py",
+  "validation": {
+    "accepted_contract_governance_findings": 0,
+    "cycle_findings": {
+      "derived_from": 0,
+      "pointer_to": 0,
+      "supersedes": 0
+    },
+    "duplicate_relation_count": 0,
+    "local_link_findings": 6,
+    "plaintext_lfs_findings": 0,
+    "prohibited_metadata_findings": 0,
+    "retrieval_policy_contradictions": 0,
+    "schema_valid_node_count": 10,
+    "self_relation_count": 0,
+    "source_hash_match_count": 10,
+    "target_resolution_count": 13
+  },
+  "warnings": [
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    },
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    },
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    },
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    },
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    },
+    {
+      "code": "broken_local_markdown_link",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "message": "Repository-local Markdown link target does not exist.",
+      "path": "docs/architecture/README.md",
+      "severity": "warning"
+    }
+  ]
+}
