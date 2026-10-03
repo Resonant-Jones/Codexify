@@ -16,6 +16,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from guardian.core import scout_qualification as qualification
+
 ACCOUNT_HEADER = b"x-guardian-account-session"
 HOST = "preview.codexify.space"
 ISSUER = "https://resonant-constructs.cloudflareaccess.com"
@@ -101,6 +103,13 @@ class ScoutAccountTransportMiddleware:
         except Exception:
             accepted = False
         if not accepted:
+            if scope["path"] == "/api/chat/threads":
+                qualification.observe(
+                    qualification.request_attempt(request),
+                    "protected_read",
+                    "failed",
+                    400,
+                )
             response = JSONResponse(
                 {"detail": "Hosted account transport rejected"},
                 status_code=400,
@@ -117,12 +126,34 @@ class ScoutAccountTransportMiddleware:
         try:
             await run_in_threadpool(verify_selected_account, normalized)
         except HTTPException as exc:
+            if scope["path"] == "/api/chat/threads":
+                qualification.observe(
+                    qualification.request_attempt(request),
+                    "protected_read",
+                    "failed",
+                    exc.status_code,
+                )
             response = JSONResponse(
                 {"detail": "Account session required"},
                 status_code=exc.status_code,
                 headers={"Cache-Control": "no-store", **(exc.headers or {})},
             )
             return await response(scope, receive, send)
+
         # Downstream account validators receive only the selected account
         # session; no alternate credential can retry a failed selection.
-        return await self.app(normalized, receive, send)
+        async def qualified_send(message):
+            if (
+                scope["path"] == "/api/chat/threads"
+                and message["type"] == "http.response.start"
+            ):
+                status = message["status"]
+                qualification.observe(
+                    qualification.request_attempt(request),
+                    "protected_read",
+                    "passed" if status == 200 else "failed",
+                    status,
+                )
+            await send(message)
+
+        return await self.app(normalized, receive, qualified_send)

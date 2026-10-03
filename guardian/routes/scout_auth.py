@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
+from guardian.core import scout_qualification as qualification
 from guardian.core.auth import (
     ACCOUNT_SESSION_PURPOSE,
     _verified_session_token_claims,
@@ -37,7 +38,24 @@ class SafeAuthRoute(APIRoute):
         async def safe_handler(request):
             try:
                 return await handler(request)
+            except HTTPException as exc:
+                identity = qualification.request_attempt(request)
+                stage = {
+                    "/api/auth/scout/handoff": "handoff_redirect",
+                    "/api/auth/scout/exchange": "handoff_exchange",
+                }.get(request.url.path)
+                if stage:
+                    qualification.observe(identity, stage, "failed", exc.status_code)
+                raise
             except RequestValidationError:
+                stage = {
+                    "/api/auth/scout/handoff": "handoff_redirect",
+                    "/api/auth/scout/exchange": "handoff_exchange",
+                }.get(request.url.path)
+                if stage:
+                    qualification.observe(
+                        qualification.request_attempt(request), stage, "failed", 400
+                    )
                 # Default validation errors include input values. Handoff code
                 # and verifier must never be echoed in errors or diagnostics.
                 return JSONResponse(
@@ -45,6 +63,24 @@ class SafeAuthRoute(APIRoute):
                     status_code=400,
                     headers=SAFE_HEADERS,
                 )
+            except Exception:
+                identity = qualification.request_attempt(request)
+                stage = {
+                    "/api/auth/scout/handoff": "handoff_redirect",
+                    "/api/auth/scout/exchange": "handoff_exchange",
+                }.get(request.url.path)
+                evidence = qualification.snapshot(identity)
+                if (
+                    stage == "handoff_exchange"
+                    and evidence
+                    and evidence["stages"].get(stage, {}).get("status") == "passed"
+                ):
+                    stage = "native_session"
+                if stage:
+                    qualification.observe(identity, stage, "failed", 500)
+                # Do not log exception text/body. Existing server error handling
+                # and canonical auth semantics remain authoritative.
+                raise
 
         return safe_handler
 
@@ -90,6 +126,115 @@ async def require_hosted_admission(request: Request) -> None:
         ) from None
 
 
+async def require_native_qualification(request: Request):
+    await require_hosted_admission(request)
+    if (
+        len(request.headers.getlist("Authorization")) != 1
+        or not request.headers.get("Authorization", "").startswith("Bearer oauth:")
+        or any(
+            name in request.headers
+            for name in ("X-Guardian-Account-Session", "X-API-Key", "X-Guardian-Key")
+        )
+        or any(
+            name in request.cookies
+            for name in ("gc_session", "codexify_hosted_room_session")
+        )
+    ):
+        raise HTTPException(
+            status_code=400, detail="Native admission required", headers=SAFE_HEADERS
+        )
+
+
+def require_qualification_id(identity):
+    if not qualification.attempt_id(identity):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid qualification identifier",
+            headers=SAFE_HEADERS,
+        )
+
+
+@router.put("/qualification/{identity}")
+async def begin_qualification(
+    identity: str, request: Request, _: None = Depends(require_native_qualification)
+):
+    require_qualification_id(identity)
+    if not qualification.begin(identity):
+        raise HTTPException(
+            status_code=503,
+            detail="Qualification capacity unavailable",
+            headers=SAFE_HEADERS,
+        )
+    return JSONResponse(qualification.snapshot(identity), headers=SAFE_HEADERS)
+
+
+@router.get("/qualification/{identity}")
+async def read_qualification(
+    identity: str, request: Request, _: None = Depends(require_native_qualification)
+):
+    require_qualification_id(identity)
+    evidence = qualification.snapshot(identity)
+    if evidence is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Qualification evidence unavailable",
+            headers=SAFE_HEADERS,
+        )
+    return JSONResponse(evidence, headers=SAFE_HEADERS)
+
+
+class BrowserObservation(BaseModel):
+    event: str = Field(pattern=r"^(loaded|account_confirmed|redirect_dispatched)$")
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/qualification/{identity}/browser")
+async def browser_qualification(
+    identity: str,
+    body: BrowserObservation,
+    request: Request,
+    _: None = Depends(require_hosted_admission),
+):
+    require_qualification_id(identity)
+    if request.headers.get("Origin") != ORIGIN:
+        raise HTTPException(
+            status_code=400,
+            detail="Same-origin observation required",
+            headers=SAFE_HEADERS,
+        )
+    if body.event != "loaded":
+        # Browser UI readiness is not account authority. Confirm with the exact
+        # same canonical account validator as the existing handoff.
+        if (
+            (
+                request.headers.get("Authorization") is not None
+                and "gc_session" in request.cookies
+            )
+            or len(request.headers.getlist("Authorization")) > 1
+            or any(name in request.headers for name in ("X-API-Key", "X-Guardian-Key"))
+            or "codexify_hosted_room_session" in request.cookies
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Conflicting account transports",
+                headers=SAFE_HEADERS,
+            )
+        try:
+            verify_account_session(
+                request,
+                None,
+                request.headers.get("Authorization"),
+                request.cookies.get("gc_session"),
+            )
+        except HTTPException as exc:
+            qualification.observe(identity, "account_login", "failed", exc.status_code)
+            raise
+        qualification.observe(identity, "account_login", "passed", 200)
+    if body.event == "loaded":
+        qualification.observe(identity, "browser_loaded", "passed", 200)
+    return JSONResponse({"ok": True}, headers=SAFE_HEADERS)
+
+
 @router.post("/handoff")
 async def create_handoff(
     body: CreateHandoff, request: Request, _: None = Depends(require_hosted_admission)
@@ -131,6 +276,9 @@ async def create_handoff(
         raise HTTPException(
             status_code=401, detail="Account session required", headers=SAFE_HEADERS
         )
+    qualification.observe(
+        qualification.request_attempt(request), "account_login", "passed", 200
+    )
     claims = _verified_session_token_claims(token)
     try:
         code = await run_in_threadpool(
@@ -146,6 +294,9 @@ async def create_handoff(
         raise HTTPException(
             status_code=400, detail="Handoff unavailable", headers=SAFE_HEADERS
         ) from None
+    qualification.observe(
+        qualification.request_attempt(request), "handoff_redirect", "passed", 200
+    )
     return JSONResponse(
         {"callback": CALLBACK + "?" + urlencode({"code": code, "state": body.state})},
         headers=SAFE_HEADERS,
@@ -202,6 +353,9 @@ async def exchange_handoff(
     # This is the canonical issuer and exact credential class, with a fresh
     # nonce/expiry and independent store entry. The parent browser credential
     # authorizes this one exchange but is never returned to the native client.
+    qualification.observe(
+        qualification.request_attempt(request), "handoff_exchange", "passed", 200
+    )
     native_token, native_expiry = issue_session_token(
         subject=subject,
         ttl_seconds=DEFAULT_SESSION_TTL_SECONDS,
@@ -213,7 +367,10 @@ async def exchange_handoff(
         subject,
         DEFAULT_SESSION_TTL_SECONDS,
     )
+    qualification.observe(
+        qualification.request_attempt(request), "native_session", "passed", 200
+    )
     return JSONResponse(
         {"token": native_token, "user_id": subject, "expires_at": native_expiry},
-        headers=SAFE_HEADERS,
+        headers={**SAFE_HEADERS, "X-Scout-Native-Session-Issued": "true"},
     )

@@ -35,7 +35,27 @@ export default function LoginPage() {
     /^[A-Za-z0-9_-]{43}$/.test(scoutChallenge) &&
     scoutParams.getAll("scout_state").length === 1 &&
     scoutParams.getAll("scout_challenge").length === 1;
+  // Independent public correlation ID, never derived from OAuth state/code.
+  const candidateAttempt = scoutParams.get("scout_attempt") ?? "";
+  const scoutAttempt = scoutFlow && window.location.origin === "https://preview.codexify.space" &&
+    scoutParams.getAll("scout_attempt").length === 1 &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(candidateAttempt)
+      ? candidateAttempt : undefined;
+  const correlation = scoutAttempt ? { headers: { "X-Scout-Auth-Attempt": scoutAttempt } } : undefined;
+  const [qualification, setQualification] = useState("Guardian browser loaded; account confirmation pending.");
   const [handoffLoading, setHandoffLoading] = useState(false);
+
+  useEffect(() => {
+    if (!scoutAttempt) return;
+    let current = true;
+    const event = activeSession && auth.token ? "account_confirmed" : "loaded";
+    void api.post(`/auth/scout/qualification/${scoutAttempt}/browser`, { event }).then(() => {
+      if (current && event === "account_confirmed") setQualification("Guardian account login confirmed. Choose Continue to Scout.");
+    }).catch(() => {
+      if (current) setQualification("Browser correlation unavailable; native status remains unconfirmed.");
+    });
+    return () => { current = false; };
+  }, [scoutAttempt, activeSession, auth.token]);
   const showRegistration = import.meta.env.VITE_PRIVATE_PREVIEW !== "true";
   const identityLabel = remoteAuthMode ? "Email address" : "Username";
 
@@ -56,10 +76,9 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      await auth.login({
-        username: username.trim(),
-        password,
-      });
+      const credentials = { username: username.trim(), password };
+      if (scoutAttempt) await auth.login(credentials, scoutAttempt);
+      else await auth.login(credentials);
       setPassword("");
       if (!scoutFlow) window.location.assign("/");
     } catch {
@@ -74,9 +93,10 @@ export default function LoginPage() {
     setHandoffLoading(true);
     setError(null);
     try {
-      const response = await api.post("/auth/scout/handoff", {
-        state: scoutState, challenge: scoutChallenge,
-      });
+      const body = { state: scoutState, challenge: scoutChallenge };
+      const response = correlation
+        ? await api.post("/auth/scout/handoff", body, correlation)
+        : await api.post("/auth/scout/handoff", body);
       const callback = new URL(String(response.data?.callback ?? ""));
       if (callback.protocol !== "ai.resonantconstructs.codexify.scout:" ||
           callback.hostname !== "access-callback" || callback.pathname !== "" ||
@@ -86,6 +106,11 @@ export default function LoginPage() {
           callback.searchParams.getAll("code").length !== 1 ||
           !/^[A-Za-z0-9_-]{43}$/.test(callback.searchParams.get("code") ?? "")) {
         throw new Error("Invalid handoff");
+      }
+      if (scoutAttempt) {
+        setQualification("Handoff prepared; returning to Scout.");
+        // Observation is best effort and must not consume the 60-second grant.
+        void api.post(`/auth/scout/qualification/${scoutAttempt}/browser`, { event: "redirect_dispatched" }).catch(() => {});
       }
       window.location.assign(callback.href);
     } catch {
@@ -149,6 +174,7 @@ export default function LoginPage() {
             <p className="login-threshold__body">{body}</p>
           </header>
 
+          {scoutAttempt ? <p role="status">{qualification} Attempt {scoutAttempt}</p> : null}
           {!auth.ready ? (
             <div
               className="login-threshold__readiness"
