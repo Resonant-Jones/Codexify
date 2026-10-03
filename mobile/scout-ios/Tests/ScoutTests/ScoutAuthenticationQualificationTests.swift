@@ -8,6 +8,29 @@ final class ScoutAuthenticationQualificationTests: XCTestCase {
             authenticationState: .unconfigured, validationState: .unconfigured, lastConnectedAt: nil, authenticationMode: .remoteSession)
     }
 
+    func testIngressAbsenceAndExpiryHaveDistinctNonSecretClassifications() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let missing = ScoutAuthenticationQualification.ingressAvailability(expiresAt: nil, now: now)
+        XCTAssertEqual(missing.summary, "Failed · credentialMissing")
+        for expiry in [now.addingTimeInterval(-1), now] {
+            let expired = ScoutAuthenticationQualification.ingressAvailability(expiresAt: expiry, now: now)
+            XCTAssertEqual(expired.summary, "Failed · credentialExpired")
+        }
+        let current = ScoutAuthenticationQualification.ingressAvailability(expiresAt: now.addingTimeInterval(1), now: now)
+        XCTAssertEqual(current.summary, "Passed · confirmed")
+    }
+
+    func testExplicitFailureSurvivesGenericErrorsUntilObservedRecovery() throws {
+        var receipt = try ScoutAuthenticationQualification(profile: profile())
+        receipt.record(.ingress, .failed, .credentialExpired)
+        receipt.record(.ingress, .failed, .transportFailure)
+        receipt.record(.ingress, .waiting, .pending)
+        XCTAssertEqual(receipt.result(for: .ingress).summary, "Failed · credentialExpired")
+        receipt.record(.ingress, .passed, .confirmed)
+        XCTAssertEqual(receipt.result(for: .ingress).summary, "Passed · confirmed")
+        XCTAssertNil(receipt.firstFailedStage)
+    }
+
     func testServerRedirectPreparationDoesNotClaimNativeCallbackReceipt() throws {
         var receipt = try ScoutAuthenticationQualification(profile: profile())
         receipt.record(.ingress, .passed, .confirmed)

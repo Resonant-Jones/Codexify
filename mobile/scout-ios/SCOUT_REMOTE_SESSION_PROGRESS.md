@@ -347,3 +347,17 @@ verified. Schema and ten preserved table fingerprints match before/after;
 eighteen other services are unchanged. The operator was asked for one Guardian
 sign-in. Protected native read, full #815 continuity and logout are still pending.
 No account provisioning, password, role, approval or Cloudflare change occurred.
+
+The first native qualification stopped before browser launch because the stored
+ingress grant had expired. A generic catch incorrectly replaced the specific
+availability result with `transportFailure`. Scout now distinguishes missing and
+expired credentials, classifies Keychain read failure separately, and preserves
+the first observed failure until an actual successful recovery. Two additional
+tests cover the expiry boundary and failure/recovery evidence: **59 SwiftPM tests
+pass**, and the canonical signed simulator **BUILD SUCCEEDED**. No backend or
+authentication authority changes are needed for this diagnostic correction.
+
+The existing Check stored ingress action renewed the stored grant and reached
+Guardian's account gate (HTTP 401, Cloudflare Ray `a44fd999ca5b67cf-MIA`). This
+qualifies renewed Access admission only. Guardian sign-in, fresh native issuance,
+protected account read, continuity and logout remain pending.

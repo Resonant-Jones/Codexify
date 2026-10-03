@@ -21,7 +21,7 @@ struct ScoutAuthenticationQualification: Equatable {
     }
     enum Status: String, Decodable { case waiting, passed, failed }
     enum Classification: String {
-        case pending, confirmed, rejected, unavailable, cancelled, invalidCallback, invalidSession, storageFailure, transportFailure, invalidReply
+        case pending, confirmed, rejected, unavailable, credentialMissing, credentialExpired, cancelled, invalidCallback, invalidSession, storageFailure, transportFailure, invalidReply
     }
     struct Evidence: Equatable {
         let status: Status
@@ -46,8 +46,16 @@ struct ScoutAuthenticationQualification: Equatable {
     var firstFailedStage: Stage? { Stage.allCases.first { evidence[$0]?.status == .failed } }
     var firstUnqualifiedStage: Stage? { Stage.allCases.first { evidence[$0]?.status != .passed } }
     func result(for stage: Stage) -> Evidence { evidence[stage] ?? Evidence(status: .waiting, classification: .pending, httpStatus: nil) }
+    static func ingressAvailability(expiresAt: Date?, now: Date = Date()) -> Evidence {
+        guard let expiresAt else { return Evidence(status: .failed, classification: .credentialMissing, httpStatus: nil) }
+        guard expiresAt > now else { return Evidence(status: .failed, classification: .credentialExpired, httpStatus: nil) }
+        return Evidence(status: .passed, classification: .confirmed, httpStatus: nil)
+    }
     mutating func record(_ stage: Stage, _ status: Status, _ classification: Classification, httpStatus: Int? = nil) {
         guard evidence[stage]?.status != .passed else { return }
+        // Preserve the first observed failure through later pending evidence or
+        // generic error handlers; an actual successful retry can still recover.
+        guard evidence[stage]?.status != .failed || status == .passed else { return }
         evidence[stage] = Evidence(status: status, classification: classification,
             httpStatus: httpStatus.flatMap { (100...599).contains($0) ? $0 : nil })
     }

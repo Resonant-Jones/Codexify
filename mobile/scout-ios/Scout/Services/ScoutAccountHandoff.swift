@@ -150,11 +150,15 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         do {
             try ScoutAccessOAuth.requireHosted(profile)
             qualification = try ScoutAuthenticationQualification(profile: profile)
-            guard let ingress = try ScoutAccessCredentialStore().load(for: profile), ingress.expiresAt > Date() else {
-                observe(.ingress, .failed, .unavailable)
-                throw ScoutRequestAuthenticationError.ingressRequired
+            let storedIngress = try ScoutAccessCredentialStore().load(for: profile)
+            let availability = ScoutAuthenticationQualification.ingressAvailability(expiresAt: storedIngress?.expiresAt)
+            observe(.ingress, availability.status, availability.classification)
+            guard let ingress = storedIngress, availability.status == .passed else {
+                message = availability.classification == .credentialExpired
+                    ? "Stored ingress authorization has expired. Check stored ingress to renew the existing grant before Guardian sign-in."
+                    : "No ingress credential is stored for this connection. Authorize hosted ingress before Guardian sign-in."
+                return
             }
-            observe(.ingress, .passed, .confirmed)
             stage = .browser
             // Register only a public UUID before asking the operator to sign in.
             let (receiptData, receiptResponse) = try await URLSession.scoutAuthenticated.data(for: qualification!.receiptRequest(ingress: ingress, begin: true))
@@ -217,7 +221,7 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             guard operation == identity else { return }
             let classification: ScoutAuthenticationQualification.Classification
             if stage == .state { classification = .invalidCallback }
-            else if stage == .keychain { classification = .storageFailure }
+            else if stage == .ingress || stage == .keychain { classification = .storageFailure }
             else if error is DecodingError { classification = .invalidReply }
             else if error as? ScoutAccessOAuthError == .rejectedAuthorization { classification = .cancelled }
             else { classification = .transportFailure }
