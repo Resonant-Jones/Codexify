@@ -1998,6 +1998,8 @@ def _run_chat_completion_task_compat(
         "assistant_text": assistant_text,
         "provider": final_provider,
         "model": final_model,
+        "final_provider": final_provider,
+        "final_model": final_model,
         "requested_provider": requested_provider,
         "requested_model": requested_model,
         "attempted_provider": attempted_provider,

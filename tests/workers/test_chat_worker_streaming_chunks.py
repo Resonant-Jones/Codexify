@@ -318,6 +318,13 @@ def test_pre_output_fallback_success_persists_exactly_one_assistant(monkeypatch)
 
     assert persisted == ["rescued"]
     assert [event for event, _payload in published].count("task.completed") == 1
+    completed_payload = next(
+        payload for event, payload in published if event == "task.completed"
+    )
+    assert completed_payload["provider"] == "local"
+    assert completed_payload["model"] == "test-model"
+    assert completed_payload["final_provider"] == "local"
+    assert completed_payload["final_model"] == "test-model"
 
 
 def test_failure_after_visible_chunk_forbids_fallback_and_persistence(

@@ -25,6 +25,7 @@ This file is authoritative for:
 - Merged chat stream ownership, queued cancellation, deadline enforcement, fast-mode handoff, and frontend failure-state repairs with focused coverage.
 - Recorded current-tip supported-Compose evidence: ordinary API chat, unavailable explicit-model rejection without assistant fallback, durable readback, and in-flight cancellation passed; browser new-thread transcript coherence failed until reload.
 - On the active Goal branch, reproduced that new-thread projection gap, refreshed the canonical transcript snapshot after authored-message persistence, and verified the message before completion plus durable reload/readback. This is bounded retained-stack evidence; it does not close the current-main or full Compose gate.
+- On the active Goal branch, repaired the worker result projection so `task.completed.final_provider` and `final_model` match the resolved values already persisted with the assistant message. A focused regression and fresh retained-stack ordinary turn verified `local` / `local-chat`; the attempt row still lacks `completed_message_id`, and the full Compose gate remains open.
 - Merged Private Preview message-request storage, consent, discovery, Inbox, route gating, and an isolated two-browser/durable-readback proof; default Beta remains excluded.
 - Merged the qualification registry and onboarding/Tips surfaces, plus the internal Configuration Inspector; these are status or operator capabilities, not release-support expansion.
 - Merged native execution-channel/Codex App Server delivery and bounded source-thread return proof; generalized channel support and public Beta support remain unproven.
@@ -48,7 +49,7 @@ This file is authoritative for:
 
 ## Active blockers
 
-- Integrate the branch-local new-thread authored-message projection repair, then requalify browser/event/persistence coherence on the resulting current-main tip.
+- Integrate the branch-local new-thread authored-message and terminal final-model projection repairs, then requalify browser/event/persistence coherence on the resulting current-main tip.
 - Run a complete supported-Compose qualification on the frozen current `main`, including health/inventory, exact-model rejection, restart recovery, retry/cancellation, terminal provenance, and graceful shutdown.
 - Complete an uninterrupted natural account-import run through retrieval, provider context, answer persistence, and a negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, non-admin canary, and the merged messaging path on the intended deployed tip.

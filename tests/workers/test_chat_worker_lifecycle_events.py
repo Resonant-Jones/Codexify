@@ -182,6 +182,13 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
     assert "task.running" in event_types
     assert "task.progress" in event_types
     assert "task.completed" in event_types
+    completed_payload = next(
+        payload for event_type, payload in published if event_type == "task.completed"
+    )
+    assert completed_payload["final_provider"] == completed_payload["provider"]
+    assert completed_payload["final_model"] == completed_payload["model"]
+    assert completed_payload["final_provider"] == "local"
+    assert completed_payload["final_model"] == "test-model"
 
     streaming_index = next(
         index
