@@ -16,6 +16,7 @@ def _attempt(task="task-a", request="request-a", completed_message_id=None):
         "thread_id": 11,
         "turn_id": "turn-a",
         "completed_message_id": completed_message_id,
+        "terminal_event_type": None,
         "created_at": "2026-10-02T00:00:00Z",
         "accepted_at": "2026-10-02T00:00:01Z",
     }
@@ -92,6 +93,40 @@ def test_unlinked_attempt_preserves_terminal_event_evidence(receipt_route):
     result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
     assert result["tasks"][0]["event_type"] == "task.failed"
     assert result["tasks"][0]["reason"] == "terminal_event_found"
+
+
+@pytest.mark.parametrize("event_type", ["task.failed", "task.cancelled"])
+def test_durable_worker_terminal_outcome_wins_over_expired_redis_evidence(
+    receipt_route, event_type
+):
+    _, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt() | {"terminal_event_type": event_type}]
+    evidence.return_value = {
+        "state": "unknown",
+        "event_type": None,
+        "reason": "task_events_missing",
+    }
+
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+
+    assert result["tasks"][0]["state"] == "terminal"
+    assert result["tasks"][0]["event_type"] == event_type
+    assert result["tasks"][0]["reason"] == "durable_terminal_outcome_recorded"
+    evidence.assert_not_called()
+
+
+def test_durable_completion_link_precedes_other_terminal_projection(receipt_route):
+    _, attempts, evidence = receipt_route
+    attempts.return_value = [
+        _attempt(completed_message_id=73)
+        | {"terminal_event_type": "task.failed"}
+    ]
+
+    result = chat.chat_list_tasks(11, api_key="inert", request_user_scope=MagicMock())
+
+    assert result["tasks"][0]["event_type"] == "task.completed"
+    assert result["tasks"][0]["reason"] == "durable_completion_recorded"
+    evidence.assert_not_called()
 
 
 def test_receipt_pagination_is_bounded(receipt_route):

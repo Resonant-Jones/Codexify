@@ -86,6 +86,12 @@ def test_dequeued_cancellation_releases_only_its_turn_lock(monkeypatch, lock_own
         chat_worker, "is_cancelled", lambda task_id: task_id == task.task_id
     )
     monkeypatch.setattr(chat_worker, "clear_cancelled", cleared)
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **k: None
     )
@@ -105,6 +111,7 @@ def test_dequeued_cancellation_releases_only_its_turn_lock(monkeypatch, lock_own
 
     cancelled = [e for e in events if e[1] == "task.cancelled"]
     assert len(cancelled) == 1
+    record_terminal.assert_called_once_with(task, "task.cancelled")
     assert cancelled[0][0] == task.task_id
     provider_work.assert_not_called()
     persistence.assert_not_called()
@@ -175,6 +182,12 @@ def test_authoritative_cancellation_bypasses_saturated_executor(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda task_id: task_id == "cancelled")
     cleared = Mock()
     monkeypatch.setattr(chat_worker, "clear_cancelled", cleared)
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
     monkeypatch.setattr(chat_worker, "_find_assistant_message_for_turn", lambda **k: None)
     provider = Mock()
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", provider)
@@ -187,6 +200,7 @@ def test_authoritative_cancellation_bypasses_saturated_executor(monkeypatch):
     cleared.assert_called_once_with("cancelled")
     terminal = [data for tid, event, data in events if event == "task.cancelled"]
     assert len(terminal) == 1
+    record_terminal.assert_called_once_with(cancelled, "task.cancelled")
     assert terminal[0]["thread_id"] == 82
     assert terminal[0]["turn_id"] == "cancelled-turn"
     assert not any(event in {"task.failed", "task.completed"} for _, event, _ in events)

@@ -221,6 +221,9 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
     monkeypatch.setattr(
         chat_worker, "run_chat_completion_task", _run_completion
     )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
+    )
 
     chat_worker._run_chat_task(_build_task(thread_id=29, turn_id=TURN_ID))
     retry_task = ChatCompletionTask(
@@ -384,8 +387,15 @@ def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", _raise_failure)
 
     task = _build_task(thread_id=17)
+    record_terminal = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
     chat_worker._run_chat_task(task)
 
+    record_terminal.assert_called_once_with(task, "task.failed")
     assert any(event_type == "task.failed" for event_type, _ in published)
     assert any(
         event_type == "completion.error"
@@ -1159,6 +1169,9 @@ def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
         chat_worker,
         "_find_assistant_message_for_turn",
         lambda **_kwargs: 90210,
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
     )
 
     completion_called = False

@@ -12,7 +12,7 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "b7e6d42c91af"
+CANONICAL_HEAD = "d4c69e03a712"
 MESSAGE_REQUEST_REVISION = "9e52b1d3c8fa"
 
 

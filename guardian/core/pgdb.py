@@ -1596,7 +1596,8 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT request_id, thread_id, turn_id, completed_message_id
+                        SELECT request_id, thread_id, turn_id, completed_message_id,
+                               terminal_event_type
                         FROM chat_completion_attempts
                         WHERE backend_task_id = %s
                         FOR UPDATE
@@ -1630,6 +1631,10 @@ class PgDB(ChatDB):
                                     "Completion attempt points to no assistant in its thread"
                                 )
                     return existing_message_id, True
+                if attempt["terminal_event_type"] is not None:
+                    raise ValueError(
+                        "Completion attempt already has a failure or cancellation outcome"
+                    )
 
             message_id = self.create_message(
                 thread_id,
@@ -1652,6 +1657,7 @@ class PgDB(ChatDB):
                           AND thread_id = %s
                           AND turn_id = %s
                           AND completed_message_id IS NULL
+                          AND terminal_event_type IS NULL
                         """,
                         (message_id, request_id, backend_task_id, thread_id, turn_id),
                     )

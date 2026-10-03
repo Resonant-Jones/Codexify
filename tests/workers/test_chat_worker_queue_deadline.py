@@ -62,17 +62,19 @@ def worker(monkeypatch):
 
 
 @pytest.mark.parametrize("age", [720, 721, 800])
-def test_expired_queue_task_fails_before_completion_work(worker, age):
+def test_expired_queue_task_fails_before_completion_work(worker, age, monkeypatch):
     task, snapshot = _task(age)
     events, work, release, _ = worker
-    reached = False
-    try:
-        chat_worker._run_chat_task(task)
-    except _WorkReached:
-        reached = True
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
+    chat_worker._run_chat_task(task)
 
     release.assert_called_once_with(71, "queued-owner")
-    assert not reached, "expired accepted task reached completion execution boundary"
+    record_terminal.assert_called_once_with(task, "task.failed")
     work.assert_not_called()
     failed = [p for e, p in events if e == "task.failed"]
     assert len(failed) == 1
@@ -122,6 +124,9 @@ def test_existing_durable_completion_precedes_queue_expiry(worker, monkeypatch, 
     task, _ = _task(721)
     events, work, release, _ = worker
     monkeypatch.setattr(chat_worker, dedupe_lookup, lambda **k: 52)
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
+    )
     chat_worker._run_chat_task(task)
 
     completed = [p for e, p in events if e == "task.completed"]
@@ -136,10 +141,17 @@ def test_explicit_cancellation_precedes_queue_expiry(worker, monkeypatch):
     task, _ = _task(721)
     events, work, release, cleared = worker
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda _: True)
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
     chat_worker._run_chat_task(task)
 
     cancelled = [p for e, p in events if e == "task.cancelled"]
     assert len(cancelled) == 1
+    record_terminal.assert_called_once_with(task, "task.cancelled")
     assert cancelled[0]["thread_id"] == 71
     assert not any(e in {"task.failed", "task.completed"} for e, _ in events)
     work.assert_not_called()

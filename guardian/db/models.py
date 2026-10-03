@@ -1347,10 +1347,19 @@ class ChatCompletionAttempt(Base):
     completed_message_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
     )
+    terminal_event_type: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "terminal_event_type IS NULL OR terminal_event_type IN "
+            "('task.failed', 'task.cancelled')",
+            name="ck_chat_completion_attempts_terminal_event",
+        ),
+    )
 
 
 class ChatMessage(Base):

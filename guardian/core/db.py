@@ -23,6 +23,7 @@ from guardian.core.project_lifecycle import (
     require_mutable_project_container,
     require_project_deletable,
 )
+from guardian.protocol_tokens import TaskEventType
 
 # Import ORM models
 from guardian.db.models import (
@@ -106,9 +107,12 @@ def record_chat_completion_attempt_success(
                 thread_id=thread_id,
                 turn_id=turn_id,
             )
+            .with_for_update()
             .one_or_none()
         )
         if attempt is None:
+            return False
+        if attempt.terminal_event_type is not None:
             return False
         message = (
             session.query(ChatMessage.id)
@@ -132,6 +136,41 @@ def record_chat_completion_attempt_success(
         return True
 
 
+def record_chat_completion_attempt_terminal_event(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    event_type: str,
+) -> bool:
+    """Persist a worker-owned failure or cancellation without changing identity."""
+    if event_type not in {
+        TaskEventType.TASK_FAILED.value,
+        TaskEventType.TASK_CANCELLED.value,
+    }:
+        raise ValueError("Unsupported chat attempt terminal event")
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id,
+                backend_task_id=backend_task_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
+            .with_for_update()
+            .one_or_none()
+        )
+        if attempt is None or attempt.completed_message_id is not None:
+            return False
+        if attempt.terminal_event_type is not None:
+            return attempt.terminal_event_type == event_type
+        attempt.terminal_event_type = event_type
+        return True
+
+
 def get_chat_completion_attempt_by_task_id(
     chatlog_db: Any, backend_task_id: str
 ) -> Optional[Dict[str, Any]]:
@@ -150,6 +189,7 @@ def get_chat_completion_attempt_by_task_id(
             "thread_id": attempt.thread_id,
             "turn_id": attempt.turn_id,
             "completed_message_id": attempt.completed_message_id,
+            "terminal_event_type": attempt.terminal_event_type,
             "created_at": attempt.created_at,
             "accepted_at": attempt.accepted_at,
         }
@@ -193,6 +233,7 @@ def list_chat_completion_attempts_for_thread(
                     "thread_id": attempt.thread_id,
                     "turn_id": attempt.turn_id,
                     "completed_message_id": completed_message_id,
+                    "terminal_event_type": attempt.terminal_event_type,
                     "created_at": attempt.created_at,
                     "accepted_at": attempt.accepted_at,
                 }

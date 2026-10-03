@@ -2441,6 +2441,15 @@ def chat_list_tasks(
                 "event_type": "task.completed",
                 "reason": "durable_completion_recorded",
             }
+        elif attempt.get("terminal_event_type") in {
+            "task.failed",
+            "task.cancelled",
+        }:
+            state = {
+                "state": "terminal",
+                "event_type": attempt["terminal_event_type"],
+                "reason": "durable_terminal_outcome_recorded",
+            }
         else:
             state = task_events.describe_terminal_state(task_id)
         receipts.append(
@@ -2449,7 +2458,7 @@ def chat_list_tasks(
                 **{
                     key: value
                     for key, value in attempt.items()
-                    if key != "backend_task_id"
+                    if key not in {"backend_task_id", "terminal_event_type"}
                 },
                 "state": state.get("state"),
                 "event_type": state.get("event_type"),

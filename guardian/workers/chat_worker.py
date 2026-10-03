@@ -51,7 +51,11 @@ from guardian.core.config import (
     get_settings,
     validate_llm_config,
 )
-from guardian.core.db import GuardianDB, record_chat_completion_attempt_success
+from guardian.core.db import (
+    GuardianDB,
+    record_chat_completion_attempt_success,
+    record_chat_completion_attempt_terminal_event,
+)
 from guardian.core.hosted_room_completion_context import (
     ValidatedHostedRoomCompletionContext,
     validate_hosted_room_completion_context,
@@ -75,6 +79,7 @@ from guardian.protocol_tokens import (
     ErrorCode,
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
+    TaskEventType,
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
@@ -497,6 +502,38 @@ def _record_chat_completion_attempt_link(
             task.thread_id,
             task.task_id,
             task.request_id,
+        )
+        return False
+
+
+def _record_chat_completion_attempt_terminal(
+    task: ChatCompletionTask, event_type: str
+) -> bool:
+    try:
+        recorded = record_chat_completion_attempt_terminal_event(
+            dependencies.chatlog_db,
+            request_id=task.request_id,
+            backend_task_id=task.task_id,
+            thread_id=task.thread_id,
+            turn_id=_extract_turn_id(task),
+            event_type=event_type,
+        )
+        if not recorded:
+            logger.warning(
+                "[chat-worker] durable_terminal_outcome_unavailable thread_id=%s task_id=%s request_id=%s event_type=%s",
+                task.thread_id,
+                task.task_id,
+                task.request_id,
+                event_type,
+            )
+        return recorded
+    except Exception:
+        logger.exception(
+            "[chat-worker] durable_terminal_outcome_failed thread_id=%s task_id=%s request_id=%s event_type=%s",
+            task.thread_id,
+            task.task_id,
+            task.request_id,
+            event_type,
         )
         return False
 
@@ -2454,7 +2491,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id=turn_id,
         )
         if existing_message_id is not None:
-            _record_chat_completion_attempt_link(task, existing_message_id)
+            attempt_linked = _record_chat_completion_attempt_link(
+                task, existing_message_id
+            )
+            if task.request_id and not attempt_linked:
+                logger.warning(
+                    "[chat-worker] duplicate_turn_completion_not_projected_without_attempt_link thread_id=%s turn_id=%s task_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                )
+                return
             duration_ms = int((time.monotonic() - started) * 1000)
             terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             logger.warning(
@@ -2484,6 +2531,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             return
 
         if is_cancelled(task.task_id):
+            _record_chat_completion_attempt_terminal(
+                task, TaskEventType.TASK_CANCELLED.value
+            )
             terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             _safe_publish(
                 task.task_id,
@@ -2513,7 +2563,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 turn_id=turn_id,
             )
             if existing_message_id is not None:
-                _record_chat_completion_attempt_link(task, existing_message_id)
+                attempt_linked = _record_chat_completion_attempt_link(
+                    task, existing_message_id
+                )
+                if task.request_id and not attempt_linked:
+                    logger.warning(
+                        "[chat-worker] duplicate_turn_completion_not_projected_without_attempt_link thread_id=%s turn_id=%s task_id=%s",
+                        task.thread_id,
+                        turn_id,
+                        task.task_id,
+                    )
+                    return
                 duration_ms = int((time.monotonic() - started) * 1000)
                 terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
                 logger.warning(
@@ -2884,6 +2944,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
     except ChatTaskCancelled as exc:
+        _record_chat_completion_attempt_terminal(
+            task, TaskEventType.TASK_CANCELLED.value
+        )
         terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         cancellation_metadata = _task_error_metadata(exc)
         _safe_publish(
@@ -2915,6 +2978,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id,
         )
     except Exception as exc:
+        _record_chat_completion_attempt_terminal(
+            task, TaskEventType.TASK_FAILED.value
+        )
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)
         error_metadata = _task_error_metadata(exc)

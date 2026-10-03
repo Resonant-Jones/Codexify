@@ -16,6 +16,7 @@ from guardian.core.db import (
     create_chat_completion_attempt,
     get_chat_completion_attempt_by_task_id,
     mark_chat_completion_attempt_accepted,
+    record_chat_completion_attempt_terminal_event,
 )
 from guardian.core.pgdb import PgDB
 
@@ -104,6 +105,13 @@ def test_upgrade_preserves_chat_data_and_adds_authority(disposable_database):
         ).scalar_one() == "pre-migration text"
         assert connection.execute(sa.text("SELECT count(*) FROM users WHERE id IN ('account-a', 'account-b')")).scalar_one() == 2
 
+    command.upgrade(config, "head")
+    inspector = sa.inspect(engine)
+    assert {
+        "completed_message_id",
+        "terminal_event_type",
+    } <= {column["name"] for column in inspector.get_columns("chat_completion_attempts")}
+
     repo = PgDB(test_url.render_as_string(hide_password=False))
     create_chat_completion_attempt(repo, request_id="req-a", backend_task_id="task-a", thread_id=thread_a, turn_id="turn-a")
     create_chat_completion_attempt(repo, request_id="req-b", backend_task_id="task-b", thread_id=thread_b, turn_id="turn-b")
@@ -118,6 +126,52 @@ def test_upgrade_preserves_chat_data_and_adds_authority(disposable_database):
     mark_chat_completion_attempt_accepted(fresh_repo, backend_task_id="task-a")
     assert get_chat_completion_attempt_by_task_id(repo, "task-a")["accepted_at"] is not None
     assert get_chat_completion_attempt_by_task_id(repo, "task-b")["accepted_at"] is None
+    assert record_chat_completion_attempt_terminal_event(
+        repo,
+        request_id="req-a",
+        backend_task_id="task-a",
+        thread_id=thread_a,
+        turn_id="turn-a",
+        event_type="task.failed",
+    )
+    assert record_chat_completion_attempt_terminal_event(
+        fresh_repo,
+        request_id="req-a",
+        backend_task_id="task-a",
+        thread_id=thread_a,
+        turn_id="turn-a",
+        event_type="task.failed",
+    )
+    assert not record_chat_completion_attempt_terminal_event(
+        repo,
+        request_id="req-a",
+        backend_task_id="task-a",
+        thread_id=thread_a,
+        turn_id="turn-a",
+        event_type="task.cancelled",
+    )
+    assert record_chat_completion_attempt_terminal_event(
+        fresh_repo,
+        request_id="req-b",
+        backend_task_id="task-b",
+        thread_id=thread_b,
+        turn_id="turn-b",
+        event_type="task.cancelled",
+    )
+    assert get_chat_completion_attempt_by_task_id(repo, "task-a")[
+        "terminal_event_type"
+    ] == "task.failed"
+    assert get_chat_completion_attempt_by_task_id(fresh_repo, "task-b")[
+        "terminal_event_type"
+    ] == "task.cancelled"
+    with pytest.raises(ValueError, match="already has a failure or cancellation"):
+        repo.create_assistant_message_for_completion_attempt(
+            thread_id=thread_a,
+            content="must not complete a failed attempt",
+            request_id="req-a",
+            backend_task_id="task-a",
+            turn_id="turn-a",
+        )
     engine.dispose()
 
 
