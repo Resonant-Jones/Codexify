@@ -617,3 +617,24 @@ def test_account_jwt_and_raw_operator_key_are_mixed_before_verification(monkeypa
     )
     _assert_mixed(response)
     validation.assert_not_called()
+
+
+def test_account_cookie_and_bearer_operator_key_are_mixed_before_verification(
+    monkeypatch,
+):
+    _configure_remote(monkeypatch)
+    account, _ = issue_session_token(
+        subject="account-a", purpose=ACCOUNT_SESSION_PURPOSE
+    )
+    validation = Mock(
+        side_effect=AssertionError("mixed credentials must not be verified")
+    )
+    monkeypatch.setattr(dependencies, "verify_session_token_for_purpose", validation)
+    response = _client().get(
+        "/operator",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        cookies={"gc_session": account},
+    )
+
+    _assert_mixed(response)
+    validation.assert_not_called()

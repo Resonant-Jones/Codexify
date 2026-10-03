@@ -488,7 +488,13 @@ async def get_run(
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
     request_user = _resolved_request_user(current_user, "")
-    run = _store.get_account_run(run_id, user_id=request_user)
+    if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
+        run = _store.get_account_run(run_id, user_id=request_user)
+    else:
+        # Local mode's API key is the existing operator authority for legacy
+        # run inspection. Keep threadless/operator-created runs readable there;
+        # remote account reads still require durable account-origin provenance.
+        run = _store.get_run(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return {"ok": True, "run": run}

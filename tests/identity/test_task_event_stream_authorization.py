@@ -91,10 +91,14 @@ def test_owner_can_subscribe_and_existing_sse_payload_is_preserved(task_event_cl
 
 
 def _account_jwt(
-    *, purpose=ACCOUNT_SESSION_PURPOSE, exp=None, secret="task-event-jwt-secret"
+    *,
+    subject="account-a",
+    purpose=ACCOUNT_SESSION_PURPOSE,
+    exp=None,
+    secret="task-event-jwt-secret",
 ):
     jwt = pytest.importorskip("jwt")
-    claims = {"sub": "account-a", "exp": exp or int(time.time()) + 120}
+    claims = {"sub": subject, "exp": exp or int(time.time()) + 120}
     if purpose is not None:
         claims["purpose"] = purpose
     return jwt.encode(claims, secret, algorithm="HS256")
@@ -160,6 +164,29 @@ def test_remote_account_jwt_cannot_read_a_thread_owned_by_another_account(
     assert response.status_code == 403
     lookup.assert_called_once()
     db.get_chat_thread.assert_called_once_with(19)
+    redis_read.assert_not_called()
+
+
+def test_remote_single_user_account_jwt_subject_is_the_thread_owner(
+    task_event_client, monkeypatch
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    _configure_remote_single_user(monkeypatch)
+    token = _account_jwt(subject="account-b")
+    db.get_chat_thread.side_effect = lambda thread_id: {
+        "id": thread_id,
+        "user_id": "account-a",
+    }
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers={"Authorization": f"Bearer {token}", "X-API-Key": ""},
+    )
+
+    assert response.status_code == 403
+    lookup.assert_called_once()
+    db.get_chat_thread.assert_called_once_with(7)
     redis_read.assert_not_called()
 
 

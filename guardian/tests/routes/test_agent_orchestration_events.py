@@ -291,6 +291,36 @@ def test_chat_thread_agent_runs_rejects_memory_only_authority(monkeypatch) -> No
     assert str(run["run_id"]) not in response.text
 
 
+def test_local_operator_can_read_threadless_agent_run(monkeypatch) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setattr(
+        agent_orchestration.dependencies, "is_private_preview", lambda: False
+    )
+    local_store = AgentStore()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    deployment = local_store.create_deployment(
+        flow_id="operator-threadless",
+        thread_id=None,
+        spec_json={},
+        spec_hash="operator-threadless-spec",
+    )
+    run = local_store.create_run(
+        deployment_id=str(deployment["deployment_id"]),
+        thread_id=None,
+        status="running",
+    )
+
+    response = _build_client().get(
+        f"/api/agents/runs/{run['run_id']}",
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["run"]["run_id"] == run["run_id"]
+    assert response.json()["run"]["thread_id"] is None
+
+
 def test_start_run_terminal_runtime_target_is_persisted_and_emitted(
     monkeypatch,
 ) -> None:

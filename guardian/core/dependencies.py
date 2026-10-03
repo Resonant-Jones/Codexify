@@ -33,6 +33,7 @@ from guardian.core import event_bus
 from guardian.core.auth import (
     ACCOUNT_SESSION_PURPOSE,
     OPERATOR_SESSION_PURPOSE,
+    get_unverified_session_token_purpose,
     get_verified_session_token_purpose,
     reject_mixed_principal_credentials,
     resolve_account_session_subject,
@@ -552,14 +553,14 @@ def _remote_token_secrets() -> List[str]:
     return secrets
 
 
-def _is_remote_single_user_account_jwt(token: str) -> bool:
-    """Validate the existing purpose-tagged JWT account lane for single-user mode."""
+def _remote_single_user_account_jwt_subject(token: str) -> str | None:
+    """Return the verified account subject for the single-user JWT lane."""
     if jwt is None or _multi_user_mode_enabled():
-        return False
+        return None
 
     raw = token.strip()
     if not raw:
-        return False
+        return None
 
     # The raw Guardian API key is operator material, not an account JWT signer.
     account_secrets = []
@@ -583,8 +584,8 @@ def _is_remote_single_user_account_jwt(token: str) -> bool:
             and str(claims.get("sub") or "").strip()
             and claims.get("purpose") == ACCOUNT_SESSION_PURPOSE
         ):
-            return True
-    return False
+            return str(claims["sub"]).strip()
+    return None
 
 
 def _is_valid_remote_token(token: str) -> bool:
@@ -921,17 +922,23 @@ def require_operator_auth(
     A valid token of another class is rejected before considering API-key
     fallback, so account and guest credentials cannot be reinterpreted.
     """
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    bearer_purpose = get_unverified_session_token_purpose(bearer) if bearer else None
+    # At this operator-only seam, an unclassified Bearer value is also a
+    # supported raw API-key selector. Purpose-tagged account credentials stay
+    # in the account lane and are never reinterpreted as operator material.
+    raw_bearer_key = bearer if bearer and bearer_purpose is None else None
+
     reject_mixed_principal_credentials(
         request,
         enabled=is_private_preview() or _auth_mode() == "remote",
         authorization=authorization,
         gc_session=gc_session,
-        operator_key_values=(x_api_key,),
+        operator_key_values=(x_api_key, raw_bearer_key),
     )
 
-    bearer = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        bearer = authorization[7:].strip()
     cookie_token = _coerce_text(gc_session)
     presented_token = bearer or cookie_token
 
@@ -1063,19 +1070,19 @@ def _verify_task_event_account_session(
 ) -> RequestUserScope | None:
     """Preserve task-event's supported remote JWT lane without widening other routes."""
     token = extract_session_token(authorization, gc_session)
-    if (
-        token
-        and not is_private_preview()
-        and _auth_mode() == "remote"
-        and _is_remote_single_user_account_jwt(token)
-    ):
-        # A remote single-user JWT uses the configured canonical single-user
-        # identity. Force the shared thread reader to compare that owner before
-        # task events reach Redis; the JWT subject does not invent an account map.
-        account_id = get_single_user_id()
+    subject_id = (
+        _remote_single_user_account_jwt_subject(token)
+        if token and not is_private_preview() and _auth_mode() == "remote"
+        else None
+    )
+    if subject_id:
+        # The verified JWT subject is the account identity. Force the shared
+        # thread reader to compare that subject with the durable thread owner
+        # before task events reach Redis.
         return RequestUserScope(
-            user_id=account_id,
-            account_id=account_id,
+            user_id=subject_id,
+            subject_id=subject_id,
+            account_id=subject_id,
             multi_user_enabled=True,
         )
     verify_account_session(

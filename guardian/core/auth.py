@@ -292,6 +292,15 @@ def get_verified_session_token_purpose(token: str) -> str | None:
     return str(claims.get("purpose") or "").strip() or None
 
 
+def get_unverified_session_token_purpose(token: str) -> str | None:
+    """Read a purpose claim for mixed-lane presence classification only.
+
+    This value is never authentication evidence. Callers must validate the
+    credential with the route's purpose-specific verifier before authorizing.
+    """
+    return _unverified_session_purpose(token)
+
+
 def verify_session_token_for_purpose(
     token: str, expected_purpose: str
 ) -> bool:
