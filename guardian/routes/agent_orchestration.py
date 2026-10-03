@@ -298,6 +298,7 @@ async def execute_coding_task(
     run = _store.create_run(
         deployment_id=deployment["deployment_id"],
         thread_id=deployment.get("thread_id"),
+        account_origin_user_id=resolved_user_id,
         runtime_target="container",
         rollback_mode="auto",
         status="queued",

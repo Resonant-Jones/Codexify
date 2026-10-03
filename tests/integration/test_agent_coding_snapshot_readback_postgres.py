@@ -50,6 +50,28 @@ READ_PATHS = (
 )
 
 
+def _coding_intake_payload(*, thread_id: int, user_id: str = ACCOUNT_A) -> dict:
+    return {
+        "coding_task_id": "coding-proof",
+        "thread_id": str(thread_id),
+        "source_message_id": "101",
+        "attempt_id": "attempt-proof",
+        "user_id": user_id,
+        "project_id": None,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "Run the bounded account coding proof.",
+        "repo_root": None,
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+    }
+
+
 @pytest.fixture
 def readback(monkeypatch):
     raw_url = os.getenv("AGENT_SNAPSHOT_TEST_DATABASE_URL")
@@ -97,25 +119,15 @@ def readback(monkeypatch):
             thread_id, other_id = thread.id, other.id
         db = SimpleNamespace(get_session=Mock(side_effect=sessions))
         store = AgentStore(db=db)
-        deployment = store.create_deployment(
-            flow_id="coding-proof",
-            thread_id=thread_id,
-            spec_json={
-                "user_id": ACCOUNT_A,
-                "coding_task_id": "coding-proof",
-                "source_thread_id": thread_id,
-                "attempt_id": "attempt-proof",
-            },
-            spec_hash="fixture",
-        )
-        run = store.create_run(
-            deployment_id=deployment["deployment_id"], thread_id=thread_id
-        )
         monkeypatch.setattr(routes, "_store", store)
+        publisher = Mock()
+        monkeypatch.setattr(routes, "_event_publisher", publisher)
         events = Mock(
             side_effect=AssertionError("snapshot/quarantine must not read events")
         )
         monkeypatch.setattr(routes.task_events, "read_events", events)
+        enqueue = Mock()
+        monkeypatch.setattr(redis_queue, "enqueue_coding_execution", enqueue)
         monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
         monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
         monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "true")
@@ -139,16 +151,30 @@ def readback(monkeypatch):
         app.include_router(routes.chat_router)
         assert not app.dependency_overrides
         with TestClient(app, raise_server_exceptions=False) as client:
+            intake = client.post(
+                "/api/agents/coding/execute",
+                json=_coding_intake_payload(thread_id=thread_id),
+                headers={
+                    "Authorization": f"Bearer {tokens[ACCOUNT_A]}",
+                    "X-API-Key": "",
+                },
+            )
+            assert intake.status_code == 200, intake.text
+            intake_body = intake.json()
+            assert enqueue.call_count == 1
+            assert enqueue.call_args.args[0]["user_id"] == ACCOUNT_A
             yield SimpleNamespace(
                 client=client,
                 sessions=sessions,
                 store=store,
                 db=db,
                 events=events,
+                publisher=publisher,
+                enqueue=enqueue,
                 thread_id=thread_id,
                 other_id=other_id,
-                run_id=run["run_id"],
-                deployment_id=deployment["deployment_id"],
+                run_id=intake_body["run_id"],
+                deployment_id=intake_body["deployment_id"],
                 tokens=tokens,
             )
         events.assert_not_called()
@@ -165,6 +191,114 @@ def _headers(readback, account=ACCOUNT_A):
 
 def _path(readback, template):
     return template.format(run_id=readback.run_id, thread_id=readback.thread_id)
+
+
+def test_operator_metadata_spoof_has_no_account_read_entitlement(readback, monkeypatch):
+    """Operator-controlled deployment metadata cannot grant account readback."""
+    operator_token, _ = issue_session_token(
+        subject="operator-proof", purpose=OPERATOR_SESSION_PURPOSE
+    )
+    operator_headers = {
+        "Authorization": f"Bearer {operator_token}",
+        "X-API-Key": "",
+    }
+    monkeypatch.setattr(routes, "_event_publisher", Mock())
+
+    deployment_response = readback.client.post(
+        "/api/agents/deployments",
+        headers=operator_headers,
+        json={
+            "flow_id": "operator-forged-coding-run",
+            "thread_id": readback.thread_id,
+            "spec": {
+                "user_id": ACCOUNT_A,
+                "account_origin_user_id": ACCOUNT_A,
+                "coding_task_id": "operator-forged-coding-task",
+                "source_thread_id": readback.thread_id,
+                "attempt_id": "operator-forged-attempt",
+            },
+        },
+    )
+    assert deployment_response.status_code == 200, deployment_response.text
+    deployment_id = deployment_response.json()["deployment"]["deployment_id"]
+
+    forged_start = readback.client.post(
+        f"/api/agents/deployments/{deployment_id}/runs",
+        headers=operator_headers,
+        json={"account_origin_user_id": ACCOUNT_A},
+    )
+    assert forged_start.status_code == 422
+
+    start_response = readback.client.post(
+        f"/api/agents/deployments/{deployment_id}/runs",
+        headers=operator_headers,
+        json={},
+    )
+    assert start_response.status_code == 200, start_response.text
+    run_id = start_response.json()["run"]["run_id"]
+    with readback.sessions() as session:
+        operator_run = session.query(AgentRun).filter_by(run_id=run_id).one()
+        assert operator_run.account_origin_user_id is None
+
+    for path in READ_PATHS[:2]:
+        response = readback.client.get(
+            path.format(run_id=run_id), headers=_headers(readback)
+        )
+        assert response.status_code == 404, response.text
+    for path in READ_PATHS[2:]:
+        response = readback.client.get(
+            path.format(thread_id=readback.thread_id), headers=_headers(readback)
+        )
+        assert response.status_code == 200, response.text
+        assert run_id not in {run["run_id"] for run in response.json()["runs"]}
+
+
+def test_authenticated_coding_intake_persists_origin_and_reads_for_owner(
+    readback,
+):
+    # The primary fixture run was created through this same authenticated
+    # account-intake route, and the store must persist the resolved account.
+    with readback.sessions() as session:
+        fixture_run = session.query(AgentRun).filter_by(run_id=readback.run_id).one()
+        assert fixture_run.account_origin_user_id == ACCOUNT_A
+
+    # A second request supplies another account in the body. The authenticated
+    # account session, not caller-controlled envelope metadata, remains origin.
+    body = _coding_intake_payload(thread_id=readback.thread_id, user_id=ACCOUNT_B)
+    body["account_origin_user_id"] = ACCOUNT_B
+    intake = readback.client.post(
+        "/api/agents/coding/execute",
+        json=body,
+        headers=_headers(readback),
+    )
+    assert intake.status_code == 200, intake.text
+    run_id = intake.json()["run_id"]
+    assert readback.enqueue.call_count == 2
+    assert readback.enqueue.call_args.args[0]["user_id"] == ACCOUNT_A
+
+    with readback.sessions() as session:
+        account_run = session.query(AgentRun).filter_by(run_id=run_id).one()
+        deployment = (
+            session.query(AgentDeployment).filter_by(id=account_run.deployment_id).one()
+        )
+        assert account_run.account_origin_user_id == ACCOUNT_A
+        assert deployment.spec_json["user_id"] == ACCOUNT_A
+
+    snapshot = readback.client.get(
+        f"/api/agents/runs/{run_id}/coding", headers=_headers(readback)
+    )
+    assert snapshot.status_code == 200, snapshot.text
+    for path in READ_PATHS[2:]:
+        response = readback.client.get(
+            path.format(thread_id=readback.thread_id), headers=_headers(readback)
+        )
+        assert response.status_code == 200, response.text
+        assert run_id in {run["run_id"] for run in response.json()["runs"]}
+
+    foreign = readback.client.get(
+        f"/api/agents/runs/{run_id}/coding", headers=_headers(readback, ACCOUNT_B)
+    )
+    assert foreign.status_code == 404
 
 
 @pytest.mark.parametrize("path", READ_PATHS)

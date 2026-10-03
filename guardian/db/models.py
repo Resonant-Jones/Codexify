@@ -5161,6 +5161,7 @@ class AgentRun(Base):
         ForeignKey("agent_deployments.id", ondelete="CASCADE"),
         nullable=False,
     )
+    account_origin_user_id: Mapped[str | None] = mapped_column(String(255))
     thread_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
     )

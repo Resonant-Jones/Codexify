@@ -405,6 +405,7 @@ class AgentStore:
         *,
         deployment_id: str,
         thread_id: int | None,
+        account_origin_user_id: str | None = None,
         runtime_target: str = "container",
         rollback_mode: str = "auto",
         status: str = "running",
@@ -425,6 +426,7 @@ class AgentStore:
                 row = AgentRun(
                     run_id=run_id,
                     deployment_id=dep_row.id,
+                    account_origin_user_id=account_origin_user_id,
                     thread_id=thread_id,
                     status=status,
                     runtime_target=runtime_target,
@@ -525,11 +527,12 @@ class AgentStore:
         *,
         user_id: str,
     ) -> dict[str, Any] | None:
-        """Read a coding run through its surviving canonical account thread.
+        """Read a coding run with durable origin and canonical thread authority.
 
-        Deployment metadata corroborates the binding; it never substitutes
-        for thread ownership. Memory-only and operator-only runs are not
-        account read resources.
+        Account-origin provenance and the surviving canonical account thread
+        are both required. Deployment metadata corroborates lineage; it never
+        substitutes for either durable binding. Memory-only, historical-null,
+        and operator-created runs are not account read resources.
         """
         account_id = str(user_id or "").strip()
         if not account_id or not self._has_db():
@@ -541,6 +544,7 @@ class AgentStore:
                 .join(ChatThread, AgentRun.thread_id == ChatThread.id)
                 .filter(
                     AgentRun.run_id == run_id,
+                    AgentRun.account_origin_user_id == account_id,
                     AgentDeployment.thread_id == ChatThread.id,
                     ChatThread.user_id == account_id,
                 )
