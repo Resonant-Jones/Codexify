@@ -26,6 +26,7 @@ class DeadlineResponse:
         self.status_code = response.status_code
         self.headers = response.headers
         self.lines = response.aiter_lines()
+        self._content = None
 
     def iter_lines(self, decode_unicode=False):
         while True:
@@ -37,7 +38,9 @@ class DeadlineResponse:
 
     @property
     def content(self):
-        return self.owner.call(self.response.aread())
+        if self._content is None:
+            self._content = self.owner.call(self.response.aread())
+        return self._content
 
     @property
     def text(self):

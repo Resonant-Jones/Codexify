@@ -90,7 +90,12 @@ from guardian.queue.redis_queue import (
     is_cancelled,
 )
 from guardian.queue.turn_lock import release_turn_lock
-from guardian.tasks.chat_deadline import DEADLINE_FIELDS, parse_accepted_chat_task_deadline
+from guardian.tasks.chat_deadline import (
+    DEADLINE_FIELDS,
+    AcceptedChatTaskDeadlineExceeded,
+    accepted_chat_deadline_for_task,
+    parse_accepted_chat_task_deadline,
+)
 from guardian.tasks.types import (
     ChatCompletionTask,
     TaskLifecycleState,
@@ -889,7 +894,19 @@ def _completion_truth(
     }
 
 
+def _is_accepted_chat_deadline_failure(exc: Exception) -> bool:
+    detail = getattr(exc, "detail", None)
+    return bool(
+        isinstance(exc, HTTPException)
+        and isinstance(detail, dict)
+        and detail.get("failure_code")
+        == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
+    )
+
+
 def _should_attempt_provider_fallback(exc: Exception) -> bool:
+    if _is_accepted_chat_deadline_failure(exc):
+        return False
     if isinstance(exc, (ChatTaskCancelled, ToolLoopExecutionError)):
         return False
     if isinstance(exc, CompletionTerminalError):
@@ -1898,6 +1915,37 @@ def _run_chat_completion_task_compat(
     )
     completion_result: dict[str, Any] | None = None
     visible_output_emitted = False
+    last_dispatch_provider = provider
+    last_dispatch_model = model
+
+    def _add_deadline_failure_context(exc: Exception) -> None:
+        detail = getattr(exc, "detail", None)
+        if not isinstance(detail, dict):
+            return
+        detail["completion_truth"] = dict(completion_truth)
+        detail["visible_output_emitted"] = visible_output_emitted
+        detail.setdefault("attempted_provider", attempted_provider)
+        detail.setdefault("attempted_model", attempted_model)
+        detail.setdefault("resolved_provider", last_dispatch_provider)
+        detail.setdefault("resolved_model", last_dispatch_model)
+        detail.setdefault("selection_source", selection_source)
+        detail.setdefault(
+            "request_correlation",
+            correlation_metadata(
+                request_id=task.request_id,
+                task_id=task.task_id,
+                attempt_id=getattr(task, "attempt_id", None),
+            ),
+        )
+
+    def _require_rescue_work_budget() -> None:
+        deadline = accepted_chat_deadline_for_task(task)
+        if deadline and datetime.now(timezone.utc) >= deadline.work_deadline_at:
+            error = AcceptedChatTaskDeadlineExceeded(
+                attempted=completion_truth["attempted"]
+            )
+            _add_deadline_failure_context(error)
+            raise error
 
     def _execute_completion(
         execution_provider: str,
@@ -1944,7 +1992,9 @@ def _run_chat_completion_task_compat(
             if callable(chunk_callback):
                 chunk_callback(delta)
 
-        nonlocal completion_result
+        nonlocal completion_result, last_dispatch_provider, last_dispatch_model
+        last_dispatch_provider = execution_provider
+        last_dispatch_model = execution_model
         completion_result = (
             _chat_completion_service._execute_bounded_tool_turn_completion(
                 task,
@@ -1983,6 +2033,8 @@ def _run_chat_completion_task_compat(
         assistant_text = _execute_completion(provider, model)
         completion_truth["executed"] = True
     except Exception as exc:
+        if _is_accepted_chat_deadline_failure(exc):
+            _add_deadline_failure_context(exc)
         failure_meta = _task_error_metadata(exc)
         should_rescue = _provider_fallback_allowed(
             exc,
@@ -1990,10 +2042,14 @@ def _run_chat_completion_task_compat(
             provider_pinned=provider_pinned,
             visible_output_emitted=visible_output_emitted,
         )
-        fallback_candidates = _fallback_provider_candidates(
-            attempted_provider=provider,
-            settings=settings,
-        )
+        fallback_candidates = []
+        if should_rescue:
+            _require_rescue_work_budget()
+            fallback_candidates = _fallback_provider_candidates(
+                attempted_provider=provider,
+                settings=settings,
+            )
+            _require_rescue_work_budget()
         failure_meta.update(
             {
                 "provider": provider,
@@ -2015,10 +2071,11 @@ def _run_chat_completion_task_compat(
             else:
                 exc.metadata = failure_meta
             raise
-        completion_truth["fallback_attempted"] = True
         rescued = False
         fallback_errors: list[str] = []
         for fallback_provider, fallback_model in fallback_candidates:
+            _require_rescue_work_budget()
+            completion_truth["fallback_attempted"] = True
             logger.warning(
                 "[chat-worker] provider_rescue_start attempted_provider=%s attempted_model=%s selection_source=%s provider_pinned=%s fallback_provider=%s fallback_model=%s",
                 provider,
@@ -2041,6 +2098,10 @@ def _run_chat_completion_task_compat(
                 rescued = True
                 break
             except Exception as fallback_exc:
+                if _is_accepted_chat_deadline_failure(fallback_exc):
+                    _add_deadline_failure_context(fallback_exc)
+                    raise
+                _require_rescue_work_budget()
                 fallback_errors.append(_describe_task_error(fallback_exc))
         if not rescued:
             if fallback_errors:
