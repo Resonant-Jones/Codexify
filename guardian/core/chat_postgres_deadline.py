@@ -1,7 +1,7 @@
 """ADR-087 query bounds for worker-owned PgDB operations.
 
-This scope bounds native query polling and pool waiting, not DNS, connection
-establishment or remote commit acknowledgement. It never creates a budget.
+This scope bounds native connection/query polling and pool waiting, not DNS
+resolution or remote commit acknowledgement. It never creates a budget.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 import psycopg
 from psycopg import waiting
+from psycopg.conninfo import conninfo_to_dict, timeout_from_conninfo
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import queue as pool_queue
 
@@ -125,6 +126,75 @@ class AcceptedDeadlineQueuePool(QueuePool):
 class AcceptedDeadlineConnection(psycopg.Connection):
     """Close native query I/O on parent expiry, without background workers."""
 
+    @classmethod
+    def _connect_gen(cls, conninfo="", **kwargs):
+        # Driver 3.2 passes its timeout into this generator; 3.3 applies it in
+        # the outer wait_conn. Retain the driver's policy and final connection
+        # setup without copying connect() or changing library-global waiting.
+        gen = super()._connect_gen(conninfo, **kwargs)
+        budget = _budget.get()
+        if budget is None:
+            return (yield from gen)
+        result = None
+        try:
+            budget.remaining()
+            policy = kwargs.get("timeout")
+            if policy is None:
+                policy = timeout_from_conninfo(conninfo_to_dict(conninfo))
+            policy_end = time.monotonic() + policy if policy > 0 else None
+            try:
+                with selectors.DefaultSelector() as selector:
+                    fd, wanted = next(gen)
+                    while True:
+                        remaining = budget.remaining()
+                        if policy_end is not None:
+                            policy_remaining = policy_end - time.monotonic()
+                            if policy_remaining <= 0:
+                                raise psycopg.errors.ConnectionTimeout(
+                                    "connection timeout expired"
+                                )
+                            remaining = min(remaining, policy_remaining)
+                        mask = 0
+                        if wanted & waiting.WAIT_R:
+                            mask |= selectors.EVENT_READ
+                        if wanted & waiting.WAIT_W:
+                            mask |= selectors.EVENT_WRITE
+                        if not mask:
+                            raise RuntimeError(
+                                "PostgreSQL connection yielded no I/O interest"
+                            )
+                        # The native connect generator may replace its socket,
+                        # even reusing the same descriptor. Remove registration
+                        # before advancing it, as the driver wait_conn does.
+                        selector.register(fd, mask)
+                        ready = 0
+                        try:
+                            for _key, events in selector.select(remaining):
+                                if events & selectors.EVENT_READ:
+                                    ready |= waiting.READY_R
+                                if events & selectors.EVENT_WRITE:
+                                    ready |= waiting.READY_W
+                        finally:
+                            selector.unregister(fd)
+                        budget.remaining()
+                        if policy_end is not None and time.monotonic() >= policy_end:
+                            raise psycopg.errors.ConnectionTimeout(
+                                "connection timeout expired"
+                            )
+                        fd, wanted = gen.send(ready)
+            except StopIteration as completed:
+                result = completed.value
+            budget.remaining()
+            return result
+        except BaseException:
+            if result is not None:
+                result.close()
+            raise
+        finally:
+            # Closing the suspended native generator releases its partial
+            # PGconn/socket. No background connection operation survives.
+            gen.close()
+
     def wait(self, gen, interval=0.1):
         budget = _budget.get()
         if budget is None:
@@ -229,7 +299,14 @@ def connect_with_query_bounds(dsn: str, **kwargs):
     if budget is not None:
         budget.remaining()
     kwargs.setdefault("cursor_factory", AcceptedDeadlineCursor)
-    return AcceptedDeadlineConnection.connect(dsn, **kwargs)
+    connection = AcceptedDeadlineConnection.connect(dsn, **kwargs)
+    if budget is not None:
+        try:
+            budget.remaining()
+        except (AcceptedChatTaskDeadlineExceeded, ValueError):
+            connection.close()
+            raise
+    return connection
 
 
 def accepted_postgres_queries_active() -> bool:
