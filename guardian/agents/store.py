@@ -694,6 +694,7 @@ class AgentStore:
         *,
         deployment_id: str,
         thread_id: int | None,
+        account_origin_user_id: str | None = None,
         runtime_target: str = "container",
         rollback_mode: str = "auto",
         status: str = "running",
@@ -714,6 +715,7 @@ class AgentStore:
                 row = AgentRun(
                     run_id=run_id,
                     deployment_id=dep_row.id,
+                    account_origin_user_id=account_origin_user_id,
                     thread_id=thread_id,
                     status=status,
                     runtime_target=runtime_target,
@@ -808,6 +810,93 @@ class AgentStore:
                 return None
         return run
 
+    def get_account_run(
+        self,
+        run_id: str,
+        *,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        """Read a coding run with durable origin and canonical thread authority.
+
+        Account-origin provenance and the surviving canonical account thread
+        are both required. Deployment metadata corroborates lineage; it never
+        substitutes for either durable binding. Memory-only, historical-null,
+        and operator-created runs are not account read resources.
+        """
+        account_id = str(user_id or "").strip()
+        if not account_id or not self._has_db():
+            return None
+        with self.db.get_session() as session:
+            record = (
+                session.query(AgentRun, AgentDeployment, ChatThread)
+                .join(AgentDeployment, AgentRun.deployment_id == AgentDeployment.id)
+                .join(ChatThread, AgentRun.thread_id == ChatThread.id)
+                .filter(
+                    AgentRun.run_id == run_id,
+                    AgentRun.account_origin_user_id == account_id,
+                    AgentDeployment.thread_id == ChatThread.id,
+                    ChatThread.user_id == account_id,
+                )
+                .first()
+            )
+            if record is None:
+                return None
+            row, deployment, thread = record
+            spec = deployment.spec_json or {}
+            if not isinstance(spec, dict):
+                return None
+            spec_user_id = spec.get("user_id")
+            coding_task_id = spec.get("coding_task_id")
+            source_thread_id = spec.get("source_thread_id")
+            if (
+                not isinstance(spec_user_id, str)
+                or spec_user_id.strip() != account_id
+                or not isinstance(coding_task_id, str)
+                or not coding_task_id.strip()
+                or type(source_thread_id) is not int
+                or source_thread_id != thread.id
+            ):
+                return None
+            return {
+                "run_id": row.run_id,
+                "deployment_id": deployment.deployment_id,
+                "thread_id": row.thread_id,
+                "status": row.status,
+                "runtime_target": row.runtime_target,
+                "rollback_applied": bool(row.rollback_applied),
+                "rollback_reason": row.rollback_reason,
+                "worktree_id": row.worktree_id,
+                "worktree_path": row.worktree_path,
+                "error": row.error,
+                "created_at": row.created_at,
+                "started_at": row.started_at,
+                "ended_at": row.ended_at,
+            }
+
+    def list_account_runs_for_thread(
+        self,
+        thread_id: int,
+        *,
+        user_id: str,
+    ) -> list[dict[str, Any]] | None:
+        account_id = str(user_id or "").strip()
+        if not account_id or not self._has_db():
+            return None
+        with self.db.get_session() as session:
+            thread = (
+                session.query(ChatThread)
+                .filter_by(id=thread_id, user_id=account_id)
+                .first()
+            )
+            if thread is None:
+                return None
+        runs: list[dict[str, Any]] = []
+        for candidate in self.list_runs_for_thread(thread_id):
+            run = self.get_account_run(candidate["run_id"], user_id=account_id)
+            if run is not None:
+                runs.append(run)
+        return runs
+
     def get_coding_run_snapshot(
         self,
         run_id: str,
@@ -815,7 +904,11 @@ class AgentStore:
         user_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Return the bounded, account-scoped WebUI coding-run projection."""
-        run = self.get_run(run_id, user_id=user_id)
+        run = (
+            self.get_account_run(run_id, user_id=user_id)
+            if user_id is not None
+            else self.get_run(run_id)
+        )
         if run is None:
             return None
         deployment = self.get_deployment(str(run.get("deployment_id") or ""))
@@ -861,9 +954,16 @@ class AgentStore:
         thread_id: int,
         *,
         user_id: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]] | None:
         snapshots: list[dict[str, Any]] = []
-        for run in self.list_runs_for_thread(thread_id):
+        runs = (
+            self.list_account_runs_for_thread(thread_id, user_id=user_id)
+            if user_id is not None
+            else self.list_runs_for_thread(thread_id)
+        )
+        if runs is None:
+            return None
+        for run in runs:
             run_id = str(run.get("run_id") or "").strip()
             if not run_id:
                 continue

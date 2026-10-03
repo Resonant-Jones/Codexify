@@ -26,6 +26,7 @@ from guardian.core.dependencies import (
     require_account_session,
     require_api_key,
     require_operator_auth,
+    require_task_event_read_principal,
 )
 from guardian.core.hosted_room_session import issue_guest_session_token
 from guardian.core.supported_profile import load_supported_profile
@@ -384,5 +385,6 @@ def test_non_operator_sentinels_keep_distinct_auth_dependencies():
     assert require_operator_auth not in set(_calls(local_route))
 
     sse_route = _find("guardian.guardian_api", "GET", "/api/tasks/{task_id}/events")
-    assert require_api_key in set(_calls(sse_route))
+    assert require_task_event_read_principal in set(_calls(sse_route))
+    assert require_api_key not in set(_calls(sse_route))
     assert require_operator_auth not in set(_calls(sse_route))

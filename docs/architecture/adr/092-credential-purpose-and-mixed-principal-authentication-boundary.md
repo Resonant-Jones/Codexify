@@ -24,11 +24,12 @@ approved account.
 
 ADR-091 supplies durable `backend_task_id -> ChatCompletionAttempt -> thread_id`
 authority, and the shared thread-read policy accepts an already-authenticated
-account `RequestUserScope` or `HostedRoomGuestPrincipal`. The current task-event
-SSE handler still uses only account-oriented authentication and does not apply
-that durable lookup or thread policy. This ADR defines the missing
-authentication contract. It does not repair the handler or claim the
-public-ingress boundary is closed.
+account `RequestUserScope` or `HostedRoomGuestPrincipal`. The task-event SSE
+route now composes those authorities: it resolves the task through the durable
+attempt, applies the thread-read policy, and only then consumes Redis events.
+The route accepts only account/local request-user or purpose-scoped guest
+principals; remote operator credentials do not resolve thread authority. This
+bounded code/test result does not claim the public-ingress boundary is closed.
 
 ## Decision
 
@@ -261,8 +262,14 @@ service-capability separation is now qualified by focused tests:
 gate checks exact `account_session` purpose, the approved session, and the
 persisted admin account before capability validation. Strict generic
 account-purpose validation, `auth_dependencies.py` bypass closure, legacy
-account-token rejection, global mixed-principal enforcement, task-event SSE
-authorization, and public-ingress qualification remain deferred.
+account-token rejection, and public-ingress qualification remain deferred.
+Task-event SSE object authorization is implemented at its route-specific
+principal boundary and remains subject to the focused proof receipt. Remote HTTP mixed-principal
+rejection is now implemented at the generic and strict account dependencies,
+the explicit operator-auth dependency, the account-observability human gate,
+and authenticated Hosted Room guest session-inspection, message, and invoke
+routes. It does not change local/single-user handling or establish task-event
+ownership.
 
 The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
 exact signed `purpose=account_session` before consulting the approved session
@@ -334,9 +341,14 @@ rule; this is not a remote credential fallback.
 The canonical mixed-lane response is **HTTP 400** with machine-readable error
 `mixed_principal_credentials` and a generic message such as `Conflicting
 authentication contexts`. It must reveal neither credential's validity nor
-the existence of a task, thread, or room. The error value is a contract for a
-future runtime implementation; it is not an emitted token today and must be
-registered under the runtime protocol-token rules before use.
+the existence of a task, thread, or room. The error is registered in
+`guardian/protocol_tokens.py` and emitted by the shared remote HTTP presence
+check. That check reads an unverified purpose claim only to classify account
+versus operator presence; it does not treat the claim as authority. Raw
+operator keys are classified only at the operator-auth seam, so a route's
+non-principal service-capability factor remains separate. The implementation
+does not change local/single-user behavior, WebSocket authentication, or
+task-event object authorization.
 
 | Request state | Result before protected data access |
 |---|---|
@@ -396,11 +408,14 @@ presented in only one lane.
   Redis transports events and never decides ownership.
 
 This decision extends those boundaries without superseding them. Intentional
-local/single-user defaults remain separate and unchanged. The explicit
+local/single-user defaults remain separate and unchanged. The task-event SSE
+route uses the existing mixed-principal presence detector before task lookup,
+then exact remote account-session validation or the existing local request-user
+path; a guest cookie resolves only to its guest principal. The explicit
 operator-session seam, qualified Continuity operator consumer, and frozen
 operator-only route migration are implemented and test-qualified on their
 bounded surfaces. Global account-purpose strictness and three-lane mixed
-rejection remain accepted contracts that are **not yet runtime-enforced**.
-This document itself changes no token, SSE, Cloudflare, or release behavior.
-The task-event SSE repair and full public-ingress requalification remain
+rejection remain accepted contracts that are **not yet globally runtime-enforced**.
+The task-event route enforces its own mixed-credential boundary without changing
+global credential defaults. Full public-ingress requalification remains
 pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status.
