@@ -179,7 +179,7 @@ from guardian.tasks.types import (
     TaskLifecycleState,
 )
 from guardian.vector.store import VectorStore
-from guardian.utils.log_safety import install_safe_logging
+from guardian.utils.log_safety import install_safe_logging, sanitize_log_text
 
 try:  # pragma: no cover - Remote Recall is an optional, gated lane
     from guardian.web.remote_recall import (
@@ -6367,8 +6367,32 @@ def _execute_bounded_tool_turn_completion(
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
-    if command_status == "blocked":
-        loop_stop_reason = ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+    if command_status in {"failed", "blocked"}:
+        loop_stop_reason = (
+            ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+            if command_status == "blocked"
+            else ToolLoopStopReason.TOOL_COMMAND_FAILED.value
+        )
+        command_error = {
+            "error": sanitize_log_text(
+                str(command_result.get("error") or loop_stop_reason)
+            )[:1024],
+        }
+        raise ToolLoopExecutionError(
+            loop_stop_reason,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=loop_stop_reason,
+                command_run_id=command_run_id,
+            )
+            | {
+                "command_id": command_id,
+                "command_status": command_status,
+                "command_error": command_error,
+            },
+        )
     tool_turn_state = ToolTurnState.COMMAND_DISPATCHED.value
 
     if normalized_first_output.provider == "whooshd":
