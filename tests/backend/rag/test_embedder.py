@@ -304,3 +304,15 @@ def test_chroma_client_disables_telemetry(
         "settings": {"anonymized_telemetry": False},
         "collection": "telemetry_suppressed",
     }
+
+
+def test_offline_model_recovery_never_downloads(monkeypatch):
+    from backend.rag.embedder import Embedder
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    instance = object.__new__(Embedder)
+    instance.model_name = "deliberately-missing-model"
+    calls = []
+    monkeypatch.setattr(instance, "_attempt_local_model_autodownload", lambda *args: calls.append(args))
+    with __import__('pytest').raises(RuntimeError, match="explicit provisioning"):
+        instance._recover_local_model_once(ValueError("missing"))
+    assert calls == []

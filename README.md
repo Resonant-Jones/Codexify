@@ -179,6 +179,22 @@ If you want to **contribute code**, start with:
 - Upload images/documents, with metadata stored in Postgres and files stored on disk.
 - Use semantic retrieval from the vector store during chat when embeddings are configured.
 
+## First personal install
+
+From your source checkout, run:
+
+```sh
+./scripts/setup
+```
+
+The setup command inspects macOS/Linux prerequisites, adds missing safe local defaults, acquires required application assets, migrates, starts core services, and hands off to the workspace. Guardian, Textual, and a model are not needed to begin. First installation may need Internet access. Host software installation and inference/runtime/model downloads require your decision.
+
+Use `./scripts/setup --json --no-open` with a CLI agent, `--inspect` for prerequisite inspection, or `--logs` for detailed redacted output. Rerun the same command after interruption; setup rechecks live facts and preserves valid configuration, secrets, and data. Checkpoint/log paths are printed when an action is required.
+
+Core readiness opens the workspace before inference setup. Chat remains unavailable until the chosen local provider/model passes its checks. The personal setup card can be dismissed and resumed. This onboarding milestone does not change Beta support or qualify packaged desktop. macOS/Linux runtime parity remains subject to the isolated qualification gate in [ADR-099](docs/architecture/adr/099-clone-to-ready-bootstrap-and-readiness.md).
+
+The manual Compose instructions below are an operator reference. Running unrestricted `docker compose up` also follows optional/model dependencies; the canonical setup command stages core services and defers those downloads.
+
 ## Quick Start: Docker Compose
 
 ### Prerequisites

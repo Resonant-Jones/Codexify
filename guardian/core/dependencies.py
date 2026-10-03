@@ -1278,7 +1278,10 @@ def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
     Called by guardian_api.py during startup.
     """
     global _vector_store, _sensors
-    _vector_store = VectorStore()
+    # Optional embedding capability cannot hold the core workspace behind model acquisition.
+    # An explicitly required pre-provisioned model retains the existing fail-closed gate.
+    required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
+    _vector_store = VectorStore(initialize_embedder=required)
     _sensors = Sensors(db)
     return _vector_store, _sensors
 

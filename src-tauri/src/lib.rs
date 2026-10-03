@@ -1,3 +1,4 @@
+mod bootstrap_readiness_generated;
 mod commands;
 
 use tauri::Manager;

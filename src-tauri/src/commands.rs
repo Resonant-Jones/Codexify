@@ -15,6 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use tauri::Manager;
+use crate::bootstrap_readiness_generated::{
+    BootstrapHumanAction, BootstrapReadiness, BootstrapWorkflow,
+    SetupReadinessState, BOOTSTRAP_CONTRACT_VERSION,
+};
 
 const DESKTOP_KEYCHAIN_SERVICE: &str = "com.codexify.desktop";
 const DESKTOP_KEYCHAIN_ACCOUNT: &str = "guardian_api_key";
@@ -60,7 +64,6 @@ const PACKAGED_RUNTIME_IMAGE_STATE_FILENAME: &str = ".codexify-runtime-images.js
 const PACKAGED_RUNTIME_COMPOSE_FILENAME: &str = "docker-compose.runtime.yml";
 const LAUNCHER_STARTUP_STATE_FILENAME: &str = ".codexify-launcher-startup-state.json";
 const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
-const PACKAGED_SETUP_DEFAULT_NEO4J_PASS: &str = "codexify";
 const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
     ".env.example",
     ".env.template",
@@ -139,6 +142,7 @@ pub struct LauncherStartupHandoff {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LauncherSetupReadiness {
+    pub bootstrap: BootstrapReadiness,
     pub state: String,
     pub explanation: String,
     pub recommended_action: String,
@@ -243,6 +247,7 @@ pub struct HealthEndpointCheck {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeReadiness {
+    pub bootstrap: BootstrapReadiness,
     pub ok: bool,
     pub step: String,
     pub ready: bool,
@@ -670,7 +675,7 @@ fn read_packaged_runtime_image_state(
         })
 }
 
-fn runtime_images_are_current(runtime: &BootstrapRuntime) -> Result<bool, String> {
+fn runtime_image_checkpoint_matches(runtime: &BootstrapRuntime) -> Result<bool, String> {
     let expected = packaged_runtime_image_state(runtime);
     match read_packaged_runtime_image_state(runtime)? {
         Some(actual) => Ok(
@@ -679,6 +684,25 @@ fn runtime_images_are_current(runtime: &BootstrapRuntime) -> Result<bool, String
         ),
         None => Ok(false),
     }
+}
+
+fn core_image_references(config: &serde_json::Value) -> Option<HashSet<&str>> {
+    let mut references = HashSet::new();
+    for service in ["db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"] {
+        references.insert(config.get("services")?.get(service)?.get("image")?.as_str()?);
+    }
+    Some(references)
+}
+
+fn native_core_images_present(binary: &ResolvedDockerBinary, runtime: &BootstrapRuntime, root: &Path) -> bool {
+    let Ok(output) = spawn_compose_command(binary, runtime, root, &["config", "--format", "json"]).output() else {return false;};
+    if !output.status.success() {return false;}
+    // Resolved configuration stays in memory; only image references are inspected.
+    let Ok(config) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {return false;};
+    let Some(references) = core_image_references(&config) else {return false;};
+    !references.is_empty() && references.iter().all(|reference| {
+        spawn_docker_command(binary, &["image", "inspect", "--format", "{{.Id}}", reference]).output().map(|output| output.status.success()).unwrap_or(false)
+    })
 }
 
 fn write_packaged_runtime_image_state(
@@ -1703,9 +1727,32 @@ fn migrate_packaged_setup_runtime_dir(
     Ok(Some(source_path))
 }
 
+fn supported_provider_defaults() -> Result<BTreeMap<String, String>, String> {
+    let manifest = include_str!("../../config/supported_profiles/v1-local-core-web-mcp.yaml");
+    let block = manifest.split_once("\nprovider_contract:\n").ok_or("Supported provider contract is missing")?.1
+        .split_once("\ncriticality:").ok_or("Supported provider contract boundary is missing")?.0;
+    let mut values = BTreeMap::new();
+    for line in block.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {continue;}
+        let line = line.strip_prefix("  ").ok_or("Supported provider contract requires flat scalar fields")?;
+        let (key, raw) = line.split_once(": ").ok_or("Supported provider contract requires flat scalar fields")?;
+        if !key.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {return Err("Unsupported provider contract field".to_string());}
+        let value = if raw.starts_with('"') {serde_json::from_str::<String>(raw).map_err(|_| "Invalid provider scalar")?} else {raw.to_string()};
+        values.insert(key.to_string(), value);
+    }
+    Ok(values)
+}
+
+fn provider_policy_matches(current: &str, expected: &str) -> bool {
+    let current = current.to_ascii_lowercase();
+    let expected = expected.to_ascii_lowercase();
+    current == expected || (expected == "true" && current == "1") || (expected == "false" && current == "0")
+}
+
 fn materialize_packaged_setup_env(
     runtime_home: Option<&Path>,
     runtime_root: &Path,
+    existing_data: bool,
 ) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
     let env_path = runtime_env_file_path(runtime_root);
     let migrated_legacy_env_source = migrate_packaged_setup_env(runtime_home, runtime_root)?;
@@ -1720,6 +1767,8 @@ fn materialize_packaged_setup_env(
             failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
             detail,
         })?;
+    let original = fs::read_to_string(&env_path).unwrap_or_default();
+    let original_values = values.clone();
     let created_new_env_file = !env_path.exists();
     let preserved_keys = values.keys().cloned().collect::<Vec<_>>();
 
@@ -1739,12 +1788,26 @@ fn materialize_packaged_setup_env(
     };
 
     values.insert("GUARDIAN_API_KEY".to_string(), guardian_api_key.clone());
+    if let Some(mirror) = values.get("VITE_GUARDIAN_API_KEY") {
+        if !is_placeholder_config_value(Some(mirror)) && mirror != &guardian_api_key {
+            return Err(BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_PACKAGED_SETUP_FAILED,
+                detail: "Frontend API key conflicts with the existing Guardian key. Resolve explicitly; configuration was preserved.".to_string(),
+            });
+        }
+    }
     values.insert("VITE_GUARDIAN_API_KEY".to_string(), guardian_api_key);
+
+    if is_placeholder_config_value(values.get("LOCAL_CHAT_MODEL")) {
+        if let Some(model) = original_values.get("LOCAL_LLM_MODEL").filter(|model| !is_placeholder_config_value(Some(model))) {
+            values.insert("LOCAL_CHAT_MODEL".to_string(), model.clone());
+        }
+    }
 
     let defaults = [
         ("GUARDIAN_AUTH_MODE", "local"),
         ("CODEXIFY_DESKTOP_BACKEND_URL", "http://127.0.0.1:8888"),
-        ("CODEXIFY_DESKTOP_SHARE_BASE_URL", "http://127.0.0.1:5173"),
+        ("CODEXIFY_DESKTOP_SHARE_BASE_URL", "http://127.0.0.1:3000"),
         ("AI_BACKEND", "ollama"),
         ("LLM_PROVIDER", "local"),
         ("CODEXIFY_LOCAL_ONLY_MODE", "true"),
@@ -1766,7 +1829,7 @@ fn materialize_packaged_setup_env(
         ("VAULTNODE_BASE_URL", "http://host.docker.internal:8000"),
         ("VAULTNODE_HEALTH_ENDPOINTS", "/v1/models,/api/tags"),
         ("NEO4J_USER", PACKAGED_SETUP_DEFAULT_NEO4J_USER),
-        ("NEO4J_PASS", PACKAGED_SETUP_DEFAULT_NEO4J_PASS),
+
     ];
 
     for (key, default_value) in defaults {
@@ -1779,36 +1842,75 @@ fn materialize_packaged_setup_env(
         }
         push_ordered_key(&mut order, key);
     }
+    let provider_defaults = supported_provider_defaults().map_err(|detail| BootstrapRuntimeValidationError {failure_kind: FAILURE_KIND_PACKAGED_SETUP_FAILED, detail})?;
+    for (key, default_value) in provider_defaults {
+        if is_placeholder_config_value(values.get(&key)) {values.insert(key.clone(), default_value);}
+        push_ordered_key(&mut order, &key);
+    }
+    for (key, port_key, default_port) in [("CODEXIFY_DESKTOP_BACKEND_URL", "CODEXIFY_BACKEND_PORT", "8888"), ("CODEXIFY_DESKTOP_SHARE_BASE_URL", "CODEXIFY_FRONTEND_PORT", "3000")] {
+        if is_placeholder_config_value(original_values.get(key)) {
+            let port = values.get(port_key).map(String::as_str).unwrap_or(default_port);
+            values.insert(key.to_string(), format!("http://127.0.0.1:{port}"));
+        }
+    }
+    for key in ["NEO4J_PASS", "POSTGRES_PASSWORD"] {
+        if is_placeholder_config_value(values.get(key)) {
+            let value = if key == "POSTGRES_PASSWORD" && existing_data {
+                "codexify".to_string() // Preserve the previous Compose implicit storage credential.
+            } else {
+                generate_bootstrap_secret_hex(24).map_err(|detail| BootstrapRuntimeValidationError {
+                    failure_kind: FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR, detail,
+                })?
+            };
+            values.insert(key.to_string(), value);
+        }
+        push_ordered_key(&mut order, key);
+    }
     push_ordered_key(&mut order, "GUARDIAN_API_KEY");
     push_ordered_key(&mut order, "VITE_GUARDIAN_API_KEY");
 
-    let mut lines = vec![
-        "# Generated by Codexify packaged setup".to_string(),
-        "# Safe to edit. Re-running packaged setup preserves existing keys and backfills required runtime values."
-            .to_string(),
-    ];
+    let mut lines = Vec::new();
     let mut written = HashSet::new();
+    for line in original.lines() {
+        let trimmed = line.trim_start().strip_prefix("export ").unwrap_or(line.trim_start());
+        if let Some((key, _)) = trimmed.split_once('=') {
+            let key = key.trim();
+            if let Some(value) = values.get(key) {
+                written.insert(key.to_string());
+                if original_values.get(key) == Some(value) {
+                    lines.push(line.to_string());
+                } else {
+                    lines.push(format!("{key}={}", sanitize_env_value(value)));
+                }
+                continue;
+            }
+        }
+        lines.push(line.to_string());
+    }
     for key in &order {
-        if let Some(value) = values.get(key) {
-            lines.push(format!("{key}={}", sanitize_env_value(value)));
-            written.insert(key.clone());
+        if written.insert(key.clone()) {
+            if let Some(value) = values.get(key) {
+                lines.push(format!("{key}={}", sanitize_env_value(value)));
+            }
         }
     }
-    for (key, value) in &values {
-        if written.contains(key) {
-            continue;
+    let content = lines.join("\n") + "\n";
+    if content != original {
+        let temporary = env_path.with_extension("setup.tmp");
+        fs::write(&temporary, content).map_err(|err| BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: format!("Failed to stage packaged configuration: {err}"),
+        })?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)).map_err(|err| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE, detail: format!("Failed to secure packaged configuration: {err}"),
+            })?;
         }
-        lines.push(format!("{key}={}", sanitize_env_value(value)));
+        fs::rename(&temporary, &env_path).map_err(|err| BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE, detail: format!("Failed to replace packaged configuration: {err}"),
+        })?;
     }
-    lines.push(String::new());
-
-    fs::write(&env_path, lines.join("\n")).map_err(|err| BootstrapRuntimeValidationError {
-        failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
-        detail: format!(
-            "Failed to write packaged env file {}: {err}",
-            env_path.display()
-        ),
-    })?;
 
     Ok(PackagedSetupEnvResult {
         env_path,
@@ -3286,10 +3388,12 @@ fn llm_readiness_signals(llm_json: Option<&Value>) -> LlmReadinessSignals {
         };
     };
 
-    let provider = json_string_field(value, "provider");
-    let model = json_string_field(value, "model");
-    let status = json_string_field(value, "status");
     let details = value.get("details");
+    let provider = details.and_then(|entry| json_string_field(entry, "provider"))
+        .or_else(|| json_string_field(value, "provider"));
+    let model = details.and_then(|entry| json_string_field(entry, "model"))
+        .or_else(|| json_string_field(value, "model"));
+    let status = json_string_field(value, "status");
     let details_status = details.and_then(|entry| json_string_field(entry, "status"));
     let details_ok = details.and_then(|entry| json_bool_field(entry, "ok"));
     let provider_runtime_available = details
@@ -3299,14 +3403,12 @@ fn llm_readiness_signals(llm_json: Option<&Value>) -> LlmReadinessSignals {
         .and_then(|entry| json_nested_string_field(entry, &["endpoint_resolution", "state"]))
         .or_else(|| json_nested_string_field(value, &["endpoint_resolution", "state"]));
 
-    let positive_signal = is_green_llm_status(status.as_deref())
-        || is_green_llm_status(details_status.as_deref())
-        || details_ok == Some(true)
-        || provider_runtime_available == Some(true)
-        || endpoint_resolution_state
-            .as_deref()
-            .map(|state| state.eq_ignore_ascii_case("available"))
-            .unwrap_or(false);
+    let configured_model_available = details.and_then(|entry| json_bool_field(entry, "configured_model_available"));
+    let models_available = details.and_then(|entry| json_bool_field(entry, "models_available"));
+    let positive_signal = provider.as_deref() == Some("local")
+        && configured_model_available == Some(true)
+        && models_available == Some(true)
+        && (is_green_llm_status(status.as_deref()) || is_green_llm_status(details_status.as_deref()));
     let negative_signal = provider
         .as_deref()
         .map(|provider| !provider.eq_ignore_ascii_case("local"))
@@ -3587,7 +3689,21 @@ fn setup_readiness_summary(
     recommended_action: &str,
     details: Option<String>,
 ) -> LauncherSetupReadiness {
+    let core = state == SetupReadinessState::CORE_READY.as_str() || state == SetupReadinessState::INFERENCE_READY.as_str();
+    let inference = state == SetupReadinessState::INFERENCE_READY.as_str();
+    let mut bootstrap = bootstrap_readiness_from_probes(core, inference);
+    if !core {
+        bootstrap.workflow = BootstrapWorkflow::ACTION_REQUIRED;
+        bootstrap.human_action = if state == SetupReadinessState::CONFIG_CONFLICT.as_str() {
+            BootstrapHumanAction::CONSENT_REQUIRED
+        } else if state == SetupReadinessState::MISSING_CONFIG.as_str() || state == SetupReadinessState::CONFIG_INCOMPLETE.as_str() {
+            BootstrapHumanAction::CREDENTIALS_REQUIRED
+        } else {
+            BootstrapHumanAction::PREREQUISITE_UNAVAILABLE
+        };
+    }
     LauncherSetupReadiness {
+        bootstrap,
         state: state.to_string(),
         explanation: explanation.to_string(),
         recommended_action: recommended_action.to_string(),
@@ -3633,6 +3749,9 @@ fn redact_setup_diagnostics(value: &str) -> String {
                 "GUARDIAN_API_KEY=",
                 "VITE_GUARDIAN_API_KEY=",
                 "NEO4J_PASS=",
+                "POSTGRES_PASSWORD=",
+                "DATABASE_URL=",
+                "LOCAL_API_KEY=",
                 "OPENAI_API_KEY=",
                 "GROQ_API_KEY=",
                 "MINIMAX_API_KEY=",
@@ -3658,7 +3777,7 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
     let env_path = runtime_env_file_path(runtime_root);
     if !env_path.is_file() {
         return Some(setup_readiness_summary(
-            "missing_config",
+            SetupReadinessState::MISSING_CONFIG.as_str(),
             "Local config is missing. Codexify needs to create your runtime config.",
             "Run the setup wizard to create .env for the local inference runtime.",
             Some(format!("envPath={}", env_path.display())),
@@ -3669,7 +3788,7 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
         Ok((_order, values)) => values,
         Err(err) => {
             return Some(setup_readiness_summary(
-                "config_incomplete",
+                SetupReadinessState::CONFIG_INCOMPLETE.as_str(),
                 "Local config could not be read as dotenv config.",
                 "Run the setup wizard to repair .env.",
                 Some(err),
@@ -3693,7 +3812,7 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Some(setup_readiness_summary(
-            "config_incomplete",
+            SetupReadinessState::CONFIG_INCOMPLETE.as_str(),
             "Local config is incomplete. Codexify needs to create or repair your runtime config.",
             "Run the setup wizard to repair missing local beta config values.",
             Some(format!("missingOrPlaceholderKeys={}", missing.join(","))),
@@ -3721,11 +3840,24 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
     if llm_provider != "local" {
         conflicts.push("LLM_PROVIDER must be local");
     }
+    match supported_provider_defaults() {
+        Ok(expected) => {
+            for (key, expected) in &expected {
+                if let Some(current) = values.get(key) {
+                    if !is_placeholder_config_value(Some(current)) && !provider_policy_matches(current, expected) {
+                        conflicts.push("Existing provider settings differ from the supported personal profile");
+                        break;
+                    }
+                }
+            }
+        }
+        Err(_) => conflicts.push("Supported provider policy could not be inspected"),
+    }
     if !conflicts.is_empty() {
         return Some(setup_readiness_summary(
-            "config_conflict",
+            SetupReadinessState::CONFIG_CONFLICT.as_str(),
             "Config conflict found. Current local setup requires the canonical local provider lane.",
-            "Repair config so legacy AI_BACKEND=ollama and canonical LLM_PROVIDER=local.",
+            "Choose the supported personal local profile before continuing. Existing choices were preserved; provider changes require your decision.",
             Some(format!("conflicts={}", conflicts.join("; "))),
         ));
     }
@@ -3818,7 +3950,7 @@ fn run_simple_command(command: &mut Command) -> (bool, String) {
 fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetupReadiness {
     let Some(runtime_root) = runtime.runtime_root_path() else {
         return setup_readiness_summary(
-            "missing_config",
+            SetupReadinessState::MISSING_CONFIG.as_str(),
             "Codexify could not resolve a local runtime root.",
             "Run the setup wizard from a valid Codexify runtime.",
             runtime.resolution_detail.clone(),
@@ -3833,7 +3965,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         Ok(binary) => binary,
         Err(probe) => {
             return setup_readiness_summary(
-                "docker_missing",
+                SetupReadinessState::DOCKER_MISSING.as_str(),
                 "Docker is not installed or could not be found.",
                 "Install Docker Desktop, then retry.",
                 Some(probe.detail),
@@ -3846,7 +3978,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
     );
     if !compose_ok {
         return setup_readiness_summary(
-            "docker_compose_missing",
+            SetupReadinessState::DOCKER_COMPOSE_MISSING.as_str(),
             "Docker Compose is not available through the Docker CLI.",
             "Install or update Docker Desktop, then retry.",
             Some(compose_detail),
@@ -3859,7 +3991,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
     );
     if !daemon_ok {
         return setup_readiness_summary(
-            "docker_not_running",
+            SetupReadinessState::DOCKER_NOT_RUNNING.as_str(),
             "Docker is installed, but the daemon is not running.",
             "Open Docker Desktop, then retry.",
             Some(daemon_detail),
@@ -3877,118 +4009,34 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         }
     }
 
-    let setup_env_values = read_env_file_ordered(&runtime_env_file_path(runtime_root))
-        .map(|(_order, values)| values)
-        .unwrap_or_default();
-    let provider_label = setup_env_values
-        .get("LOCAL_PROVIDER_DISPLAY_NAME")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("local inference runtime");
-    let (local_runtime_ok, local_runtime_detail, local_models, inventory_url) =
-        probe_local_runtime_inventory(&setup_env_values);
-    if !local_runtime_ok {
-        return setup_readiness_summary(
-            "local_inference_not_running",
-            "Configured local inference runtime is not reachable.",
-            &format!("Start {provider_label} or update LOCAL_BASE_URL, then retry."),
-            Some(if local_runtime_detail.is_empty() {
-                "No configured local inventory endpoint responded.".to_string()
-            } else {
-                local_runtime_detail
-            }),
-        );
-    }
-
-    if let Some(model) = setup_env_values
-        .get("LOCAL_CHAT_MODEL")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        if !local_models.contains(model) {
-            let mut advertised = local_models.iter().cloned().collect::<Vec<_>>();
-            advertised.sort();
-            let advertised_models = if advertised.is_empty() {
-                "none advertised".to_string()
-            } else {
-                advertised.join(",")
-            };
-            return setup_readiness_summary(
-                "model_missing",
-                &format!(
-                    "The selected local model is not advertised by {provider_label}: {model}."
-                ),
-                &format!("Install or select an advertised {provider_label} model, then retry."),
-                Some(format!(
-                    "inventoryUrl={}; advertisedModels={}",
-                    inventory_url.unwrap_or_else(|| "unknown".to_string()),
-                    advertised_models
-                )),
-            );
-        }
-    }
-
     let (config_ok, config_detail) = run_simple_command(&mut spawn_compose_command(
         &docker,
         runtime,
         runtime_root,
-        &["config"],
+        &["config", "--quiet"],
     ));
     if !config_ok {
         return setup_readiness_summary(
-            "compose_config_invalid",
+            SetupReadinessState::COMPOSE_CONFIG_INVALID.as_str(),
             "Docker Compose config is invalid.",
             "Repair the compose/env configuration, then retry.",
             Some(config_detail),
         );
     }
 
-    if runtime.packaged {
-        match runtime_images_are_current(runtime) {
-            Ok(true) => {}
-            Ok(false) => {
-                return setup_readiness_summary(
-                    FAILURE_KIND_RUNTIME_IMAGES_MISSING,
-                    "Codexify needs to download its local runtime images.",
-                    "Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
-                    Some(packaged_runtime_images_detail(runtime)),
-                );
-            }
-            Err(err) => {
-                return setup_readiness_summary(
-                    FAILURE_KIND_RUNTIME_IMAGES_MISSING,
-                    "Codexify needs to download its local runtime images.",
-                    "Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
-                    Some(err),
-                );
-            }
-        }
-    }
-
-    let (volumes_ok, volumes_detail) = run_simple_command(
-        spawn_docker_command(&docker, &["volume", "ls", "--format", "{{.Name}}"])
-            .current_dir(runtime_root),
-    );
-    if volumes_ok {
-        let volumes = volumes_detail
-            .lines()
-            .map(str::trim)
-            .filter(|line| line.starts_with("codexify"))
-            .collect::<Vec<_>>();
-        if !volumes.is_empty() {
-            return setup_readiness_summary(
-                "existing_volumes_detected",
-                "Existing Codexify data was found. No data was deleted.",
-                "Continue if this is expected, or back up/reset local beta data later. Reset is not implemented in this setup flow yet.",
-                Some(format!("volumes={}", volumes.join(","))),
-            );
-        }
+    if runtime.packaged && !native_core_images_present(&docker, runtime, runtime_root) {
+        return setup_readiness_summary(
+            FAILURE_KIND_RUNTIME_IMAGES_MISSING,
+            "Codexify needs to acquire its required local runtime images.",
+            "Retry setup checks to acquire missing core images, then start the packaged runtime.",
+            Some(packaged_runtime_images_detail(runtime)),
+        );
     }
 
     let readiness = runtime_readiness_snapshot(Some(runtime));
     if !readiness.backend_reachable {
         return setup_readiness_summary(
-            "backend_not_running",
+            SetupReadinessState::BACKEND_NOT_RUNNING.as_str(),
             "Backend is not running.",
             "Start the backend service, then retry.",
             readiness.detail,
@@ -3996,7 +4044,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
     }
     if !readiness.ready {
         return setup_readiness_summary(
-            "backend_unhealthy",
+            SetupReadinessState::BACKEND_UNHEALTHY.as_str(),
             "Backend is reachable but not healthy.",
             "Check backend and worker health, then retry.",
             readiness.detail,
@@ -4012,7 +4060,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
             probe_http_endpoint_with_body(&trim_trailing_slash(&frontend_url), true);
         if !frontend_check.ok {
             return setup_readiness_summary(
-                "frontend_not_running",
+                SetupReadinessState::FRONTEND_NOT_RUNNING.as_str(),
                 "Frontend is not running.",
                 "Start the Web UI service.",
                 frontend_check.detail,
@@ -4021,10 +4069,18 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
     }
 
     setup_readiness_summary(
-        "ready",
-        "Codexify local runtime is ready.",
-        "Open Codexify.",
-        Some(format!("provider=Local via {provider_label}")),
+        if readiness.bootstrap.inference_ready {
+            SetupReadinessState::INFERENCE_READY.as_str()
+        } else {
+            SetupReadinessState::CORE_READY.as_str()
+        },
+        "Codexify's core workspace is ready.",
+        if readiness.bootstrap.inference_ready {
+            "Open Codexify. Local inference is ready."
+        } else {
+            "Open Codexify. Configure local inference from personal setup before chatting."
+        },
+        readiness.detail,
     )
 }
 
@@ -4678,6 +4734,15 @@ pub fn desktop_runtime_preflight_check(
     }
 }
 
+fn bootstrap_project_name(process_choice: Option<String>, values: &BTreeMap<String, String>) -> Result<String, String> {
+    let name = process_choice.or_else(|| values.get("COMPOSE_PROJECT_NAME").cloned()).unwrap_or_else(|| "codexify".to_string());
+    if !name.as_bytes().first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        || !name.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'-') {
+        return Err("Configured Compose project name is invalid. Resolve it before continuing; configuration was preserved.".to_string());
+    }
+    Ok(name)
+}
+
 #[tauri::command]
 pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> BootstrapStepResult {
     let runtime_root = match resolve_runtime_root_for_step(&runtime, "setup") {
@@ -4698,9 +4763,36 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
         );
     }
 
+    let mut existing_data = false;
+    if runtime.packaged {
+        let docker = match resolve_docker_binary(&runtime) {
+            Ok(binary) => binary,
+            Err(probe) => return build_step_result(false, "setup", Some(probe.detail), None, None, None, None, Some(&*runtime), probe.failure_kind.map(FailureKind::as_str)),
+        };
+        let candidate = if runtime_env_file_path(&runtime_root).exists() { runtime_env_file_path(&runtime_root) }
+            else { runtime.runtime_home.as_ref().map(|home| runtime_env_file_path(home)).unwrap_or_else(|| runtime_env_file_path(&runtime_root)) };
+        let project = read_env_file_ordered(&candidate).and_then(|(_, values)| bootstrap_project_name(env::var("COMPOSE_PROJECT_NAME").ok(), &values));
+        let project = match project {
+            Ok(project) => project,
+            Err(detail) => return build_step_result(false, "setup", Some(detail), None, None, None, None, Some(&*runtime), Some(FAILURE_KIND_PACKAGED_SETUP_FAILED)),
+        };
+        let label = format!("label=com.docker.compose.project={project}");
+        let output = spawn_docker_command(&docker, &[
+            "volume", "ls", "--filter", &label, "--format", "{{.Name}}",
+        ]).output();
+        existing_data = match output {
+            Ok(output) if output.status.success() => !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+            _ => return build_step_result(false, "setup", Some("Owned data inventory is unavailable. Retry after Docker becomes available; no credentials were generated.".to_string()), None, None, None, None, Some(&*runtime), Some(FAILURE_KIND_PACKAGED_SETUP_FAILED)),
+        };
+        if existing_data && !runtime_env_file_path(&runtime_root).exists()
+            && !runtime.runtime_home.as_ref().is_some_and(|home| runtime_env_file_path(home).exists()) {
+            return build_step_result(false, "setup", Some("Existing data has no readable configuration, or its inventory is unavailable. Restore storage credentials before continuing; no data was reset.".to_string()), None, None, None, None, Some(&*runtime), Some(FAILURE_KIND_PACKAGED_SETUP_FAILED));
+        }
+    }
+
     if runtime.packaged {
         let command_display = "native packaged setup env materialization".to_string();
-        return match materialize_packaged_setup_env(runtime.runtime_home.as_deref(), &runtime_root)
+        return match materialize_packaged_setup_env(runtime.runtime_home.as_deref(), &runtime_root, existing_data)
         {
             Ok(result) => {
                 let backend_base_url = desktop_backend_base_url();
@@ -4943,6 +5035,16 @@ raise SystemExit(code)
     }
 }
 
+fn core_bootstrap_compose_stages(packaged: bool) -> Vec<Vec<&'static str>> {
+    let mut stages = vec![
+        vec!["up", "-d", "--wait", "--wait-timeout", "180", "db", "redis"],
+        vec!["run", "--rm", "--no-deps", "migrator"],
+        vec!["up", "-d", "--no-deps", "backend", "worker-chat", "worker-document-embed", if packaged {"webui"} else {"frontend"}],
+    ];
+    if packaged { stages.insert(0, vec!["build", "webui"]); }
+    stages
+}
+
 #[tauri::command]
 pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> BootstrapStepResult {
     let runtime_root = match runtime.runtime_root_path() {
@@ -5002,10 +5104,29 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
             )
         }
     };
-    let command_display =
-        build_compose_command_display(&docker, &runtime, &runtime_root, &["up", "-d"]);
-
-    match spawn_compose_command(&docker, &runtime, &runtime_root, &["up", "-d"]).output() {
+    // Stage the existing topology: core startup must not run model-prep or graph-init.
+    let stages = core_bootstrap_compose_stages(runtime.packaged);
+    let command_display = stages.iter()
+        .map(|args| build_compose_command_display(&docker, &runtime, &runtime_root, args))
+        .collect::<Vec<_>>().join("\n");
+    let staged_output = (|| -> std::io::Result<std::process::Output> {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        for args in &stages {
+            let mut output = if args.first() == Some(&"build") {
+                retry_bootstrap_download(|| spawn_compose_command(&docker, &runtime, &runtime_root, args).output(), std::thread::sleep)?
+            } else { spawn_compose_command(&docker, &runtime, &runtime_root, args).output()? };
+            stdout.extend_from_slice(&output.stdout);
+            stderr.extend_from_slice(&output.stderr);
+            if !output.status.success() || args == stages.last().unwrap() {
+                output.stdout = stdout;
+                output.stderr = stderr;
+                return Ok(output);
+            }
+        }
+        unreachable!("core bootstrap has at least one stage")
+    })();
+    match staged_output {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
@@ -5062,6 +5183,26 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
     }
 }
 
+fn bootstrap_network_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    ["network is unreachable", "network unreachable", "i/o timeout", "connection timed out", "connection reset", "could not resolve", "temporary failure in name resolution", "tls handshake timeout", "failed to fetch", "failed to resolve source metadata"].iter().any(|marker| text.contains(marker))
+}
+
+fn retry_bootstrap_download<F, S>(mut operation: F, mut pause: S) -> std::io::Result<std::process::Output>
+where F: FnMut() -> std::io::Result<std::process::Output>, S: FnMut(Duration) {
+    for attempt in 0..3 {
+        let output = operation()?;
+        let text = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        if output.status.success() || !bootstrap_network_failure(&text) || attempt == 2 { return Ok(output); }
+        pause(Duration::from_secs(1 << attempt));
+    }
+    unreachable!()
+}
+
+fn pull_core_images_with_retry(binary: &ResolvedDockerBinary, runtime: &BootstrapRuntime, root: &Path) -> std::io::Result<std::process::Output> {
+    retry_bootstrap_download(|| spawn_compose_command(binary, runtime, root, &["pull", "--policy", "missing", "db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"]).output(), std::thread::sleep)
+}
+
 #[tauri::command]
 pub fn desktop_pull_registry_runtime_images(
     runtime: tauri::State<'_, BootstrapRuntime>,
@@ -5098,7 +5239,7 @@ pub fn desktop_pull_registry_runtime_images(
             Some(build_generic_compose_command_display(
                 &runtime,
                 &runtime_root,
-                &["pull"],
+                &["pull", "--policy", "missing", "db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"],
             )),
             None,
             None,
@@ -5116,7 +5257,7 @@ pub fn desktop_pull_registry_runtime_images(
             Some(build_generic_compose_command_display(
                 &runtime,
                 &runtime_root,
-                &["pull"],
+                &["pull", "--policy", "missing", "db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"],
             )),
             None,
             None,
@@ -5136,7 +5277,7 @@ pub fn desktop_pull_registry_runtime_images(
                 Some(build_generic_compose_command_display(
                     &runtime,
                     &runtime_root,
-                    &["pull"],
+                    &["pull", "--policy", "missing", "db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"],
                 )),
                 None,
                 None,
@@ -5148,8 +5289,8 @@ pub fn desktop_pull_registry_runtime_images(
     };
 
     let command_display =
-        build_compose_command_display(&docker, &runtime, &runtime_root, &["pull"]);
-    match spawn_compose_command(&docker, &runtime, &runtime_root, &["pull"]).output() {
+        build_compose_command_display(&docker, &runtime, &runtime_root, &["pull", "--policy", "missing", "db", "redis", "backend", "worker-chat", "worker-document-embed", "migrator"]);
+    match pull_core_images_with_retry(&docker, &runtime, &runtime_root) {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
@@ -5681,6 +5822,28 @@ pub fn desktop_restart_runtime_services(
     }
 }
 
+fn core_compose_services_ready(output: &str, ui_service: &str) -> bool {
+    let rows: Vec<serde_json::Value> = if output.trim_start().starts_with('[') {
+        serde_json::from_str(output).unwrap_or_default()
+    } else {
+        output.lines().filter(|line| !line.trim().is_empty())
+            .filter_map(|line| serde_json::from_str(line).ok()).collect()
+    };
+    ["db", "redis", "backend", "worker-chat", "worker-document-embed", ui_service].iter().all(|service| {
+        rows.iter().any(|row| row["Service"].as_str() == Some(*service)
+            && row["State"].as_str() == Some("running")
+            && !matches!(row["Health"].as_str(), Some("unhealthy" | "starting")))
+    })
+}
+
+fn native_core_services_ready(runtime: &BootstrapRuntime) -> bool {
+    let Some(root) = runtime.runtime_root_path() else { return false; };
+    let Ok(docker) = resolve_docker_binary(runtime) else { return false; };
+    let ui_service = if runtime.packaged { "webui" } else { "frontend" };
+    let Ok(output) = spawn_compose_command(&docker, runtime, root, &["ps", "--format", "json", "db", "redis", "backend", "worker-chat", "worker-document-embed", ui_service]).output() else { return false; };
+    output.status.success() && core_compose_services_ready(&String::from_utf8_lossy(&output.stdout), ui_service)
+}
+
 fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeReadiness {
     let backend_base_url = trim_trailing_slash(&env_first(
         &[
@@ -5742,11 +5905,16 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
         None => Some(false),
     };
 
-    let ready = backend_reachable
-        && startup_ready
-        && redis_ready
-        && chat_ready
-        && llm_ready.unwrap_or(true);
+    // Opening the onboarding workspace requires core services, not a model.
+    // The existing LLM health signals remain authoritative for inference.
+    let services_ready = runtime.map(native_core_services_ready).unwrap_or(false);
+    let workspace_ready = runtime.map(|runtime| {
+        if runtime.packaged { true } else {
+            let url = env_first(&["CODEXIFY_DESKTOP_SHARE_BASE_URL"], "http://127.0.0.1:5173");
+            probe_http_endpoint_with_body(&trim_trailing_slash(&url), true).0.ok
+        }
+    }).unwrap_or(false);
+    let ready = backend_reachable && startup_ready && redis_ready && chat_ready && services_ready && workspace_ready;
 
     let detail = {
         let mut lines = vec![
@@ -5788,6 +5956,8 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
                 "llmFailureReason={}",
                 llm_signals.failure_reason.as_deref().unwrap_or("none")
             ),
+            format!("coreServicesReady={}", bool_label(services_ready)),
+            format!("workspaceReady={}", bool_label(workspace_ready)),
             format!("ready={}", bool_label(ready)),
         ];
 
@@ -5838,6 +6008,7 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
     };
 
     RuntimeReadiness {
+        bootstrap: bootstrap_readiness_from_probes(ready, llm_ready == Some(true)),
         ok: ready,
         step: "health-check".to_string(),
         ready,
@@ -5869,6 +6040,21 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
     }
 }
 
+fn bootstrap_readiness_from_probes(core_ready: bool, provider_ready: bool) -> BootstrapReadiness {
+    let inference_ready = core_ready && provider_ready;
+    BootstrapReadiness {
+        version: BOOTSTRAP_CONTRACT_VERSION,
+        workflow: if core_ready { BootstrapWorkflow::COMPLETE } else { BootstrapWorkflow::VERIFYING },
+        core_ready,
+        inference_ready,
+        human_action: if core_ready && !inference_ready {
+            BootstrapHumanAction::PROVIDER_MODEL_CHOICE_REQUIRED
+        } else {
+            BootstrapHumanAction::NONE
+        },
+    }
+}
+
 #[tauri::command]
 pub fn desktop_runtime_readiness_check(
     runtime: tauri::State<'_, BootstrapRuntime>,
@@ -5885,6 +6071,125 @@ pub fn desktop_runtime_health_check(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_asset_observation_excludes_optional_services() {
+        let config = serde_json::json!({"services": {
+            "db":{"image":"postgres:16"}, "redis":{"image":"redis:7"},
+            "backend":{"image":"runtime:qualification"}, "worker-chat":{"image":"runtime:qualification"},
+            "worker-document-embed":{"image":"runtime:qualification"}, "migrator":{"image":"runtime:qualification"},
+            "neo4j":{"image":"optional-graph:latest"}, "webui":{"build":{}}
+        }});
+        let references = core_image_references(&config).unwrap();
+        assert_eq!(references.len(), 3);
+        assert!(!references.contains("optional-graph:latest"));
+        assert!(core_image_references(&serde_json::json!({"services":{}})).is_none());
+    }
+
+    #[test]
+    fn native_volume_inventory_preserves_compose_project_identity() {
+        let values = BTreeMap::from([("COMPOSE_PROJECT_NAME".to_string(), "personal-instance".to_string())]);
+        assert_eq!(bootstrap_project_name(None, &values).unwrap(), "personal-instance");
+        assert_eq!(bootstrap_project_name(Some("explicit-instance".to_string()), &values).unwrap(), "explicit-instance");
+        assert!(bootstrap_project_name(Some("invalid name".to_string()), &values).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_download_retries_network_only_and_stops_after_three_attempts() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut calls = 0;
+        let mut pauses = Vec::new();
+        let result = retry_bootstrap_download(|| {
+            calls += 1;
+            Ok(std::process::Output {status: std::process::ExitStatus::from_raw(256), stdout: Vec::new(), stderr: b"network is unreachable".to_vec()})
+        }, |duration| pauses.push(duration.as_secs())).unwrap();
+        assert!(!result.status.success());
+        assert_eq!(calls, 3);
+        assert_eq!(pauses, [1, 2]);
+        calls = 0;
+        retry_bootstrap_download(|| {
+            calls += 1;
+            Ok(std::process::Output {status: std::process::ExitStatus::from_raw(256), stdout: Vec::new(), stderr: b"authentication required".to_vec()})
+        }, |_| panic!("credentials must not be retried")).unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn packaged_preferences_without_data_generate_storage_credentials_once() {
+        let root = unique_temp_dir("codexify-packaged-preferences-only");
+        fs::write(root.join(".env"), "# Preserve this preference\nCUSTOM_OPTION=chosen\nLOCAL_LLM_MODEL=chosen-existing-model\nCODEXIFY_BACKEND_PORT=28888\nCODEXIFY_FRONTEND_PORT=25173\n").unwrap();
+        materialize_packaged_setup_env(None, &root, false).unwrap();
+        let before = fs::read_to_string(root.join(".env")).unwrap();
+        assert!(!before.contains("POSTGRES_PASSWORD=codexify"));
+        assert!(before.contains("CUSTOM_OPTION=chosen"));
+        assert!(before.contains("LOCAL_CHAT_MODEL=chosen-existing-model"));
+        assert!(before.contains("CODEXIFY_DESKTOP_BACKEND_URL=http://127.0.0.1:28888"));
+        assert!(before.contains("CODEXIFY_DESKTOP_SHARE_BASE_URL=http://127.0.0.1:25173"));
+        materialize_packaged_setup_env(None, &root, false).unwrap();
+        assert_eq!(fs::read_to_string(root.join(".env")).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn core_readiness_requires_every_existing_core_service() {
+        let services = ["db", "redis", "backend", "worker-chat", "worker-document-embed", "frontend"];
+        let mut rows: Vec<_> = services.iter().map(|service| serde_json::json!({"Service":service,"State":"running","Health":"healthy"})).collect();
+        assert!(super::core_compose_services_ready(&serde_json::to_string(&rows).unwrap(), "frontend"));
+        rows.pop();
+        assert!(!super::core_compose_services_ready(&serde_json::to_string(&rows).unwrap(), "frontend"));
+        rows.push(serde_json::json!({"Service":"frontend","State":"restarting"}));
+        assert!(!super::core_compose_services_ready(&serde_json::to_string(&rows).unwrap(), "frontend"));
+    }
+
+    #[test]
+    fn llm_readiness_requires_verified_configured_model() {
+        let payload = serde_json::json!({"provider": "local", "status": "ok", "details": {"ok": true, "configured_model_available": false, "models_available": true}});
+        assert_eq!(llm_readiness_signals(Some(&payload)).ready, Some(false));
+    }
+
+    #[test]
+    fn core_bootstrap_stages_migration_without_optional_downloads() {
+        let stages = core_bootstrap_compose_stages(false);
+        assert_eq!(stages[1], ["run", "--rm", "--no-deps", "migrator"]);
+        assert!(stages[2].contains(&"--no-deps"));
+        let packaged = core_bootstrap_compose_stages(true);
+        assert_eq!(packaged[0], ["build", "webui"]);
+        assert!(packaged.last().unwrap().contains(&"webui"));
+        assert!(!packaged.last().unwrap().contains(&"frontend"));
+        for stage in stages {
+            assert!(!stage.contains(&"model-prep"));
+            assert!(!stage.contains(&"graph-init"));
+        }
+    }
+
+    #[test]
+    fn bootstrap_readiness_opens_core_without_inference() {
+        let readiness = super::bootstrap_readiness_from_probes(true, false);
+        assert!(readiness.core_ready);
+        assert!(!readiness.inference_ready);
+        assert_eq!(readiness.workflow, super::BootstrapWorkflow::COMPLETE);
+        assert_eq!(readiness.human_action, super::BootstrapHumanAction::PROVIDER_MODEL_CHOICE_REQUIRED);
+        let payload = serde_json::to_value(readiness).unwrap();
+        assert_eq!(payload["coreReady"], true);
+        assert_eq!(payload["inferenceReady"], false);
+        assert_eq!(payload["version"], super::BOOTSTRAP_CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn bootstrap_readiness_never_enables_chat_without_core() {
+        let readiness = super::bootstrap_readiness_from_probes(false, true);
+        assert!(!readiness.core_ready);
+        assert!(!readiness.inference_ready);
+        assert_eq!(readiness.workflow, super::BootstrapWorkflow::VERIFYING);
+    }
+
+    #[test]
+    fn bootstrap_readiness_completes_when_both_capabilities_pass() {
+        let readiness = super::bootstrap_readiness_from_probes(true, true);
+        assert!(readiness.inference_ready);
+        assert_eq!(readiness.human_action, super::BootstrapHumanAction::NONE);
+    }
+
     use super::*;
     use serde_json::json;
     use std::fs;
@@ -6004,7 +6309,7 @@ mod tests {
             written,
             runtime_home.join(PACKAGED_RUNTIME_IMAGE_STATE_FILENAME)
         );
-        assert!(runtime_images_are_current(&runtime).expect("expected image state check"));
+        assert!(runtime_image_checkpoint_matches(&runtime).expect("expected image state check"));
 
         fs::remove_dir_all(&root).ok();
     }
@@ -6039,7 +6344,7 @@ mod tests {
         fs::write(legacy_models.join("model.cache"), "legacy-models")
             .expect("failed to seed legacy models data");
 
-        let result = materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root)
+        let result = materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root, true)
             .expect("expected packaged setup env materialization to succeed");
 
         assert_eq!(result.migrated_legacy_env_source, Some(legacy_env.clone()));
@@ -6062,7 +6367,12 @@ mod tests {
         assert!(written.contains("VITE_GUARDIAN_API_KEY=legacy-api-key"));
         assert!(written.contains("LOCAL_CHAT_MODEL=legacy-model"));
         assert!(written.contains("ALLOW_CLOUD_PROVIDERS=true"));
-        assert!(written.contains("NEO4J_PASS=codexify"));
+        assert_eq!(classify_config_readiness(&runtime_root).unwrap().bootstrap.human_action, BootstrapHumanAction::CONSENT_REQUIRED);
+        assert!(written.contains("NEO4J_PASS="));
+        assert!(!written.contains("NEO4J_PASS=codexify"));
+        let before = fs::read(&runtime_root.join(".env")).unwrap();
+        materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root, true).unwrap();
+        assert_eq!(fs::read(&runtime_root.join(".env")).unwrap(), before);
         assert_eq!(
             fs::read_to_string(runtime_root.join(".chroma").join("chroma.sqlite3"))
                 .expect("failed to read migrated chroma data"),
@@ -6112,10 +6422,11 @@ mod tests {
         );
         assert_eq!(config.failure_kind, None);
         let diagnostics = redact_setup_diagnostics(
-            "GUARDIAN_API_KEY=packaged-runtime-secret\nruntimeRoot=/tmp/Codexify",
+            "GUARDIAN_API_KEY=packaged-runtime-secret\nPOSTGRES_PASSWORD=short\nLOCAL_API_KEY=abc\nDATABASE_URL=private-url\nruntimeRoot=/tmp/Codexify",
         );
         assert!(!diagnostics.contains("packaged-runtime-secret"));
         assert!(diagnostics.contains("GUARDIAN_API_KEY=<redacted>"));
+        for value in ["short", "abc", "private-url"] { assert!(!diagnostics.contains(value)); }
 
         fs::remove_dir_all(&root).ok();
     }
@@ -6205,6 +6516,8 @@ mod tests {
             "provider": "local",
             "model": "library2/ministral-3:8b",
             "details": {
+                "configured_model_available": true,
+                "models_available": true,
                 "status": "online",
                 "ok": true,
                 "provider_runtime": {
