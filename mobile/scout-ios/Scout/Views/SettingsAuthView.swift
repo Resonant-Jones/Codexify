@@ -66,6 +66,33 @@ struct SettingsAuthView: View {
                         }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
                         if let message = accountSignIn.message { Text(message).font(.footnote) }
                     }
+                    Section("Authentication Qualification") {
+                        if let receipt = accountSignIn.qualification {
+                            Text("Attempt " + receipt.publicID).font(.caption).textSelection(.enabled)
+                            Text(receipt.correlationAvailable ? "Runtime correlation available" : "Runtime correlation unavailable")
+                                .font(.footnote)
+                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
+                                VStack(alignment: .leading) {
+                                    Text(stage.title)
+                                    Text(receipt.result(for: stage).summary).font(.caption).foregroundStyle(.secondary)
+                                }.accessibilityElement(children: .combine)
+                            }
+                            if let failed = receipt.firstFailedStage {
+                                Text("First failed stage: " + failed.title).font(.footnote)
+                            }
+                            if let first = receipt.firstUnqualifiedStage {
+                                Text("First unqualified stage: " + first.title).font(.footnote)
+                            } else { Text("All nine stages qualified.").font(.footnote) }
+                        } else {
+                            Text("No sign-in attempt recorded for this connection.").font(.footnote)
+                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
+                                VStack(alignment: .leading) {
+                                    Text(stage.title)
+                                    Text("Waiting · pending").font(.caption).foregroundStyle(.secondary)
+                                }.accessibilityElement(children: .combine)
+                            }
+                        }
+                    }
                     Section("Hosted Ingress") {
                         Button("Use hosted Codexify") {
                             accessSignIn.cancel()

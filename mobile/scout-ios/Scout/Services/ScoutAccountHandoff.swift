@@ -5,14 +5,21 @@ struct ScoutAccountHandoffAttempt {
     private let verifier: String
     private let state: String
     private var consumed = false
+    let qualificationID: UUID?
 
-    init() throws { verifier = try ScoutAccessOAuth.randomValue(); state = try ScoutAccessOAuth.randomValue() }
-    init(verifier: String, state: String) { self.verifier = verifier; self.state = state }
+    init(qualificationID: UUID? = nil) throws {
+        verifier = try ScoutAccessOAuth.randomValue(); state = try ScoutAccessOAuth.randomValue()
+        self.qualificationID = qualificationID
+    }
+    init(verifier: String, state: String, qualificationID: UUID? = nil) {
+        self.verifier = verifier; self.state = state; self.qualificationID = qualificationID
+    }
 
     var browserURL: URL {
         var url = URLComponents(url: ScoutAccessOAuth.resource.appendingPathComponent("login"), resolvingAgainstBaseURL: false)!
         url.queryItems = [URLQueryItem(name: "scout_state", value: state), URLQueryItem(name: "scout_challenge",
             value: ScoutAccessOAuth.base64URL(Data(SHA256.hash(data: Data(verifier.utf8)))))]
+        if let qualificationID { url.queryItems!.append(URLQueryItem(name: "scout_attempt", value: qualificationID.uuidString.lowercased())) }
         return url.url!
     }
 
@@ -38,6 +45,8 @@ struct ScoutAccountHandoffAttempt {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(ingress.accessToken)", forHTTPHeaderField: "Authorization")
+        if let qualificationID { request.setValue(qualificationID.uuidString.lowercased(), forHTTPHeaderField: "X-Scout-Auth-Attempt") }
+        request.timeoutInterval = 10
         request.httpBody = try JSONEncoder().encode(["code": code, "verifier": verifier])
         return request
     }
@@ -63,6 +72,8 @@ import SwiftUI
 final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
     @Published private(set) var isWorking = false
     @Published private(set) var message: String?
+    @Published private(set) var qualification: ScoutAuthenticationQualification?
+    private var receiptPoll: Task<Void, Never>?
     private var browser: ASWebAuthenticationSession?
     private var operation: UUID?
     private let store = ScoutAccountSessionStore()
@@ -71,7 +82,11 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
     }
 
-    func cancel() { operation = nil; browser?.cancel(); browser = nil; isWorking = false; message = nil }
+    func cancel() {
+        operation = nil; receiptPoll?.cancel(); receiptPoll = nil
+        browser?.cancel(); browser = nil; isWorking = false; message = nil
+        qualification = nil
+    }
 
     func restoreStatus(profile: ScoutEndpointProfile) {
         guard !isWorking, message == nil else { return }
@@ -87,7 +102,7 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         }
     }
 
-    private func authorize(_ url: URL) async throws -> URL {
+    private func authorize(_ url: URL, didLaunch: () -> Void) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(url: url, callbackURLScheme: ScoutAccessOAuth.callback.scheme) { callback, error in
                 if let callback, error == nil { continuation.resume(returning: callback) }
@@ -96,39 +111,150 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false
             browser = session
-            if !session.start() { browser = nil; continuation.resume(throwing: ScoutAccessOAuthError.rejectedAuthorization) }
+            if session.start() { didLaunch() }
+            else { browser = nil; continuation.resume(throwing: ScoutAccessOAuthError.rejectedAuthorization) }
+        }
+    }
+
+    private func observe(_ stage: ScoutAuthenticationQualification.Stage, _ status: ScoutAuthenticationQualification.Status,
+                         _ classification: ScoutAuthenticationQualification.Classification, http: Int? = nil) {
+        qualification?.record(stage, status, classification, httpStatus: http)
+    }
+
+    private func readReceipt(ingress: ScoutAccessOAuth.Credential, identity: UUID) async {
+        guard let evidence = qualification else { return }
+        do {
+            let (data, response) = try await URLSession.scoutAuthenticated.data(for: evidence.receiptRequest(ingress: ingress))
+            guard operation == identity, !Task.isCancelled,
+                  (response as? HTTPURLResponse)?.statusCode == 200 else {
+                if operation == identity, !Task.isCancelled { qualification?.correlationLost() }
+                return
+            }
+            let receipt = try JSONDecoder().decode(ScoutAuthenticationQualification.BackendReceipt.self, from: data)
+            qualification?.merge(receipt)
+        } catch {
+            if operation == identity, !Task.isCancelled { qualification?.correlationLost() }
+            // Missing runtime evidence is unobserved, never authentication failure.
         }
     }
 
     func signIn(profile: ScoutEndpointProfile) async {
         guard !isWorking else { return }
         let identity = UUID(); operation = identity; isWorking = true
-        var stage = "Guardian browser sign-in"
-        defer { if operation == identity { isWorking = false; browser = nil } }
+        var stage = ScoutAuthenticationQualification.Stage.ingress
+        defer {
+            if operation == identity {
+                receiptPoll?.cancel(); receiptPoll = nil; isWorking = false; browser = nil
+            }
+        }
         do {
             try ScoutAccessOAuth.requireHosted(profile)
+            qualification = try ScoutAuthenticationQualification(profile: profile)
             guard let ingress = try ScoutAccessCredentialStore().load(for: profile), ingress.expiresAt > Date() else {
+                observe(.ingress, .failed, .unavailable)
                 throw ScoutRequestAuthenticationError.ingressRequired
             }
-            message = "Continue in the system browser using your existing Guardian account, then choose Continue to Scout."
-            var attempt = try ScoutAccountHandoffAttempt()
-            let callback = try await authorize(attempt.browserURL)
-            guard operation == identity else { throw ScoutAccessOAuthError.superseded }
-            stage = "Guardian handoff exchange"
+            observe(.ingress, .passed, .confirmed)
+            stage = .browser
+            // Register only a public UUID before asking the operator to sign in.
+            let (receiptData, receiptResponse) = try await URLSession.scoutAuthenticated.data(for: qualification!.receiptRequest(ingress: ingress, begin: true))
+            guard operation == identity else { return }
+            guard (receiptResponse as? HTTPURLResponse)?.statusCode == 200 else {
+                observe(.browser, .failed, .unavailable, http: (receiptResponse as? HTTPURLResponse)?.statusCode)
+                message = "Runtime correlation is unavailable. Guardian browser login was not launched."
+                return
+            }
+            let initialReceipt = try JSONDecoder().decode(ScoutAuthenticationQualification.BackendReceipt.self, from: receiptData)
+            guard initialReceipt.attempt_id == qualification?.publicID else { throw ScoutAccessOAuthError.invalidResponse }
+            qualification?.merge(initialReceipt)
+            var attempt = try ScoutAccountHandoffAttempt(qualificationID: qualification!.attemptID)
+            stage = .browser
+            message = "Sign in with your existing Guardian account, then choose Continue to Scout."
+            receiptPoll = Task { [weak self] in
+                for _ in 0..<300 {
+                    guard !Task.isCancelled, let self, self.operation == identity else { return }
+                    await self.readReceipt(ingress: ingress, identity: identity)
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
+            let callback = try await authorize(attempt.browserURL) { self.observe(.browser, .passed, .confirmed) }
+            guard operation == identity else { return }
+            observe(.callback, .passed, .confirmed)
+            await readReceipt(ingress: ingress, identity: identity)
+            guard operation == identity else { return }
+            stage = .state
             let request = try attempt.exchangeRequest(callback: callback, ingress: ingress)
+            observe(.state, .passed, .confirmed)
+            stage = .exchange
             let (data, response) = try await URLSession.scoutAuthenticated.data(for: request)
-            guard operation == identity else { throw ScoutAccessOAuthError.superseded }
+            guard operation == identity else { return }
             guard let http = response as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
             guard http.statusCode == 200 else {
-                message = "Guardian handoff returned HTTP \(http.statusCode). No new account session was stored."
+                observe(.exchange, .failed, .rejected, http: http.statusCode)
+                message = "Guardian handoff exchange failed. See authentication qualification."
+                return
+            }
+            observe(.accountLogin, .passed, .confirmed, http: 200)
+            observe(.exchange, .passed, .confirmed, http: 200)
+            stage = .nativeSession
+            guard http.value(forHTTPHeaderField: "X-Scout-Native-Session-Issued") == "true" else {
+                observe(.nativeSession, .failed, .invalidReply)
+                message = "Fresh native session issuance was not confirmed."
                 return
             }
             let account = try ScoutAccountHandoffAttempt.decode(data, profile: profile)
+            observe(.nativeSession, .passed, .confirmed)
+            stage = .keychain
             try store.save(account, for: profile)
-            message = "Guardian account session stored in this connection's Keychain. Check account session to qualify a protected read."
+            guard let persisted = try store.load(for: profile) else { throw ScoutRequestAuthenticationError.sessionRequired }
+            try persisted.validate(for: profile)
+            guard persisted.token == account.token, persisted.userID == account.userID,
+                  persisted.expiresAt == account.expiresAt else { throw ScoutRequestAuthenticationError.invalidSession }
+            observe(.keychain, .passed, .confirmed)
+            stage = .protectedRead
+            await qualifyProtectedRead(profile: profile, identity: identity)
         } catch {
             guard operation == identity else { return }
-            message = (error as? ScoutRequestAuthenticationError)?.errorDescription ?? stage + " did not finish. No new account session was stored."
+            let classification: ScoutAuthenticationQualification.Classification
+            if stage == .state { classification = .invalidCallback }
+            else if stage == .keychain { classification = .storageFailure }
+            else if error is DecodingError { classification = .invalidReply }
+            else if error as? ScoutAccessOAuthError == .rejectedAuthorization { classification = .cancelled }
+            else { classification = .transportFailure }
+            observe(stage, .failed, classification)
+            message = "Guardian sign-in did not finish. See authentication qualification for the first unqualified stage."
+        }
+    }
+
+    private func qualifyProtectedRead(profile: ScoutEndpointProfile, identity: UUID) async {
+        do {
+            let request = try ScoutAuthenticationQualification.protectedRequest(profile: profile, identity: qualification?.attemptID ?? UUID())
+            let (data, response) = try await URLSession.scoutAuthenticated.data(for: request)
+            guard operation == identity else { return }
+            guard let http = response as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
+            if ScoutRequestAuthentication.isInvalidAccountResponse(http) {
+                try? ScoutRequestAuthentication.validate(response: http, endpoint: profile, request: request)
+                observe(.protectedRead, .failed, .invalidSession, http: http.statusCode)
+                message = "Guardian rejected the native account session. Sign in again."
+                return
+            }
+            guard http.statusCode == 200 else {
+                observe(.protectedRead, .failed, .rejected, http: http.statusCode)
+                message = "Native account session stored; protected Guardian read failed."
+                return
+            }
+            let threads = try JSONDecoder().decode(ScoutChatThreadsResponse.self, from: data)
+            guard threads.threads != nil else { throw ScoutAccessOAuthError.invalidResponse }
+            observe(.protectedRead, .passed, .confirmed, http: 200)
+            message = qualification?.firstUnqualifiedStage == nil
+                ? "All nine authentication stages qualified. Protected Guardian thread read succeeded."
+                : "Stored account protected read succeeded; this sign-in attempt still has unqualified stages."
+        } catch {
+            guard operation == identity else { return }
+            let classification: ScoutAuthenticationQualification.Classification = error is DecodingError ? .invalidReply
+                : (error is ScoutRequestAuthenticationError ? .invalidSession : .transportFailure)
+            observe(.protectedRead, .failed, classification)
+            message = "Native protected read is unqualified. See authentication qualification."
         }
     }
 
@@ -136,6 +262,10 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         guard !isWorking else { return }
         let identity = UUID(); operation = identity; isWorking = true
         defer { if operation == identity { isWorking = false } }
+        if qualification?.result(for: .keychain).status == .passed {
+            await qualifyProtectedRead(profile: profile, identity: identity)
+            return
+        }
         let result = await ScoutGuardianThreadsProbe.probe(endpoint: profile)
         guard operation == identity else { return }
         if result.httpStatus == 200, result.threads != nil {

@@ -301,3 +301,38 @@ resulting status. Ingress may be renewed through its existing authorization flow
 if expired. Independent native session issuance, protected authenticated read,
 logout/revocation denial and full continuity still require live app proof.
 #815 cannot close yet; #816–#818 remain deferred.
+
+## October 3 — bounded authentication qualification
+
+Settings now shows nine safe stages for one connection-scoped sign-in attempt:
+ingress availability, browser launch, Guardian account confirmation, callback
+receipt, state validation, exchange acceptance, independent native issuance,
+Keychain save/readback for the correct profile/origin, and a protected account
+thread read. A public random attempt UUID correlates native/browser/backend
+observations without exporting state, code, verifier, cookies or session bytes.
+First observed failure and first unqualified stage remain distinct. Missing
+runtime evidence does not declare authentication failure. Profile changes clear
+the receipt; checking an older session cannot qualify a new attempt's issuance.
+
+The bounded backend receipt is process-local, capped at 128 attempts with a fixed
+ten-minute lifetime, hosted-admission gated and devoid of account identity.
+Canonical validators confirm browser account authority. Scout automatically
+checks the native account-owned read after verified issuance and Keychain
+readback. The backend work remains independently reviewable on
+`codex/scout-account-handoff-815`; its contract is
+`docs/Ops/scout-auth-qualification-2026-10-03.md` in that checkout.
+
+This instrumentation changes no account provisioning, password, role, approval,
+database schema/data, Cloudflare policy, BIC or OAuth registration. Canonical
+Guardian authority, personal Bearer sessions, local API-key mode, profile/origin
+isolation and the no-fallback boundary are retained. Authenticated native proof
+and the complete #815 continuity/logout loop still require live qualification.
+
+Source qualification for this slice: **57 SwiftPM tests pass**, canonical signed
+proof-simulator **BUILD SUCCEEDED**, **78 integrated backend tests pass**, and
+**16 LoginPage tests plus Vite build pass**. The managed-shell simulator build
+failed to connect to CoreSimulator; the same canonical project built in the
+host lane. The existing origin proxy also needs a bounded query/referrer-free
+logging override before sign-in because its default logs include the request
+URI. Routing and ingress/access policy remain unchanged. Installation/deployment
+and operator-authenticated continuity are separate remaining proof gates.
