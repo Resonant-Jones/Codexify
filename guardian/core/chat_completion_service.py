@@ -1635,9 +1635,14 @@ def _execute_completion_attempt(
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
                     "requested_model_is_authoritative": exact_text_model,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
+    except AcceptedChatTaskDeadlineExceeded as exc:
+        _record_attempt_failure(exc)
+        exc.detail["visible_output_emitted"] = False
+        raise
     except Exception as exc:
         _record_attempt_failure(exc)
         _terminal_failure_for_exception(
