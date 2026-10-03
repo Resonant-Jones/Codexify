@@ -12,7 +12,7 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "8d41a0c2b7ef"
+CANONICAL_HEAD = "7fcd8ca51401"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
