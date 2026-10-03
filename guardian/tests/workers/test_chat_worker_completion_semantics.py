@@ -410,6 +410,62 @@ def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_
     assert completion_error_payload.get("thread_id") == 17
 
 
+def test_post_persistence_error_projects_durable_completion_not_failure(monkeypatch):
+    published = _stubbed_success_setup(monkeypatch)
+    task = _build_task(thread_id=37)
+
+    def _raise_eval_projection(*_args, **_kwargs):
+        raise RuntimeError("eval projection failed")
+
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_a, **_k: _successful_task_result(
+            message_id=737,
+            provider="local",
+            model="local-chat",
+        )
+        | {"final_provider": "local", "final_model": "local-chat"},
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "schedule_post_completion_eval",
+        _raise_eval_projection,
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_terminal", lambda *_a: False
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "get_chat_completion_attempt_by_task_id",
+        lambda *_a, **_k: {
+            "request_id": task.request_id,
+            "thread_id": task.thread_id,
+            "turn_id": task.turn_id,
+            "completed_message_id": 737,
+        },
+    )
+
+    chat_worker._run_chat_task(task)
+
+    terminals = [
+        (event, payload)
+        for event, payload in published
+        if event in {"task.completed", "task.failed"}
+    ]
+    assert len(terminals) == 1
+    event, payload = terminals[0]
+    assert event == "task.completed"
+    assert payload["message_id"] == 737
+    assert payload["request_id"] == task.request_id
+    assert payload["reason"] == "durable_completion_recorded"
+    assert payload["final_provider"] == "local"
+    assert payload["final_model"] == "local-chat"
+
+
 def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     mock_db = MagicMock()
     mock_db.create_message.return_value = 321

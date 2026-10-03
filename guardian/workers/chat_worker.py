@@ -53,6 +53,7 @@ from guardian.core.config import (
 )
 from guardian.core.db import (
     GuardianDB,
+    get_chat_completion_attempt_by_task_id,
     record_chat_completion_attempt_success,
     record_chat_completion_attempt_terminal_event,
 )
@@ -536,6 +537,94 @@ def _record_chat_completion_attempt_terminal(
             event_type,
         )
         return False
+
+
+def _publish_durable_completion_if_present(
+    task: ChatCompletionTask,
+    *,
+    run_id: str,
+    started: float,
+    lifecycle_timings: dict[str, Any],
+    result: dict[str, Any] | None,
+) -> bool:
+    """Let the exact persisted assistant link win over a later worker error."""
+    if not task.request_id:
+        return False
+    try:
+        attempt = get_chat_completion_attempt_by_task_id(
+            dependencies.chatlog_db, task.task_id
+        )
+    except Exception:
+        logger.warning(
+            "[chat-worker] durable_completion_reconciliation_read_failed thread_id=%s task_id=%s request_id=%s",
+            task.thread_id,
+            task.task_id,
+            task.request_id,
+            exc_info=True,
+        )
+        return False
+    if not isinstance(attempt, dict):
+        return False
+    if (
+        attempt.get("request_id") != task.request_id
+        or attempt.get("thread_id") != task.thread_id
+        or attempt.get("turn_id") != _extract_turn_id(task)
+    ):
+        logger.warning(
+            "[chat-worker] durable_completion_reconciliation_identity_mismatch thread_id=%s task_id=%s request_id=%s",
+            task.thread_id,
+            task.task_id,
+            task.request_id,
+        )
+        return False
+    message_id = _coerce_message_id(attempt.get("completed_message_id"))
+    if message_id is None:
+        return False
+
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "duration_ms": int((time.monotonic() - started) * 1000),
+        "thread_id": task.thread_id,
+        "turn_id": _extract_turn_id(task),
+        "message_id": message_id,
+        "request_id": task.request_id,
+        "task_id": task.task_id,
+        "attempt_id": getattr(task, "attempt_id", "") or None,
+        "reason": "durable_completion_recorded",
+        **_finalize_lifecycle_timings(lifecycle_timings),
+    }
+    if (
+        isinstance(result, dict)
+        and _coerce_message_id(result.get("message_id")) == message_id
+    ):
+        for key in (
+            "provider",
+            "model",
+            "requested_provider",
+            "requested_model",
+            "attempted_provider",
+            "attempted_model",
+            "resolved_provider",
+            "resolved_model",
+            "final_provider",
+            "final_model",
+            "selection_source",
+            "fallback_reason",
+            "completion_truth",
+            "terminal_evidence",
+        ):
+            value = result.get(key)
+            if value is not None:
+                payload[key] = value
+    _safe_publish(task.task_id, TaskEventType.TASK_COMPLETED.value, payload)
+    logger.warning(
+        "[chat-worker] post_persistence_error_superseded_by_durable_completion thread_id=%s task_id=%s request_id=%s message_id=%s",
+        task.thread_id,
+        task.task_id,
+        task.request_id,
+        message_id,
+    )
+    return True
 
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
@@ -2485,6 +2574,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         turn_id,
     )
 
+    completion_result: dict[str, Any] | None = None
     try:
         existing_message_id = _find_assistant_message_for_turn(
             thread_id=task.thread_id,
@@ -2661,6 +2751,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             persist_assistant_message=True,
             state_callback=_state_callback,
         )
+        completion_result = result
         terminal_evidence = require_successful_terminal(result)
         if result.get("persistence_outcome") != "persisted":
             raise RuntimeError("assistant_persistence_not_confirmed")
@@ -2944,9 +3035,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
     except ChatTaskCancelled as exc:
-        _record_chat_completion_attempt_terminal(
+        terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_CANCELLED.value
         )
+        if not terminal_recorded and _publish_durable_completion_if_present(
+            task,
+            run_id=run_id,
+            started=started,
+            lifecycle_timings=lifecycle_timings,
+            result=completion_result,
+        ):
+            clear_cancelled(task.task_id)
+            return
         terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         cancellation_metadata = _task_error_metadata(exc)
         _safe_publish(
@@ -2978,9 +3078,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id,
         )
     except Exception as exc:
-        _record_chat_completion_attempt_terminal(
+        terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_FAILED.value
         )
+        if not terminal_recorded and _publish_durable_completion_if_present(
+            task,
+            run_id=run_id,
+            started=started,
+            lifecycle_timings=lifecycle_timings,
+            result=completion_result,
+        ):
+            return
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)
         error_metadata = _task_error_metadata(exc)

@@ -235,7 +235,10 @@ When a worker controls termination, it attempts to record the canonical
 publishing the Redis terminal event. When that write commits, the first durable
 failure/cancellation is immutable for the attempt, and assistant completion
 cannot be added afterward. A durable assistant link remains stronger
-completion evidence if present. This stores only the terminal event kind:
+completion evidence if present. If a later worker step raises after that link
+commits, the worker rereads the exact request/task/thread/turn-bound attempt
+and publishes completion from the durable message link instead of a conflicting
+failure or cancellation. This stores only the terminal event kind:
 Redis remains the source for diagnostic payload details. If the database write
 fails, Redis remains the observation source until its evidence expires. A
 worker disappearing after destructive dequeue still produces no durable
