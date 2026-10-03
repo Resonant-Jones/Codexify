@@ -886,6 +886,29 @@ describe("GuardianChat turn lock lifecycle", () => {
     expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
   });
 
+  it("releases the synthetic lease after all four fast admissions remain locked", async () => {
+    const view = await startThinkingTurn();
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url !== "/chat/1/complete") return { data: {} };
+      throw Object.assign(new Error("Request failed with status code 429"), {
+        response: { status: 429, data: { detail: { error: "turn_in_flight" } } },
+      });
+    });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(completeCalls()).toHaveLength(5), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(inferenceMocks.attachTask).toHaveBeenCalledTimes(1);
+    expect(inferenceMocks.reset).toHaveBeenCalled();
+    await allowRetryTimer();
+    expect(completeCalls()).toHaveLength(5);
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    apiMock.post.mockResolvedValue({ data: { task_id: "next-user-task" } });
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(view.onSendMessage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenLastCalledWith("next-user-task"));
+  });
+
   it.each(["stop", "provider"])("a later %s supersedes a scheduled fast handoff", async (action) => {
     await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));

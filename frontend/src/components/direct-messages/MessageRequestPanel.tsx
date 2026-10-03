@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 import {
   archiveMessageRequest,
@@ -62,7 +62,9 @@ export default function MessageRequestPanel({
     };
   }, [reload]);
 
-  useEffect(() => {
+  // Reset the draft before a new peer's composer can receive input. A passive
+  // effect can erase the first keystrokes after the new form is rendered.
+  useLayoutEffect(() => {
     setNote("");
     setAttemptKey(crypto.randomUUID());
     setError(null);

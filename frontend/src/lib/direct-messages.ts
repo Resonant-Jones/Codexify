@@ -117,15 +117,22 @@ export function normalizeDirectMessageError(
       : typeof (error as { status?: unknown } | null)?.status === "number"
         ? (error as { status: number }).status
         : 0;
-  const code = errorCodeFromDetail(
-    (error as { response?: { data?: { detail?: unknown } } } | null)?.response
-      ?.data?.detail,
-  );
-  return new DirectMessageApiError(
-    status,
-    error instanceof Error ? error.message : "Direct messaging request failed",
-    code,
-  );
+  const detail = (error as { response?: { data?: { detail?: unknown } } } | null)
+    ?.response?.data?.detail;
+  const code = errorCodeFromDetail(detail);
+  let message = error instanceof Error ? error.message : "Direct messaging request failed";
+  if (typeof detail === "string") message = detail;
+  else if (Array.isArray(detail)) {
+    const messages = detail.map((item) => item?.msg)
+      .filter((value): value is string => typeof value === "string");
+    if (messages.length) message = messages.join("; ");
+  } else if (detail && typeof detail === "object") {
+    // Only the backend's safe explanatory field is presentation text. Never
+    // stringify the detail object or disclose unrelated diagnostic fields.
+    const safeMessage = (detail as { message?: unknown }).message;
+    if (typeof safeMessage === "string") message = safeMessage;
+  }
+  return new DirectMessageApiError(status, message, code);
 }
 
 export async function claimSocialIdentityUsername(
@@ -138,20 +145,7 @@ export async function claimSocialIdentityUsername(
     );
     return response.data.profile;
   } catch (error) {
-    const normalized = normalizeDirectMessageError(error);
-    const detail = (error as { response?: { data?: { detail?: unknown } } })
-      ?.response?.data?.detail;
-    if (typeof detail === "string") normalized.message = detail;
-    else if (Array.isArray(detail)) {
-      const messages = detail
-        .map((item) => item?.msg)
-        .filter((value): value is string => typeof value === "string");
-      if (messages.length) normalized.message = messages.join("; ");
-    } else if (detail && typeof detail === "object") {
-      const message = (detail as { message?: unknown }).message;
-      if (typeof message === "string") normalized.message = message;
-    }
-    throw normalized;
+    throw normalizeDirectMessageError(error);
   }
 }
 

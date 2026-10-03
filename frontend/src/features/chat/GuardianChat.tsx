@@ -2074,7 +2074,12 @@ export function GuardianChat({
             return;
           }
           pendingFastRetryRef.current = null;
-          if (outcome !== "ok" && outcome !== "inflight") {
+          if (outcome === "inflight") {
+            // No replacement task was admitted. Retire the synthetic retry
+            // lease; the server retains authority over its actual turn lock.
+            releaseTurnLease(threadId, { clearInference: true });
+            showToast("Guardian could not continue in fast mode. Please try again.");
+          } else if (outcome !== "ok") {
             releaseTurnLease(threadId, {
               clearCompletion: false,
               clearInference: false,

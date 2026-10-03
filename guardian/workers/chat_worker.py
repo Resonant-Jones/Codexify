@@ -3044,8 +3044,12 @@ def run_forever() -> None:
                 raw_owner = payload.get("turn_lock_owner")
                 if isinstance(raw_owner, str) and raw_owner.strip():
                     task.turn_lock_owner = raw_owner.strip()
-            # Cancellation belongs to the task lifecycle, including terminal
-            # correlation and owner-guarded turn-lock cleanup in its finally.
+            # Already-authoritative cancellations must not queue behind busy
+            # completion slots. Use the same lifecycle and owner-guarded finally
+            # as executor work, including persisted-turn deduplication.
+            if is_cancelled(task.task_id):
+                _run_chat_task(task)
+                continue
             executor.submit(_run_chat_task, task)
 
 

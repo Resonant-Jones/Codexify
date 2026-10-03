@@ -127,6 +127,18 @@ describe("human message requests", () => {
     expect(onAccepted).not.toHaveBeenCalled();
   });
 
+  it("presents the safe policy message when request admission fails", async () => {
+    vi.mocked(sendMessageRequest).mockRejectedValueOnce(Object.assign(new Error("Request failed with status code 429"), {
+      response: { status: 429, data: { detail: { error: "message_request_rate_limited", message: "Too many requests. Please try later.", recipient_policy: "private" } } },
+    }));
+    show(bob);
+    fireEvent.change(screen.getByLabelText("Introductory note"), { target: { value: "Hello Bob" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests. Please try later.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("private");
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
   it("accepts incoming requests and opens the returned conversation", async () => {
     vi.mocked(fetchMessageRequests).mockResolvedValue([pending]);
     vi.mocked(transitionMessageRequest).mockResolvedValue({

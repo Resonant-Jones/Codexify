@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-02T18:52:20-04:00",
+  "generated_at": "2026-08-08T12:25:50-04:00",
   "graph_id": "codexify:graph:document-lifecycle",
-  "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
   "illustrative": false,
   "nodes": [
     {
@@ -191,20 +191,20 @@
         "ADR reading order",
         "ADR graph navigation"
       ],
-      "content_hash": "4b97a03c459c6af1ca2a74d3567624c7104094d14c006e0fbcf3c84c675ff8a4",
+      "content_hash": "e273efcbf095d0f2ae7b83e1f4909c4ba9260d80011b8c9763864356b1430503",
       "disposition": "accepted",
       "document_id": "codexify:doc:architecture:adr-index",
       "evidence_class": "documented-contract",
       "freshness": {
-        "reason": "ADR-089 index entry and governed ADR source were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
+        "reason": "Verified as the canonical ADR routing surface at the Phase 1 base.",
         "state": "current",
         "triggers": [
           "an ADR is added, removed, renumbered, or retitled",
           "an indexed ADR review posture changes",
           "the documented ADR graph or reading order changes"
         ],
-        "verified_at": "2026-09-24T20:46:58Z",
-        "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
       },
       "governing_adr_posture": "not_applicable",
       "kind": "runtime_map",
@@ -224,24 +224,7 @@
         "checking which decision document should be read directly"
       ],
       "record_type": "document_node",
-      "relations": [
-        {
-          "authority_scope": "ADR discovery and routing for the indexed Document Lifecycle Graph decision",
-          "canonicality": "canonical",
-          "rationale": "The ADR Index directly indexes ADR-056 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
-          "relation_type": "depends_on",
-          "review_status": "accepted",
-          "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
-        },
-        {
-          "authority_scope": "ADR discovery and routing for the indexed Product Architecture Ontology decision",
-          "canonicality": "canonical",
-          "rationale": "The ADR Index directly indexes ADR-057 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
-          "relation_type": "depends_on",
-          "review_status": "accepted",
-          "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
-        }
-      ],
+      "relations": [],
       "retrieval_policy": {
         "applicable_intents": [
           "adr_discovery",
@@ -291,20 +274,20 @@
         "current priorities",
         "present release promise"
       ],
-      "content_hash": "9cb4dd20bd0e6dcb6be40aa50297d45c26bf3b4e1939b9fded77b13da8c4e5cc",
+      "content_hash": "229231d17e9df7861c2fb406a075c1646bce6d92ec1d56848cb241bc934bc14b",
       "disposition": "accepted",
       "document_id": "codexify:doc:architecture:current-state",
       "evidence_class": "documented-contract",
       "freshness": {
-        "reason": "Current-state source reverified after recording the contract-proven private-preview Chroma named-volume Compose implementation. Live volume adoption, ADR-067 retirement and fresh initialization, retrieval and reindex proof, Persona runtime and browser qualification, and reconciliation restoration remain pending; no release or Beta claim is widened.",
+        "reason": "Verified against the canonical weekly current-state refresh at the Phase 1 base.",
         "state": "current",
         "triggers": [
           "the weekly freshness window expires",
           "the supported profile or release interpretation changes",
           "active blockers, priorities, or the audited implementation tip change"
         ],
-        "verified_at": "2026-09-11T20:55:06Z",
-        "verified_commit": "fe6d2222f9db8082c5df7aa55849ed5682fbb4f0",
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
         "window_days": 7
       },
       "governing_adr_posture": "not_applicable",
@@ -470,20 +453,20 @@
         "Codexify subsystem orientation",
         "architecture change-location guidance"
       ],
-      "content_hash": "d5649213e80957592204001dd2165ac22ee6c3dfd03ed634ec6eb17c9357eef2",
+      "content_hash": "e61efdd0cbbd43e078078d2a871a685b210f3c2b419cb780c41727dc99a6dcc0",
       "disposition": "accepted",
       "document_id": "codexify:doc:architecture:kb-entrypoint",
       "evidence_class": "documented-contract",
       "freshness": {
-        "reason": "The Document Recall Contract KB entry and current-state routing were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
+        "reason": "Verified against the canonical KB routing refresh and listed source anchors at the Phase 1 base.",
         "state": "current",
         "triggers": [
           "architecture entrypoints or validity guidance change",
           "listed subsystem ownership or change-location paths change",
           "the current-state routing boundary changes"
         ],
-        "verified_at": "2026-09-24T20:46:58Z",
-        "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
       },
       "governing_adr_posture": "not_applicable",
       "kind": "runtime_map",
@@ -503,16 +486,7 @@
         "locating the code and documents affected by a proposed change"
       ],
       "record_type": "document_node",
-      "relations": [
-        {
-          "authority_scope": "release-truth routing and short-horizon architecture orientation",
-          "canonicality": "canonical",
-          "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor.",
-          "relation_type": "depends_on",
-          "review_status": "accepted",
-          "target_document_id": "codexify:doc:architecture:current-state"
-        }
-      ],
+      "relations": [],
       "retrieval_policy": {
         "applicable_intents": [
           "architecture_orientation",
@@ -581,20 +555,20 @@
         "product-architecture relationship vocabulary",
         "product-architecture dependency and projection doctrine"
       ],
-      "content_hash": "c52e8f2c8741fe275627d5125f6154f1c7d02ae13bff9593c4a85c7986fe25c9",
+      "content_hash": "12ce5c58ed63efcad55363695344fc92a2f3f2a0b278e9212209dc785b21a8e2",
       "disposition": "accepted",
       "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
       "evidence_class": "documented-contract",
       "freshness": {
-        "reason": "Re-verified against accepted ADR-057, the canonical ontology, assertion schema, and the bounded ADR-069 Beta posture corpus; no complete source-subsystem or relationship inventory is implied.",
+        "reason": "Verified against accepted ADR-057, the canonical ontology, and assertion schema at the Phase 1 base.",
         "state": "current",
         "triggers": [
           "ADR-057 is superseded or its accepted scope changes",
           "the canonical ontology concepts or relationship vocabulary change",
           "the Product Architecture Assertion schemas or dependency doctrine change"
         ],
-        "verified_at": "2026-08-14T23:27:22Z",
-        "verified_commit": "f4fece599e9e081154a7a7a96e1923f7f5c205b5"
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
       },
       "governing_adr_posture": "accepted",
       "kind": "architecture_contract",
@@ -729,16 +703,7 @@
         "checking what the docs-backed Axis interface does and does not implement"
       ],
       "record_type": "document_node",
-      "relations": [
-        {
-          "authority_scope": "Axis orientation for current release and support claims",
-          "canonicality": "canonical",
-          "rationale": "The Axis Node entrypoint explicitly requires 00-current-state.md before any release or support claim and states that current-state remains release truth rather than allowing Axis Node to become a parallel truth store.",
-          "relation_type": "depends_on",
-          "review_status": "accepted",
-          "target_document_id": "codexify:doc:architecture:current-state"
-        }
-      ],
+      "relations": [],
       "retrieval_policy": {
         "applicable_intents": [
           "architecture_orientation",
@@ -897,99 +862,11 @@
         "effective_from": "2026-08-07T20:14:56Z"
       },
       "title": "DLG / PAO Canonical History Publication Proof"
-    },
-    {
-      "aliases": [],
-      "authority_class": "evidence_only",
-      "authority_scopes": [
-        "Anthropic / Claude account-export conversation import on the supported local Web/runtime path",
-        "durable account-import job accounting and PostgreSQL persistence for the proven import job",
-        "terminal completed state and the source-discovery vs commit distinction for the proven import"
-      ],
-      "content_hash": "7dd544e67dad176b1382562468644c968ea69b5e12cc665206e865602d25d4f8",
-      "disposition": "accepted",
-      "document_id": "codexify:doc:proof:2026-08-19-anthropic-account-import-supported-runtime-proof-r2",
-      "evidence_class": "proven-live-runtime",
-      "freshness": {
-        "reason": "Immutable supported-runtime receipt for Anthropic account-export conversation import, re-verified as current evidence at the R2 commit 0f494b398 during the 2026-08-19 Beta-boundary reconciliation.",
-        "state": "current",
-        "triggers": [
-          "the immutable receipt's source bytes change",
-          "a corrected replacement receipt supersedes this record"
-        ],
-        "verified_at": "2026-08-20T00:03:57Z",
-        "verified_commit": "0f494b398b79f73c077322ef82456027e51d38f1"
-      },
-      "governing_adr_posture": "not_applicable",
-      "kind": "proof",
-      "lifecycle_state": "frozen",
-      "must_not_prove": [
-        "unrestricted release support for Anthropic import or any other surface",
-        "Anthropic Projects, memories.json, users.json persona/profile, or binary media reconstruction import",
-        "Anthropic API, Claude cloud inference, provider routing, or cloud egress authorization",
-        "support for arbitrary or future Anthropic export formats",
-        "live runtime health at any revision other than the recorded proof revision"
-      ],
-      "owners": [
-        "Codexify proof maintainers"
-      ],
-      "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md",
-      "read_when": [
-        "answering whether Anthropic / Claude account-export conversation import reached a real supported runtime",
-        "checking durable job accounting and PostgreSQL readback evidence for the proven import job",
-        "bounding the Anthropic conversation-import release claim to the proven path"
-      ],
-      "record_type": "document_node",
-      "relations": [
-        {
-          "authority_scope": "Anthropic / Claude account-export conversation import Beta Bounded / Conditional support on the proven supported local Web/runtime path",
-          "canonicality": "canonical",
-          "rationale": "The immutable R2 supported-runtime receipt is the proven-live-runtime evidence for the bounded Anthropic account-export conversation-import posture already recorded by current release truth; it does not prove arbitrary Anthropic import, Projects, memories/persona/profile import, media reconstruction, Anthropic inference, cloud authorization, or current-head runtime health.",
-          "relation_type": "evidence_for",
-          "review_status": "accepted",
-          "target_document_id": "codexify:doc:architecture:current-state"
-        }
-      ],
-      "retrieval_policy": {
-        "applicable_intents": [
-          "live_runtime_proof",
-          "proof_history",
-          "release_support"
-        ],
-        "default_policy": "include",
-        "excluded_intents": [
-          "current_head_proof"
-        ],
-        "maximum_chunk_budget": 6,
-        "priority": "primary",
-        "section_hints": [
-          "Result",
-          "Job lifecycle",
-          "Accounting evidence",
-          "Persistence evidence",
-          "Source-vs-commit distinction",
-          "Negative checks"
-        ]
-      },
-      "schema_version": "1.0.0",
-      "source_anchors": [
-        {
-          "anchor_type": "proof",
-          "invalidates_freshness": false,
-          "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md"
-        }
-      ],
-      "summary": "Successful supported-runtime receipt for Anthropic / Claude account-export conversation import on the supported local Web/runtime path: rendered Web UI -> durable account-import job with source system \"anthropic\" -> Redis -> worker-account-import -> Anthropic adapter -> canonical Claude writer -> PostgreSQL, terminal job state completed with durable counters matching PostgreSQL readback (63 threads / 784 messages; discovery 65 vs committed 63 kept distinct).",
-      "temporal": {
-        "created_at": "2026-08-20T00:03:57Z",
-        "effective_from": "2026-08-19T00:00:00Z"
-      },
-      "title": "Anthropic Account Import Supported Runtime Proof R2"
     }
   ],
   "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
   "record_type": "document_graph",
-  "repository_revision": "d6b1de7cbc8ea73251b833c578e036a282a272b6",
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
   "schema_version": "1.0.0",
   "supersession_set": []
 }
