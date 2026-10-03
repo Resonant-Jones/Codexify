@@ -552,6 +552,34 @@ def _remote_token_secrets() -> List[str]:
     return secrets
 
 
+def _is_remote_single_user_account_jwt(token: str) -> bool:
+    """Validate the existing purpose-tagged JWT account lane for single-user mode."""
+    if jwt is None or _multi_user_mode_enabled():
+        return False
+
+    raw = token.strip()
+    if not raw:
+        return False
+
+    for secret in _remote_token_secrets():
+        try:
+            claims = jwt.decode(
+                raw,
+                secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False, "require": ["exp", "sub"]},
+            )
+        except Exception:
+            continue
+        if (
+            isinstance(claims, dict)
+            and str(claims.get("sub") or "").strip()
+            and claims.get("purpose") == ACCOUNT_SESSION_PURPOSE
+        ):
+            return True
+    return False
+
+
 def _is_valid_remote_token(token: str) -> bool:
     """
     Validate a remote-mode bearer/cookie token as session or JWT.
@@ -584,6 +612,52 @@ def _is_valid_remote_token(token: str) -> bool:
             continue
 
     return False
+
+
+def _configured_local_api_keys() -> List[str]:
+    """Read the same configured static keys used by local ``verify_api_key``."""
+    allowed: List[str] = []
+    try:
+        settings = get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                value.strip()
+                for value in raw_multi.replace(";", ",").split(",")
+                if value.strip()
+            )
+    except Exception:
+        pass
+
+    if not allowed:
+        env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+        if env_key:
+            allowed.append(env_key)
+    return allowed
+
+
+def _valid_local_api_key_candidate(
+    x_api_key: Optional[str], authorization: Optional[str]
+) -> tuple[str, str] | None:
+    """Return the transport and value of a valid configured local API key."""
+    candidates: list[tuple[str, str]] = []
+    if x_api_key:
+        value = x_api_key.strip()
+        if value:
+            candidates.append(("x-api-key", value))
+    if authorization and authorization.lower().startswith("bearer "):
+        value = authorization[7:].strip()
+        if value:
+            candidates.append(("bearer", value))
+
+    allowed = _configured_local_api_keys()
+    for transport, candidate in candidates:
+        if any(hmac.compare_digest(candidate, key) for key in allowed):
+            return transport, candidate
+    return None
 
 
 def _verify_session_token_fallback(token: str) -> bool:
@@ -975,6 +1049,28 @@ def require_account_session(
     return credential
 
 
+def _verify_task_event_account_session(
+    request: Request,
+    authorization: Optional[str],
+    gc_session: Optional[str],
+) -> str:
+    """Preserve task-event's supported remote JWT lane without widening other routes."""
+    token = extract_session_token(authorization, gc_session)
+    if (
+        token
+        and not is_private_preview()
+        and _auth_mode() == "remote"
+        and _is_remote_single_user_account_jwt(token)
+    ):
+        return token
+    return verify_account_session(
+        request=request,
+        x_api_key=None,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
+
+
 def require_task_event_read_principal(
     request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
@@ -997,13 +1093,38 @@ def require_task_event_read_principal(
     )
 
     guest_token = extract_hosted_room_guest_session(request)
+    if guest_token and not remote_boundary:
+        local_key = _valid_local_api_key_candidate(x_api_key, authorization)
+        if local_key:
+            transport, credential = local_key
+            if transport == "x-api-key":
+                verify_api_key(
+                    request=request,
+                    x_api_key=credential,
+                    authorization=None,
+                    gc_session=None,
+                )
+            else:
+                verify_api_key(
+                    request=request,
+                    x_api_key=None,
+                    authorization=f"Bearer {credential}",
+                    gc_session=None,
+                )
+            return get_request_user_scope(
+                request=request,
+                x_user_id=None,
+                authorization=None,
+                gc_session=None,
+            )
+
     if guest_token:
         return decode_hosted_room_guest_principal(guest_token)
 
     if remote_boundary:
         # Require the exact account-session class before resolving account
         # identity. Operator sessions and raw API keys cannot become users.
-        verify_account_session(request, x_api_key, authorization, gc_session)
+        _verify_task_event_account_session(request, authorization, gc_session)
     else:
         # Preserve local API-key/session operation, but do not allow a
         # supplemental X-User-Id header to establish the local principal.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -87,6 +88,238 @@ def test_owner_can_subscribe_and_existing_sse_payload_is_preserved(task_event_cl
     assert lookup.call_args.args[1] == "backend-task-a"
     redis_read.assert_called_once()
     assert redis_read.call_args.args[1] == "5-9"
+
+
+def _account_jwt(
+    *, purpose=ACCOUNT_SESSION_PURPOSE, exp=None, secret="task-event-jwt-secret"
+):
+    jwt = pytest.importorskip("jwt")
+    claims = {"sub": "account-a", "exp": exp or int(time.time()) + 120}
+    if purpose is not None:
+        claims["purpose"] = purpose
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def _configure_remote_single_user(monkeypatch):
+    monkeypatch.setattr(dependencies, "is_private_preview", lambda: False)
+    monkeypatch.setattr(dependencies, "_multi_user_mode_enabled", lambda: False)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "account-a")
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "task-event-jwt-secret")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "task-event-session-secret")
+    monkeypatch.setenv("GUARDIAN_API_KEY", "task-event-operator-key")
+
+
+def test_remote_account_purpose_jwt_reads_owner_task_after_durable_authorization(
+    task_event_client, monkeypatch
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    _configure_remote_single_user(monkeypatch)
+    token = _account_jwt()
+    order = []
+    lookup.side_effect = lambda _db, task_id: (
+        order.append("attempt"),
+        {"backend_task_id": task_id, "request_id": "request-a", "thread_id": 7},
+    )[1]
+    db.get_chat_thread.side_effect = lambda thread_id: (
+        order.append("thread"),
+        {"id": thread_id, "user_id": "account-a"},
+    )[1]
+    redis_events = redis_read.return_value
+    redis_read.side_effect = lambda *_args, **_kwargs: (
+        order.append("redis"),
+        redis_events,
+    )[1]
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers={"Authorization": f"Bearer {token}", "X-API-Key": ""},
+    )
+
+    assert response.status_code == 200, response.text
+    lookup.assert_called_once()
+    db.get_chat_thread.assert_called_once_with(7)
+    redis_read.assert_called_once()
+    assert order == ["attempt", "thread", "redis"]
+
+
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        lambda: _account_jwt(purpose=OPERATOR_SESSION_PURPOSE),
+        lambda: _account_jwt(purpose="other-purpose"),
+        lambda: _account_jwt(purpose=None),
+        lambda: _account_jwt(exp=int(time.time()) - 60),
+        lambda: _account_jwt(secret="untrusted-signing-secret"),
+        lambda: "malformed.jwt.token",
+    ],
+    ids=[
+        "operator-purpose",
+        "wrong-purpose",
+        "missing-purpose",
+        "expired",
+        "bad-signature",
+        "malformed",
+    ],
+)
+def test_remote_non_account_jwts_are_denied_before_attempt_or_redis(
+    task_event_client, monkeypatch, token_factory
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    _configure_remote_single_user(monkeypatch)
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers={"Authorization": f"Bearer {token_factory()}", "X-API-Key": ""},
+    )
+
+    assert response.status_code == 401
+    lookup.assert_not_called()
+    db.get_chat_thread.assert_not_called()
+    redis_read.assert_not_called()
+
+
+@pytest.mark.parametrize("other_lane", ["operator", "guest"])
+def test_remote_account_jwt_mixed_with_other_lane_fails_before_lookup(
+    task_event_client, monkeypatch, other_lane
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    _configure_remote_single_user(monkeypatch)
+    token = _account_jwt()
+    cookies = {}
+    if other_lane == "operator":
+        cookies["gc_session"], _ = issue_session_token(
+            subject="operator-a", purpose=OPERATOR_SESSION_PURPOSE
+        )
+    else:
+        cookies["codexify_hosted_room_session"] = "malformed-guest-selector"
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers={"Authorization": f"Bearer {token}", "X-API-Key": ""},
+        cookies=cookies,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "mixed_principal_credentials"
+    lookup.assert_not_called()
+    db.get_chat_thread.assert_not_called()
+    redis_read.assert_not_called()
+
+
+@pytest.mark.parametrize("transport", ["x-api-key", "bearer"])
+def test_valid_local_api_key_precedes_stale_guest_cookie(
+    task_event_client, monkeypatch, transport
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    monkeypatch.setattr(dependencies, "is_private_preview", lambda: False)
+    monkeypatch.setattr(dependencies, "_multi_user_mode_enabled", lambda: False)
+    monkeypatch.setattr(
+        dependencies,
+        "get_settings",
+        lambda: SimpleNamespace(
+            GUARDIAN_API_KEY="task-event-local-key", GUARDIAN_API_KEYS=None
+        ),
+    )
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "account-a")
+    monkeypatch.setenv("GUARDIAN_API_KEY", "task-event-local-key")
+    headers = (
+        {"X-API-Key": "task-event-local-key"}
+        if transport == "x-api-key"
+        else {"Authorization": "Bearer task-event-local-key"}
+    )
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers=headers,
+        cookies={"codexify_hosted_room_session": "stale-or-revoked-cookie"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert "set-cookie" not in response.headers
+    lookup.assert_called_once()
+    db.get_chat_thread.assert_called_once_with(7)
+    redis_read.assert_called_once()
+
+
+def test_invalid_local_api_key_does_not_override_eligible_guest(
+    task_event_client, monkeypatch
+):
+    client, _db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    monkeypatch.setattr(dependencies, "is_private_preview", lambda: False)
+    monkeypatch.setattr(dependencies, "_multi_user_mode_enabled", lambda: False)
+    monkeypatch.setattr(
+        dependencies,
+        "get_settings",
+        lambda: SimpleNamespace(
+            GUARDIAN_API_KEY="task-event-local-key", GUARDIAN_API_KEYS=None
+        ),
+    )
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "inert-task-event-test-secret")
+    guest_token, _ = issue_guest_session_token(
+        room_id="room-a",
+        room_slug="room-a",
+        participant_id="guest-a",
+        invitation_id="invite-a",
+    )
+    guest_session = _RoomSession()
+
+    @contextmanager
+    def room_db_session():
+        yield guest_session
+
+    monkeypatch.setattr(
+        "guardian.core.task_event_access.load_guardian_db_from_env",
+        lambda: SimpleNamespace(get_session=room_db_session),
+    )
+
+    response = client.get(
+        "/api/tasks/backend-task-room/events",
+        headers={"X-API-Key": "invalid-local-key"},
+        cookies={"codexify_hosted_room_session": guest_token},
+    )
+
+    assert response.status_code == 200, response.text
+    lookup.assert_called_once()
+    redis_read.assert_called_once()
+
+
+def test_invalid_local_api_key_without_guest_is_denied_before_attempt(
+    task_event_client, monkeypatch
+):
+    client, db, lookup, redis_read, _attempts = task_event_client
+    client.app.dependency_overrides.pop(require_task_event_read_principal)
+    monkeypatch.setattr(dependencies, "is_private_preview", lambda: False)
+    monkeypatch.setattr(dependencies, "_multi_user_mode_enabled", lambda: False)
+    monkeypatch.setattr(
+        dependencies,
+        "get_settings",
+        lambda: SimpleNamespace(
+            GUARDIAN_API_KEY="task-event-local-key", GUARDIAN_API_KEYS=None
+        ),
+    )
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+
+    response = client.get(
+        "/api/tasks/backend-task-a/events",
+        headers={"X-API-Key": "invalid-local-key"},
+    )
+
+    assert response.status_code == 401
+    lookup.assert_not_called()
+    db.get_chat_thread.assert_not_called()
+    redis_read.assert_not_called()
 
 
 def test_cross_account_denial_precedes_redis_and_discloses_no_event(task_event_client):
@@ -277,6 +510,7 @@ def test_inactive_room_guest_is_denied_before_redis(task_event_client, monkeypat
 
     response = client.get(
         "/api/tasks/backend-task-room/events",
+        headers={"X-API-Key": ""},
         cookies={"codexify_hosted_room_session": token},
     )
 
@@ -309,6 +543,7 @@ def test_wrong_room_guest_and_thread_mismatch_are_denied_before_redis(
     )
     wrong_room_response = client.get(
         "/api/tasks/backend-task-room/events",
+        headers={"X-API-Key": ""},
         cookies={"codexify_hosted_room_session": wrong_room_token},
     )
     assert wrong_room_response.status_code == 401
@@ -322,6 +557,7 @@ def test_wrong_room_guest_and_thread_mismatch_are_denied_before_redis(
     )
     wrong_thread_response = client.get(
         "/api/tasks/backend-task-a/events",
+        headers={"X-API-Key": ""},
         cookies={"codexify_hosted_room_session": same_room_token},
     )
     assert wrong_thread_response.status_code == 401
