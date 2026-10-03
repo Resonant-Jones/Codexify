@@ -57,15 +57,17 @@ projection change and passed after it.
 ## Retained-stack ordinary turn
 
 Project: `codexify_chat_proof_f091_20261002`, API `127.0.0.1:18888`. Before
-the worker restart, the chat queue was empty, no turn-lock keys existed, the
-chat worker heartbeat was fresh, the chat health endpoint was healthy, and the
-PostgreSQL active-application query returned zero. The stack uses retained data
-and a cached dependency image. Only the private chat-worker source overlay was
+the worker restart, the chat queue was empty, the chat worker heartbeat was
+fresh, the chat health endpoint was healthy, and the PostgreSQL
+active-application query returned zero. The stack uses retained data and a
+cached dependency image. Only the private chat-worker source overlay was
 updated and only `worker-chat` was restarted. The mounted worker hash matched
-the edited worktree file. Afterward, health was healthy, the heartbeat was
-fresh, and the queue and lock set were empty. The original source overlay was
-restored and the worker restarted back to its original mounted hash after the
-probe.
+the edited worktree file. Afterward, health was healthy and the heartbeat was
+fresh. A follow-up queued-worker-restart proof used the canonical `turn_lock:*`
+pattern and confirmed the lock was absent after completion. The earlier
+`codexify:turn_lock:*` query in this task was a wrong pattern and is excluded
+as lock evidence. The original source overlay was restored and the worker
+restarted back to its original mounted hash after the probe.
 
 One normal API user turn completed:
 
@@ -79,7 +81,7 @@ One normal API user turn completed:
 | Durable assistant metadata | Request ID and both final values match the event; nested model selection agrees |
 | Assistant content | Exactly one assistant row contained the unique requested marker |
 | Attempt binding | Request, task, thread, and turn IDs matched; `completed_message_id` remained null |
-| Post-turn queue / turn locks | Queue depth `0`; no turn-lock keys |
+| Post-turn queue / turn locks | After the follow-up restart proof, queue depth `0`; canonical `turn_lock:*` scan empty |
 
 This is a retained-stack source-overlay proof, not a clean-volume or fresh-image
 qualification. It does not prove browser UI consumption of the repaired event,
