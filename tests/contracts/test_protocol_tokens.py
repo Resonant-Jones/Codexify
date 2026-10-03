@@ -27,6 +27,10 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    CODEX_APP_SERVER_FAILURE_KINDS,
+    CODEX_APP_SERVER_PROTOCOL_VERSIONS,
+    CODEX_APP_SERVER_SHUTDOWN_STATUSES,
+    CODEX_EXECUTION_INTERFACES,
     COMPLETION_TERMINAL_STATUSES,
     CONNECTION_CAPABILITIES,
     CONNECTION_CATEGORIES,
@@ -39,6 +43,7 @@ from guardian.protocol_tokens import (
     DELEGATION_TERMINAL_STATUSES,
     EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
+    EXECUTION_EVIDENCE_STATUSES,
     EXECUTOR_AUTH_MODES,
     EXECUTOR_AUTH_STATES,
     EXECUTOR_AVAILABILITY_STATES,
@@ -81,6 +86,10 @@ from guardian.protocol_tokens import (
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
     CampaignStatus,
+    CodexAppServerFailureKind,
+    CodexAppServerProtocolVersion,
+    CodexAppServerShutdownStatus,
+    CodexExecutionInterface,
     CompletionTerminalStatus,
     ConnectionCapability,
     ConnectionCategory,
@@ -97,6 +106,7 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    ExecutionEvidenceStatus,
     GuardianDelegationApprovalMode,
     GuardianDelegationApprovalSource,
     GuardianDelegationApprovalState,
@@ -698,6 +708,47 @@ def test_executor_protocol_tokens() -> None:
     }
 
 
+def test_codex_app_server_tokens() -> None:
+    assert CodexExecutionInterface.APP_SERVER.value == "app_server"
+    assert CODEX_EXECUTION_INTERFACES == {"app_server"}
+    assert CodexAppServerProtocolVersion.V2.value == "v2"
+    assert CODEX_APP_SERVER_PROTOCOL_VERSIONS == {"v2"}
+    assert CODEX_APP_SERVER_SHUTDOWN_STATUSES == {
+        "not_started",
+        "clean_exit",
+        "exited_before_close",
+        "terminated",
+        "killed",
+    }
+    assert CodexAppServerShutdownStatus.CLEAN_EXIT.value == "clean_exit"
+    assert CODEX_APP_SERVER_FAILURE_KINDS == {
+        "execution_interface_unsupported",
+        "binary_not_found",
+        "spawn_failed",
+        "initialization_failed",
+        "malformed_protocol",
+        "thread_start_failed",
+        "turn_start_failed",
+        "turn_failed",
+        "timeout",
+        "cancelled",
+        "premature_process_exit",
+        "unsupported_interaction",
+        "shutdown_failed",
+    }
+    assert EXECUTION_EVIDENCE_STATUSES == {
+        "observed",
+        "configured_only",
+        "unavailable",
+        "unknown",
+    }
+    assert (
+        CodexAppServerFailureKind.UNSUPPORTED_INTERACTION.value
+        == "unsupported_interaction"
+    )
+    assert ExecutionEvidenceStatus.CONFIGURED_ONLY.value == "configured_only"
+
+
 def test_pi_invocation_boundary_tokens() -> None:
     assert PiInvocationEnvelopeStatus.PREPARED.value == "prepared"
     assert PiInvocationEnvelopeStatus.VALIDATED.value == "validated"
@@ -1046,6 +1097,13 @@ def test_error_code_tokens() -> None:
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",
         "DELEGATION_EXECUTOR_SPAWN_FAILED",
+        "DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED",
+        "DELEGATION_EXECUTOR_CANCELLED",
+        "CODEX_APP_SERVER_PROTOCOL_ERROR",
+        "CODEX_APP_SERVER_REQUEST_FAILED",
+        "CODEX_APP_SERVER_TURN_FAILED",
+        "CODEX_APP_SERVER_UNSUPPORTED_INTERACTION",
+        "CODEX_APP_SERVER_SHUTDOWN_FAILED",
         "WORKTREE_LEASE_REQUIRED",
         "WORKTREE_LEASE_NOT_FOUND",
         "WORKTREE_LEASE_NOT_ACTIVE",

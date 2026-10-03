@@ -1473,10 +1473,10 @@ _include_router(
 _include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",
-    # Private-preview functionality.  Only the hosted/private test profile
-    # (v1-friends-family-web) lists this label; every other supported
-    # profile leaves it unlisted, which route governance treats as
-    # quarantined.  Federation and Guardian execution stay disconnected.
+    # Enabled Private Preview and hosted/private tester human messaging
+    # (v1-whooshd-deepseek-web and v1-friends-family-web, ADR-097).
+    # Default/public Beta leaves the label unavailable. Federation and
+    # Guardian execution stay disconnected.
     include_fn=lambda: app.include_router(direct_messages_router),
     default_enabled=True,
 )

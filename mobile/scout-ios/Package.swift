@@ -49,11 +49,16 @@ let package = Package(
                 .linkedFramework("Security")
             ]
         ),
+        .testTarget(
+            name: "ScoutTests",
+            dependencies: ["Scout"],
+            path: "Tests/ScoutTests"
+        ),
     ]
 )
 
-// Tests are run via the standalone test runner. XCTest and Swift Testing
-// are unavailable on this system (Command Line Tools only, no Xcode).
+// SwiftPM tests run through the ScoutTests XCTest target. The standalone test
+// runner remains available, and the iOS app itself lives in CodexifyScout.xcodeproj.
 //
 // Build the library:
 //   cd mobile/scout-ios && swift build

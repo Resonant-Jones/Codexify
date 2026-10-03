@@ -181,8 +181,10 @@ attempt-to-thread authority. Agent/coding uses qualified dedicated snapshots;
 delegation uses its operator surface; account import uses job readback; voice
 is quarantined from generic ingress; warmup remains internal. No new schema,
 queue identity mapping, or polymorphic authorization framework is introduced.
-ADR-097 records this accepted contract; its number was checked against the
-current index at execution. ADR-091/092 remain unchanged.
+The accepted ingress contract was initially allocated as ADR-097 against the
+then-current index. Current-main integration introduced a separate ADR-097 for
+message-request consent, so the ingress decision is now ADR-098; its contract
+content and acceptance are unchanged. ADR-091/092 remain unchanged.
 
 The candidate corrections classify account/operator JWT purpose claims as
 unverified presence evidence, catch parser recursion failures, and run Hosted
@@ -225,7 +227,7 @@ Hydration changes no Git source blobs.
 Two DLG validation failures remain. The Architecture KB node's recorded
 content hash already mismatches README bytes at the frozen `c6b5e720d`
 baseline. The ADR-index node's recorded hash needs synchronization with this
-candidate's ADR-097 entry. Both metadata files are outside the finalization
+candidate's ADR-098 entry. Both metadata files are outside the finalization
 allowlist. The task explicitly requires stopping on an unrelated pre-existing
 validation defect; no metadata correction has been applied. A two-line
 content-hash-only patch was prepared for scope review. Finalization is paused
@@ -251,7 +253,7 @@ application, and each replacement matches SHA-256 of its canonical source.
 | Derived metadata path | Canonical source | Classification |
 | --- | --- | --- |
 | `docs/knowledge-graph/nodes/codexify:doc:architecture:kb-entrypoint.json` | `docs/architecture/README.md` | Pre-existing mismatch at `c6b5e720d`; source README unchanged by this candidate. |
-| `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json` | `docs/architecture/adr/adr-index.md` | Parent-induced update for the already-approved ADR-097 index entry. |
+| `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json` | `docs/architecture/adr/adr-index.md` | Parent-induced update for the already-approved ADR-098 index entry. |
 
 Exact inspected replacements:
 
@@ -262,8 +264,10 @@ No canonical source was changed to manufacture a match. No broader node or
 generated-graph regeneration, freshness rewrite, authority change, or runtime
 edit accompanied this repair. All ten pre-existing candidate file hashes
 matched the inspection receipt immediately after application. The runtime,
-tests, ADR-097, index, and chat contract remained byte-unchanged throughout
-qualification; this proof receives only this additive execution record.
+tests, ADR entry, index, and chat contract remained byte-unchanged throughout
+the historical qualification window. Integration later renumbered the
+accepted ingress ADR from 097 to 098 to avoid a current-main collision; this
+proof receives only this additive execution record.
 
 Fresh integrated command, from the isolated worktree root:
 

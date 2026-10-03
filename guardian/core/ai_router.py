@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from requests import exceptions as req_exc
 
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.accepted_deadline_transport import AcceptedDeadlineTransport
+from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline, AcceptedChatTaskDeadlineExceeded
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.core.event_contracts import _coerce_text
@@ -2997,6 +2999,7 @@ def stream_local(
     attempt_id: str | None = None,
     cancel_check=None,
     requested_model_is_authoritative: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -3076,6 +3079,8 @@ def stream_local(
     last_transport_error: req_exc.RequestException | None = None
     last_whooshd_error: WhooshdErrorDiagnostic | None = None
     cancel_monitor: _WhooshdCancellationMonitor | None = None
+    deadline_transport = AcceptedDeadlineTransport(accepted_deadline) if accepted_deadline else None
+    post_stream = deadline_transport.post if deadline_transport else requests.post
 
     try:
         for base_url in base_urls:
@@ -3126,7 +3131,7 @@ def stream_local(
                         },
                     )
                     if kind == "openai":
-                        resp = requests.post(
+                        resp = post_stream(
                             url,
                             json=payload,
                             headers=headers,
@@ -3151,7 +3156,7 @@ def stream_local(
                             ),
                             "stream": True,
                         }
-                        resp = requests.post(
+                        resp = post_stream(
                             url,
                             json=payload_ollama,
                             headers=headers,
@@ -3165,6 +3170,11 @@ def stream_local(
                     classification = _classify_transport_error(exc)
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
+
+                except BaseException:
+                    if candidate_cancel_monitor is not None:
+                        candidate_cancel_monitor.stop()
+                    raise
 
                 # A candidate cancellation monitor must not become the active
                 # monitor until its response is accepted. Rejected candidates
@@ -3563,6 +3573,36 @@ def stream_local(
                     attempted_base_urls=attempted_base_urls,
                 ),
             ) from exc
+    except AcceptedChatTaskDeadlineExceeded:
+        # Deadline failure remains authoritative request truth. Abort the
+        # correlated provider operation during the terminal reserve without
+        # setting the user-cancellation monitor's cancelled flag.
+        if whooshd_monitoring and deadline_transport is not None:
+            try:
+                remote_id = _whooshd_request_id_from_response(response)
+                if not remote_id and request_id and task_id and attempt_id:
+                    inventory = deadline_transport.terminal_json(
+                        "GET", _whooshd_runtime_requests_url(base_url), headers
+                    )
+                    for item in inventory.get("requests", [])[-256:]:
+                        if not isinstance(item, dict):
+                            continue
+                        if all(item.get(field) == expected for field, expected in (
+                            ("correlation_id", request_id),
+                            ("codexify_task_id", task_id),
+                            ("codexify_attempt_id", attempt_id),
+                        )):
+                            candidate = item.get("request_id")
+                            if isinstance(candidate, str) and _SAFE_WHOOSHD_REQUEST_ID_RE.fullmatch(candidate):
+                                remote_id = candidate
+                                break
+                if remote_id:
+                    deadline_transport.terminal_json(
+                        "POST", _whooshd_cancel_url(base_url, remote_id), headers
+                    )
+            except Exception:
+                pass
+        raise
     finally:
         if cancel_monitor is not None:
             cancel_monitor.stop()
@@ -3571,6 +3611,8 @@ def stream_local(
                 response.close()
             except Exception:
                 pass
+        if deadline_transport is not None:
+            deadline_transport.close()
 
 
 def call_groq(

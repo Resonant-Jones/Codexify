@@ -64,33 +64,33 @@ Keep interpretation separate from observation.
 
 ## Tester quotes
 
-> 
+>
 
 ## Positive signals
 
-- 
+-
 
 ## Human friction
 
-- 
+-
 
 ## Proven
 
 List only claims directly established by this run.
 
-- 
+-
 
 ## Failed
 
 List reproduced contract failures.
 
-- 
+-
 
 ## Unproven
 
 List relevant boundaries not actually exercised.
 
-- 
+-
 
 ## Highest-priority follow-up
 

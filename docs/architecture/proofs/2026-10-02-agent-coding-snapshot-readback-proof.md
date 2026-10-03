@@ -232,5 +232,6 @@ not attributed to account-run provenance.
 
 The exact implementation commit is `5dfb76f43` (`Persist account coding run
 provenance`). This follow-up does not change ADR-020, ADR-091, ADR-092, or
-ADR-097; it does not resolve either provenance or batching review threads,
+ADR-098 (renumbered from ADR-097 during current-main integration); it does not
+resolve either provenance or batching review threads,
 change SSE/queue/event behavior, qualify deployed ingress, or alter HOLD.

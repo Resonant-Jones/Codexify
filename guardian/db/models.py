@@ -59,8 +59,10 @@ from guardian.extensions.tokens import (
     INSTALL_GATE_DECISION_TOKENS,
 )
 from guardian.messaging.tokens import (
+    DM_CONSENT_SOURCES,
     DM_CONTENT_TYPES,
     DM_CONVERSATION_KINDS,
+    MESSAGE_REQUEST_STATES,
     USERNAME_STATES,
 )
 from guardian.protocol_tokens import (
@@ -172,12 +174,8 @@ class AccountActivationCapability(Base):
     expires_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    consumed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     resulting_user_id: Mapped[str | None] = mapped_column(
         String(255),
         ForeignKey("users.id", ondelete="RESTRICT"),
@@ -1855,6 +1853,217 @@ DM_CONVERSATION_KIND_VALUES_SQL = "','".join(sorted(DM_CONVERSATION_KINDS))
 DM_CONVERSATION_KIND_CHECK = f"kind IN ('{DM_CONVERSATION_KIND_VALUES_SQL}')"
 DM_CONTENT_TYPE_VALUES_SQL = "','".join(sorted(DM_CONTENT_TYPES))
 DM_CONTENT_TYPE_CHECK = f"content_type IN ('{DM_CONTENT_TYPE_VALUES_SQL}')"
+
+
+class MessageRequest(Base):
+    """Shared solicitation truth, independent of pair identity and local history."""
+
+    __tablename__ = "message_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(
+        ForeignKey("direct_message_relationships.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    transitioned_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_message_conversations.id", ondelete="RESTRICT"), unique=True
+    )
+    first_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_messages.id", ondelete="RESTRICT"), unique=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('" + "','".join(sorted(MESSAGE_REQUEST_STATES)) + "')",
+            name="ck_message_requests_state",
+        ),
+        CheckConstraint(
+            "sender_profile_id <> recipient_profile_id",
+            name="ck_message_requests_distinct_profiles",
+        ),
+        CheckConstraint(
+            "length(trim(note)) > 0 AND length(note) <= 32000",
+            name="ck_message_requests_note",
+        ),
+        CheckConstraint("expires_at > created_at", name="ck_message_requests_expiry"),
+        CheckConstraint(
+            "(state = 'pending' AND transitioned_at IS NULL) OR "
+            "(state <> 'pending' AND transitioned_at IS NOT NULL)",
+            name="ck_message_requests_transition",
+        ),
+        CheckConstraint(
+            "(state = 'accepted' AND conversation_id IS NOT NULL AND first_message_id IS NOT NULL) OR "
+            "(state <> 'accepted' AND conversation_id IS NULL AND first_message_id IS NULL)",
+            name="ck_message_requests_materialization",
+        ),
+        Index(
+            "uq_message_requests_pending_direction",
+            "sender_profile_id",
+            "recipient_profile_id",
+            unique=True,
+            postgresql_where=text("state = 'pending'"),
+            sqlite_where=text("state = 'pending'"),
+        ),
+        Index(
+            "ix_message_requests_recipient_created",
+            "recipient_profile_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_message_requests_sender_created",
+            "sender_profile_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_message_requests_expiry", "state", "expires_at"),
+    )
+
+
+class MessageRequestAttempt(Base):
+    """Durable idempotency binding, including reverse-direction affirmative intent."""
+
+    __tablename__ = "message_request_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    client_request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    materialized_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_messages.id", ondelete="RESTRICT"), unique=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sender_profile_id",
+            "client_request_key",
+            name="uq_message_request_attempts_sender_key",
+        ),
+        CheckConstraint(
+            "length(trim(client_request_key)) > 0 AND length(client_request_key) <= 128",
+            name="ck_message_request_attempts_key",
+        ),
+        CheckConstraint(
+            "length(trim(note)) > 0 AND length(note) <= 32000",
+            name="ck_message_request_attempts_note",
+        ),
+        Index("ix_message_request_attempts_rate", "sender_profile_id", "created_at"),
+    )
+
+
+class DirectMessageConsent(Base):
+    """Pair-scoped ordinary DM consent; never Contact, trust or resource access."""
+
+    __tablename__ = "direct_message_consents"
+
+    relationship_id: Mapped[str] = mapped_column(
+        ForeignKey("direct_message_relationships.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), unique=True
+    )
+    established_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('" + "','".join(sorted(DM_CONSENT_SOURCES)) + "')",
+            name="ck_direct_message_consents_source",
+        ),
+        CheckConstraint(
+            "(source = 'historical_conversation' AND request_id IS NULL) OR "
+            "(source = 'accepted_request' AND request_id IS NOT NULL)",
+            name="ck_direct_message_consents_provenance",
+        ),
+    )
+
+
+class MessageRequestSuppression(Base):
+    """Recipient-owned directional solicitation policy, separate from attempts."""
+
+    __tablename__ = "message_request_suppressions"
+
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), primary_key=True
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), primary_key=True
+    )
+    source_request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    cleared_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "sender_profile_id <> recipient_profile_id",
+            name="ck_message_request_suppressions_distinct_profiles",
+        ),
+    )
+
+
+class MessageRequestPreferences(Base):
+    """Account-owned history preference; never deletes shared request truth."""
+
+    __tablename__ = "message_request_preferences"
+
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"), primary_key=True
+    )
+    auto_hide_terminal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+
+
+class MessageRequestVisibility(Base):
+    """Participant-local archive projection; canonical lifecycle remains intact."""
+
+    __tablename__ = "message_request_visibility"
+
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), primary_key=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"), primary_key=True
+    )
+    hidden_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
 
 
 class DirectMessageRelationship(Base):

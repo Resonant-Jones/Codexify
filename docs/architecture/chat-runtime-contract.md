@@ -148,7 +148,7 @@ assistant persistence.
 ### Task-event SSE authorization
 
 `GET /api/tasks/{task_id}/events` is intentionally a **chat-completion-only**
-public read surface under [ADR-097](./adr/097-public-task-event-ingress-as-chat-completion-readback.md)
+public read surface under [ADR-098](./adr/098-public-task-event-ingress-as-chat-completion-readback.md)
 and the [accepted ingress matrix](./task-event-ingress-matrix.md). It treats
 `{task_id}` as the exact completion backend task ID.
 Before creating the SSE response, the route authenticates an eligible local or

@@ -1,4 +1,4 @@
-# ADR-097: Public Task-Event Ingress as Chat Completion Readback
+# ADR-098: Public Task-Event Ingress as Chat Completion Readback
 
 ## Status and decision authority
 

@@ -3,7 +3,7 @@
 > Classification: architecture contract / implemented same-node boundary
 > Status: implemented for same-node V1; federation transport deferred
 > Normative language: "must", "must not", "may", "should", "non-goal", and "invariant" are intentional contract terms.
-> Governing ADRs: [ADR-079](./adr/079-node-addressed-profile-identity-and-direct-messaging-boundary.md) (identity/addressing), [ADR-080](./adr/080-direct-messaging-relationship-conversation-cardinality-and-origin-provenance.md) (Relationship cardinality, origin, placement)
+> Governing ADRs: [ADR-079](./adr/079-node-addressed-profile-identity-and-direct-messaging-boundary.md) (identity/addressing), [ADR-080](./adr/080-direct-messaging-relationship-conversation-cardinality-and-origin-provenance.md) (Relationship cardinality, origin, placement), [ADR-097](./adr/097-private-preview-message-requests-and-consent.md) (message-request consent and retained history)
 
 ## Purpose
 
@@ -14,7 +14,7 @@ contract is written so a future transport adapter can handle cross-node
 delivery without redefining message identity, profile identity,
 conversation semantics, or authorization.
 
-Last updated: 2026-09-22
+Last updated: 2026-10-02
 
 ## 1. Address hierarchy
 
@@ -169,15 +169,15 @@ caller may act only through a profile they own.
 |---|---|---|
 | Claim username | `PUT /api/profile/social-identity` | normalize → grammar/reserved validation → Node-scoped uniqueness → persist `active`; never derived from email |
 | Own social identity | `GET /api/profile/social-identity` | caller's `node_id`, `profile_id`, `username`, `username_state`, presentation fields |
-| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated, username-prefix, bounded (max 20), social fields only |
+| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated owned Profile with a claimed username; same-node username-prefix, bounded (max 20), social fields only |
 | Resolve relationship | `POST /api/direct-messages/relationships` | `destination_node_id` + `destination_profile_id`; nonlocal Node_ID rejected as unsupported (no federation); self-DM rejected; reverse direction resolves the same Relationship; no Conversation is required to establish a Relationship |
 | List relationships | `GET /api/direct-messages/relationships` | caller-participating Relationships, safe peer social identity, ordered by durable `updated_at` |
 | List relationship conversations | `GET /api/direct-messages/relationships/{relationship_id}/conversations` | participants only; every Conversation in the Relationship; stable activity ordering; caller-local placement and caller-visible origin only (peer's private placement never revealed) |
-| Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
+| Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | accepted or historical pair consent required; optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
 | List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity |
 | Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement |
 | Read messages | `GET /api/direct-messages/conversations/{conversation_id}/messages` | deterministic `(created_at, id)` ascending, bounded pagination via `before_id` |
-| Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
+| Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | established consent required; `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
 | Move placement | `PATCH /api/direct-messages/conversations/{conversation_id}/placement` | `project_id` or `null`; caller-local only; validates Project authority; never rewrites origin, peer placement, or Relationship membership |
 
 The legacy `POST /api/direct-messages/conversations` one-pair-one-conversation
@@ -202,9 +202,12 @@ authority.
 - A relationship or conversation may be read only by its participants;
   nonparticipant reads receive `relationship_not_found` /
   `conversation_not_found` (no existence leak).
-- A conversation may be created only by a Relationship participant;
+- A conversation may be created only by a Relationship participant with
+  established ordinary-messaging consent (accepted request or honest
+  historical Conversation backfill); neutral pair existence is not consent;
   every explicit creation returns a new Conversation_ID.
-- A message may be created only by an authorized participant.
+- A message may be created only by an authorized participant of an
+  established-consent Conversation. Receipt grants no Guardian authority.
 - Origin references may point only at Projects/Threads accessible to the
   creating profile; supplying an origin grants the peer nothing.
 - Placement is participant-local; moving placement validates the
@@ -327,12 +330,17 @@ messages project `latest_message: null`.
 
 ### General creation
 
-The Inbox "New message" flow uses social identity search →
-Relationship resolution → explicit Conversation creation with no
-`origin_project_id`, no `origin_thread_id`, and no placement override.
-Every creation returns a new `Conversation_ID`; the existing
-Relationship is reused.  General-origin Conversations have null origin
-and null placement per the accepted backend contract.
+The Inbox "Find People" flow uses deliberate username discovery and
+Node_ID + Profile_ID addressing. For an unaccepted pair it opens an
+introductory message-request composer. The recipient must accept before
+ordinary messaging starts. Incoming/outgoing pending requests, recipient
+accept/decline, sender withdrawal, refresh, explicit history and local
+retention controls live in the same Inbox. Acceptance opens the exact
+server-returned Conversation_ID. A first request-created Conversation is
+General (no origin or placement); requests never disclose Project/Thread
+state. Established pairs may create further distinct Conversations via
+the existing creation/origin flow. Opening/refreshing provides visibility;
+this slice makes no realtime delivery claim.
 
 ### Privacy
 
@@ -354,3 +362,73 @@ Unread/read state, read cursors, receipts, realtime/SSE/polling,
 presence, typing indicators, Share Sheet UX, Project Scope Offer /
 invitation, placement editing, origin editing, Guardian/model/
 retrieval/memory coupling, and any Beta-support widening.
+
+
+## 14. Message requests and ordinary messaging consent (ADR-097)
+
+MessageRequest is distinct from the neutral Relationship, Conversation,
+Message, Contact, invite and any resource grant. Postgres owns lifecycle
+and idempotency. `pending` may transition to `accepted`, `declined`,
+`withdrawn` or `expired` (canonical `guardian.messaging.tokens`). A request
+expires 30 days after creation; account reads/writes durably sweep expiry.
+The recorded expiry transition time is its deadline. There is no required
+realtime scheduler for delivery/expiry visibility.
+
+| Operation | Route | Authority |
+| --- | --- | --- |
+| Send introductory request | `POST /api/direct-messages/requests` | Owned claimed Profile; same-node discoverable destination; note and sender-scoped client_request_key required |
+| Read active/history | `GET /api/direct-messages/requests?history=false` | Caller participates; bounded to 200; history excludes only caller-local hidden entries |
+| Accept / decline | `POST /api/direct-messages/requests/{id}/accept` or `/decline` | Recipient only; unowned/missing requests return indistinguishable 404 |
+| Withdraw | `POST /api/direct-messages/requests/{id}/withdraw` | Sender only |
+| Archive locally | `POST /api/direct-messages/requests/{id}/archive` | Participant only; terminal attempt; affects their retained view only |
+| Retention preference | `GET` / `PUT /api/direct-messages/request-history-preferences` | Owned Profile; opt-in auto_hide_terminal; retain by default |
+
+The request schema (`message_requests`) stores original sender/recipient,
+intro note, creation/deadline/transition timestamps, state, stable identity
+and unique accepted Conversation/first-Message pointers. Attempt keys live
+in `message_request_attempts`, including reverse initiation lineage. A
+partial unique index permits at most one pending per **direction**. Pair
+row locks serialize both directions; sender Profile `FOR NO KEY UPDATE`
+locks serialize idempotency/rate budgets without conflicting with peer
+foreign-key checks. New attempts are bounded to 10/hour and 50/day.
+
+Reverse initiation is affirmative consent to the original pending note.
+It resolves one accepted request and one Conversation: the original note
+becomes the first Message by its original sender; the reverse note is
+retained as the second human Message. Staged materialization timestamps
+are monotonically ordered. Duplicate attempts/acceptance return existing
+identities; different payloads reusing keys fail. Acceptance commits state,
+consent provenance, Conversation, local placements and introductory Message
+atomically. Request creation time and acceptance/materialization time
+remain distinct. Decline, withdrawal and expiry never materialize a note.
+
+`message_request_suppressions` is separate recipient-owned directional
+solicitation policy. Decline is terminal for an attempt and suppresses new
+sender requests. Generic sender initiation failures do not reveal private
+policy. A recipient's later reverse initiation clears their own prior
+suppression and sends a new request that the peer can accept. This does not
+implement full blocking/muting.
+
+`direct_message_consents` grants only ordinary direct messaging. Source is
+`accepted_request` with actual request lineage or `historical_conversation`
+with no fabricated request. Migration `9e52b1d3c8fa` backfills only pairs
+that already have Conversations. Existing IDs, authorship, provenance,
+local placement, ordering and idempotency remain intact. Username is needed
+for username discovery/initiation, not for reading/sending in established
+Conversations or for Profile identity itself.
+
+`message_request_preferences` and `message_request_visibility` are local
+retention projections, separate from shared truth. Cleanup hides only that
+account's declined/withdrawn/expired history by default when opted in;
+explicit archive may hide any terminal request locally. It never deletes
+canonical lineage, other participant views, accepted Conversations or
+Messages. No generic Silo or shared archival lifecycle is introduced.
+
+Acceptance does not grant Contact/friendship, trust, Project membership,
+Thread/KB access, Guardian invocation/retrieval/memory, context, disclosure,
+federation, Lens, attachments or realtime authority. It creates no model
+inference, embedding, memory, Project mutation or transport activity.
+
+Support/evidence: enabled Private Preview and existing Friends & Family;
+default/public Beta unavailable. [Proof ledger](./private-preview-message-request-proof.md)
+separates automated schema/service/UI evidence from supported runtime proof.
