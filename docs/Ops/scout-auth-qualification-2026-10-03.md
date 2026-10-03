@@ -78,3 +78,47 @@ and revalidated. Mypy reports three previously recorded errors in untouched
 It reports no error in the five checked files for this slice. The scoped commit
 retry skips only that existing failing hook; no clean repository-wide type-check
 claim is made. Other applicable hooks, including secrets and Bandit, passed.
+
+## Runtime and installation checkpoint
+
+Backend/browser source commit: `f231ef3cfd13b577bfe033209735c4468ee13313`.
+Scout source commit: `3f6d1cdcd2a5bbd23160748cd0f002d6dae41b2c`.
+Serving image: `sha256:579c15b3b31b74ac3feef814ced96af8595c4a3f289f0b955ef8bbf6b0a61291`.
+Qualified base: `sha256:f9e7f5ff1e69d03a4f626bdbf99ff6ba032687f7f374517ed1f05a565a99a158`.
+Artifact: `/Volumes/Dev_SSD/Codexify-scout815-auth/f231ef3cf-r2` on VaultNode.
+
+Build uses the existing local base tag after checking that exact image hash;
+passing a bare sha256 value to FROM was interpreted as a registry name and the
+first build stopped before application startup. The corrected build runs with
+pull disabled and networking disabled. Syntax/hash inspection runs read-only
+without application startup. Forward and rollback Compose configurations preserve
+all unrelated services, environment, durable volumes and networks. nginx syntax
+passes against its existing routing config and network.
+
+Only preview backend, frontend and origin were recreated, without dependencies,
+build or pull. Serving backend bytes match the source at both package mounts;
+both frontend files and nginx config match. Guardian is healthy with the approved
+direct Python/Uvicorn command, skip-seeding flag and exactly one safe suppression
+marker. Origin health/login return 200; anonymous account and qualification reads
+return 401. A synthetic query canary is absent from new origin logs; its safe
+query-free GET /login status is present. No account login was submitted by the
+agent during qualification.
+
+Immediately before/after restart, schema revision `a7b9c4d2e6f1`, schema hash and
+all ten table count/fingerprint pairs are identical. Eighteen other service
+identities, start times, image IDs and configuration hashes are identical,
+including preserved workers and the independent chat proof stack. No migration,
+seed, account provisioning/reset, password, role, approval or Cloudflare mutation
+was performed.
+
+The signed Scout build was installed in the existing proof Simulator without
+uninstall/reset or Keychain/data removal and launched successfully. Device Hub's
+actual Settings accessibility tree shows all nine qualification rows, initially
+Waiting/pending. Installation proves the UI surface, not account authentication.
+The operator was asked for one secure Guardian sign-in; native issuance, protected
+read, full continuity and logout/revocation remain pending its result.
+
+Rollback: use the artifact's compose.scout-rollback.yml with the existing base and
+private-preview Compose files and the same bounded three-service command. It
+restores the previously qualified application auth bytes while retaining safe
+origin logging during the proof window. No database downgrade is involved.
