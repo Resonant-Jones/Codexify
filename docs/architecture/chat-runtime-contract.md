@@ -223,6 +223,15 @@ Postgres and may report `task.completed` from this durable link when Redis
 terminal events are unavailable. Redis remains observation evidence for
 attempts without a durable assistant link.
 
+GuardianChat reads the bounded task-receipt endpoint after thread hydration.
+Unknown or nonterminal receipts render as an unconfirmed outcome, never as a
+guessed running, failed, or completed phase. Newly observed terminal receipts
+refresh canonical messages; the reader never resubmits or replays work. Current
+locally tracked tasks remain under their existing lifecycle controls, and
+thread or credential changes discard stale reads. The newest 100 attempts are
+the observation window. Historical task status is not attached to a specific
+authored message when that association is absent from durable data.
+
 ```ts
 export interface ChatTurnMessage {
   messageId: string; // stable authored turn identity

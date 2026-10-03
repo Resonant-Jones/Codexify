@@ -36,6 +36,7 @@ import {
   type ComposerSendOptions,
 } from "@/features/guardian/components/Composer";
 import ChatView from "@/features/chat/ChatView";
+import { ThreadAttemptObservation } from "@/features/chat/components/ThreadAttemptObservation";
 import useChat from "@/features/chat/useChat";
 import api, {
   buildChatThreadsPath,
@@ -4491,6 +4492,15 @@ export function GuardianChat({
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />
+      {effectiveThreadId != null ? (
+        <ThreadAttemptObservation
+          threadId={effectiveThreadId}
+          enabled={authCanSend}
+          identityEpoch={auth.token}
+          currentTaskId={composerInferenceState.taskId}
+          onTerminalObserved={refreshSnapshot}
+        />
+      ) : null}
 
       {/* Conversation remains flow-based; landing keeps the greeting and Composer
           together as one centered prompt-first unit. */}

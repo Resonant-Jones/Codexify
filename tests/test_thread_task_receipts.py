@@ -132,6 +132,25 @@ def test_missing_or_foreign_thread_is_rejected_before_attempt_read(
 
 def test_thread_task_route_is_registered():
     assert "/chat/threads/{thread_id}/tasks" in [r.path for r in chat.router.routes]
+    assert "/api/chat/threads/{thread_id}/tasks" in [
+        r.path for r in chat.api_chat_router.routes
+    ]
+
+
+def test_api_compatibility_route_preserves_pagination_and_identity(receipt_route):
+    db, attempts, evidence = receipt_route
+    attempts.return_value = [_attempt()]
+    app = FastAPI()
+    app.include_router(chat.api_chat_router)
+    app.dependency_overrides[chat.require_api_key] = lambda: "inert"
+    app.dependency_overrides[chat.get_request_user_scope] = lambda: MagicMock()
+    response = TestClient(app).get("/api/chat/threads/11/tasks?limit=2&offset=3")
+
+    assert response.status_code == 200
+    assert response.json()["tasks"][0]["request_id"] == "request-a"
+    assert response.json()["next_offset"] == 4
+    attempts.assert_called_once_with(db, 11, limit=3, offset=3)
+    evidence.assert_called_once_with("task-a")
 
 
 def test_http_pagination_rejects_unbounded_query_values(receipt_route):

@@ -5277,6 +5277,24 @@ def api_chat_get_thread(
     )
 
 
+@api_chat_router.get("/threads/{thread_id}/tasks")
+def api_chat_list_tasks(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Compatibility adapter using the canonical durable receipt policy."""
+    return chat_list_tasks(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @api_chat_router.post("/messages")
 def api_chat_post_message_create_on_send(
     body: ChatMessageCreateRequest = Body(...),
