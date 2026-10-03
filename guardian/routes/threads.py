@@ -8,9 +8,9 @@ try:
     from guardian.core.dependencies import (
         RequestUserScope,
         chatlog_db,
-        get_request_user_scope,
+        get_account_user_scope as get_request_user_scope,
         get_single_user_id,
-        require_api_key,
+        require_account_session as require_api_key,
     )
 except Exception:  # pragma: no cover - fallback for import issues
     chatlog_db = None  # type: ignore[assignment]

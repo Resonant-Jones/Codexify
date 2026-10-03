@@ -1,3 +1,4 @@
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -20,6 +21,8 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
+import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
@@ -39,7 +42,7 @@ import {
 } from "@/components/persona/layout/mobileMotionContract";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
-import { getShellViewportProfile, useShellViewportProfile } from "./shellBreakpointContract";
+import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import {
   setWallpaperPreference,
@@ -158,6 +161,7 @@ type AppShellView =
   | "guardian"
   | "flowBuilder"
   | "settings"
+  | "configurationInspector"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
@@ -254,6 +258,7 @@ const APP_SHELL_VIEWS = [
   "guardian",
   "flowBuilder",
   "settings",
+  "configurationInspector",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
@@ -273,7 +278,7 @@ export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
 ): "default" | "phone_frame_first" {
-  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+  return isPhoneShell && resolveMobileApplicationView(activeView) != null
     ? "phone_frame_first"
     : "default";
 }
@@ -288,6 +293,11 @@ function isPrimaryMobileApplicationView(
     view === "dashboard" ||
     view === "settings"
   );
+}
+
+function resolveMobileApplicationView(view: AppShellView): MobileApplicationView | null {
+  if (view === "configurationInspector") return "settings";
+  return isPrimaryMobileApplicationView(view) ? view : null;
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -1365,24 +1375,20 @@ export default function AppShell({
     window.history.replaceState({}, "", "/chat");
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
+  const configurationSnapshotRequest = useRef<Promise<ConfigurationSnapshot> | null>(null);
+  useEffect(() => {
+    // The request belongs to one Inspector opening, never to a durable cache.
+    if (view !== "configurationInspector") configurationSnapshotRequest.current = null;
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
-  const [codexifyPaneWidth, setCodexifyPaneWidth] = useState(() =>
-    typeof window === "undefined" ? 1440 : window.innerWidth
-  );
   const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
   const [focusedSidebarPinned, setFocusedSidebarPinned] = useState(false);
-  const focusedSidebarRevealRef = useRef<HTMLButtonElement | null>(null);
-  const hasFocusedBrowserRef = useRef(false);
   const handleBrowserPresentationChange = useCallback((next: BrowserPresentation) => {
     setBrowserPresentation(next);
-    if (next === "focused") {
-      setFocusedSidebarOpen(true);
-      if (!hasFocusedBrowserRef.current) {
-        setFocusedSidebarPinned(true);
-        hasFocusedBrowserRef.current = true;
-      }
-    }
+    const focused = next === "focused";
+    setFocusedSidebarOpen(focused);
+    setFocusedSidebarPinned(focused);
   }, []);
   const setFocusedSidebarVisibility = useCallback((open: boolean) => {
     setFocusedSidebarOpen(open);
@@ -1390,10 +1396,9 @@ export default function AppShell({
   }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
-      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+      () => resolveMobileApplicationView(view) != null && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const compactDocumentsSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -1485,7 +1490,7 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const syncRouteState = () => {
+    const syncRouteState = (event?: Event) => {
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1502,7 +1507,12 @@ export default function AppShell({
         setActiveRouteThreadId(null);
       }
       if (routeView) {
-        setView(routeView);
+        setView((current) =>
+          event?.type === "cfy:threads:refresh" &&
+          current === "configurationInspector" && routeView === "settings"
+            ? current
+            : routeView
+        );
       }
     };
 
@@ -1588,7 +1598,7 @@ export default function AppShell({
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
-  const sharedSidebarHydrationAttemptedRef = useRef(false);
+  const phoneSidebarHydrationAttemptedRef = useRef(false);
   const [documentsScope, setDocumentsScope] = useState<DocumentsScope>(() =>
     selectDocumentsProject(null)
   );
@@ -1673,7 +1683,7 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (isPrimaryMobileApplicationView(nextView)) {
+      if (resolveMobileApplicationView(nextView) != null) {
         if (nextView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
@@ -1683,7 +1693,8 @@ export default function AppShell({
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
-      if (typeof window === "undefined") return;
+      // The Inspector is internal to Settings; it has no URL route of its own.
+      if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(nextView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
@@ -2157,18 +2168,13 @@ export default function AppShell({
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
-  const physicalShellViewportProfile = useShellViewportProfile();
-  const shellViewportProfile = browserPresentation === "docked"
-    ? getShellViewportProfile(Math.max(codexifyPaneWidth, 768))
-    : physicalShellViewportProfile;
+  const shellViewportProfile = useShellViewportProfile();
   const mobileShellProfile = useMemo(
-    () => getMobileShellProfile(physicalShellViewportProfile),
-    [physicalShellViewportProfile]
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
   const isFocusedBrowser = browserPresentation === "focused" && !isPhoneShell;
-  const showCompactDocumentsSidebar = browserPresentation === "docked" &&
-    !isPhoneShell && codexifyPaneWidth < 850 && view === "documents";
   const appShellPresentationProfile = resolveAppShellPresentationProfile(
     view,
     isPhoneShell
@@ -2180,12 +2186,12 @@ export default function AppShell({
     isPhoneFrameFirstShell && view === "guardian";
   const isNonGuardianPhoneFrameShell =
     isPhoneFrameFirstShell && view !== "guardian";
-  const showFocusedAppSidebar = isFocusedBrowser && (view !== "guardian" || activeRoomId != null);
+  const showFocusedAppSidebar = isFocusedBrowser && view !== "guardian";
   useEffect(() => {
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
     setIsPhoneSidebarOpen(false);
-    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (!isPhoneShell || resolveMobileApplicationView(view) == null) return;
     if (view === "guardian") {
       setIsApplicationNavigationExpanded(false);
       return;
@@ -2195,20 +2201,18 @@ export default function AppShell({
     }
   }, [isPhoneShell, view]);
   useEffect(() => {
-    const needsSharedSidebarThreads =
-      (isPhoneShell && isPrimaryMobileApplicationView(view) && view !== "guardian") ||
-      showFocusedAppSidebar ||
-      showCompactDocumentsSidebar;
     if (
-      !needsSharedSidebarThreads ||
+      !isPhoneShell ||
+      resolveMobileApplicationView(view) == null ||
+      view === "guardian" ||
       guardianSidebarSnapshot != null ||
-      sharedSidebarHydrationAttemptedRef.current ||
-      !checkAuthGate(auth, "shared sidebar threads load")
+      phoneSidebarHydrationAttemptedRef.current ||
+      !checkAuthGate(auth, "phone sidebar threads load")
     ) {
       return;
     }
 
-    sharedSidebarHydrationAttemptedRef.current = true;
+    phoneSidebarHydrationAttemptedRef.current = true;
     let cancelled = false;
     void api
       .get(buildChatThreadsPath(), { params: { limit: 50, offset: 0 } })
@@ -2233,14 +2237,14 @@ export default function AppShell({
       })
       .catch((error) => {
         if (!cancelled) {
-          console.warn("[app-shell] failed to hydrate shared sidebar threads", error);
-          sharedSidebarHydrationAttemptedRef.current = false;
+          console.warn("[app-shell] failed to hydrate phone sidebar threads", error);
+          phoneSidebarHydrationAttemptedRef.current = false;
         }
       });
     return () => {
       cancelled = true;
       if (guardianSidebarSnapshot == null) {
-        sharedSidebarHydrationAttemptedRef.current = false;
+        phoneSidebarHydrationAttemptedRef.current = false;
       }
     };
   }, [
@@ -2249,8 +2253,6 @@ export default function AppShell({
     auth.status,
     guardianSidebarSnapshot,
     isPhoneShell,
-    showFocusedAppSidebar,
-    showCompactDocumentsSidebar,
     view,
   ]);
   const viewportInsets = useViewportInsets(isPhoneShell);
@@ -2448,11 +2450,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -2720,7 +2723,7 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
     return raw === "false" ? false : true;
   });
-  const documentsSidebarVisible = !isPhoneShell && !showCompactDocumentsSidebar && documentsSidebarOpen;
+  const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2731,11 +2734,11 @@ export default function AppShell({
     if (view !== "documents") return;
     if (isPhoneShell) return;
     if (workspaceLayoutMode !== "workspace_focus") return;
-    const vw = browserPresentation === "docked" ? codexifyPaneWidth : window.innerWidth;
+    const vw = window.innerWidth;
     if (vw < 1200 && documentsSidebarOpen) {
       setDocumentsSidebarOpen(false);
     }
-  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen, browserPresentation, codexifyPaneWidth]);
+  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
 
   const toggleDocumentsSidebar = useCallback(() => {
     setDocumentsSidebarOpen((prev) => !prev);
@@ -3280,7 +3283,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar || showCompactDocumentsSidebar ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     view === "documents" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3313,7 +3316,7 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar || showCompactDocumentsSidebar ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
     <MobileAppSidebarDrawer
       isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
       onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
@@ -3329,15 +3332,11 @@ export default function AppShell({
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : null}
+      activeApplicationView={resolveMobileApplicationView(view) ?? "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
-      returnFocusRef={showFocusedAppSidebar
-        ? focusedSidebarRevealRef
-        : showCompactDocumentsSidebar
-          ? compactDocumentsSidebarTriggerRef
-          : phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      returnFocusRef={phoneSidebarTriggerRef}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
@@ -3479,6 +3478,7 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
     <UnifiedDesktopCompositor
       enabled={!isPhoneShell}
       shellStyle={styleVars as React.CSSProperties}
@@ -3487,8 +3487,6 @@ export default function AppShell({
       focusedSidebarOpen={focusedSidebarOpen}
       focusedSidebarPinned={focusedSidebarPinned}
       onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
-      focusedSidebarRevealRef={focusedSidebarRevealRef}
-      onCodexifyPaneWidthChange={setCodexifyPaneWidth}
     >
     <div
       className="codexify-app-viewport flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
@@ -3578,7 +3576,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3630,7 +3628,7 @@ export default function AppShell({
             {/* glass backdrop */}
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
+                wallpaperUrl={activeWallpaperMedia.src || null}
                 className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
@@ -3903,17 +3901,13 @@ export default function AppShell({
                     )}
                     {!isPhoneShell && !documentsSidebarVisible && (
                       <button
-                        ref={showCompactDocumentsSidebar ? compactDocumentsSidebarTriggerRef : undefined}
                         type="button"
                         className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
                         data-testid="documents-sidebar-edge-affordance"
                         aria-label="Show sidebar"
                         title="Show sidebar"
-                        onClick={showCompactDocumentsSidebar ? () => setIsPhoneSidebarOpen(true) : toggleDocumentsSidebar}
-                        style={{
-                          background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)",
-                          opacity: showCompactDocumentsSidebar ? 1 : undefined,
-                        }}
+                        onClick={toggleDocumentsSidebar}
+                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
                       >
                         <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
                       </button>
@@ -4091,8 +4085,6 @@ export default function AppShell({
                           if (pinned) setFocusedSidebarOpen(true);
                         }}
                         focusedShelfStyle={styleVars as React.CSSProperties}
-                        focusedShelfReturnFocusRef={focusedSidebarRevealRef}
-                        layoutPaneWidth={browserPresentation === "docked" ? codexifyPaneWidth : undefined}
                       />
                     </ErrorBoundary>
                   </div>
@@ -4210,8 +4202,28 @@ export default function AppShell({
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
                     onStartFeedbackConversation={openFeedbackConversation}
+                    onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
+              </div>
+            </FrameCard>
+          )}
+          {!startupLocked && activeRoomId == null && view === "configurationInspector" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="mx-auto flex w-full min-w-0 min-h-0 max-h-full flex-col overflow-hidden"
+              data-testid="configuration-inspector-framecard"
+              style={settingsLayout}
+            >
+              {phonePrimaryFrameHeader}
+              <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
+                <ErrorBoundary>
+                  <ConfigurationInspectorView
+                    onBackToSettings={() => navigateToView("settings")}
+                    snapshotRequest={configurationSnapshotRequest}
                   />
                 </ErrorBoundary>
               </div>
@@ -4357,5 +4369,6 @@ export default function AppShell({
       )}
     </div>
     </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }

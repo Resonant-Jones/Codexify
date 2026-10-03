@@ -235,3 +235,125 @@ public-ingress boundary matrix. No Cloudflare settings or live preview
 containers were changed. Staging and commit were blocked because Git could
 not create `/Volumes/Dev_SSD/Codexify-main/.git/index.lock` (`Operation not
 permitted`); no staged state was created. The validated worktree is preserved.
+
+## Requalification: guarded runtime boundary matrix (2026-09-25)
+
+**Outcome: HOLD.** This is an appended requalification; the original HOLD,
+missing-mode finding, and earlier evidence above remain historically intact.
+The private-preview startup-guard prerequisite is now committed at
+`4f5061126c3d91c69bd9196f60a760de91224e2b`. No production behavior was
+changed during this requalification.
+
+### Guarded runtime and bounded live checks
+
+- Checkout: `/Volumes/Dev_SSD/Codexify-main`, branch
+  `codex/restore-conversation-import-pipeline`, HEAD
+  `4f5061126c3d91c69bd9196f60a760de91224e2b`; worktree clean at start.
+- `private-preview-auth-posture` is `Exited (0)` and the rebuilt backend is
+  healthy. Runtime values read without dumping the environment were
+  `GUARDIAN_EXPOSURE_MODE=private_preview`, `GUARDIAN_AUTH_MODE=remote`,
+  `CODEXIFY_MULTI_USER_ENABLED=true`,
+  `CODEXIFY_SINGLE_USER_ID=local`, and
+  `CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web`.
+- Cloudflare Access remains enabled per the task baseline. No Cloudflare
+  configuration was read or changed in this requalification.
+- The origin still publishes only `127.0.0.1:8081 -> 8080`.
+- Live loopback probes: `/` returned 200; `/api/chat/threads` returned 401;
+  the same protected route with `X-User-Id: local`, loopback
+  `X-Forwarded-For`, and a plausible Cloudflare Access email header returned
+  401. These requests carried no Guardian session.
+
+### First new boundary failure: task-event cross-account disclosure
+
+The matrix stopped at its first new failure. The actual handler registered at
+`guardian/guardian_api.py:1676` accepts a caller-selected `task_id` and only
+requires `require_api_key` (`:1682`). In private preview that dependency checks
+for an allowlisted Guardian session, but this route does not resolve the task
+owner or compare it with the session principal. It passes the supplied ID to
+`task_events.read_events` (`:1708-1714`), which reads the Redis stream key
+`codexify:task:<task_id>:events` (`guardian/queue/task_events.py:141-142,
+203-220`) and returns its event data (`:234-250`). Chat-worker events can
+contain generated token text, thread IDs, and turn IDs
+(`guardian/workers/chat_worker.py:2501-2510`).
+
+A bounded TestClient reproduction used the real `stream_task_events` handler,
+real preview-session dependency, and real SSE serializer, with only the Redis
+read replaced by a deterministic synthetic Account A event. A valid signed
+session for approved Account B requested a known Account A task ID. Result:
+HTTP 200 and the synthetic Account A event marker was present in the response.
+No live account data, production session, persistent database, or shared Redis
+entry was used. This proves that an authenticated preview account can read a
+different account's task stream when it has that task ID; it does not establish
+how readily another user's task ID can be discovered.
+
+The harness first stopped at the required `GUARDIAN_API_KEY` import setting.
+It was rerun with an inert synthetic key, synthetic session secret, synthetic
+approved emails, and in-memory Redis. The rerun result was:
+
+```text
+status_code=200
+requested_task_ids=['account-a-known-task']
+foreign_event_marker_returned=True
+```
+
+The specific failure class is **8. object-ID / `user_id` cross-account access**
+and **9. SSE/task-event account stream left insufficiently scoped**. Both are
+**FAIL**. The broader matrix stopped at this point; no later checks are implied.
+
+### Requalification coverage status
+
+| Failure class | Result in this requalification | Evidence / limitation |
+| --- | --- | --- |
+| 1. Anonymous request -> implicit local-user fallback | PASS, bounded | Guarded runtime values and anonymous protected-route 401; generic local defaults remain intentional. |
+| 2. Source-IP/loopback trust -> local-user fallback | PASS, narrow | Live loopback request did not authenticate or resolve through a local-user header. |
+| 3. Spoofed proxy headers -> authentication | PASS, narrow | Live `X-Forwarded-For` spoof plus local-user header returned 401; remaining header permutations not reached. |
+| 4. Cloudflare identity headers -> application identity | PASS, narrow | Live plausible Access email header without Guardian session returned 401. |
+| 5. Local API key accepted through remote ingress | NOT RUN | Matrix stopped before a key-lane probe; no live key was read or printed. |
+| 6. Frontend guard is the only protection | PASS, narrow | Direct loopback Guardian API request without frontend navigation returned 401. |
+| 7. Direct protected API bypass | PASS, narrow | Live `/api/chat/threads` without session returned 401. |
+| 8. Object-ID / `user_id` cross-account access | **FAIL** | Account B session read a synthetic Account A task event by supplied task ID through the actual handler. |
+| 9. SSE/WebSocket/event account isolation | **FAIL** | Task-event SSE auth accepts an approved session but does not check the requested task's owner; Account A marker was returned to Account B. Other transports not tested. |
+| 10. Admin/dev/debug endpoint exposure | NOT RUN | Matrix stopped at first failure. |
+| 11. Open/replayable activation or registration | NOT RUN | Matrix stopped at first failure. |
+| 12. Invalid/expired/revoked session accepted | NOT RUN | Matrix stopped at first failure. |
+| 13. Wildcard credentialed CORS | NOT RUN | Matrix stopped at first failure. |
+| 14. Browser-shipped server secrets | NOT RUN in this pass | Earlier private-preview contract evidence remains source/config-only; not upgraded here. |
+| 15. Authenticated/user-specific responses publicly cacheable | NOT RUN | Matrix stopped at first failure; Cloudflare cache policy not inspected. |
+| 16. Backend/internal ports reachable beyond intended origin | PASS, config/runtime inventory | Published origin remains loopback `127.0.0.1:8081`; contract-suite rerun not reached. |
+
+### Validation command record
+
+| Command / action | Result |
+| --- | --- |
+| `git status --short --branch --untracked-files=all` and `git rev-parse HEAD` | At requalification start: clean worktree, branch `codex/restore-conversation-import-pipeline`, HEAD `4f5061126c3d91c69bd9196f60a760de91224e2b`. |
+| `docker ps -a --filter name=codexify_private_preview --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'` | Posture guard `Exited (0)`; backend `Up (healthy)`; only host-published private-preview origin shown was `127.0.0.1:8081->8080`. |
+| `docker inspect --format 'backend_created={{.Created}} image={{.Image}} health={{.State.Health.Status}}' codexify_private_preview-backend-1` | Backend created `2026-09-25T20:20:11.10318834Z`, healthy. |
+| `docker exec codexify_private_preview-backend-1 python -c 'import os; keys=("GUARDIAN_EXPOSURE_MODE","GUARDIAN_AUTH_MODE","CODEXIFY_MULTI_USER_ENABLED","CODEXIFY_SINGLE_USER_ID","CODEXIFY_SUPPORTED_PROFILE"); print("\n".join("%s=%s" % (key, os.environ.get(key, "<unset>")) for key in keys))'` | Printed only the five non-secret effective posture values recorded above. |
+| `curl --silent --show-error --max-time 8 -o /dev/null -w 'shell_http=%{http_code}\n' http://127.0.0.1:8081/` | `shell_http=200`. |
+| `curl --silent --show-error --max-time 8 -o /dev/null -w 'thread_collection_http=%{http_code}\n' http://127.0.0.1:8081/api/chat/threads` | `thread_collection_http=401`. |
+| `curl --silent --show-error --max-time 8 -o /dev/null -w 'local_spoof_http=%{http_code}\n' -H 'X-User-Id: local' -H 'X-Forwarded-For: 127.0.0.1' -H 'CF-Access-Authenticated-User-Email: proof@example.invalid' http://127.0.0.1:8081/api/chat/threads` | `local_spoof_http=401`; no Guardian session was sent. |
+| `/Volumes/Dev_SSD/Codexify-main/.venv/bin/python` heredoc using `FastAPI`/`TestClient`, `guardian.guardian_api.stream_task_events`, a synthetic approved Account B session, and an in-memory session store; `task_events.read_events` supplied one synthetic Account A `task.completed` event | **FAIL**: HTTP 200; supplied task ID was read and synthetic foreign event marker returned. Initial harness attempt without `GUARDIAN_API_KEY` stopped at import; rerun used only inert synthetic key/session settings. |
+| `pytest -v tests/identity/test_public_ingress_auth_boundary.py` | NOT RUN: no permanent test file was created before the targeted reproduction; matrix stopped at the reproduced security failure. |
+| `pytest -v tests/identity/test_identity_boundary_contract.py` | NOT RUN: matrix stopped at the reproduced security failure. |
+| `pytest -v tests/ops/test_private_preview_contract.py` | NOT RUN: matrix stopped at the reproduced security failure. |
+| `git diff --check` | PASS for the current worktree diff. |
+
+The remaining focused identity, auth, activation, and private-preview contract
+suites were not run after the reproduced cross-account event disclosure. The
+new `tests/identity/test_public_ingress_auth_boundary.py` was not created or
+retained; no deliberately failing test was added. The existing HOLD receipt is
+the only repository file changed by this requalification. No commit was made
+because the required security boundary did not pass.
+At closeout, `git status` also showed unrelated modifications in
+`docs/architecture/README.md`,
+`docs/architecture/account-export-restore-contract.md`,
+`docs/architecture/adr/084-unified-account-owned-memory-store.md`, and
+`docs/architecture/unified-memory-store-contract.md`; they were not part of
+this requalification and were left untouched.
+
+### Required follow-up
+
+**HOLD.** Do not start an Access-free canary. A separate atomic repair must
+bind task-event stream authorization to the canonical authenticated account
+and prove Account A / Account B denial, then rerun this matrix from the
+beginning. Cloudflare Access remains unchanged.

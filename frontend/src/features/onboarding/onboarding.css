@@ -1,0 +1,108 @@
+.learning-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(6px);
+}
+.learning-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  color: var(--text);
+  outline: none;
+}
+.learning-dialog > * {
+  --card-pad: 0px;
+  background: var(--panel-bg, #161921);
+}
+.learning-header,
+.learning-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.learning-header {
+  border-bottom: 1px solid var(--panel-border);
+}
+.learning-footer {
+  border-top: 1px solid var(--panel-border);
+  flex-wrap: wrap;
+}
+.learning-body {
+  padding: 24px;
+  line-height: 1.6;
+}
+.learning-body h2 {
+  font-size: 26px;
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+.learning-body p {
+  margin-bottom: 14px;
+}
+.learning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.learning-tip {
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--card-radius, 16px);
+}
+.learning-tip summary {
+  cursor: pointer;
+}
+.learning-muted {
+  color: var(--muted);
+}
+.learning-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.learning-setup {
+  padding: 12px;
+  margin: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--card-radius, 16px);
+  color: var(--text);
+}
+@media (max-width: 640px) {
+  .learning-scrim {
+    padding: 9px;
+  }
+  .learning-dialog {
+    max-height: calc(100dvh - 18px);
+  }
+  .learning-body {
+    padding: 18px;
+  }
+  .learning-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.learning-dialog progress {
+  display: block;
+  appearance: none;
+  border: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--panel-border);
+}
+.learning-dialog progress::-webkit-progress-bar {
+  background: var(--panel-border);
+}
+.learning-dialog progress::-webkit-progress-value {
+  background: var(--accent);
+}
+.learning-dialog progress::-moz-progress-bar {
+  background: var(--accent);
+}

@@ -107,7 +107,8 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
     assert link in loader_contract or "packet generator contract" in loader_contract
     assert link in reducer_contract
     assert link in readme
-    assert "Guardian Evidence Packet generator contract" in current
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current
 
     for target in (
         "guardian-evidence-packets-validate",

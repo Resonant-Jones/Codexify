@@ -1206,6 +1206,8 @@ def _payload_has_conversation_shape(payload: Any) -> bool:
         keys = set(str(key) for key in payload.keys())
         if "mapping" in keys or "messages" in keys:
             return True
+        if _looks_like_per_message_record(payload):
+            return True
         if len(keys & _CONVERSATION_HINT_KEYS) >= 3:
             return True
         for key in _CONVERSATION_CONTAINER_KEYS:

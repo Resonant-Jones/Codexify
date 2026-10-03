@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qualification-registry.schema.json",
+  "title": "Codexify Qualification Registry",
+  "type": "object",
+  "required": [
+    "registry_version",
+    "generated_from_repository",
+    "qualifications"
+  ],
+  "properties": {
+    "registry_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "generated_from_repository": {
+      "type": "boolean"
+    },
+    "release_authority": {
+      "type": "string"
+    },
+    "qualifications": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "title",
+          "scope",
+          "status",
+          "freshness",
+          "rubric",
+          "metrics"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "HOLD",
+              "FAIL"
+            ]
+          },
+          "freshness": {
+            "enum": [
+              "current",
+              "stale",
+              "superseded"
+            ]
+          },
+          "rubric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "latest_run": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tested_commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_qualified_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "latest_run",
+                "tested_commit",
+                "last_qualified_at",
+                "evidence"
+              ],
+              "properties": {
+                "latest_run": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tested_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "last_qualified_at": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

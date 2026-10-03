@@ -85,7 +85,11 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Start Here
 
-For native agent harnesses, channel-versus-model identity, future Auto/explicit selection, or cross-channel thread continuity, start with [Proposed ADR-093: Native Execution Channel and Inference Routing Contract](./adr/093-native-execution-channel-and-inference-routing-contract.md) and its [Execution Channel Capability Matrix](./execution-channel-capability-matrix.md). These are architecture and external research only; they do not establish Codexify channel support or change current release truth.
+For native agent harnesses, invocation-scoped provider/model identity, `default`/`explicit` selection, optional future `auto` selection, or cross-harness Thread continuity, start with [Accepted ADR-093: Native Execution Channel and Inference Routing Contract](./adr/093-native-execution-channel-and-inference-routing-contract.md) and its [Execution Channel Capability Matrix](./execution-channel-capability-matrix.md). The accepted decision and external research do not establish Codexify channel support or change current release truth.
+
+For account-scoped execution credentials, read [Accepted ADR-094: Account-Scoped Execution Credential Authority](./adr/094-account-scoped-execution-credential-authority.md). The Guardian-to-worker-to-Pi credential binding remains unimplemented; its existing bounded Task Spec may resume separately under ADR-093 and ADR-094.
+
+For application sidebar posture and focused shell geometry, read [Accepted ADR-096: Adaptive Application Sidebar Posture and Shell Boundary](./adr/096-adaptive-application-sidebar-posture-and-shell-boundary.md). It defines one semantic navigation system with spatial, transient edge overlay, and pinned shell-boundary presentations. The generalized contract is not implemented or release-qualified.
 
 If you are working on Persona Studio, Persona Profile portability, revision semantics, profile-to-thread binding, connector or retrieval references, voice configuration, capability requests, or Project/participant scope, start with [ADR-082: Persona Profile Manifest and Binding Authority](./adr/082-persona-profile-manifest-and-binding-authority.md), then read the [Persona Studio Spec](./persona-studio-spec.md). Read historical C07 artifacts only as time-bounded proof; they do not define current persistence truth or environmental authority.
 
@@ -250,6 +254,9 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Unified Memory Store Campaign](../Campaign/unified-memory-store/README.md): dependency-ordered multi-task implementation and proof plan. Project scope is gated on ADR-081 convergence, new ingestion on memory portability, and supported release on permanent erasure proof.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
+- [Codexify Configuration and Settings Catalog](./user-facing-settings-catalog.md): documentation-only inventory of first-party setting ownership, audiences, and possible UI dispositions. It is not configuration authority and does not imply UI exposure or runtime support.
+- [Configuration Operator Inspection Plan](./configuration-operator-inspection-plan.md): evidence-driven plan for a future read-only operator configuration view; neither runtime authority, a settings editor, nor release support.
+- [Configuration Inspector Control Plane](./configuration-inspector-control-plane.md) and [accepted ADR-095](./adr/095-configuration-inspector-operator-control-plane-boundary.md): define the operator-only, process-local, read-only configuration projection. The bounded v1 backend is implemented ([proof](./proofs/runtime/2026-09-29-configuration-inspector-v1-backend-proof.md)); the frontend Inspector is implemented with code-path and focused test evidence for the Settings launcher, read-only snapshot view, and bounded failure states. Live supported-path frontend qualification remains unproven. This does not change release support.
 - [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only local runtime descriptors for Whoosh'd/MLX-backed local models; this does not change runtime routing or release support by itself.
 - [Whoosh'd Model Tool-Capability Boundary](./whooshd-model-tool-capability-boundary.md): per-model tool-qualification architecture, distinguishing provider identity from runtime engine from exact model-target capability. It does not implement Whoosh'd tool calling or change runtime code.
 - [Whoosh'd Runtime Qualification Attestation Contract](./whooshd-runtime-qualification-attestation-contract.md): docs-only boundary for Whoosh'd-owned, bounded live execution-identity attestation and Codexify's future proof-identity comparison. It does not implement an attestation, capability advertisement, or runtime change.
@@ -425,3 +432,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ### Account observability implementation boundary
 
 [Admin Account Observability Contract](./admin-account-observability-contract.md) and [ADR-049](./adr/ADR-049-admin-account-observability-and-invite-attribution.md) govern an internal Guardian implementation through Slice 3: persistence/tokens, first-touch invite attribution, explicit foreground account/guest heartbeat, and deterministic conversion-safe retention cleanup. This does not include GeoIP, aggregates, operator reporting/snapshot routes, UI, or supported-path proof and does not widen the beta release promise.
+
+
+## Onboarding and Tips
+
+[Account onboarding and Tips contract](onboarding-and-tips-contract.md) defines separate account UX persistence, optional device tours, static Tips, and capability-dependent social setup. It does not widen release claims.

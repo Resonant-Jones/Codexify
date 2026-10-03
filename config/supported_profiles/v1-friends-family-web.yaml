@@ -33,6 +33,7 @@ extension_posture:
     - plugin_sdk
 route_posture:
   enabled:
+    - onboarding
     - health
     - dashboard
     - admin

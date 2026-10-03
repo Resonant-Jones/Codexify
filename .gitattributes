@@ -19,3 +19,7 @@ tests/audit/fixtures/canonical-evidence.valid.provisional.json -filter -diff -me
 # Document Lifecycle Graph control-plane records must stay connector-readable plaintext.
 schemas/knowledge/**/*.json -filter -diff -merge text
 docs/knowledge-graph/**/*.json !filter diff !merge text
+
+# Qualification registry and schemas are small control-plane source files, not LFS artifacts.
+docs/qualification/*.json -filter -diff -merge text
+docs/qualification/**/*.json -filter -diff -merge text

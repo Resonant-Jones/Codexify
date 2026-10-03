@@ -8,6 +8,7 @@ import pytest
 from guardian.core.dependencies import RequestUserScope
 from guardian.core import chat_completion_service
 from guardian.queue import task_events
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.routes import chat
 
 
@@ -54,7 +55,16 @@ def test_api_chat_complete_logs_tagged_task_created_publish_failure(
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
-        chat_completion_service, "acquire_turn_lock", lambda *args, **kwargs: True
+        chat_completion_service,
+        "acquire_turn_lock",
+        lambda thread_id, owner, **kwargs: build_turn_lock_envelope(
+            thread_id, owner, turn_id=kwargs.get("turn_id")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
     )
     monkeypatch.setattr(
         chat_completion_service,

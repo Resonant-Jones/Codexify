@@ -38,6 +38,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi import routing as fastapi_routing
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -84,6 +85,7 @@ from guardian.core.dependencies import (
     get_vector_store,
     init_database,
     init_services,
+    require_account_session,
     require_api_key,
     require_operator_auth,
 )
@@ -114,6 +116,7 @@ from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import get_local_embed_model, require_local_embed_model
@@ -282,7 +285,11 @@ def _include_router(
             if hidden_paths is None:
                 hidden_paths = set()
                 app.state.supported_profile_hidden_paths = hidden_paths
-            for route in app.routes[route_count_before:]:
+            included_routes = app.routes[route_count_before:]
+            iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+            if iter_contexts is not None:
+                included_routes = iter_contexts(included_routes)
+            for route in included_routes:
                 path = getattr(route, "path", None)
                 if isinstance(path, str) and path:
                     hidden_paths.add(path)
@@ -325,7 +332,7 @@ def _run_chatgpt_import_startup_sweep() -> None:
             logger.warning if stats.get("embedding_coverage_degraded") else logger.info
         )
         level(
-            "[startup] ChatGPT import sweep user_id=%s limit=%d candidates=%d persisted=%d failed=%d degraded=%s",
+            "[startup] ChatGPT import sweep user_id=%s limit=%d item_count=%d persisted=%d failed=%d degraded=%s",
             user_id,
             retry_cap,
             int(stats.get("embedding_candidates", 0)),
@@ -482,6 +489,7 @@ def _retrieval_proof_state(
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
+from guardian.routes import configuration_inspector
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
@@ -523,6 +531,7 @@ from guardian.routes.connections import router as connections_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
+from guardian.routes.onboarding import router as onboarding_router
 from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
@@ -1009,6 +1018,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[ACCOUNT_AUTH_FAILURE_HEADER],
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
@@ -1055,6 +1065,11 @@ def _include_browser_host_negotiation_router() -> None:
 # Router Inclusion
 # =========================
 
+def _include_admin_surface() -> None:
+    app.include_router(admin.router)
+    app.include_router(configuration_inspector.router)
+
+
 _include_browser_host_attachment_router()
 _include_browser_host_negotiation_router()
 
@@ -1079,7 +1094,7 @@ _include_router(
 _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
-    include_fn=lambda: app.include_router(admin.router),
+    include_fn=_include_admin_surface,
     core_surface=True,
 )
 _include_router(
@@ -1447,6 +1462,13 @@ _include_router(
     default_enabled=True,
 )
 _include_router(
+    label="onboarding",
+    flag_name="CODEXIFY_ENABLE_ONBOARDING_ROUTES",
+    core_surface=True,
+    include_fn=lambda: app.include_router(onboarding_router),
+)
+
+_include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",
     # Private-preview functionality.  Only the hosted/private test profile
@@ -1677,7 +1699,7 @@ async def stream_task_events(
 @app.post("/api/tasks/{task_id}/cancel", tags=["Tasks"])
 async def request_task_cancel(
     task_id: str,
-    api_key: str = Depends(require_api_key),
+    api_key: str = Depends(require_account_session),
 ):
     """Mark a queued or running task as cancelled."""
     _ = api_key

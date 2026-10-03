@@ -16,7 +16,7 @@ from guardian.connections.google_drive.service import (
     GoogleDriveTransportError,
     GoogleDriveUnsupportedObjectError,
 )
-from guardian.core.dependencies import get_request_user_id, require_api_key
+from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
 
 setup_router = APIRouter(prefix="/api/connect/google-drive", tags=["Google Drive Connection"])
 operations_router = APIRouter(

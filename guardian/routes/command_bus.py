@@ -22,7 +22,7 @@ from guardian.command_bus.store import CommandBusStore
 from guardian.command_bus.tool_turn_observability import (
     build_tool_turn_observability_read_model,
 )
-from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.core.dependencies import get_account_user as get_current_user, require_account_session as require_api_key
 from guardian.extensions.activation import (
     activate_capability_for_owner_and_profile,
     activate_capability_for_owner_and_project,

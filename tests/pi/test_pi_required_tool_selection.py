@@ -42,6 +42,18 @@ VENDORED_ANTHROPIC = (
     / "api"
     / "anthropic-messages.js"
 )
+VENDORED_OPENAI_COMPLETIONS = (
+    REPO_ROOT
+    / "codex_runner"
+    / "vendor"
+    / "pi-coding-agent"
+    / "node_modules"
+    / "@earendil-works"
+    / "pi-ai"
+    / "dist"
+    / "api"
+    / "openai-completions.js"
+)
 
 
 def _node_eval_helper(script: str) -> dict:
@@ -640,6 +652,80 @@ def test_helper_does_not_modify_unrelated_payload_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_deepseek_helper_projects_only_disabled_thinking_function_choice() -> None:
+    script = _import_helper() + """
+        const original = {
+            model: "deepseek-v4-pro",
+            thinking: { type: "disabled" },
+            tools: [
+                { type: "function", function: { name: "read" } },
+                { type: "function", function: { name: "write" } },
+            ],
+        };
+        const out = applyGuardianRequiredToolSelection({
+            providerId: "deepseek", requiredToolName: "write", payload: original,
+        });
+        process.stdout.write(JSON.stringify({
+            choice: out.tool_choice,
+            thinking: out.thinking,
+            original_unchanged: !Object.hasOwn(original, "tool_choice"),
+            tools_unchanged: out.tools === original.tools,
+        }));
+    """
+    out = _node_eval_helper(script)
+    assert out == {
+        "choice": {"type": "function", "function": {"name": "write"}},
+        "thinking": {"type": "disabled"},
+        "original_unchanged": True,
+        "tools_unchanged": True,
+    }
+
+
+@pytest.mark.parametrize("thinking", [None, {"type": "enabled"}])
+def test_deepseek_helper_rejects_unproven_or_enabled_thinking(thinking) -> None:
+    script = _import_helper() + f"""
+        const payload = {{
+            tools: [{{ type: "function", function: {{ name: "write" }} }}],
+            ...( {json.dumps(thinking)} === null ? {{}} : {{ thinking: {json.dumps(thinking)} }} ),
+        }};
+        let code = null;
+        try {{
+            applyGuardianRequiredToolSelection({{
+                providerId: "deepseek", requiredToolName: "write", payload,
+            }});
+        }} catch (e) {{ code = e.code; }}
+        process.stdout.write(JSON.stringify({{ code }}));
+    """
+    assert _node_eval_helper(script)["code"] == (
+        "guard.required_tool_selection.incompatible_reasoning_effort"
+    )
+
+
+def test_deepseek_helper_rejects_conflicting_choice_and_duplicate_write() -> None:
+    script = _import_helper() + """
+        const base = {
+            thinking: { type: "disabled" },
+            tools: [{ type: "function", function: { name: "write" } }],
+        };
+        const run = (payload) => {
+            try {
+                applyGuardianRequiredToolSelection({
+                    providerId: "deepseek", requiredToolName: "write", payload,
+                });
+                return null;
+            } catch (e) { return e.code; }
+        };
+        process.stdout.write(JSON.stringify({
+            conflict: run({ ...base, tool_choice: "auto" }),
+            duplicate: run({ ...base, tools: [...base.tools, ...base.tools] }),
+        }));
+    """
+    assert _node_eval_helper(script) == {
+        "conflict": "guard.required_tool_selection.conflicting_choice",
+        "duplicate": "guard.required_tool_selection.duplicate_advertised",
+    }
+
+
 def test_helper_preserves_adaptive_thinking_and_effort() -> None:
     """Helper must not modify thinking/output_config even with adaptive thinking."""
     payload = {
@@ -829,7 +915,74 @@ def test_vendored_anthropic_oauth_branch_tool_choice_Write() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Real wrapper + tracked fake Pi integration
+# 4. Real vendored DeepSeek request-builder integration
+# ---------------------------------------------------------------------------
+
+
+def test_vendored_deepseek_builder_projects_off_and_named_write() -> None:
+    """Pinned Pi builds the DeepSeek request without contacting a provider."""
+    if not VENDORED_OPENAI_COMPLETIONS.exists():
+        pytest.skip("vendored OpenAI Completions adapter is missing")
+    script = f"""
+        import {{ pathToFileURL }} from "node:url";
+        const runtimeMod = await import(pathToFileURL({json.dumps(str(
+            REPO_ROOT / "codex_runner/vendor/pi-coding-agent/dist/index.js"
+        ))}).href);
+        const toolsMod = await import(pathToFileURL({json.dumps(str(
+            REPO_ROOT / "codex_runner/vendor/pi-coding-agent/dist/core/tools/index.js"
+        ))}).href);
+        const helper = await import(pathToFileURL({json.dumps(str(HELPER_PATH))}).href);
+        const runtime = await runtimeMod.ModelRuntime.create({{ allowModelNetwork: false }});
+        const model = runtime.getModel("deepseek", "deepseek-v4-pro");
+        const context = {{
+            systemPrompt: "synthetic",
+            messages: [{{ role: "user", content: [{{ type: "text", text: "x" }}] }}],
+            tools: [
+                toolsMod.createReadToolDefinition(),
+                toolsMod.createWriteToolDefinition(),
+            ],
+        }};
+        let captured = null;
+        const stream = runtime.streamSimple(model, context, {{
+            apiKey: "synthetic-provider-free-key", reasoning: "off",
+            onPayload: (params, actualModel) => {{
+                const projected = helper.applyGuardianRequiredToolSelection({{
+                    providerId: actualModel.provider,
+                    requiredToolName: "write", payload: params,
+                }});
+                captured = {{
+                    provider: actualModel.provider,
+                    model: actualModel.id,
+                    thinking: projected.thinking,
+                    reasoning_effort_present: Object.hasOwn(projected, "reasoning_effort"),
+                    tool_names: projected.tools.map(t => t.function?.name),
+                    choice: projected.tool_choice,
+                }};
+                throw new Error("__NO_NETWORK_SENTINEL__");
+            }},
+        }});
+        let sentinel = false;
+        for await (const event of stream) {{
+            if (event?.type === "error") {{
+                sentinel = String(event.error?.errorMessage).includes("NO_NETWORK_SENTINEL");
+                break;
+            }}
+        }}
+        process.stdout.write(JSON.stringify({{ captured, sentinel }}));
+    """
+    out = _node_eval_helper(script)
+    assert out["sentinel"] is True
+    assert out["captured"] == {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "thinking": {"type": "disabled"},
+        "reasoning_effort_present": False,
+        "tool_names": ["read", "write"],
+        "choice": {"type": "function", "function": {"name": "write"}},
+    }
+
+
+# 5. Real wrapper + tracked fake Pi integration
 # ---------------------------------------------------------------------------
 
 
@@ -875,6 +1028,89 @@ def _run_real_wrapper(
         text=True,
         timeout=30,
     )
+
+
+def test_deepseek_wrapper_off_serializes_and_selects_write(tmp_path: Path) -> None:
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_PROVIDER": "deepseek",
+            "PI_MODEL": "deepseek-v4-pro",
+            "PI_THINKING": "off",
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            "PI_FAKE_REQUIRE_DEEPSEEK_SERIAL": "1",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "ok"
+    assert payload["reasoning_effort"] == {"requested": "off", "effective": "off"}
+    assert payload["required_tool_selection"] == {
+        "required_tool_name": "write",
+        "hard_tool_selection_applied": True,
+        "hard_tool_selection_application_count": 1,
+    }
+    assert payload["automatic_retries_disabled"] is True
+
+
+@pytest.mark.parametrize("effort", ["medium", "high"])
+def test_deepseek_wrapper_positive_effort_fails_before_session(
+    tmp_path: Path, effort: str,
+) -> None:
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_PROVIDER": "deepseek",
+            "PI_MODEL": "deepseek-v4-pro",
+            "PI_THINKING": effort,
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+        },
+    )
+    assert result.returncode == 0
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "error"
+    assert payload["failure_stage"] == "reasoning_effort"
+    assert payload["provider_request_started"] is False
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in result.stdout
+
+
+def test_deepseek_wrapper_missing_serial_setting_fails_before_prompt(
+    tmp_path: Path,
+) -> None:
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_PROVIDER": "deepseek",
+            "PI_MODEL": "deepseek-v4-pro",
+            "PI_THINKING": "off",
+            "PI_GUARDIAN_REQUIRED_TOOL": "write",
+            "PI_FAKE_NO_TOOL_EXECUTION_SETTING": "1",
+        },
+    )
+    assert result.returncode == 0
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "error"
+    assert payload["failure_stage"] == "tool_selection"
+    assert payload["provider_request_started"] is False
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in result.stdout
 
 
 @pytest.mark.skipif(
@@ -959,7 +1195,7 @@ def test_real_wrapper_required_tool_claude_code_casing(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Async Pi payload-hook chaining regression
+# 6. Async Pi payload-hook chaining regression
 # ---------------------------------------------------------------------------
 
 
@@ -1086,7 +1322,7 @@ def test_real_wrapper_async_onpayload_without_required_tool_unchanged(
 
 
 # ---------------------------------------------------------------------------
-# 6. Required-tool retry-suppression fail-closed
+# 7. Required-tool retry-suppression fail-closed
 # ---------------------------------------------------------------------------
 
 
@@ -1127,7 +1363,7 @@ def test_real_wrapper_required_tool_fails_closed_when_retry_settings_constructio
     parsed = json.loads(final_line)
     assert parsed["status"] == "error"
     assert parsed["failure_class"] == "wrapper_protocol_failed"
-    assert parsed["failure_stage"] == "required_tool_retry_suppression"
+    assert parsed["failure_stage"] == "authorized_retry_suppression"
     # Provider transport and session initialization must not begin on
     # this path.
     assert parsed["session_initialized"] is False
@@ -1199,17 +1435,10 @@ def test_real_wrapper_required_tool_disables_retry_and_compaction(
     not FAKE_SOURCE_INDEX.exists(),
     reason="tracked fake Pi source fixture is missing",
 )
-def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
+def test_real_wrapper_non_required_tool_fails_closed_without_retry_suppression(
     tmp_path: Path,
 ) -> None:
-    """Ordinary-path preservation control: non-required-tool run with a
-    fake Pi whose `SettingsManager.inMemory` refuses to construct a
-    retry-disabled instance.
-
-    The fail-closed retry-suppression posture applies only to the
-    bounded required-tool path. Non-required-tool runs must not be
-    blocked when the maintained retry-disabled surface is unavailable.
-    """
+    """Every authorized run fails before prompting if retries cannot be disabled."""
     materialized = _materialize_fake_pi_package(tmp_path)
     fake_home = tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
@@ -1230,22 +1459,41 @@ def test_real_wrapper_non_required_tool_unaffected_by_retry_settings_failure(
     ), f"wrapper failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     final_line = result.stdout.strip().splitlines()[-1]
     parsed = json.loads(final_line)
-    assert parsed["status"] == "ok"
+    assert parsed["status"] == "error"
+    assert parsed["failure_stage"] == "authorized_retry_suppression"
+    assert parsed["provider_request_started"] is False
     # No required-tool selection was attempted.
     assert "required_tool_selection" not in parsed
-    # Session was created (fake's first-turn diagnostic appears).
-    assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
-    tt = parsed["tool_telemetry"]
-    assert tt["effective_tool_names"] == ["read", "bash", "edit", "write"]
-    assert tt["write_tool_available"] is True
-    assert tt["tool_execution_start_count"] == 1
-    assert tt["tool_execution_end_count"] == 1
-    assert tt["executed_tool_names"] == ["write"]
-    assert tt["assistant_tool_call_count"] == 1
+    assert "FAKE_PI_SDK_DIAGNOSTIC" not in result.stdout
+
+
+def test_real_wrapper_read_only_high_effort_has_no_retry(tmp_path: Path) -> None:
+    materialized = _materialize_fake_pi_package(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    result = _run_real_wrapper(
+        materialized,
+        fake_home=fake_home,
+        cwd=tmp_path,
+        advertise_casing="lowercase",
+        extra_env={
+            "PI_DISABLE_TOOLS": "1",
+            "PI_THINKING": "high",
+            "PI_FAKE_I_BEHAVIOR": "success",
+            "PI_FAKE_SIMULATE_CONTEXT_OVERFLOW": "1",
+        },
+    )
+    assert result.returncode == 0
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" not in result.stdout
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "ok"
+    assert payload["reasoning_effort"] == {"requested": "high", "effective": "high"}
+    assert payload["automatic_retries_disabled"] is True
+    assert "required_tool_selection" not in payload
 
 
 # ---------------------------------------------------------------------------
-# 7. Required-tool compaction-escape payload-level proofs
+# 8. Required-tool compaction-escape payload-level proofs
 # ---------------------------------------------------------------------------
 #
 # NOTE: The tests in this section exercise a PAYLOAD-LEVEL ESCAPE MODEL
@@ -1365,7 +1613,7 @@ def test_real_wrapper_required_tool_suppresses_compaction_recovery_on_context_ov
     not FAKE_SOURCE_INDEX.exists(),
     reason="tracked fake Pi source fixture is missing",
 )
-def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
+def test_real_wrapper_non_required_tool_suppresses_compaction_recovery(
     tmp_path: Path,
 ) -> None:
     """Control proving the fake's compaction escape is real.
@@ -1429,7 +1677,7 @@ def test_real_wrapper_non_required_tool_would_attempt_compaction_recovery(
     # runs. The fake emitted _UNFORCED after inspecting the
     # effective continuation payload.
     assert "FAKE_PI_SDK_PROVIDER_TURN_2_FORCED" not in result.stdout
-    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" in result.stdout
+    assert "FAKE_PI_SDK_PROVIDER_TURN_2_UNFORCED" not in result.stdout
     # Session was created (fake's first-turn diagnostic appears).
     assert "FAKE_PI_SDK_DIAGNOSTIC" in result.stdout
     # No required-tool selection was attempted.
@@ -1530,7 +1778,7 @@ def test_real_wrapper_required_tool_adversarial_recovery_is_unforced(
 
 
 # ---------------------------------------------------------------------------
-# 8. Maintained Pi recovery-path proof
+# 9. Maintained Pi recovery-path proof
 # ---------------------------------------------------------------------------
 #
 # These tests execute the REAL maintained Pi 0.82.1 AgentSession
