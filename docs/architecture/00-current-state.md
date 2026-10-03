@@ -18,12 +18,13 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, mainline merged chat lifecycle/deadline repairs, qualification and operator-inspection scaffolding, bounded Campaign Engine and Codex App Server delivery work, and consent-gated human messaging. The latest complete supported-Compose qualification remains `HOLD`: current-tip proof covered ordinary chat and bounded failure/cancellation cases but found a new-thread browser transcript projection gap and stopped before restart or shutdown qualification.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, mainline merged chat lifecycle/deadline repairs, qualification and operator-inspection scaffolding, bounded Campaign Engine and Codex App Server delivery work, and consent-gated human messaging. The latest complete supported-Compose qualification remains `HOLD`: current-tip proof covered ordinary chat and bounded failure/cancellation cases but found a new-thread browser transcript projection gap and stopped before restart or shutdown qualification. A branch-local refresh repair now passes focused tests and a retained-stack browser/durable-readback case; the full qualification remains open.
 
 ## What changed recently
 
 - Merged chat stream ownership, queued cancellation, deadline enforcement, fast-mode handoff, and frontend failure-state repairs with focused coverage.
 - Recorded current-tip supported-Compose evidence: ordinary API chat, unavailable explicit-model rejection without assistant fallback, durable readback, and in-flight cancellation passed; browser new-thread transcript coherence failed until reload.
+- On the active Goal branch, reproduced that new-thread projection gap, refreshed the canonical transcript snapshot after authored-message persistence, and verified the message before completion plus durable reload/readback. This is bounded retained-stack evidence; it does not close the current-main or full Compose gate.
 - Merged Private Preview message-request storage, consent, discovery, Inbox, route gating, and an isolated two-browser/durable-readback proof; default Beta remains excluded.
 - Merged the qualification registry and onboarding/Tips surfaces, plus the internal Configuration Inspector; these are status or operator capabilities, not release-support expansion.
 - Merged native execution-channel/Codex App Server delivery and bounded source-thread return proof; generalized channel support and public Beta support remain unproven.
@@ -40,14 +41,14 @@ This file is authoritative for:
 ## Not yet true / do not assume
 
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
-- Do not infer browser transcript coherence, restart recovery, graceful drain, or full retry/event persistence from the bounded current-tip proof.
+- Do not infer broad browser transcript coherence, restart recovery, graceful drain, or full retry/event persistence from the bounded current-tip and branch-local proofs.
 - Do not infer complete account-import recall, provider context, answer persistence, or negative scope control from partial import evidence.
 - Do not treat focused tests, isolated proofs, Campaign Engine, Codex App Server, Configuration Inspector, onboarding, sidebar, messaging, activation, connectors, Watchdog, retention, hosted sandbox, Atlas, or Pi work as public Beta support without current-main qualification.
 - Do not treat architecture contracts, qualification scaffolding, or branch-local/runtime-intent evidence as shipped behavior beyond the committed mainline scope.
 
 ## Active blockers
 
-- Reproduce and repair the current-tip new-thread authored-message projection gap, then rerun browser, event, persistence, and ordinary-chat proof.
+- Integrate the branch-local new-thread authored-message projection repair, then requalify browser/event/persistence coherence on the resulting current-main tip.
 - Run a complete supported-Compose qualification on the frozen current `main`, including health/inventory, exact-model rejection, restart recovery, retry/cancellation, terminal provenance, and graceful shutdown.
 - Complete an uninterrupted natural account-import run through retrieval, provider context, answer persistence, and a negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, non-admin canary, and the merged messaging path on the intended deployed tip.
@@ -55,7 +56,7 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Repair the browser projection seam and rerun the current-tip Compose proof bundle.
+1. Integrate and requalify the browser projection repair, then run the full current-tip Compose proof bundle.
 2. Freeze the evaluated `main` tip and close exact-model, retry, restart, and shutdown evidence.
 3. Prove account import through recall, provider input, answer persistence, and scope isolation.
 4. Requalify the intended Private Preview deployment, including consent-gated messaging and its provider/persistence boundaries.
@@ -65,6 +66,7 @@ This file is authoritative for:
 
 - [x] Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.
 - [x] Mainline has bounded evidence for chat terminal ownership, retrieval provenance, queue/deadline/cancellation boundaries, and partial account import.
+- [x] The branch-local new-thread authored-message projection repair passes a regression test and one retained-stack browser/durable-readback case.
 - [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval provenance, browser transcript, event delivery, restart recovery, and graceful shutdown.
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted on the evaluated tip.
 - [ ] Queue/worker, lock, migration, account-import recall, and every claimed Preview or non-default path are green under their own current evidence.

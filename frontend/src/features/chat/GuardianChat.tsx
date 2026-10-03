@@ -3718,6 +3718,7 @@ export function GuardianChat({
           reason: "message",
           id: String(createdThreadId),
         });
+        await refreshSnapshot(createdThreadId, "user-send");
         setChatReloadVersion((v) => v + 1);
 
         // Lock the new thread before requesting assistant completion.
