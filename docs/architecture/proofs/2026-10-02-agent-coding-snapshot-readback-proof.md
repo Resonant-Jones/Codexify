@@ -230,7 +230,7 @@ disposable PostgreSQL delegation-delivery contract suite passed separately
 (15 passed). This worker-suite result is retained as a known local limitation,
 not attributed to account-run provenance.
 
-The exact implementation commit SHA is recorded here after commit and before
-publication. This follow-up does not change ADR-020, ADR-091, ADR-092, or
+The exact implementation commit is `5dfb76f43` (`Persist account coding run
+provenance`). This follow-up does not change ADR-020, ADR-091, ADR-092, or
 ADR-097; it does not resolve either provenance or batching review threads,
 change SSE/queue/event behavior, qualify deployed ingress, or alter HOLD.
