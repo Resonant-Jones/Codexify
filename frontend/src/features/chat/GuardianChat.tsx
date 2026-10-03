@@ -1176,6 +1176,9 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
+  const deferredThreadPromotionRef = useRef(
+    new Map<number, { title: string; tabId: TabId | null }>()
+  );
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
@@ -3244,10 +3247,20 @@ export function GuardianChat({
     }
   };
 
+  const promoteDeferredThread = (threadId: number) => {
+    const promotion = deferredThreadPromotionRef.current.get(threadId);
+    if (!promotion) return;
+    deferredThreadPromotionRef.current.delete(threadId);
+    handleThreadCreated(threadId, promotion.title, { tabId: promotion.tabId });
+    onThreadPersisted?.(threadId, promotion.title, {
+      tabId: promotion.tabId,
+    });
+  };
+
   const createThreadFromComposer = useCallback(
     async (
       bodyText: string,
-      options?: { tabId?: TabId | null }
+      options?: { tabId?: TabId | null; deferPromotion?: boolean }
     ): Promise<number | null> => {
       const hydrationState = getRuntimeConfigHydrationState();
       if (hydrationState === "pending") {
@@ -3320,7 +3333,6 @@ export function GuardianChat({
           showToast("Thread id missing from response");
           return null;
         }
-
         setThreadCreationIssue(null);
         const payload =
           response?.data && typeof response.data === "object" && !Array.isArray(response.data)
@@ -3335,12 +3347,19 @@ export function GuardianChat({
             ? thread.title.trim()
             : provisionalTitle;
 
-        handleThreadCreated(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
-        onThreadPersisted?.(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
+        if (options?.deferPromotion) {
+          deferredThreadPromotionRef.current.set(resolution.threadId, {
+            title: derivedTitle,
+            tabId: originTabId,
+          });
+        } else {
+          handleThreadCreated(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+          onThreadPersisted?.(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+        }
         return resolution.threadId;
     } catch (error) {
       console.error("[guardian] thread creation failed", error);
@@ -3705,14 +3724,16 @@ export function GuardianChat({
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
-        createdThreadId = await createThreadFromComposer(contentForSend);
+        createdThreadId = await createThreadFromComposer(contentForSend, {
+          deferPromotion: true,
+        });
         if (createdThreadId == null) {
           setPendingTurnLock(false);
           return;
         }
-        await activateThread(createdThreadId);
         const synced = await syncThreadConfigBeforeSend(createdThreadId);
         if (!synced) {
+          promoteDeferredThread(createdThreadId);
           setPendingTurnLock(false);
           setTurnLockForThread(createdThreadId, false);
           return;
@@ -3723,6 +3744,8 @@ export function GuardianChat({
           content: contentForSend,
           project_id: workspaceProjectId ?? undefined,
         });
+
+        promoteDeferredThread(createdThreadId);
 
         emitThreadsRefresh("refresh", {
           reason: "message",
@@ -3764,6 +3787,9 @@ export function GuardianChat({
         }, 100);
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
+        if (createdThreadId != null) {
+          promoteDeferredThread(createdThreadId);
+        }
         setPendingTurnLock(false);
         if (createdThreadId != null) {
           setTurnLockForThread(createdThreadId, false);

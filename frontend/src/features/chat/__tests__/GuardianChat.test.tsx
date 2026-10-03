@@ -393,6 +393,7 @@ function renderChat(
     userProfession?: string;
     workspaceProjectId?: string | number | null;
     workspaceProjectName?: string | null;
+    onThreadPersisted?: (threadId: number, title?: string) => void;
   } = {}
 ) {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
@@ -404,6 +405,7 @@ function renderChat(
       activeThread={buildThread(threadId)}
       workspaceProjectId={overrides.workspaceProjectId}
       workspaceProjectName={overrides.workspaceProjectName}
+      onThreadPersisted={overrides.onThreadPersisted}
       onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
       sessionTabs={buildSessionTabs(threadId)}
@@ -896,7 +898,8 @@ describe("GuardianChat inference rail", () => {
   });
 
   it("shows a persisted new-thread message before requesting completion", async () => {
-    renderChat("draft-thread");
+    const onThreadPersisted = vi.fn();
+    renderChat("draft-thread", { onThreadPersisted });
 
     apiMock.post.mockImplementation(async (url: string) => {
       if (url === "/api/chat/threads") {
@@ -952,6 +955,15 @@ describe("GuardianChat inference rail", () => {
     expect(apiMock.post).toHaveBeenCalledWith(
       "/chat/2/messages",
       expect.objectContaining({ role: "user", content: "hello" })
+    );
+    expect(onThreadPersisted).toHaveBeenCalledWith(2, "hello", {
+      tabId: "tab-1",
+    });
+    const userMessagePost = apiMock.post.mock.invocationCallOrder[
+      apiMock.post.mock.calls.findIndex(([url]) => url === "/chat/2/messages")
+    ];
+    expect(onThreadPersisted.mock.invocationCallOrder[0]).toBeGreaterThan(
+      userMessagePost
     );
     expect(refreshSnapshotMock).toHaveBeenCalledWith(2, "user-send");
     expect(apiMock.get).toHaveBeenCalledWith("/chat/2/messages");
