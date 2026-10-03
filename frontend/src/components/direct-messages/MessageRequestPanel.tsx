@@ -15,6 +15,22 @@ import {
   type DirectMessageSocialProfile,
 } from "@/lib/direct-messages";
 
+// This key deduplicates retries; it carries no identity or authorization.
+function createAttemptKey(): string {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Some preview browsers expose the API but cannot use it.
+    }
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    return (char === "x" ? value : (value & 3) | 8).toString(16);
+  });
+}
+
 type Props = {
   introPeer: DirectMessageSocialProfile | null;
   onIntroClose: () => void;
@@ -36,7 +52,7 @@ export default function MessageRequestPanel({
   const [autoHide, setAutoHide] = useState(false);
   const [username, setUsername] = useState("");
   const [note, setNote] = useState("");
-  const [attemptKey, setAttemptKey] = useState(() => crypto.randomUUID());
+  const [attemptKey, setAttemptKey] = useState(createAttemptKey);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +82,7 @@ export default function MessageRequestPanel({
   // effect can erase the first keystrokes after the new form is rendered.
   useLayoutEffect(() => {
     setNote("");
-    setAttemptKey(crypto.randomUUID());
+    setAttemptKey(createAttemptKey());
     setError(null);
   }, [introPeer?.profile_id]);
 

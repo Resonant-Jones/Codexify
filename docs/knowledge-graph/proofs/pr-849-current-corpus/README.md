@@ -123,3 +123,21 @@ New-head Architecture Contracts, Guardian backend/core loops, Frontend Quality,
 and Migration Contract status are verified directly on GitHub at closeout.
 This receipt does not substitute local subsets for those required remote checks.
 No new feature, new ADR, public Beta admission or deployment is included.
+
+## Subsequent review findings
+
+The versioned Whoosh'd error parser now propagates accepted-task deadline expiry
+instead of treating it as malformed JSON. A real loopback versioned 404 with a
+stalled body proves the canonical deadline failure and correlated remote abort;
+ordinary malformed bodies retain their previous classification behavior. The
+focused provider and streaming suite passed 37 tests.
+
+Message request attempt keys now feature-test `crypto.randomUUID` and fall back
+when the API is absent or throws. The keys confer no identity or authority. Nine
+request-panel tests passed, including stable retry keys and key/draft rotation
+on a new peer in all three unsupported-browser cases.
+
+The remote frontend run at `f0730a76d` failed an existing Workspace Shelf count
+test that asserted final text immediately after finding a still-loading element.
+That surface is unrelated to this PR; no Workspace implementation or test change
+is included. The full frontend suite and new-head remote check are run again.

@@ -88,12 +88,18 @@ def runtime(monkeypatch):
                     if mode == "error_body"
                     else (
                         404
-                        if mode == "retry" and len(observed["requests"]) == 1
+                        if mode == "versioned_404_body"
+                        or (mode == "retry" and len(observed["requests"]) == 1)
                         else 200
                     )
                 )
                 self.send_response(status)
-                self.send_header("Content-Type", "text/event-stream")
+                self.send_header(
+                    "Content-Type",
+                    "application/json" if mode == "versioned_404_body" else "text/event-stream",
+                )
+                if mode == "versioned_404_body":
+                    self.send_header("X-Whooshd-Contract-Version", "whooshd.control.v1")
                 self.send_header("Connection", "close")
                 if observed["include_remote_header"]:
                     self.send_header("X-Whooshd-Request-ID", "fixture-remote")
@@ -101,7 +107,7 @@ def runtime(monkeypatch):
                 if mode == "retry" and len(observed["requests"]) == 1:
                     time.sleep(0.18)
                     return
-                if mode in {"silent", "error_body"}:
+                if mode in {"silent", "error_body", "versioned_404_body"}:
                     if observed["abort"].wait(0.7):
                         return
                 if mode in {"tokenless", "partial", "retry"}:
@@ -192,7 +198,7 @@ def execute(remaining=0.25, *, cancel_check=lambda: False, callback=None):
 
 
 @pytest.mark.parametrize(
-    "mode", ["headers", "silent", "tokenless", "partial", "retry", "error_body"]
+    "mode", ["headers", "silent", "tokenless", "partial", "retry", "error_body", "versioned_404_body"]
 )
 def test_absolute_deadline_interrupts_real_http(runtime, mode):
     observed, _ = runtime

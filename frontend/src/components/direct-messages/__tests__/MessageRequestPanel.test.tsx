@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MessageRequestPanel from "../MessageRequestPanel";
 import {
   archiveMessageRequest,
@@ -65,6 +65,8 @@ beforeEach(() => {
   vi.mocked(fetchMessageRequests).mockResolvedValue([]);
   vi.mocked(fetchMessageRequestHistoryPreference).mockResolvedValue(false);
 });
+afterEach(() => vi.unstubAllGlobals());
+
 const show = (introPeer: DirectMessageSocialProfile | null = null) =>
   render(
     <MessageRequestPanel
@@ -126,6 +128,35 @@ describe("human message requests", () => {
     );
     expect(onAccepted).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, {}, { randomUUID: () => { throw new Error("Unavailable"); } }])(
+    "keeps retry keys stable and rotates peers without usable randomUUID (%s)",
+    async (crypto) => {
+      vi.stubGlobal("crypto", crypto);
+      vi.mocked(sendMessageRequest).mockRejectedValue(new Error("Network unavailable"));
+      const view = show(bob);
+      fireEvent.change(screen.getByLabelText("Introductory note"), {
+        target: { value: "Hi Bob" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+      await screen.findByRole("alert");
+      const firstKey = vi.mocked(sendMessageRequest).mock.calls[0][2];
+      expect(firstKey).toMatch(/^[0-9a-f-]{36}$/);
+      fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+      await waitFor(() => expect(sendMessageRequest).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).not.toBeDisabled());
+      expect(vi.mocked(sendMessageRequest).mock.calls[1][2]).toBe(firstKey);
+      view.rerender(<MessageRequestPanel introPeer={alice} onIntroClose={onClose} onIdentity={onIdentity} onAccepted={onAccepted} />);
+      expect(screen.getByLabelText("Introductory note")).toHaveValue("");
+      fireEvent.change(screen.getByLabelText("Introductory note"), {
+        target: { value: "New peer" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+      await waitFor(() => expect(sendMessageRequest).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(sendMessageRequest).mock.calls[2][2]).not.toBe(firstKey);
+      await screen.findByRole("alert");
+    },
+  );
 
   it("presents the safe policy message when request admission fails", async () => {
     vi.mocked(sendMessageRequest).mockRejectedValueOnce(Object.assign(new Error("Request failed with status code 429"), {
