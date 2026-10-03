@@ -18,7 +18,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 
-CANONICAL_HEAD_REVISION = "8d41a0c2b7ef"
+CANONICAL_HEAD_REVISION = "9e52b1d3c8fa"
 
 
 def _build_database_url(base_url: str, database_name: str) -> str:

@@ -93,14 +93,20 @@ The old Guardian CI run `37076314023` detected
 and emitted `backend_changed=true`, `run_backend=true`.
 The migration job requires `[changes, backend-tests, alembic-config-sanity]`.
 The failed backend dependency caused GitHub's normal dependency-success guard
- to skip migration. Change detection was correct; no CI modification is needed.
+to skip migration. Change detection was correct; no CI modification is needed.
 The new head must run the migration job after its backend dependency passes.
+A subsequent CI run exposed seven stale current-head expectations in migration
+regressions. These now expect `9e52b1d3c8fa`; the uniqueness test additionally
+asserts its exact `8d41a0c2b7ef` parent and consent-migration filename. Historical
+revision IDs, upgrade targets, schema assertions and frozen blobs are retained.
 An old skip is not migration proof or a non-applicability claim for this PR.
 
 ## Validation and remote boundary
 
 - Focused three-defect UI suite: 100 passed.
 - Queued cancellation, queue deadlines and exact Phase 3B suite: 60 passed.
+- Actual PostgreSQL migration/race proof and explicit current-head lineage:
+  2 passed, no skips.
 - Messaging and chat cancellation/deadline preservation suite: 130 passed.
 - Exact `tests/architecture` surface: 431 passed.
 - Repository `pnpm run lint`: passed, zero errors; existing warnings remain.
