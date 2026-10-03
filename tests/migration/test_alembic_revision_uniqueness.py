@@ -116,7 +116,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
 
     # The additive consent migration must extend onboarding, preserving all
     # existing branches rather than introducing another independent head.
-    message_requests = script.get_revision(CANONICAL_HEAD)
+    message_requests = script.get_revision("9e52b1d3c8fa")
     assert message_requests is not None
     assert message_requests.down_revision == "8d41a0c2b7ef"
     assert Path(message_requests.path).name == "9e52b1d3c8fa_add_message_request_consent.py"
