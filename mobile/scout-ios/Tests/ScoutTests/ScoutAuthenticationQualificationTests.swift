@@ -31,6 +31,37 @@ final class ScoutAuthenticationQualificationTests: XCTestCase {
         XCTAssertNil(receipt.firstFailedStage)
     }
 
+    func testCorrelationRejectionsMapOnlyFixedServerMessages() throws {
+        for (detail, expected) in [
+            ("Hosted Scout composition required", ScoutAuthenticationQualification.Classification.hostedCompositionRejected),
+            ("Native admission required", .nativeAdmissionRejected),
+            ("Invalid qualification identifier", .invalidIdentifier),
+            ("fixture-secret-response", .unavailable)
+        ] {
+            let data = try JSONEncoder().encode(["detail": detail, "token": "fixture-secret-token"])
+            let classification = ScoutAuthenticationQualification.correlationFailure(data: data, httpStatus: 400)
+            XCTAssertEqual(classification, expected)
+            XCTAssertEqual(ScoutAuthenticationQualification.correlationFailure(data: data, httpStatus: 500), .unavailable)
+            XCTAssertFalse(classification.rawValue.contains("fixture-secret"))
+        }
+        XCTAssertEqual(ScoutAuthenticationQualification.correlationFailure(data: Data(repeating: 65, count: 1_025), httpStatus: 400), .unavailable)
+    }
+
+    func testNativeHeaderShapeClassificationNeverReflectsRawHeaderContent() throws {
+        let data = try JSONEncoder().encode(["detail": "Native admission required"])
+        for (header, expected) in [
+            ("missingAuthorization", ScoutAuthenticationQualification.Classification.nativeAuthorizationMissing),
+            ("ambiguousAuthorization", .nativeAuthorizationAmbiguous),
+            ("unsupportedAuthorization", .nativeAuthorizationUnsupported),
+            ("conflictingSelectors", .nativeSelectorConflict),
+            ("fixture-secret-header", .nativeAdmissionRejected)
+        ] {
+            let result = ScoutAuthenticationQualification.correlationFailure(data: data, httpStatus: 400, rejection: header)
+            XCTAssertEqual(result, expected)
+            XCTAssertFalse(result.rawValue.contains("fixture-secret"))
+        }
+    }
+
     func testServerRedirectPreparationDoesNotClaimNativeCallbackReceipt() throws {
         var receipt = try ScoutAuthenticationQualification(profile: profile())
         receipt.record(.ingress, .passed, .confirmed)

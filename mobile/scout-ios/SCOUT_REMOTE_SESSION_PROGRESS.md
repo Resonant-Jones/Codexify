@@ -361,3 +361,12 @@ The existing Check stored ingress action renewed the stored grant and reached
 Guardian's account gate (HTTP 401, Cloudflare Ray `a44fd999ca5b67cf-MIA`). This
 qualifies renewed Access admission only. Guardian sign-in, fresh native issuance,
 protected account read, continuity and logout remain pending.
+
+The subsequent guarded pre-browser request passed ingress availability but
+returned HTTP 400. Scout's bounded allowlist maps only fixed server messages;
+the live result is `nativeAdmissionRejected`. A corresponding backend-only
+response header distinguishes missing/ambiguous/unsupported Authorization from
+conflicting selectors without exposing values or changing admission checks.
+Scout accepts only those fixed enum values, never arbitrary response text.
+The complete client suite passes **61 tests**; the backend integration suite
+passes **83 tests**. No new sign-in submission occurred during these preflights.

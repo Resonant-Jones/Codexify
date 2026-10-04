@@ -164,7 +164,10 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             let (receiptData, receiptResponse) = try await URLSession.scoutAuthenticated.data(for: qualification!.receiptRequest(ingress: ingress, begin: true))
             guard operation == identity else { return }
             guard (receiptResponse as? HTTPURLResponse)?.statusCode == 200 else {
-                observe(.browser, .failed, .unavailable, http: (receiptResponse as? HTTPURLResponse)?.statusCode)
+                let http = receiptResponse as? HTTPURLResponse
+                let classification = ScoutAuthenticationQualification.correlationFailure(data: receiptData, httpStatus: http?.statusCode,
+                    rejection: http?.value(forHTTPHeaderField: "X-Scout-Qualification-Rejection"))
+                observe(.browser, .failed, classification, http: http?.statusCode)
                 message = "Runtime correlation is unavailable. Guardian browser login was not launched."
                 return
             }

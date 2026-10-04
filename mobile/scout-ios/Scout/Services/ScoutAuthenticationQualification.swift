@@ -21,7 +21,7 @@ struct ScoutAuthenticationQualification: Equatable {
     }
     enum Status: String, Decodable { case waiting, passed, failed }
     enum Classification: String {
-        case pending, confirmed, rejected, unavailable, credentialMissing, credentialExpired, cancelled, invalidCallback, invalidSession, storageFailure, transportFailure, invalidReply
+        case pending, confirmed, rejected, unavailable, credentialMissing, credentialExpired, hostedCompositionRejected, nativeAdmissionRejected, nativeAuthorizationMissing, nativeAuthorizationAmbiguous, nativeAuthorizationUnsupported, nativeSelectorConflict, invalidIdentifier, cancelled, invalidCallback, invalidSession, storageFailure, transportFailure, invalidReply
     }
     struct Evidence: Equatable {
         let status: Status
@@ -50,6 +50,26 @@ struct ScoutAuthenticationQualification: Equatable {
         guard let expiresAt else { return Evidence(status: .failed, classification: .credentialMissing, httpStatus: nil) }
         guard expiresAt > now else { return Evidence(status: .failed, classification: .credentialExpired, httpStatus: nil) }
         return Evidence(status: .passed, classification: .confirmed, httpStatus: nil)
+    }
+    static func correlationFailure(data: Data, httpStatus: Int?, rejection: String? = nil) -> Classification {
+        struct Reply: Decodable { let detail: String }
+        guard httpStatus == 400, data.count <= 1_024,
+              let reply = try? JSONDecoder().decode(Reply.self, from: data) else { return .unavailable }
+        // Map only these fixed server messages. Arbitrary response content must
+        // never become diagnostic text or retained evidence.
+        switch reply.detail {
+        case "Hosted Scout composition required": return .hostedCompositionRejected
+        case "Native admission required":
+            switch rejection {
+            case "missingAuthorization": return .nativeAuthorizationMissing
+            case "ambiguousAuthorization": return .nativeAuthorizationAmbiguous
+            case "unsupportedAuthorization": return .nativeAuthorizationUnsupported
+            case "conflictingSelectors": return .nativeSelectorConflict
+            default: return .nativeAdmissionRejected
+            }
+        case "Invalid qualification identifier": return .invalidIdentifier
+        default: return .unavailable
+        }
     }
     mutating func record(_ stage: Stage, _ status: Status, _ classification: Classification, httpStatus: Int? = nil) {
         guard evidence[stage]?.status != .passed else { return }
