@@ -255,6 +255,11 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         } catch {
             guard operation == identity else { return }
             let classification: ScoutAuthenticationQualification.Classification
+            if stage == .state, error as? ScoutRequestAuthenticationError == .ingressRequired {
+                observe(stage, .failed, .credentialExpired)
+                message = "Ingress authorization expired while the Guardian browser was open. Check stored ingress to renew the existing grant, then sign in again. No handoff exchange was sent."
+                return
+            }
             if stage == .state { classification = .invalidCallback }
             else if stage == .ingress || stage == .keychain { classification = .storageFailure }
             else if error is DecodingError { classification = .invalidReply }

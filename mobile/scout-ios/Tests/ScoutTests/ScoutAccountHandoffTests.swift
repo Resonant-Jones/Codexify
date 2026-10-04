@@ -48,4 +48,20 @@ final class ScoutAccountHandoffTests: XCTestCase {
             XCTAssertEqual(ScoutRequestAuthentication.isInvalidAccountResponse(marked), status == 401)
         }
     }
+
+    func testIngressExpiryWhileBrowserIsOpenPreventsExchangeAndRequiresFreshAttempt() throws {
+        var attempt = ScoutAccountHandoffAttempt(verifier: verifier, state: state)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let expired = ScoutAccessOAuth.Credential(accessToken: "oauth:fixture-ingress", refreshToken: nil, expiresAt: now)
+        let callback = URL(string: ScoutAccessOAuth.callback.absoluteString + "?code=\(code)&state=\(state)")!
+        XCTAssertThrowsError(try attempt.exchangeRequest(callback: callback, ingress: expired, now: now)) {
+            XCTAssertEqual($0 as? ScoutRequestAuthenticationError, .ingressRequired)
+        }
+        // Renewal cannot reuse a consumed callback attempt or issue an account session.
+        XCTAssertThrowsError(try attempt.exchangeRequest(callback: callback, ingress: admission, now: now)) {
+            XCTAssertEqual($0 as? ScoutAccessOAuthError, .invalidCallback)
+        }
+        var fresh = ScoutAccountHandoffAttempt(verifier: verifier, state: state)
+        XCTAssertEqual(try fresh.exchangeRequest(callback: callback, ingress: admission, now: now).httpMethod, "POST")
+    }
 }
