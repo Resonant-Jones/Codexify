@@ -1,7 +1,7 @@
 # Scout upstream Authorization mismatch — approved amendment
 
-Status: approved 2026-10-04; source implemented and qualified; deployment and
-authenticated native continuity remain separate proof gates. The explicit
+Status: approved 2026-10-04; source implemented, deployed and authenticated
+native continuity/logout denial qualified. The explicit
 operator approval withdraws the requirement that the opaque Access Bearer reach
 Guardian for the independently qualified hosted composition. ADR-092 records the
 amendment. This document grants no account, database or Cloudflare change.
@@ -109,5 +109,7 @@ Qualification does not issue account authority. Account APIs and exchange keep
 their canonical validators and mixed-selector rejection; native exchange still
 issues a fresh independent exact-purpose account session.
 
-This record does not claim authenticated continuity.
-#816–#818 remain deferred.
+The subsequent [authentication qualification record](scout-auth-qualification-2026-10-03.md)
+records nine successful native stages, the full #815 continuity loop and
+server-side logout denial. These are bounded hosted Simulator results, not
+personal-node live proof or release support. #816–#818 remain deferred.
