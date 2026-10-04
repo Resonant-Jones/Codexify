@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import replace
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Event, Lock, Thread
 from typing import Any
 
 from fastapi import HTTPException
@@ -97,6 +97,7 @@ from guardian.queue.redis_queue import (
     dequeue,
     get_redis_client,
     is_cancelled,
+    redis_operation_scope,
 )
 from guardian.queue.turn_lock import release_turn_lock
 from guardian.tasks.chat_deadline import (
@@ -173,6 +174,7 @@ WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
 WORKER_HEARTBEAT_TTL_SECONDS = int(os.getenv("CHAT_WORKER_HEARTBEAT_TTL_SECONDS", "45"))
+WORKER_HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 _MEDIA_DB: GuardianDB | None = None
 _MEDIA_MARKER_RE = re.compile(
@@ -649,12 +651,13 @@ def _publish_worker_heartbeat(status: str = "idle") -> None:
         "ts": int(time.time()),
     }
     try:
-        client = get_redis_client()
-        client.setex(
-            WORKER_HEARTBEAT_KEY,
-            max(5, WORKER_HEARTBEAT_TTL_SECONDS),
-            json.dumps(payload),
-        )
+        with redis_operation_scope():
+            client = get_redis_client()
+            client.setex(
+                WORKER_HEARTBEAT_KEY,
+                max(5, WORKER_HEARTBEAT_TTL_SECONDS),
+                json.dumps(payload),
+            )
     except Exception as exc:
         logger.debug("[chat-worker] heartbeat update failed: %s", exc)
 
@@ -3351,7 +3354,6 @@ def _chat_task_cancelled_before_dispatch(task: ChatCompletionTask) -> bool:
     try:
         deadline = accepted_chat_deadline_for_task(task)
         with accepted_redis_scope(deadline):
-            _publish_worker_heartbeat("active")
             return is_cancelled(task.task_id)
     except (AcceptedChatTaskDeadlineExceeded, ValueError):
         # Run the same authoritative worker lifecycle inline for expired or
@@ -3387,11 +3389,24 @@ def run_forever() -> None:
     )
     activity_lock = Lock()
     owned_tasks = 0
+    heartbeat_stop = Event()
+    heartbeat_wake = Event()
+
+    def publish_heartbeats() -> None:
+        while not heartbeat_stop.is_set():
+            heartbeat_wake.wait(WORKER_HEARTBEAT_INTERVAL_SECONDS)
+            if heartbeat_stop.is_set():
+                break
+            heartbeat_wake.clear()
+            with activity_lock:
+                activity = "active" if owned_tasks else "idle"
+            _publish_worker_heartbeat(activity)
 
     def release_activity() -> None:
         nonlocal owned_tasks
         with activity_lock:
             owned_tasks -= 1
+        heartbeat_wake.set()
 
     def run_owned_task(task: ChatCompletionTask) -> None:
         try:
@@ -3401,60 +3416,70 @@ def run_forever() -> None:
             # activity until that entire lifecycle has returned or raised.
             release_activity()
 
-    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
-        while True:
-            with activity_lock:
-                activity = "active" if owned_tasks else "idle"
-            _publish_worker_heartbeat(activity)
-            try:
-                payload = dequeue(QUEUE_NAME, block=True, timeout=5)
-            except RedisTimeoutError:
-                logger.debug("[chat-worker] redis idle timeout; continuing")
-                continue
-            except RedisConnectionError as exc:
-                logger.warning("[chat-worker] dequeue error; continuing: %s", exc)
-                time.sleep(1.0)
-                continue
+    # The initial sample precedes ownership. Afterwards one managed publisher
+    # owns all samples, including while dispatch or inline cleanup is blocked.
+    _publish_worker_heartbeat("idle")
+    heartbeat = Thread(target=publish_heartbeats, name="chat-worker-heartbeat")
+    heartbeat.start()
+    try:
+        with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+            while True:
+                try:
+                    payload = dequeue(QUEUE_NAME, block=True, timeout=5)
+                except RedisTimeoutError:
+                    logger.debug("[chat-worker] redis idle timeout; continuing")
+                    continue
+                except RedisConnectionError as exc:
+                    logger.warning("[chat-worker] dequeue error; continuing: %s", exc)
+                    time.sleep(1.0)
+                    continue
 
-            if not payload:
-                continue
-            try:
-                task = task_from_dict(payload)
-            except Exception as exc:
-                logger.warning("[chat-worker] invalid task payload: %s", exc)
-                continue
-            if not isinstance(task, ChatCompletionTask):
-                logger.warning(
-                    "[chat-worker] skipping non-chat task type=%s id=%s",
-                    task.type,
-                    task.task_id,
-                )
-                continue
-            if isinstance(payload, dict):
-                raw_turn_id = payload.get("turn_id")
-                if isinstance(raw_turn_id, str) and raw_turn_id.strip():
-                    task.turn_id = raw_turn_id.strip()
-                raw_owner = payload.get("turn_lock_owner")
-                if isinstance(raw_owner, str) and raw_owner.strip():
-                    task.turn_lock_owner = raw_owner.strip()
-            # Already-authoritative cancellations must not queue behind busy
-            # completion slots. Use the same lifecycle and owner-guarded finally
-            # as executor work, including persisted-turn deduplication.
-            with activity_lock:
-                owned_tasks += 1
-            try:
-                cancelled_before_dispatch = _chat_task_cancelled_before_dispatch(task)
-            except BaseException:
-                release_activity()
-                raise
-            if cancelled_before_dispatch:
-                run_owned_task(task)
-                continue
-            try:
-                executor.submit(run_owned_task, task)
-            except BaseException:
-                release_activity()
-                raise
+                if not payload:
+                    continue
+                try:
+                    task = task_from_dict(payload)
+                except Exception as exc:
+                    logger.warning("[chat-worker] invalid task payload: %s", exc)
+                    continue
+                if not isinstance(task, ChatCompletionTask):
+                    logger.warning(
+                        "[chat-worker] skipping non-chat task type=%s id=%s",
+                        task.type,
+                        task.task_id,
+                    )
+                    continue
+                if isinstance(payload, dict):
+                    raw_turn_id = payload.get("turn_id")
+                    if isinstance(raw_turn_id, str) and raw_turn_id.strip():
+                        task.turn_id = raw_turn_id.strip()
+                    raw_owner = payload.get("turn_lock_owner")
+                    if isinstance(raw_owner, str) and raw_owner.strip():
+                        task.turn_lock_owner = raw_owner.strip()
+                # Already-authoritative cancellations must not queue behind busy
+                # completion slots. Use the same lifecycle and owner-guarded finally
+                # as executor work, including persisted-turn deduplication.
+                with activity_lock:
+                    owned_tasks += 1
+                heartbeat_wake.set()
+                try:
+                    cancelled_before_dispatch = _chat_task_cancelled_before_dispatch(task)
+                except BaseException:
+                    release_activity()
+                    raise
+                if cancelled_before_dispatch:
+                    run_owned_task(task)
+                    continue
+                try:
+                    executor.submit(run_owned_task, task)
+                except BaseException:
+                    release_activity()
+                    raise
+    finally:
+        # Keep liveness publication through the executor's existing drain. Each
+        # publisher operation owns a finite transport budget before this join.
+        heartbeat_stop.set()
+        heartbeat_wake.set()
+        heartbeat.join()
 
 
 if __name__ == "__main__":

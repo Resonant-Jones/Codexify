@@ -14,6 +14,25 @@ class _StopProbe(BaseException):
     pass
 
 
+class _Samples(list):
+    def __init__(self):
+        super().__init__()
+        self.changed = threading.Condition()
+
+    def append(self, status):
+        with self.changed:
+            super().append(status)
+            self.changed.notify_all()
+
+    def wait_status(self, status):
+        with self.changed:
+            assert self.changed.wait_for(lambda: self and self[-1] == status, timeout=2)
+
+    def wait_count(self, status, count):
+        with self.changed:
+            assert self.changed.wait_for(lambda: self.count(status) >= count, timeout=2)
+
+
 def _task():
     accepted = datetime.now(timezone.utc)
     return ChatCompletionTask(
@@ -26,7 +45,7 @@ def _task():
 
 
 def _install(monkeypatch, worker):
-    samples = []
+    samples = _Samples()
     futures = []
 
     class ObservedExecutor(ThreadPoolExecutor):
@@ -78,12 +97,12 @@ def test_activity_includes_held_terminal_cleanup(monkeypatch, failure):
             assert entered.wait(2)
             return None
         if count == 3:
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             finish_work.set()
             assert cleanup_entered.wait(2)
             return None
         if count == 4:
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             finish_cleanup.set()
             if failure:
                 with pytest.raises(RuntimeError, match="after cleanup"):
@@ -91,7 +110,7 @@ def test_activity_includes_held_terminal_cleanup(monkeypatch, failure):
             else:
                 futures[0].result(timeout=2)
             return None
-        assert samples[-1] == "idle"
+        samples.wait_status("idle")
         raise _StopProbe()
 
     monkeypatch.setattr(chat_worker, "dequeue", dequeue)
@@ -131,7 +150,7 @@ def test_activity_covers_queued_and_overlapping_lifecycles(monkeypatch, concurre
             assert entered[0].wait(2)
             return tasks[1].to_dict()
         if count == 3:
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             if concurrency == 1:
                 assert not entered[1].is_set()
             release[0].set()
@@ -139,11 +158,11 @@ def test_activity_covers_queued_and_overlapping_lifecycles(monkeypatch, concurre
             assert entered[1].wait(2)
             return None
         if count == 4:
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             release[1].set()
             futures[1].result(timeout=2)
             return None
-        assert samples[-1] == "idle"
+        samples.wait_status("idle")
         raise _StopProbe()
 
     monkeypatch.setattr(chat_worker, "dequeue", dequeue)
@@ -165,7 +184,7 @@ def test_inline_cancellation_does_not_clear_other_owned_activity(monkeypatch):
         calls.append(owned.task_id)
         if owned.task_id == cancelled.task_id:
             assert entered.is_set()
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             inline_done.set()
         else:
             entered.set()
@@ -189,11 +208,11 @@ def test_inline_cancellation_does_not_clear_other_owned_activity(monkeypatch):
         if count == 3:
             assert inline_done.is_set()
             assert len(futures) == 1
-            assert samples[-1] == "active"
+            samples.wait_status("active")
             release.set()
             futures[0].result(timeout=2)
             return None
-        assert samples[-1] == "idle"
+        samples.wait_status("idle")
         raise _StopProbe()
 
     monkeypatch.setattr(chat_worker, "dequeue", dequeue)
@@ -238,8 +257,79 @@ def test_dispatch_error_propagates_without_work_or_activity_in_next_run(monkeypa
     assert calls == []
 
     def stop_dequeue(*args, **kwargs):
-        assert samples[-1] == "idle"
+        samples.wait_status("idle")
         raise _StopProbe()
 
     monkeypatch.setattr(chat_worker, "dequeue", stop_dequeue)
     _run()
+
+
+@pytest.mark.parametrize("seam", ["inline", "cancellation_probe", "dequeue", "executor_drain"])
+def test_periodic_publication_survives_held_dispatch_and_drain(monkeypatch, seam):
+    task = _task()
+    entered, release = threading.Event(), threading.Event()
+    dispatcher_stopped = threading.Event()
+    calls, outcomes = [], []
+    previous_threads = set(threading.enumerate())
+
+    def held():
+        entered.set()
+        assert release.wait(3)
+
+    def worker(owned):
+        calls.append(owned.task_id)
+        if seam in {"inline", "executor_drain"}:
+            held()
+
+    samples, _ = _install(monkeypatch, worker)
+    monkeypatch.setattr(chat_worker, "WORKER_HEARTBEAT_INTERVAL_SECONDS", .025)
+
+    def cancelled(task_id):
+        assert task_id == task.task_id
+        if seam == "cancellation_probe":
+            held()
+        return seam in {"inline", "cancellation_probe"}
+
+    monkeypatch.setattr(chat_worker, "is_cancelled", cancelled)
+    dequeues = 0
+
+    def dequeue(*args, **kwargs):
+        nonlocal dequeues
+        dequeues += 1
+        if seam == "dequeue":
+            held()
+        elif dequeues == 1:
+            return task.to_dict()
+        dispatcher_stopped.set()
+        raise _StopProbe()
+
+    monkeypatch.setattr(chat_worker, "dequeue", dequeue)
+
+    def run():
+        try:
+            chat_worker.run_forever()
+        except _StopProbe:
+            outcomes.append("controlled_stop")
+        except BaseException as error:
+            outcomes.append(error)
+
+    runner = threading.Thread(target=run)
+    runner.start()
+    try:
+        assert entered.wait(2)
+        if seam == "executor_drain":
+            assert dispatcher_stopped.wait(2)
+        status = "idle" if seam == "dequeue" else "active"
+        first_new_sample = len(samples)
+        samples.wait_count(status, samples.count(status) + 3)
+        assert runner.is_alive() and not release.is_set()
+        assert all(value == status for value in samples[first_new_sample:])
+    finally:
+        release.set()
+        runner.join(3)
+    assert not runner.is_alive() and outcomes == ["controlled_stop"]
+    assert calls == ([] if seam == "dequeue" else [task.task_id])
+    assert not [
+        thread for thread in threading.enumerate()
+        if thread not in previous_threads and thread.name == "chat-worker-heartbeat"
+    ]

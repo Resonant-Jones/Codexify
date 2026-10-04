@@ -19,6 +19,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.core.chat_redis_deadline import (
+    redis_operation_scope as _redis_operation_scope,
     redis_retry_sleep,
     reset_scoped_redis_client,
     scoped_redis_client,
@@ -77,6 +78,13 @@ class QueueEnqueueError(RuntimeError):
 
 class RedisOperationTimeout(RuntimeError):
     """Raised when a Redis operation exceeds the backend fail-fast budget."""
+
+
+def redis_operation_scope(
+    timeout_seconds: float = _DEFAULT_REDIS_OPERATION_TIMEOUT_SECONDS,
+):
+    """Own physical transport waits under the existing operation policy."""
+    return _redis_operation_scope(timeout_seconds)
 
 
 def run_with_redis_timeout(

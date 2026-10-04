@@ -49,7 +49,7 @@ def peer(target, *, mode="stall"):
     stop = threading.Event()
     arrived = threading.Event()
     eof = threading.Event()
-    state = {"port": listener.getsockname()[1], "commands": 0}
+    state = {"port": listener.getsockname()[1], "commands": 0, "eofs": 0}
     sockets = []
 
     def serve():
@@ -65,6 +65,7 @@ def peer(target, *, mode="stall"):
                     while not stop.is_set():
                         parts = read_command(stream)
                         if parts is None:
+                            state["eofs"] += 1
                             eof.set()
                             break
                         name = parts[0].upper()
@@ -72,6 +73,11 @@ def peer(target, *, mode="stall"):
                             client.sendall(b"+OK\r\n")
                         elif name == target:
                             state["commands"] += 1
+                            if mode == "first_ok_then_stall" and state["commands"] == 1:
+                                client.sendall(b"+OK\r\n")
+                                continue
+                            if mode == "first_ok_then_stall":
+                                eof.clear()
                             arrived.set()
                             if mode == "drip":
                                 client.sendall(b"$30\r\n")
@@ -88,6 +94,7 @@ def peer(target, *, mode="stall"):
                                 client.sendall(b"+PONG\r\n")
                             else:
                                 assert stream.readline() == b""
+                                state["eofs"] += 1
                                 eof.set()
                                 break
                         else:
@@ -125,6 +132,163 @@ def factory(monkeypatch, state, *, socket_timeout=2, retry=None, host="127.0.0.1
         host=host, port=state["port"], decode_responses=True,
         socket_timeout=socket_timeout, socket_connect_timeout=2, retry=retry,
     ))
+
+
+def test_maintenance_publisher_held_response_closes_within_operation_budget(monkeypatch):
+    from guardian.workers import chat_worker
+
+    original = redis_queue._CLIENT
+    monkeypatch.setattr(chat_worker, "redis_operation_scope", lambda: bounds.redis_operation_scope(.25))
+    with peer(b"SETEX") as (state, arrived, eof):
+        factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
+        start = time.monotonic()
+        chat_worker._publish_worker_heartbeat("active")
+        duration = time.monotonic() - start
+        assert .20 < duration < .65
+        assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
+    assert bounds._budget.get() is None and redis_queue._CLIENT is original
+    print({"surface": "maintenance_SETEX", "duration": duration, "peer_eof": True})
+
+
+def test_reporter_is_joined_after_native_held_redis_io_and_executor_drain(monkeypatch):
+    from guardian.tasks.types import ChatCompletionTask
+    from guardian.workers import chat_worker
+
+    class StopProbe(BaseException):
+        pass
+
+    previous_threads = set(threading.enumerate())
+    entered, release = threading.Event(), threading.Event()
+    accepted = build_accepted_chat_task_deadline(datetime.now(timezone.utc))
+    task = ChatCompletionTask(user_id="inert-heartbeat-proof", thread_id=909003,
+                              **accepted.to_dict())
+    monkeypatch.setattr(chat_worker, "_initialize_worker", lambda: None)
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda _: False)
+    monkeypatch.setattr(chat_worker, "redis_operation_scope", lambda: bounds.redis_operation_scope(.25))
+
+    def worker(owned):
+        assert owned.task_id == task.task_id
+        entered.set()
+        assert release.wait(3)
+
+    monkeypatch.setattr(chat_worker, "_run_chat_task", worker)
+    with peer(b"SETEX", mode="first_ok_then_stall") as (state, arrived, eof):
+        factory(monkeypatch, state)
+        dequeues = 0
+
+        def dequeue(*args, **kwargs):
+            nonlocal dequeues
+            dequeues += 1
+            if dequeues == 1:
+                return task.to_dict()
+            if dequeues == 2:
+                assert entered.wait(2) and arrived.wait(2)
+                release.set()
+                return None
+            raise StopProbe()
+
+        monkeypatch.setattr(chat_worker, "dequeue", dequeue)
+        start = time.monotonic()
+        try:
+            with pytest.raises(StopProbe):
+                chat_worker.run_forever()
+        finally:
+            release.set()
+        duration = time.monotonic() - start
+        assert .20 < duration < .9
+        assert state["commands"] == 2 and eof.wait(.25) and state["eofs"] == 2
+    assert not [t for t in threading.enumerate()
+                if t not in previous_threads and t.name == "chat-worker-heartbeat"]
+    assert bounds._budget.get() is None
+    print({"surface": "reporter_join_held_SETEX", "duration": duration, "peer_eof": True})
+
+
+def test_maintenance_dns_child_is_killed_reaped_and_pipes_closed(monkeypatch):
+    children = []
+    original = bounds.subprocess.Popen
+
+    def tracked(*args, **kwargs):
+        child = original(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(bounds.subprocess, "Popen", tracked)
+    monkeypatch.setattr(bounds, "_DNS_PROGRAM", "import time;time.sleep(20)\n" + bounds._DNS_PROGRAM)
+    factory(monkeypatch, {"port": 1}, host="owned.invalid")
+    start = time.monotonic()
+    with pytest.raises(RedisTimeoutError, match="operation deadline"):
+        with bounds.redis_operation_scope(.25):
+            redis_queue.get_request_redis_client().ping()
+    duration = time.monotonic() - start
+    assert .20 < duration < .65
+    assert len(children) == 1 and children[0].poll() is not None
+    assert children[0].stdin.closed and children[0].stdout.closed
+    assert bounds._budget.get() is None
+    print({"surface": "maintenance_DNS", "duration": duration, "child_reaped": True})
+
+
+def test_maintenance_retry_backoff_consumes_one_operation_budget(monkeypatch):
+    with peer(b"PING", mode="drop") as (state, arrived, _eof):
+        factory(monkeypatch, state, retry=Retry(ConstantBackoff(2), 3))
+        start = time.monotonic()
+        with pytest.raises(RedisTimeoutError, match="operation deadline"):
+            with bounds.redis_operation_scope(.25):
+                redis_queue.get_request_redis_client().ping()
+        assert .20 < time.monotonic() - start < .65
+        assert arrived.is_set() and state["commands"] == 1
+
+
+def test_maintenance_scope_cannot_replace_accepted_budget(monkeypatch):
+    with peer(b"PING", mode="healthy") as (state, _arrived, eof):
+        factory(monkeypatch, state)
+        with bounds.accepted_redis_scope(snapshot(seconds=5)):
+            inherited = bounds._budget.get()
+            client = redis_queue.get_request_redis_client()
+            with pytest.raises(ValueError, match="replace an inherited budget"):
+                with bounds.redis_operation_scope(20):
+                    pytest.fail("maintenance must not replace accepted task scope")
+            assert bounds._budget.get() is inherited
+            assert redis_queue.get_request_redis_client() is client and client.ping()
+        assert eof.wait(.25)
+
+
+def test_maintenance_pool_and_client_cannot_escape_or_borrow_another_scope(monkeypatch):
+    original = redis_queue._CLIENT
+    with peer(b"PING", mode="healthy") as (state, _arrived, eof):
+        factory(monkeypatch, state)
+        with bounds.redis_operation_scope(2):
+            client = redis_queue.get_request_redis_client()
+            assert client.ping()
+            connection = client.connection_pool._available_connections[0]
+            assert connection._sock is not None
+        assert connection._sock is None and eof.wait(.25)
+        with pytest.raises(ValueError, match="outside"):
+            client.ping()
+        with bounds.redis_operation_scope(2):
+            with pytest.raises(ValueError, match="outside"):
+                client.ping()
+            next_client = redis_queue.get_request_redis_client()
+            assert next_client is not client and next_client.ping()
+    assert bounds._budget.get() is None and redis_queue._CLIENT is original
+
+
+def test_maintenance_terminal_switch_cannot_extend_operation(monkeypatch):
+    factory(monkeypatch, {"port": 1})
+    with bounds.redis_operation_scope(.05):
+        time.sleep(.08)
+        bounds.use_redis_terminal_budget()
+        with pytest.raises(RedisTimeoutError, match="operation deadline"):
+            redis_queue.get_request_redis_client()
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("inf"), float("nan")])
+def test_maintenance_invalid_operation_limit_fails_before_client(monkeypatch, seconds):
+    calls = []
+    monkeypatch.setattr(redis_queue, "_connect_request_client", lambda: calls.append(True))
+    with pytest.raises(ValueError, match="finite and positive"):
+        with bounds.redis_operation_scope(seconds):
+            redis_queue.get_request_redis_client()
+    assert not calls and bounds._budget.get() is None
 
 
 @pytest.mark.parametrize("surface,phase", [

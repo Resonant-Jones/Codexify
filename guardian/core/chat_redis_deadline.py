@@ -1,10 +1,11 @@
-"""Task-owned Redis transport bounds for the immutable ADR-087 envelope."""
+"""Owned Redis transport bounds for accepted tasks and worker maintenance."""
 
 from __future__ import annotations
 
 import copy
 import ipaddress
 import json
+import math
 import socket
 import subprocess
 import sys
@@ -31,6 +32,7 @@ class _Budget:
     terminal_end: float
     terminal: bool = False
     invalid: bool = False
+    operation: bool = False
     client: object | None = None
 
     def remaining(self):
@@ -38,6 +40,8 @@ class _Budget:
             raise ValueError("accepted chat deadline snapshot is invalid")
         remaining = (self.terminal_end if self.terminal else self.work_end) - time.monotonic()
         if remaining <= 0:
+            if self.operation:
+                raise RedisTimeoutError("Redis operation deadline exceeded")
             error = AcceptedChatTaskDeadlineExceeded()
             if self.terminal:
                 error.detail["message"] = "Accepted chat task terminal deadline exceeded."
@@ -53,11 +57,32 @@ class _Budget:
         client, self.client = self.client, None
         pool = getattr(client, "connection_pool", None)
         if isinstance(pool, ConnectionPool):
-            client.close()
-            pool.disconnect()
+            try:
+                client.close()
+            finally:
+                pool.disconnect()
 
 
 _budget: ContextVar[_Budget | None] = ContextVar("chat_redis_budget", default=None)
+
+
+@contextmanager
+def redis_operation_scope(timeout_seconds: float):
+    """Bound maintenance without minting or replacing an accepted task budget."""
+    if _budget.get() is not None:
+        raise ValueError("Redis operation scope cannot replace an inherited budget")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("Redis operation timeout must be finite and positive")
+    end = time.monotonic() + timeout_seconds
+    value = _Budget(end, end, operation=True)
+    token = _budget.set(value)
+    try:
+        yield
+    finally:
+        try:
+            value.close_client()
+        finally:
+            _budget.reset(token)
 
 
 @contextmanager
@@ -171,7 +196,7 @@ class _DeadlineSocket:
                 raise
             self.budget.remaining()
             return result
-        except (AcceptedChatTaskDeadlineExceeded, ValueError):
+        except (AcceptedChatTaskDeadlineExceeded, RedisTimeoutError, ValueError):
             self.sock.close()
             raise
 
@@ -194,7 +219,7 @@ class _HandshakeSocket(_DeadlineSocket):
         # takes ownership by detach(). Do not give the handshake a stale limit.
         try:
             remaining = self.budget.remaining()
-        except (AcceptedChatTaskDeadlineExceeded, ValueError):
+        except (AcceptedChatTaskDeadlineExceeded, RedisTimeoutError, ValueError):
             self.sock.close()
             raise
         return remaining if self.policy_timeout is None else min(self.policy_timeout, remaining)
