@@ -19,10 +19,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 import uuid
 from typing import Any
 
 import numpy as np
+
+from guardian.core.chat_postgres_deadline import require_accepted_work_budget
 
 from guardian.utils.embed_paths import (
     get_local_embed_model,
@@ -250,6 +253,7 @@ class LocalSemanticEmbedder:
         collection: str = "codexify_vault_supported",
         backend: str | None = None,
     ) -> None:
+        accepted_remaining = require_accepted_work_budget()
         self._model_override = model
 
         self.store = (store or DEFAULT_STORE).strip().lower()
@@ -267,13 +271,31 @@ class LocalSemanticEmbedder:
             configured_backend = _BACKEND_SENTENCE_TRANSFORMER
         self._backend_type = configured_backend
 
-        # Initialize embedding model based on backend selection
-        self._model = self._init_embedding_model()
+        self._faiss_state_lock = threading.RLock()
         self._index = None
         self._index_dim: int | None = None
         self._texts: list[str] = []
         self._metadatas: list[dict[str, Any]] = []
         self._chroma_collection = None
+
+        if self.store not in {'faiss', 'chroma'}:
+            raise ValueError("Vector store must be 'faiss' or 'chroma'.")
+        if self.store == 'faiss' and faiss is None:
+            raise RuntimeError('faiss not installed.')
+
+        if accepted_remaining is not None:
+            from guardian.vector.accepted_deadline import initialize_accepted_vector
+            self._deferred_model_binding = initialize_accepted_vector(
+                model=model, backend=configured_backend, store=self.store,
+                chroma_path=chroma_path, collection=collection,
+                allow_fallback=_allow_fallback(),
+            )
+            self.model_name = self._deferred_model_binding['model']
+            self._model = None
+            return
+
+        # Unscoped startup/indexing retains the canonical native instance.
+        self._model = self._init_embedding_model()
 
         if self.store == "faiss":
             if faiss is None:
@@ -421,6 +443,13 @@ class LocalSemanticEmbedder:
         if not texts:
             return np.empty((0, 0), dtype="float32")
 
+        if require_accepted_work_budget() is not None:
+            raise RuntimeError('Accepted native vector work requires read-only search')
+        if self._model is None and hasattr(self, '_deferred_model_binding'):
+            from guardian.vector.accepted_child import load_bound_model
+            with self._faiss_state_lock:
+                if self._model is None:
+                    self._model = load_bound_model(self._deferred_model_binding)
         model = self._model
         if model is None:
             return np.empty((0, 0), dtype="float32")
@@ -494,20 +523,24 @@ class LocalSemanticEmbedder:
                 return {"store": "faiss", "count": 0}
             vectors = _normalize_embeddings(vectors)
             dim = int(vectors.shape[1])
-            if self._index is None or self._index_dim != dim:
-                if self._index is not None and self._index_dim != dim:
-                    logger.warning(
-                        "[embedder] FAISS dim changed; resetting index"
-                    )
-                    self._texts = []
-                    self._metadatas = []
-                self._index = faiss.IndexFlatIP(dim)
-                self._index_dim = dim
-            self._index.add(vectors)
-            self._texts.extend(text_list)
-            self._metadatas.extend(metas)
+            with self._faiss_state_lock:
+                if self._index is None or self._index_dim != dim:
+                    if self._index is not None and self._index_dim != dim:
+                        logger.warning(
+                            "[embedder] FAISS dim changed; resetting index"
+                        )
+                        self._texts = []
+                        self._metadatas = []
+                    self._index = faiss.IndexFlatIP(dim)
+                    self._index_dim = dim
+                self._index.add(vectors)
+                self._texts.extend(text_list)
+                self._metadatas.extend(metas)
             return {"store": "faiss", "count": len(text_list)}
 
+        if self._chroma_collection is None and hasattr(self, '_deferred_model_binding'):
+            self._chroma_collection = _create_chroma_client(
+                self.chroma_path).get_collection(self.collection)
         if self._chroma_collection is None:
             raise RuntimeError("Chroma collection not initialized.")
         vectors = self._embed_np(text_list)
@@ -550,6 +583,11 @@ class LocalSemanticEmbedder:
         if not normalized_user_id:
             raise ValueError("Vector search requires user_id")
 
+        if require_accepted_work_budget() is not None:
+            from guardian.vector.accepted_deadline import search_accepted_vector
+            return search_accepted_vector(self, str(query), k,
+                                          normalized_namespace, normalized_user_id)
+
         if self.store == "faiss":
             if self._index is None or not self._texts:
                 return []
@@ -585,6 +623,9 @@ class LocalSemanticEmbedder:
                     break
             return results
 
+        if self._chroma_collection is None and hasattr(self, '_deferred_model_binding'):
+            self._chroma_collection = _create_chroma_client(
+                self.chroma_path).get_collection(self.collection)
         if self._chroma_collection is None:
             return []
         vectors = self._embed_np([str(query)])
@@ -628,6 +669,7 @@ class LocalSemanticEmbedder:
 
     def get_ids(self, where: dict[str, Any]) -> list[str]:
         """Return ids matching a metadata filter (Chroma only)."""
+        self._materialize_chroma_collection()
         if self.store != "chroma" or self._chroma_collection is None:
             return []
         if not where:
@@ -638,6 +680,7 @@ class LocalSemanticEmbedder:
 
     def delete_by_ids(self, ids: list[str]) -> int:
         """Delete documents by id (Chroma only)."""
+        self._materialize_chroma_collection()
         if self.store != "chroma" or self._chroma_collection is None:
             return 0
         cleaned = [str(value).strip() for value in ids]
@@ -646,6 +689,14 @@ class LocalSemanticEmbedder:
             return 0
         self._chroma_collection.delete(ids=cleaned)
         return len(cleaned)
+
+    def _materialize_chroma_collection(self) -> None:
+        if (self.store == 'chroma' and self._chroma_collection is None
+                and hasattr(self, '_deferred_model_binding')):
+            if require_accepted_work_budget() is not None:
+                raise RuntimeError('Accepted vector work requires read-only search')
+            self._chroma_collection = _create_chroma_client(
+                self.chroma_path).get_collection(self.collection)
 
 
 class Embedder(LocalSemanticEmbedder):

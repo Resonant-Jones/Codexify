@@ -107,6 +107,13 @@ def require_accepted_work_budget() -> float | None:
     return remaining
 
 
+def accepted_child_deadline_bounds() -> tuple[float, float] | None:
+    """Return the original monotonic work/cleanup ends without a new budget."""
+    require_accepted_work_budget()
+    value = _budget.get()
+    return None if value is None else (value.work_end, value.terminal_end)
+
+
 class AcceptedDeadlineQueue(pool_queue.Queue):
     """Clip each pool borrower without changing the pool's shared timeout."""
 
