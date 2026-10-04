@@ -122,3 +122,14 @@ Rollback: use the artifact's compose.scout-rollback.yml with the existing base a
 private-preview Compose files and the same bounded three-service command. It
 restores the previously qualified application auth bytes while retaining safe
 origin logging during the proof window. No database downgrade is involved.
+
+## Native admission rejection classification
+
+After native ingress renewal, the qualifier returned HTTP 400 before browser
+launch. Its fixed response identified native admission rejection. The qualifier
+now exposes only a fixed `X-Scout-Qualification-Rejection` enum on that existing
+rejection: missing/ambiguous/unsupported Authorization or conflicting selectors.
+No header value, cookie, credential, identity or callback data is reflected.
+The accepted request predicate and signed Access validation are unchanged.
+Five new rejection tests join the integrated **83 passing backend tests**.
+This is diagnostic evidence; it does not admit a previously rejected composition.

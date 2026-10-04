@@ -128,20 +128,26 @@ async def require_hosted_admission(request: Request) -> None:
 
 async def require_native_qualification(request: Request):
     await require_hosted_admission(request)
-    if (
-        len(request.headers.getlist("Authorization")) != 1
-        or not request.headers.get("Authorization", "").startswith("Bearer oauth:")
-        or any(
-            name in request.headers
-            for name in ("X-Guardian-Account-Session", "X-API-Key", "X-Guardian-Key")
-        )
-        or any(
-            name in request.cookies
-            for name in ("gc_session", "codexify_hosted_room_session")
-        )
+    # Fixed shape classifications only; never retain or reflect header values.
+    reason = None
+    count = len(request.headers.getlist("Authorization"))
+    if count != 1:
+        reason = "missingAuthorization" if count == 0 else "ambiguousAuthorization"
+    elif not request.headers.get("Authorization", "").startswith("Bearer oauth:"):
+        reason = "unsupportedAuthorization"
+    elif any(
+        name in request.headers
+        for name in ("X-Guardian-Account-Session", "X-API-Key", "X-Guardian-Key")
+    ) or any(
+        name in request.cookies
+        for name in ("gc_session", "codexify_hosted_room_session")
     ):
+        reason = "conflictingSelectors"
+    if reason:
         raise HTTPException(
-            status_code=400, detail="Native admission required", headers=SAFE_HEADERS
+            status_code=400,
+            detail="Native admission required",
+            headers={**SAFE_HEADERS, "X-Scout-Qualification-Rejection": reason},
         )
 
 

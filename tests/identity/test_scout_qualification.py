@@ -64,6 +64,44 @@ def native_headers(identity=None):
     }
 
 
+@pytest.mark.parametrize(
+    ("headers", "reason"),
+    [
+        ({}, "missingAuthorization"),
+        ({"Authorization": "Bearer fixture-private-token"}, "unsupportedAuthorization"),
+        (
+            {
+                **native_headers(),
+                "X-Guardian-Account-Session": "fixture-private-session",
+            },
+            "conflictingSelectors",
+        ),
+        (
+            {**native_headers(), "Cookie": "gc_session=fixture-private-cookie"},
+            "conflictingSelectors",
+        ),
+        (
+            [
+                ("Authorization", "Bearer oauth:fixture-a"),
+                ("Authorization", "Bearer oauth:fixture-b"),
+            ],
+            "ambiguousAuthorization",
+        ),
+    ],
+)
+def test_native_rejection_exposes_only_fixed_shape_classification(
+    flow, headers, reason
+):
+    api, _, _ = flow
+    identity = str(uuid4())
+    response = api.put("/api/auth/scout/qualification/" + identity, headers=headers)
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Native admission required"}
+    assert response.headers["X-Scout-Qualification-Rejection"] == reason
+    assert "fixture-" not in response.text + str(response.headers)
+    assert q.snapshot(identity) is None
+
+
 def test_qualification_requires_existing_hosted_admission_but_confers_no_session(
     flow, monkeypatch
 ):
