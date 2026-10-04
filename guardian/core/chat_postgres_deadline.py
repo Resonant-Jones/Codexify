@@ -90,6 +90,23 @@ def use_postgres_terminal_budget() -> None:
         value.terminal = True
 
 
+def require_accepted_work_budget() -> float | None:
+    """Admit new child work against the worker's original work deadline.
+
+    Database terminal mode must never grant new retrieval the terminal reserve.
+    This is admission only; callers still need physical native-operation bounds.
+    """
+    value = _budget.get()
+    if value is None:
+        return None
+    if value.invalid:
+        raise ValueError("accepted chat deadline snapshot is invalid")
+    remaining = value.work_end - time.monotonic()
+    if remaining <= 0:
+        raise AcceptedChatTaskDeadlineExceeded()
+    return remaining
+
+
 class AcceptedDeadlineQueue(pool_queue.Queue):
     """Clip each pool borrower without changing the pool's shared timeout."""
 

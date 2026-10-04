@@ -39,6 +39,7 @@ from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
 from guardian.core.pgdb import PgDB
+from guardian.core.chat_postgres_deadline import require_accepted_work_budget
 from guardian.context.context_directive_resolver import (
     CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
     SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -2498,12 +2499,15 @@ def _workspace_completion_vector_store() -> VectorStore:
     if _WorkspaceVectorEmbedder is None:
         return store
     try:
+        require_accepted_work_budget()
         store.embedder = _WorkspaceVectorEmbedder(
             store=store.store,
             chroma_path=store.chroma_path,
             collection=store.collection,
         )
         store._embedder_factory_token = id(_WorkspaceVectorEmbedder)
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception:
         logger.debug(
             "[chat-completion] fresh workspace vector store rebuild failed",
