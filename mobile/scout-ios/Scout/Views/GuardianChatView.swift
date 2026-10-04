@@ -1050,6 +1050,7 @@ private struct TaskEventsView: View {
     @State private var events: [ScoutTaskEvent] = []
     @State private var statusMessage: String?
     @State private var isConnected = false
+    @State private var streamFinished = false
     @State private var streamError: String?
 
     private let keychainStore = ScoutKeychainStore()
@@ -1074,6 +1075,10 @@ private struct TaskEventsView: View {
                     if streamError != nil {
                         Label("Error", systemImage: "xmark.circle.fill")
                             .foregroundStyle(.red)
+                            .font(.caption)
+                    } else if streamFinished {
+                        Label("Stream ended", systemImage: "stop.circle")
+                            .foregroundStyle(.secondary)
                             .font(.caption)
                     } else if isConnected {
                         Label("Connected", systemImage: "circle.fill")
@@ -1181,7 +1186,8 @@ private struct TaskEventsView: View {
             apiKey = nil
         }
 
-        isConnected = true
+        isConnected = false
+        streamFinished = false
         streamError = nil
 
         do {
@@ -1190,6 +1196,7 @@ private struct TaskEventsView: View {
             )
             for try await event in stream {
                 guard !Task.isCancelled else { break }
+                isConnected = true
                 events.append(event)
                 if event.isTerminal {
                     await handleTerminalEvent(event.eventType ?? "unknown")
@@ -1201,6 +1208,7 @@ private struct TaskEventsView: View {
         }
 
         isConnected = false
+        streamFinished = true
     }
 }
 
