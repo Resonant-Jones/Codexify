@@ -23,6 +23,17 @@ which individual upstream component consumed the header. No Guardian browser
 credential submission, callback, exchange, native issuance or protected account
 read occurred in this attempt.
 
+A subsequent read-only audit of the origin's loaded `nginx -T` configuration
+found no disabled request-header forwarding, Authorization override/clear rule,
+or custom request-header code. The API proxy route remains present. Its
+configuration fingerprint is
+`1dabc5b9a9e0d28bf2f646dddcecedc209dd70ce75f46e20312c109729ac6d3b`.
+Inspected Guardian request-ID/timing, CORS, public-exposure and Scout transport
+middleware do not remove Authorization for this header-only qualification
+request. Serving guardian_api/public_exposure/scout_account_transport hashes
+match the inspected source. These checks narrow the mismatch to the upstream
+path; they do not prove the precise upstream remover or authorize an amendment.
+
 The diagnostic deployment recreated only preview backend, using the unchanged
 image `sha256:579c15b3b31b74ac3feef814ced96af8595c4a3f289f0b955ef8bbf6b0a61291`.
 Only its two route source mounts changed. Direct Uvicorn and
