@@ -2190,6 +2190,8 @@ async def _apply_context_request_plans(
                     else None
                 ),
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             context_request_results.append(
                 _context_request_result_record(
@@ -5041,6 +5043,8 @@ async def build_messages_for_llm(
                 exc.code,
             )
             raise
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             if accepted_selection is not None:
                 raise
@@ -5073,6 +5077,8 @@ async def build_messages_for_llm(
                 if raw_inferred_provider is not None
                 else None
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             inferred_provider = None
         if inferred_provider:
@@ -5113,6 +5119,8 @@ async def build_messages_for_llm(
         items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
         try:
             items = sorted(items, key=lambda m: m.get("id") or 0)
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             pass
 
@@ -5280,6 +5288,8 @@ async def build_messages_for_llm(
             prompt_meta["request_user_id"] = task_user_id
             bundle["_prompt_meta"] = prompt_meta
         assembly_succeeded = True
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -5300,6 +5310,8 @@ async def build_messages_for_llm(
                 user_id=context_user_id,
                 project_id=project_id_for_prompt,
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] context request plan application failed depth=%s err=%s",
@@ -5368,6 +5380,8 @@ async def build_messages_for_llm(
                 "Prefer clear, structured answers for a busy software engineer. "
                 "If you are uncertain, say so explicitly and avoid fabrication."
             )
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception as exc:
         logger.warning("[chat-completion] failed to build system prompt: %s", exc)
         system_content = (
@@ -5384,6 +5398,8 @@ async def build_messages_for_llm(
             merged_meta = dict(existing_meta)
             merged_meta.update(prompt_meta or {})
             bundle["_prompt_meta"] = merged_meta
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             bundle["_prompt_meta"] = dict(prompt_meta or {})
 
@@ -5434,6 +5450,8 @@ async def build_messages_for_llm(
             merged_meta = dict(bundle.get("_prompt_meta") or {})
             merged_meta.update(prompt_meta or {})
             bundle["_prompt_meta"] = merged_meta
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             bundle["_prompt_meta"] = dict(prompt_meta or {})
         bundle["_attachment_meta"] = {
@@ -5458,6 +5476,8 @@ async def build_messages_for_llm(
                 user_depth=depth,
             )
             trace["retrieval_policy"] = retrieval_policy_obj.as_dict()
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] retrieval policy serialization failed depth=%s err=%s",
@@ -5497,6 +5517,8 @@ async def build_messages_for_llm(
                     if remote_recall_outcome is not None
                     else {"invoked": False}
                 )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] remote recall failed depth=%s err=%s",
