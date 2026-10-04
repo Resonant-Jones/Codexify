@@ -210,3 +210,19 @@ untouched files: two in coding_agent_contracts.py, one in watchdog/contracts.py,
 and two in routes/imprint.py. Those files match starting HEAD. The scoped commit
 skips only mypy; all other applicable hooks pass. No repository-wide clean
 type-check claim is made.
+
+### October 4 native preflight recovery
+
+Attempt `b3467715-a301-468b-8ee4-101a5c086aa6` stopped locally at ingress
+availability with `credentialMissing`; every later stage was unobserved.
+No corresponding browser/account/handoff event reached the backend. The existing
+Check stored ingress action subsequently reached Guardian's account gate with
+HTTP 401, Cloudflare Ray `a456c0e6dcb7d941-MIA`. This is Access admission only.
+
+New attempt `d0d1f7bd-7ba3-4710-9b0a-49ccad8a4938` passed ingress availability
+and the amended native qualification preflight, then launched its system browser.
+The standard sign-in Continue prompt was accepted. The backend's bounded event
+records `browser_loaded / passed / HTTP 200` for that public ID. This proves
+browser arrival; it does not prove canonical account login, callback, exchange,
+native issuance, Keychain storage, protected account read or continuity. The
+operator was handed the open browser for the one Guardian account sign-in.
