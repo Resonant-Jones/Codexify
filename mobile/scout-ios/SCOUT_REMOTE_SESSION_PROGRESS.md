@@ -370,3 +370,15 @@ conflicting selectors without exposing values or changing admission checks.
 Scout accepts only those fixed enum values, never arbitrary response text.
 The complete client suite passes **61 tests**; the backend integration suite
 passes **83 tests**. No new sign-in submission occurred during these preflights.
+
+The final signed client build is installed and launched in the existing proof
+Simulator. Public attempt `f559214a-652f-4557-ad99-d6d5f8f5bae7` passed stage 1
+but stopped before browser launch at stage 2: `nativeAuthorizationMissing`,
+HTTP 400. The deployed backend diagnostic confirms its existing signed Access
+checks passed and no Authorization header reached Guardian. Scout supplies that
+header; the observation does not identify the individual upstream remover.
+ADR-092's current opaque-Bearer requirement correctly fails closed. A bounded
+transport amendment is prepared in the backend checkout's
+`docs/Ops/scout-edge-consumed-access-proposal-2026-10-03.md`; it awaits separate
+approval and is not implemented. Current canonical account authority is unchanged.
+Authenticated native read, complete #815 continuity and logout remain unproven.
