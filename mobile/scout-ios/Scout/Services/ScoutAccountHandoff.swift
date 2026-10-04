@@ -83,9 +83,11 @@ enum ScoutHostedLogoutProof {
         return probe
     }
 
+    // Call only after accepted logout with its prepared credential. This proves
+    // a denied replay, not general session invalidation or its rejection reason.
     static func verifiedDenial(_ response: HTTPURLResponse) -> Bool {
         response.url == ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads")
-            && ScoutRequestAuthentication.isInvalidAccountResponse(response)
+            && response.statusCode == 401
             && ScoutAuthenticationQualification.HostedAdmission(rawValue:
                 response.value(forHTTPHeaderField: "X-Scout-Access-Admission") ?? "") != nil
     }

@@ -57,7 +57,7 @@ final class ScoutAccountSessionTests: XCTestCase {
         XCTAssertThrowsError(try ScoutHostedLogoutProof.request(from: wrongOrigin, profile: hosted))
     }
 
-    func testRevocationDenialRequiresCanonicalFailureAndVerifiedHostedAdmissionAtTheExactRead() {
+    func testPostLogoutDenialRequiresVerifiedHostedAdmissionAtTheExactRead() {
         let url = ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads")
         let failure = "ACCOUNT_SESSION_INVALID"
         for admission in ["edge-consumed", "opaque-forwarded"] {
@@ -67,8 +67,12 @@ final class ScoutAccountSessionTests: XCTestCase {
                 XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!))
             }
             XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: URL(string: "https://other.example/api/chat/threads")!, statusCode: 401, httpVersion: nil, headerFields: headers)!))
+            // Preview eligibility can deny a revoked session without the general
+            // invalidation marker. This bounded check does not change that policy.
+            XCTAssertTrue(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil,
+                headerFields: ["X-Scout-Access-Admission": admission])!))
         }
-        for headers in [[:], ["X-Guardian-Auth-Failure": failure], ["X-Scout-Access-Admission": "edge-consumed"],
+        for headers in [[:], ["X-Guardian-Auth-Failure": failure],
                         ["X-Guardian-Auth-Failure": failure, "X-Scout-Access-Admission": "unqualified"]] {
             XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: headers)!))
         }
