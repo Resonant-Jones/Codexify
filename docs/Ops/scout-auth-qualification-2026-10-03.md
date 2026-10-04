@@ -165,3 +165,48 @@ label only from HTTP 200 at its exact qualification origin/path/attempt.
 **100 backend tests, 62 SwiftPM tests, 16 browser tests, Vite build and signed
 Simulator build pass**. Deployment and live native sign-in/continuity remain
 unproven at this source checkpoint; no infrastructure/account/database change ran.
+
+### October 4 deployment checkpoint
+
+Backend transport/ADR commit: `5836ed986e4cc6175b5184fe6b5d2fb23a989ed1`.
+Scout diagnostics commit: `ae6855b721dbbe0f0fff6148285a9a7bcd1d7341`.
+VaultNode artifact: `/Volumes/Dev_SSD/Codexify-scout815-auth/5836ed986-edge`.
+The serving image remains
+`sha256:579c15b3b31b74ac3feef814ced96af8595c4a3f289f0b955ef8bbf6b0a61291`.
+Only four read-only mount sources changed: the route and transport files at
+their Guardian and compatibility package locations. Both route hashes are
+`424bd8f3eff1aed8f06bae5d24cbd00df30bce38570e987eeb2b87e1eff864ec`;
+both transport hashes are
+`206d3df4cd8aca3a5043fc09818a9d648a51f0dd00a1a723c67d4a84127c832a`.
+Running bytes match. Full resolved Compose comparison in memory confirms those
+four source changes are the only configuration delta. Syntax/hash validation
+ran in the same image with no network, read-only files and no application startup.
+
+Only backend was recreated, with no dependencies, build or image pull. Its
+existing direct Python/Uvicorn command and skip-seeding flag remain active;
+exactly one safe suppression marker appears. Backend is healthy. Origin
+`/health` returns 200; an anonymous `/api/chat/threads` read returns 401.
+Schema revision `a7b9c4d2e6f1`, schema fingerprint and all ten preserved table
+count/fingerprint pairs are identical before and after. All 29 other running
+service identities, start times, images and configuration hashes are unchanged.
+No migration, seeding, account or external-access operation ran.
+
+The artifact's `compose.scout-rollback.yml` retains the immediately preceding
+qualified runtime configuration. Applying it with the existing base/private-preview
+Compose files and the same backend-only/no-dependencies/no-build/no-pull command
+restores prior source mounts without any database operation.
+
+The signed Scout build was installed and launched in the existing proof Simulator
+without uninstall/reset or profile/Keychain removal. Its actual Server screen
+requests Guardian sign-in; this is installation proof, not authentication proof.
+Device Hub AX inspection works, but coordinate input returns `noWindowsAvailable`.
+The operator was asked to use Settings, check stored ingress, complete one Guardian
+sign-in and return to Scout. Native admitted state, issuance, protected read and
+full continuity/logout remain pending the live attempt.
+
+Commit hooks retained one isort import-order change; the affected mounted-route
+tests were rerun and both pass. The current mypy hook reports five errors in three
+untouched files: two in coding_agent_contracts.py, one in watchdog/contracts.py,
+and two in routes/imprint.py. Those files match starting HEAD. The scoped commit
+skips only mypy; all other applicable hooks pass. No repository-wide clean
+type-check claim is made.
