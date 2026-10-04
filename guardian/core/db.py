@@ -24,6 +24,7 @@ from guardian.core.project_lifecycle import (
     require_project_deletable,
 )
 from guardian.protocol_tokens import TaskEventType
+from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline
 
 # Import ORM models
 from guardian.db.models import (
@@ -62,8 +63,17 @@ def create_chat_completion_attempt(
     backend_task_id: str,
     thread_id: int,
     turn_id: str,
+    deadline_snapshot: AcceptedChatTaskDeadline | None = None,
+    turn_lock_token: str | None = None,
 ) -> None:
     """Commit the resource binding before the task can enter Redis."""
+    if deadline_snapshot is not None:
+        if not isinstance(deadline_snapshot, AcceptedChatTaskDeadline):
+            raise ValueError("Recovery requires the original accepted deadline")
+        if not isinstance(turn_lock_token, str) or not turn_lock_token.strip():
+            raise ValueError("Recovery requires the existing turn lock token")
+    elif turn_lock_token is not None:
+        raise ValueError("Turn lock token requires an original deadline snapshot")
     with chatlog_db._sa_session() as session:
         session.add(
             ChatCompletionAttempt(
@@ -71,6 +81,10 @@ def create_chat_completion_attempt(
                 backend_task_id=backend_task_id,
                 thread_id=thread_id,
                 turn_id=turn_id,
+                deadline_snapshot=(
+                    deadline_snapshot.to_dict() if deadline_snapshot is not None else None
+                ),
+                turn_lock_token=turn_lock_token,
             )
         )
 

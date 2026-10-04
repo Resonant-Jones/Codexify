@@ -859,6 +859,8 @@ def enqueue_chat_completion(
             backend_task_id=task_identity,
             thread_id=thread_id,
             turn_id=turn_id,
+            deadline_snapshot=deadline,
+            turn_lock_token=locked.lease_token,
         )
     except Exception as exc:
         if participant is not None and participant_prepared:

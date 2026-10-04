@@ -293,3 +293,110 @@ def test_assistant_and_attempt_success_link_commit_atomically(disposable_databas
             {"thread_id": thread_id},
         ).scalar_one() == 1
     engine.dispose()
+
+
+@pytest.mark.integration
+def test_original_recovery_snapshot_survives_upgrade_and_is_immutable(disposable_database):
+    from datetime import datetime, timezone
+
+    from sqlalchemy.exc import IntegrityError
+    from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
+
+    config, test_url = disposable_database
+    command.upgrade(config, "d4c69e03a712")
+    engine = sa.create_engine(test_url)
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "INSERT INTO users (id, username, password_hash, role) "
+            "VALUES ('snapshot-account', 'snapshot-account', 'inert-test-hash', 'guest')"
+        ))
+        thread = connection.execute(sa.text(
+            "INSERT INTO chat_threads (user_id, title) "
+            "VALUES ('snapshot-account', 'Snapshot') RETURNING id"
+        )).scalar_one()
+        connection.execute(sa.text(
+            "INSERT INTO chat_completion_attempts "
+            "(request_id, backend_task_id, thread_id, turn_id, accepted_at) "
+            "VALUES ('legacy-request', 'legacy-task', :thread, 'legacy-turn', "
+            "'2026-10-03T10:17:59+00:00')"
+        ), {"thread": thread})
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        legacy = connection.execute(sa.text(
+            "SELECT deadline_snapshot, turn_lock_token, accepted_at "
+            "FROM chat_completion_attempts WHERE request_id='legacy-request'"
+        )).one()
+        assert legacy[0] is None and legacy[1] is None
+        assert legacy[2] == datetime(2026, 10, 3, 10, 17, 59, tzinfo=timezone.utc)
+
+    deadline = build_accepted_chat_task_deadline(
+        datetime(2026, 10, 4, 10, 0, 0, 123456, tzinfo=timezone.utc)
+    )
+    repo = PgDB(test_url.render_as_string(hide_password=False))
+    create_chat_completion_attempt(
+        repo, request_id="snapshot-request", backend_task_id="snapshot-task",
+        thread_id=thread, turn_id="snapshot-turn", deadline_snapshot=deadline,
+        turn_lock_token="existing-lock-token",
+    )
+    # Later queue acknowledgement remains separate and cannot refresh the envelope.
+    mark_chat_completion_attempt_accepted(repo, backend_task_id="snapshot-task")
+    with engine.connect() as connection:
+        snapshot = connection.execute(sa.text(
+            "SELECT deadline_snapshot, turn_lock_token, accepted_at "
+            "FROM chat_completion_attempts WHERE request_id='snapshot-request'"
+        )).one()
+        assert snapshot[0] == deadline.to_dict()
+        assert snapshot[1] == "existing-lock-token"
+        assert snapshot[2] != deadline.accepted_at
+    assert "turn_lock_token" not in get_chat_completion_attempt_by_task_id(repo, "snapshot-task")
+    # The database itself rejects refreshed envelopes, token replacement and legacy backfill.
+    changes = (
+        "deadline_snapshot = jsonb_set(deadline_snapshot, '{accepted_at}', '\"2030-01-01T00:00:00+00:00\"')",
+        "turn_lock_token = 'replacement-token'",
+        "deadline_snapshot = NULL, turn_lock_token = NULL",
+    )
+    for assignment in changes:
+        with pytest.raises(IntegrityError, match="immutable"):
+            with engine.begin() as connection:
+                connection.execute(sa.text(
+                    "UPDATE chat_completion_attempts SET " + assignment
+                    + " WHERE request_id='snapshot-request'"
+                ))
+    with pytest.raises(IntegrityError, match="immutable"):
+        with engine.begin() as connection:
+            connection.execute(sa.text(
+                "UPDATE chat_completion_attempts SET deadline_snapshot = "
+                "(SELECT deadline_snapshot FROM chat_completion_attempts WHERE request_id='snapshot-request'), "
+                "turn_lock_token='invented-token' WHERE request_id='legacy-request'"
+            ))
+    with pytest.raises(ValueError, match="original accepted deadline"):
+        create_chat_completion_attempt(
+            repo, request_id="invalid-request", backend_task_id="invalid-task",
+            thread_id=thread, turn_id="invalid-turn", deadline_snapshot={},
+            turn_lock_token="token",
+        )
+    with pytest.raises(ValueError, match="turn lock token"):
+        create_chat_completion_attempt(
+            repo, request_id="missing-token-request", backend_task_id="missing-token-task",
+            thread_id=thread, turn_id="missing-token-turn", deadline_snapshot=deadline,
+        )
+    # Failure/cancellation updates remain valid; they preserve the original snapshot.
+    assert record_chat_completion_attempt_terminal_event(
+        repo, request_id="snapshot-request", backend_task_id="snapshot-task",
+        thread_id=thread, turn_id="snapshot-turn", event_type="task.failed",
+    )
+    with engine.connect() as connection:
+        assert connection.execute(sa.text(
+            "SELECT deadline_snapshot FROM chat_completion_attempts WHERE request_id='snapshot-request'"
+        )).scalar_one() == deadline.to_dict()
+        assert connection.execute(sa.text(
+            "SELECT count(*) FROM chat_completion_attempts"
+        )).scalar_one() == 2
+    # Downgrade preserves preexisting attempt data; no historical values were backfilled.
+    command.downgrade(config, "d4c69e03a712")
+    assert "deadline_snapshot" not in {
+        c["name"] for c in sa.inspect(engine).get_columns("chat_completion_attempts")
+    }
+    with engine.connect() as connection:
+        assert connection.execute(sa.text("SELECT count(*) FROM chat_completion_attempts")).scalar_one() == 2
+    engine.dispose()

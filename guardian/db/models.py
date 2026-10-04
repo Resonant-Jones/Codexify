@@ -1348,6 +1348,10 @@ class ChatCompletionAttempt(Base):
         BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
     )
     terminal_event_type: Mapped[str | None] = mapped_column(String(32))
+    deadline_snapshot: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    turn_lock_token: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1358,6 +1362,12 @@ class ChatCompletionAttempt(Base):
             "terminal_event_type IS NULL OR terminal_event_type IN "
             "('task.failed', 'task.cancelled')",
             name="ck_chat_completion_attempts_terminal_event",
+        ),
+        CheckConstraint(
+            "(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR "
+            "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
+            "AND length(trim(turn_lock_token)) > 0)",
+            name="ck_chat_attempt_recovery_snapshot_pair",
         ),
     )
 
