@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import replace
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -3384,9 +3385,27 @@ def run_forever() -> None:
         QUEUE_NAME,
         CONCURRENCY,
     )
+    activity_lock = Lock()
+    owned_tasks = 0
+
+    def release_activity() -> None:
+        nonlocal owned_tasks
+        with activity_lock:
+            owned_tasks -= 1
+
+    def run_owned_task(task: ChatCompletionTask) -> None:
+        try:
+            _run_chat_task(task)
+        finally:
+            # _run_chat_task owns terminal persistence and lock cleanup. Keep
+            # activity until that entire lifecycle has returned or raised.
+            release_activity()
+
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
         while True:
-            _publish_worker_heartbeat("idle")
+            with activity_lock:
+                activity = "active" if owned_tasks else "idle"
+            _publish_worker_heartbeat(activity)
             try:
                 payload = dequeue(QUEUE_NAME, block=True, timeout=5)
             except RedisTimeoutError:
@@ -3421,10 +3440,21 @@ def run_forever() -> None:
             # Already-authoritative cancellations must not queue behind busy
             # completion slots. Use the same lifecycle and owner-guarded finally
             # as executor work, including persisted-turn deduplication.
-            if _chat_task_cancelled_before_dispatch(task):
-                _run_chat_task(task)
+            with activity_lock:
+                owned_tasks += 1
+            try:
+                cancelled_before_dispatch = _chat_task_cancelled_before_dispatch(task)
+            except BaseException:
+                release_activity()
+                raise
+            if cancelled_before_dispatch:
+                run_owned_task(task)
                 continue
-            executor.submit(_run_chat_task, task)
+            try:
+                executor.submit(run_owned_task, task)
+            except BaseException:
+                release_activity()
+                raise
 
 
 if __name__ == "__main__":
