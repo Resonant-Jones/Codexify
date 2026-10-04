@@ -1348,6 +1348,9 @@ class ChatCompletionAttempt(Base):
         BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
     )
     terminal_event_type: Mapped[str | None] = mapped_column(String(32))
+    terminal_outcome: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
     deadline_snapshot: Mapped[dict[str, str] | None] = mapped_column(
         JSONB(none_as_null=True)
     )
@@ -1362,6 +1365,17 @@ class ChatCompletionAttempt(Base):
             "terminal_event_type IS NULL OR terminal_event_type IN "
             "('task.failed', 'task.cancelled')",
             name="ck_chat_completion_attempts_terminal_event",
+        ),
+        CheckConstraint(
+            "terminal_outcome IS NULL OR COALESCE(("
+            "jsonb_typeof(terminal_outcome) = 'object' "
+            "AND terminal_outcome->>'failure_code' = 'CHAT_ACCEPTED_TASK_ORPHANED' "
+            "AND terminal_event_type = 'task.failed' "
+            "AND completed_message_id IS NULL AND accepted_at IS NOT NULL "
+            "AND deadline_snapshot IS NOT NULL "
+            "AND (terminal_outcome->>'reconciled_at')::timestamptz >= "
+            "(deadline_snapshot->>'terminal_deadline_at')::timestamptz), false)",
+            name="ck_chat_attempt_orphan_outcome",
         ),
         CheckConstraint(
             "(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR "

@@ -17,6 +17,7 @@ from guardian.core.db import (
     get_chat_completion_attempt_by_task_id,
     mark_chat_completion_attempt_accepted,
     record_chat_completion_attempt_terminal_event,
+    reconcile_chat_completion_attempt_after_deadline,
 )
 from guardian.core.pgdb import PgDB
 
@@ -400,3 +401,281 @@ def test_original_recovery_snapshot_survives_upgrade_and_is_immutable(disposable
     with engine.connect() as connection:
         assert connection.execute(sa.text("SELECT count(*) FROM chat_completion_attempts")).scalar_one() == 2
     engine.dispose()
+
+
+@pytest.fixture
+def recovery_database(disposable_database):
+    from datetime import datetime, timezone
+    from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
+
+    config, test_url = disposable_database
+    command.upgrade(config, "head")
+    engine = sa.create_engine(test_url)
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "INSERT INTO users (id, username, password_hash, role) "
+            "VALUES ('recovery-account', 'recovery-account', 'inert-test-hash', 'guest')"
+        ))
+        thread_id = connection.execute(sa.text(
+            "INSERT INTO chat_threads (user_id, title) "
+            "VALUES ('recovery-account', 'Recovery proof') RETURNING id"
+        )).scalar_one()
+    repo = PgDB(test_url.render_as_string(hide_password=False))
+    deadline = build_accepted_chat_task_deadline(datetime(2026, 10, 1, tzinfo=timezone.utc))
+
+    def create(name, *, legacy=False, accepted=True):
+        identity = dict(request_id=f"request-{name}", backend_task_id=f"task-{name}",
+                        thread_id=thread_id, turn_id=f"turn-{name}")
+        create_chat_completion_attempt(
+            repo, **identity, deadline_snapshot=None if legacy else deadline,
+            turn_lock_token=None if legacy else f"lock-{name}",
+        )
+        if accepted:
+            mark_chat_completion_attempt_accepted(repo, backend_task_id=identity["backend_task_id"])
+        return identity
+
+    try:
+        yield config, engine, repo, deadline, create
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_post_terminal_orphan_arbitration_and_database_fence(recovery_database):
+    from datetime import timedelta
+    from guardian.core.db import record_chat_completion_attempt_success
+    from guardian.protocol_tokens import ErrorCode
+
+    config, engine, repo, deadline, create = recovery_database
+    identity = create("orphan")
+    before = reconcile_chat_completion_attempt_after_deadline(
+        repo, **identity, now=deadline.terminal_deadline_at - timedelta(microseconds=1)
+    )
+    assert before.terminal_event_type is None and before.turn_lock_token is None
+    result = reconcile_chat_completion_attempt_after_deadline(
+        repo, **identity, now=deadline.terminal_deadline_at
+    )
+    assert result.completed_message_id is None
+    assert result.terminal_event_type == "task.failed"
+    assert result.terminal_outcome == {
+        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value,
+        "reconciled_at": deadline.terminal_deadline_at.isoformat(),
+    }
+    assert result.turn_lock_token == "lock-orphan"
+    assert reconcile_chat_completion_attempt_after_deadline(
+        repo, **identity, now=deadline.terminal_deadline_at + timedelta(days=1)
+    ) == result
+    fresh_repo = PgDB(repo.dsn)
+    public = get_chat_completion_attempt_by_task_id(fresh_repo, identity["backend_task_id"])
+    assert public["terminal_outcome"] == result.terminal_outcome
+    assert "turn_lock_token" not in public
+    assert public["accepted_at"] != deadline.accepted_at
+    with engine.connect() as connection:
+        assert connection.execute(sa.text(
+            "SELECT deadline_snapshot FROM chat_completion_attempts WHERE request_id=:id"
+        ), {"id": identity["request_id"]}).scalar_one() == deadline.to_dict()
+    with pytest.raises(ValueError, match="already has a failure or cancellation"):
+        fresh_repo.create_assistant_message_for_completion_attempt(
+            **identity, content="late assistant must not exist"
+        )
+    # Same failed kind is not permission for a late worker to publish its own reason.
+    assert not record_chat_completion_attempt_terminal_event(
+        repo, **identity, event_type="task.failed"
+    )
+    assert not record_chat_completion_attempt_terminal_event(
+        repo, **identity, event_type="task.cancelled"
+    )
+    assert not record_chat_completion_attempt_success(repo, **identity, assistant_message_id=999999)
+    for assignment in (
+        "terminal_outcome=NULL", "terminal_event_type=NULL",
+        "terminal_event_type='task.cancelled'", "completed_message_id=999999",
+        "terminal_outcome=jsonb_set(terminal_outcome, '{reconciled_at}', '\"2027-01-01T00:00:00+00:00\"')",
+    ):
+        with pytest.raises(sa.exc.IntegrityError, match="Chat orphan outcome is immutable"):
+            with engine.begin() as connection:
+                connection.execute(sa.text(
+                    f"UPDATE chat_completion_attempts SET {assignment} WHERE request_id=:id"
+                ), {"id": identity["request_id"]})
+    with engine.connect() as connection:
+        assert connection.execute(sa.text(
+            "SELECT count(*) FROM chat_messages WHERE thread_id=:thread"
+        ), {"thread": identity["thread_id"]}).scalar_one() == 0
+    command.downgrade(config, "e8a9b03d6712")
+    with engine.connect() as connection:
+        assert connection.execute(sa.text(
+            "SELECT terminal_event_type FROM chat_completion_attempts WHERE request_id=:id"
+        ), {"id": identity["request_id"]}).scalar_one() == "task.failed"
+
+
+@pytest.mark.integration
+def test_reconciliation_respects_truth_identity_and_unknown_admission(recovery_database):
+    from datetime import timedelta
+
+    _config, engine, repo, deadline, create = recovery_database
+    completed = create("completed")
+    message_id, bound = repo.create_assistant_message_for_completion_attempt(
+        **completed, content="durable completion wins"
+    )
+    assert bound
+    result = reconcile_chat_completion_attempt_after_deadline(
+        repo, **completed, now=deadline.terminal_deadline_at + timedelta(days=1)
+    )
+    assert result.completed_message_id == message_id
+    assert result.terminal_event_type is None and result.terminal_outcome is None
+    for kind in ("task.failed", "task.cancelled"):
+        identity = create(kind)
+        assert record_chat_completion_attempt_terminal_event(repo, **identity, event_type=kind)
+        result = reconcile_chat_completion_attempt_after_deadline(
+            repo, **identity, now=deadline.accepted_at
+        )
+        assert result.terminal_event_type == kind and result.terminal_outcome is None
+    for identity in (create("legacy", legacy=True), create("unconfirmed", accepted=False)):
+        result = reconcile_chat_completion_attempt_after_deadline(
+            repo, **identity, now=deadline.terminal_deadline_at + timedelta(days=1)
+        )
+        assert result.completed_message_id is None and result.terminal_event_type is None
+        assert result.turn_lock_token is None
+    # Native constraints reject early orphan outcomes even through direct SQL.
+    early = create("early")
+    with pytest.raises(sa.exc.IntegrityError, match="ck_chat_attempt_orphan_outcome"):
+        with engine.begin() as connection:
+            connection.execute(sa.text(
+                "UPDATE chat_completion_attempts SET terminal_event_type='task.failed', "
+                "terminal_outcome=jsonb_build_object('failure_code','CHAT_ACCEPTED_TASK_ORPHANED', "
+                "'reconciled_at',CAST(:at AS text)) WHERE backend_task_id=:task"
+            ), {"at": deadline.work_deadline_at.isoformat(), "task": early["backend_task_id"]})
+    assert get_chat_completion_attempt_by_task_id(repo, early["backend_task_id"])["terminal_event_type"] is None
+    untouched = create("identity")
+    for key, value in (("request_id", "wrong"), ("backend_task_id", "missing"),
+                       ("thread_id", untouched["thread_id"]+1), ("turn_id", "wrong")):
+        with pytest.raises(ValueError, match="identity does not match"):
+            reconcile_chat_completion_attempt_after_deadline(
+                repo, **(untouched | {key: value}), now=deadline.terminal_deadline_at
+            )
+    with pytest.raises(ValueError, match="aware server timestamp"):
+        reconcile_chat_completion_attempt_after_deadline(
+            repo, **untouched, now=deadline.terminal_deadline_at.replace(tzinfo=None)
+        )
+    # An invalid imported snapshot must not be reconstructed from accepted_at.
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "INSERT INTO chat_completion_attempts "
+            "(request_id, backend_task_id, thread_id, turn_id, accepted_at, deadline_snapshot, turn_lock_token) "
+            "VALUES ('bad-request','bad-task',:thread,'bad-turn',now(), "
+            "jsonb_build_object('accepted_at','invalid'), 'bad-token')"
+        ), {"thread": untouched["thread_id"]})
+    with pytest.raises(ValueError, match="snapshot is incomplete"):
+        reconcile_chat_completion_attempt_after_deadline(
+            repo, request_id="bad-request", backend_task_id="bad-task",
+            thread_id=untouched["thread_id"], turn_id="bad-turn", now=deadline.terminal_deadline_at
+        )
+    for task_id in ("task-identity", "bad-task"):
+        assert get_chat_completion_attempt_by_task_id(repo, task_id)["terminal_event_type"] is None
+    # A later direct write cannot recast an already persisted cancellation as orphaned.
+    with pytest.raises(sa.exc.IntegrityError, match="terminal truth precedes"):
+        with engine.begin() as connection:
+            connection.execute(sa.text(
+                "UPDATE chat_completion_attempts SET terminal_event_type='task.failed', "
+                "terminal_outcome=jsonb_build_object('failure_code','CHAT_ACCEPTED_TASK_ORPHANED', "
+                "'reconciled_at',CAST(:at AS text)) WHERE backend_task_id='task-task.cancelled'"
+            ), {"at": deadline.terminal_deadline_at.isoformat()})
+
+
+@pytest.mark.integration
+def test_orphan_persistence_failure_cannot_report_recovery(recovery_database):
+    _config, engine, repo, deadline, create = recovery_database
+    identity = create("rollback")
+    with engine.begin() as connection:
+        connection.execute(sa.text("""CREATE FUNCTION reject_orphan() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN
+                IF NEW.terminal_outcome IS NOT NULL THEN RAISE EXCEPTION 'injected orphan failure'; END IF;
+                RETURN NEW;
+            END; $$"""))
+        connection.execute(sa.text(
+            "CREATE TRIGGER reject_orphan BEFORE UPDATE ON chat_completion_attempts "
+            "FOR EACH ROW EXECUTE FUNCTION reject_orphan()"
+        ))
+    with pytest.raises(sa.exc.DBAPIError, match="injected orphan failure"):
+        reconcile_chat_completion_attempt_after_deadline(repo, **identity, now=deadline.terminal_deadline_at)
+    row = get_chat_completion_attempt_by_task_id(repo, identity["backend_task_id"])
+    assert row["terminal_event_type"] is None and row["terminal_outcome"] is None
+    with engine.begin() as connection:
+        connection.execute(sa.text("DROP TRIGGER reject_orphan ON chat_completion_attempts"))
+        connection.execute(sa.text("DROP FUNCTION reject_orphan()"))
+    assert reconcile_chat_completion_attempt_after_deadline(
+        repo, **identity, now=deadline.terminal_deadline_at
+    ).terminal_event_type == "task.failed"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("winner", ["assistant", "reconciler"])
+def test_assistant_and_orphan_serialize_on_the_same_attempt(recovery_database, monkeypatch, winner):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event
+
+    _config, engine, repo, deadline, create = recovery_database
+    identity = create(f"race-{winner}")
+    rival_repo = PgDB(repo.dsn)
+    locked, release, rival_started = Event(), Event(), Event()
+    if winner == "assistant":
+        original = repo.create_message
+
+        def pause_assistant(*args, **kwargs):
+            locked.set()
+            assert release.wait(10)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(repo, "create_message", pause_assistant)
+        def first():
+            return repo.create_assistant_message_for_completion_attempt(**identity, content="winner")
+
+        def rival():
+            rival_started.set()
+            return reconcile_chat_completion_attempt_after_deadline(
+                rival_repo, **identity, now=deadline.terminal_deadline_at
+            )
+    else:
+        original_session = repo._sa_session
+
+        @contextmanager
+        def pause_reconciliation_commit():
+            with original_session() as session:
+                yield session
+                session.flush()
+                locked.set()
+                assert release.wait(10)
+
+        monkeypatch.setattr(repo, "_sa_session", pause_reconciliation_commit)
+        def first():
+            return reconcile_chat_completion_attempt_after_deadline(
+                repo, **identity, now=deadline.terminal_deadline_at
+            )
+
+        def rival():
+            rival_started.set()
+            return rival_repo.create_assistant_message_for_completion_attempt(**identity, content="must roll back")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leading = pool.submit(first)
+        try:
+            assert locked.wait(10)
+            trailing = pool.submit(rival)
+            assert rival_started.wait(10)
+            assert not trailing.done()
+        finally:
+            release.set()
+        first_result = leading.result(timeout=10)
+        if winner == "assistant":
+            second_result = trailing.result(timeout=10)
+            assert second_result.completed_message_id == first_result[0]
+            assert second_result.terminal_event_type is None
+        else:
+            assert first_result.terminal_event_type == "task.failed"
+            with pytest.raises(ValueError, match="failure or cancellation"):
+                trailing.result(timeout=10)
+    with engine.connect() as connection:
+        assistants = connection.execute(sa.text(
+            "SELECT count(*) FROM chat_messages WHERE thread_id=:thread AND role='assistant'"
+        ), {"thread": identity["thread_id"]}).scalar_one()
+    assert assistants == (1 if winner == "assistant" else 0)

@@ -8,6 +8,7 @@ flow through Postgres tables managed by Alembic migrations.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
@@ -23,8 +24,11 @@ from guardian.core.project_lifecycle import (
     require_mutable_project_container,
     require_project_deletable,
 )
-from guardian.protocol_tokens import TaskEventType
-from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline
+from guardian.protocol_tokens import ErrorCode, TaskEventType
+from guardian.tasks.chat_deadline import (
+    AcceptedChatTaskDeadline,
+    parse_accepted_chat_task_deadline,
+)
 
 # Import ORM models
 from guardian.db.models import (
@@ -180,9 +184,96 @@ def record_chat_completion_attempt_terminal_event(
         if attempt is None or attempt.completed_message_id is not None:
             return False
         if attempt.terminal_event_type is not None:
-            return attempt.terminal_event_type == event_type
+            # A late worker cannot claim ownership of a controller orphan outcome.
+            return (
+                attempt.terminal_outcome is None
+                and attempt.terminal_event_type == event_type
+            )
         attempt.terminal_event_type = event_type
         return True
+
+
+@dataclass(frozen=True)
+class ChatAttemptReconciliation:
+    """Private controller result; the lock capability must never enter a receipt."""
+
+    completed_message_id: int | None
+    terminal_event_type: str | None
+    terminal_outcome: dict[str, str] | None
+    turn_lock_token: str | None
+
+
+def reconcile_chat_completion_attempt_after_deadline(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    now: datetime | None = None,
+) -> ChatAttemptReconciliation:
+    """Fence an unresolved accepted attempt after its original terminal deadline.
+
+    The caller must bound this maintenance transaction separately from execution.
+    No Redis observation or heartbeat may replace durable admission/envelope truth.
+    ``now`` is a trusted controller/test clock, never a client request field.
+    """
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(backend_task_id=backend_task_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if attempt is None or (
+            attempt.request_id != request_id
+            or attempt.thread_id != thread_id
+            or attempt.turn_id != turn_id
+        ):
+            raise ValueError("Reconciliation identity does not match its durable attempt")
+        if attempt.completed_message_id is not None:
+            assistant = (
+                session.query(ChatMessage.id)
+                .filter_by(
+                    id=attempt.completed_message_id, thread_id=thread_id, role="assistant"
+                )
+                .one_or_none()
+            )
+            if assistant is None:
+                raise ValueError("Completion attempt points to no assistant in its thread")
+        elif attempt.terminal_event_type is None and attempt.accepted_at is not None:
+            snapshot = attempt.deadline_snapshot
+            if snapshot is not None:
+                if not isinstance(snapshot, dict):
+                    raise ValueError("Accepted chat recovery snapshot is invalid")
+                deadline = parse_accepted_chat_task_deadline(snapshot)
+                if deadline is None:
+                    raise ValueError("Accepted chat recovery snapshot is incomplete")
+                instant = now if now is not None else datetime.now(timezone.utc)
+                if not isinstance(instant, datetime) or instant.utcoffset() is None:
+                    raise ValueError("Reconciliation requires an aware server timestamp")
+                instant = instant.astimezone(timezone.utc)
+                if instant >= deadline.terminal_deadline_at:
+                    attempt.terminal_event_type = TaskEventType.TASK_FAILED.value
+                    attempt.terminal_outcome = {
+                        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value,
+                        "reconciled_at": instant.isoformat(),
+                    }
+        terminal = (
+            attempt.completed_message_id is not None
+            or attempt.terminal_event_type is not None
+        )
+        result = ChatAttemptReconciliation(
+            completed_message_id=attempt.completed_message_id,
+            terminal_event_type=attempt.terminal_event_type,
+            terminal_outcome=(
+                dict(attempt.terminal_outcome)
+                if attempt.terminal_outcome is not None else None
+            ),
+            turn_lock_token=attempt.turn_lock_token if terminal else None,
+        )
+    # Return only after commit acknowledgement; commit errors cannot claim recovery.
+    return result
 
 
 def get_chat_completion_attempt_by_task_id(
@@ -204,6 +295,7 @@ def get_chat_completion_attempt_by_task_id(
             "turn_id": attempt.turn_id,
             "completed_message_id": attempt.completed_message_id,
             "terminal_event_type": attempt.terminal_event_type,
+            "terminal_outcome": attempt.terminal_outcome,
             "created_at": attempt.created_at,
             "accepted_at": attempt.accepted_at,
         }
@@ -248,6 +340,7 @@ def list_chat_completion_attempts_for_thread(
                     "turn_id": attempt.turn_id,
                     "completed_message_id": completed_message_id,
                     "terminal_event_type": attempt.terminal_event_type,
+                    "terminal_outcome": attempt.terminal_outcome,
                     "created_at": attempt.created_at,
                     "accepted_at": attempt.accepted_at,
                 }
