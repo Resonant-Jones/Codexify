@@ -20,6 +20,15 @@ struct ScoutAuthenticationQualification: Equatable {
         }
     }
     enum Status: String, Decodable { case waiting, passed, failed }
+    enum HostedAdmission: String {
+        case edgeConsumed = "edge-consumed", opaqueForwarded = "opaque-forwarded"
+        var summary: String {
+            switch self {
+            case .edgeConsumed: return "Access admitted / Authorization edge-consumed"
+            case .opaqueForwarded: return "Access admitted / Authorization forwarded"
+            }
+        }
+    }
     enum Classification: String {
         case pending, confirmed, rejected, unavailable, credentialMissing, credentialExpired, hostedCompositionRejected, nativeAdmissionRejected, nativeAuthorizationMissing, nativeAuthorizationAmbiguous, nativeAuthorizationUnsupported, nativeSelectorConflict, invalidIdentifier, cancelled, invalidCallback, invalidSession, storageFailure, transportFailure, invalidReply
     }
@@ -36,6 +45,7 @@ struct ScoutAuthenticationQualification: Equatable {
     let origin: String
     private(set) var evidence: [Stage: Evidence] = [:]
     private(set) var correlationAvailable = false
+    private(set) var hostedAdmission: HostedAdmission?
 
     init(attemptID: UUID = UUID(), profile: ScoutEndpointProfile) throws {
         self.attemptID = attemptID
@@ -81,6 +91,15 @@ struct ScoutAuthenticationQualification: Equatable {
     }
     mutating func correlationReady() { correlationAvailable = true }
     mutating func correlationLost() { correlationAvailable = false }
+    @discardableResult
+    mutating func qualifyHostedAdmission(_ response: HTTPURLResponse) -> Bool {
+        let expected = ScoutAccessOAuth.resource.appendingPathComponent("api/auth/scout/qualification/" + publicID)
+        guard response.statusCode == 200, response.url == expected,
+              let value = response.value(forHTTPHeaderField: "X-Scout-Access-Admission"),
+              let admission = HostedAdmission(rawValue: value) else { return false }
+        hostedAdmission = admission
+        return true
+    }
 
     struct BackendReceipt: Decodable {
         struct Event: Decodable { let status: Status; let http_status: Int? }

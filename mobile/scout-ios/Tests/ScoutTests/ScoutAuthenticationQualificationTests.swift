@@ -8,6 +8,32 @@ final class ScoutAuthenticationQualificationTests: XCTestCase {
             authenticationState: .unconfigured, validationState: .unconfigured, lastConnectedAt: nil, authenticationMode: .remoteSession)
     }
 
+    func testHostedAdmissionRequiresSuccessfulFixedServerEvidence() throws {
+        var receipt = try ScoutAuthenticationQualification(profile: profile())
+        let origin = URL(string: "https://preview.codexify.space/api/auth/scout/qualification/" + receipt.publicID)!
+        for (value, expected) in [("edge-consumed", "Access admitted / Authorization edge-consumed"),
+                                  ("opaque-forwarded", "Access admitted / Authorization forwarded")] {
+            let response = HTTPURLResponse(url: origin, statusCode: 200, httpVersion: nil,
+                headerFields: ["X-Scout-Access-Admission": value])!
+            XCTAssertTrue(receipt.qualifyHostedAdmission(response))
+            XCTAssertEqual(receipt.hostedAdmission?.summary, expected)
+        }
+        for (status, value) in [(401, "edge-consumed"), (200, "fixture-secret-response"), (200, "")] {
+            var unobserved = try ScoutAuthenticationQualification(profile: profile())
+            let expected = URL(string: "https://preview.codexify.space/api/auth/scout/qualification/" + unobserved.publicID)!
+            let response = HTTPURLResponse(url: expected, statusCode: status, httpVersion: nil,
+                headerFields: ["X-Scout-Access-Admission": value])!
+            XCTAssertFalse(unobserved.qualifyHostedAdmission(response))
+            XCTAssertNil(unobserved.hostedAdmission)
+        }
+        var unobserved = try ScoutAuthenticationQualification(profile: profile())
+        XCTAssertFalse(unobserved.qualifyHostedAdmission(HTTPURLResponse(url: origin, statusCode: 200, httpVersion: nil, headerFields: [:])!))
+        XCTAssertNil(unobserved.hostedAdmission)
+        let wrongOrigin = HTTPURLResponse(url: URL(string: "https://personal.example/api/auth/scout/qualification/" + receipt.publicID)!, statusCode: 200,
+            httpVersion: nil, headerFields: ["X-Scout-Access-Admission": "edge-consumed"])!
+        XCTAssertFalse(receipt.qualifyHostedAdmission(wrongOrigin))
+    }
+
     func testIngressAbsenceAndExpiryHaveDistinctNonSecretClassifications() {
         let now = Date(timeIntervalSince1970: 1_000)
         let missing = ScoutAuthenticationQualification.ingressAvailability(expiresAt: nil, now: now)

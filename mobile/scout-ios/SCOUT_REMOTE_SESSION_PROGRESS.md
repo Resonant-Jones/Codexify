@@ -382,3 +382,21 @@ transport amendment is prepared in the backend checkout's
 `docs/Ops/scout-edge-consumed-access-proposal-2026-10-03.md`; it awaits separate
 approval and is not implemented. Current canonical account authority is unchanged.
 Authenticated native read, complete #815 continuity and logout remain unproven.
+
+## October 4 — approved edge-consumed Access composition
+
+The operator approved the ADR-092 hosted transport amendment. Guardian recognizes
+absent origin Authorization only after mandatory signed Access admission at the
+independently qualified exact-host/private-preview composition. Any forwarded
+Authorization remains single opaque Access Bearer. This does not infer trust from
+absence or move Access credential bytes to another header. Canonical account
+session validation remains independent; no identity or credential class changes.
+
+Settings now reports “Access admitted / Authorization edge-consumed” from the
+fixed server observation after a successful, exact-origin/path/attempt receipt.
+The missing-header failure remains valid for historical pre-amendment evidence.
+Personal-node Bearer behavior, profile isolation and explicit local mode remain
+unchanged. The backend work/ADR remain separately reviewable in the attached
+account-handoff checkout. **62 SwiftPM tests, 100 backend tests, 16 browser tests,
+Vite build and signed Simulator build pass**. Live deployment/install/sign-in,
+protected read and complete continuity/logout remain separate proof gates.

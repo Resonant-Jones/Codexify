@@ -173,6 +173,8 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             }
             let initialReceipt = try JSONDecoder().decode(ScoutAuthenticationQualification.BackendReceipt.self, from: receiptData)
             guard initialReceipt.attempt_id == qualification?.publicID else { throw ScoutAccessOAuthError.invalidResponse }
+            guard let admitted = receiptResponse as? HTTPURLResponse,
+                  qualification?.qualifyHostedAdmission(admitted) == true else { throw ScoutAccessOAuthError.invalidResponse }
             qualification?.merge(initialReceipt)
             var attempt = try ScoutAccountHandoffAttempt(qualificationID: qualification!.attemptID)
             stage = .browser

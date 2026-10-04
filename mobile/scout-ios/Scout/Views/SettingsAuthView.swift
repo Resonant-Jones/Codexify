@@ -71,6 +71,9 @@ struct SettingsAuthView: View {
                             Text("Attempt " + receipt.publicID).font(.caption).textSelection(.enabled)
                             Text(receipt.correlationAvailable ? "Runtime correlation available" : "Runtime correlation unavailable")
                                 .font(.footnote)
+                            if let admission = receipt.hostedAdmission {
+                                Text(admission.summary).font(.footnote)
+                            }
                             ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
                                 VStack(alignment: .leading) {
                                     Text(stage.title)
