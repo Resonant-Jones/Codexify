@@ -16,6 +16,64 @@ final class ScoutAccountSessionTests: XCTestCase {
             profileID: profile.id, origin: try ScoutAccessOAuth.origin(for: profile))
     }
 
+    private func hostedLogout() -> URLRequest {
+        var request = URLRequest(url: ScoutAccessOAuth.resource.appendingPathComponent("api/auth/logout"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer oauth:fixture-ingress", forHTTPHeaderField: "Authorization")
+        request.setValue("fixture-account", forHTTPHeaderField: "X-Guardian-Account-Session")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        return request
+    }
+
+    func testHostedRevocationReplayStaysAtItsOriginWithoutRestoringOrChangingCredentials() throws {
+        let logout = hostedLogout()
+        let probe = try ScoutHostedLogoutProof.request(from: logout, profile: profile(ScoutAccessOAuth.resource.absoluteString))
+        XCTAssertEqual(probe.url, ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads"))
+        XCTAssertEqual(probe.httpMethod, "GET")
+        XCTAssertNil(probe.httpBody)
+        XCTAssertNil(probe.value(forHTTPHeaderField: "Content-Type"))
+        XCTAssertEqual(probe.value(forHTTPHeaderField: "Authorization"), logout.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(probe.value(forHTTPHeaderField: "X-Guardian-Account-Session"), logout.value(forHTTPHeaderField: "X-Guardian-Account-Session"))
+        XCTAssertEqual(logout.httpMethod, "POST")
+        XCTAssertNil(probe.value(forHTTPHeaderField: "X-API-Key"))
+    }
+
+    func testHostedRevocationReplayRejectsPersonalOriginsMissingSessionsAndMixedSelectors() {
+        let hosted = profile(ScoutAccessOAuth.resource.absoluteString)
+        XCTAssertThrowsError(try ScoutHostedLogoutProof.request(from: hostedLogout(), profile: profile()))
+        for header in ["X-API-Key", "X-Guardian-Key", "Cookie"] {
+            var logout = hostedLogout()
+            logout.setValue("fixture-conflict", forHTTPHeaderField: header)
+            XCTAssertThrowsError(try ScoutHostedLogoutProof.request(from: logout, profile: hosted))
+        }
+        for header in ["Authorization", "X-Guardian-Account-Session"] {
+            var logout = hostedLogout()
+            logout.setValue(nil, forHTTPHeaderField: header)
+            XCTAssertThrowsError(try ScoutHostedLogoutProof.request(from: logout, profile: hosted))
+        }
+        var wrongOrigin = hostedLogout()
+        wrongOrigin.url = URL(string: "https://other.example/api/auth/logout")!
+        XCTAssertThrowsError(try ScoutHostedLogoutProof.request(from: wrongOrigin, profile: hosted))
+    }
+
+    func testRevocationDenialRequiresCanonicalFailureAndVerifiedHostedAdmissionAtTheExactRead() {
+        let url = ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads")
+        let failure = "ACCOUNT_SESSION_INVALID"
+        for admission in ["edge-consumed", "opaque-forwarded"] {
+            let headers = ["X-Guardian-Auth-Failure": failure, "X-Scout-Access-Admission": admission]
+            XCTAssertTrue(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: headers)!))
+            for status in [200, 400, 403] {
+                XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!))
+            }
+            XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: URL(string: "https://other.example/api/chat/threads")!, statusCode: 401, httpVersion: nil, headerFields: headers)!))
+        }
+        for headers in [[:], ["X-Guardian-Auth-Failure": failure], ["X-Scout-Access-Admission": "edge-consumed"],
+                        ["X-Guardian-Auth-Failure": failure, "X-Scout-Access-Admission": "unqualified"]] {
+            XCTAssertFalse(ScoutHostedLogoutProof.verifiedDenial(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: headers)!))
+        }
+    }
+
     func testPersonalSessionUsesOnlyCanonicalBearer() throws {
         let p = profile()
         var request = URLRequest(url: URL(string: p.baseURL + "/api/chat/threads")!)

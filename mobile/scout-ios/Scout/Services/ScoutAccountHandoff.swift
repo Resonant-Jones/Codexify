@@ -63,6 +63,34 @@ struct ScoutAccountHandoffAttempt {
     }
 }
 
+/// One in-memory replay proves hosted revocation; it never restores local authority.
+enum ScoutHostedLogoutProof {
+    static func request(from logout: URLRequest, profile: ScoutEndpointProfile) throws -> URLRequest {
+        try ScoutAccessOAuth.requireHosted(profile)
+        guard logout.url == ScoutAccessOAuth.resource.appendingPathComponent("api/auth/logout"),
+              logout.httpMethod == "POST",
+              logout.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
+              let account = logout.value(forHTTPHeaderField: "X-Guardian-Account-Session"), !account.isEmpty,
+              ["X-API-Key", "X-Guardian-Key", "Cookie"].allSatisfy({ logout.value(forHTTPHeaderField: $0) == nil }) else {
+            throw ScoutRequestAuthenticationError.wrongConnection
+        }
+        var probe = logout
+        probe.url = ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads")
+        probe.httpMethod = "GET"
+        probe.httpBody = nil
+        probe.setValue(nil, forHTTPHeaderField: "Content-Type")
+        probe.timeoutInterval = 5
+        return probe
+    }
+
+    static func verifiedDenial(_ response: HTTPURLResponse) -> Bool {
+        response.url == ScoutAccessOAuth.resource.appendingPathComponent("api/chat/threads")
+            && ScoutRequestAuthentication.isInvalidAccountResponse(response)
+            && ScoutAuthenticationQualification.HostedAdmission(rawValue:
+                response.value(forHTTPHeaderField: "X-Scout-Access-Admission") ?? "") != nil
+    }
+}
+
 #if canImport(UIKit)
 import UIKit
 import AuthenticationServices
@@ -299,7 +327,25 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
                 message = "Account session removed locally. Guardian revocation was not confirmed; remote revocation remains unproven."
                 return
             }
-            message = "Guardian revocation accepted and account session removed from this connection's Keychain. Ingress authorization remains separate."
+            let accepted = "Guardian revocation accepted and account session removed from this connection's Keychain. Ingress authorization remains separate."
+            message = accepted
+            if try ScoutAccessOAuth.origin(for: profile) == ScoutAccessOAuth.resource.absoluteString {
+                do {
+                    // The already prepared request holds the revoked bytes only for this check.
+                    // No credential is reloaded, saved, displayed or logged.
+                    let probe = try ScoutHostedLogoutProof.request(from: request, profile: profile)
+                    let (_, denial) = try await URLSession.scoutAuthenticated.data(for: probe)
+                    guard operation == identity else { return }
+                    if let denied = denial as? HTTPURLResponse, ScoutHostedLogoutProof.verifiedDenial(denied) {
+                        message = accepted + " Protected replay denied by Guardian (HTTP 401); Access remains admitted."
+                    } else {
+                        message = accepted + " Protected replay denial remains unproven."
+                    }
+                } catch {
+                    guard operation == identity else { return }
+                    message = accepted + " Protected replay denial remains unproven."
+                }
+            }
         } catch {
             guard operation == identity else { return }
             message = "Guardian logout did not finish. Remote revocation is unconfirmed; check local account status."
