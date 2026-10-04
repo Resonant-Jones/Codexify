@@ -133,3 +133,14 @@ No header value, cookie, credential, identity or callback data is reflected.
 The accepted request predicate and signed Access validation are unchanged.
 Five new rejection tests join the integrated **83 passing backend tests**.
 This is diagnostic evidence; it does not admit a previously rejected composition.
+
+The updated route diagnostic is deployed as two read-only route mounts on the
+same image, recreating only backend with the existing no-seed direct command.
+Serving hashes/health/anonymous denial pass, and nineteen other services plus
+schema and all ten preserved table fingerprints are unchanged. Public native
+attempt `f559214a-652f-4557-ad99-d6d5f8f5bae7` reports stage 1 passed and stage 2
+`nativeAuthorizationMissing` HTTP 400, before browser launch. The existing signed
+Access checks passed, but Guardian received no Authorization header. The current
+admission predicate remains unchanged and fails closed. The separate
+[bounded transport proposal](scout-edge-consumed-access-proposal-2026-10-03.md)
+is prepared for operator approval; its authentication amendment is not applied.
