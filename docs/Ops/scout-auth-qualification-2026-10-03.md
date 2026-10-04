@@ -280,8 +280,12 @@ backend authorization. A further diagnostic correction distinguishes captured
 ingress expiry during a delayed browser handoff from callback invalidity.
 Final client source `fab00177b66b38b97e1f8149edf43bea23b1c1d4` passes **66 SwiftPM
 tests** and the signed canonical Simulator build; it is installed without
-profile/Keychain reset. Final corrected logout-display verification awaits Mac
-unlock; the earlier server denial is independently proven.
+profile/Keychain reset. Its corrected successful logout-display text remains
+unit/source-qualified; the earlier server denial is independently proven. An
+extra browser attempt `c04256d2-ee08-49aa-8b61-75fb6ec7a0db` reached the browser
+but awaited secure continuation beyond its ingress lifetime, then was closed
+without native issuance. Final Scout relaunch PID 55939 directly reports no
+stored account session/no dispatch in Server and Check account session.
 
 Backend and browser bytes remain at the qualified deployed revision. **100
 backend tests**, **16 LoginPage tests** and Vite build pass. The current backend
@@ -300,15 +304,16 @@ healthy backend, no-seed direct startup, unchanged schema `a7b9c4d2e6f1` and
 schema fingerprint. Excluding proof thread 76 and its four messages, all 75
 pre-existing threads and 878 messages retain their checkpoint row fingerprints.
 Project, system-document/link, imprint, provider/runtime and sync-job
-fingerprints match; user count remains seven. Approved normal account-presence
+fingerprints match; all seven user rows retain their recorded fingerprints. Approved normal account-presence
 and proof-conversation writes are distinguished from schema/seed/provisioning
 operations. No such operation or access-policy change was performed here.
 
-All 29 other services matched at deployment. At final observation, the separate
-`codexify_chat_branch_proof_896387ad2` backend and worker-chat changed only start
-time (approximately 21:13 UTC), retaining container IDs, images and configuration
-hashes; this task issued no restart for that stack. The remaining 27 services
-match completely. No external restart cause is inferred.
+All 29 other services matched at deployment. The final read-only audit finds 31
+other running services: two additional `codexify-persist003` containers, and
+start-time changes in the two separate chat-proof services plus preview worker-chat.
+Every pre-existing container retains its ID/image/config hash; 26 match entirely,
+none was removed. This task issued no start/restart for those services. No
+external restart cause or global runtime immutability is inferred.
 
 Backend validation command, run at the backend worktree root with a synthetic
 test-only key and isolated temporary test environment:
@@ -335,8 +340,10 @@ Docs-only closeout uses task-scoped diff/link checks; no new runtime suite is
 needed for unchanged backend/browser bytes. The previously recorded mypy errors
 remain unrelated and are not repaired by this task.
 
-The hosted full continuity and logout-denial evidence is sufficient for #815;
-final UI diagnostics/clean commits finish the review packet. Personal-node live
+The hosted full continuity and logout-denial evidence is sufficient to close
+#815. The corrected successful logout status text was not repeated live; this
+does not substitute for or negate the independently observed server denial.
+Personal-node live
 continuity, deliberate failed/cancelled live tasks, final physical-device
 continuity and distribution/release readiness remain unproven. ADR-092 changes
 transport only; canonical account purpose, revocation, expiry, approval,
