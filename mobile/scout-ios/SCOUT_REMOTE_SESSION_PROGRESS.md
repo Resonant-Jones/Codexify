@@ -400,3 +400,22 @@ unchanged. The backend work/ADR remain separately reviewable in the attached
 account-handoff checkout. **62 SwiftPM tests, 100 backend tests, 16 browser tests,
 Vite build and signed Simulator build pass**. Live deployment/install/sign-in,
 protected read and complete continuity/logout remain separate proof gates.
+
+The approved implementation is committed as client `ae6855b721dbbe0f0fff6148285a9a7bcd1d7341`
+and separately reviewable backend/ADR `5836ed986e4cc6175b5184fe6b5d2fb23a989ed1`.
+The backend amendment is deployed on VaultNode as two read-only source overlays
+at both package locations, retaining the existing image, direct Uvicorn command,
+disabled startup seeding and safe origin logging. Runtime hashes match; health
+is 200 and anonymous account read is 401. Schema and all ten preserved table
+fingerprints are unchanged; all 29 other running services are unchanged.
+No Cloudflare, account, database or migration operation ran.
+
+The signed client update is installed and launched in the same proof Simulator,
+preserving its profile and Keychain. Device Hub displays the updated app but
+coordinate input returns `noWindowsAvailable`; the operator has been asked to
+check stored ingress, perform one Guardian sign-in and return to Scout.
+Installation/deployment do not establish account issuance, protected read or
+the full #815 loop. Current source inspection confirms successful terminal
+completion assigns persisted messages to observable conversation state and
+guards selection/connection/revision; its live behavior remains to be proven.
+#816–#818 remain deferred.
