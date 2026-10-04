@@ -662,3 +662,20 @@ def test_external_ocsp_fails_closed_before_connect(monkeypatch):
     with bounds.accepted_redis_scope(snapshot(seconds=5)):
         with pytest.raises(ConnectionError,match="OCSP"):
             redis_queue.get_request_redis_client().ping()
+
+
+def test_terminal_cleanup_held_eval_closes_under_maintenance_budget(monkeypatch):
+    original = redis_queue._CLIENT
+    with peer(b"EVAL") as (state, arrived, eof):
+        factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
+        start = time.monotonic()
+        with pytest.raises(RedisTimeoutError):
+            with bounds.redis_operation_scope(.25):
+                turn_lock.release_terminal_attempt_turn_lock(
+                    1, owner_task_id="owned-task", lease_token="owned-token"
+                )
+        duration = time.monotonic() - start
+        assert .20 < duration < .65
+        assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
+    assert bounds._budget.get() is None and redis_queue._CLIENT is original
+    print({"surface": "terminal_cleanup_EVAL", "duration": duration, "peer_eof": True})
