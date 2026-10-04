@@ -19,7 +19,12 @@ from guardian.core.auth import (
 from guardian.core.auth_dependencies import extract_session_token
 from guardian.core.dependencies import verify_account_session
 from guardian.core.preview_access import is_private_preview
-from guardian.core.scout_account_transport import HOST, verify_access_assertion
+from guardian.core.scout_account_transport import (
+    HOST,
+    admission_headers,
+    native_authorization_rejection,
+    verify_access_assertion,
+)
 from guardian.core.scout_handoff import (
     CALLBACK,
     ORIGIN,
@@ -129,18 +134,16 @@ async def require_hosted_admission(request: Request) -> None:
 async def require_native_qualification(request: Request):
     await require_hosted_admission(request)
     # Fixed shape classifications only; never retain or reflect header values.
-    reason = None
-    count = len(request.headers.getlist("Authorization"))
-    if count != 1:
-        reason = "missingAuthorization" if count == 0 else "ambiguousAuthorization"
-    elif not request.headers.get("Authorization", "").startswith("Bearer oauth:"):
-        reason = "unsupportedAuthorization"
-    elif any(
-        name in request.headers
-        for name in ("X-Guardian-Account-Session", "X-API-Key", "X-Guardian-Key")
-    ) or any(
-        name in request.cookies
-        for name in ("gc_session", "codexify_hosted_room_session")
+    reason = native_authorization_rejection(request)
+    if reason is None and (
+        any(
+            name in request.headers
+            for name in ("X-Guardian-Account-Session", "X-API-Key", "X-Guardian-Key")
+        )
+        or any(
+            name in request.cookies
+            for name in ("gc_session", "codexify_hosted_room_session")
+        )
     ):
         reason = "conflictingSelectors"
     if reason:
@@ -171,7 +174,10 @@ async def begin_qualification(
             detail="Qualification capacity unavailable",
             headers=SAFE_HEADERS,
         )
-    return JSONResponse(qualification.snapshot(identity), headers=SAFE_HEADERS)
+    return JSONResponse(
+        qualification.snapshot(identity),
+        headers={**SAFE_HEADERS, **admission_headers(request)},
+    )
 
 
 @router.get("/qualification/{identity}")
@@ -186,7 +192,9 @@ async def read_qualification(
             detail="Qualification evidence unavailable",
             headers=SAFE_HEADERS,
         )
-    return JSONResponse(evidence, headers=SAFE_HEADERS)
+    return JSONResponse(
+        evidence, headers={**SAFE_HEADERS, **admission_headers(request)}
+    )
 
 
 class BrowserObservation(BaseModel):
@@ -311,21 +319,10 @@ async def create_handoff(
 
 @router.post("/exchange")
 async def exchange_handoff(
-    body: ExchangeHandoff, request: Request, _: None = Depends(require_hosted_admission)
+    body: ExchangeHandoff,
+    request: Request,
+    _: None = Depends(require_native_qualification),
 ):
-    if (
-        len(request.headers.getlist("Authorization")) != 1
-        or not request.headers.get("Authorization", "").startswith("Bearer oauth:")
-        or "gc_session" in request.cookies
-        or "codexify_hosted_room_session" in request.cookies
-        or "X-API-Key" in request.headers
-        or "X-Guardian-Key" in request.headers
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Native Access admission required",
-            headers=SAFE_HEADERS,
-        )
     try:
         grant = await run_in_threadpool(
             ScoutHandoffStore().consume,
@@ -378,5 +375,9 @@ async def exchange_handoff(
     )
     return JSONResponse(
         {"token": native_token, "user_id": subject, "expires_at": native_expiry},
-        headers={**SAFE_HEADERS, "X-Scout-Native-Session-Issued": "true"},
+        headers={
+            **SAFE_HEADERS,
+            **admission_headers(request),
+            "X-Scout-Native-Session-Issued": "true",
+        },
     )

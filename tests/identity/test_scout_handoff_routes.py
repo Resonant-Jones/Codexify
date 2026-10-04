@@ -92,6 +92,52 @@ def test_exchange_issues_independent_exact_purpose_native_session(flow):
     assert exchange(api, code).status_code == 401
 
 
+def test_edge_consumed_exchange_requires_handoff_and_canonical_parent(flow):
+    api, store, browser = flow
+    code = code_from(create(api, browser))
+    wrong = api.post(
+        "/api/auth/scout/exchange", json={"code": code, "verifier": "w" * 43}
+    )
+    assert wrong.status_code == 401
+    response = api.post(
+        "/api/auth/scout/exchange", json={"code": code, "verifier": "v" * 43}
+    )
+    assert response.status_code == 200
+    assert response.headers["X-Scout-Access-Admission"] == "edge-consumed"
+    assert response.json()["token"] != browser
+    assert (
+        auth._verified_session_token_claims(response.json()["token"])["purpose"]
+        == auth.ACCOUNT_SESSION_PURPOSE
+    )
+    assert store.verify(response.json()["token"]) == "fixture@example.com"
+    assert (
+        api.post(
+            "/api/auth/scout/exchange", json={"code": code, "verifier": "v" * 43}
+        ).status_code
+        == 401
+    )
+
+
+def test_edge_consumed_exchange_never_bypasses_access_or_parent_revocation(flow):
+    api, store, browser = flow
+    code = code_from(create(api, browser))
+    assertion = api.headers.pop("Cf-Access-Jwt-Assertion")
+    assert (
+        api.post(
+            "/api/auth/scout/exchange", json={"code": code, "verifier": "v" * 43}
+        ).status_code
+        == 401
+    )
+    api.headers["Cf-Access-Jwt-Assertion"] = assertion
+    store.revoke(browser)
+    assert (
+        api.post(
+            "/api/auth/scout/exchange", json={"code": code, "verifier": "v" * 43}
+        ).status_code
+        == 401
+    )
+
+
 def test_revocation_between_confirmation_and_exchange_is_authoritative(flow):
     api, store, token = flow
     code = code_from(create(api, token))

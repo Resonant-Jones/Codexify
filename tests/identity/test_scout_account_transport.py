@@ -38,6 +38,84 @@ def headers():
     }
 
 
+def edge_headers():
+    return {name: value for name, value in headers().items() if name != "Authorization"}
+
+
+def test_edge_consumed_composition_still_requires_selected_account(client):
+    response = client.get("/api/chat/threads", headers=edge_headers())
+    assert response.status_code == 200
+    assert response.headers["X-Scout-Access-Admission"] == "edge-consumed"
+    assert response.json()["selected"] == "Bearer fixture-account"
+    assert response.json()["alternate_removed"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"Host": "personal.example"},
+        {"Host": "preview.codexify.space:8443"},
+        {"Authorization": "Bearer fixture-account"},
+        {"Authorization": ""},
+        {"Cookie": "gc_session=fixture-cookie"},
+        {"Cookie": "codexify_hosted_room_session=fixture-guest"},
+        {"X-API-Key": "fixture-key"},
+        {"X-Guardian-Key": "fixture-key"},
+        {"X-Guardian-Account-Session": ""},
+    ],
+)
+def test_edge_consumed_wrong_or_conflicting_composition_rejected(client, extra):
+    assert (
+        client.get("/api/chat/threads", headers=edge_headers() | extra).status_code
+        == 400
+    )
+
+
+def test_edge_consumed_missing_duplicate_invalid_assertion_and_local_mode_rejected(
+    client, monkeypatch
+):
+    absent = {
+        name: value
+        for name, value in edge_headers().items()
+        if name != "CF-Access-Jwt-Assertion"
+    }
+    assert client.get("/api/chat/threads", headers=absent).status_code == 400
+    for name in ["CF-Access-Jwt-Assertion", "Host", "X-Guardian-Account-Session"]:
+        pairs = list(edge_headers().items())
+        if name == "Host":
+            pairs.append(("Host", transport.HOST))
+        pairs.append((name, "fixture-duplicate"))
+        assert client.get("/api/chat/threads", headers=pairs).status_code == 400
+    monkeypatch.setattr(
+        transport,
+        "verify_access_assertion",
+        lambda _: (_ for _ in ()).throw(ValueError()),
+    )
+    assert client.get("/api/chat/threads", headers=edge_headers()).status_code == 400
+    monkeypatch.setattr(transport, "verify_access_assertion", lambda _: None)
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local")
+    assert client.get("/api/chat/threads", headers=edge_headers()).status_code == 400
+
+
+def test_edge_consumed_invalid_account_never_falls_back_or_reaches_logout(
+    client, monkeypatch
+):
+    from fastapi import HTTPException
+
+    seen = []
+
+    def invalid(scope):
+        seen.append(dict(scope["headers"])[b"authorization"])
+        raise HTTPException(status_code=401)
+
+    monkeypatch.setattr(transport, "verify_selected_account", invalid)
+    for path in ["/api/chat/threads", "/api/auth/logout"]:
+        response = client.post(path, headers=edge_headers())
+        assert response.status_code == 401
+        assert "selected" not in response.json()
+    assert seen == [b"Bearer fixture-account", b"Bearer fixture-account"]
+
+
 def test_qualified_composition_normalizes_only_account_transport(client):
     response = client.get("/api/chat/threads", headers=headers())
     assert response.status_code == 200
@@ -135,7 +213,10 @@ def test_assertion_checks_signature_issuer_audience_and_expiry(monkeypatch):
         transport.verify_access_assertion(jwt.encode(claims, other, algorithm="RS256"))
 
 
-def test_normalization_preserves_exact_canonical_account_purpose(monkeypatch):
+@pytest.mark.parametrize("edge_consumed", [False, True])
+def test_normalization_preserves_exact_canonical_account_purpose(
+    monkeypatch, edge_consumed
+):
     from fastapi import HTTPException
     from starlette.responses import JSONResponse
 
@@ -177,7 +258,8 @@ def test_normalization_preserves_exact_canonical_account_purpose(monkeypatch):
         )
         response = client.get(
             "/api/chat/threads",
-            headers=headers() | {"X-Guardian-Account-Session": token},
+            headers=(edge_headers() if edge_consumed else headers())
+            | {"X-Guardian-Account-Session": token},
         )
         assert response.status_code == expected
         if expected == 200:

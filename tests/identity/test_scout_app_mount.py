@@ -27,3 +27,23 @@ def test_actual_app_mounts_handoff_and_rejects_unqualified_transport(monkeypatch
     assert denied.status_code == 400
     assert denied.json()["detail"] == "Hosted account transport rejected"
     with_client.close()
+
+
+def test_actual_account_route_never_uses_access_as_missing_account_identity(
+    monkeypatch,
+):
+    monkeypatch.setenv("GUARDIAN_API_KEY", "synthetic-app-mount-fixture")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+    from guardian.core import scout_account_transport as transport
+    from guardian.guardian_api import app
+
+    monkeypatch.setattr(transport, "verify_access_assertion", lambda _: None)
+    client = TestClient(app, base_url="https://preview.codexify.space")
+    for account in [None, "fixture-invalid-account"]:
+        headers = {"CF-Access-Jwt-Assertion": "fixture-access"}
+        if account is not None:
+            headers["X-Guardian-Account-Session"] = account
+        response = client.get("/api/chat/threads", headers=headers)
+        assert response.status_code == 401
+        assert "threads" not in response.json()
+    client.close()

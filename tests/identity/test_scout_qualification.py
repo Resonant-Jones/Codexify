@@ -67,7 +67,6 @@ def native_headers(identity=None):
 @pytest.mark.parametrize(
     ("headers", "reason"),
     [
-        ({}, "missingAuthorization"),
         ({"Authorization": "Bearer fixture-private-token"}, "unsupportedAuthorization"),
         (
             {
@@ -99,6 +98,38 @@ def test_native_rejection_exposes_only_fixed_shape_classification(
     assert response.json() == {"detail": "Native admission required"}
     assert response.headers["X-Scout-Qualification-Rejection"] == reason
     assert "fixture-" not in response.text + str(response.headers)
+    assert q.snapshot(identity) is None
+
+
+def test_edge_consumed_qualification_requires_signed_scoped_access(flow, monkeypatch):
+    api, _, _ = flow
+    identity = str(uuid4())
+    path = "/api/auth/scout/qualification/" + identity
+    admitted = api.put(path)
+    assert admitted.status_code == 200
+    assert admitted.headers["X-Scout-Access-Admission"] == "edge-consumed"
+    assert api.get(path).headers["X-Scout-Access-Admission"] == "edge-consumed"
+    assert (
+        api.put(path, headers=native_headers()).headers["X-Scout-Access-Admission"]
+        == "opaque-forwarded"
+    )
+    assert api.put(path, headers={"Host": "personal.example"}).status_code == 400
+    monkeypatch.setattr(
+        scout_auth,
+        "verify_access_assertion",
+        lambda _: (_ for _ in ()).throw(ValueError()),
+    )
+    rejected = api.get(path)
+    assert rejected.status_code == 401
+    assert "X-Scout-Access-Admission" not in rejected.headers
+
+
+def test_missing_authorization_and_access_assertion_confers_no_admission(flow):
+    api, _, _ = flow
+    identity = str(uuid4())
+    api.headers.pop("Cf-Access-Jwt-Assertion")
+    denied = api.put("/api/auth/scout/qualification/" + identity)
+    assert denied.status_code == 401
     assert q.snapshot(identity) is None
 
 

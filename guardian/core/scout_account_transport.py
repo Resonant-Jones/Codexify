@@ -22,6 +22,7 @@ ACCOUNT_HEADER = b"x-guardian-account-session"
 HOST = "preview.codexify.space"
 ISSUER = "https://resonant-constructs.cloudflareaccess.com"
 AUDIENCE = "c8cee0fe30547bc752dcbf295fac2a734657668fe6238df8a782e5e9b7bc1b51"
+ADMISSION_HEADER = "X-Scout-Access-Admission"
 _keys = jwt.PyJWKClient(ISSUER + "/cdn-cgi/access/certs", timeout=5)
 
 
@@ -44,6 +45,31 @@ def verify_selected_account(scope) -> None:
 
     request = Request(scope)
     verify_account_session(request, None, request.headers.get("Authorization"), None)
+
+
+def native_authorization_rejection(request: Request) -> str | None:
+    """Shape only, never admission: callers must verify qualified signed Access.
+
+    The independently qualified preview edge consumes the native OAuth Bearer.
+    Its absence confers no trust. A forwarded header retains the strict old shape.
+    """
+    values = request.headers.getlist("Authorization")
+    if len(values) > 1:
+        return "ambiguousAuthorization"
+    if values and not values[0].startswith("Bearer oauth:"):
+        return "unsupportedAuthorization"
+    return None
+
+
+def admission_headers(request: Request) -> dict[str, str]:
+    """Fixed observation only; use after qualified Access validation succeeds."""
+    return {
+        ADMISSION_HEADER: (
+            "opaque-forwarded"
+            if request.headers.getlist("Authorization")
+            else "edge-consumed"
+        )
+    }
 
 
 def account_route(path: str) -> bool:
@@ -75,11 +101,11 @@ class ScoutAccountTransportMiddleware:
             and account_route(scope["path"])
         )
         values = {}
-        for name in (b"authorization", b"cf-access-jwt-assertion", b"host"):
+        for name in (b"cf-access-jwt-assertion", b"host"):
             matches = [v for k, v in headers if k.lower() == name]
             accepted = accepted and len(matches) == 1
             values[name] = matches[0] if len(matches) == 1 else b""
-        accepted = accepted and values[b"authorization"].startswith(b"Bearer oauth:")
+        accepted = accepted and native_authorization_rejection(request) is None
         accepted = accepted and not any(
             k.lower() in {b"x-api-key", b"x-guardian-key"} for k, _ in headers
         )
@@ -136,7 +162,11 @@ class ScoutAccountTransportMiddleware:
             response = JSONResponse(
                 {"detail": "Account session required"},
                 status_code=exc.status_code,
-                headers={"Cache-Control": "no-store", **(exc.headers or {})},
+                headers={
+                    "Cache-Control": "no-store",
+                    **(exc.headers or {}),
+                    **admission_headers(request),
+                },
             )
             return await response(scope, receive, send)
 
@@ -154,6 +184,14 @@ class ScoutAccountTransportMiddleware:
                     "passed" if status == 200 else "failed",
                     status,
                 )
+            if message["type"] == "http.response.start":
+                message = dict(message)
+                message["headers"] = list(message.get("headers", [])) + [
+                    (
+                        ADMISSION_HEADER.lower().encode("ascii"),
+                        admission_headers(request)[ADMISSION_HEADER].encode("ascii"),
+                    )
+                ]
             await send(message)
 
         return await self.app(normalized, receive, qualified_send)

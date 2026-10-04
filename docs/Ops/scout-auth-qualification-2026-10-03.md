@@ -21,8 +21,9 @@ Callback parameters remain exactly code/state; the public ID is not authority.
 
 The existing Scout auth router owns these hosted-only diagnostic routes:
 
-- PUT/GET `/api/auth/scout/qualification/{identity}` require the existing signed
-  Access admission and native opaque Bearer composition; account/key/cookie
+- PUT/GET `/api/auth/scout/qualification/{identity}` require the existing scoped
+  signed Access admission and the qualified edge-consumed composition (or one
+  opaque Access Bearer when forwarded); account/key/cookie
   selectors cannot substitute for it. PUT registers evidence, not a session.
 - POST `/api/auth/scout/qualification/{identity}/browser` requires same-origin
   hosted admission. Browser loaded is observation only. Account confirmation
@@ -144,3 +145,23 @@ Access checks passed, but Guardian received no Authorization header. The current
 admission predicate remains unchanged and fails closed. The separate
 [bounded transport proposal](scout-edge-consumed-access-proposal-2026-10-03.md)
 is prepared for operator approval; its authentication amendment is not applied.
+
+## October 4 — approved edge-consumed composition
+
+The operator approved the bounded amendment and withdrew the requirement that
+the opaque Access Bearer reach Guardian on this qualified hosted composition.
+ADR-092 is amended. The qualifier, exchange and account adapter retain mandatory
+exact-host/private-preview/signed-assertion admission, fixed issuer/audience,
+signature/expiry and duplicate/conflict checks before recognizing absent
+Authorization. A forwarded Authorization remains single opaque Access Bearer.
+Absence alone is never trusted, and no Access credential moves to another header.
+Canonical account purpose/session/user/approval, PKCE parent revalidation and fresh
+independent native issuance remain decisive. Personal Bearer behavior is unchanged.
+
+Fixed response observation `X-Scout-Access-Admission` permits Settings to report
+“Access admitted / Authorization edge-consumed” as admitted rather than failed.
+It carries no credential, principal or authority. The client accepts that fixed
+label only from HTTP 200 at its exact qualification origin/path/attempt.
+**100 backend tests, 62 SwiftPM tests, 16 browser tests, Vite build and signed
+Simulator build pass**. Deployment and live native sign-in/continuity remain
+unproven at this source checkpoint; no infrastructure/account/database change ran.

@@ -1,7 +1,10 @@
-# Scout upstream Authorization mismatch — approval proposal
+# Scout upstream Authorization mismatch — approved amendment
 
-Status: evidence recorded; transport amendment **not implemented or deployed**.
-This document requests no account, database or Cloudflare change by itself.
+Status: approved 2026-10-04; source implemented and qualified; deployment and
+authenticated native continuity remain separate proof gates. The explicit
+operator approval withdraws the requirement that the opaque Access Bearer reach
+Guardian for the independently qualified hosted composition. ADR-092 records the
+amendment. This document grants no account, database or Cloudflare change.
 
 ## Verified runtime evidence
 
@@ -48,17 +51,17 @@ Rollback uses its `compose.scout-rollback.yml` and the existing base/preview
 Compose files, recreating only backend with no dependencies, build or pull.
 It restores the previous diagnostic route mounts without a database downgrade.
 
-## Exact approval boundary
+## Prior approval boundary (superseded 2026-10-04)
 
-ADR-092 currently requires a signed Access assertion **and** an opaque Access
+ADR-092 previously required a signed Access assertion **and** an opaque Access
 Bearer at Guardian for the hosted Scout adapter. The same shape is required by
 the native qualification and handoff exchange routes. The live upstream path
 does not deliver the latter header. Keeping that predicate correctly fails
 closed, but cannot complete the native flow.
 
-## Smallest proposed correction
+## Approved correction
 
-Amend only the qualified hosted Scout composition to recognize the observed
+The amendment changes only the qualified hosted Scout composition to recognize the observed
 edge-consumed shape. Scout continues sending its existing Access OAuth Bearer
 in Authorization; no new credential, header, registration or authorization path
 is added to the client.
@@ -92,5 +95,19 @@ purpose/session, and invalid/replayed handoff. Re-run integrated auth tests and
 retain the qualified no-seed startup/rollback/data-preservation checks. Then
 resume the one Guardian sign-in and complete #815 continuity/logout proof.
 
-This proposal does not grant approval and does not claim authenticated continuity.
+Focused qualification: **100 backend tests**, **62 SwiftPM tests**, **16 browser
+tests**, Vite build and canonical signed Simulator build pass. The temporary
+test environment was recreated under /tmp; initial dependency collection and
+missing fakeredis Lua support failures were corrected in that environment.
+No production dependency, account or database change was made for testing.
+
+Signed admission emits only a fixed `X-Scout-Access-Admission` observation:
+edge-consumed or opaque-forwarded. Native Settings displays the fixed admitted
+state only after HTTP 200 from its exact qualification origin/path/attempt.
+Missing Authorization without a verified scoped assertion remains denied.
+Qualification does not issue account authority. Account APIs and exchange keep
+their canonical validators and mixed-selector rejection; native exchange still
+issues a fresh independent exact-purpose account session.
+
+This record does not claim authenticated continuity.
 #816–#818 remain deferred.
