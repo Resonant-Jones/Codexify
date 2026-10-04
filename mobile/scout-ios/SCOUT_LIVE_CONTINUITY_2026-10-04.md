@@ -10,7 +10,7 @@ Scope: authenticated Scout Simulator continuity against `https://preview.codexif
 - Latest live-proof slice starting client: `76d33fae34ffa7e3fd866e2121251282f8fa1925`.
 - Current signed application source: `fab00177b66b38b97e1f8149edf43bea23b1c1d4`. Documentation closeout commits are reported separately.
 - Backend branch: `codex/scout-account-handoff-815` in the separately reviewable `scout-account-handoff/Codexify` worktree. Edge amendment starts at `d5d258d840e5b561af4fbe39ece0cb066f0e6941`; serving transport/ADR commit is `5836ed986e4cc6175b5184fe6b5d2fb23a989ed1`.
-- Proof Simulator: `077E052A-54E0-41F5-BF47-F7BAED94599C`, “Scout continuity proof 2026-09-30,” iOS 26.5. Bundle: `ai.resonantconstructs.codexify.scout`. Final install launched PID 49987 without uninstall, profile reset or Keychain removal.
+- Proof Simulator: `077E052A-54E0-41F5-BF47-F7BAED94599C`, “Scout continuity proof 2026-09-30,” iOS 26.5. Bundle: `ai.resonantconstructs.codexify.scout`. Final install launched PID 49987 without uninstall, profile reset or Keychain removal; final logged-out relaunch is PID 55939.
 - Canonical project/scheme: `mobile/scout-ios/CodexifyScout.xcodeproj` / `Codexify Scout`. Simulator signing is ad hoc; this does not qualify distribution signing.
 - VaultNode artifact: `/Volumes/Dev_SSD/Codexify-scout815-auth/5836ed986-edge`. Existing image: `sha256:579c15b3b31b74ac3feef814ced96af8595c4a3f289f0b955ef8bbf6b0a61291`.
 
@@ -92,7 +92,11 @@ At `2026-10-04T20:55:20Z`, Scout's account read succeeded immediately before log
 
 The subsequent local check reported: “Sign in to Guardian for this connection. No account session is stored; no request was sent.” This qualifies local removal and fail-before-dispatch separately from remote denial.
 
-The first proof classifier additionally required a general account-invalidation marker and underreported the actual denial. Commit `dad8a4803` restricts this causal post-logout check to the exact protected URL, HTTP 401 and the fixed qualified Access-admission observation. It does not relax the general session-invalidation policy or reinterpret unrelated operator failures. Source `fab00177b` includes that correction and the explicit delayed-ingress diagnostic. A final native check of the corrected logout display is pending Mac unlock; the already observed server denial remains proven.
+The first proof classifier additionally required a general account-invalidation marker and underreported the actual denial. Commit `dad8a4803` restricts this causal post-logout check to the exact protected URL, HTTP 401 and the fixed qualified Access-admission observation. It does not relax the general session-invalidation policy or reinterpret unrelated operator failures. Source `fab00177b` includes that correction and the explicit delayed-ingress diagnostic. The corrected successful logout display has unit/source qualification, but was not re-observed live; the original server denial is independently proven.
+
+An extra fresh browser attempt `c04256d2-ee08-49aa-8b61-75fb6ec7a0db` reached the browser after renewal (Guardian account gate 401, Ray `a457613efbe7b3eb-MIA`) but awaited secure operator continuation beyond its ingress lifetime. It issued no native account session. The expired extra attempt was closed by terminating/relaunching only Scout. In final source `fab00177b`, Server and explicit Check account session both report no stored account session and no request sent. This directly requalifies final-build local removal/fail-before-dispatch without representing the extra attempt as a successful sign-in.
+
+Device Hub did not expose the browser Continue control through accessibility. Automatic approval review rejected a full active-authentication screenshot because it could expose credential, code, callback or session material; no screenshot from that request was captured. No rejected action was retried or bypassed. The original nine-stage/continuity/revocation evidence supplies the required functional proof; the unobserved corrected display is an explicit diagnostic-only limit.
 
 ## Preserved runtime and data
 
@@ -101,9 +105,9 @@ The bounded deployment changes only four read-only backend mount sources. Existi
 - Route, both package mounts: `424bd8f3eff1aed8f06bae5d24cbd00df30bce38570e987eeb2b87e1eff864ec`.
 - Account transport, both mounts: `206d3df4cd8aca3a5043fc09818a9d648a51f0dd00a1a723c67d4a84127c832a`.
 
-After excluding the newly created proof thread/messages, all 75 pre-existing threads and 878 pre-existing messages retain their recorded row fingerprints. Project, system-document/link, imprint, provider/runtime and sync-job counts/fingerprints match the deployment checkpoint; user count remains seven. Ordinary approved login/logout presence and the new proof conversation are app lifecycle writes, not seed/provisioning or schema operations.
+After excluding the newly created proof thread/messages, all 75 pre-existing threads and 878 pre-existing messages retain their recorded row fingerprints. All seven user rows and project, system-document/link, imprint, provider/runtime and sync-job counts/fingerprints match the deployment checkpoint. Ordinary approved login/logout presence and the new proof conversation are app lifecycle writes, not seed/provisioning or schema operations.
 
-All 29 other services matched immediately after deployment. During final observation, two services in the separate `codexify_chat_branch_proof_896387ad2` stack changed only start time at approximately 21:13 UTC; their IDs/images/config hashes match. This task issued no restart for that stack. The remaining 27 match entirely. This is a concurrent runtime observation, not attribution of an external restart cause.
+All 29 other services matched immediately after deployment. The final read-only audit finds 31 other running services: two additional `codexify-persist003` containers, and start-time changes in the two `codexify_chat_branch_proof_896387ad2` services plus the preserved preview worker-chat. Every pre-existing container retains its ID/image/config hash; 26 match entirely, none was removed. This task issued no start/restart for those services. These are concurrent runtime observations, not attribution of an external restart cause or a global immutability claim.
 
 No further Cloudflare Access, OAuth registration, BIC, DNS, Tunnel, database migration, seed, account provisioning, ownership or auth-policy change occurred in this amendment/live-proof slice. Earlier separately approved recovery is historical and was not repeated.
 
@@ -147,7 +151,7 @@ The client changes the shared request-authentication selector, profile/origin Ke
 
 Physical-device installation was previously qualified, but this final authenticated loop ran on the Simulator. Personal-node live sign-in, cross-node switching, deliberate failed/cancelled production tasks, distribution signing, general federation/sync/offline inference and release support are unproven here. The ten-minute runtime receipt is bounded correlation evidence, not durable identity or execution authority.
 
-#815 has sufficient live evidence to close after the final diagnostic checkpoint and clean documentation commits. The issue itself is not mutated. The next logical Scout task is #816 App Entities/App Intents, subject to deliberate user selection; #816–#818 are not started.
+#815 has sufficient live evidence to close: every required functional step is proven, with completed-state behavior exercised live and failed/cancelled behavior qualified by tests. The issue itself is not mutated. The next logical Scout task is #816 App Entities/App Intents, subject to deliberate user selection; #816–#818 are not started. The final corrected logout status text can be observed during a future routine sign-in; it is not missing server revocation/denial proof.
 
 ## Reviewable client commits since the original checkpoint
 

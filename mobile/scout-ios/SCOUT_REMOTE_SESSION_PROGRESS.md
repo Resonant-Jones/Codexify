@@ -449,6 +449,9 @@ did not change in the latest Swift-only corrections.
 
 The [live proof packet](SCOUT_LIVE_CONTINUITY_2026-10-04.md) records exact source
 revisions, all 18 #815 steps, preserved data/runtime evidence and remaining proof
-limits. Final corrected logout UI verification awaits Mac unlock. Personal-node
-isolation and failed/cancelled behavior are unit-tested, not newly forced live.
+limits. The extra corrected logout-display repeat was closed after waiting beyond
+its ingress lifetime; that final text remains unit/source-qualified. Final-build
+Server and Check account session directly confirm no stored session/no dispatch.
+The original canonical server revocation and protected replay denial are proven.
+Personal-node isolation and failed/cancelled behavior are unit-tested, not newly forced live.
 No Beta, TestFlight, App Store or final physical-device continuity is claimed.
