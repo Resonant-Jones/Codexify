@@ -1,7 +1,7 @@
-# Scout remote-session goal: bounded progress and hosted prerequisite
+# Scout remote-session progress and hosted qualification
 
-Date: 2026-10-02 (America/New_York; validation below performed September 30)
-Status: incomplete; #815 cannot close.
+Date: 2026-10-04 (America/New_York; historical checkpoints retain their original dates).
+Status: hosted #815 continuity and revocation denial proven; see [the live closeout](SCOUT_LIVE_CONTINUITY_2026-10-04.md). Historical incomplete checkpoints below are superseded by that evidence. No release promotion or downstream task execution is implied.
 
 ## Lineage and scope
 
@@ -12,7 +12,7 @@ No local commits were discarded, rewritten, rebased, or replaced. No merge or pu
 Client repair commit: `b704291b3` (`Publish Scout persisted messages after task completion`).
 The ending documentation commit is reported in the chat closeout.
 
-This slice changes only the Scout client and its directly relevant documentation.
+The initial September 30 slice changes only the Scout client and its directly relevant documentation.
 Guardian, frontend, Tailscale, Whoosh'd, providers, and database state were not modified. The separately approved Cloudflare Managed OAuth setting was applied on October 1, as recorded below.
 
 ## Authentication trace and evidence classes
@@ -419,3 +419,36 @@ the full #815 loop. Current source inspection confirms successful terminal
 completion assigns persisted messages to observable conversation state and
 guards selection/connection/revision; its live behavior remains to be proven.
 #816–#818 remain deferred.
+
+## October 4 — authenticated continuity and revocation proof
+
+Public attempt `d0d1f7bd-7ba3-4710-9b0a-49ccad8a4938` passed all nine native
+authentication stages and a decoded protected account thread read. The operator
+corroborated all nine stages. The fixed admitted state is Access admitted /
+Authorization edge-consumed; Guardian account authority remains independent.
+The bounded runtime receipt expired, so a complete correlated backend trail is
+not claimed. Native callback/exchange/issuance/Keychain/read evidence is retained.
+
+The real app loaded existing threads/messages, created and renamed proof thread
+76, sent two synthetic user messages through distinct Send/Request actions,
+observed accepted tasks and successful task streams, and actually displayed both
+persisted Guardian replies. Read-only SQL confirms messages 911–914 and both
+request/task/turn bindings. Foreground/resume preserved the selected thread;
+protected document inventory and an account-owned document's metadata/content
+loaded. Canonical logout returned 200, its in-memory protected replay returned
+401, and a subsequent local account check failed before dispatch with no stored
+session. No credentials or existing document content were captured.
+
+Latest client corrections report Stream ended honestly (`716b405dd`), qualify
+post-logout denial without requiring an unrelated general invalidation marker
+(`5c9ad3cba`, `dad8a4803`), and distinguish captured ingress expiry during a long
+browser handoff (`fab00177b`). The complete SwiftPM suite now passes **66 tests**;
+the canonical signed proof-Simulator build/install/launch passes. Existing backend
+**100 tests**, LoginPage **16 tests** and Vite build remain qualified; their bytes
+did not change in the latest Swift-only corrections.
+
+The [live proof packet](SCOUT_LIVE_CONTINUITY_2026-10-04.md) records exact source
+revisions, all 18 #815 steps, preserved data/runtime evidence and remaining proof
+limits. Final corrected logout UI verification awaits Mac unlock. Personal-node
+isolation and failed/cancelled behavior are unit-tested, not newly forced live.
+No Beta, TestFlight, App Store or final physical-device continuity is claimed.

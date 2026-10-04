@@ -112,11 +112,12 @@ cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
 - [ ] View Activity tab — verify cross-thread task receipts
 - [ ] View Artifacts tab — verify global document listing
 
-## Hosted ingress qualification (October 2, 2026)
+## Hosted ingress and account qualification (October 4, 2026)
 
 The registered public native client uses ASWebAuthenticationSession and PKCE S256.
-In Settings, select remote-session mode, then **Use hosted Codexify** and
-**Authorize hosted ingress**. Complete Google/OTP only in the system browser.
+For initial setup in Settings, select remote-session mode, then **Use hosted Codexify** and
+**Authorize hosted ingress**. Keep the existing profile on subsequent sign-ins;
+Use hosted Codexify creates a new profile identity. Complete Google/OTP only in the system browser.
 **Check stored ingress** reads only this connection's Keychain credential, renews
 an expired credential through its existing refresh grant when available, and
 qualifies the protected API response without another browser login. A Guardian
@@ -137,10 +138,12 @@ same `User.id`. Browser session bytes are never returned to Scout. Native nonce,
 expiry, revocation and logout are independent of the browser session.
 No Access identity is converted into a Guardian user.
 
-**Check Guardian account** performs a protected thread read. Restoring a Keychain
-record alone does not prove authentication. **Log out of Guardian** removes this
+**Check account session** performs a protected thread read. Restoring a Keychain
+record alone does not prove authentication. **Log out Guardian** removes this
 connection's local account session and requests canonical server revocation;
 the result distinguishes remote confirmation from a failed revocation request.
+After accepted hosted logout, a bounded in-memory replay can additionally prove
+Guardian HTTP 401 while Access remains admitted. No credential is restored or exported.
 A marked account-session failure clears only the affected account credential.
 Unrelated 401 responses preserve it. Expiry requires explicit sign-in again.
 
@@ -148,7 +151,10 @@ Connection = endpoint/transport + explicit authentication mode. Hosted requests
 use Access in Authorization and the approved X-Guardian-Account-Session alternate
 transport for the canonical account credential. Guardian accepts the alternate
 header only at the fixed preview host/application with signed upstream admission;
-its existing strict account validator remains authoritative. Personal HTTPS
+its existing strict account validator remains authoritative. The approved
+edge-consumed composition permits missing origin Authorization only after signed
+fixed-host/private-preview Access validation; missing Authorization alone grants no trust.
+Personal HTTPS
 nodes retain account Bearer where supported, or explicitly selected local API
 keys. Tailscale is transport, not identity. There is no local-key fallback.
 All credentials are scoped by profile and origin, held only in Keychain. Legacy
@@ -158,12 +164,15 @@ redirects. Profile/account changes reset volatile client projections; Guardian
 remains durable authority.
 
 Source and tests implement this handoff. The independent-session amendment and
-approved no-seed guard are deployed and verified on preview; authenticated #815
-live continuity remains a separate qualification gate. LLM/operator evidence routes are
+approved no-seed guard are deployed and verified on preview; the proof Simulator
+completed all nine authentication stages, two full persisted-output continuity
+turns, resume, document reads and logout denial. See [the live proof](SCOUT_LIVE_CONTINUITY_2026-10-04.md)
+for exact build revisions and limits. LLM/operator evidence routes are
 not promoted to account-authorized routes by this change. App Intents remain
 downstream of operational continuity.
 
 Live PKCE/token/admission qualification requires human sign-in in the dedicated
 Scout proof simulator. Do not capture credentials, OTPs, callback codes, or tokens
 in screenshots or logs. See [the progress record](SCOUT_REMOTE_SESSION_PROGRESS.md)
-for evidence and the remaining #815 boundary.
+for historical evidence. Physical-device continuity, release support and
+#816–#818 remain separate work; none is started automatically.

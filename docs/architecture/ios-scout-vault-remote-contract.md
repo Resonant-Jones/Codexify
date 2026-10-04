@@ -4,9 +4,9 @@
 > Status: normative
 > Normative language: "must", "must not", "should", and "non-goal" are intentional contract terms.
 
-Purpose: Define the boundary for the existing native Scout client and its future remote connection to the user's Codexify home server, Vault, while keeping Guardian as the operator and Codexify Core as the long-term authority.
+Purpose: Define the boundary for the native Scout client and its remote connection to the user's Codexify home server, Vault, while keeping Guardian as the operator and Codexify Core as the long-term authority.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-04
 
 ## Purpose
 
@@ -25,20 +25,20 @@ What is true now:
 - Local-only provider posture remains the supported posture.
 - Chat completion, task events, health surfaces, upload -> embed -> readback, and workspace-local retrieval are current supported beta paths.
 - Scout's SwiftUI source is tracked under `mobile/scout-ios/` in this monorepo.
-- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. Its generic iOS Simulator application build succeeded; the SwiftPM `ScoutTests` suite passed 12/12.
+- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. On `feature/scout-ios-remote-session`, the complete SwiftPM suite passes 66 tests and the signed proof-Simulator build succeeds.
 - Local/operator `X-API-Key` behavior is implemented. Focused tests show the Guardian-health probe rejects generic HTTP success and does not infer authentication from credential presence. See `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md` for the bounded build and test evidence.
+- The same working branch qualifies hosted `remoteSession` through separate Cloudflare Access admission and canonical Guardian account-session handoff. The real Simulator completed protected reads, two thread/message/task-event/persisted-output turns, resume, document browsing and logout denial. See [the October 4 live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for exact revisions and evidence limits. This branch qualification is separate from `main` release support.
 
 What is not yet true:
 
-- Scout is not a supported Codexify Beta surface. A generic Simulator build does not prove launch, live Guardian operation, or physical-device behavior from the canonical project.
-- Scout remote user-session/Bearer login, logout and session revocation, and hosted native API ingress are not implemented or qualified.
+- Scout is not a supported Codexify Beta surface. The hosted Simulator proof does not establish current physical-device continuity or distribution readiness.
 - Cloud/Vault synchronization, Recording Authority, federation, and phone-side local model fallback are not established by the current Scout evidence.
 - No public remote-access promise or App Store readiness is established.
 
-This contract describes the existing client boundary and future remote work; this documentation reconciliation:
+This contract describes the implemented client boundary and remaining remote work; this documentation reconciliation:
 
 - Adds no routes or authentication behavior.
-- Grants no remote or hosted runtime qualification.
+- Records only the linked, bounded hosted runtime evidence; grants no access-policy or deployment authority.
 - Does not widen the supported Beta runtime promise from `00-current-state.md`.
 
 ## Nodes and Trust Boundaries
@@ -58,7 +58,7 @@ Trust boundaries:
 
 Threat model for this first contract:
 
-- Early V1 assumes a trusted private-network path and an honest-but-buggy operator environment.
+- Personal nodes may use a trusted private-network path; the hosted lane also handles untrusted clients and malformed or mixed credential selectors at its explicit admission and account boundaries.
 - Authentication must still be explicit.
 - Tailscale or another trusted private network is transport, not identity or authorization by itself.
 
@@ -67,22 +67,23 @@ Authentication boundary:
 - Transport selection and Guardian authentication are independent. Endpoint reachability, including a valid `/health` response, does not prove a user session or authorization.
 - The implemented local/operator lane may send `X-API-Key`; credential presence alone does not establish authentication. The Guardian-health probe fails closed on unrelated or malformed HTTP success responses.
 - ADR-051 governs the separation between local API-key and remote session/Bearer behavior for private clients. Scout must not silently reinterpret its local API key as a remote user session, send both credentials, or fall back to the local credential after remote authentication loss.
-- Scout's remote Bearer/session lane, email/password login, logout, and revocation lifecycle remain future implementation and proof work. Cloudflare/browser admission or private-network transport cannot substitute for Guardian account authentication. Hosted native ingress is unqualified.
+- `remoteSession` uses the existing exact-purpose Guardian `account_session`, stored only in a profile/origin Keychain record. Personal nodes use Guardian Bearer when supported. The qualified hosted composition sends Access in Authorization and the account session in `X-Guardian-Account-Session`; ADR-092's separately approved amendment accepts edge-consumed Authorization only after fixed-host/private-preview signed Access validation. No Access credential is reconstructed or moved to an origin header. Cloudflare/browser admission and private-network transport cannot substitute for independent Guardian account authentication.
+- Login, restoration, expiry, reauthentication and logout are explicit. Invalid account credentials fail closed, and unrelated/operator-route failures cannot indiscriminately destroy a valid session. Hosted logout can verify one denied protected replay using the already prepared credential in memory, after canonical revocation succeeds; it never restores or exports local authority.
 
 ## Hosted and personal connection composition
 
 The connection model is `connection = endpoint/transport + explicit authentication mode`.
 
-- The intended convenience/default hosted lane is `https://preview.codexify.space` with `remoteSession`. This is product direction, not a qualified native connection or an implemented default profile.
+- The implemented convenience/default hosted lane is `https://preview.codexify.space` with `remoteSession`, selected explicitly through Use hosted Codexify and qualified in the linked Simulator proof.
 - Personal/self-hosted nodes remain first-class: a user chooses their own HTTPS endpoint and an authentication mode actually supported by that node. Connecting to one's own node must not require a Resonant Constructs paid-service account.
 - Tailscale, LAN/private DNS, Cloudflare Tunnel, and user-controlled ingress are transport options. They do not choose a Codexify authentication mode or establish account identity.
-- Cloudflare Access is a distinct ingress admission boundary where configured. On 2026-09-30 the hosted browser visibly presented its Google and email-code sign-in screen. Repository account login remains a separate Guardian-owned session issuer; Access admission is not account-session issuance.
-- Credentials must be isolated by profile and endpoint origin before multiple usable connections ship. The current global local-key storage does not prove that isolation; remote-session storage and a multi-profile credential lifecycle remain unfinished.
+- Cloudflare Access is a distinct mandatory ingress boundary on the qualified hosted lane. Its Google/email-code browser flow and registered public native OAuth/PKCE client admit ingress only. The existing Guardian browser login then uses a one-time origin-bound S256 handoff to issue an independent native account session for the same canonical account; browser session bytes are never exported to Scout.
+- Access, account-session and local-key records are isolated by profile UUID and canonical endpoint origin. Changing connections clears volatile account/thread projections and cancels an in-flight sign-in. Tests qualify credential selection, wrong-origin refusal and stale-read isolation; the hosted live proof does not newly qualify a personal node.
 - Guardian/Vault owns durable accounts, threads, messages, tasks, and documents. Scout's volatile projections remain subordinate to that authority.
 
-The 2026-09-30 continuity slice shares observable persisted-message state between thread and task views. A successful `task.completed` triggers a persisted read and publishes that read to the conversation; a failed read cannot claim refresh success. Failed/cancelled tasks do not create assistant messages. Selection includes profile identity, endpoint URL, authentication mode, and thread ID; changed connections clear volatile views, and stale or overlapping reads cannot replace newer/other-node state. Display-only profile metadata changes preserve selection. Foreground/resume refresh is bounded to the selected conversation. These are code/test/build claims, not authenticated hosted proof.
+The continuity slice shares observable persisted-message state between thread and task views. A successful `task.completed` triggers a persisted read and publishes that read to the conversation; a failed read cannot claim refresh success. Failed/cancelled tasks do not create assistant messages. Selection includes profile identity, endpoint URL, authentication mode, and thread ID; changed connections clear volatile views, and stale or overlapping reads cannot replace newer/other-node state. Display-only profile metadata changes preserve selection. Foreground/resume refresh is bounded to the selected conversation. Completed output and foreground/resume are live-qualified on the hosted Simulator; failed/cancelled outcomes and cross-node switching retain unit-test proof only.
 
-See [Scout remote-session progress](../../mobile/scout-ios/SCOUT_REMOTE_SESSION_PROGRESS.md) for the authentication trace, exact external prerequisite, validation, and unproven surfaces. App Entities/App Intents (#816) and deeper integrations remain downstream of operational continuity (#815); no Beta, TestFlight, or App Store readiness advances.
+See [Scout remote-session progress](../../mobile/scout-ios/SCOUT_REMOTE_SESSION_PROGRESS.md) for the historical authentication trace and [the live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for the #815 closeout. App Entities/App Intents (#816) and deeper integrations remain separate downstream tasks; none starts automatically, and no Beta, TestFlight, or App Store readiness advances.
 
 ## Repository Posture
 
@@ -263,7 +264,7 @@ Governing docs and contracts:
 Reason:
 
 - The original contract defined the Scout client boundary and monorepo-first incubation. The tracked implementation and build now exist beneath that boundary.
-- ADR-051 preserves the separation between local API-key and remote session/Bearer authentication. This reconciliation changes no server API, authentication semantics, memory authority, or release support.
+- ADR-051 preserves the separation between local API-key and remote session/Bearer authentication. ADR-092 governs exact credential purpose and the approved bounded hosted alternate account transport; its amendment is separately reviewable at backend commit `5836ed986e4cc6175b5184fe6b5d2fb23a989ed1`. This reconciliation records implemented/proven behavior without changing server APIs, memory authority or release support.
 
 ## Invariants
 
@@ -285,6 +286,6 @@ Reason:
 
 - This file exists at `docs/architecture/ios-scout-vault-remote-contract.md`.
 - `docs/architecture/README.md` links to this contract.
-- Tracked `mobile/scout-ios/` source and `CodexifyScout.xcodeproj`, the 12/12 SwiftPM result, and the generic iOS Simulator build support only the stated implementation and build claims.
+- Tracked `mobile/scout-ios/` source and `CodexifyScout.xcodeproj`, the 66-test SwiftPM result, the signed Simulator build and the linked live receipts support only their stated proof tiers.
 - `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md` records the evidence tiers and remaining proof gates.
 - This documentation reconciliation changes no code or Xcode project files.
