@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-09-24
+Last updated: 2026-10-04
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -290,6 +290,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Guardian Retrieval Navigation Model](./guardian-retrieval-navigation-model.md): planning-only doctrine for future retrieval navigation and route priors before expensive retrieval or full-vault ingestion; not current runtime behavior and not a release promise.
 - [Web Agent Spec v1](./web-agent-spec.md): architecture/specification note for governed web retrieval, extraction, and browser/service connector boundaries; not current runtime proof.
 - [Search-as-RAG Provider Adapter Contract](./web-search-provider-adapter-contract.md): architecture/specification contract for future Search-as-RAG provider adapters; not current runtime support.
+- For Cloudflare edge/platform architecture and future integration work, start with [ADR-099: Cloudflare Edge Platform Boundary](./adr/099-cloudflare-edge-platform-boundary.md) and the [Cloudflare Edge Platform Campaign](../Campaign/cloudflare-edge-platform/README.md). ADR-099 is accepted architecture with a deferred implementation order: no Cloudflare service is configured, implemented, or part of the supported Beta path, and each implementation slice needs separate authorization.
 - [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md): future pre-synthesis safety and provenance gate for web-derived evidence; not current runtime support.
 - [Remote Recall Live Proof](./remote-recall-live-proof.md): feature-branch (`feature/remote-retrieval`) live proof status for the Search-as-RAG seam. PASS is branch-scoped only, not `main` proof, and not beta support.
 - [Remote Recall Mainline Merge Readiness](./remote-recall-mainline-merge-readiness.md): docs-only merge-readiness classification for promoting the feature-branch seam toward `main`; does not merge and does not imply runtime or beta support.
