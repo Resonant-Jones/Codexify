@@ -104,22 +104,15 @@ function PanelShell({
     ...(surfaceStyle ?? {}),
   };
 
-  if (transparent) {
-    return (
-      <div className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)} style={panelStyle}>
-        {children}
-      </div>
-    );
-  }
-
   return (
     <FrameCard
       fill
-      refractiveFallback
+      unframed={transparent}
+      refractiveFallback={!transparent}
       shimmerMode="subtle"
       liquidBezelWidth={3}
       className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
-      hoverPop={!disabled}
+      hoverPop={!disabled && !transparent}
       ariaLabel={disabled ? "panel disabled" : undefined}
       style={{
         borderRadius: "var(--card-radius)",

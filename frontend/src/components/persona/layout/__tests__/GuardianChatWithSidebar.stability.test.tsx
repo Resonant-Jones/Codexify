@@ -1288,6 +1288,21 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(sessionSpineInstances.at(-1).tabSetThread).not.toHaveBeenCalled();
   });
 
+  it("preserves the chat instance when a draft becomes a durable thread", async () => {
+    seedActiveSession();
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian().presentationMode).toBe("landing");
+    const chat = screen.getByTestId("guardian-chat-mock");
+
+    act(() => latestGuardian().onThreadPersisted(11, "Thread 11"));
+
+    expect(latestGuardian().presentationMode).toBe("conversation");
+    expect(screen.getByTestId("active-thread-id")).toHaveTextContent("11");
+    expect(screen.getByTestId("guardian-chat-mock")).toBe(chat);
+  });
+
   it("does not hint after the sidebar was discovered on landing", async () => {
     seedActiveSession();
     setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
