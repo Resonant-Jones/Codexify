@@ -1,6 +1,6 @@
 # Scout #816 live Apple system-surface qualification
 
-Date: 2026-10-05. Status: **IN PROGRESS — live read/create/cancel qualified; pending-context invalidation remains live-unverified**.
+Date: 2026-10-05. Status: **QUALIFIED — bounded first read/write pair through actual Apple Shortcuts**.
 
 ## Revision and runtime
 
@@ -54,11 +54,27 @@ Operator explicitly approved normal merges of #853 and #854. Both are merged:
    the head of the current page, with no cancelled-test title in the observed
    current page. The page remains partial, so this does not establish absence
    outside the returned page.
-8. A pending confirmation remained present when the iOS Home screen was opened;
-   the system confirmation blocked navigation to Scout Settings while pending.
-   The pending action was cancelled without dispatch. Live profile/account/auth
-   change invalidation is therefore not claimed. Focused tests exercise
-   changed-connection and lost-authentication rejection before write dispatch.
+8. A new create confirmation remained pending while the app switched to Scout
+   Settings. Guardian logout reported that revocation was accepted, the
+   account session was removed from this connection's Keychain, and a protected
+   replay was denied by Guardian with HTTP 401 while Access remained admitted.
+   Returning to Shortcuts and continuing the pending action returned
+   `The connection or account changed...`; it did not report create success or
+   retry. Logout occurred before Continue was selected. The action service
+   revalidates the captured context after the async confirmation and immediately
+   before invoking the create service; a removed credential fails that check.
+   This sequence qualifies invalidation before write dispatch. The focused
+   cancellation/context-change tests independently verify zero write requests
+   for the pre-dispatch rejection path.
+9. After restoring the same hosted profile's Access grant and completing the
+   separate Guardian sign-in, Scout again reported all nine authentication
+   stages qualified and a successful protected thread read. The Shortcuts read
+   action returned `Read 50 threads from the current page. More threads may be
+   available in Scout.` Its five visible entity rows included the successful
+   proof title and did not include the pending-test title. This is corroboration
+   from the newest visible results, not a whole-page or whole-catalog absence
+   claim. The no-write conclusion rests on the pending confirmation/logout
+   sequence and the service's pre-dispatch context check.
 
 Shortcuts, confirmation, create-result and query-result surfaces were observed
 through Device Hub screenshots and accessibility state. Proof notes include only
@@ -75,17 +91,18 @@ cookies, tokens and callback parameters are excluded.
 - [x] Created thread re-resolves as an entity in a fresh protected query.
 - [x] Cancelling the final confirmation produces no create-success result; the
       cancelled title is absent from the subsequent observed current page.
-- [ ] Live profile/account/auth change invalidates a pending action before
-      dispatch. Focused tests prove changed-connection and lost-authentication
-      rejection at the service boundary; the system-surface race remains live
-      unverified.
+- [x] Live Guardian account logout while the native create confirmation was
+      pending invalidated the action before write dispatch. Resuming reported
+      changed connection/account without success or retry. The fresh read
+      succeeded after reauthentication; the observed results remain partial.
 - [x] System-surface screenshots/accessibility observations captured without
       authentication material or unrelated thread titles.
 
 The entity query remains limited to the existing thread-list page. A partial
 page must not be described as the entire thread universe or used by itself to
 prove that a thread does not exist. No new send, completion, document or task
-intents are being added. #816 stays open; #817 remains deferred. No Siri
+intents were added. The bounded live read/write qualification is complete.
+#816 remains open for operator closeout; #817 remains deferred. No Siri
 invocation or release/distribution readiness is claimed.
 
 ## Validation
