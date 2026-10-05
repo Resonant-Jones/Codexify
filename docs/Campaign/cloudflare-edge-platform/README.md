@@ -1,8 +1,8 @@
 # Cloudflare Edge Platform Campaign
 
 - Campaign ID: `CLOUDFLARE-EDGE-PLATFORM`
-- Campaign status: active architecture/planning; implementation not started
-- Architecture status: **PROPOSED** pending human acceptance of [ADR-099](../../architecture/adr/099-cloudflare-edge-platform-boundary.md)
+- Campaign status: active; architecture accepted; implementation not started
+- Architecture status: **ACCEPTED 2026-10-04 by Resonant Jones** under [ADR-099](../../architecture/adr/099-cloudflare-edge-platform-boundary.md)
 - Runtime status: no Cloudflare integration or release claim established
 - Cost posture: `ZERO_NON_INFERENCE_SPEND`
 - Current release truth: [00 Current State](../../architecture/00-current-state.md)
@@ -120,6 +120,8 @@ predecessor to Campaign closure.
 
 All entries below are deferred. Each needs a separate task dispatch with
 scope, changed-file allowlist, current external limit review, and proof plan.
+CE-01 is the next eligible slice after ADR-099 acceptance, but has not been
+authorized or started by this acceptance task.
 
 | Slice | Scope and dependency | Required proof / stop condition |
 | --- | --- | --- |

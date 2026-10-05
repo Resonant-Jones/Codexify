@@ -1,10 +1,12 @@
 # ADR-099: Cloudflare Edge Platform Boundary
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-04
+- Accepted: 2026-10-04
+- Human approver: Resonant Jones
 - Governing anchors: ADR-021, ADR-041, ADR-061, ADR-067, ADR-071, ADR-075, ADR-081, ADR-093, ADR-094, and `00-current-state.md`.
 - Companion Campaign: [Cloudflare Edge Platform Campaign](../../Campaign/cloudflare-edge-platform/README.md).
-- Decision authority: This proposal records the architecture requested for review. Human acceptance is required before it is treated as an accepted architecture decision. It authorizes no runtime or Cloudflare configuration work.
+- Decision authority: Resonant Jones explicitly accepted this architecture on 2026-10-04. Acceptance covers this boundary only; it authorizes no runtime or Cloudflare configuration work.
 
 ## Context
 
@@ -253,10 +255,11 @@ Cloudflare-backed release support, or change Beta posture. No Cloudflare
 integration is claimed to exist. `00-current-state.md` remains the release
 and supported-path authority.
 
-## Acceptance gate
+## Acceptance record
 
-This ADR remains Proposed until a human explicitly accepts the architecture
-decision. Acceptance would freeze only this boundary and the future campaign
-sequence; each runtime slice still requires its own bounded authorization,
-current product-limit review, validation, and proof. Acceptance would not
-prove implementation or change release status.
+Resonant Jones accepted this architecture on 2026-10-04. Acceptance freezes
+this boundary and the future Campaign sequence. CE-01 is the next eligible
+separate implementation slice, but this acceptance does not authorize its
+execution. Each runtime slice still requires its own bounded authorization,
+current product-limit review, validation, and proof. Acceptance does not prove
+implementation or change release status.
