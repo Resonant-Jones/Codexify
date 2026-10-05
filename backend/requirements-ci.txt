@@ -37,3 +37,6 @@ faiss-cpu==1.12.0
 markdownify
 rank-bm25
 jsonschema==4.25.0
+
+# Exercise Scout's atomic, single-use Redis PKCE handoff with Lua enabled.
+fakeredis[lua]==2.39.0
