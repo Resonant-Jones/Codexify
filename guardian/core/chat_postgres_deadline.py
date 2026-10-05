@@ -1,7 +1,8 @@
-"""ADR-087 query bounds for worker-owned PgDB operations.
+"""Physical PostgreSQL bounds for accepted chat work and recovery maintenance.
 
-This scope bounds hostname resolution, native connection/query polling and pool
-waiting, not remote commit acknowledgement. It never creates a budget.
+Accepted scopes preserve the original task envelope. Maintenance scopes bound only
+controller observations/writes and grant no task execution authority. A timeout
+cannot prove whether a remote commit executed or undo acknowledged durable truth.
 """
 
 from __future__ import annotations
@@ -30,12 +31,17 @@ from guardian.tasks.chat_deadline import (
 )
 
 
+class PostgresOperationTimeout(RuntimeError):
+    """Maintenance could not be confirmed within its own resource budget."""
+
+
 @dataclass
 class _QueryBudget:
     work_end: float
     terminal_end: float
     terminal: bool = False
     invalid: bool = False
+    operation: bool = False
 
     def remaining(self) -> float:
         if self.invalid:
@@ -44,6 +50,8 @@ class _QueryBudget:
             self.terminal_end if self.terminal else self.work_end
         ) - time.monotonic()
         if remaining <= 0:
+            if self.operation:
+                raise PostgresOperationTimeout("PostgreSQL maintenance deadline exceeded")
             error = AcceptedChatTaskDeadlineExceeded()
             if self.terminal:
                 error.detail["message"] = (
@@ -59,6 +67,21 @@ _budget: ContextVar[_QueryBudget | None] = ContextVar(
 
 
 @contextmanager
+def postgres_operation_scope(timeout_seconds: float):
+    """Bound recovery maintenance without replacing an accepted task envelope."""
+    if _budget.get() is not None:
+        raise ValueError("PostgreSQL operation scope cannot replace an inherited budget")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("PostgreSQL operation timeout must be finite and positive")
+    end = time.monotonic() + timeout_seconds
+    token = _budget.set(_QueryBudget(end, end, operation=True))
+    try:
+        yield
+    finally:
+        _budget.reset(token)
+
+
+@contextmanager
 def accepted_postgres_query_scope(
     deadline: AcceptedChatTaskDeadline | None,
     *,
@@ -67,6 +90,9 @@ def accepted_postgres_query_scope(
     invalid: bool = False,
 ):
     """Anchor both frozen timestamps once; child progress cannot refresh them."""
+    inherited = _budget.get()
+    if inherited is not None and inherited.operation:
+        raise ValueError("Accepted task scope cannot replace PostgreSQL maintenance")
     value = None
     if deadline is not None:
         clock = time.monotonic() if monotonic_at_wall is None else monotonic_at_wall
@@ -87,6 +113,8 @@ def use_postgres_terminal_budget() -> None:
     """Permit only terminal database work inside the original reserve."""
     value = _budget.get()
     if value is not None:
+        if value.operation:
+            raise ValueError("Maintenance cannot authorize an accepted terminal reserve")
         value.terminal = True
 
 
@@ -99,6 +127,8 @@ def require_accepted_work_budget() -> float | None:
     value = _budget.get()
     if value is None:
         return None
+    if value.operation:
+        raise ValueError("Maintenance cannot authorize accepted child work")
     if value.invalid:
         raise ValueError("accepted chat deadline snapshot is invalid")
     remaining = value.work_end - time.monotonic()
@@ -136,7 +166,7 @@ class AcceptedDeadlineQueue(pool_queue.Queue):
                 raise
             try:
                 budget.remaining()
-            except (AcceptedChatTaskDeadlineExceeded, ValueError):
+            except (AcceptedChatTaskDeadlineExceeded, PostgresOperationTimeout, ValueError):
                 self._put(item)
                 self.not_empty.notify()
                 raise
@@ -376,7 +406,7 @@ class AcceptedDeadlineConnection(psycopg.Connection):
                 result = completed.value
             budget.remaining()
             return result
-        except (AcceptedChatTaskDeadlineExceeded, ValueError):
+        except (AcceptedChatTaskDeadlineExceeded, PostgresOperationTimeout, ValueError):
             # PQfinish closes the socket. No five-second interrupt/cancel wait,
             # abandoned execution thread, or subsequent rollback can outlive it.
             self.close()
@@ -449,11 +479,12 @@ def connect_with_query_bounds(dsn: str, **kwargs):
     if budget is not None:
         try:
             budget.remaining()
-        except (AcceptedChatTaskDeadlineExceeded, ValueError):
+        except (AcceptedChatTaskDeadlineExceeded, PostgresOperationTimeout, ValueError):
             connection.close()
             raise
     return connection
 
 
 def accepted_postgres_queries_active() -> bool:
+    """Select bounded physical connections for either existing resource scope."""
     return _budget.get() is not None
