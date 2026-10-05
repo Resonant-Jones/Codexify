@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-04
+2026-10-05
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Current-main evidence covers bounded API chat, unavailable-model failure, cancellation, durable readback, and focused authorization boundaries. The latest complete supported-Compose qualification remains `HOLD`; the later chat proof stopped on a browser new-thread transcript projection gap and did not run restart or shutdown qualification.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. No implementation or runtime qualification change landed on mainline after the 2026-10-04 refresh; the latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
@@ -26,7 +26,7 @@ This file is authoritative for:
 - Persisted authenticated account-intake provenance for coding runs so operator-created metadata cannot grant account snapshot access.
 - Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
-- Preserved the release boundary: no fresh full supported-Compose, restart, shutdown, natural import-to-recall, or public-ingress qualification was established.
+- The 2026-10-05 mainline record reports no new implementation, proof, or qualification work; no release claim widened.
 
 ## Current supported reality
 
