@@ -99,6 +99,8 @@ def test_edge_consumed_composition_still_requires_selected_account(client):
         {"Authorization": "Bearer fixture-account"},
         {"Authorization": ""},
         {"Cookie": "gc_session=fixture-cookie"},
+        {"Cookie": "gc_session=fixture-cookie; bad"},
+        {"Cookie": "unrelated=value; codexify_hosted_room_session=fixture-guest; bad"},
         {"Cookie": "codexify_hosted_room_session=fixture-guest"},
         {"X-API-Key": "fixture-key"},
         {"X-Guardian-Key": "fixture-key"},
@@ -180,6 +182,8 @@ def test_other_surfaces_reject_header(client, path):
         {"Host": "personal.example"},
         {"Authorization": "Bearer fixture-account"},
         {"Cookie": "gc_session=fixture-cookie"},
+        {"Cookie": "gc_session=fixture-cookie; bad"},
+        {"Cookie": "unrelated=value; codexify_hosted_room_session=fixture-guest; bad"},
         {"Cookie": "codexify_hosted_room_session=fixture-guest"},
         {"X-API-Key": "fixture-key"},
         {"X-Guardian-Key": "fixture-key"},
@@ -328,3 +332,11 @@ def test_invalid_selected_account_never_reaches_downstream_even_on_logout(
         response = client.post(path, headers=headers())
         assert response.status_code == 401
         assert "selected" not in response.json()
+
+
+def test_malformed_duplicate_cookie_headers_cannot_hide_account_selector(client):
+    supplied = list(edge_headers().items()) + [
+        ("Cookie", "gc_session=fixture-cookie"),
+        ("Cookie", "bad"),
+    ]
+    assert client.get("/api/chat/threads", headers=supplied).status_code == 400

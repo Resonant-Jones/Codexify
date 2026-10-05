@@ -169,6 +169,37 @@ pass in CI's framework overlay, including the previously failing order. Logs/XML
 pass for this test-only repair; full CI on the published follow-up remains the
 merge gate.
 
+## Final hosted-boundary review repairs
+
+The hosted adapter rejects protected cookie selectors from each raw Cookie
+header before parsing. Malformed cookie fragments or duplicate headers cannot
+hide an account or Hosted Room credential behind an empty parsed jar. Ordinary
+unrelated cookies do not grant account authority. Independent Access validation,
+exact-purpose account validation and the qualified preview scope are unchanged.
+
+Browser Scout continuation now requires the exact preview origin as well as
+valid, unique handoff parameters. Personal deployments retain ordinary workspace
+continuation even when a URL contains Scout parameters; no alternate handoff path
+is introduced. The eight-file browser matrix passes **61 tests**, and the
+production build succeeds. Logs: `/tmp/scout815-boundary-browser-tests.log` and
+`/tmp/scout815-boundary-browser-build.log`.
+
+The full CI WebSocket failure was reproduced after Scout mount tests: redundant
+test-level environment patches captured the fixture's preview posture and restored
+it after the scoped fixture cleanup. Removing those redundant patches restores the
+local posture for subsequent tests without changing WebSocket production auth.
+All **67 combined profile/quarantine/mount/WebSocket/transport cases** pass with
+CI's FastAPI/Starlette overlay. XML: `/tmp/scout815-review-boundary-results.xml`.
+The expanded focused backend/architecture matrix passes **774 tests, zero
+failures/errors/skips**, including supported-profile, beta-quarantine and
+WebSocket order regressions. Its exact result is
+recorded in `/tmp/scout815-boundary-backend-results.xml` and log
+`/tmp/scout815-boundary-backend-tests.log`. Scoped mypy passes for all three
+changed Python files. A first matrix invocation used system Python for Make
+subprocesses and failed four dependency-import checks; selecting the test virtual
+environment on PATH repairs that harness limitation. No production dependency,
+database or external access configuration changed.
+
 ## Evidence boundaries and follow-through
 
 [Historical backend qualification](https://github.com/Resonant-Jones/Codexify/blob/68d6c061f786f680f198f7328d40753b096625db/docs/Ops/scout-auth-qualification-2026-10-03.md)

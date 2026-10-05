@@ -31,7 +31,8 @@ export default function LoginPage() {
   const scoutParams = new URLSearchParams(window.location.search);
   const scoutState = scoutParams.get("scout_state") ?? "";
   const scoutChallenge = scoutParams.get("scout_challenge") ?? "";
-  const scoutFlow = /^[A-Za-z0-9_-]{43}$/.test(scoutState) &&
+  const scoutFlow = window.location.origin === "https://preview.codexify.space" &&
+    /^[A-Za-z0-9_-]{43}$/.test(scoutState) &&
     /^[A-Za-z0-9_-]{43}$/.test(scoutChallenge) &&
     scoutParams.getAll("scout_state").length === 1 &&
     scoutParams.getAll("scout_challenge").length === 1;

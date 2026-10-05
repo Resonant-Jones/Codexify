@@ -37,8 +37,6 @@ def _scout_client(*args, **kwargs):
 
 
 def test_actual_app_mounts_handoff_and_rejects_unqualified_transport(monkeypatch):
-    monkeypatch.setenv("GUARDIAN_API_KEY", "synthetic-app-mount-fixture")
-    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
     from guardian.guardian_api import app
 
     # No context manager: do not start application/database lifespan hooks.
@@ -125,8 +123,6 @@ def test_scout_auth_family_obeys_mainline_auth_route_gate(monkeypatch, posture):
 def test_actual_account_route_never_uses_access_as_missing_account_identity(
     monkeypatch,
 ):
-    monkeypatch.setenv("GUARDIAN_API_KEY", "synthetic-app-mount-fixture")
-    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
     from guardian.core import scout_account_transport as transport
     from guardian.guardian_api import app
 
@@ -157,7 +153,6 @@ def test_hosted_transport_retains_mainline_durable_task_authorization(
     from guardian.core import auth, scout_account_transport, session_store
     from guardian.queue import task_events
 
-    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "synthetic-mounted-task-fixture")
     monkeypatch.setenv("CODEXIFY_PREVIEW_APPROVED_EMAILS", "fixture@example.com")
     monkeypatch.setattr(

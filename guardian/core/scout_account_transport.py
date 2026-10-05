@@ -113,7 +113,15 @@ class ScoutAccountTransportMiddleware:
         try:
             for name, value in headers:
                 if name.lower() == b"cookie":
-                    cookies.load(value.decode("latin-1"))
+                    raw_cookie = value.decode("latin-1")
+                    # SimpleCookie can discard a malformed jar silently. A
+                    # conflicting selector remains present even in that jar.
+                    accepted = accepted and not any(
+                        fragment.partition("=")[0].strip()
+                        in {"gc_session", "codexify_hosted_room_session"}
+                        for fragment in raw_cookie.split(";")
+                    )
+                    cookies.load(raw_cookie)
             accepted = accepted and not any(
                 name in cookies
                 for name in ("gc_session", "codexify_hosted_room_session")

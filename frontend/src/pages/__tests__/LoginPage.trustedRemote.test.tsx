@@ -257,11 +257,25 @@ describe("trusted remote login page", () => {
     expect(locationState.assign).toHaveBeenCalledWith("/");
   });
 
+  it("keeps ordinary workspace continuation on personal origins despite Scout parameters", async () => {
+    const user = userEvent.setup();
+    window.location.origin = "https://personal.example";
+    window.location.search = `?scout_state=${"s".repeat(43)}&scout_challenge=${"c".repeat(43)}`;
+    const postSpy = vi.spyOn(api, "post");
+    setAuthToken("session-token");
+    render(<LoginPage />);
+    expect(screen.queryByRole("button", { name: "CONTINUE TO SCOUT" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO WORKSPACE" }));
+    expect(locationState.assign).toHaveBeenCalledWith("/");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
   it("authorizes a separate native session only after explicit Scout confirmation", async () => {
     const user = userEvent.setup();
     const state = "s".repeat(43);
     const challenge = "c".repeat(43);
     const callback = `ai.resonantconstructs.codexify.scout://access-callback?code=${"g".repeat(43)}&state=${state}`;
+    window.location.origin = "https://preview.codexify.space";
     window.location.search = `?scout_state=${state}&scout_challenge=${challenge}`;
     const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: { callback } } as never);
     setAuthToken("session-token");
@@ -277,6 +291,7 @@ describe("trusted remote login page", () => {
   it("rejects an alternate destination or wrong state without exporting session material", async () => {
     const user = userEvent.setup();
     const state = "s".repeat(43);
+    window.location.origin = "https://preview.codexify.space";
     window.location.search = `?scout_state=${state}&scout_challenge=${"c".repeat(43)}`;
     const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: {
       callback: `other://access-callback?code=${"g".repeat(43)}&state=${state}`,
