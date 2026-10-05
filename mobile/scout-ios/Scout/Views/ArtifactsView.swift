@@ -119,7 +119,7 @@ struct ArtifactsView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             apiKey = nil
         }
