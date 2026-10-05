@@ -6205,6 +6205,63 @@ class Campaign(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class CampaignContinuationAuthorityRecord(Base):
+    """Operator-approved, Campaign-scoped continuation authority record."""
+
+    __tablename__ = "campaign_continuation_authorities"
+
+    authority_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    campaign_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("campaigns.campaign_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    envelope_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    approved_by_actor_id: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+    approved_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_by_actor_id: Mapped[str | None] = mapped_column(String(255))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revocation_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > approved_at",
+            name="campaign_continuation_authorities_expiry_check",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by_actor_id IS NULL "
+            "AND revocation_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
+            "AND revocation_reason IS NOT NULL)",
+            name="campaign_continuation_authorities_revocation_check",
+        ),
+        Index(
+            "uq_campaign_continuation_authorities_unrevoked_campaign",
+            "campaign_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+        Index(
+            "ix_campaign_continuation_authorities_campaign_approved_at",
+            "campaign_id",
+            "approved_at",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class CampaignExecutionAttempt(Base):
     """Durable append-friendly execution evidence for campaign work orders."""
 

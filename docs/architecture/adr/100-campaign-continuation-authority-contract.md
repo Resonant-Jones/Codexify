@@ -15,7 +15,7 @@ aliases:
 
 ## Status
 
-Proposed for human acceptance
+Accepted 2026-10-05 by Resonant Jones
 
 ## Date
 
@@ -36,7 +36,7 @@ This decision defines **Campaign Continuation Authority**: a human-approved, dur
 - Guardian-mediated coding execution remains the governed execution lane. Guardian controls execution authorization and result ingestion.
 - Campaign Engine schemas and contracts preserve distinct Campaign, Task, Attempt, Evaluation, Receipt, Decision Gate, State, and Role Binding identities.
 - Existing work-order review fields retain their present meanings. They do not create Campaign Continuation Authority.
-- The current runtime remains human-mediated between atomic work orders. This ADR proposes an architecture concept only; implementation requires a separate authorized task and proof surface.
+- The current runtime remains human-mediated between atomic work orders. ADR acceptance alone does not enable retries or dispatch; the separately authorized first runtime slice records authority only and has no execution consumer.
 - `docs/architecture/00-current-state.md` remains the release-truth source. No release or runtime claim changes here.
 
 ## Decision
@@ -250,13 +250,13 @@ This ADR does not:
 - Architecture and release acceptance and promotion authority remain separate human-owned decisions.
 - Acceptance of this ADR records architecture only. It does not make any Campaign self-continuing or alter current runtime truth.
 
-## Next Authorized Slice After Human Acceptance
+## Runtime Follow-through Boundary
 
-After human acceptance, the next slice is a separate Architecture-Impact Task Spec for the smallest durable runtime representation of Campaign Continuation Authority. That slice must not implement automatic dispatch or retries. Any subsequent execution slice requires its own authority, proof gates, validation, and review.
+The separately authorized first runtime slice adds only the smallest durable Campaign-scoped authority representation and operator approval/revocation record path. It must not implement automatic dispatch, retry, or promotion behavior. Any subsequent execution slice requires its own authority, proof gates, validation, and review.
 
 ## Acceptance Record
 
-Human acceptance is pending. No runtime implementation or release claim is authorized by this proposed ADR.
+Resonant Jones accepted this ADR on 2026-10-05 in the direct task instruction. Acceptance approves the bounded continuation-authority model, retry semantics, human stop boundaries, and separate execution/dispatch/promotion authorities. Acceptance alone does not enable automatic retry or dispatch. The first runtime representation is separately authorized and remains storage-only.
 
 ## Related Documents
 

@@ -109,7 +109,7 @@ If you are working on self-build doctrine, coding-worker execution, Codex Runner
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
 
-If you are working on delegated Campaign continuation, proof-gated downstream dispatch, or recovery of failed execution attempts, start with [Proposed ADR-100: Campaign Continuation Authority Contract](./adr/100-campaign-continuation-authority-contract.md), alongside ADR-028 and ADR-066. It defines a future Guardian-owned, Campaign-scoped authority envelope; acceptance alone does not enable automatic dispatch or retry.
+If you are working on delegated Campaign continuation, proof-gated downstream dispatch, or recovery of failed execution attempts, start with [Accepted ADR-100: Campaign Continuation Authority Contract](./adr/100-campaign-continuation-authority-contract.md), alongside ADR-028 and ADR-066. It defines a Guardian-owned, Campaign-scoped authority envelope; the first runtime slice records authority only and does not enable automatic dispatch or retry.
 
 If you are working on Execution Ledger gate artifacts, acceptance-criteria mapping, implementation-plan artifacts, or completion/proof evidence mapping over Campaign Runner and Guardian rails, start with [`Execution Ledger Gate Artifacts Contract`](./execution-ledger-gate-artifacts-contract.md) after ADR-028.
 
