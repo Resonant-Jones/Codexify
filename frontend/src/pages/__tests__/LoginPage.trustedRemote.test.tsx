@@ -257,6 +257,83 @@ describe("trusted remote login page", () => {
     expect(locationState.assign).toHaveBeenCalledWith("/");
   });
 
+  it("authorizes a separate native session only after explicit Scout confirmation", async () => {
+    const user = userEvent.setup();
+    const state = "s".repeat(43);
+    const challenge = "c".repeat(43);
+    const callback = `ai.resonantconstructs.codexify.scout://access-callback?code=${"g".repeat(43)}&state=${state}`;
+    window.location.search = `?scout_state=${state}&scout_challenge=${challenge}`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: { callback } } as never);
+    setAuthToken("session-token");
+    render(<LoginPage />);
+    expect(postSpy).not.toHaveBeenCalled();
+    expect(locationState.assign).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(postSpy).toHaveBeenCalledWith("/auth/scout/handoff", { state, challenge });
+    expect(locationState.assign).toHaveBeenCalledWith(callback);
+    expect(window.sessionStorage.getItem(SESSION_TOKEN_STORAGE_KEY)).toBe("session-token");
+  });
+
+  it("rejects an alternate destination or wrong state without exporting session material", async () => {
+    const user = userEvent.setup();
+    const state = "s".repeat(43);
+    window.location.search = `?scout_state=${state}&scout_challenge=${"c".repeat(43)}`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: {
+      callback: `other://access-callback?code=${"g".repeat(43)}&state=${state}`,
+    } } as never);
+    setAuthToken("session-token");
+    render(<LoginPage />);
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(locationState.assign).not.toHaveBeenCalled();
+    expect(screen.getByText(/Could not continue to Scout/)).toBeInTheDocument();
+    postSpy.mockResolvedValue({ data: { callback:
+      `ai.resonantconstructs.codexify.scout://access-callback?code=${"g".repeat(43)}&state=${"w".repeat(43)}`,
+    } } as never);
+    await user.click(screen.getByRole("button", { name: "CONTINUE TO SCOUT" }));
+    expect(locationState.assign).not.toHaveBeenCalled();
+  });
+
+  it("correlates only a public attempt ID and confirms existing browser authority without granting native authority", async () => {
+    const identity = "aef866cd-587d-47cb-92ab-35a92d971216";
+    window.location.origin = "https://preview.codexify.space";
+    window.location.search = `?scout_state=${"s".repeat(43)}&scout_challenge=${"c".repeat(43)}&scout_attempt=${identity}`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: { ok: true } } as never);
+    setAuthToken("fixture-browser-session");
+    render(<LoginPage />);
+    await waitFor(() => expect(postSpy).toHaveBeenCalledWith(`/auth/scout/qualification/${identity}/browser`, { event: "account_confirmed" }));
+    expect(screen.getByRole("status")).toHaveTextContent(identity);
+    expect(screen.getByRole("status")).not.toHaveTextContent("fixture-browser-session");
+    expect(locationState.assign).not.toHaveBeenCalled();
+    expect(postSpy).not.toHaveBeenCalledWith("/auth/scout/handoff", expect.anything());
+  });
+
+  it("correlates the canonical login without placing the attempt in credentials or displaying errors", async () => {
+    const user = userEvent.setup();
+    const identity = "aef866cd-587d-47cb-92ab-35a92d971216";
+    window.location.origin = "https://preview.codexify.space";
+    window.location.search = `?scout_state=${"s".repeat(43)}&scout_challenge=${"c".repeat(43)}&scout_attempt=${identity}`;
+    const postSpy = vi.spyOn(api, "post").mockImplementation(async (path) => {
+      if (path === "/auth/login") throw new Error("fixture-private-response");
+      return { data: { ok: true } } as never;
+    });
+    render(<LoginPage />);
+    await user.type(screen.getByLabelText("Email address"), "fixture@example.com");
+    await user.type(screen.getByLabelText("Password"), "fixture-private-password");
+    await user.click(screen.getByRole("button", { name: "ENTER WORKSPACE" }));
+    expect(postSpy).toHaveBeenCalledWith("/auth/login", { username: "fixture@example.com", password: "fixture-private-password" }, { headers: { "X-Scout-Auth-Attempt": identity } });
+    expect(screen.getByRole("status")).not.toHaveTextContent("fixture-private");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("fixture-private");
+  });
+
+  it("ignores malformed or duplicate diagnostic IDs instead of displaying query values", () => {
+    window.location.origin = "https://preview.codexify.space";
+    window.location.search = `?scout_state=${"s".repeat(43)}&scout_challenge=${"c".repeat(43)}&scout_attempt=fixture-secret&scout_attempt=fixture-other-secret`;
+    const postSpy = vi.spyOn(api, "post").mockResolvedValue({ data: { ok: true } } as never);
+    render(<LoginPage />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
   it("signs out a token-backed session and returns focus to the form", async () => {
     const user = userEvent.setup();
     const postSpy = vi.spyOn(api, "post").mockResolvedValue({} as never);

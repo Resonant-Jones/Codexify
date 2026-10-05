@@ -35,6 +35,55 @@ bounded code/test result does not claim the public-ingress boundary is closed.
 
 ### Distinct principal and credential lanes
 
+#### Qualified hosted Scout transport (approved 2026-10-02; amended 2026-10-04)
+
+Resonant Jones approved `X-Guardian-Account-Session` strictly as an alternate
+transport of the existing canonical `account_session`. It defines no new
+credential class, principal, ownership, or permission. It is accepted only for
+the qualified `preview.codexify.space` private-preview composition where
+upstream Access occupies `Authorization` at the client/edge boundary. Native
+qualification proved Access admission while the origin received no Authorization
+header. On 2026-10-04, Resonant Jones withdrew the requirement that the opaque
+Access Bearer reach Guardian for this independently qualified composition.
+Personal nodes retain account Bearer where no upstream consumes Authorization.
+
+The amended handoff must issue a new exact-purpose `account_session` through the
+canonical issuer for the same canonical `User.id`; it must not return or reuse
+the browser's session token. The native session has an independent nonce, expiry,
+store entry and revocation/logout lifecycle. Browser authorization is revalidated
+at redemption. The code is fixed-callback and origin-bound, expires within 60
+seconds, and is atomically consumed only by its S256 verifier. This remains the
+same account credential class and strict validator, not a new authority.
+
+The adapter must validate the upstream signed Access assertion against the fixed
+team issuer and application audience, including signature and expiry, and restrict
+normalization to explicitly scoped Scout account APIs on this exact preview host
+and private-preview mode. One Host and one signed Access assertion are required.
+After those admission checks, an absent Authorization header is the qualified
+edge-consumed shape; its absence alone is never evidence of trusted ingress.
+If forwarded, Authorization must remain one opaque Access Bearer; duplicate or
+other forwarded forms fail closed. No Access credential may be reconstructed,
+copied, synthesized or moved into another origin header. Access remains mandatory;
+this amendment changes no Access policy, OAuth registration, Tunnel, DNS or BIC.
+Access claims
+never resolve a Guardian user. The account bytes then pass through the existing
+strict account-purpose, stored-session, canonical-user and account-approval checks.
+Duplicate/conflicting credentials fail closed. Invalid alternate account material
+cannot retry the ingress credential, cookie, guest, operator or API-key lane.
+Operator and guest routes must reject this alternate header. The header and
+upstream assertion must be redacted from diagnostics. This approval does not
+establish implementation, deployment, authenticated reads or continuity proof.
+
+The native qualification and PKCE exchange seams use the same scoped signed
+Access gate before recognizing the edge-consumed shape. Qualification issues no
+account authority; exchange still requires and revalidates the canonical browser
+account grant. Fixed diagnostic labels may report “Access admitted / Authorization
+edge-consumed” only after verified admission. Account identity remains independently
+authenticated through the existing exact-purpose account_session in
+X-Guardian-Account-Session. Invalid/missing account material cannot fall back to
+an API key, guest, operator, cookie or anonymous identity. Personal-node behavior,
+session expiry/revocation and profile/origin isolation remain unchanged.
+
 - The **account lane** uses the supported account session/Bearer mechanisms,
   currently `Authorization` and `gc_session`, and resolves a canonical
   `RequestUserScope`. A local API key remains governed by the separate local
