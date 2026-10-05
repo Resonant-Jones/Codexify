@@ -55,15 +55,16 @@ the account key only after a current selection has been hydrated.
 ## Validation
 
 - `vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.terminal-projection.test.tsx --reporter=dot` — 13 passed.
-- ESLint on the four changed TypeScript files — exit 0, warnings only (existing import-order and explicit-`any` warnings remain).
+- `vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx --reporter=dot` — both suites passed, including the selection remount/account-switch case.
+- ESLint on the changed TypeScript files — exit 0, warnings only (import-order and explicit-`any` warnings remain).
 - `python3 scripts/validate_docs.py` — passed.
 - `git diff --check` — passed.
-- The broader `GuardianChatWithSidebar.stability.test.tsx` suite could not be loaded by Vite because the temporary isolated dependency tree omits the root-declared `react-markdown` package. No source or dependency manifest was changed to work around the environment.
 
 ## Current truth and limitations
 
 `docs/architecture/00-current-state.md` continues to mark supported-Compose
 qualification `HOLD`. All evidence in this receipt is local frontend test and
-code-path evidence. The API is mocked; no authenticated two-account browser
-run, live PostgreSQL ownership read, restart/reload recovery, or release
-qualification was performed.
+code-path evidence. The API is mocked; the reopen check remounts the component
+within one test process and is not a real browser reload. No authenticated
+two-account browser run, live PostgreSQL ownership read, backend restart,
+durable thread reload/reopen, or release qualification was performed.
