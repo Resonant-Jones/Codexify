@@ -13,7 +13,7 @@ struct ScoutRAGTraceProbe {
         endpoint: ScoutEndpointProfile,
         threadId: Int,
         apiKey: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = .scoutAuthenticated
     ) async -> ScoutRAGTraceResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -42,15 +42,14 @@ struct ScoutRAGTraceProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         let requestStart = Date()
 
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+            }
             let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse else {
