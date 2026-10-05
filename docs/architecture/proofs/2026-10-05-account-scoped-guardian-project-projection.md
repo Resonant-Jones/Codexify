@@ -56,6 +56,9 @@ the account key only after a current selection has been hydrated.
 
 - `vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.terminal-projection.test.tsx --reporter=dot` — 13 passed.
 - `vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx --reporter=dot` — both suites passed, including the selection remount/account-switch case.
+- Fresh integrated run on `codex/persistence-continuity-main-20261005-fresh`:
+  `pnpm --dir frontend/src exec vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx components/persona/layout/__tests__/AppShell.test.tsx --reporter=dot --silent`
+  — 3 suites, 107 passed. The API is mocked.
 - ESLint on the changed TypeScript files — exit 0, warnings only (import-order and explicit-`any` warnings remain).
 - `python3 scripts/validate_docs.py` — passed.
 - `git diff --check` — passed.

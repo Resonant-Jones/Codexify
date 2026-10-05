@@ -61,7 +61,7 @@ import {
   RUNTIME_HEALTH_STATUSES,
   type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
-import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { checkAuthGate, getAuthState, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import {

@@ -67,36 +67,39 @@ The token is used only as a client-side invalidation key. Server-side
 
 ## Validation
 
-- `vitest run components/persona/layout/__tests__/AppShell.test.tsx --reporter=dot`
-  — 63 passed. The suite emits its existing onboarding API mock warning
-  (`buildAuthenticatedFetchInit` absent); it did not fail tests.
-- Focused rerun of the stored-ID, auth-transition, and Guardian-to-Documents
-  cases — 3 passed, 60 skipped.
-- ESLint on the changed test module — exit 0, four existing `any` warnings.
-  The AppShell source file is excluded by the repository's lint ignore rules.
+- Fresh integrated run on `codex/persistence-continuity-main-20261005-fresh`:
+  `pnpm --dir frontend/src exec vitest run components/sidebar/__tests__/useProjectsCache.test.tsx components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx components/persona/layout/__tests__/AppShell.test.tsx --reporter=dot --silent`
+  — 3 suites, 107 passed. The API is mocked.
 - `git diff --check` — passed.
+- `python3 scripts/validate_docs.py` — passed.
+- ESLint was not rerun on this fresh branch; the AppShell source is excluded by
+  the repository's lint ignore rules.
 
 The API is mocked in these tests. No live two-account browser session,
 PostgreSQL read, backend interruption, or reload/reopen was exercised here.
 
 ## Current truth and remaining work
 
-At the start of this task, `main` was `ff57597cc02a9b4bb8ca40f4fa417126dd1e3e53`;
+When these commits were first authored, `main` was
+`ff57597cc02a9b4bb8ca40f4fa417126dd1e3e53`;
 `docs/architecture/00-current-state.md` still reports supported-Compose
-qualification `HOLD`. Core Runtime Reliability / Goal #1 was active in
+qualification `HOLD`. A fresh continuation check found Core Runtime
+Reliability / Goal #1 still active in
 `/Volumes/Dev_SSD/offload/codex/worktrees/chat-postgres-deadline/Codexify-main`
 on `codex/chat-stop-diagnostic-mainline-20261005`, HEAD
-`7a103e55656745e58e52947e6c29ebea76d74278`, 28 commits ahead of `origin/main`
-and clean at the last check. Its AppShell diff is confined to Stop/cancellation
-observation; this task touched other AppShell sections and changed no shared
-execution semantics. Restart recovery, worker/attempt/provider behavior,
-cancellation, terminal events, turn locks, and final supported-Compose
-qualification remain upstream Goal #1 dependencies.
+`8df86c423ea69491d9832c35b85a4d850271c6d1`, 29 commits ahead of the same
+`origin/main` and clean at recheck. Its latest receipt records the image build
+blocked by the shared Docker 64 GiB disk limit and requires an operator decision
+before changing that limit. No Goal #1 checkout or runtime was changed here.
+Restart recovery, worker/attempt/provider behavior, cancellation, terminal
+events, turn locks, and final supported-Compose qualification remain upstream
+Goal #1 dependencies.
 
 The per-session fence does not preserve a different non-General selected
 Project for each account: `cfy.generalProjectId` remains a single legacy slot,
-so a switch to another account can replace its value. The Guardian chat-side
-`cfy.projectsCache` and `cfy.lastProjectId` are also separate account-agnostic
-projections and need their own bounded investigation before account/thread
-isolation is claimed complete. This receipt does not close Persistence,
-Recovery & Continuity.
+so a switch to another account can replace its value. The separately scoped
+Guardian project-list/selection repair is recorded in
+`2026-10-05-account-scoped-guardian-project-projection.md`. These mocked tests
+do not prove a real browser reload, fresh-process PostgreSQL readback, or any
+backend restart behavior. This receipt does not close Persistence, Recovery &
+Continuity.
