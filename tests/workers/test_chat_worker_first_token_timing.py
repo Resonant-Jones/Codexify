@@ -467,3 +467,9 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
     assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert "first_token_at" not in terminal_payload
     assert "first_output_at" not in terminal_payload
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)

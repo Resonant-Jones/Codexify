@@ -146,3 +146,9 @@ def test_explicit_unavailable_model_never_calls_degraded_fallback(
         chat_worker._compat_resolve_task(_task(SENTINEL))
     assert failure.value.detail["requested_model"] == SENTINEL
     fallback.assert_not_called()
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)

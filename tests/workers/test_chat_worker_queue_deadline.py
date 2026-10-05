@@ -39,6 +39,8 @@ def worker(monkeypatch):
         def now(cls, zone=None):
             return NOW if zone is None else NOW.astimezone(zone)
 
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
     events = []
     work = Mock(side_effect=_WorkReached)
     release = Mock(return_value=True)
@@ -171,10 +173,8 @@ def test_malformed_deadline_cannot_start_work(worker, field, value):
     events, work, release, _ = worker
     chat_worker._run_chat_task(task)
     work.assert_not_called()
-    release.assert_called_once_with(71, "queued-owner")
-    failed = [payload for event, payload in events if event == "task.failed"]
-    assert len(failed) == 1
-    assert failed[0]["error_type"] == "ValueError"
-    assert "failure_code" not in failed[0]
-    assert not any(event in {"task.completed", "task.cancelled"} for event, _ in events)
+    release.assert_not_called()
+    # Invalid request-scoped authority is refused before execution. It cannot
+    # authorize a terminal write, inferred failure publication or lock cleanup.
+    assert events == []
     assert getattr(task, field) == value

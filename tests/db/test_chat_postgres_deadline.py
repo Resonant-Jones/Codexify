@@ -188,9 +188,9 @@ def test_real_row_lock_cannot_write_after_terminal_deadline(
         work.assert_not_called()
         released.assert_called_once_with(thread, "proof-task")
         failed = [payload for kind, payload in events if kind == "task.failed"]
-        assert len(failed) == 1
-        assert failed[0]["failure_code"] == "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"
-        assert failed[0]["request_id"] == "proof-request"
+        # No durable terminal write was acknowledged. Preserve uncertainty
+        # rather than publishing an alternate controlled-deadline outcome.
+        assert failed == []
         assert not any(
             kind in {"task.completed", "task.cancelled"} for kind, _ in events
         )

@@ -48,6 +48,7 @@ from guardian.core.chat_redis_deadline import (
 )
 from guardian.core.chat_postgres_deadline import (
     accepted_postgres_query_scope,
+    postgres_operation_scope,
     use_postgres_terminal_budget,
 )
 from guardian.core.completion_terminal import (
@@ -555,21 +556,32 @@ def _record_chat_completion_attempt_terminal(
         return False
 
 
-def _publish_durable_completion_if_present(
+def _attempt_matches_task(attempt: Any, task: ChatCompletionTask) -> bool:
+    return isinstance(attempt, dict) and (
+        attempt.get("backend_task_id") == task.task_id
+        and attempt.get("request_id") == task.request_id
+        and attempt.get("thread_id") == task.thread_id
+        and attempt.get("turn_id") == _extract_turn_id(task)
+    )
+
+
+def _publish_durable_terminal_if_present(
     task: ChatCompletionTask,
     *,
     run_id: str,
     started: float,
     lifecycle_timings: dict[str, Any],
     result: dict[str, Any] | None,
+    attempt: dict[str, Any] | None = None,
 ) -> bool:
-    """Let the exact persisted assistant link win over a later worker error."""
+    """Project exact durable truth; publication cannot change its authority."""
     if not task.request_id:
         return False
     try:
-        attempt = get_chat_completion_attempt_by_task_id(
-            dependencies.chatlog_db, task.task_id
-        )
+        if attempt is None:
+            attempt = get_chat_completion_attempt_by_task_id(
+                dependencies.chatlog_db, task.task_id
+            )
     except Exception:
         logger.warning(
             "[chat-worker] durable_completion_reconciliation_read_failed thread_id=%s task_id=%s request_id=%s",
@@ -581,11 +593,7 @@ def _publish_durable_completion_if_present(
         return False
     if not isinstance(attempt, dict):
         return False
-    if (
-        attempt.get("request_id") != task.request_id
-        or attempt.get("thread_id") != task.thread_id
-        or attempt.get("turn_id") != _extract_turn_id(task)
-    ):
+    if not _attempt_matches_task(attempt, task):
         logger.warning(
             "[chat-worker] durable_completion_reconciliation_identity_mismatch thread_id=%s task_id=%s request_id=%s",
             task.thread_id,
@@ -594,23 +602,42 @@ def _publish_durable_completion_if_present(
         )
         return False
     message_id = _coerce_message_id(attempt.get("completed_message_id"))
-    if message_id is None:
+    event_type = (
+        TaskEventType.TASK_COMPLETED.value if message_id is not None
+        else attempt.get("terminal_event_type")
+    )
+    if event_type not in {
+        TaskEventType.TASK_COMPLETED.value,
+        TaskEventType.TASK_FAILED.value,
+        TaskEventType.TASK_CANCELLED.value,
+    } or (event_type == TaskEventType.TASK_COMPLETED.value and message_id is None):
         return False
 
     payload: dict[str, Any] = {
-        "run_id": run_id,
-        "duration_ms": int((time.monotonic() - started) * 1000),
         "thread_id": task.thread_id,
         "turn_id": _extract_turn_id(task),
-        "message_id": message_id,
         "request_id": task.request_id,
         "task_id": task.task_id,
         "attempt_id": getattr(task, "attempt_id", "") or None,
-        "reason": "durable_completion_recorded",
-        **_finalize_lifecycle_timings(lifecycle_timings),
+        "reason": "durable_completion_recorded" if message_id is not None
+        else "durable_terminal_outcome_recorded",
     }
+    if message_id is not None:
+        payload["message_id"] = message_id
+        if run_id:
+            payload["run_id"] = run_id
+            payload["duration_ms"] = int((time.monotonic() - started) * 1000)
+            payload.update(_finalize_lifecycle_timings(lifecycle_timings))
+    else:
+        # Recovery detail describes the durable observation, not execution or
+        # a controlled deadline failure inferred from this worker's exception.
+        outcome = attempt.get("terminal_outcome")
+        if isinstance(outcome, dict):
+            payload["terminal_outcome"] = dict(outcome)
+            if outcome.get("failure_code"):
+                payload["failure_code"] = outcome["failure_code"]
     if (
-        isinstance(result, dict)
+        message_id is not None and isinstance(result, dict)
         and _coerce_message_id(result.get("message_id")) == message_id
     ):
         for key in (
@@ -632,9 +659,9 @@ def _publish_durable_completion_if_present(
             value = result.get(key)
             if value is not None:
                 payload[key] = value
-    _safe_publish(task.task_id, TaskEventType.TASK_COMPLETED.value, payload)
+    _safe_publish(task.task_id, event_type, payload)
     logger.warning(
-        "[chat-worker] post_persistence_error_superseded_by_durable_completion thread_id=%s task_id=%s request_id=%s message_id=%s",
+        "[chat-worker] durable_terminal_projected thread_id=%s task_id=%s request_id=%s message_id=%s",
         task.thread_id,
         task.task_id,
         task.request_id,
@@ -2579,6 +2606,38 @@ def _run_chat_completion_task_compat(
 run_chat_completion_task = _run_chat_completion_task_compat
 
 
+def _read_attempt_for_worker(task: ChatCompletionTask) -> dict[str, Any] | None:
+    """Bound observation independently; never manufacture an accepted budget."""
+    try:
+        with postgres_operation_scope(2.0):
+            attempt = get_chat_completion_attempt_by_task_id(
+                dependencies.chatlog_db, task.task_id
+            )
+        if _attempt_matches_task(attempt, task):
+            return attempt
+    except Exception:
+        logger.warning(
+            "[chat-worker] durable_attempt_observation_failed task_id=%s",
+            task.task_id,
+            exc_info=True,
+        )
+    logger.warning(
+        "[chat-worker] durable_attempt_unconfirmed task_id=%s request_id=%s",
+        task.task_id, task.request_id,
+    )
+    return None
+
+
+def _project_observed_terminal(task: ChatCompletionTask, attempt: dict[str, Any]) -> bool:
+    # Live-event mirroring may append to the PostgreSQL outbox as well.
+    # Neither observation resource scope authorizes accepted task work.
+    with postgres_operation_scope(2.0), redis_operation_scope():
+        return _publish_durable_terminal_if_present(
+            task, run_id="", started=time.monotonic(),
+            lifecycle_timings={}, result=None, attempt=attempt,
+        )
+
+
 def _run_chat_task(task: ChatCompletionTask) -> None:
     try:
         deadline = accepted_chat_deadline_for_task(task)
@@ -2588,20 +2647,49 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         # unbounded database query for a malformed present snapshot.
         deadline = None
         invalid = True
+    if task.request_id:
+        attempt = _read_attempt_for_worker(task)
+        if attempt is None:
+            return
+        if attempt.get("completed_message_id") is not None or attempt.get(
+            "terminal_event_type"
+        ) in {TaskEventType.TASK_FAILED.value, TaskEventType.TASK_CANCELLED.value}:
+            _project_observed_terminal(task, attempt)
+            return
+        try:
+            snapshot = attempt.get("deadline_snapshot")
+            if invalid or (
+                snapshot is not None and (
+                    not isinstance(snapshot, dict)
+                    or parse_accepted_chat_task_deadline(snapshot) != deadline
+                    or deadline is None
+                )
+            ):
+                raise ValueError("accepted task differs from original durable deadline")
+        except ValueError:
+            logger.warning(
+                "[chat-worker] original_deadline_unconfirmed task_id=%s", task.task_id,
+            )
+            return
     query_clock = time.monotonic()
     query_wall = datetime.now(timezone.utc)
-    with accepted_postgres_query_scope(
-        deadline,
-        now=query_wall,
-        monotonic_at_wall=query_clock,
-        invalid=invalid,
-    ), accepted_redis_scope(
-        deadline,
-        now=query_wall,
-        monotonic_at_wall=query_clock,
-        invalid=invalid,
-    ):
-        _run_chat_task_with_query_budget(task)
+    try:
+        with accepted_postgres_query_scope(
+            deadline, now=query_wall, monotonic_at_wall=query_clock, invalid=invalid,
+        ), accepted_redis_scope(
+            deadline, now=query_wall, monotonic_at_wall=query_clock, invalid=invalid,
+        ):
+            _run_chat_task_with_query_budget(task)
+    finally:
+        if task.request_id:
+            # Original task scopes are closed. Only observe an orphan already
+            # recorded by the deadline controller; no writes or replay here.
+            attempt = _read_attempt_for_worker(task)
+            outcome = attempt.get("terminal_outcome") if attempt else None
+            if isinstance(outcome, dict) and outcome.get("failure_code") == (
+                ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
+            ):
+                _project_observed_terminal(task, attempt)
 
 
 def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
@@ -2732,9 +2820,15 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         if is_cancelled(task.task_id):
             use_postgres_terminal_budget()
             use_redis_terminal_budget()
-            _record_chat_completion_attempt_terminal(
+            terminal_recorded = _record_chat_completion_attempt_terminal(
                 task, TaskEventType.TASK_CANCELLED.value
             )
+            if not terminal_recorded:
+                if _publish_durable_terminal_if_present(
+                    task, run_id=run_id, started=started,
+                    lifecycle_timings=lifecycle_timings, result=None,
+                ) or task.request_id:
+                    return
             terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             _safe_publish(
                 task.task_id,
@@ -3155,7 +3249,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_CANCELLED.value
         )
-        if not terminal_recorded and _publish_durable_completion_if_present(
+        if not terminal_recorded and _publish_durable_terminal_if_present(
             task,
             run_id=run_id,
             started=started,
@@ -3163,6 +3257,8 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
             result=completion_result,
         ):
             clear_cancelled(task.task_id)
+            return
+        if task.request_id and not terminal_recorded:
             return
         terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         cancellation_metadata = _task_error_metadata(exc)
@@ -3200,13 +3296,15 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
         terminal_recorded = _record_chat_completion_attempt_terminal(
             task, TaskEventType.TASK_FAILED.value
         )
-        if not terminal_recorded and _publish_durable_completion_if_present(
+        if not terminal_recorded and _publish_durable_terminal_if_present(
             task,
             run_id=run_id,
             started=started,
             lifecycle_timings=lifecycle_timings,
             result=completion_result,
         ):
+            return
+        if task.request_id and not terminal_recorded:
             return
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)

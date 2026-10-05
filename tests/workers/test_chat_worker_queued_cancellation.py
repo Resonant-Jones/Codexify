@@ -204,3 +204,9 @@ def test_authoritative_cancellation_bypasses_saturated_executor(monkeypatch):
     assert terminal[0]["thread_id"] == 82
     assert terminal[0]["turn_id"] == "cancelled-turn"
     assert not any(event in {"task.failed", "task.completed"} for _, event, _ in events)
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)

@@ -57,6 +57,8 @@ def _prepare_worker_harness(
     persisted_meta: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
     _isolate_turn_anchor(monkeypatch)
 
     mock_db = SimpleNamespace(

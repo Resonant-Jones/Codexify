@@ -72,6 +72,18 @@ def _build_task(
     return task
 
 
+def _install_attempt_harness(monkeypatch):
+    # These orchestration fixtures acknowledge durable writes through a seam;
+    # native database tests independently verify attempt identity and fencing.
+    monkeypatch.setattr(chat_worker, "_read_attempt_for_worker", lambda task: {
+        "backend_task_id": task.task_id, "request_id": task.request_id,
+        "thread_id": task.thread_id, "turn_id": chat_worker._extract_turn_id(task),
+        "completed_message_id": None, "terminal_event_type": None,
+        "terminal_outcome": None, "deadline_snapshot": None,
+    })
+    monkeypatch.setattr(chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True)
+
+
 def _prepare_worker_harness(
     monkeypatch,
     *,
@@ -81,6 +93,7 @@ def _prepare_worker_harness(
     assistant_text: str = "Hello world",
 ) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
+    _install_attempt_harness(monkeypatch)
     _isolate_turn_anchor(monkeypatch)
 
     mock_db = SimpleNamespace(

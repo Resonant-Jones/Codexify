@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from typing import Any
 
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
@@ -196,3 +198,9 @@ def test_worker_missing_target_turn_surfaces_explicit_failure(
     assert "thread_target_turn_missing" in failure_payload["error"]
     assert live_events
     assert live_events[-1][1]["latest_turn_message_id"] == 99
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
