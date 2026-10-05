@@ -13,6 +13,7 @@ struct ScoutCreateThreadProbe {
         endpoint: ScoutEndpointProfile,
         title: String,
         apiKey: String? = nil,
+        accountSession: ScoutAccountSession? = nil,
         session: URLSession = .scoutAuthenticated
     ) async -> ScoutCreateThreadResult {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,7 +55,7 @@ struct ScoutCreateThreadProbe {
         request.httpBody = try? JSONEncoder().encode(body)
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
