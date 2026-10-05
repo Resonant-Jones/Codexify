@@ -6,7 +6,7 @@
 
 Purpose: Define the boundary for the native Scout client and its remote connection to the user's Codexify home server, Vault, while keeping Guardian as the operator and Codexify Core as the long-term authority.
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 
 ## Purpose
 
@@ -25,7 +25,7 @@ What is true now:
 - Local-only provider posture remains the supported posture.
 - Chat completion, task events, health surfaces, upload -> embed -> readback, and workspace-local retrieval are current supported beta paths.
 - Scout's SwiftUI source is tracked under `mobile/scout-ios/` in this monorepo.
-- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. The client integration from current main passes all 69 SwiftPM tests after PR review fixes and the signed proof-Simulator build; see [the integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for its exact source/base and qualification boundaries.
+- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. The client integration from current main passes all 72 SwiftPM tests after PR review fixes and the signed proof-Simulator build; see [the integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for its exact source/base and qualification boundaries.
 - Local/operator `X-API-Key` behavior is implemented. Focused tests show the Guardian-health probe rejects generic HTTP success and does not infer authentication from credential presence. See `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md` for the bounded build and test evidence.
 - Historical source-branch evidence qualifies hosted `remoteSession` through separate Cloudflare Access admission and canonical Guardian account-session handoff. The real Simulator completed protected reads, two thread/message/task-event/persisted-output turns, resume, document browsing and logout denial. See [the October 4 live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for exact revisions and evidence limits. The mainline integration has fresh tests/build proof, but no new authenticated live run. These qualifications do not widen `main` release support.
 
@@ -84,6 +84,116 @@ The connection model is `connection = endpoint/transport + explicit authenticati
 The continuity slice shares observable persisted-message state between thread and task views. A successful `task.completed` triggers a persisted read and publishes that read to the conversation; a failed read cannot claim refresh success. Failed/cancelled tasks do not create assistant messages. Selection includes profile identity, endpoint URL, authentication mode, and thread ID; changed connections clear volatile views, and stale or overlapping reads cannot replace newer/other-node state. Display-only profile metadata changes preserve selection. Foreground/resume refresh is bounded to the selected conversation. Completed output and foreground/resume are live-qualified on the hosted Simulator; failed/cancelled outcomes and cross-node switching retain unit-test proof only.
 
 See [the mainline integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for the bounded transplant and fresh validation, and [the live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for the historical #815 closeout. App Entities/App Intents (#816) and deeper integrations remain separate downstream tasks, gated on both integrations reaching main; no Beta, TestFlight, or App Store readiness advances.
+
+## iOS system-integration boundary (#818)
+
+App Entities, App Intents and other system surfaces are a client integration layer.
+They must not become a new principal, credential class, authorization authority,
+recording authority or durable memory store. This section governs planned work;
+it does not claim that any App Intents, indexing, donations or notifications have
+been implemented or exercised. #815's bounded integrations are merged into main
+`54cc3359cc13991a5906f07595e84ff334f58df7`. #816 may now begin from those services.
+`scout-vault-operator-surface-baseline.md` remains the navigation-semantics baseline.
+ADR-051, ADR-091, ADR-092 and this contract retain their existing authority boundaries.
+
+### Nodes, invocation and inward dependencies
+
+The iPhone's Shortcuts/Siri/Spotlight/notification surfaces sit outside Scout's
+ordinary foreground UI. Device unlock and OS confirmation may restrict invocation;
+they never replace Guardian authentication or grant ownership. Assume stale entity
+identifiers, ambiguous voice input, malicious parameters and interrupted requests.
+Vault remains durable authority; Guardian validates each protected operation.
+
+`Scout/AppIntents/` may contain Entities, Queries, Intents, Donations and
+SystemContext adapters. They must invoke the existing Models/Services seams used
+by SwiftUI. Models/Services must not import App Intents. The adapters must not add
+parallel HTTP clients, endpoint discovery, credential selection, OAuth/session
+issuance, business rules or authority fallbacks. Endpoint validation, health/auth
+separation, explicit mode selection and the existing no-redirect/cookie-free
+protected request policy remain mandatory. Hosted and personal connections retain
+their independent supported auth semantics; OS transport labels do not choose auth.
+
+### Entity identity and resolution
+
+A stable Vault identifier alone is insufficient across nodes or accounts. Entity
+identifiers must be scoped to the selected profile, canonical endpoint including
+its base path, explicit auth mode and canonical account subject where available.
+Local/operator connections must be labeled as that connection scope; an account
+identity must not be invented from an API key. The identifier is a lookup reference,
+not a capability. No credential, credential-derived authentication material,
+callback URL, handoff code or PKCE value may enter entity properties, intent
+parameters, dialogs, donation payloads, indexes or logs.
+
+Queries must resolve against current authorized Vault state through existing
+services. Wrong-connection references must fail before dispatch. Missing, deleted
+or unauthorized objects must not be resurrected from cached display metadata.
+Account/profile changes invalidate stale projections; delayed results must not be
+published as another connection's state. Queries must state their pagination and
+availability limits rather than treating a partial list as a complete catalog.
+Thread, document/artifact and proven task entities expose only the minimum useful
+identifier and display metadata. Display titles and summaries remain subordinate
+projections, never ownership or durable memory evidence.
+
+### Actions, confirmation and truthful results
+
+Start with a bounded read/write surface. Opening Scout or a thread requires one
+explicit routing seam consistent with the navigation baseline. Intent adapters
+must preserve Send message and Request Guardian response as separate actions.
+Voice-only result language must identify the action and target without requiring
+a hidden UI to explain whether it was accepted, completed or failed.
+
+Writes require explicit intent and an appropriate confirmation naming the action
+and selected node/object; ambiguous targets must not be guessed. Device/OS
+confirmation authorizes invocation only. Guardian still validates the existing
+credential and account/object permissions. Task cancellation and other destructive
+operations remain deferred until their confirmation/authority behavior is reviewed.
+
+HTTP acceptance must not be reported as Guardian completion. Task-event publication
+must not be reported as UI receipt, and successful terminal notification must not
+stand in for a persisted output read. Failed/cancelled outcomes must not synthesize
+assistant output. A timed-out write has an unknown outcome; it must not be silently
+retried without the existing server's idempotency contract. Losing authentication,
+Keychain access or the selected connection must produce an explicit failure/open
+Scout handoff, not guest, operator, cookie, API-key or anonymous fallback.
+
+### Indexing and onscreen context
+
+Future semantic/Spotlight indexing and onscreen annotations are discoverability or
+context projections only. Indexes must not become a second memory or ownership
+source. Expose minimal metadata only through explicitly enabled system surfaces;
+message/document bodies and sensitive account metadata require a separately scoped
+privacy decision. Re-resolve selected identifiers through current Guardian
+permissions before reading or acting. Profile/account changes, logout, deletion
+and revocation require stale projections to be removed or invalidated. An onscreen
+annotation identifies context; it does not authorize a write or establish recording
+consent. No indexing or annotation capability is claimed by the initial #816 slice.
+
+### Interaction donations and entity-aware notifications
+
+Future interaction donations may describe explicit user actions under their
+selected connection. They must not fabricate user intent from observation,
+background task execution or invocation by another system surface. Donation
+metadata is non-authoritative and requires the same privacy/minimization and
+scope-invalidation rules as entity projections.
+
+Future notifications may reference a stable, scoped entity or task identifier.
+A notification, its tap or its entity annotation grants no Guardian permission and
+proves neither task completion nor UI receipt. Opening it must revalidate the
+current connection/account and authoritative object state. Notification payloads
+must contain no credentials or unapproved sensitive content. Delivery, ownership,
+revocation and task/output state remain distinct. No donations, notifications or
+custom Siri snippets are implemented or qualified by this documentation slice.
+
+### Qualification and release limits
+
+Entity resolution, intent-to-service mapping, fail-before-dispatch scope checks,
+confirmation and truthful result language require focused tests. App Intents must
+compile in the canonical signed Simulator project. Shortcuts/Siri display,
+invocation and routing require separately recorded actual system-surface proof;
+unit tests and builds alone cannot establish that proof. Existing hosted live
+continuity does not automatically qualify a new intent. #816 remains open until
+its own acceptance criteria are met; deeper system integrations belong to #817.
+This contract does not widen Beta/TestFlight/App Store or distribution support.
 
 ## Repository Posture
 

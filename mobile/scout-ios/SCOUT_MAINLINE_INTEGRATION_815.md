@@ -177,3 +177,30 @@ focused tests. No Beta, TestFlight or App Store readiness is asserted.
 Both integration PRs must reach main before #813 current truth is advanced and
 #816 starts. The #818 App Intents/system-integration contract slice is downstream
 of that merge gate. No App Intents work is included here.
+
+## Verified combined mainline — 2026-10-05
+
+Backend PR #851 merged as `5b879e8179c34b592006fc2bfacfedd282bb0d2b`; client
+PR #852 merged as `54cc3359cc13991a5906f07595e84ff334f58df7`. Both exact integration
+heads are ancestors of that mainline commit. Neither historical source branch
+was merged wholesale, changed or deleted. All reported review threads were
+resolved after fixes. Final-head automated review hit the account usage limit;
+local final-diff inspection is recorded in each PR. Both PRs' CI is green; one
+same-head frontend retry passed after an unchanged cancellation timing test failed.
+
+The combined checkout freshly passes **774 backend/architecture tests**, **72
+SwiftPM tests**, **61 focused browser tests**, the frontend production build and
+the signed Simulator build with strict codesign verification. Exact commands are
+the matrix above with the added supported-profile, beta-quarantine and WebSocket
+order regressions, the CI FastAPI/Starlette overlay and the test virtual environment
+on PATH. Logs/XML: `/tmp/scout815-merged-backend-tests.log`,
+`/tmp/scout815-merged-backend-results.xml`, `/tmp/scout815-merged-swift-tests.log`,
+`/tmp/scout815-merged-browser-tests.log`, `/tmp/scout815-merged-browser-build.log`,
+and `/tmp/scout815-merged-signed-build.log`. The checkout's exact tracked frontend
+LFS configuration was hydrated before browser validation; temporary dependency
+symlinks were removed. This is combined source/test/build proof, not a new live loop.
+
+#813 now marks #815 complete on main; #815's stale backend publication note is
+corrected. The historical live packet and its non-blocking gaps remain unchanged.
+#818's bounded system-integration contract can now precede beginning #816 from
+the merged Scout service layer; neither is promoted to a proven system surface.
