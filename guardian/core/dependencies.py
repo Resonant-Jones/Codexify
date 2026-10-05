@@ -899,6 +899,35 @@ def require_service_capability(
     return None
 
 
+def require_edge_capability(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> None:
+    """Authorize only the private Cloudflare Guardian health capability.
+
+    This key is intentionally outside the general Guardian service-key and
+    principal credential domains. It never creates or returns an identity.
+    """
+    configured_key = os.getenv("GUARDIAN_EDGE_CAPABILITY_KEY")
+    if not configured_key:
+        logger.error("guardian_edge_capability_unconfigured")
+        raise HTTPException(
+            status_code=503,
+            detail="Edge capability unavailable",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    candidate = x_api_key or ""
+    if not candidate or not hmac.compare_digest(
+        candidate.encode("utf-8"), configured_key.encode("utf-8")
+    ):
+        logger.warning("guardian_edge_capability_denied")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -1582,6 +1611,7 @@ __all__ = [
     "require_task_event_read_principal",
     "require_service_api_key",
     "require_service_capability",
+    "require_edge_capability",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",

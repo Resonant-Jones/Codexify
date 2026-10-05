@@ -4,6 +4,12 @@
   "main": "src/index.mjs",
   "compatibility_date": "2026-10-04",
   "workers_dev": true,
+  "vpc_services": [
+    {
+      "binding": "GUARDIAN_CAPABILITY",
+      "service_id": "01a10a40-909e-78a1-93da-3fa98cf98e17"
+    }
+  ],
   "observability": {
     "enabled": true,
     "redact_query_string": true,

@@ -12,10 +12,10 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import requests
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from guardian.core import metrics
@@ -23,6 +23,7 @@ from guardian.core.dependencies import (
     DB_BACKEND,
     get_database_dsn,
     get_single_user_id,
+    require_edge_capability,
 )
 from guardian.core.health_service import (
     build_health_response,
@@ -61,6 +62,47 @@ _CHAT_QUEUE_LAST_CHECK_TS = 0.0
 
 # Create unprefixed router to preserve /health/chat path
 router = APIRouter(tags=["Health"])
+
+
+@router.get("/api/internal/edge/health")
+def guardian_edge_health(
+    response: Response,
+    edge_request_id: str | None = Header(
+        default=None, alias="X-Codexify-Edge-Request-ID"
+    ),
+    _edge_capability: None = Depends(require_edge_capability),
+) -> dict[str, str]:
+    """Expose one non-principal health capability to the Cloudflare EdgeNode."""
+    try:
+        parsed_request_id = UUID(edge_request_id or "")
+    except (AttributeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Edge request ID",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+
+    normalized_request_id = str(parsed_request_id)
+    if normalized_request_id != (edge_request_id or "").lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Edge request ID",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Codexify-Edge-Request-ID"] = normalized_request_id
+    logger.info(
+        "event_type=%s request_id=%s status_code=%s",
+        "guardian_edge_capability_request",
+        normalized_request_id,
+        200,
+    )
+    return {
+        "service": "guardian",
+        "capability": "edge.health",
+        "status": "ok",
+    }
 
 
 def _redis_dependency_unavailable_response(
