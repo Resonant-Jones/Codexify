@@ -15,7 +15,7 @@ from guardian.protocol_tokens import (
     TaskEventType,
 )
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
-from guardian.queue.redis_queue import get_queue_redis_client, redis_operation_scope
+from guardian.queue.redis_queue import get_queue_redis_client, get_redis_client, redis_operation_scope
 from guardian.utils.log_safety import install_safe_logging
 
 install_safe_logging()
@@ -38,6 +38,8 @@ _READ_EVENTS_BLOCK_MS = 5000
 _READ_EVENTS_BATCH_SIZE = 50
 _READ_EVENTS_INITIAL_BACKOFF_SECONDS = 0.5
 _READ_EVENTS_MAX_BACKOFF_SECONDS = 2.0
+_BOUNDED_READ_MAX_BLOCK_MS = 1000
+_BOUNDED_READ_MAX_COUNT = 100
 
 
 class TaskEventPublishError(RuntimeError):
@@ -228,6 +230,10 @@ def read_events(
                 _READ_EVENTS_MAX_BACKOFF_SECONDS,
             )
 
+    return _decode_read_result(task_id, result)
+
+
+def _decode_read_result(task_id: str, result) -> list[tuple[str, dict[str, Any]]]:
     if not result:
         return []
     _, entries = result[0]
@@ -250,6 +256,27 @@ def read_events(
             )
         )
     return events
+
+
+def read_events_bounded(
+    task_id: str,
+    last_id: str,
+    *,
+    block_ms: int = _BOUNDED_READ_MAX_BLOCK_MS,
+    count: int = _READ_EVENTS_BATCH_SIZE,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Own one finite transport read; uncertainty never terminalizes a task."""
+    if type(block_ms) is not int or not 0 < block_ms <= _BOUNDED_READ_MAX_BLOCK_MS:
+        raise ValueError("Task-event block must be an integer from 1 to 1000 ms")
+    if type(count) is not int or not 0 < count <= _BOUNDED_READ_MAX_COUNT:
+        raise ValueError("Task-event count must be an integer from 1 to 100")
+    # The existing two-second maintenance policy owns DNS, connect, RESP waits,
+    # native retry and pool cleanup. It cannot replace an accepted task budget.
+    with redis_operation_scope(2.0):
+        result = get_redis_client().xread(
+            streams={_stream_key(task_id): last_id}, block=block_ms, count=count,
+        )
+        return _decode_read_result(task_id, result)
 
 
 def read_latest_completed_payload(

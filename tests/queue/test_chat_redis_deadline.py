@@ -694,3 +694,52 @@ def test_receipt_terminal_probe_held_xrange_closes_page_budget(monkeypatch):
         assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
     assert bounds._budget.get() is None and redis_queue._CLIENT is original
     print({"surface": "receipt_terminal_XRANGE", "duration": duration, "peer_eof": True})
+
+
+def test_supported_sse_held_xread_closes_owned_pool_within_transport_budget(monkeypatch):
+    original = redis_queue._CLIENT
+    original_queue = redis_queue._QUEUE_CLIENT
+    monkeypatch.setattr(task_events, "redis_operation_scope", lambda *a: bounds.redis_operation_scope(.25))
+    with peer(b"XREAD") as (state, arrived, eof):
+        factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
+        start = time.monotonic()
+        with pytest.raises(RedisTimeoutError):
+            task_events.read_events_bounded("owned-sse-task", "0-0", block_ms=100)
+        duration = time.monotonic() - start
+        assert .20 < duration < .65
+        assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
+    assert bounds._budget.get() is None and redis_queue._CLIENT is original
+    assert redis_queue._QUEUE_CLIENT is original_queue
+    print({"surface": "supported_sse_XREAD", "duration": duration, "peer_eof": True, "commands": state["commands"]})
+
+
+@pytest.mark.asyncio
+async def test_supported_sse_cancelled_consumer_leaves_no_unbounded_reader(monkeypatch):
+    import asyncio
+    from guardian.guardian_api import stream_task_events
+
+    class Request:
+        async def is_disconnected(self):
+            return False
+    finished = threading.Event()
+    reader = task_events.read_events_bounded
+    def tracked(*args, **kwargs):
+        try:
+            return reader(*args, **kwargs)
+        finally:
+            finished.set()
+    monkeypatch.setattr(task_events, "read_events_bounded", tracked)
+    monkeypatch.setattr(task_events, "redis_operation_scope", lambda *a: bounds.redis_operation_scope(.25))
+    with peer(b"XREAD") as (state, arrived, eof):
+        factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
+        response = await stream_task_events(Request(), "owned-sse-task", last_id_query="0-0",
+                                            last_event_id_header=None, api_key="test-api-key")
+        assert await anext(response.body_iterator) == "retry: 3000\n\n"
+        pending = asyncio.create_task(anext(response.body_iterator))
+        assert await asyncio.to_thread(arrived.wait, .5)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert await asyncio.to_thread(finished.wait, .65)
+        assert eof.wait(.25) and state["commands"] == 1
+    assert bounds._budget.get() is None
