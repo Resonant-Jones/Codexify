@@ -17,10 +17,13 @@ def test_actual_app_mounts_handoff_and_rejects_unqualified_transport(monkeypatch
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
     from guardian.guardian_api import app
 
-    paths = {route.path for route in app.routes}
-    assert {"/api/auth/scout/handoff", "/api/auth/scout/exchange"} <= paths
     # No context manager: do not start application/database lifespan hooks.
     with_client = _scout_client(app, base_url="https://preview.codexify.space")
+    handoff = with_client.post(
+        "/api/auth/scout/handoff", json={"challenge": "c" * 43, "state": "s" * 43}
+    )
+    assert handoff.status_code == 401
+    assert handoff.json()["detail"] == "Hosted admission required"
     response = with_client.post(
         "/api/auth/scout/exchange", json={"code": "c" * 43, "verifier": "v" * 43}
     )
@@ -36,6 +39,63 @@ def test_actual_app_mounts_handoff_and_rejects_unqualified_transport(monkeypatch
     assert denied.status_code == 400
     assert denied.json()["detail"] == "Hosted account transport rejected"
     with_client.close()
+
+
+@pytest.mark.parametrize("posture", ["enabled", "flag-disabled", "profile-quarantined"])
+def test_scout_auth_family_obeys_mainline_auth_route_gate(monkeypatch, posture):
+    import importlib
+
+    from guardian import guardian_api
+    from guardian.core import event_bus
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("GUARDIAN_API_KEY", "synthetic-app-mount-fixture")
+            env.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+            env.setenv("ENABLE_CONNECTOR_WORKER", "0")
+            env.setenv("CODEXIFY_BETA_CORE_ONLY", "0")
+            env.setenv(
+                "CODEXIFY_ENABLE_AUTH_ROUTES",
+                "false" if posture == "flag-disabled" else "true",
+            )
+            if posture == "profile-quarantined":
+                env.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+            else:
+                env.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+            importlib.reload(guardian_api)
+            client = _scout_client(
+                guardian_api.app, base_url="https://preview.codexify.space"
+            )
+            try:
+                responses = [
+                    client.post(
+                        "/api/auth/scout/handoff",
+                        json={"challenge": "c" * 43, "state": "s" * 43},
+                    ),
+                    client.post(
+                        "/api/auth/scout/exchange",
+                        json={"code": "c" * 43, "verifier": "v" * 43},
+                    ),
+                    client.put(
+                        "/api/auth/scout/qualification/12345678-1234-4234-8234-123456789abc"
+                    ),
+                    client.get(
+                        "/api/auth/scout/qualification/12345678-1234-4234-8234-123456789abc"
+                    ),
+                    client.post(
+                        "/api/auth/scout/qualification/12345678-1234-4234-8234-123456789abc/browser",
+                        json={"event": "loaded"},
+                    ),
+                ]
+                expected = 401 if posture == "enabled" else 404
+                assert [response.status_code for response in responses] == [
+                    expected
+                ] * len(responses)
+            finally:
+                client.close()
+    finally:
+        event_bus.reset()
+        importlib.reload(guardian_api)
 
 
 def test_actual_account_route_never_uses_access_as_missing_account_identity(

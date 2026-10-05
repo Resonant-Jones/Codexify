@@ -130,6 +130,32 @@ The client receipt records its complete **66-test SwiftPM suite** and successful
 **signed Simulator build**. CI/review on both exact integration heads remains the
 merge gate. Focused local proof does not substitute for that gate.
 
+## PR review follow-up
+
+The auth family now mounts Scout through the same `auth` route gate as ordinary
+login/logout. `CODEXIFY_ENABLE_AUTH_ROUTES=false` and supported-profile quarantine
+remove handoff, exchange and every qualification method. Access/account/PKCE
+validation remains unchanged. The focused matrix above was rerun after this
+repair: **752 passed, zero failures/errors/skips**; XML/log:
+`/tmp/scout815-review-backend-results.xml` and
+`/tmp/scout815-review-backend-tests.log`.
+
+Guardian CI originally stopped at a mount-test assumption that every item in
+`app.routes` has `.path`. Its FastAPI 0.142.2 uses lazy included routers. The test
+now proves both handlers by real HTTP rejection instead of framework internals.
+All **nine mount/gating cases** also pass with CI's FastAPI 0.142.2 and Starlette
+1.7.0 installed in an isolated `/tmp` dependency overlay. Production dependency
+requirements are unchanged. Log: `/tmp/scout815-review-ci-framework-tests.log`.
+The eight-file frontend matrix again passes **60 tests**, and the production
+frontend build succeeds. Logs: `/tmp/scout815-review-browser-tests.log` and
+`/tmp/scout815-review-browser-build.log`. The temporary dependency symlink used
+for this check is excluded from the commit.
+
+The immutable initial backend integration was separately reviewed with Codex
+Security (scan `cc205de8-49db-44e5-bbf7-838f424438c3`). Its only reportable finding
+was the configured auth-gate bypass corrected above. That report remains evidence
+for the initial commit; final-head CI and review remain required.
+
 ## Evidence boundaries and follow-through
 
 [Historical backend qualification](https://github.com/Resonant-Jones/Codexify/blob/68d6c061f786f680f198f7328d40753b096625db/docs/Ops/scout-auth-qualification-2026-10-03.md)

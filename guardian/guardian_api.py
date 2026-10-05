@@ -1038,7 +1038,6 @@ logger.info("[CORS] Allowed origins: %s", allowed_origins)
 # Only the independently qualified hosted Scout composition gets this alternate
 # transport. Mainline validators retain credential purpose and route authority.
 app.add_middleware(ScoutAccountTransportMiddleware)
-app.include_router(scout_auth_router)
 
 # Signed media serving base path
 media_storage_path = ensure_storage_base_path().resolve()
@@ -1128,6 +1127,7 @@ _include_router(
     include_fn=lambda: (
         app.include_router(auth_routes.router),
         app.include_router(auth_routes.api_router),
+        app.include_router(scout_auth_router),
     ),
     core_surface=True,
 )
