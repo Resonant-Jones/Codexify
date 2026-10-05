@@ -1,9 +1,9 @@
 # Cloudflare Edge Platform Campaign
 
 - Campaign ID: `CLOUDFLARE-EDGE-PLATFORM`
-- Campaign status: active; architecture accepted; implementation not started
+- Campaign status: active; architecture accepted; CE-01 complete/proven; later slices deferred
 - Architecture status: **ACCEPTED 2026-10-04 by Resonant Jones** under [ADR-099](../../architecture/adr/099-cloudflare-edge-platform-boundary.md)
-- Runtime status: no Cloudflare integration or release claim established
+- Runtime status: CE-01 minimal public Worker deployed and proven; no application/Guardian integration or release claim established
 - Cost posture: `ZERO_NON_INFERENCE_SPEND`
 - Current release truth: [00 Current State](../../architecture/00-current-state.md)
 - Pricing/limits checked: 2026-10-04 against the linked Cloudflare product documentation. Recheck before every integration enables usage.
@@ -33,7 +33,7 @@ subject to ADR-099 and the zero-spend invariant.
 
 | Cloudflare product | Disposition and planned Codexify role | Authority classification | Free allocation / current cost posture (checked 2026-10-04) | Can usage exceed free into billing? | Codexify hard guard? | Secret class / allowed data sensitivity | Current state | Required proof / owning slice |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workers | **ADOPT_NOW** — public HTTP edge adapter, normalization, correlation, admission, cacheable public output, service bindings, webhook ingress | Transient request execution only; no identity or policy authority | Free: 100,000 requests/day and 10 ms CPU/invocation; excess free requests/CPU fail with quota errors; Workers Paid is at least $5/month | No automatic Free overage; Paid plan adds usage billing | Yes: fail closed for security routes; never bypass edge on quota exhaustion | Worker secrets server-side; public/cache-safe data only by default | Not integrated | Deploy/health/correlation, secret isolation, quota failure and logs; CE-01 |
+| Workers | **ADOPT_NOW** — public HTTP edge adapter, normalization, correlation, admission, cacheable public output, service bindings, webhook ingress | Transient request execution only; no identity or policy authority | Free: 100,000 requests/day and 10 ms CPU/invocation; excess free requests/CPU fail with quota errors; Workers Paid is at least $5/month | No automatic Free overage; Paid plan adds usage billing | Yes: fail closed for security routes; never bypass edge on quota exhaustion | Worker secrets server-side; public/cache-safe data only by default | CE-01 minimal public Worker deployed; not integrated with application services | [CE-01 runtime proof](../../architecture/proofs/runtime/2026-10-04-cloudflare-edge-worker-proof.md); no secrets or bindings configured; quota exhaustion remains unexercised |
 | Workers VPC | **ADOPT_NOW** — private path from Worker to one governed Guardian capability | Transport only | Free during open beta as of 2026-10-04; standard Workers plan pricing applies to requests/compute; beta APIs/terms may change | VPC itself is free during beta; Worker compute can bill on Paid plan | Yes before any billable or private access | Service credential/capability; no raw database, Redis, LAN, filesystem, model, or operator access | Not integrated | Reach only a single bounded capability; prove network isolation; CE-02 |
 | Cloudflare Tunnel | **ADOPT_NOW** — separately scoped private transport endpoint for the capability bridge | Transport only | Existing Tunnel pricing/plan and topology must be rechecked; no current tunnel mutation authorized | Plan/feature-dependent | Yes; separate tunnel/service boundary, explicit route allowlist | Tunnel secret and server-held Guardian auth; private capability payload only | No Workers VPC integration established | Prove only intended endpoint reachable; existing ingress unchanged; CE-02 |
 | R2 | **ADOPT_NOW** — remote binary/object tier behind existing object-storage abstraction | Object bytes only; Postgres owns metadata/owner/lifecycle/provenance | Standard tier: 10 GB-month, 1M Class A and 10M Class B ops/month included; internet egress free | Yes: storage/operations have usage-priced overage | **Required before live traffic**; explicit class-level capacity/quota and spend posture | Scoped service credentials; approved binary classes only; no authority in locators | No adapter | Hash/reference/readback/delete, owner checks, failure isolation and capacity guard; CE-03 |
@@ -118,14 +118,15 @@ predecessor to Campaign closure.
 
 ## Atomic future slices
 
-All entries below are deferred. Each needs a separate task dispatch with
-scope, changed-file allowlist, current external limit review, and proof plan.
-CE-01 is the next eligible slice after ADR-099 acceptance, but has not been
-authorized or started by this acceptance task.
+CE-01 is complete and proven for the minimal public Worker surface described
+in the [runtime proof](../../architecture/proofs/runtime/2026-10-04-cloudflare-edge-worker-proof.md).
+CE-02 through CE-14 remain deferred. Each requires a separate task dispatch
+with scope, changed-file allowlist, current external limit review, and proof
+plan. CE-02 is the next eligible slice; CE-01 completion does not authorize it.
 
 | Slice | Scope and dependency | Required proof / stop condition |
 | --- | --- | --- |
-| **CE-01 — Edge foundation** | One minimal Worker as EdgeNode; first implementation slice | Deploy and health; correlation ID; secret handling; logs; fail-closed quota behavior; no Guardian authority migration. No R2, Queue, AI, database, or runtime changes beyond the slice. |
+| **CE-01 — Edge foundation (COMPLETE / PROVEN)** | One minimal Worker as EdgeNode; first implementation slice | [Runtime proof](../../architecture/proofs/runtime/2026-10-04-cloudflare-edge-worker-proof.md): HTTPS deploy/health, default denial, correlation, and structured logs. No Guardian authority migration or service bindings. Free-quota exhaustion remains unexercised. |
 | **CE-02 — Private capability bridge** | One Workers VPC/private Tunnel path to one narrow Guardian health/capability endpoint; depends on CE-01 | Worker can reach only the bounded service; prove private/public access policy; arbitrary private network access is unavailable; Guardian authentication remains authoritative. |
 | **CE-03 — R2 object-storage adapter** | One binary artifact class behind existing object-storage abstraction; depends on CE-02 | Postgres metadata/ownership, stable locator and content hash, readback/delete lifecycle, R2 failure does not corrupt canonical metadata, application capacity guard. |
 | **CE-04 — AI Gateway transport** | Route one existing cloud inference provider through AI Gateway; depends on CE-02 | Same Guardian-selected provider/model; BYOK; payload logging disabled; safe telemetry; no Cloudflare fallback/routing override; legible failure. |
