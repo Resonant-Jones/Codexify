@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -108,6 +108,8 @@ If you are working on audit producers, proof scripts, the release sentinel, Guar
 If you are working on self-build doctrine, coding-worker execution, Codex Runner substrate questions, Guardian delegation overlap, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for the governed build/change loop; use [`build-proposal-artifact-contract.md`](./build-proposal-artifact-contract.md) for the canonical review artifact between diagnosis and execution, and use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
+
+If you are working on delegated Campaign continuation, proof-gated downstream dispatch, or recovery of failed execution attempts, start with [Proposed ADR-100: Campaign Continuation Authority Contract](./adr/100-campaign-continuation-authority-contract.md), alongside ADR-028 and ADR-066. It defines a future Guardian-owned, Campaign-scoped authority envelope; acceptance alone does not enable automatic dispatch or retry.
 
 If you are working on Execution Ledger gate artifacts, acceptance-criteria mapping, implementation-plan artifacts, or completion/proof evidence mapping over Campaign Runner and Guardian rails, start with [`Execution Ledger Gate Artifacts Contract`](./execution-ledger-gate-artifacts-contract.md) after ADR-028.
 
