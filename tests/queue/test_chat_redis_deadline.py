@@ -679,3 +679,18 @@ def test_terminal_cleanup_held_eval_closes_under_maintenance_budget(monkeypatch)
         assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
     assert bounds._budget.get() is None and redis_queue._CLIENT is original
     print({"surface": "terminal_cleanup_EVAL", "duration": duration, "peer_eof": True})
+
+
+def test_receipt_terminal_probe_held_xrange_closes_page_budget(monkeypatch):
+    original = redis_queue._CLIENT
+    with peer(b"XRANGE") as (state, arrived, eof):
+        factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
+        start = time.monotonic()
+        with bounds.redis_operation_scope(.25):
+            result = task_events.describe_terminal_state_in_scope("owned-receipt-task")
+        duration = time.monotonic() - start
+        assert .20 < duration < .65
+        assert result["state"] == "unknown" and result["event_type"] is None
+        assert arrived.is_set() and state["commands"] == 1 and eof.wait(.25)
+    assert bounds._budget.get() is None and redis_queue._CLIENT is original
+    print({"surface": "receipt_terminal_XRANGE", "duration": duration, "peer_eof": True})

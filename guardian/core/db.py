@@ -296,6 +296,7 @@ def get_chat_completion_attempt_by_task_id(
             "completed_message_id": attempt.completed_message_id,
             "terminal_event_type": attempt.terminal_event_type,
             "terminal_outcome": attempt.terminal_outcome,
+            "deadline_snapshot": attempt.deadline_snapshot,
             "created_at": attempt.created_at,
             "accepted_at": attempt.accepted_at,
         }
@@ -341,6 +342,7 @@ def list_chat_completion_attempts_for_thread(
                     "completed_message_id": completed_message_id,
                     "terminal_event_type": attempt.terminal_event_type,
                     "terminal_outcome": attempt.terminal_outcome,
+                    "deadline_snapshot": attempt.deadline_snapshot,
                     "created_at": attempt.created_at,
                     "accepted_at": attempt.accepted_at,
                 }

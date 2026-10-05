@@ -39,7 +39,10 @@ from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
 from guardian.core.pgdb import PgDB
-from guardian.core.chat_postgres_deadline import require_accepted_work_budget
+from guardian.core.chat_postgres_deadline import (
+    postgres_operation_scope,
+    require_accepted_work_budget,
+)
 from guardian.context.context_directive_resolver import (
     CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
     SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -66,7 +69,9 @@ from guardian.context.retrieval_router_policy import (
 from guardian.core import dependencies, event_bus
 from guardian.core.db import (
     create_chat_completion_attempt,
+    get_chat_completion_attempt_by_task_id,
     mark_chat_completion_attempt_accepted,
+    reconcile_chat_completion_attempt_after_deadline,
 )
 from guardian.core.ai_router import (
     _encode_image_url_to_base64,
@@ -136,7 +141,6 @@ from guardian.core.provider_registry import (
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     AcceptanceStatus,
-    ChatEventType,
     CompletionTerminalStatus,
     ContextRequestStatus,
     ErrorCode,
@@ -153,6 +157,7 @@ from guardian.tasks.chat_deadline import (
     AcceptedChatTaskDeadlineExceeded,
     accepted_chat_deadline_for_task,
     build_accepted_chat_task_deadline,
+    parse_accepted_chat_task_deadline,
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
@@ -161,6 +166,7 @@ from guardian.queue.redis_queue import (
     RedisOperationTimeout,
     enqueue,
     get_redis_connection,
+    redis_operation_scope,
     run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
@@ -168,10 +174,9 @@ from guardian.queue.turn_lock import (
     acquire_turn_lock,
     renew_turn_lock,
     build_turn_lock_envelope,
-    clear_turn_lock,
     get_turn_lock,
     release_turn_lock,
-    turn_lock_is_stale,
+    release_terminal_attempt_turn_lock,
 )
 from guardian.routes.health import _classify_chat_worker_heartbeat
 from guardian.tasks.types import (
@@ -592,96 +597,99 @@ def _commit_acceptance_participant(
     return True
 
 
-def _recover_orphaned_turn_lock(thread_id: int) -> bool:
-    stale_lock = _run_completion_redis_op(
-        lambda: get_turn_lock(thread_id),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock probe unavailable: %s",
-    )
-    if stale_lock is None or not turn_lock_is_stale(stale_lock):
-        return False
-
-    terminal_evidence = _task_terminal_event(stale_lock.owner_task_id)
-    terminal_state = str(
-        terminal_evidence.get("state")
-        if isinstance(terminal_evidence, dict)
-        else "unknown"
-    )
-    heartbeat_evidence = _chat_worker_heartbeat_evidence()
-    heartbeat_state = str(
-        heartbeat_evidence.get("state")
-        if isinstance(heartbeat_evidence, dict)
-        else "unknown"
-    )
-
-    recoverable = False
-    recovery_reason = "unrecoverable_state"
-    if terminal_state == "terminal":
-        recoverable = True
-        recovery_reason = "terminal_task_event"
-    elif terminal_state == "nonterminal" and heartbeat_state in {
-        "stale",
-        "dead",
-        "missing",
-    }:
-        recoverable = True
-        recovery_reason = f"nonterminal_task_and_{heartbeat_state}_heartbeat"
-
-    if not recoverable:
-        logger.warning(
-            "[chat.complete] stale turn lock recovery denied thread_id=%s owner_task_id=%s terminal_state=%s terminal_reason=%s worker_state=%s worker_reason=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            terminal_state,
-            terminal_evidence.get("reason")
-            if isinstance(terminal_evidence, dict)
-            else "unknown",
-            heartbeat_state,
-            heartbeat_evidence.get("reason")
-            if isinstance(heartbeat_evidence, dict)
-            else "unknown",
-        )
-        return False
-
-    cleared = _run_completion_redis_op(
-        lambda: clear_turn_lock(thread_id, expected=stale_lock),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock clear unavailable: %s",
-    )
-    if cleared and hasattr(dependencies.chatlog_db, "write_audit_log"):
-        dependencies.chatlog_db.write_audit_log(
-            "recover_orphaned_turn_lock",
-            "chat_thread",
-            str(thread_id),
-            user_id="system",
-        )
+def reconcile_chat_attempt_receipts(
+    chatlog_db: Any, attempts: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Bound one authorized receipt page; recovery never executes the task."""
+    rows = [dict(attempt) for attempt in attempts]
+    cleanup = []
+    try:
+        # One fixed page budget, not a fresh deadline per attempt.
+        with postgres_operation_scope(2):
+            for attempt in rows:
+                outcome = attempt.get("terminal_outcome") or {}
+                orphan = outcome.get("failure_code") == ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
+                if not orphan:
+                    if attempt.get("completed_message_id") is not None or attempt.get("terminal_event_type"):
+                        continue
+                    if attempt.get("accepted_at") is None or attempt.get("deadline_snapshot") is None:
+                        continue
+                    deadline = parse_accepted_chat_task_deadline(attempt["deadline_snapshot"])
+                    if deadline is None:
+                        raise ValueError("Original accepted recovery envelope is missing")
+                    if datetime.now(UTC) < deadline.terminal_deadline_at:
+                        continue
+                result = reconcile_chat_completion_attempt_after_deadline(
+                    chatlog_db,
+                    request_id=attempt["request_id"],
+                    backend_task_id=attempt["backend_task_id"],
+                    thread_id=attempt["thread_id"],
+                    turn_id=attempt["turn_id"],
+                )
+                attempt.update(
+                    completed_message_id=result.completed_message_id,
+                    terminal_event_type=result.terminal_event_type,
+                    terminal_outcome=result.terminal_outcome,
+                )
+                if result.turn_lock_token is not None:
+                    cleanup.append((attempt["thread_id"], attempt["backend_task_id"], result.turn_lock_token))
+    except Exception as exc:
+        logger.warning("[chat-recovery] durable reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
+    if cleanup:
         try:
-            event_bus.emit_event(
-                ChatEventType.ORPHANED_TURN_RECOVERED.value,
-                {
-                    "thread_id": thread_id,
-                    "owner_task_id": stale_lock.owner_task_id,
-                    "turn_id": stale_lock.turn_id,
-                    "recovery_reason": recovery_reason,
-                    "terminal_state": terminal_state,
-                    "worker_state": heartbeat_state,
-                    "lifecycle_state": "orphaned",
-                },
-            )
-        except Exception:
-            logger.exception(
-                "[chat.complete] orphan recovery event publish failed thread_id=%s",
-                thread_id,
-            )
-        logger.info(
-            "[chat.complete] stale turn lock recovered thread_id=%s owner_task_id=%s recovery_reason=%s terminal_state=%s worker_state=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            recovery_reason,
-            terminal_state,
-            heartbeat_state,
+            # Durable commits precede this separate, bounded Redis cleanup batch.
+            with redis_operation_scope():
+                for thread_id, task_id, token in cleanup:
+                    release_terminal_attempt_turn_lock(
+                        thread_id, owner_task_id=task_id, lease_token=token
+                    )
+        except Exception as exc:
+            logger.warning("[chat-recovery] terminal lock cleanup unconfirmed cause_class=%s", type(exc).__name__)
+    return rows
+
+
+def _recover_orphaned_turn_lock(thread_id: int) -> bool:
+    # A task's terminal envelope, not the lock safety margin or worker heartbeat,
+    # decides recovery. Existing durable terminal truth may also end the lock.
+    with redis_operation_scope():
+        lock = _run_completion_redis_op(
+            lambda: get_turn_lock(thread_id),
+            reason="turn_lock_unavailable",
+            log_message="[chat.complete] turn lock probe unavailable: %s",
         )
-    return bool(cleared)
+    if lock is None:
+        return False
+    try:
+        with postgres_operation_scope(2):
+            attempt = get_chat_completion_attempt_by_task_id(
+                dependencies.chatlog_db, lock.owner_task_id
+            )
+            if attempt is None or attempt["thread_id"] != thread_id or attempt["turn_id"] != lock.turn_id:
+                return False
+            result = reconcile_chat_completion_attempt_after_deadline(
+                dependencies.chatlog_db,
+                request_id=attempt["request_id"],
+                backend_task_id=lock.owner_task_id,
+                thread_id=thread_id,
+                turn_id=lock.turn_id,
+            )
+    except Exception as exc:
+        logger.warning("[chat-recovery] retry reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
+    if result.completed_message_id is None and result.terminal_event_type is None:
+        return False
+    # Legacy *terminal* attempts can use the observed structured capability only
+    # after the exact durable task/thread/turn binding above; no backfill occurs.
+    token = result.turn_lock_token or lock.lease_token
+    with redis_operation_scope():
+        return _run_completion_redis_op(
+            lambda: release_terminal_attempt_turn_lock(
+                thread_id, owner_task_id=lock.owner_task_id, lease_token=token
+            ),
+            reason="turn_lock_unavailable",
+            log_message="[chat.complete] terminal turn lock cleanup unavailable: %s",
+        )
 
 
 def enqueue_chat_completion(

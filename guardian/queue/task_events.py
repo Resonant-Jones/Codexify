@@ -15,7 +15,7 @@ from guardian.protocol_tokens import (
     TaskEventType,
 )
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
-from guardian.queue.redis_queue import get_queue_redis_client
+from guardian.queue.redis_queue import get_queue_redis_client, redis_operation_scope
 from guardian.utils.log_safety import install_safe_logging
 
 install_safe_logging()
@@ -272,17 +272,33 @@ def read_latest_completed_payload(
 
 
 def describe_terminal_state(task_id: str) -> dict[str, Any]:
-    """Describe whether a task stream has reached a terminal state."""
+    """Bound a standalone terminal observation without blocking the queue client."""
+    with redis_operation_scope():
+        return describe_terminal_state_in_scope(task_id)
+
+
+def describe_terminal_state_in_scope(task_id: str) -> dict[str, Any]:
+    """Scan task events under the caller's fixed Redis maintenance page budget."""
     try:
         last_id = "0-0"
         saw_events = False
         while True:
-            events = read_events(
-                task_id,
-                last_id,
-                block_ms=1,
+            entries = _with_reconnect(lambda client: client.xrange(
+                _stream_key(task_id), min=f"({last_id}", max="+",
                 count=_TERMINAL_EVENT_SCAN_BATCH_SIZE,
-            )
+            ))
+            events = []
+            for event_id, fields in entries:
+                try:
+                    data = json.loads(fields.get("data", "{}"))
+                except (TypeError, ValueError):
+                    data = {}
+                events.append((event_id, {
+                    "type": fields.get("type") or _TASK_EVENT_FALLBACK_TYPE,
+                    "task_id": fields.get("task_id") or task_id,
+                    "data": data,
+                    "created_at": fields.get("created_at"),
+                }))
             if not events:
                 break
             saw_events = True
