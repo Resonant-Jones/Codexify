@@ -25,7 +25,7 @@ What is true now:
 - Local-only provider posture remains the supported posture.
 - Chat completion, task events, health surfaces, upload -> embed -> readback, and workspace-local retrieval are current supported beta paths.
 - Scout's SwiftUI source is tracked under `mobile/scout-ios/` in this monorepo.
-- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. The client integration from current main passes all 66 SwiftPM tests and the signed proof-Simulator build; see [the integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for its exact source/base and qualification boundaries.
+- `mobile/scout-ios/CodexifyScout.xcodeproj` is the tracked canonical application project with the `Codexify Scout` target and shared scheme. The client integration from current main passes all 69 SwiftPM tests after PR review fixes and the signed proof-Simulator build; see [the integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for its exact source/base and qualification boundaries.
 - Local/operator `X-API-Key` behavior is implemented. Focused tests show the Guardian-health probe rejects generic HTTP success and does not infer authentication from credential presence. See `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md` for the bounded build and test evidence.
 - Historical source-branch evidence qualifies hosted `remoteSession` through separate Cloudflare Access admission and canonical Guardian account-session handoff. The real Simulator completed protected reads, two thread/message/task-event/persisted-output turns, resume, document browsing and logout denial. See [the October 4 live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for exact revisions and evidence limits. The mainline integration has fresh tests/build proof, but no new authenticated live run. These qualifications do not widen `main` release support.
 
@@ -286,6 +286,6 @@ Reason:
 
 - This file exists at `docs/architecture/ios-scout-vault-remote-contract.md`.
 - `docs/architecture/README.md` links to this contract.
-- Tracked `mobile/scout-ios/` source and `CodexifyScout.xcodeproj`, the 66-test SwiftPM result, the signed Simulator build and the linked live receipts support only their stated proof tiers.
+- Tracked `mobile/scout-ios/` source and `CodexifyScout.xcodeproj`, the 69-test SwiftPM result, the signed Simulator build and the linked live receipts support only their stated proof tiers.
 - `mobile/scout-ios/SCOUT_V1_BUILD_PROOF.md` records the evidence tiers and remaining proof gates.
 - This documentation reconciliation changes no code or Xcode project files.

@@ -35,16 +35,26 @@ struct SettingsAuthView: View {
                             Text(transport.title).tag(transport)
                         }
                     }
+                    Button("Use hosted Codexify") {
+                        accessSignIn.cancel()
+                        accountSignIn.cancel()
+                        let saved = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData)
+                        draftProfile = ScoutAccessOAuth.hostedProfile(preserving: saved ?? draftProfile)
+                        persistDraft()
+                    }
                 }
 
                 Section("Authentication Mode") {
                     Picker("Mode", selection: authenticationModeBinding) {
                         ForEach(ScoutEndpointAuthenticationMode.allCases) { mode in
                             Text(mode.title).tag(mode)
+                                .disabled(mode == .remoteSession && !ScoutAccessOAuth.supportsAccountSignIn(draftProfile))
                         }
                     }
                     if draftProfile.authenticationMode == .remoteSession {
-                        Text("Hosted ingress sign-in is available below. Guardian account-session handoff is still required before remote requests can be sent.")
+                        Text(ScoutAccessOAuth.supportsAccountSignIn(draftProfile)
+                            ? "Authorize hosted ingress, then sign in to Guardian to obtain this connection's account session."
+                            : "Scout cannot provision an account session for this personal endpoint yet. Select the explicitly supported local API key mode to connect; no authentication fallback occurs.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -97,15 +107,6 @@ struct SettingsAuthView: View {
                         }
                     }
                     Section("Hosted Ingress") {
-                        Button("Use hosted Codexify") {
-                            accessSignIn.cancel()
-                            accountSignIn.cancel()
-                            draftProfile = ScoutEndpointProfile(id: UUID(), name: "Hosted Codexify",
-                                baseURL: ScoutAccessOAuth.resource.absoluteString, transportType: .custom,
-                                authenticationState: .unconfigured, validationState: .unconfigured,
-                                lastConnectedAt: nil, authenticationMode: .remoteSession)
-                            persistDraft()
-                        }
                         Button("Authorize hosted ingress") {
                             let profile = draftProfile
                             Task { await accessSignIn.signIn(profile: profile) }
@@ -204,7 +205,7 @@ struct SettingsAuthView: View {
                             var apiKey: String?
                             if testedEndpoint.authenticationMode == .localAPIKey {
                                 do {
-                                    apiKey = try keychainStore.loadAPIKey(for: draftProfile)
+                                    apiKey = try keychainStore.loadAPIKey(for: testedEndpoint)
                                 } catch {
                                     keychainMessage = "Could not load API key from Keychain. Testing without credentials."
                                 }

@@ -57,6 +57,8 @@ Authentication Mode is the explicit client credential mechanism selected for a p
 
 `localAPIKey` retains optional `X-API-Key` request behavior. `remoteSession` requires a valid canonical Guardian `account_session` for the exact profile/origin; missing, expired or wrong-origin sessions fail before protected dispatch with no API-key or anonymous fallback. Personal nodes use Guardian Bearer where supported. The explicitly qualified hosted composition requires client-side Access Authorization and carries the canonical account credential via `X-Guardian-Account-Session` under ADR-092. The qualified edge may consume Authorization; Guardian must still validate the fixed-host/private-preview signed Access assertion before accepting the alternate account transport. Missing Authorization alone grants no trust. A remote profile cannot restore a stale authenticated display as current evidence.
 
+Scout's current browser handoff provisions account sessions only on the qualified hosted composition. Personal-node Bearer transport remains implemented and isolated, but personal account-session provisioning is not implemented. Settings disables new selection of that unavailable personal account-login lane and explains the gap; the personal local API-key lane remains explicit and requires no hosted subscription or account. Stored/imported remote profiles do not fall back to a key. This limitation concerns client provisioning, not a mapping from network transport to Codexify identity.
+
 ### Endpoint Validation State
 
 Endpoint Validation State is Scout's interpretation of whether the stored endpoint profile is syntactically and structurally valid enough to attempt connection.

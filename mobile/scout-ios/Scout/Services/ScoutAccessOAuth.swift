@@ -19,7 +19,8 @@ struct ScoutAccessOAuth {
     static let revocationEndpoint = issuer.appendingPathComponent("cdn-cgi/access/oauth/revoke")
 
     static func origin(for profile: ScoutEndpointProfile) throws -> String {
-        guard let url = URL(string: profile.baseURL), url.scheme == "https",
+        let normalized = profile.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: normalized), url.scheme?.lowercased() == "https",
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/" else {
             throw ScoutAccessOAuthError.unsupportedConnection
@@ -32,6 +33,17 @@ struct ScoutAccessOAuth {
               try origin(for: profile) == resource.absoluteString else {
             throw ScoutAccessOAuthError.unsupportedConnection
         }
+    }
+
+    static func supportsAccountSignIn(_ profile: ScoutEndpointProfile) -> Bool {
+        (try? origin(for: profile)) == resource.absoluteString
+    }
+
+    static func hostedProfile(preserving profile: ScoutEndpointProfile?) -> ScoutEndpointProfile {
+        ScoutEndpointProfile(id: profile?.id ?? UUID(), name: "Hosted Codexify",
+            baseURL: resource.absoluteString, transportType: .custom,
+            authenticationState: .unconfigured, validationState: .unconfigured,
+            lastConnectedAt: nil, authenticationMode: .remoteSession)
     }
 
     static func credentialAccount(for profile: ScoutEndpointProfile) throws -> String {

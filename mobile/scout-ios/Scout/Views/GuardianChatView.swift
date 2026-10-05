@@ -417,7 +417,7 @@ private struct ThreadMessagesView: View {
                 }
             }
 
-            if let msg = statusMessage, messages == nil {
+            if let msg = statusMessage {
                 Section {
                     Text(msg)
                         .foregroundStyle(.secondary)
@@ -891,7 +891,7 @@ private struct ThreadMessagesView: View {
         let profileData = storedProfileData
         let outcome = await conversation.refresh(endpoint: profile, threadID: threadId, apiKey: apiKey)
         guard storedProfileData == profileData else { return }
-        if conversation.messages == nil { statusMessage = outcome }
+        statusMessage = outcome
         isLoading = false
     }
 

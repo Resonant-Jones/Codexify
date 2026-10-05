@@ -60,6 +60,47 @@ final class ScoutAccessOAuthTests: XCTestCase {
         XCTAssertNotEqual(scope, try ScoutAccessOAuth.credentialAccount(for: profile("https://preview.codexify.space:444", id: id)))
     }
 
+    func testOriginNormalizationMatchesAcceptedProfileURLs() throws {
+        let id = UUID()
+        let canonical = profile(id: id)
+        for value in ["HTTPS://preview.codexify.space", "  https://PREVIEW.CODEXIFY.SPACE:443/\n"] {
+            let normalized = profile(value, id: id)
+            XCTAssertTrue(normalized.isValidDraft)
+            XCTAssertEqual(try ScoutAccessOAuth.origin(for: normalized), "https://preview.codexify.space")
+            XCTAssertEqual(try ScoutAccessOAuth.credentialAccount(for: normalized),
+                           try ScoutAccessOAuth.credentialAccount(for: canonical))
+            var local = normalized
+            local.authenticationMode = .localAPIKey
+            var request = URLRequest(url: URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines))!.appendingPathComponent("api/chat/threads"))
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: local, apiKey: "synthetic-personal-key")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-API-Key"), "synthetic-personal-key")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        }
+    }
+
+    func testHostedSelectionRetainsRecoverableCredentialScope() throws {
+        let saved = profile()
+        let first = ScoutAccessOAuth.hostedProfile(preserving: saved)
+        let repeated = ScoutAccessOAuth.hostedProfile(preserving: first)
+        XCTAssertEqual(first.id, saved.id)
+        XCTAssertEqual(repeated.id, saved.id)
+        XCTAssertEqual(try ScoutAccessOAuth.credentialAccount(for: repeated),
+                       try ScoutAccessOAuth.credentialAccount(for: saved))
+        let personal = profile("https://personal.example", id: saved.id, mode: .localAPIKey)
+        let returned = ScoutAccessOAuth.hostedProfile(preserving: personal)
+        XCTAssertEqual(try ScoutAccessOAuth.credentialAccount(for: returned),
+                       try ScoutAccessOAuth.credentialAccount(for: saved))
+        XCTAssertNotEqual(try ScoutAccessOAuth.credentialAccount(for: returned),
+                          try ScoutAccessOAuth.credentialAccount(for: personal))
+    }
+
+    func testPersonalProfileDoesNotAdvertiseUnimplementedAccountProvisioning() {
+        XCTAssertTrue(ScoutAccessOAuth.supportsAccountSignIn(profile(mode: .localAPIKey)))
+        XCTAssertFalse(ScoutAccessOAuth.supportsAccountSignIn(profile("https://personal.example")))
+        XCTAssertFalse(ScoutAccessOAuth.supportsAccountSignIn(profile("https://preview.codexify.space.attacker.example")))
+        XCTAssertFalse(ScoutAccessOAuth.supportsAccountSignIn(profile("http://preview.codexify.space")))
+    }
+
     func testHostedFlowRejectsLocalModeWrongOriginAndCredentialURLs() {
         for p in [profile(mode: .localAPIKey), profile("https://personal.example"),
                   profile("https://preview.codexify.space.attacker.example"),
@@ -86,10 +127,16 @@ final class ScoutAccessOAuthTests: XCTestCase {
     }
 
     func testNoCredentialRequestFollowsRedirect() {
-        let delegate = ScoutAuthNoRedirect()
-        let session = URLSession(configuration: .ephemeral)
-        defer { session.invalidateAndCancel() }
+        let session = URLSession.scoutAuthenticated
+        guard let delegate = session.delegate as? ScoutAuthNoRedirect else {
+            return XCTFail("Authenticated dispatch must use the no-redirect delegate")
+        }
+        XCTAssertFalse(session.configuration.httpShouldSetCookies)
+        XCTAssertNil(session.configuration.httpCookieStorage)
+        XCTAssertNil(session.configuration.urlCredentialStorage)
+        XCTAssertEqual(session.configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
         let task = session.dataTask(with: ScoutAccessOAuth.tokenEndpoint)
+        defer { task.cancel() }
         let response = HTTPURLResponse(url: ScoutAccessOAuth.tokenEndpoint, statusCode: 302, httpVersion: nil,
             headerFields: ["Location": "https://other.example"])!
         var called = false

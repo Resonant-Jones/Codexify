@@ -99,6 +99,40 @@ refreshing the README's governed hash. XML/log:
 warnings in the architecture index remain warnings; no unrelated cleanup is included.
 CI and review must qualify each exact PR head before either integration is merged.
 
+## PR review follow-up
+
+Repeated Use hosted Codexify selection preserves the saved profile UUID, keeping
+its origin-scoped Keychain records recoverable. Switching to a personal origin
+does not send hosted credentials there; returning to hosted can recover the same
+credential scope. The hosted preset is available from Endpoint Profile even on
+a new/local draft.
+
+HTTPS scheme case and surrounding whitespace are normalized consistently with
+profile validation before origin checks, including credential-bearing dispatch.
+Origin, port and forbidden URL-component checks remain fail closed. Message
+refresh status now renders beside cached messages, so an expired session or
+failed foreground reread cannot silently present stale data as refreshed.
+Connection testing loads a personal API key using the captured endpoint that the
+request will test, so a draft edit before the asynchronous action runs cannot
+pair another node's key with the previous endpoint.
+Foreground and terminal conversation refresh use the same ephemeral,
+cookie-free, no-redirect authenticated session as other Scout services. The
+redirect regression now exercises that configured session's actual delegate.
+
+The personal-node local API-key lane remains first-class. Personal account Bearer
+transport and isolation tests are retained, but Scout does not yet provision a
+personal-node account session. Settings explains that limitation and disables new
+selection of remote account mode for a personal endpoint; imported/stored remote
+profiles still fail closed without their canonical session. This is a native
+provisioning gap, not a claim that Tailscale or endpoint transport decides identity.
+No alternate login or API-key fallback is added.
+
+After these review repairs, the complete SwiftPM suite passes **69 tests, zero
+failures** and the signed proof-Simulator build again reports **BUILD SUCCEEDED**.
+The commands above are unchanged. Logs: `/tmp/scout815-review-swift-tests.log` and
+`/tmp/scout815-review-signed-build.log`. These are isolated tests/build proof;
+the historical live packet is unchanged.
+
 ## Historical live evidence and remaining gaps
 
 [The original live packet](SCOUT_LIVE_CONTINUITY_2026-10-04.md) records the exact

@@ -43,7 +43,7 @@ final class ScoutConversationState: ObservableObject {
         endpoint: ScoutEndpointProfile,
         threadID: Int,
         apiKey: String?,
-        session: URLSession = .shared
+        session: URLSession = .scoutAuthenticated
     ) async -> String? {
         let requested = Selection(endpoint: endpoint, threadID: threadID)
         guard selection == requested else { return nil }
@@ -63,7 +63,7 @@ final class ScoutConversationState: ObservableObject {
         endpoint: ScoutEndpointProfile,
         threadID: Int,
         apiKey: String?,
-        session: URLSession = .shared
+        session: URLSession = .scoutAuthenticated
     ) async -> String? {
         guard selection == Selection(endpoint: endpoint, threadID: threadID) else { return nil }
         switch eventType {

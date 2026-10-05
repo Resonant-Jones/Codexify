@@ -43,7 +43,7 @@ struct ScoutRequestAuthentication {
         request.setValue(nil, forHTTPHeaderField: "X-Guardian-Account-Session")
 
         let origin = try ScoutAccessOAuth.origin(for: endpoint)
-        guard let url = request.url, url.scheme == "https", url.user == nil, url.password == nil,
+        guard let url = request.url, url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
               let host = url.host,
               "https://" + host.lowercased() + ((url.port == nil || url.port == 443) ? "" : ":\(url.port!)") == origin else {
             throw ScoutRequestAuthenticationError.wrongConnection
