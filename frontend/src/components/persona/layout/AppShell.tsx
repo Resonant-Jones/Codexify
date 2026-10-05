@@ -768,11 +768,6 @@ function extractMessageThreadId(pathname: string): string | null {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
-function extractCancelTaskId(pathname: string): string | null {
-  const match = pathname.match(/\/tasks\/([^/]+)\/cancel$/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
 function isCreateMessagePath(pathname: string): boolean {
   return pathname.endsWith("/chat/messages");
 }
@@ -1033,11 +1028,8 @@ export default function AppShell({
         });
       }
 
-      const cancelTaskId = extractCancelTaskId(pathname);
-      if (cancelTaskId) {
-        spine.cancelActiveCompletion({ taskId: cancelTaskId });
-      }
-
+      // Stop is a nonterminal request. The chat observer retains ownership
+      // until an accepted terminal event or durable receipt resolves it.
       return config;
     });
 
