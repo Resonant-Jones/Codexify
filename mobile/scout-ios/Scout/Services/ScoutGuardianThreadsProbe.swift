@@ -12,6 +12,7 @@ struct ScoutGuardianThreadsProbe {
     static func probe(
         endpoint: ScoutEndpointProfile,
         apiKey: String? = nil,
+        accountSession: ScoutAccountSession? = nil,
         session: URLSession = .scoutAuthenticated
     ) async -> ScoutGuardianThreadsResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,7 +47,7 @@ struct ScoutGuardianThreadsProbe {
         request.timeoutInterval = 5
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
