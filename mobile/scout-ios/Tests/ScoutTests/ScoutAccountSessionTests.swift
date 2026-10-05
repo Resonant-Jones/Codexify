@@ -150,4 +150,52 @@ final class ScoutAccountSessionTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "X-API-Key"))
     }
 
+    func testPersonalBasePathKeepsCanonicalTransportAndHostedBasePathIsRejected() throws {
+        let p = profile("https://personal.example/codexify")
+        XCTAssertEqual(try ScoutAccessOAuth.origin(for: p), "https://personal.example")
+        var request = URLRequest(url: URL(string: p.baseURL)!.appendingPathComponent("api/chat/threads"))
+        try ScoutRequestAuthentication.apply(to: &request, endpoint: p, apiKey: nil, accountSession: credential(p), now: now)
+        XCTAssertEqual(request.url?.path, "/codexify/api/chat/threads")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-account")
+        var local = p
+        local.authenticationMode = .localAPIKey
+        try ScoutRequestAuthentication.apply(to: &request, endpoint: local, apiKey: "fixture-key")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-API-Key"), "fixture-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        let hosted = profile("https://preview.codexify.space/codexify")
+        XCTAssertFalse(ScoutAccessOAuth.supportsAccountSignIn(hosted))
+        XCTAssertThrowsError(try ScoutAccessOAuth.requireHosted(hosted))
+        var denied = URLRequest(url: URL(string: hosted.baseURL + "/api/chat/threads")!)
+        XCTAssertThrowsError(try ScoutRequestAuthentication.apply(to: &denied, endpoint: hosted, apiKey: nil,
+            accountSession: credential(hosted), ingress: .init(accessToken: "oauth:fixture", refreshToken: nil,
+                expiresAt: now.addingTimeInterval(60)), now: now))
+        XCTAssertNil(denied.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(denied.value(forHTTPHeaderField: "X-Guardian-Account-Session"))
+    }
+
+    func testLateRejectionPreservesReplacementSessionAndOnlyDeletesMatchingSession() throws {
+        let p = profile()
+        var current: ScoutAccountSession? = try credential(p)
+        var deletions = 0
+        let remove = { current = nil; deletions += 1 }
+        XCTAssertFalse(try ScoutAccountSessionStore.deleteIfMatching("fixture-old", load: { current }, remove: remove))
+        XCTAssertEqual(current?.token, "fixture-account")
+        XCTAssertEqual(deletions, 0)
+        XCTAssertTrue(try ScoutAccountSessionStore.deleteIfMatching("fixture-account", load: { current }, remove: remove))
+        XCTAssertNil(current)
+        XCTAssertEqual(deletions, 1)
+        XCTAssertFalse(try ScoutAccountSessionStore.deleteIfMatching("fixture-account", load: { current }, remove: remove))
+        XCTAssertEqual(deletions, 1)
+    }
+
+    func testRejectedTokenSelectionNeverConfusesIngressWithAccount() {
+        let hosted = hostedLogout()
+        XCTAssertEqual(ScoutRequestAuthentication.selectedAccountToken(in: hosted, hosted: true), "fixture-account")
+        var personal = hosted
+        personal.setValue("Bearer fixture-personal-account", forHTTPHeaderField: "Authorization")
+        personal.setValue(nil, forHTTPHeaderField: "X-Guardian-Account-Session")
+        XCTAssertEqual(ScoutRequestAuthentication.selectedAccountToken(in: personal, hosted: false), "fixture-personal-account")
+        XCTAssertNil(ScoutRequestAuthentication.selectedAccountToken(in: personal, hosted: true))
+    }
+
 }

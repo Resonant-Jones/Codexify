@@ -133,6 +133,34 @@ The commands above are unchanged. Logs: `/tmp/scout815-review-swift-tests.log` a
 `/tmp/scout815-review-signed-build.log`. These are isolated tests/build proof;
 the historical live packet is unchanged.
 
+## Final boundary review repairs
+
+Personal HTTPS endpoints retain their configured base paths during protected
+requests and logout. Origin extraction no longer rejects those valid profiles;
+hosted ingress authorization and native sign-in still require the qualified
+preview root endpoint. Preview base paths do not acquire hosted credentials.
+
+A marked account-session rejection deletes only the account token selected by
+that request. Compare-and-delete serializes with Keychain save/load/delete across
+store instances, so a delayed rejection of session A cannot remove replacement
+session B or advance the view generation. The hosted selector is the account
+header, never the Access Bearer; personal nodes retain canonical account Bearer.
+
+Settings observes account-store generations and compares a process-local token
+fingerprint with its displayed authority. External deletion or replacement clears
+stale qualification and restores actual local status. Active browser operations
+retain their controller; each operation rechecks authority when it ends. Own
+sign-in/logout changes preserve their qualification/status. Fingerprints are
+neither persisted nor displayed. Settings lifecycle behavior is code/build proof,
+not a new live UI qualification.
+
+The complete SwiftPM suite passes **72 tests, zero failures**, including personal
+base-path transport, rejected-versus-replacement session deletion, and independent
+hosted account selector regressions. Log: `/tmp/scout815-boundary-swift-tests.log`.
+The signed Simulator build succeeds and its bundle passes strict codesign
+verification. Log: `/tmp/scout815-boundary-signed-build.log`. No historical live
+packet, source branch or external authentication configuration changed.
+
 ## Historical live evidence and remaining gaps
 
 [The original live packet](SCOUT_LIVE_CONTINUITY_2026-10-04.md) records the exact

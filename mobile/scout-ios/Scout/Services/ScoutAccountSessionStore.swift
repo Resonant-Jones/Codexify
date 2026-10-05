@@ -22,6 +22,8 @@ struct ScoutAccountSession: Codable {
 }
 
 struct ScoutAccountSessionStore {
+    // Compare-and-delete must serialize with saves across every store instance.
+    private static let lock = NSRecursiveLock()
     private let service = "ai.resonantconstructs.codexify.scout.account-session"
 
     private func invalidateClientViews() {
@@ -37,6 +39,7 @@ struct ScoutAccountSessionStore {
     }
 
     func save(_ session: ScoutAccountSession, for profile: ScoutEndpointProfile) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         try session.validate(for: profile)
         let match = try query(profile)
         let data = try JSONEncoder().encode(session)
@@ -53,6 +56,7 @@ struct ScoutAccountSessionStore {
     }
 
     func load(for profile: ScoutEndpointProfile) throws -> ScoutAccountSession? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         var match = try query(profile)
         match[kSecReturnData as String] = true
         match[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -63,7 +67,23 @@ struct ScoutAccountSessionStore {
         return try JSONDecoder().decode(ScoutAccountSession.self, from: data)
     }
 
+    @discardableResult
+    func delete(for profile: ScoutEndpointProfile, ifMatching token: String) throws -> Bool {
+        try Self.deleteIfMatching(token, load: { try load(for: profile) }, remove: { try delete(for: profile) })
+    }
+
+    // Injected storage keeps race regressions independent of the host Keychain.
+    @discardableResult
+    static func deleteIfMatching(_ token: String, load: () throws -> ScoutAccountSession?,
+                                 remove: () throws -> Void) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !token.isEmpty, try load()?.token == token else { return false }
+        try remove()
+        return true
+    }
+
     func delete(for profile: ScoutEndpointProfile) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let status = SecItemDelete(try query(profile) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ScoutKeychainError.deleteFailed(status: status) }
         if status == errSecSuccess { invalidateClientViews() }

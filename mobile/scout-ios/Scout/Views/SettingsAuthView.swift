@@ -8,6 +8,7 @@ struct SettingsAuthView: View {
     @State private var probeGeneration = 0
     @State private var connectionMessage: String?
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @AppStorage("scout.accountSessionGeneration") private var sessionGeneration = 0
     @State private var saveMessage: String?
     @State private var loadError: String?
     @State private var apiKeyInput: String = ""
@@ -355,6 +356,11 @@ struct SettingsAuthView: View {
                 }
             }
             .navigationTitle("Settings")
+            .onChange(of: sessionGeneration) { _, _ in
+                if draftProfile.authenticationMode == .remoteSession {
+                    accountSignIn.authorityDidChange(profile: draftProfile)
+                }
+            }
             .onAppear {
                 loadProfile()
                 isKeyStored = draftProfile.authenticationMode == .localAPIKey && keychainStore.hasAPIKey(for: draftProfile)

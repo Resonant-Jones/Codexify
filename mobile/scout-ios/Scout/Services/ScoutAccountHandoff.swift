@@ -107,6 +107,24 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
     private var browser: ASWebAuthenticationSession?
     private var operation: UUID?
     private let store = ScoutAccountSessionStore()
+    // Process-local comparison only: never persisted or emitted in diagnostics.
+    private var accountFingerprint: Data?
+
+    private func fingerprint(_ account: ScoutAccountSession?) -> Data? {
+        account.map { Data(SHA256.hash(data: Data($0.token.utf8))) }
+    }
+
+    func authorityDidChange(profile: ScoutEndpointProfile) {
+        // Preserve the browser/controller while an operation is active. Every
+        // operation also rechecks authority when it finishes, including changes
+        // that arrived while it was awaiting a network response.
+        guard !isWorking else { return }
+        let current = try? store.load(for: profile)
+        guard fingerprint(current) != accountFingerprint else { return }
+        qualification = nil
+        message = nil
+        restoreStatus(profile: profile)
+    }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
@@ -115,13 +133,15 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
     func cancel() {
         operation = nil; receiptPoll?.cancel(); receiptPoll = nil
         browser?.cancel(); browser = nil; isWorking = false; message = nil
-        qualification = nil
+        qualification = nil; accountFingerprint = nil
     }
 
     func restoreStatus(profile: ScoutEndpointProfile) {
         guard !isWorking, message == nil else { return }
         do {
-            guard let account = try store.load(for: profile) else {
+            let stored = try store.load(for: profile)
+            accountFingerprint = fingerprint(stored)
+            guard let account = stored else {
                 message = "No Guardian account session is stored for this connection."
                 return
             }
@@ -175,6 +195,7 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         defer {
             if operation == identity {
                 receiptPoll?.cancel(); receiptPoll = nil; isWorking = false; browser = nil
+                authorityDidChange(profile: profile)
             }
         }
         do {
@@ -244,6 +265,7 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             let account = try ScoutAccountHandoffAttempt.decode(data, profile: profile)
             observe(.nativeSession, .passed, .confirmed)
             stage = .keychain
+            accountFingerprint = fingerprint(account)
             try store.save(account, for: profile)
             guard let persisted = try store.load(for: profile) else { throw ScoutRequestAuthenticationError.sessionRequired }
             try persisted.validate(for: profile)
@@ -304,8 +326,9 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
 
     func check(profile: ScoutEndpointProfile) async {
         guard !isWorking else { return }
+        authorityDidChange(profile: profile)
         let identity = UUID(); operation = identity; isWorking = true
-        defer { if operation == identity { isWorking = false } }
+        defer { if operation == identity { isWorking = false; authorityDidChange(profile: profile) } }
         if qualification?.result(for: .keychain).status == .passed {
             await qualifyProtectedRead(profile: profile, identity: identity)
             return
@@ -320,13 +343,18 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
     func logout(profile: ScoutEndpointProfile) async {
         guard !isWorking else { return }
         let identity = UUID(); operation = identity; isWorking = true
-        defer { if operation == identity { isWorking = false } }
+        defer { if operation == identity { isWorking = false; authorityDidChange(profile: profile) } }
         do {
-            var request = URLRequest(url: URL(string: try ScoutAccessOAuth.origin(for: profile))!.appendingPathComponent("api/auth/logout"))
+            _ = try ScoutAccessOAuth.origin(for: profile)
+            guard let base = URL(string: profile.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw ScoutRequestAuthenticationError.wrongConnection
+            }
+            var request = URLRequest(url: base.appendingPathComponent("api/auth/logout"))
             request.httpMethod = "POST"
             // Remove local authority even if ingress/session expiry prevents revocation.
             let preparation = Result { try ScoutRequestAuthentication.apply(to: &request, endpoint: profile, apiKey: nil) }
             try store.delete(for: profile)
+            accountFingerprint = nil
             try preparation.get()
             let (_, response) = try await URLSession.scoutAuthenticated.data(for: request)
             guard operation == identity else { return }

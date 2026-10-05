@@ -22,7 +22,7 @@ struct ScoutAccessOAuth {
         let normalized = profile.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: normalized), url.scheme?.lowercased() == "https",
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
-              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/" else {
+              url.query == nil, url.fragment == nil else {
             throw ScoutAccessOAuthError.unsupportedConnection
         }
         return "https://\(host.lowercased())" + ((url.port == nil || url.port == 443) ? "" : ":\(url.port!)")
@@ -30,13 +30,19 @@ struct ScoutAccessOAuth {
 
     static func requireHosted(_ profile: ScoutEndpointProfile) throws {
         guard profile.authenticationMode == .remoteSession,
-              try origin(for: profile) == resource.absoluteString else {
+              try origin(for: profile) == resource.absoluteString,
+              isRootEndpoint(profile) else {
             throw ScoutAccessOAuthError.unsupportedConnection
         }
     }
 
+    private static func isRootEndpoint(_ profile: ScoutEndpointProfile) -> Bool {
+        let url = URL(string: profile.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        return url?.path.isEmpty == true || url?.path == "/"
+    }
+
     static func supportsAccountSignIn(_ profile: ScoutEndpointProfile) -> Bool {
-        (try? origin(for: profile)) == resource.absoluteString
+        (try? origin(for: profile)) == resource.absoluteString && isRootEndpoint(profile)
     }
 
     static func hostedProfile(preserving profile: ScoutEndpointProfile?) -> ScoutEndpointProfile {

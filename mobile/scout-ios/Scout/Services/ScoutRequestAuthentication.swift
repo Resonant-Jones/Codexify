@@ -25,9 +25,16 @@ struct ScoutRequestAuthentication {
     static func validate(response: HTTPURLResponse, endpoint: ScoutEndpointProfile, request: URLRequest) throws {
         guard endpoint.authenticationMode == .remoteSession, isInvalidAccountResponse(response) else { return }
         let hosted = try ScoutAccessOAuth.origin(for: endpoint) == ScoutAccessOAuth.resource.absoluteString
-        guard !hosted || request.value(forHTTPHeaderField: "X-Guardian-Account-Session") != nil else { return }
-        try ScoutAccountSessionStore().delete(for: endpoint)
+        guard let rejected = selectedAccountToken(in: request, hosted: hosted) else { return }
+        try ScoutAccountSessionStore().delete(for: endpoint, ifMatching: rejected)
         throw ScoutRequestAuthenticationError.invalidSession
+    }
+
+    static func selectedAccountToken(in request: URLRequest, hosted: Bool) -> String? {
+        if hosted { return request.value(forHTTPHeaderField: "X-Guardian-Account-Session") }
+        guard let bearer = request.value(forHTTPHeaderField: "Authorization"), bearer.hasPrefix("Bearer ") else { return nil }
+        let token = String(bearer.dropFirst(7))
+        return token.isEmpty ? nil : token
     }
 
     static func apply(
@@ -60,6 +67,7 @@ struct ScoutRequestAuthentication {
             }
             try session.validate(for: endpoint, now: now)
             if origin == ScoutAccessOAuth.resource.absoluteString {
+                try ScoutAccessOAuth.requireHosted(endpoint)
                 guard let admission = try ingress ?? ScoutAccessCredentialStore().load(for: endpoint), admission.expiresAt > now else {
                     throw ScoutRequestAuthenticationError.ingressRequired
                 }
