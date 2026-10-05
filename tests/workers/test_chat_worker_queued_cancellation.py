@@ -1,10 +1,15 @@
+import json
 from unittest.mock import Mock
 
 import pytest
 
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.queue import turn_lock
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
+
+
+_ACTUAL_CLEANUP = chat_worker._observe_and_cleanup_terminal_attempt
 
 
 class _StopWorker(BaseException):
@@ -43,6 +48,19 @@ class _LockRedis:
     def delete(self, key):
         return int(self.values.pop(key, None) is not None)
 
+    def eval(self, script, count, key, owner, token, thread):
+        assert count == 1
+        value = self.values.get(key)
+        if value is None:
+            return 1
+        try:
+            payload = json.loads(value)
+        except ValueError:
+            return 0
+        if not isinstance(payload, dict) or (payload.get('owner_task_id'), payload.get('lease_token'), payload.get('thread_id')) != (owner, token, int(thread)):
+            return 0
+        return self.delete(key)
+
 
 @pytest.mark.parametrize("lock_owner", ["cancelled-task", "successor-task"])
 def test_dequeued_cancellation_releases_only_its_turn_lock(monkeypatch, lock_owner):
@@ -64,6 +82,10 @@ def test_dequeued_cancellation_releases_only_its_turn_lock(monkeypatch, lock_own
         ttl_seconds=840,
     )
     assert lock is not None
+    monkeypatch.setattr(chat_worker, '_observe_and_cleanup_terminal_attempt', _ACTUAL_CLEANUP)
+    monkeypatch.setattr(chat_worker, 'observe_chat_completion_attempt_terminal', lambda *_, **__: ChatAttemptReconciliation(
+        None, 'task.cancelled', None, lock.lease_token if lock_owner == task.task_id else 'original-cancel-token',
+    ))
     events = []
     provider_work = Mock()
     persistence = Mock()
@@ -139,7 +161,11 @@ def test_authoritative_cancellation_bypasses_saturated_executor(monkeypatch):
     client = _LockRedis()
     monkeypatch.setattr(turn_lock, "_with_reconnect", lambda fn: fn(client))
     running_lock = turn_lock.acquire_turn_lock(81, "running", return_envelope=True)
-    turn_lock.acquire_turn_lock(82, "cancelled")
+    cancelled_lock = turn_lock.acquire_turn_lock(82, "cancelled", turn_id=cancelled.turn_id, return_envelope=True)
+    monkeypatch.setattr(chat_worker, '_observe_and_cleanup_terminal_attempt', _ACTUAL_CLEANUP)
+    monkeypatch.setattr(chat_worker, 'observe_chat_completion_attempt_terminal', lambda *_, **__: ChatAttemptReconciliation(
+        None, 'task.cancelled', None, cancelled_lock.lease_token,
+    ))
     events = []
     actual_run = chat_worker._run_chat_task
 

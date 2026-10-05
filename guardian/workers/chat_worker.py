@@ -62,8 +62,10 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.db import (
+    ChatAttemptReconciliation,
     GuardianDB,
     get_chat_completion_attempt_by_task_id,
+    observe_chat_completion_attempt_terminal,
     record_chat_completion_attempt_success,
     record_chat_completion_attempt_terminal_event,
 )
@@ -100,7 +102,7 @@ from guardian.queue.redis_queue import (
     is_cancelled,
     redis_operation_scope,
 )
-from guardian.queue.turn_lock import release_turn_lock
+from guardian.queue.turn_lock import release_terminal_attempt_turn_lock
 from guardian.tasks.chat_deadline import (
     DEADLINE_FIELDS,
     AcceptedChatTaskDeadlineExceeded,
@@ -579,9 +581,18 @@ def _publish_durable_terminal_if_present(
         return False
     try:
         if attempt is None:
-            attempt = get_chat_completion_attempt_by_task_id(
-                dependencies.chatlog_db, task.task_id
+            authority = observe_chat_completion_attempt_terminal(
+                dependencies.chatlog_db, request_id=task.request_id,
+                backend_task_id=task.task_id, thread_id=task.thread_id,
+                turn_id=_extract_turn_id(task),
             )
+            attempt = {
+                "backend_task_id": task.task_id, "request_id": task.request_id,
+                "thread_id": task.thread_id, "turn_id": _extract_turn_id(task),
+                "completed_message_id": authority.completed_message_id,
+                "terminal_event_type": authority.terminal_event_type,
+                "terminal_outcome": authority.terminal_outcome,
+            }
     except Exception:
         logger.warning(
             "[chat-worker] durable_completion_reconciliation_read_failed thread_id=%s task_id=%s request_id=%s",
@@ -2638,6 +2649,64 @@ def _project_observed_terminal(task: ChatCompletionTask, attempt: dict[str, Any]
         )
 
 
+def _observe_and_cleanup_terminal_attempt(
+    task: ChatCompletionTask,
+) -> ChatAttemptReconciliation | None:
+    """Clean only the original capability after durable terminal acknowledgement."""
+    if not task.request_id:
+        return None
+    try:
+        with postgres_operation_scope(2.0):
+            authority = observe_chat_completion_attempt_terminal(
+                dependencies.chatlog_db, request_id=task.request_id,
+                backend_task_id=task.task_id, thread_id=task.thread_id,
+                turn_id=_extract_turn_id(task),
+            )
+    except Exception:
+        logger.warning(
+            "[chat-worker] terminal_cleanup_authority_unconfirmed task_id=%s",
+            task.task_id, exc_info=True,
+        )
+        return None
+    if authority.completed_message_id is None and authority.terminal_event_type is None:
+        return authority
+    token = authority.turn_lock_token
+    if not isinstance(token, str) or not token.strip():
+        logger.warning(
+            "[chat-worker] terminal_cleanup_capability_unavailable task_id=%s", task.task_id,
+        )
+        return authority
+    try:
+        # PostgreSQL acknowledgement precedes Redis; no cross-store atomicity
+        # or transport-derived terminal authority is assumed.
+        with redis_operation_scope():
+            released = release_terminal_attempt_turn_lock(
+                task.thread_id, owner_task_id=task.task_id, lease_token=token,
+            )
+        if not released:
+            logger.info(
+                "[chat-worker] terminal_cleanup_replacement_preserved task_id=%s", task.task_id,
+            )
+    except Exception:
+        logger.warning(
+            "[chat-worker] terminal_cleanup_unconfirmed task_id=%s", task.task_id,
+            exc_info=True,
+        )
+    return authority
+
+
+def _project_terminal_authority(
+    task: ChatCompletionTask, authority: ChatAttemptReconciliation,
+) -> None:
+    _project_observed_terminal(task, {
+        "backend_task_id": task.task_id, "request_id": task.request_id,
+        "thread_id": task.thread_id, "turn_id": _extract_turn_id(task),
+        "completed_message_id": authority.completed_message_id,
+        "terminal_event_type": authority.terminal_event_type,
+        "terminal_outcome": authority.terminal_outcome,
+    })
+
+
 def _run_chat_task(task: ChatCompletionTask) -> None:
     try:
         deadline = accepted_chat_deadline_for_task(task)
@@ -2654,7 +2723,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         if attempt.get("completed_message_id") is not None or attempt.get(
             "terminal_event_type"
         ) in {TaskEventType.TASK_FAILED.value, TaskEventType.TASK_CANCELLED.value}:
-            _project_observed_terminal(task, attempt)
+            authority = _observe_and_cleanup_terminal_attempt(task)
+            if authority is not None:
+                _project_terminal_authority(task, authority)
             return
         try:
             snapshot = attempt.get("deadline_snapshot")
@@ -2684,12 +2755,12 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         if task.request_id:
             # Original task scopes are closed. Only observe an orphan already
             # recorded by the deadline controller; no writes or replay here.
-            attempt = _read_attempt_for_worker(task)
-            outcome = attempt.get("terminal_outcome") if attempt else None
+            authority = _observe_and_cleanup_terminal_attempt(task)
+            outcome = authority.terminal_outcome if authority else None
             if isinstance(outcome, dict) and outcome.get("failure_code") == (
                 ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
             ):
-                _project_observed_terminal(task, attempt)
+                _project_terminal_authority(task, authority)
 
 
 def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
@@ -3422,29 +3493,6 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
             turn_id,
             exc,
         )
-    finally:
-        # Owner cleanup is terminal work even after an early worker exception.
-        use_postgres_terminal_budget()
-        use_redis_terminal_budget()
-        owner = str(getattr(task, "turn_lock_owner", "") or "").strip()
-        if not owner:
-            owner = str(task.task_id or "").strip()
-        if owner:
-            try:
-                released = release_turn_lock(task.thread_id, owner)
-                if not released:
-                    logger.debug(
-                        "[turn-lock] release skipped thread=%s owner=%s",
-                        task.thread_id,
-                        owner,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "[turn-lock] release failed thread=%s owner=%s err=%s",
-                    task.thread_id,
-                    owner,
-                    exc,
-                )
 
 
 def _chat_task_cancelled_before_dispatch(task: ChatCompletionTask) -> bool:

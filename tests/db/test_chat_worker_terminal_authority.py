@@ -158,10 +158,12 @@ def test_native_lagging_worker_rejected_failure_projects_orphan(
     _, engine, repo, deadline, create = recovery_database
     identity = create("worker-lag")
     task = packet(identity, deadline)
+    cleanup = worker._observe_and_cleanup_terminal_attempt
     observe = worker._read_attempt_for_worker
     record = worker._record_chat_completion_attempt_terminal
     events = _prepare_worker_harness(monkeypatch, provider="local", model="test-model")
     monkeypatch.setattr(worker, "_read_attempt_for_worker", observe)
+    monkeypatch.setattr(worker, "_observe_and_cleanup_terminal_attempt", cleanup)
     monkeypatch.setattr(worker, "_record_chat_completion_attempt_terminal", record)
     monkeypatch.setattr(worker.dependencies, "chatlog_db", repo)
 
@@ -263,3 +265,9 @@ def test_native_observed_terminal_bounds_live_outbox_and_preserves_truth(
             == 0
         )
     assert bounds._budget.get() is None
+
+
+@pytest.fixture(autouse=True)
+def _redis_cleanup_seam(monkeypatch):
+    # Native PostgreSQL arbitration only; real Redis CAS is a separate proof.
+    monkeypatch.setattr(worker, "release_terminal_attempt_turn_lock", Mock(return_value=True))

@@ -43,7 +43,7 @@ def worker(monkeypatch):
     _install_attempt_harness(monkeypatch)
     events = []
     work = Mock(side_effect=_WorkReached)
-    release = Mock(return_value=True)
+    release = Mock(return_value=None)
     cleared = Mock()
     monkeypatch.setattr(chat_worker, "datetime", Clock)
     monkeypatch.setattr(chat_worker, "_find_assistant_message_for_turn", lambda **k: None)
@@ -53,7 +53,7 @@ def worker(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda _: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", cleared)
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", work)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", release)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", release)
     monkeypatch.setattr(chat_worker, "_safe_emit_live_event", lambda *a, **k: None)
     monkeypatch.setattr(
         chat_worker,
@@ -75,7 +75,7 @@ def test_expired_queue_task_fails_before_completion_work(worker, age, monkeypatc
     )
     chat_worker._run_chat_task(task)
 
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
     record_terminal.assert_called_once_with(task, "task.failed")
     work.assert_not_called()
     failed = [p for e, p in events if e == "task.failed"]
@@ -111,7 +111,7 @@ def test_future_or_legacy_queue_task_keeps_existing_work_path(worker, age):
 
     assert work.call_count == 1
     assert work.call_args.args[0] is task
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
     assert not any(e in {"task.completed", "task.failed", "task.cancelled"} for e, _ in events)
     assert {k: getattr(task, k) for k in snapshot} == snapshot
     if age is None:
@@ -136,7 +136,7 @@ def test_existing_durable_completion_precedes_queue_expiry(worker, monkeypatch, 
     assert completed[0]["message_id"] == 52
     assert not any(e in {"task.failed", "task.cancelled"} for e, _ in events)
     work.assert_not_called()
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
 
 
 def test_explicit_cancellation_precedes_queue_expiry(worker, monkeypatch):
@@ -158,7 +158,7 @@ def test_explicit_cancellation_precedes_queue_expiry(worker, monkeypatch):
     assert not any(e in {"task.failed", "task.completed"} for e, _ in events)
     work.assert_not_called()
     cleared.assert_called_once_with(task.task_id)
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
 
 
 @pytest.mark.parametrize("field,value", [

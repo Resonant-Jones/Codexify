@@ -91,7 +91,7 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -266,7 +266,7 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",

@@ -66,7 +66,7 @@ def test_unavailable_explicit_model_fails_before_execution_and_releases_lock(
     fallback = Mock(return_value="local-chat")
     execute = Mock()
     persist = Mock()
-    release = Mock(return_value=True)
+    release = Mock(return_value=None)
     published: list[tuple[str, dict]] = []
     monkeypatch.setattr(chat_worker, "_degraded_provider_model_fallback", fallback)
     monkeypatch.setattr(
@@ -80,7 +80,7 @@ def test_unavailable_explicit_model_fails_before_execution_and_releases_lock(
         SimpleNamespace(create_message=persist),
         raising=False,
     )
-    monkeypatch.setattr(chat_worker, "release_turn_lock", release)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", release)
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *a, **k: False)
     monkeypatch.setattr(chat_worker, "_safe_emit_live_event", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -115,7 +115,7 @@ def test_unavailable_explicit_model_fails_before_execution_and_releases_lock(
     fallback.assert_not_called()
     execute.assert_not_called()
     persist.assert_not_called()
-    release.assert_called_once_with(11, "test-lock")
+    release.assert_called_once_with(task)
 
 
 @pytest.mark.parametrize("model", ["local-chat", "exact-test-model"])

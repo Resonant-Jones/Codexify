@@ -91,7 +91,7 @@ def test_real_row_lock_cannot_write_after_terminal_deadline(
         lambda tid, kind, data: events.append((kind, dict(data))),
     )
     monkeypatch.setattr(chat_worker, "_safe_emit_live_event", lambda *a, **k: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", released)
+    monkeypatch.setattr(chat_worker, "release_terminal_attempt_turn_lock", released)
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", work)
     with psycopg.connect(plain) as locker:
         locker.execute(
@@ -186,7 +186,7 @@ def test_real_row_lock_cannot_write_after_terminal_deadline(
     )
     if surface == "expired_worker":
         work.assert_not_called()
-        released.assert_called_once_with(thread, "proof-task")
+        released.assert_not_called()
         failed = [payload for kind, payload in events if kind == "task.failed"]
         # No durable terminal write was acknowledged. Preserve uncertainty
         # rather than publishing an alternate controlled-deadline outcome.

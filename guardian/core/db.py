@@ -203,6 +203,54 @@ class ChatAttemptReconciliation:
     turn_lock_token: str | None
 
 
+def observe_chat_completion_attempt_terminal(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+) -> ChatAttemptReconciliation:
+    """Read exact existing terminal authority; never reconcile unresolved work.
+
+    The caller owns a bounded maintenance scope. The private lock capability is
+    returned only after transaction acknowledgement and never enters receipts.
+    """
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id, backend_task_id=backend_task_id,
+                thread_id=thread_id, turn_id=turn_id,
+            )
+            .one_or_none()
+        )
+        if attempt is None:
+            raise ValueError("Terminal observation does not match its durable attempt")
+        if attempt.completed_message_id is not None:
+            assistant = session.query(ChatMessage.id).filter_by(
+                id=attempt.completed_message_id, thread_id=thread_id, role="assistant",
+            ).one_or_none()
+            if assistant is None:
+                raise ValueError("Completion attempt points to no assistant in its thread")
+        elif attempt.terminal_event_type not in {
+            None, TaskEventType.TASK_FAILED.value, TaskEventType.TASK_CANCELLED.value,
+        }:
+            raise ValueError("Terminal observation has no supported durable outcome")
+        terminal = (
+            attempt.completed_message_id is not None
+            or attempt.terminal_event_type is not None
+        )
+        result = ChatAttemptReconciliation(
+            completed_message_id=attempt.completed_message_id,
+            terminal_event_type=attempt.terminal_event_type,
+            terminal_outcome=(dict(attempt.terminal_outcome)
+                              if attempt.terminal_outcome is not None else None),
+            turn_lock_token=attempt.turn_lock_token if terminal else None,
+        )
+    return result
+
+
 def reconcile_chat_completion_attempt_after_deadline(
     chatlog_db: Any,
     *,

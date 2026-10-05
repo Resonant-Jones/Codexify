@@ -69,8 +69,8 @@ def worker(monkeypatch):
         "calls": [],
         "persisted": [],
     }
-    release = Mock(return_value=True)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", release)
+    release = Mock(return_value=None)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", release)
     state["release"] = release
     monkeypatch.setattr(
         chat_worker.dependencies,
@@ -126,7 +126,7 @@ def assert_deadline_failure(state, *, fallback_attempted):
     assert not any(
         event in {"task.completed", "task.cancelled"} for event, _ in state["events"]
     )
-    state["release"].assert_called_once_with(task.thread_id, task.turn_lock_owner)
+    state["release"].assert_called_once_with(task)
     assert {key: getattr(task, key) for key in state["snapshot"]} == state["snapshot"]
     return payload
 
@@ -231,9 +231,7 @@ def test_permitted_rescue_before_deadline_and_legacy_rescue_keep_success(
     assert completed[0]["completion_truth"]["completed"] is True
     assert completed[0]["completion_truth"]["fallback_attempted"] is True
     assert not any(event == "task.failed" for event, _ in worker["events"])
-    worker["release"].assert_called_once_with(
-        worker["task"].thread_id, worker["task"].turn_lock_owner
-    )
+    worker["release"].assert_called_once_with(worker["task"])
     if not legacy:
         assert {
             key: getattr(worker["task"], key) for key in worker["snapshot"]

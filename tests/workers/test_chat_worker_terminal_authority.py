@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.core import chat_postgres_deadline as pg
 from guardian.core import chat_redis_deadline as redis
 from guardian.tasks.chat_deadline import (
@@ -43,6 +44,16 @@ def packet(monkeypatch):
         worker,
         "_safe_publish",
         lambda _, kind, data: events.append((kind, data)) or {"ok": True},
+    )
+    monkeypatch.setattr(
+        worker,
+        "observe_chat_completion_attempt_terminal",
+        lambda *_, **__: ChatAttemptReconciliation(
+            row["completed_message_id"],
+            row["terminal_event_type"],
+            row["terminal_outcome"],
+            None,
+        ),
     )
     body = Mock()
     monkeypatch.setattr(worker, "_run_chat_task_with_query_budget", body)
@@ -162,7 +173,7 @@ def test_preparation_consumes_original_budget_and_maintenance_grants_no_work(
     body.side_effect = run
     worker._run_chat_task(task)
     body.assert_called_once_with(task)
-    assert len(observed) == 2
+    assert len(observed) == 1
     assert pg._budget.get() is None and redis._budget.get() is None
 
 
@@ -211,6 +222,16 @@ def test_rejected_terminal_write_cannot_publish_alternate(monkeypatch, cause, du
     )
     monkeypatch.setattr(
         worker, "get_chat_completion_attempt_by_task_id", lambda *_: row
+    )
+    monkeypatch.setattr(
+        worker,
+        "observe_chat_completion_attempt_terminal",
+        lambda *_, **__: ChatAttemptReconciliation(
+            row["completed_message_id"],
+            row["terminal_event_type"],
+            row["terminal_outcome"],
+            None,
+        ),
     )
     monkeypatch.setattr(
         worker, "_record_chat_completion_attempt_terminal", lambda *_: False
