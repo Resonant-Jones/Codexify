@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use tauri::Manager;
+use crate::qualification;
 use crate::bootstrap_readiness_generated::{
     BootstrapHumanAction, BootstrapReadiness, BootstrapWorkflow,
     SetupReadinessState, BOOTSTRAP_CONTRACT_VERSION,
@@ -526,6 +527,8 @@ impl BootstrapRuntime {
             .as_ref()
             .map(|path| path.display().to_string())
     }
+
+    pub fn qualification_failure(&self) -> Option<&str> { self.failure_kind.as_deref() }
 
     fn repo_root_display(&self) -> Option<String> {
         self.repo_root
@@ -1341,6 +1344,16 @@ fn materialize_packaged_runtime_assets(
 }
 
 fn env_first(keys: &[&str], fallback: &str) -> String {
+    if let Some(q) = qualification::active() {
+        let forced = q.environment();
+        let values = qualification::runtime_env_path()
+            .and_then(|path| read_env_file_ordered(&path).ok())
+            .map(|(_, values)| values).unwrap_or_default();
+        for key in keys {
+            if let Some(value) = forced.get(*key).or_else(|| values.get(*key)).filter(|v| !v.trim().is_empty()) { return value.clone(); }
+        }
+        return fallback.to_string();
+    }
     for key in keys {
         if let Ok(value) = env::var(key) {
             let trimmed = value.trim();
@@ -1755,6 +1768,9 @@ fn materialize_packaged_setup_env(
     existing_data: bool,
 ) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
     let env_path = runtime_env_file_path(runtime_root);
+    if qualification::active().is_some() {
+        qualification::reject_symlinks(&env_path).map_err(|detail| BootstrapRuntimeValidationError { failure_kind: FAILURE_KIND_PACKAGED_SETUP_FAILED, detail })?;
+    }
     let migrated_legacy_env_source = migrate_packaged_setup_env(runtime_home, runtime_root)?;
     let mut migrated_legacy_runtime_assets = Vec::new();
     for asset in [".chroma", "models"] {
@@ -1852,6 +1868,10 @@ fn materialize_packaged_setup_env(
             let port = values.get(port_key).map(String::as_str).unwrap_or(default_port);
             values.insert(key.to_string(), format!("http://127.0.0.1:{port}"));
         }
+    }
+    if let Some(q) = qualification::active() {
+        q.setup_values(&mut values, created_new_env_file).map_err(|detail| BootstrapRuntimeValidationError { failure_kind: FAILURE_KIND_PACKAGED_SETUP_FAILED, detail })?;
+        for key in values.keys() { push_ordered_key(&mut order, key); }
     }
     for key in ["NEO4J_PASS", "POSTGRES_PASSWORD"] {
         if is_placeholder_config_value(values.get(key)) {
@@ -2088,7 +2108,7 @@ fn resolve_packaged_bootstrap_runtime(
     }
 
     let runtime_home = match app.path().data_dir() {
-        Ok(data_dir) => data_dir.join(PACKAGED_RUNTIME_METADATA_DIRNAME),
+        Ok(data_dir) => match qualification::active() { Some(q) => q.data_root(&data_dir), None => data_dir.join(PACKAGED_RUNTIME_METADATA_DIRNAME) },
         Err(err) => {
             detail_lines.push(
                 "The packaged app could not resolve its Application Support metadata home."
@@ -2117,6 +2137,11 @@ fn resolve_packaged_bootstrap_runtime(
         runtime_home.display()
     );
 
+    if qualification::active().is_some() {
+        if let Err(detail) = qualification::reject_symlinks(&runtime_home) {
+            return BootstrapRuntime::failure(RUNTIME_CONTEXT_PACKAGED, true, None, None, Some(runtime_home), None, FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE, detail);
+        }
+    }
     if let Err(err) = fs::create_dir_all(&runtime_home) {
         detail_lines.push(
             "The packaged app could not create its Application Support metadata home.".to_string(),
@@ -2140,7 +2165,7 @@ fn resolve_packaged_bootstrap_runtime(
     }
 
     let runtime_root = match app.path().home_dir() {
-        Ok(home_dir) => home_dir.join(PACKAGED_RUNTIME_ROOT_DIRNAME),
+        Ok(home_dir) => match qualification::active() { Some(q) => q.runtime_root(&home_dir), None => home_dir.join(PACKAGED_RUNTIME_ROOT_DIRNAME) },
         Err(err) => {
             detail_lines.push(
                 "The packaged app could not resolve a Docker-compatible runtime root under the user home."
@@ -2159,6 +2184,12 @@ fn resolve_packaged_bootstrap_runtime(
             );
         }
     };
+    if let Some(q) = qualification::active() {
+        if let Err(detail) = qualification::reject_symlinks(&runtime_root.join(".env")) {
+            return BootstrapRuntime::failure(RUNTIME_CONTEXT_PACKAGED, true, None, None, Some(runtime_home), None, FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE, detail);
+        }
+        detail_lines.push(format!("qualificationId={} composeProject={} webKitDataStore={:02x?}", q.id, q.project, q.store));
+    }
     detail_lines.push(format!("runtimeRoot={}", runtime_root.display()));
     log::info!(
         "packaged runtime root resolved: runtime_root={}",
@@ -2828,6 +2859,7 @@ fn build_docker_environment_lines(environment: &DockerCommandEnvironment) -> Vec
 }
 
 fn apply_docker_command_environment(command: &mut Command, environment: &DockerCommandEnvironment) {
+    if qualification::active().is_some() { command.env_clear(); }
     command.env("PATH", NORMALIZED_DOCKER_PATH);
 
     if let Some(home) = &environment.home {
@@ -2920,6 +2952,10 @@ fn build_generic_compose_command_display(
         format!(" {}", compose_args.join(" "))
     };
 
+    if let Some(q) = qualification::active() {
+        return format!("docker compose --project-name {} --env-file {} --project-directory {} --file {}{}", q.project, env_file.display(), runtime_root.display(), compose_file.display(), tail);
+    }
+
     format!(
         "docker compose --project-directory {} --file {}{} [env: CODEXIFY_RUNTIME_ENV_FILE={}]",
         runtime_root.display(),
@@ -2950,6 +2986,18 @@ fn spawn_compose_command(
 ) -> Command {
     let mut command = spawn_docker_command(binary, &[]);
     command.arg("compose");
+    if let Some(q) = qualification::active() {
+        command.arg("--project-name").arg(&q.project);
+        command.arg("--env-file").arg(runtime_env_file_path(runtime_root));
+        // Prevent the launching shell's credentials/configuration from overriding isolated .env.
+        // Keep only host Docker access and OS process necessities; all app config comes from this namespace.
+        command.env_clear();
+        let environment = resolve_docker_command_environment(runtime);
+        command.env("PATH", NORMALIZED_DOCKER_PATH);
+        if let Some(home) = environment.home { command.env("HOME", home); }
+        if let Some(config) = environment.docker_config { command.env("DOCKER_CONFIG", config); }
+        command.envs(q.environment());
+    }
     command.arg("--project-directory").arg(runtime_root);
     command
         .arg("--file")
@@ -3542,13 +3590,14 @@ fn probe_http_endpoint_with_body(
 
 #[cfg(target_os = "macos")]
 fn read_keychain_password() -> Result<Option<String>, String> {
+    let service = qualification::active().map(|q| q.keychain_service()).unwrap_or_else(|| DESKTOP_KEYCHAIN_SERVICE.into());
     let output = Command::new("security")
         .args([
             "find-generic-password",
             "-a",
             DESKTOP_KEYCHAIN_ACCOUNT,
             "-s",
-            DESKTOP_KEYCHAIN_SERVICE,
+            service.as_str(),
             "-w",
         ])
         .output()
@@ -3581,13 +3630,14 @@ fn read_keychain_password() -> Result<Option<String>, String> {
 
 #[cfg(target_os = "macos")]
 fn write_keychain_password(api_key: &str) -> Result<(), String> {
+    let service = qualification::active().map(|q| q.keychain_service()).unwrap_or_else(|| DESKTOP_KEYCHAIN_SERVICE.into());
     let output = Command::new("security")
         .args([
             "add-generic-password",
             "-a",
             DESKTOP_KEYCHAIN_ACCOUNT,
             "-s",
-            DESKTOP_KEYCHAIN_SERVICE,
+            service.as_str(),
             "-w",
             api_key,
             "-U",
@@ -3611,13 +3661,14 @@ fn write_keychain_password(_api_key: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn delete_keychain_password() -> Result<(), String> {
+    let service = qualification::active().map(|q| q.keychain_service()).unwrap_or_else(|| DESKTOP_KEYCHAIN_SERVICE.into());
     let output = Command::new("security")
         .args([
             "delete-generic-password",
             "-a",
             DESKTOP_KEYCHAIN_ACCOUNT,
             "-s",
-            DESKTOP_KEYCHAIN_SERVICE,
+            service.as_str(),
         ])
         .output()
         .map_err(|err| format!("Failed to run macOS security CLI: {err}"))?;
@@ -4582,8 +4633,8 @@ pub fn desktop_open_external(url: String) -> Result<(), String> {
 /// The WebUI is available at port 3000 when the runtime is running with the webui service.
 #[tauri::command]
 pub fn desktop_open_webui() -> Result<(), String> {
-    let url = "http://127.0.0.1:3000";
-    desktop_open_external(url.to_string())
+    let url = qualification::active().map(|q| q.environment()["CODEXIFY_DESKTOP_SHARE_BASE_URL"].clone()).unwrap_or_else(|| "http://127.0.0.1:3000".into());
+    desktop_open_external(url)
 }
 
 #[tauri::command]
@@ -4771,7 +4822,7 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
         };
         let candidate = if runtime_env_file_path(&runtime_root).exists() { runtime_env_file_path(&runtime_root) }
             else { runtime.runtime_home.as_ref().map(|home| runtime_env_file_path(home)).unwrap_or_else(|| runtime_env_file_path(&runtime_root)) };
-        let project = read_env_file_ordered(&candidate).and_then(|(_, values)| bootstrap_project_name(env::var("COMPOSE_PROJECT_NAME").ok(), &values));
+        let project = if let Some(q) = qualification::active() { Ok(q.project.clone()) } else { read_env_file_ordered(&candidate).and_then(|(_, values)| bootstrap_project_name(env::var("COMPOSE_PROJECT_NAME").ok(), &values)) };
         let project = match project {
             Ok(project) => project,
             Err(detail) => return build_step_result(false, "setup", Some(detail), None, None, None, None, Some(&*runtime), Some(FAILURE_KIND_PACKAGED_SETUP_FAILED)),
