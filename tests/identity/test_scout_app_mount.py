@@ -4,6 +4,30 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(autouse=True)
+def _isolated_hosted_app(monkeypatch):
+    import importlib
+
+    from guardian import guardian_api
+    from guardian.core import event_bus
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("GUARDIAN_API_KEY", "synthetic-app-mount-fixture")
+            env.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+            env.setenv("ENABLE_CONNECTOR_WORKER", "0")
+            env.setenv("CODEXIFY_BETA_CORE_ONLY", "0")
+            env.setenv("CODEXIFY_ENABLE_AUTH_ROUTES", "true")
+            env.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+            # Earlier tests can leave app wiring under a quarantined profile.
+            # Reload only; never run the database-producing lifespan.
+            importlib.reload(guardian_api)
+            yield
+    finally:
+        event_bus.reset()
+        importlib.reload(guardian_api)
+
+
 def _scout_client(*args, **kwargs):
     client = TestClient(*args, **kwargs)
     # The repository bootstrap injects an operator key by default. Scout tests

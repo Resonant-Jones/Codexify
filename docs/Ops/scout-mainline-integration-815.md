@@ -156,6 +156,19 @@ Security (scan `cc205de8-49db-44e5-bbf7-838f424438c3`). Its only reportable find
 was the configured auth-gate bypass corrected above. That report remains evidence
 for the initial commit; final-head CI and review remain required.
 
+A later full CI run exposed module-global app wiring retained by an earlier
+supported-profile test. The enabled-Scout mount case correctly received 404
+from that quarantined app. This was reproduced locally by running that profile
+test before the Scout mount test. Scout's mount tests now explicitly reload the
+app under a scoped test posture and restore prior environment/app wiring after
+each case, without entering lifespan or changing the production route gate.
+All **23 combined supported-profile, beta-quarantine and Scout mount cases**
+pass in CI's framework overlay, including the previously failing order. Logs/XML:
+`/tmp/scout815-review-mount-order-tests.log` and
+`/tmp/scout815-review-mount-order-results.xml`. Scoped mypy and applicable hooks
+pass for this test-only repair; full CI on the published follow-up remains the
+merge gate.
+
 ## Evidence boundaries and follow-through
 
 [Historical backend qualification](https://github.com/Resonant-Jones/Codexify/blob/68d6c061f786f680f198f7328d40753b096625db/docs/Ops/scout-auth-qualification-2026-10-03.md)
