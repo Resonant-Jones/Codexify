@@ -418,21 +418,13 @@ export default function GuardianChatWithSidebar({
   // Landing and the unacknowledged introduction leave the durable preference intact.
   const [isLandingSidebarOpen, setIsLandingSidebarOpen] = React.useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
-  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const stored = window.localStorage.getItem("cfy.lastProjectId");
-    if (!stored || stored === "null") return null;
-    return stored;
-  });
-
-  const [selectedProjectName, setSelectedProjectName] = React.useState<string | null>(null);
+  const [projectSelection, setProjectSelection] = React.useState<{
+    accountId: string;
+    projectId: string | null;
+    projectName: string | null;
+  } | null>(null);
   const [selectedOriginSystem, setSelectedOriginSystem] =
     React.useState<ConversationOriginSystem | null>(null);
-
-  React.useEffect(() => {
-    if (selectedProjectId == null) return;
-    onProjectChange?.(selectedProjectId, selectedProjectName);
-  }, [onProjectChange, selectedProjectId, selectedProjectName]);
 
   // Persist sidebar visibility preference
   React.useEffect(() => {
@@ -451,6 +443,93 @@ export default function GuardianChatWithSidebar({
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const projectListRef = React.useRef(projectCache.projectList);
   projectListRef.current = projectCache.projectList;
+  const accountProjectStorageKey = projectCache.loadedForCurrentAuth && projectCache.accountId
+    ? `cfy.lastProjectId.account.${encodeURIComponent(projectCache.accountId)}`
+    : null;
+  const projectSelectionIsCurrent = Boolean(
+    projectCache.loadedForCurrentAuth &&
+      projectCache.accountId &&
+      projectSelection?.accountId === projectCache.accountId &&
+      (projectSelection.projectId == null || projectCache.projectList.some(
+        (project) => String(project.id) === String(projectSelection.projectId)
+      ))
+  );
+  const selectedProjectId = projectSelectionIsCurrent
+    ? projectSelection?.projectId ?? null
+    : null;
+  const selectedProjectName = projectSelectionIsCurrent
+    ? projectSelection?.projectName ?? null
+    : null;
+  const projectStorageKey = projectSelectionIsCurrent ? accountProjectStorageKey : null;
+  const projectSelectionHydratedAccountRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const accountId = projectCache.accountId;
+    if (!projectCache.loadedForCurrentAuth || !accountId || !accountProjectStorageKey) return;
+    if (projectSelectionHydratedAccountRef.current === accountId) return;
+
+    let storedProjectId: string | null = null;
+    try {
+      const scopedValue = window.localStorage.getItem(accountProjectStorageKey);
+      const legacyValue = window.localStorage.getItem("cfy.lastProjectId");
+      const isOwnedProject = (value: string | null) =>
+        Boolean(value && value !== "null" && projectCache.projectList.some(
+          (project) => String(project.id) === value
+        ));
+      storedProjectId = isOwnedProject(scopedValue)
+        ? scopedValue
+        : isOwnedProject(legacyValue)
+          ? legacyValue
+          : null;
+      if (storedProjectId) {
+        window.localStorage.setItem(accountProjectStorageKey, storedProjectId);
+        window.localStorage.setItem("cfy.lastProjectId", storedProjectId);
+      } else {
+        window.localStorage.removeItem(accountProjectStorageKey);
+        window.localStorage.removeItem("cfy.lastProjectId");
+      }
+    } catch {
+      storedProjectId = null;
+    }
+
+    const selectedProject = projectCache.projectList.find(
+      (project) => String(project.id) === storedProjectId
+    );
+    setProjectSelection({
+      accountId,
+      projectId: storedProjectId,
+      projectName: selectedProject ? cleanSidebarProjectTitle(selectedProject) : null,
+    });
+    projectSelectionHydratedAccountRef.current = accountId;
+  }, [
+    projectCache.accountId,
+    projectCache.loadedForCurrentAuth,
+    projectCache.projectList,
+    accountProjectStorageKey,
+  ]);
+  React.useEffect(() => {
+    if (!projectCache.loadedForCurrentAuth || !projectCache.accountId) return;
+    if (projectSelection?.accountId !== projectCache.accountId || projectSelection.projectId == null) return;
+    if (projectCache.projectList.some(
+      (project) => String(project.id) === String(projectSelection.projectId)
+    )) return;
+
+    const staleProjectId = projectSelection.projectId;
+    setProjectSelection({ accountId: projectCache.accountId, projectId: null, projectName: null });
+    try {
+      if (accountProjectStorageKey) window.localStorage.removeItem(accountProjectStorageKey);
+      if (window.localStorage.getItem("cfy.lastProjectId") === staleProjectId) {
+        window.localStorage.removeItem("cfy.lastProjectId");
+      }
+    } catch {
+      /* the current account remains safe in memory */
+    }
+  }, [
+    accountProjectStorageKey,
+    projectCache.accountId,
+    projectCache.loadedForCurrentAuth,
+    projectCache.projectList,
+    projectSelection,
+  ]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const lastSidebarSnapshotSignatureRef = React.useRef<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -487,20 +566,41 @@ export default function GuardianChatWithSidebar({
     setThreadsLoadingMore(false);
     setThreadsLoaded(false);
   }, []);
-  const handleSelectedProjectChange = React.useCallback(
+  const persistProjectSelection = React.useCallback(
     (id: string | null, name: string | null = null) => {
-      invalidateThreadQuery();
-      setSelectedProjectId(id);
+      const accountId = projectCache.accountId;
+      if (!projectCache.loadedForCurrentAuth || !accountId) return false;
       const project = id == null
         ? null
-        : projectListRef.current.find(
-            (candidate) => String(candidate.id) === String(id)
-          );
-      setSelectedProjectName(
-        name ?? (project ? cleanSidebarProjectTitle(project) : null)
-      );
+        : projectListRef.current.find((candidate) => String(candidate.id) === String(id));
+      if (id != null && !project) return false;
+      const normalizedId = id == null ? null : String(id);
+      const projectName = name ?? (project ? cleanSidebarProjectTitle(project) : null);
+      setProjectSelection({ accountId, projectId: normalizedId, projectName });
+      try {
+        if (accountProjectStorageKey) {
+          if (normalizedId == null) window.localStorage.removeItem(accountProjectStorageKey);
+          else window.localStorage.setItem(accountProjectStorageKey, normalizedId);
+        }
+        if (normalizedId == null) window.localStorage.removeItem("cfy.lastProjectId");
+        else window.localStorage.setItem("cfy.lastProjectId", normalizedId);
+      } catch {
+        /* keep the in-memory selection for this mounted account */
+      }
+      return true;
     },
-    [invalidateThreadQuery]
+    [accountProjectStorageKey, projectCache.accountId, projectCache.loadedForCurrentAuth]
+  );
+  React.useEffect(() => {
+    if (!projectSelectionIsCurrent || selectedProjectId == null) return;
+    onProjectChange?.(selectedProjectId, selectedProjectName);
+  }, [onProjectChange, projectSelectionIsCurrent, selectedProjectId, selectedProjectName]);
+  const handleSelectedProjectChange = React.useCallback(
+    (id: string | null, name: string | null = null) => {
+      if (!persistProjectSelection(id, name)) return;
+      invalidateThreadQuery();
+    },
+    [invalidateThreadQuery, persistProjectSelection]
   );
   React.useEffect(() => {
     if (!selectedProjectId || selectedProjectName?.trim()) return;
@@ -508,9 +608,11 @@ export default function GuardianChatWithSidebar({
       (candidate) => String(candidate.id) === String(selectedProjectId)
     );
     if (project) {
-      setSelectedProjectName(cleanSidebarProjectTitle(project));
+      setProjectSelection((current) => current?.accountId === projectCache.accountId
+        ? { ...current, projectName: cleanSidebarProjectTitle(project) }
+        : current);
     }
-  }, [projectCache.projectList, selectedProjectId, selectedProjectName]);
+  }, [projectCache.accountId, projectCache.projectList, selectedProjectId, selectedProjectName]);
   const handleSelectedOriginSystemChange = React.useCallback(
     (originSystem: ConversationOriginSystem | null) => {
       if (originSystem === selectedOriginSystem) return;
@@ -965,8 +1067,8 @@ export default function GuardianChatWithSidebar({
     if (nextThreadId == null) return;
     const nextThread = threads.find((thread) => thread.id === nextThreadId);
     if (!nextThread) return;
-    setSelectedProjectId(nextThread.projectId ?? null);
-    setSelectedProjectName(
+    persistProjectSelection(
+      nextThread.projectId ?? null,
       nextThread.projectName ??
         (nextThread.projectId != null
           ? projectListRef.current.find(
@@ -974,7 +1076,7 @@ export default function GuardianChatWithSidebar({
             )?.name ?? null
           : null)
     );
-  }, [sessionRail.tabs, sessionSpine, threads, updatePresentationLifecycle]);
+  }, [persistProjectSelection, sessionRail.tabs, sessionSpine, threads, updatePresentationLifecycle]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
     sessionSpine?.tabClose(tabId);
@@ -1958,6 +2060,7 @@ export default function GuardianChatWithSidebar({
         originSystem={selectedOriginSystem}
         onOriginSystemChange={handleSelectedOriginSystemChange}
         projectCache={projectCache}
+        persistence={{ projectStorageKey }}
         hasMoreThreads={threadsHasMore}
         loadingMoreThreads={threadsLoadingMore}
         onLoadMoreThreads={loadMoreThreads}
@@ -2041,6 +2144,7 @@ export default function GuardianChatWithSidebar({
                   originSystem={selectedOriginSystem}
                   onOriginSystemChange={handleSelectedOriginSystemChange}
                   projectCache={projectCache}
+                  persistence={{ projectStorageKey }}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
