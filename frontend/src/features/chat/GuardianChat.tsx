@@ -36,7 +36,7 @@ import {
   type ComposerSendOptions,
 } from "@/features/guardian/components/Composer";
 import ChatView from "@/features/chat/ChatView";
-import { ThreadAttemptObservation } from "@/features/chat/components/ThreadAttemptObservation";
+import { ThreadAttemptObservation, isDurableAttemptTerminal, type AttemptReceipt } from "@/features/chat/components/ThreadAttemptObservation";
 import useChat from "@/features/chat/useChat";
 import api, {
   buildChatThreadsPath,
@@ -98,6 +98,7 @@ import {
 } from "@/features/chat/hooks/useInferenceRequestState";
 import {
   describeTaskFailureDetailText,
+  isRetryableAcceptedTaskFailure,
   getToolCommandFailureReason,
 } from "@/features/chat/requestFailurePresentation";
 import {
@@ -2999,6 +3000,40 @@ export function GuardianChat({
     };
   }, [subscribe]);
 
+  const handleCurrentAttemptTerminal = useCallback((receipt: AttemptReceipt): boolean => {
+    const tid = receipt.thread_id;
+    if (effectiveThreadIdRef.current !== tid || !isDurableAttemptTerminal(receipt)) return false;
+    const matchesInference = inferenceRequest.state.threadId === tid &&
+      inferenceRequest.state.taskId === receipt.task_id;
+    const matchesCompletion = completionState.activeThreadId === tid &&
+      completionState.activeTaskId === receipt.task_id;
+    if ((!matchesInference && !matchesCompletion) || (
+      isActiveInferencePhase(inferenceRequest.state.phase) && !matchesInference
+    )) return false;
+
+    updateCompletionSessionTurnId(receipt.task_id, receipt.turn_id);
+    const terminalState = receipt.completed_message_id !== null ? "completed" :
+      receipt.event_type === "task.cancelled" ? "cancelled" : "failed";
+    finalizeCompletionSession({ taskId: receipt.task_id, terminalState });
+    releaseTurnLease(tid, { clearCompletion: true, clearInference: false });
+    if (terminalState === "completed") {
+      inferenceRequest.markCompleted("Guardian finished and saved the response.");
+    } else if (terminalState === "cancelled") {
+      onTaskCancelledRef.current?.(tid, receipt.task_id);
+      inferenceRequest.markCancelled();
+    } else {
+      inferenceRequest.markFailed("A failure was recorded for this response.", {
+        failureCode: receipt.failure_code,
+        durableFailureOnly: true,
+        detailText: isRetryableAcceptedTaskFailure({ failure_code: receipt.failure_code })
+          ? describeTaskFailureDetailText({ failure_code: receipt.failure_code })
+          : "A failure was recorded for this response. Send a new request to try again.",
+      });
+    }
+    return true;
+  }, [completionState.activeThreadId, completionState.activeTaskId, inferenceRequest,
+    updateCompletionSessionTurnId, finalizeCompletionSession, releaseTurnLease]);
+
   // Live thread-created event → refresh thread list for cross-client visibility.
   const LOCAL_CREATION_WINDOW_MS = 3000;
   useEffect(() => {
@@ -4538,6 +4573,7 @@ export function GuardianChat({
           identityEpoch={auth.token}
           currentTaskId={composerInferenceState.taskId}
           onTerminalObserved={refreshSnapshot}
+          onCurrentTerminalObserved={handleCurrentAttemptTerminal}
         />
       ) : null}
 

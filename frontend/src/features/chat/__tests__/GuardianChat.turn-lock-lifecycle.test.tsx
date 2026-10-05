@@ -993,6 +993,80 @@ describe("GuardianChat turn lock lifecycle", () => {
     expect(current.close).toHaveBeenCalledOnce();
   });
 
+  it("recovers the active orphan from a durable receipt without SSE and permits only an explicit new send", async () => {
+    inferenceMocks.realHook = true;
+    let accepted = 0;
+    const orphan = {
+      task_id: "task-1", request_id: "request-1", thread_id: 1, turn_id: "turn-1",
+      completed_message_id: null, state: "terminal", event_type: "task.failed",
+      reason: "durable_terminal_outcome_recorded", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED",
+    };
+    apiMock.get.mockImplementation(async (url: string) => url === "/chat/threads/1/tasks"
+      ? { data: { ok: true, thread_id: 1, tasks: accepted ? [orphan] : [], has_more: false } }
+      : { data: {} });
+    apiMock.post.mockImplementation(async (url: string) => url === "/chat/1/complete"
+      ? { data: { task_id: `task-${++accepted}` } } : { data: {} });
+    const view = renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    await waitFor(() => expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable"));
+    expect(taskSources.instances).toHaveLength(1);
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+    expect(chatMocks.refreshSnapshot).toHaveBeenCalled();
+    expect(completeCalls()).toHaveLength(1);
+    expect(view.onSendMessage).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-2"));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
+    expect(taskSources.instances).toHaveLength(2);
+    expect(taskSources.instances[1].close).not.toHaveBeenCalled();
+    expect(completeCalls()).toHaveLength(2);
+    expect(view.onSendMessage).toHaveBeenCalledTimes(2);
+    act(() => taskSources.instances[1].dispatchEvent(new MessageEvent("task.completed", {
+      data: JSON.stringify({ thread_id: 1, task_id: "task-2", message_id: 100 }),
+    })));
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(taskSources.instances[1].close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["task.completed", "task.cancelled"])("projects durable receipt %s without a terminal stream event", async (eventType) => {
+    inferenceMocks.realHook = true;
+    let accepted = false;
+    apiMock.get.mockImplementation(async (url: string) => url === "/chat/threads/1/tasks"
+      ? { data: { ok: true, thread_id: 1, tasks: accepted ? [{
+          task_id: "task-1", request_id: "request-1", thread_id: 1, turn_id: "turn-1",
+          completed_message_id: eventType === "task.completed" ? 100 : null,
+          state: "terminal", event_type: eventType, reason: "durable_terminal_outcome_recorded", failure_code: null,
+        }] : [], has_more: false } } : { data: {} });
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/chat/1/complete") { accepted = true; return { data: { task_id: "task-1" } }; }
+      return { data: {} };
+    });
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(taskSources.instances).toHaveLength(1));
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", eventType === "task.completed" ? "completed" : "cancelled");
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it("projects a global canonical orphan distinctly without automatically retrying", async () => {
+    inferenceMocks.realHook = true;
+    renderChat();
+    await screen.findByTestId("composer-stub");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
+    emitLiveEvent("task.failed", { thread_id: 1, task_id: "task-1", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED" });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable");
+    expect(completeCalls()).toHaveLength(1);
+    expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
+  });
+
   it.each(["task.failed", "completion.error"].flatMap((type) =>
     ["tool_command_failed", "tool_command_blocked"].map((reason) => [type, reason])
   ))("projects owned global command failure %s: %s through the actual hook", async (type, reason) => {

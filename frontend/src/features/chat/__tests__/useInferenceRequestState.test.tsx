@@ -792,3 +792,38 @@ describe("useInferenceRequestState", () => {
     );
   });
 });
+
+describe("recorded orphan and cause-unknown terminal truth", () => {
+  const request = { threadId: 1, providerId: "local", modelId: "local-model", mode: "default" as const };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    eventSources.instances.length = 0;
+  });
+  it.each(["task.failed", "task.state", "completion.error"])("projects canonical orphan from %s without invented terminal timing", (type) => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => { result.current.startRequest(request); result.current.attachTask("current-task"); });
+    const source = eventSources.instances[0];
+    emitTaskEvent(source, type, { thread_id: 1, task_id: "current-task", state: "FAILED",
+      failure_code: "CHAT_ACCEPTED_TASK_ORPHANED", reconciled_at: "2026-04-05T00:13:00Z",
+      failure_kind: "provider_timeout", toolTurnState: "failed", loopStopReason: "tool_command_failed" });
+    expect(result.current.state.phase).toBe("failed");
+    expect(result.current.state.statusText).toMatch(/closed without completion/);
+    expect(result.current.state.detailText).toMatch(/recovery deadline/);
+    expect(result.current.state.toolLoopStopReason).toBeNull();
+    expect(result.current.state.completedAt).toBeNull();
+    expect(result.current.state.firstOutputAt).toBeNull();
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed_retryable");
+    expect(source.close).toHaveBeenCalledOnce();
+    expect(apiSpies.post).not.toHaveBeenCalled();
+  });
+
+  it("does not infer a provider cause from a durable generic failure receipt", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => result.current.markFailed("Recorded failure", { durableFailureOnly: true }));
+    expect(result.current.state.statusText).toBe("Response failed.");
+    expect(result.current.state.detailText).not.toMatch(/provider|tool|deadline/);
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed");
+    act(() => result.current.startRequest(request));
+    expect(result.current.state.durableFailureOnly).toBe(false);
+  });
+});

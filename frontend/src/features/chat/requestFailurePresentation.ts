@@ -15,6 +15,9 @@ export const PROVIDER_TIMEOUT_DETAIL_TEXT =
 export const PROVIDER_FIRST_TOKEN_TIMEOUT_DETAIL_TEXT =
   "Provider timed out after accepting the request and before the first token. Try again or switch to a faster mode.";
 
+export const ACCEPTED_TASK_ORPHAN_DETAIL_TEXT =
+  "No completed response was recorded. This request was closed after its recovery deadline. Send a new request to try again.";
+
 export const ACCEPTED_TASK_DEADLINE_DETAIL_TEXT =
   "The request reached its execution time limit. Try again.";
 
@@ -27,7 +30,7 @@ export const TOOL_COMMAND_BLOCKED_DETAIL_TEXT =
 export function getToolCommandFailureReason(
   payload: Record<string, unknown> | null | undefined
 ): ToolCommandFailureReason | null {
-  if (isAcceptedTaskDeadlineFailure(payload)) return null;
+  if (isRetryableAcceptedTaskFailure(payload)) return null;
   if (
     (payload?.toolTurnState ?? payload?.tool_turn_state) !== TOOL_TURN_STATES.FAILED
   ) {
@@ -45,6 +48,18 @@ export function isAcceptedTaskDeadlineFailure(
 ): boolean {
   // Existing Guardian ErrorCode; presentation must follow typed failure truth.
   return payload?.failure_code === "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED";
+}
+
+export function isAcceptedTaskOrphanFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  return payload?.failure_code === "CHAT_ACCEPTED_TASK_ORPHANED";
+}
+
+export function isRetryableAcceptedTaskFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  return isAcceptedTaskOrphanFailure(payload) || isAcceptedTaskDeadlineFailure(payload);
 }
 
 function normalizeToken(value: unknown): string {
@@ -100,6 +115,9 @@ export function describeTaskFailureDetailText(
     return GENERIC_PROVIDER_FAILURE_DETAIL_TEXT;
   }
 
+  if (isAcceptedTaskOrphanFailure(payload)) {
+    return ACCEPTED_TASK_ORPHAN_DETAIL_TEXT;
+  }
   if (isAcceptedTaskDeadlineFailure(payload)) {
     return ACCEPTED_TASK_DEADLINE_DETAIL_TEXT;
   }

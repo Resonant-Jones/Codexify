@@ -158,3 +158,102 @@ describe("thread attempt observation", () => {
     expect(screen.getByText(/newest 100 attempts/)).toBeInTheDocument();
   });
 });
+
+const orphanReceipt = () => ({ ...receipt("terminal", "task.failed"),
+  reason: "durable_terminal_outcome_recorded", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED" });
+
+describe("durable current attempt recovery", () => {
+  it("keeps polling the active task and projects its durable orphan without resending", async () => {
+    get.mockResolvedValueOnce(page([receipt("unknown")])).mockResolvedValueOnce(page([orphanReceipt()]));
+    const project = vi.fn().mockResolvedValue(true);
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    expect(project).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenCalledWith(11, "attempt-observation-current-terminal");
+    expect(project).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      task_id: "task-a", request_id: "request-a", turn_id: "turn-a", thread_id: 11,
+      failure_code: "CHAT_ACCEPTED_TASK_ORPHANED", completed_message_id: null,
+    }));
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("keeps a missing current task within bounded-page observation", async () => {
+    get.mockResolvedValue(page([], true));
+    render(<ThreadAttemptObservation {...props} currentTaskId="outside-page" />);
+    await settle();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[1][1]?.params).toEqual({ limit: 100, offset: 0 });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("never substitutes a Redis-only terminal event for durable current truth", async () => {
+    get.mockResolvedValue(page([{ ...orphanReceipt(), reason: "terminal_event_observed" }]));
+    const project = vi.fn();
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(project).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("labels a historical durable orphan separately from provider failure", async () => {
+    get.mockResolvedValue(page([orphanReceipt()]));
+    render(<ThreadAttemptObservation {...props} />);
+    await settle();
+    expect(screen.getByRole("status").textContent).toMatch(/closed.*recovery deadline/);
+    expect(screen.getByRole("status").textContent).not.toMatch(/provider|task failed|died|executed|generating/);
+  });
+
+  it("lets a durable assistant link win over stale orphan detail", async () => {
+    get.mockResolvedValue(page([{ ...orphanReceipt(), completed_message_id: 74 }]));
+    const project = vi.fn().mockResolvedValue(true);
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    expect(project).toHaveBeenCalledWith(expect.objectContaining({
+      event_type: "task.completed", failure_code: null, completed_message_id: 74,
+    }));
+  });
+
+  it("does not project after authorization changes during canonical refresh", async () => {
+    let finish = () => {};
+    refresh.mockImplementationOnce(() => new Promise<void>((done) => { finish = done; }));
+    get.mockResolvedValue(page([orphanReceipt()]));
+    const project = vi.fn();
+    const { rerender } = render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    rerender(<ThreadAttemptObservation {...props} enabled={false} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await act(async () => { finish(); });
+    expect(project).not.toHaveBeenCalled();
+  });
+
+  it("discards a stale current receipt when a new task starts during canonical refresh", async () => {
+    let finish = () => {};
+    refresh.mockImplementationOnce(() => new Promise<void>((done) => { finish = done; }));
+    get.mockResolvedValueOnce(page([orphanReceipt()])).mockResolvedValue(page([]));
+    const project = vi.fn();
+    const { rerender } = render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    rerender(<ThreadAttemptObservation {...props} currentTaskId="task-b" onCurrentTerminalObserved={project} />);
+    await act(async () => { finish(); });
+    expect(project).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(project).not.toHaveBeenCalled();
+  });
+
+  it("retains observation uncertainty after canonical refresh fails", async () => {
+    get.mockResolvedValue(page([orphanReceipt()]));
+    refresh.mockRejectedValueOnce(new Error("canonical read unavailable"));
+    const project = vi.fn();
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    expect(project).not.toHaveBeenCalled();
+    expect(screen.getByText(/observation is unavailable/)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});

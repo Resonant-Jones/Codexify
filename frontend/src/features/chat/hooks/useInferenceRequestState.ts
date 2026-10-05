@@ -4,6 +4,9 @@ import { GuardianEventSource } from "@/lib/guardianEventSource";
 import api, { buildAuthenticatedFetchInit } from "@/lib/api";
 import {
   ACCEPTED_TASK_DEADLINE_DETAIL_TEXT,
+  ACCEPTED_TASK_ORPHAN_DETAIL_TEXT,
+  isAcceptedTaskOrphanFailure,
+  isRetryableAcceptedTaskFailure,
   describeTaskFailureDetailText,
   getToolCommandFailureReason,
   isAcceptedTaskDeadlineFailure,
@@ -278,6 +281,7 @@ type LifecycleTimingState = Pick<
   | "errorText"
   | "failureCode"
   | "toolLoopStopReason"
+  | "durableFailureOnly"
   | "queuedAt"
   | "awaitingModelAt"
   | "awaitingFirstTokenAt"
@@ -378,11 +382,11 @@ export function describeInferenceRequestState(
   let canonicalState: InferenceLifecycleState = INFERENCE_LIFECYCLE_STATE.IDLE;
   // completed_at records terminal timing for failures and cancellations too.
   if (state.phase === "failed" || state.errorText) {
-    canonicalState = isAcceptedTaskDeadlineFailure({
+    canonicalState = isRetryableAcceptedTaskFailure({
       failure_code: state.failureCode,
     })
       ? INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE
-      : state.toolLoopStopReason
+      : state.durableFailureOnly || state.toolLoopStopReason
         ? INFERENCE_LIFECYCLE_STATE.TOOL_FAILED
         : INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR;
   } else if (state.phase === "cancelled") {
@@ -663,11 +667,13 @@ export function useInferenceRequestState(options: {
       options: {
         detailText?: string | null;
         failureCode?: string | null;
+        durableFailureOnly?: boolean;
         toolLoopStopReason?: ToolCommandFailureReason | null;
         timingPatch?: Partial<InferenceRequestState>;
       } = {}
     ) => {
       closeTaskStream();
+      const orphaned = isAcceptedTaskOrphanFailure({ failure_code: options.failureCode });
       const deadlineExceeded = isAcceptedTaskDeadlineFailure({
         failure_code: options.failureCode,
       });
@@ -681,21 +687,30 @@ export function useInferenceRequestState(options: {
         ...options.timingPatch,
         phase: "failed",
         taskId: null,
-        statusText: deadlineExceeded
+        statusText: orphaned
+          ? "Request closed without completion."
+          : deadlineExceeded
           ? "Request time limit reached."
           : toolFailure === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_BLOCKED
             ? "Action not authorized."
             : toolFailure
               ? "Action failed."
-              : INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
+              : options.durableFailureOnly
+                ? "Response failed."
+                : INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
         detailText:
           options.detailText ??
-          (deadlineExceeded
+          (orphaned
+            ? ACCEPTED_TASK_ORPHAN_DETAIL_TEXT
+            : deadlineExceeded
             ? ACCEPTED_TASK_DEADLINE_DETAIL_TEXT
             : toolFailure
               ? describeTaskFailureDetailText(toolFailurePayload)
-              : INFERENCE_DETAIL_TEXT.PROVIDER_ERROR),
+              : options.durableFailureOnly
+                ? "A failure was recorded for this response. Send a new request to try again."
+                : INFERENCE_DETAIL_TEXT.PROVIDER_ERROR),
         errorText,
+        durableFailureOnly: options.durableFailureOnly ?? false,
         failureCode: options.failureCode ?? null,
         toolLoopStopReason: toolFailure,
         canCancel: false,
@@ -719,6 +734,7 @@ export function useInferenceRequestState(options: {
         statusText: null,
         detailText,
         errorText: null,
+        durableFailureOnly: false,
         failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
@@ -741,6 +757,7 @@ export function useInferenceRequestState(options: {
         statusText: null,
         detailText,
         errorText: null,
+        durableFailureOnly: false,
         failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
@@ -760,6 +777,7 @@ export function useInferenceRequestState(options: {
       applyPatch({
         taskId,
         phase: stateRef.current.mode === "think" ? "thinking" : "sending",
+        durableFailureOnly: false,
         errorText: null,
         isPendingCancel: false,
       });

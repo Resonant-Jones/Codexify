@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import api from "@/lib/api";
 
-type AttemptReceipt = {
+export type AttemptReceipt = {
   task_id: string;
   request_id: string;
   thread_id: number;
@@ -10,6 +10,8 @@ type AttemptReceipt = {
   completed_message_id: number | null;
   state: "unknown" | "nonterminal" | "terminal";
   event_type: string | null;
+  reason: string | null;
+  failure_code: string | null;
 };
 
 type Props = {
@@ -18,6 +20,7 @@ type Props = {
   identityEpoch?: string;
   currentTaskId: string | null;
   onTerminalObserved: (threadId: number, reason: string) => unknown;
+  onCurrentTerminalObserved?: (receipt: AttemptReceipt) => boolean | Promise<boolean>;
 };
 
 const TERMINALS = new Set(["task.completed", "task.failed", "task.cancelled"]);
@@ -79,11 +82,23 @@ function readPage(
       thread_id: receiptThreadId,
       turn_id: turnId,
       completed_message_id: completedMessageId,
-      state,
-      event_type: eventTypeString,
+      state: completedMessageId !== null ? "terminal" : state,
+      event_type: completedMessageId !== null ? "task.completed" : eventTypeString,
+      reason: typeof candidate.reason === "string" ? candidate.reason : null,
+      failure_code: completedMessageId !== null ? null : (
+        typeof candidate.failure_code === "string" ? candidate.failure_code : null
+      ),
     };
   });
   return { rows, hasMore: data.has_more };
+}
+
+export function isDurableAttemptTerminal(receipt: AttemptReceipt): boolean {
+  return receipt.completed_message_id !== null || (
+    receipt.state === "terminal" &&
+    receipt.reason === "durable_terminal_outcome_recorded" &&
+    (receipt.event_type === "task.failed" || receipt.event_type === "task.cancelled")
+  );
 }
 
 /** Re-read existing attempt evidence; never create or replay a completion. */
@@ -93,9 +108,12 @@ export function ThreadAttemptObservation({
   identityEpoch,
   currentTaskId,
   onTerminalObserved,
+  onCurrentTerminalObserved,
 }: Props) {
   const callback = useRef(onTerminalObserved);
   callback.current = onTerminalObserved;
+  const currentCallback = useRef(onCurrentTerminalObserved);
+  currentCallback.current = onCurrentTerminalObserved;
   const [snapshot, setSnapshot] = useState<{
     threadId: number;
     identityEpoch?: string;
@@ -112,6 +130,7 @@ export function ThreadAttemptObservation({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
     const observedTerminals = new Set<string>();
+    const projectedCurrentTerminals = new Set<string>();
 
     const read = async () => {
       controller = new AbortController();
@@ -138,7 +157,27 @@ export function ThreadAttemptObservation({
           newTerminals.forEach((row) => observedTerminals.add(row.task_id));
         }
 
-        keepObserving = rows.some((row) => row.state !== "terminal");
+        const current = page.rows.find((row) => row.task_id === currentTaskId);
+        let currentHandled = false;
+        if (current && isDurableAttemptTerminal(current)) {
+          const key = JSON.stringify([
+            current.task_id, current.request_id, current.turn_id,
+            current.event_type, current.completed_message_id, current.failure_code,
+          ]);
+          if (!projectedCurrentTerminals.has(key) && currentCallback.current) {
+            await callback.current(threadId, "attempt-observation-current-terminal");
+            if (disposed) return;
+            if (await currentCallback.current(current)) {
+              if (disposed) return;
+              projectedCurrentTerminals.add(key);
+            }
+          }
+          currentHandled = projectedCurrentTerminals.has(key);
+        }
+        // The active task must remain observed even when no historical attempts
+        // are pending or it is outside this bounded history page.
+        keepObserving = rows.some((row) => row.state !== "terminal") ||
+          Boolean(currentTaskId && !currentHandled);
         setSnapshot({
           threadId,
           identityEpoch,
@@ -184,8 +223,14 @@ export function ThreadAttemptObservation({
   }
 
   const unresolved = snapshot.rows.filter((row) => row.state !== "terminal");
+  const orphaned = snapshot.rows.filter(
+    (row) => row.event_type === "task.failed" && isDurableAttemptTerminal(row) &&
+      row.failure_code === "CHAT_ACCEPTED_TASK_ORPHANED",
+  ).length;
   const failed = snapshot.rows.filter(
-    (row) => row.event_type === "task.failed",
+    (row) => row.event_type === "task.failed" && !(
+      isDurableAttemptTerminal(row) && row.failure_code === "CHAT_ACCEPTED_TASK_ORPHANED"
+    ),
   ).length;
   const cancelled = snapshot.rows.filter(
     (row) => row.event_type === "task.cancelled",
@@ -193,6 +238,7 @@ export function ThreadAttemptObservation({
   if (
     !unresolved.length &&
     !failed &&
+    !orphaned &&
     !cancelled &&
     !snapshot.error &&
     !snapshot.hasMore
@@ -219,6 +265,12 @@ export function ThreadAttemptObservation({
             existing status without sending again.
           </div>
         </>
+      ) : null}
+      {orphaned > 0 ? (
+        <div>
+          {orphaned} earlier {orphaned === 1 ? "response request was" : "response requests were"} closed
+          after the recovery deadline without a recorded completion. Send a new request to try again.
+        </div>
       ) : null}
       {failed > 0 ? (
         <div>

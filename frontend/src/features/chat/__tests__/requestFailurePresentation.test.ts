@@ -69,3 +69,12 @@ describe("authoritative deadline failure presentation", () => {
     expect(describeTaskFailureDetailText({ failure_code: "unknown" })).toBe(GENERIC_PROVIDER_FAILURE_DETAIL_TEXT);
   });
 });
+
+it("keeps canonical orphan distinct from provider, tool and controlled deadline failures", () => {
+  const payload = { failure_code: "CHAT_ACCEPTED_TASK_ORPHANED", failure_kind: "provider_timeout",
+    toolTurnState: "failed", loopStopReason: "tool_command_failed" };
+  expect(getToolCommandFailureReason(payload)).toBeNull();
+  const detail = describeTaskFailureDetailText(payload);
+  expect(detail).toMatch(/closed.*recovery deadline/);
+  expect(detail).not.toMatch(/provider|execution time limit|worker died|action failed/);
+});
