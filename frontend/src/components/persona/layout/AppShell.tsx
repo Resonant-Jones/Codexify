@@ -61,7 +61,7 @@ import {
   RUNTIME_HEALTH_STATUSES,
   type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
-import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { checkAuthGate, getAuthState, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import {
@@ -1577,6 +1577,10 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const generalProjectSessionScope =
+    auth.status === "authenticated"
+      ? `authenticated:${auth.token ?? "local"}`
+      : auth.status;
   const lastGuardianPathRef = useRef<string | null>(
     typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
       ? resolvePathForView("guardian", readRouteThreadId())
@@ -1594,7 +1598,13 @@ export default function AppShell({
       if (typeof window === "undefined") return "validated";
       return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
     });
-  const hasFetchedGeneralProjectRef = React.useRef(false);
+  const lastFetchedGeneralProjectSessionScopeRef = React.useRef<string | null>(null);
+  const [generalProjectValidation, setGeneralProjectValidation] = useState<{
+    sessionScope: string;
+    projectIds: number[];
+  } | null>(null);
+  const generalProjectIsValidatedForCurrentAuth =
+    generalProjectValidation?.sessionScope === generalProjectSessionScope;
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
   const phoneSidebarHydrationAttemptedRef = useRef(false);
@@ -1604,8 +1614,11 @@ export default function AppShell({
   const documentsEntrySeededRef = useRef(false);
   const [documentsScopeReady, setDocumentsScopeReady] = useState(false);
   const guardianProjectFallbackId = useMemo<number | null>(
-    () => (generalProjectIdSource === "storage" ? null : generalProjectId),
-    [generalProjectId, generalProjectIdSource]
+    () =>
+      !generalProjectIsValidatedForCurrentAuth || generalProjectIdSource === "storage"
+        ? null
+        : generalProjectId,
+    [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]
   );
   const seedDocumentsScopeFromGuardian = useCallback(() => {
     if (guardianSidebarSnapshot == null && guardianProjectFallbackId == null) {
@@ -1762,12 +1775,17 @@ export default function AppShell({
     (projectId: string | null) => {
       if (projectId == null) return;
       const normalizedProjectId = Number.parseInt(String(projectId), 10);
-      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectValidation?.projectIds.includes(normalizedProjectId) &&
+        Number.isFinite(normalizedProjectId) &&
+        normalizedProjectId > 0
+      ) {
         setGeneralProjectIdSource("user");
         setGeneralProjectId(normalizedProjectId);
       }
     },
-    []
+    [generalProjectIsValidatedForCurrentAuth, generalProjectValidation]
   );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
@@ -1800,13 +1818,17 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectId != null &&
+        generalProjectIdSource !== "storage"
+      ) {
         window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
       } else {
         window.localStorage.removeItem("cfy.generalProjectIdTrusted");
       }
     } catch {}
-  }, [generalProjectId, generalProjectIdSource]);
+  }, [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1815,7 +1837,7 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    if (hasFetchedGeneralProjectRef.current) {
+    if (lastFetchedGeneralProjectSessionScopeRef.current === generalProjectSessionScope) {
       return () => {
         cancelled = true;
       };
@@ -1825,26 +1847,37 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    hasFetchedGeneralProjectRef.current = true;
+    const requestSessionScope = generalProjectSessionScope;
+    lastFetchedGeneralProjectSessionScopeRef.current = requestSessionScope;
     (async () => {
       try {
         const response = await api.get("/api/projects");
-        if (cancelled) return;
+        const currentAuth = getAuthState();
+        if (
+          cancelled ||
+          currentAuth.status !== "authenticated" ||
+          `authenticated:${currentAuth.token ?? "local"}` !== requestSessionScope
+        ) return;
         const payload = response?.data ?? response;
         const list = Array.isArray(payload)
           ? payload
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        if (list.length > 0) {
-          const defaultProject = findDefaultProjectId(list);
-          const currentProjectValid = hasProjectId(list, generalProjectId);
-          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
-          if (nextProjectId !== generalProjectId) {
-            setGeneralProjectId(nextProjectId);
-          }
-          setGeneralProjectIdSource("validated");
+        const projectIds = list.flatMap((project: unknown) => {
+          if (project == null || typeof project !== "object") return [];
+          const row = project as Record<string, unknown>;
+          const id = Number(row.id ?? row.project_id);
+          return Number.isFinite(id) && id > 0 ? [id] : [];
+        });
+        const defaultProject = findDefaultProjectId(list);
+        const currentProjectValid = hasProjectId(list, generalProjectId);
+        const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+        setGeneralProjectValidation({ sessionScope: requestSessionScope, projectIds });
+        if (nextProjectId !== generalProjectId) {
+          setGeneralProjectId(nextProjectId);
         }
+        setGeneralProjectIdSource("validated");
       } catch (err) {
         if (cancelled) return;
         console.warn("[projects] failed to resolve default project", err);
@@ -1853,7 +1886,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, generalProjectId, startupLocked]);
+  }, [auth, generalProjectId, generalProjectSessionScope, startupLocked]);
   useEffect(() => {
     let cancelled = false;
     if (view !== "documents" || !documentsScopeReady) {
@@ -2586,8 +2619,13 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
-    onImages: (items) =>
+    projectId:
+      generalProjectIsValidatedForCurrentAuth && generalProjectIdSource !== "storage"
+        ? generalProjectId ?? undefined
+        : undefined,
+    disabled: !generalProjectIsValidatedForCurrentAuth,
+    onImages: (items) => {
+      if (getAuthState() !== auth) return;
       setGallery((prev) => {
         const normalizedItems = items
           .map((item: any) => normalizeGalleryItem(item))
@@ -2606,7 +2644,8 @@ export default function AppShell({
           return true;
         });
         return merged;
-      }),
+      });
+    },
     onDocuments: (items) =>
       setDocuments((prev) => [
         ...(items || []).map((item: any, idx: number) => normalizeDoc(item, idx)),
