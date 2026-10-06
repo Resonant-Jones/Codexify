@@ -15,6 +15,14 @@ function emitChromeManifest(): Plugin {
     name: "emit-chrome-extension-manifest",
     apply: "build",
     buildStart() {
+      for (const size of [16, 32, 48, 128]) {
+        const fileName = `icons/icon-${size}.png`
+        this.emitFile({
+          type: "asset",
+          fileName,
+          source: readFileSync(resolve(frontendRoot, "src/public", fileName)),
+        })
+      }
       this.emitFile({
         type: "asset",
         fileName: "manifest.json",

@@ -1,6 +1,7 @@
 import React from "react";
 import { useLiveEvents, ConnectionStatus } from "../../hooks/useLiveEvents";
 import { SparklesIcon } from "@heroicons/react/24/solid";
+import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
 // Thinking animation dots component
 const ThinkingDots: React.FC = () => (
@@ -71,7 +72,7 @@ export const Header: React.FC = () => {
     <header className="sticky top-0 z-10 border-b border-white/10 bg-[var(--color-surface)]/80 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-surface)]/60">
       <div className="h-12 px-4 flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
-          <div className="h-6 w-6 rounded-md bg-[var(--color-primary)]" />
+          <img src={codexifyMarkSrc} alt="" aria-hidden="true" className="h-6 w-6 object-contain" />
           <span className="font-semibold">Codexify</span>
         </div>
         <div className="flex items-center gap-2">
