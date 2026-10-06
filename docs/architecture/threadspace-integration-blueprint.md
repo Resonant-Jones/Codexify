@@ -47,11 +47,12 @@ This document must not be used to widen those claims.
 
 | Term | Proposed canonical meaning |
 | --- | --- |
-| `Space` | An interactive application or community container with a declarative manifest, admission policy, capability set, and Room directory. |
+| `Space` | An interactive application, publication, or community container with a declarative manifest, admission policy, capability set, and Room directory. A Space may present as a site, forum, mini app, live-event surface, or immersive experience without turning those presentations into separate authority classes. |
 | `Room` | A bounded membership, authorization, and disclosure context inside a Space. |
 | `Conversation` | A private or group chat inside a Room. Existing `chat_threads` may provide a compatibility source for this concept. |
+| `Library` | A user-facing aggregate/projection over owner-authorized documents, files, media, and artifacts. Library is not a new persistence authority; Documents and Gallery may become Library presentation modes. |
 | `Project` | A knowledge, retrieval, and work scope. A Project may be linked to one or more Rooms but is not itself the social access boundary. |
-| `Artifact` | A document, image, repository reference, generated output, or other resource linked to a Space, Room, Conversation, or Project. |
+| `Artifact` | A document, image, repository reference, generated output, or other resource linked to Library, a Space, Room, Conversation, or Project. |
 | `Capability Endpoint` | An AI, compute, repository, tool, or service endpoint. It may advertise capabilities and produce receipts but does not own identity. |
 
 ### Network and presentation
@@ -108,6 +109,9 @@ Visual containment must never imply ownership, hosting, trust, authority, or per
 18. New entities and relationships must remain portable under the account export and restore contract.
 19. Legacy Threadspace material remains quarantined unless a future ADR explicitly reclassifies it.
 20. No implementation or documentation artifact may silently widen current release support.
+21. Library presentation must not become a second ownership or persistence authority over documents, media, or artifacts.
+22. Linking or publishing a Library resource into a Project, Space, or Room must not transfer ownership by visual containment.
+23. Space capability exposure must remain explicit and scoped; Space membership must never become ambient access to a participant node, home network, filesystem, camera, microphone, or unrelated service.
 
 ## Architecture Planes
 
@@ -352,6 +356,10 @@ A remote Space manifest must not:
 - trigger capability installation
 
 Unknown renderers must fall back to a safe generic local representation.
+
+A Space may eventually present as a site, blog, forum, mini app, live-event surface, collaborative workshop, or immersive/VR experience. These are presentation/application forms, not separate identity or authority classes and not canonical runtime tokens until a future contract defines them.
+
+A Site is therefore a possible published presentation of explicitly disclosed Space state, not automatic publication of every Room, participant, Project, Library resource, or capability associated with the Space.
 
 Future custom Space applications must pass through Codexify's governed extension proposal, sandbox, review, install-gate, capability registry, and runtime binding doctrine. Federation must never become an implicit software installation protocol.
 
@@ -720,7 +728,9 @@ The product direction remains intact:
 - Codexify instances are Vaults.
 - ThreadSpace is the network plane between them.
 - HomeBase is the user's portable personal network namespace.
-- Spaces are interactive community or application containers.
+- Library is the user's unified resource projection, not a new storage authority.
+- Projects are inward-facing knowledge and work scopes.
+- Spaces are outward-facing interactive community, publication, or application containers.
 - Rooms are bounded collaboration contexts.
 - Atlas provides local and directly known network orientation.
 - Galaxy provides broader discovery.
