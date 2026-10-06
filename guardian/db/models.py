@@ -6205,6 +6205,122 @@ class Campaign(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class CampaignContinuationAuthority(Base):
+    """Durable Guardian envelope; latest revision does not imply validity."""
+
+    __tablename__ = "campaign_continuation_authorities"
+
+    authority_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    campaign_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("campaigns.campaign_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_latest: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    approval_event_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_by_actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    allowed_task_classes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    allowed_execution_lanes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    repository_scope: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    workspace_scope: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    validation_classes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    proof_classes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    spend_posture: Mapped[str] = mapped_column(String(64), nullable=False)
+    spend_limits: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    retry_permitted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    retry_ceiling: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    downstream_dispatch_permitted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    stop_reasons: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    superseded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_by_actor_id: Mapped[str | None] = mapped_column(String(255))
+    revocation_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("revision > 0", name="campaign_continuation_revision_check"),
+        CheckConstraint(
+            "(retry_permitted AND retry_ceiling > 0) OR "
+            "(NOT retry_permitted AND retry_ceiling = 0)",
+            name="campaign_continuation_retry_check",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > approved_at",
+            name="campaign_continuation_expiry_check",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= approved_at",
+            name="campaign_continuation_revoked_at_check",
+        ),
+        CheckConstraint(
+            "superseded_at IS NULL OR superseded_at >= approved_at",
+            name="campaign_continuation_superseded_at_check",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by_actor_id IS NULL "
+            "AND revocation_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
+            "AND revocation_reason IS NOT NULL)",
+            name="campaign_continuation_revocation_check",
+        ),
+        CheckConstraint(
+            "is_latest OR superseded_at IS NOT NULL OR revoked_at IS NOT NULL",
+            name="campaign_continuation_history_check",
+        ),
+        UniqueConstraint(
+            "campaign_id",
+            "revision",
+            name="uq_campaign_continuation_authorities_revision",
+        ),
+        UniqueConstraint(
+            "approval_event_id",
+            name="uq_campaign_continuation_authorities_approval_event",
+        ),
+        Index(
+            "uq_campaign_continuation_authorities_latest_campaign",
+            "campaign_id",
+            unique=True,
+            postgresql_where=text("is_latest = true"),
+            sqlite_where=text("is_latest = 1"),
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class CampaignExecutionAttempt(Base):
     """Durable append-friendly execution evidence for campaign work orders."""
 
