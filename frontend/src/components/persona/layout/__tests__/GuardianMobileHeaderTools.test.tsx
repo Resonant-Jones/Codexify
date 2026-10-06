@@ -95,15 +95,19 @@ vi.mock("@/components/surface/FrameCard", () => ({
   default: ({ children }: { children?: ReactNode }) => <>{children ?? null}</>,
 }));
 
-vi.mock("@/lib/authState", () => ({
-  useAuthState: () => ({
+vi.mock("@/lib/authState", () => {
+  const authState = {
     ready: true,
     status: "authenticated",
     token: "test-token",
-  }),
-  checkAuthGate: () => true,
-  requireAuthReady: () => true,
-}));
+  };
+  return {
+    useAuthState: () => authState,
+    getAuthState: () => authState,
+    checkAuthGate: () => true,
+    requireAuthReady: () => true,
+  };
+});
 
 vi.mock("@/lib/runtimeConfig", () => ({
   isTauriRuntime: () => false,
