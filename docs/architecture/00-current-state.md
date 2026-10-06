@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-05
+2026-10-06
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. No implementation or runtime qualification change landed on mainline after the 2026-10-04 refresh; the latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The 2026-10-06 accounting record reports no new implementation, proof, or qualification work; the latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
@@ -26,7 +26,8 @@ This file is authoritative for:
 - Persisted authenticated account-intake provenance for coding runs so operator-created metadata cannot grant account snapshot access.
 - Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
-- The 2026-10-05 mainline record reports no new implementation, proof, or qualification work; no release claim widened.
+- The 2026-10-05 and 2026-10-06 mainline records report no new implementation, proof, or qualification work; no release claim widened.
+- Local `main` remains the audit source at 3 commits ahead and 34 behind `origin/main`; no push or publication reconciliation was performed.
 
 ## Current supported reality
 
@@ -45,6 +46,7 @@ This file is authoritative for:
 - Do not treat focused auth tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
 - Do not infer cross-node messaging, federation, or autonomous coding-worker support from the merged contracts or implementation slices.
+- Do not treat uncommitted worktree changes or local-only audit commits as synchronized public-main state.
 
 ## Active blockers
 
@@ -53,6 +55,7 @@ This file is authoritative for:
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
 - Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
+- Reconcile the divergent local `main` and `origin/main` refs before treating local artifacts as published state.
 
 ## This week's priorities
 
