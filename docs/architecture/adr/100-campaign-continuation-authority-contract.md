@@ -15,7 +15,7 @@ aliases:
 
 ## Status
 
-Proposed for human acceptance
+Accepted
 
 ## Date
 
@@ -36,7 +36,7 @@ This decision defines **Campaign Continuation Authority**: a human-approved, dur
 - Guardian-mediated coding execution remains the governed execution lane. Guardian controls execution authorization and result ingestion.
 - Campaign Engine schemas and contracts preserve distinct Campaign, Task, Attempt, Evaluation, Receipt, Decision Gate, State, and Role Binding identities.
 - Existing work-order review fields retain their present meanings. They do not create Campaign Continuation Authority.
-- The current runtime remains human-mediated between atomic work orders. This ADR proposes an architecture concept only; implementation requires a separate authorized task and proof surface.
+- The current runtime remains human-mediated between atomic work orders. This accepted ADR records an architecture contract only; runtime implementation requires separate authorization and proof.
 - `docs/architecture/00-current-state.md` remains the release-truth source. No release or runtime claim changes here.
 
 ## Decision
@@ -252,11 +252,11 @@ This ADR does not:
 
 ## Next Authorized Slice After Human Acceptance
 
-After human acceptance, the next slice is a separate Architecture-Impact Task Spec for the smallest durable runtime representation of Campaign Continuation Authority. That slice must not implement automatic dispatch or retries. Any subsequent execution slice requires its own authority, proof gates, validation, and review.
+The next implementation slice establishes the smallest durable runtime representation of Campaign Continuation Authority. It must not implement automatic dispatch or retries. Any subsequent execution slice requires its own authority, proof gates, validation, and review.
 
 ## Acceptance Record
 
-Human acceptance is pending. No runtime implementation or release claim is authorized by this proposed ADR.
+Accepted by Resonant Jones on 2026-10-05. This records architecture acceptance only; it does not authorize automatic retries, dispatch, or release-claim changes.
 
 ## Related Documents
 
