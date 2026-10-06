@@ -213,6 +213,30 @@ describe("WorkspaceScratchpadPanel", () => {
     );
   });
 
+  it("saves an open snapshot to the thread where Save was selected", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.mocked(api.post).mockResolvedValue({ data: { filename: "Original.md" } });
+    const { rerender } = render(<WorkspaceScratchpadPanel threadIdentity={42} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Notes" }),
+      "original note"
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    rerender(<WorkspaceScratchpadPanel threadIdentity={84} />);
+    await user.click(
+      screen.getByRole("dialog").querySelector('button[type="submit"]')!
+    );
+
+    expect(api.post).toHaveBeenCalledWith("/documents/notes", {
+      thread_id: 42,
+      title: "original note",
+      content: "original note",
+      format: "md",
+    });
+  });
+
   it("keeps the draft and format preference unchanged after failed Save", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     vi.mocked(api.post).mockRejectedValue(new Error("Save failed"));
