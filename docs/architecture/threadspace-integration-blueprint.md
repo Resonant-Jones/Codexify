@@ -47,9 +47,13 @@ This document must not be used to widen those claims.
 
 | Term | Proposed canonical meaning |
 | --- | --- |
-| `Space` | An interactive application, publication, or community container with a declarative manifest, admission policy, capability set, and Room directory. A Space may present as a site, forum, mini app, live-event surface, or immersive experience without turning those presentations into separate authority classes. |
-| `Room` | A bounded membership, authorization, and disclosure context inside a Space. |
-| `Conversation` | A private or group chat inside a Room. Existing `chat_threads` may provide a compatibility source for this concept. |
+| `Space` | An interactive application, publication, or community container with a declarative manifest, admission policy, capability set, Pages, optional visible Rooms, Space Data, and approved Widget composition. A Space may present as a site, forum, mini app, live-event surface, or immersive experience without turning those presentations into separate authority classes. |
+| `Page` | An authored presentation surface inside a Space. A Page may combine governed HTML/CSS, bounded presentation tokens, Widgets, Space Data bindings, published resources, and authorized capability surfaces. |
+| `Space Widget` | A declarative, approved composable UI module placed on a Space Page or Room surface. Placement does not grant data or capability authority. |
+| `Space Data` | Space-scoped logical structured data presented as composable tables/collections and backed by governed canonical persistence. It does not imply arbitrary SQL or per-Space DDL authority. |
+| `Room` | A bounded membership, authorization, and disclosure context inside a Space. Rooms may remain implicit in simple UI flows and may contain Chats plus other Widgets. |
+| `Conversation` | Canonical private or group conversational state, commonly rendered to users as a Chat Widget within a Room. Existing `chat_threads` may provide a compatibility source for this concept. |
+| `Chat` | User-facing conversational presentation/module backed by canonical Conversation state. Chat is not a replacement authority class for Room or Conversation. |
 | `Library` | A user-facing aggregate/projection over owner-authorized documents, files, media, and artifacts. Library is not a new persistence authority; Documents and Gallery may become Library presentation modes. |
 | `Project` | A knowledge, retrieval, and work scope. A Project may be linked to one or more Rooms but is not itself the social access boundary. |
 | `Artifact` | A document, image, repository reference, generated output, or other resource linked to Library, a Space, Room, Conversation, or Project. |
@@ -59,7 +63,7 @@ This document must not be used to widen those claims.
 
 | Term | Proposed canonical meaning |
 | --- | --- |
-| `ThreadSpace` | The user-facing network plane formed from authorized projections across one or more Vaults. It is not a central database, identity provider, or single global server. |
+| `ThreadSpace` | The network plane formed from authorized projections across one or more Vaults. It is not a central database, identity provider, single global server, or required primary navigation label. The ordinary product doorway may simply be **Spaces**. |
 | `Atlas` | A spatial renderer for local and directly known network topology. |
 | `Galaxy` | A discovery-oriented renderer for broader ThreadSpace summaries and explicit archetypes. |
 | `Federation` | A specific trust and coordination arrangement among Vaults. It is not synonymous with every remote connection. |
@@ -68,22 +72,30 @@ This document must not be used to widen those claims.
 
 ## Graph-Shaped Ownership
 
-The user interface may present a hierarchy:
+The user interface may present a hierarchy without forcing every layer to be visible:
 
 ```text
-HomeBase
-  Space
-    Room
-      Conversation
+ThreadSpace                         network substrate
+  HomeBase                          personal network root
+    Space
+      Page
+        Space Widget
+      Room                          optional visible collaboration structure
+        Chat / Conversation
+      Space Data
 ```
+
+A simple Space may expose a default Chat Widget without requiring the user to navigate through a visible Room. The authorization implementation may still bind that Chat to a root/default Room when Room scope is required.
 
 The backend model must remain graph-shaped:
 
 - A HomeBase may link to a Space hosted by another Vault.
 - A Space may be owned by one principal and hosted by another Vault.
+- A Page may render Widgets bound to resources whose authority remains elsewhere.
 - A Room may bind a Project without owning all Project content.
 - A Conversation may have fewer participants than its parent Room.
-- An Artifact linked to a Room may still have narrower visibility.
+- A Space Data table may be visible to fewer participants than its containing Space.
+- An Artifact linked to a Room or Page may still have narrower visibility.
 
 Visual containment must never imply ownership, hosting, trust, authority, or permission.
 
@@ -100,7 +112,7 @@ Visual containment must never imply ownership, hosting, trust, authority, or per
 9. Vault and VaultNode remain distinct concepts.
 10. Existing event and sync surfaces must be reconciled before introducing another event truth surface.
 11. Postgres entity state remains canonical. Events support audit, projection, replay, and synchronization without silently converting the runtime to event sourcing.
-12. Remote Space manifests must not inject arbitrary JavaScript, HTML, CSS, routes, renderers, or presentation literals.
+12. Remote Space manifests/projections must not become trusted executable content. Owner-authored or explicitly installed Page HTML/CSS may render only through governed sanitization, style scoping, CSP/asset policy, and renderer boundaries; arbitrary JavaScript or equivalent executable code requires a separate sandboxed install/capability contract.
 13. Remote presentation requests must resolve through bounded local token registries.
 14. ThreadSpace must not require a central identity authority.
 15. Every cross-Vault write must be idempotent, attributable, authorized, and version-checked.
@@ -110,8 +122,11 @@ Visual containment must never imply ownership, hosting, trust, authority, or per
 19. Legacy Threadspace material remains quarantined unless a future ADR explicitly reclassifies it.
 20. No implementation or documentation artifact may silently widen current release support.
 21. Library presentation must not become a second ownership or persistence authority over documents, media, or artifacts.
-22. Linking or publishing a Library resource into a Project, Space, or Room must not transfer ownership by visual containment.
+22. Linking or publishing a Library resource into a Project, Space, Page, or Room must not transfer ownership by visual containment.
 23. Space capability exposure must remain explicit and scoped; Space membership must never become ambient access to a participant node, home network, filesystem, camera, microphone, or unrelated service.
+24. Widget placement is presentation/configuration and must not create authority the Widget was not separately granted.
+25. Space Data must not expose raw SQL/DDL authority, cross-Space access, or schema escape merely because a user can compose logical tables.
+26. ThreadSpace remains network substrate even when the product presents **Spaces** as the ordinary navigation label.
 
 ## Architecture Planes
 
@@ -332,7 +347,7 @@ A future packet envelope should carry:
 
 Binary assets should move through separate authorized asset manifests or content-addressed transfer. They should not be embedded casually into topology packets.
 
-## Space Manifest and Application Safety
+## Space Manifest, Pages, Widgets, and Application Safety
 
 The first supported Space model must be declarative.
 
@@ -343,23 +358,56 @@ A Space manifest may name:
 - bounded presentation tokens
 - declared capabilities
 - admission posture
+- Page and Widget composition metadata visible to the current viewer
 - Room directory metadata visible to the current viewer
+- Space Data bindings visible to the current viewer
 
-A remote Space manifest must not:
+A remote Space manifest or projection must not by itself:
 
-- load scripts or stylesheets
-- inject arbitrary HTML
-- define application routes
-- choose arbitrary colors, shadows, radii, or layout values
-- install a renderer
-- broaden permissions implicitly
-- trigger capability installation
+- execute scripts;
+- install a stylesheet into the host shell;
+- inject trusted arbitrary HTML into unrelated client surfaces;
+- define application routes outside the governed Space renderer;
+- choose unbounded colors, shadows, radii, or layout values for the host shell;
+- install a renderer;
+- broaden permissions implicitly;
+- trigger capability installation;
+- gain raw SQL/DDL or database access.
 
 Unknown renderers must fall back to a safe generic local representation.
 
+### Owner-authored Page content
+
+A Space owner may author Page presentation with governed HTML and CSS. That content is Space-owned presentation data, not remote manifest authority.
+
+The implementation contract must define:
+
+- HTML sanitization/content policy;
+- CSS scoping so Space styling cannot escape into the Codexify shell or another Space;
+- CSP and external-asset/origin policy;
+- safe bindings to Space Data, Library resources, Rooms/Chats, and capabilities;
+- preview/publish separation;
+- how imported or remotely received Page content becomes explicitly trusted/installed.
+
+Ordinary Page authorship does not authorize arbitrary JavaScript. JavaScript or equivalent executable extensions belong to a separately governed sandbox/install class.
+
+### Space Widgets
+
+Widgets / Space Modules should be declarative composition units with approved renderer identities, bounded layout metadata, and explicit data/resource/Room/capability bindings.
+
+A Widget may declare requirements. It cannot grant requirements to itself.
+
+### Space Data
+
+Space Data should expose user-composable logical tables while keeping Postgres canonical and governed.
+
+The first implementation should avoid arbitrary per-Space SQL tables or user-supplied DDL. A future ADR must choose the physical model, schema-versioning rules, validation, indexing, backup/export, query limits, and authorization semantics.
+
+One Space Data source may feed multiple Widgets such as table, calendar, cards, form, or map views without duplicating canonical records.
+
 A Space may eventually present as a site, blog, forum, mini app, live-event surface, collaborative workshop, or immersive/VR experience. These are presentation/application forms, not separate identity or authority classes and not canonical runtime tokens until a future contract defines them.
 
-A Site is therefore a possible published presentation of explicitly disclosed Space state, not automatic publication of every Room, participant, Project, Library resource, or capability associated with the Space.
+A Site is a possible published presentation of explicitly selected Space Pages and disclosed Space state, not automatic publication of every Room, participant, Project, Library resource, Space Data record, or capability associated with the Space.
 
 Future custom Space applications must pass through Codexify's governed extension proposal, sandbox, review, install-gate, capability registry, and runtime binding doctrine. Federation must never become an implicit software installation protocol.
 
@@ -429,30 +477,35 @@ Private Conversation existence, participant counts, and activity must not leak t
 
 ## React and AppShell Integration Posture
 
-ThreadSpace should be a sibling route inside the existing frontend and AppShell, not a second frontend shell.
+ThreadSpace is the network-plane name, not a required navigation label or second frontend shell. The ordinary product entry should be **Spaces** inside the existing AppShell.
 
-A future route may distinguish:
+An internal, compatibility, or diagnostic route may still use `/threadspace` while route migration remains an implementation decision. User-facing navigation does not need to expose that protocol term.
+
+A future Spaces surface may distinguish:
 
 ```text
-/threadspace
-  ?scope=homebase
-  ?scope=circles
-  ?scope=public
-  &view=atlas|galaxy|list
+Spaces
+  HomeBase
+  Your Spaces
+  Joined Spaces
+  Recent Rooms
+  Recent Chats
+  People / Contacts
+  Explore
 ```
-
-The exact route contract remains an implementation decision.
 
 UI posture:
 
-- Keep one primary topology surface.
+- Keep one primary topology/Spaces surface.
 - Reuse the existing Workspace Inspector for user-facing details and actions.
 - Keep protocol diagnostics in opt-in diagnostic surfaces rather than the normal Workspace drawer.
-- Selecting a Room or Conversation should open the existing chat surface.
-- Selecting an Artifact should open the existing document or gallery surface.
+- Do not force visible Room navigation when a simple Space only needs a default Chat.
+- Selecting a Chat should open the existing chat surface while preserving its Room/Conversation authority binding.
+- Selecting a Library resource should open the appropriate Library view rather than reviving separate permanent Gallery/Documents product silos.
+- Space Pages may compose approved Widgets through drag-and-drop or equivalent bounded layout editing.
 - Preserve the return path, filters, and viewport when navigating away.
 - Build accessible list parity alongside or before the spatial renderer.
-- Treat canvas position as viewer-owned UI state.
+- Treat canvas position and Page layout as viewer/owner-scoped UI state according to policy.
 - Preserve existing AppShell token, surface, and layout law.
 
 ## Recommended First Multi-Vault Transport Posture
@@ -544,13 +597,16 @@ Introduce explicit entities and relationships, potentially including:
 
 - HomeBases
 - Spaces
+- Pages
+- Space Widget instances / bindings
+- Space Data logical tables, schemas, and records
 - Rooms
 - HomeBase-Space links
 - Room-Project links
 - Room-Conversation links
 - participant and capability grants
 - publication records
-- user-owned topology preferences
+- user-owned topology and Page-layout preferences
 
 Use relationship tables rather than embedding Room policy into Projects.
 
@@ -664,7 +720,7 @@ Begin read-only, then add posting.
 | Revocation | Writes fail immediately and stale projections cannot authorize |
 | Identity | URL change does not alter Vault identity; key change becomes an explicit trust event |
 | UI | Spatial and accessible list views expose equivalent authorized information |
-| Injection | Remote manifests cannot inject code, CSS, routes, or arbitrary presentation tokens |
+| Injection | Remote manifests cannot become trusted executable code; owner-authored Page HTML/CSS remains sanitized/scoped, executable extensions are separately sandboxed, and Widgets cannot self-grant capabilities |
 | Release | Supported profile, health, routes, and live proof agree before claims widen |
 
 ## ADR and Documentation Impact
@@ -726,12 +782,15 @@ Those updates must occur only in the appropriate future atomic task and only whe
 The product direction remains intact:
 
 - Codexify instances are Vaults.
-- ThreadSpace is the network plane between them.
-- HomeBase is the user's portable personal network namespace.
+- ThreadSpace is the network plane between them, not a required primary navigation label.
+- HomeBase is the user's portable personal network namespace and the personal root of the Spaces experience.
 - Library is the user's unified resource projection, not a new storage authority.
 - Projects are inward-facing knowledge and work scopes.
-- Spaces are outward-facing interactive community, publication, or application containers.
-- Rooms are bounded collaboration contexts.
+- Spaces are the ordinary user-facing doorway to outward-facing applications, publications, communities, people, Rooms, Chats, Pages, Widgets, and scoped capabilities.
+- Pages are authored presentation surfaces that may use governed HTML/CSS, Widgets, Space Data, and published resources.
+- Space Data provides governed Postgres-backed logical structured data without implying arbitrary SQL/DDL authority.
+- Rooms are bounded collaboration contexts and may remain implicit until users need separate membership/capability/disclosure structure.
+- Chats are conversational modules backed by canonical Conversation state rather than the universal container for every Space experience.
 - Atlas provides local and directly known network orientation.
 - Galaxy provides broader discovery.
 - One frontend may represent access to multiple Vaults.
