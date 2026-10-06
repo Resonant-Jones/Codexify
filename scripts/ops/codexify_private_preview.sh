@@ -99,7 +99,15 @@ wait_for_docker() {
 start_stack() {
   local build_mode="${1:-no}"
   if [[ "$build_mode" == "yes" ]]; then
-    compose up -d --build
+    # Docker Compose v5 delegates builds through Buildx Bake. Our canonical
+    # build definitions intentionally use host networking to avoid the known
+    # Docker Desktop BuildKit DNS failure mode, so Bake now requires an
+    # explicit network.host entitlement grant before Compose can start.
+    (
+      cd "$REPO_ROOT"
+      compose build --print | docker buildx bake --allow=network.host -f -
+    )
+    compose up -d --no-build
   else
     compose up -d
   fi

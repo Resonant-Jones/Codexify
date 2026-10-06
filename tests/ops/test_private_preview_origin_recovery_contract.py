@@ -78,6 +78,14 @@ def test_private_preview_lifecycle_has_explicit_manual_off_boundary() -> None:
     assert "compose down" not in lifecycle
 
 
+def test_private_preview_build_grants_required_bake_network_entitlement() -> None:
+    lifecycle = LIFECYCLE.read_text(encoding="utf-8")
+
+    assert "compose build --print" in lifecycle
+    assert "docker buildx bake --allow=network.host -f -" in lifecycle
+    assert "compose up -d --no-build" in lifecycle
+
+
 def test_private_preview_tunnel_is_marker_gated_and_foreground() -> None:
     tunnel = TUNNEL.read_text(encoding="utf-8")
 
