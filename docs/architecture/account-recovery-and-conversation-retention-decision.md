@@ -149,9 +149,11 @@ uses `ON DELETE RESTRICT`, so a thread with provenance can block hard delete.
 `ChatThread.parent_id` has no delete action, so a parent with child threads
 also needs an explicit policy. Deleting database rows alone does not prove
 external media bytes or derived indexes have been removed. Account deletion
-currently cascades `chat_threads` from the `users` row, which can encounter the
-same dependency constraints. These are code-path observations, not a complete
-production dependency inventory.
+has a database-level `users` → `chat_threads` cascade, which can encounter the
+same dependency constraints, but no production account-deletion route or
+service was found in the repository search. Do not treat the FK behavior as a
+qualified account-erasure workflow. These are code-path observations, not a
+complete production dependency inventory.
 
 The current thread-delete route emits `thread.deleted` after the database call,
 but the repository search found no active `thread.deleted` consumer. The
