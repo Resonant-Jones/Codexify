@@ -283,6 +283,46 @@ Bounded sequence after human decisions:
 | Account deletion | Once a supported erasure workflow is defined, prove it overrides conversation Never retention, handles FK restrictions and external cleanup, reports incomplete downstream erasure, and does not silently claim completion from a queued request. Keep backup/export retention separately specified and tested. |
 | Release qualification | Focused tests do not qualify deployment. Run the intended supported-Compose and browser path on one frozen tip before adding any release claim to `00-current-state.md`. |
 
+## Evidence index
+
+- Export schema, family sets, omissions, blob coverage, and manifest creation:
+  `guardian/services/account_export.py` (`PAYLOAD_ORDER`,
+  `UNIFIED_MEMORY_PAYLOAD_ORDER`, `OMITTED_FAMILIES`, `_build_manifest`, and
+  `build_account_export_zip`).
+- Production SQL readers and selected project/thread/message fields:
+  `guardian/core/pgdb.py` (`fetch_account_export_*_for_user` and
+  `ACCOUNT_EXPORT_PAYLOAD_ORDER`).
+- Restore admission, family validation, integrity checks, dependency ordering,
+  and blob validation-only report:
+  `guardian/services/account_restore.py` (`SUPPORTED_SCHEMA_VERSIONS`,
+  `_restore_order_for_schema`, and `restore_from_zip`).
+- Public download and metadata restore routes:
+  `guardian/routes/api_exports.py` (`GET /account.zip`) and
+  `guardian/routes/migration.py` (`POST /imports/account/metadata` and
+  `/api/imports/account/metadata`).
+- Normative family, profile, Hosted Room, and integrity requirements:
+  `docs/architecture/account-export-restore-contract.md`, especially
+  “Required Export Surface,” “Integrity Requirements,” and “Hosted Room Export
+  and Restore Posture.”
+- Ownership and lifecycle boundaries: ADR-076, ADR-081, ADR-084, and ADR-099;
+  current short-horizon release truth:
+  `docs/architecture/00-current-state.md`.
+- Profile, project, thread, message, Hosted Room, and memory-provenance fields:
+  `guardian/db/models.py` (`UserProfile`, `Project`, `ChatThread`,
+  `ChatMessage`, `HostedRoom*`, and `MemoryProvenance`).
+- Archive/delete routes and persistence behavior:
+  `guardian/routes/chat.py`, `guardian/core/pgdb.py`,
+  `guardian/core/db.py`, and `frontend/src/components/sidebar/`.
+- Relevant executable coverage:
+  `tests/services/test_account_export_unified_memory.py`,
+  `tests/services/test_account_restore_unified_memory.py`,
+  `tests/services/test_account_export_restore_unified_memory_roundtrip.py`,
+  and `tests/routes/test_chat_routes.py`.
+- Historical v4 proof receipts:
+  `docs/architecture/proofs/runtime/2026-09-13-ums04c-production-v4-account-restore-proof.md`
+  and
+  `docs/architecture/proofs/runtime/2026-09-13-ums04d-canonical-memory-export-restore-roundtrip-proof.md`.
+
 ## Validation boundary
 
 This is a read-only architecture reconciliation. No source, schema, runtime,
