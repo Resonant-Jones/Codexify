@@ -26,13 +26,16 @@ export default function PersonalSetupCard({ readiness, onOpenSettings }: {
     setBusy(true);
     try {
       // The existing native helper owns local configuration. A web client has no host authority.
-      if (isTauriRuntime()) {
-        const result = await runSetupCli();
-        if (!result.ok) {
-          setAction(BootstrapHumanAction.PREREQUISITE_UNAVAILABLE);
-          setMessage("Local defaults could not be applied. Resume setup in the desktop launcher; your configuration is preserved.");
-          return;
-        }
+      if (!isTauriRuntime()) {
+        setAction(BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED);
+        setMessage("The browser cannot change your local configuration. Open Settings to review provider and model choices; use the desktop launcher to apply local configuration.");
+        return;
+      }
+      const result = await runSetupCli();
+      if (!result.ok) {
+        setAction(BootstrapHumanAction.PREREQUISITE_UNAVAILABLE);
+        setMessage("Local defaults could not be applied. Resume setup in the desktop launcher; your configuration is preserved.");
+        return;
       }
       setAction(BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED);
       setMessage("Safe local defaults are in place. Choose your provider and model before continuing. Credentials, installations, downloads, external accounts, and permissions require your decision.");

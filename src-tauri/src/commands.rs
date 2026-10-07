@@ -27,6 +27,16 @@ const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applicat
 const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
 const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
 const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
+const CORE_RESTART_UP_ARGS: [&str; 8] = [
+    "up",
+    "-d",
+    "--no-deps",
+    "db",
+    "redis",
+    "migrator",
+    "backend",
+    "worker-chat",
+];
 const DESKTOP_MEDIA_MAX_BYTES: usize = 10 * 1024 * 1024;
 const FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE: &str = "runtime-root-unavailable";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-assets-missing";
@@ -5730,15 +5740,7 @@ pub fn desktop_restart_runtime_services(
         &docker,
         &runtime,
         &runtime_root,
-        &[
-            "up",
-            "-d",
-            "db",
-            "redis",
-            "migrator",
-            "backend",
-            "worker-chat",
-        ],
+        &CORE_RESTART_UP_ARGS,
     );
     let combined_command_display = format!("{restart_command_display} && {up_command_display}");
 
@@ -5754,15 +5756,7 @@ pub fn desktop_restart_runtime_services(
         &docker,
         &runtime,
         &runtime_root,
-        &[
-            "up",
-            "-d",
-            "db",
-            "redis",
-            "migrator",
-            "backend",
-            "worker-chat",
-        ],
+        &CORE_RESTART_UP_ARGS,
     )
     .output();
 
@@ -6196,6 +6190,25 @@ mod tests {
     fn llm_readiness_requires_verified_configured_model() {
         let payload = serde_json::json!({"provider": "local", "status": "ok", "details": {"ok": true, "configured_model_available": false, "models_available": true}});
         assert_eq!(llm_readiness_signals(Some(&payload)).ready, Some(false));
+    }
+
+    #[test]
+    fn restart_recovery_keeps_compose_dependencies_on_core_services_only() {
+        assert_eq!(
+            super::CORE_RESTART_UP_ARGS,
+            [
+                "up",
+                "-d",
+                "--no-deps",
+                "db",
+                "redis",
+                "migrator",
+                "backend",
+                "worker-chat",
+            ]
+        );
+        assert!(!super::CORE_RESTART_UP_ARGS.contains(&"model-prep"));
+        assert!(!super::CORE_RESTART_UP_ARGS.contains(&"graph-init"));
     }
 
     #[test]

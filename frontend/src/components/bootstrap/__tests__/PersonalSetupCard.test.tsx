@@ -20,10 +20,11 @@ describe("personal setup", () => {
     fireEvent.click(screen.getByRole("button", { name: /Resume personal setup/ }));
     expect(screen.getByRole("region", { name: "Personal setup" })).toBeInTheDocument();
   });
-  it("pauses at provider choice without invoking host operations from web", async () => {
+  it("explains that web setup cannot apply local configuration", async () => {
     renderCard(); fireEvent.click(screen.getByRole("button", { name: "Finish personal setup" }));
-    await screen.findByText(/Choose your provider and model/);
+    await screen.findByText(/browser cannot change your local configuration/i);
     expect(runSetupCli).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Safe local defaults are in place/)).not.toBeInTheDocument();
   });
   it("uses only the existing native helper after deliberate consent, then pauses", async () => {
     vi.mocked(isTauriRuntime).mockReturnValue(true);
