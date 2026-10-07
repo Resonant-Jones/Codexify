@@ -45,7 +45,7 @@ struct ScoutEndpointConnectivityResult {
 
 struct ScoutEndpointConnectivityProbe {
 
-    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil, session: URLSession = .shared) async -> ScoutEndpointConnectivityResult {
+    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil, session: URLSession = .scoutAuthenticated) async -> ScoutEndpointConnectivityResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !urlString.isEmpty else {
@@ -79,15 +79,14 @@ struct ScoutEndpointConnectivityProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         let requestStart = Date()
 
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+            }
             let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -144,6 +143,15 @@ struct ScoutEndpointConnectivityProbe {
                     latencyMilliseconds: latencyMs
                 )
             }
+        } catch let error as ScoutRequestAuthenticationError {
+            return ScoutEndpointConnectivityResult(
+                validationState: .invalidConfiguration,
+                authenticationState: .unconfigured,
+                message: error.localizedDescription,
+                connectedAt: nil,
+                snapshot: nil,
+                latencyMilliseconds: nil
+            )
         } catch let error as URLError where error.code == .timedOut {
             return ScoutEndpointConnectivityResult(
                 validationState: .unreachable,

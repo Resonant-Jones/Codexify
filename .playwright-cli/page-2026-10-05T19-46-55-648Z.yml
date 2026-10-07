@@ -1,0 +1,62 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e12]:
+          - button "Codexify" [ref=e13] [cursor=pointer]
+          - generic "Beta release — feedback welcome" [ref=e14]: Beta
+          - button "Guardian" [ref=e15] [cursor=pointer]
+          - button "Dashboard" [ref=e16] [cursor=pointer]
+          - button "Documents" [ref=e17] [cursor=pointer]
+          - button "Gallery" [ref=e18] [cursor=pointer]
+          - button "Persona Studio" [ref=e19] [cursor=pointer]
+        - generic [ref=e20]:
+          - button "Settings" [ref=e21] [cursor=pointer]
+          - button "TTS Console" [ref=e25] [cursor=pointer]
+          - button "People" [ref=e30] [cursor=pointer]
+          - button "Toggle workspace drawer" [ref=e35] [cursor=pointer]: Workspace
+      - group [ref=e44]:
+        - generic [ref=e53]:
+          - banner [ref=e54]:
+            - generic [ref=e55]:
+              - button "Show sidebar" [ref=e57] [cursor=pointer]
+              - button "New tab" [ref=e63] [cursor=pointer]
+              - generic [ref=e65]:
+                - button "Voice settings" [ref=e67] [cursor=pointer]
+                - button "Prompt cost details" [ref=e74] [cursor=pointer]
+                - button "Thread actions" [ref=e78] [cursor=pointer]
+          - generic [ref=e84]:
+            - heading "What should we work on?" [level=1] [ref=e87]
+            - generic [ref=e91]:
+              - status [ref=e92]
+              - generic [ref=e94]:
+                - textbox "Write a message…" [ref=e96]
+                - button "Choose File" [ref=e97]
+                - generic [ref=e98]:
+                  - generic [ref=e99]:
+                    - button "Open composer actions" [ref=e101]:
+                      - generic [ref=e102]: +
+                    - generic [ref=e103]:
+                      - generic:
+                        - generic:
+                          - button "Select provider" [disabled]:
+                            - generic: Provider
+                        - generic:
+                          - button "Select model" [disabled]:
+                            - generic: Model
+                        - generic:
+                          - button "Select inference mode":
+                            - generic: Auto
+                  - generic [ref=e104]:
+                    - button "Send" [disabled]
+    - button "Open browser preview" [ref=e107] [cursor=pointer]
+  - generic [ref=e113]:
+    - generic [ref=e114]: Local runtime
+    - generic [ref=e116]:
+      - generic [ref=e117]:
+        - heading "Backend connection delayed" [level=1] [ref=e118]
+        - paragraph [ref=e119]: The application is available while Codexify reconnects to the API.
+        - paragraph [ref=e120]: Checking the runtime now.
+      - generic [ref=e121]:
+        - button "Checking..." [disabled]
+        - generic [ref=e122]: Automatic retries continue without blocking the application shell.

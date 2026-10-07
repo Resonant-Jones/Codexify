@@ -1,3 +1,5 @@
+> **Retired ADR:** For current release truth, see [00 Current State](../../00-current-state.md).
+
 <!--
 RETIREMENT / PROVENANCE NOTICE — 2026-09-08
 

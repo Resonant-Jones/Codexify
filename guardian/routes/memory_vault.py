@@ -199,7 +199,7 @@ class _VaultMutationRequest(BaseModel):
 
     expected_updated_at: datetime
     reason: str | None = None
-    request_ref: str | None = None
+    request_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("expected_updated_at")
     @classmethod

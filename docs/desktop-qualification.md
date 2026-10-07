@@ -1,6 +1,6 @@
 # Packaged macOS qualification namespace
 
-This opt-in proof mode is subordinate to ADR-099 (Proposed). It is not a supported installation profile or a release-readiness claim. The supported local Compose path and overall HOLD remain governed by `docs/architecture/00-current-state.md`.
+This opt-in proof mode is subordinate to ADR-101 (Proposed). It is not a supported installation profile or a release-readiness claim. The supported local Compose path and overall HOLD remain governed by `docs/architecture/00-current-state.md`.
 
 Launch the completed, structurally verified `.app` executable with one explicit identity:
 

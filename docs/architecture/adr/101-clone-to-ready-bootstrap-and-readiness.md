@@ -1,8 +1,16 @@
-# ADR-099: Clone-to-Ready Bootstrap and Readiness
+# ADR-101: Clone-to-Ready Bootstrap and Readiness
 
 **Status:** Proposed
 **Date:** 2026-10-02
 **Evidence:** Branch source qualification on macOS and a Linux runner; native adapter unit proof and packaged WebUI build proof. No release claim.
+
+## Canonicalization history
+
+This branch draft originally used ADR-099. During reconciliation with `main`,
+Cloudflare Edge Platform Boundary already owned ADR-099 and Campaign
+Continuation Authority Contract owned ADR-100. The clone-to-ready draft is
+therefore registered as ADR-101. Its Proposed status, original date, semantics,
+and qualification limits are unchanged.
 
 ## Context
 
@@ -63,4 +71,4 @@ The final task snapshot has passed the required contract/setup, native, frontend
 
 ### Packaged qualification isolation
 
-The installed-adapter proof uses the explicit opt-in `CODEXIFY_DESKTOP_QUALIFICATION_ID` namespace described in [the packaged qualification procedure](../../desktop-qualification.md). One ID scopes the packaged runtime, desktop data/logs, persistent macOS WebKit datastore, Compose project and volumes, published loopback ports, and desktop Guardian Keychain service. Absent the control, normal packaged behavior is unchanged. This is a bounded proof mechanism, not a general profiles system or a new supported deployment path. ADR-099 remains Proposed; implementation and structural-signature checks do not establish installed-runtime qualification or change overall HOLD.
+The installed-adapter proof uses the explicit opt-in `CODEXIFY_DESKTOP_QUALIFICATION_ID` namespace described in [the packaged qualification procedure](../../desktop-qualification.md). One ID scopes the packaged runtime, desktop data/logs, persistent macOS WebKit datastore, Compose project and volumes, published loopback ports, and desktop Guardian Keychain service. Absent the control, normal packaged behavior is unchanged. This is a bounded proof mechanism, not a general profiles system or a new supported deployment path. ADR-101 remains Proposed; implementation and structural-signature checks do not establish installed-runtime qualification or change overall HOLD.
