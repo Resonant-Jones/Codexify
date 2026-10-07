@@ -59,6 +59,17 @@ timezone, ownership, and timestamps. The actual `user_profiles` row also holds
 future export needs a field-level privacy decision; exporting the whole row
 would expose social identity fields beyond the contract's stated minimum.
 
+Family names alone also overstate coverage. The `projects` reader currently
+selects `id`, `user_id`, name/description/icon, identity depth, and timestamps,
+but omits canonical `system_role` and `archived_at`; those fields govern the
+renamable General/Imports roles and reversible Project lifecycle. The
+`chat_messages` reader omits `hosted_room_participant_id` and
+`sender_display_name_snapshot`, which are paired Hosted Room provenance fields
+in the current model. The contract also names Codex/artifact and
+thread-linked-artifact data, but no corresponding artifact family is present
+in the emitted family sets; `agent_run_artifacts` is explicitly omitted and
+must not be assumed equivalent without a semantic mapping.
+
 ### Blobs and integrity
 
 The exporter attempts to resolve bytes for uploaded/generated documents,
@@ -97,6 +108,11 @@ production proof, and UMS-04D round-trip proof show v4 restore is implemented
 and exercised at earlier evaluated commits. The restore parser does not use
 that compatibility flag as its admission gate. Correcting this is a contract
 and artifact-version decision; this task leaves both v3 and v4 untouched.
+The current export unit test `test_explicit_v4_serializes_exact_canonical_graph_and_manifest`
+asserts those unsupported flags, while the separate restore dispatch and
+historical round-trip tests exercise v4 consumption. The test preserves the
+manifest assertion; it does not establish that the restore implementation
+rejects v4.
 
 The v3 manifest note also says Project ownership is not stored directly and
 that Projects are exported by reachability. Current export SQL selects
