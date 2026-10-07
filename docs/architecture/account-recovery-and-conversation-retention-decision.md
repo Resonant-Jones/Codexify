@@ -30,9 +30,10 @@ The only public full-account download route is the authenticated
 `GET /exports/account.zip` route in `guardian/routes/api_exports.py` (router
 prefix `/exports`, mounted without an additional prefix); it calls
 `build_account_export_zip` without a schema override, so it emits v3. The
-filename is `Codexify-Export.zip`. The separate `/chatgpt.zip` endpoint is a
-transcript-format endpoint at `GET /exports/chatgpt.zip`, not the canonical
-account artifact.
+schema resolver defaults directly to the v3 constant and has no environment
+override, making v3 the unconditional behavior of this public route. The
+filename is `Codexify-Export.zip`. The separate ChatGPT transcript endpoint is
+`GET /exports/chatgpt.zip`, not the canonical account artifact.
 
 The actual family sets in `guardian/services/account_export.py` and
 `guardian/core/pgdb.py` are:
