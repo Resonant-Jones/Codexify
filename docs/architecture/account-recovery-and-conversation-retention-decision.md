@@ -269,6 +269,20 @@ Bounded sequence after human decisions:
    retention separation, and current supported runtime behavior. Do not infer
    release qualification from focused tests or documentation.
 
+### Required proof gates (not yet run)
+
+| Gate | Evidence required before calling the capability complete |
+| --- | --- |
+| Versioned recovery contents | A disposable-Postgres source/target round trip covers every approved family and field allowlist, including User Profile privacy rules, Project role/lifecycle, conversation lineage, Hosted Room posture if in scope, and all approved memory families. Compare semantic snapshots, not just row counts. |
+| Binary recovery | Every required document/image/media blob is exported self-contained, hash-checked, restored to an isolated target, and read back byte-for-byte; unresolved source bytes fail or are explicitly reported as incomplete. Exercise deduplicated/shared blob references. |
+| Archive integrity | Tampering with each payload, blob, manifest, or integrity sidecar fails before persistence; file inventory, declared counts, family set, and compatibility metadata are cross-checked. |
+| Compatibility and route truth | v1/v2 fixture readers remain stable; v3/v4 fixtures preserve their existing semantics; the new schema's public download and restore routes advertise the same supported mode and return a detailed restore report. User/account mismatch and unauthorized route calls fail closed. |
+| Active delete and archive lifecycle | Both Postgres and fallback persistence paths reject active-thread permanent deletion, including both HTTP aliases. Archive/unarchive is reversible, account-scoped, and reflected in Settings → Archived Conversations. |
+| Retention policy and races | Tests cover default Never, every allowed duration, updates to already archived rows per the selected decision, restore immediately before expiry, expiry concurrent with restore, duplicate worker delivery, retries, and two-account isolation. Database remains the authority under stale UI state. |
+| Permanent deletion dependency closure | A disposable-Postgres graph includes messages, parent/child threads, project/document links, media aliases and shared bytes, memory provenance, and derived index records. Verify the chosen memory/child policy, no dangling authority edges, reference-aware blob deletion, index invalidation/readback, and idempotent retry after partial failure. |
+| Account deletion | Once a supported erasure workflow is defined, prove it overrides conversation Never retention, handles FK restrictions and external cleanup, reports incomplete downstream erasure, and does not silently claim completion from a queued request. Keep backup/export retention separately specified and tested. |
+| Release qualification | Focused tests do not qualify deployment. Run the intended supported-Compose and browser path on one frozen tip before adding any release claim to `00-current-state.md`. |
+
 ## Validation boundary
 
 This is a read-only architecture reconciliation. No source, schema, runtime,
