@@ -82,7 +82,9 @@ def test_private_preview_build_grants_required_bake_network_entitlement() -> Non
     lifecycle = LIFECYCLE.read_text(encoding="utf-8")
 
     assert "compose build --print" in lifecycle
-    assert "docker buildx bake --allow=network.host -f -" in lifecycle
+    assert "mktemp" in lifecycle
+    assert 'grep -q \'"default"\'' in lifecycle
+    assert "docker buildx bake --allow=network.host -f \"$bake_file\"" in lifecycle
     assert "compose up -d --no-build" in lifecycle
 
 

@@ -105,7 +105,29 @@ start_stack() {
     # explicit network.host entitlement grant before Compose can start.
     (
       cd "$REPO_ROOT"
-      compose build --print | docker buildx bake --allow=network.host -f -
+      local bake_file
+      bake_file="$(mktemp "${TMPDIR:-/tmp}/codexify-private-preview-bake.XXXXXX.json")"
+      trap 'rm -f "$bake_file"' EXIT
+
+      # Compose occasionally returns an empty generated Bake definition while
+      # Docker Desktop is settling. Materialize and validate it before handing
+      # it to Buildx so we can retry once instead of surfacing Bake's opaque
+      # "failed to find target default" error.
+      local attempt
+      for attempt in 1 2; do
+        : > "$bake_file"
+        compose build --print > "$bake_file"
+        if [[ -s "$bake_file" ]] && grep -q '"default"' "$bake_file"; then
+          break
+        fi
+        if [[ "$attempt" == "2" ]]; then
+          echo "Compose did not produce a usable Bake definition after 2 attempts." >&2
+          return 1
+        fi
+        sleep 1
+      done
+
+      docker buildx bake --allow=network.host -f "$bake_file"
     )
     compose up -d --no-build
   else
