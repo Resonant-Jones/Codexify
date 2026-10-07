@@ -42,13 +42,16 @@ MACOS_FALLBACK_BINARIES: dict[str, tuple[str, ...]] = {
     ),
 }
 
-REQUIRED_LOCAL_CONFIG_KEYS = (
+REQUIRED_CORE_CONFIG_KEYS = (
     "GUARDIAN_API_KEY",
+    "NEO4J_USER",
+    "NEO4J_PASS",
+)
+
+REQUIRED_INFERENCE_CONFIG_KEYS = (
     "LLM_PROVIDER",
     "LOCAL_BASE_URL",
     "LOCAL_CHAT_MODEL",
-    "NEO4J_USER",
-    "NEO4J_PASS",
 )
 
 LOCAL_BETA_DEFAULTS = {
@@ -85,7 +88,10 @@ PLACEHOLDER_VALUES = {
 
 
 from guardian.ops.bootstrap_readiness_generated import (
-    BootstrapHumanAction, BootstrapReadiness, BootstrapWorkflow, SetupReadinessState,
+    BootstrapHumanAction,
+    BootstrapReadiness,
+    BootstrapWorkflow,
+    SetupReadinessState,
 )
 
 
@@ -136,9 +142,7 @@ def _macos_fallback_binary_paths(binary_name: str) -> tuple[Path, ...]:
     if platform.system().lower() != "darwin":
         return ()
 
-    return tuple(
-        Path(path) for path in MACOS_FALLBACK_BINARIES.get(binary_name, ())
-    )
+    return tuple(Path(path) for path in MACOS_FALLBACK_BINARIES.get(binary_name, ()))
 
 
 def _resolve_macos_fallback_binary_path(binary_name: str) -> str | None:
@@ -170,8 +174,7 @@ def _dependency_help_text(
         )
 
     return (
-        "Not found via PATH or macOS fallback probe. "
-        f"{_os_hint_lines(binary_name)}"
+        "Not found via PATH or macOS fallback probe. " f"{_os_hint_lines(binary_name)}"
     )
 
 
@@ -258,14 +261,21 @@ def write_env_file(
     template_root = (repo_root or env_path.parent).expanduser().resolve()
     template_path = template_root / ".env.template"
     template = read_env_file(template_path) if template_path.exists() else {}
-    merged = {**template, **existing, **{k: str(v) for k, v in kv.items() if v is not None}}
+    merged = {
+        **template,
+        **existing,
+        **{k: str(v) for k, v in kv.items() if v is not None},
+    }
     # A template is an example, never authority to enable cloud policy on a new install.
     for key, default in LOCAL_BETA_DEFAULTS.items():
         if key not in existing and key not in kv:
             merged[key] = default
     normalizer = normalize_local_beta_config_values(merged)
     if normalizer.conflict_keys:
-        raise ValueError("Existing configuration requires a user decision: " + ", ".join(normalizer.conflict_keys))
+        raise ValueError(
+            "Existing configuration requires a user decision: "
+            + ", ".join(normalizer.conflict_keys)
+        )
     merged = normalizer.values
     key = _choose_guardian_api_key(
         existing_env_value=existing.get("GUARDIAN_API_KEY", ""),
@@ -275,7 +285,9 @@ def write_env_file(
     merged["GUARDIAN_API_KEY"] = key
     mirror = merged.get("VITE_GUARDIAN_API_KEY")
     if not is_placeholder_config_value(mirror) and mirror != key:
-        raise ValueError("Existing frontend API key differs; preserve it and resolve the conflict before setup.")
+        raise ValueError(
+            "Existing frontend API key differs; preserve it and resolve the conflict before setup."
+        )
     merged["VITE_GUARDIAN_API_KEY"] = key
     lines = []
     written = set()
@@ -383,9 +395,7 @@ def is_placeholder_config_value(value: str | None) -> bool:
     normalized = (value or "").strip().lower()
     if normalized in PLACEHOLDER_VALUES:
         return True
-    return normalized.startswith("replace-with-") or normalized.endswith(
-        "-change-me"
-    )
+    return normalized.startswith("replace-with-") or normalized.endswith("-change-me")
 
 
 @dataclass(frozen=True)
@@ -421,9 +431,7 @@ def normalize_local_beta_config_values(
         # A conflicting valid choice is preserved for explicit user resolution.
 
     # Apply canonical local runtime preset env defaults.
-    preset_id = normalize_local_runtime_preset(
-        values.get("LOCAL_RUNTIME_PRESET")
-    )
+    preset_id = normalize_local_runtime_preset(values.get("LOCAL_RUNTIME_PRESET"))
     preset_env = local_runtime_env_defaults(preset_id, docker=True)
     for key, value in preset_env.items():
         existing = values.get(key)
@@ -532,7 +540,9 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
     deps = detect_core_dependencies()
 
     allow_cloud = _truthy(env.get("ALLOW_CLOUD_PROVIDERS", "true"))
-    ollama_required = False  # Inference is a later capability, never a core prerequisite.
+    ollama_required = (
+        False  # Inference is a later capability, never a core prerequisite.
+    )
 
     # Docker requiredness: enforce only if existing config explicitly implies it.
     docker_required = False
@@ -571,9 +581,7 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
         )
     )
 
-    def req_if_enabled(
-        flag_key: str, secret_key: str, label: str
-    ) -> DoctorItem:
+    def req_if_enabled(flag_key: str, secret_key: str, label: str) -> DoctorItem:
         enabled = _truthy(env.get(flag_key, "false"))
         secret = env.get(secret_key, "").strip()
         ok = (not enabled) or bool(secret)
@@ -693,14 +701,24 @@ def _summary(
     recommended_action: str,
     details: str = "",
 ) -> SetupReadinessSummary:
-    core_ready = state in (SetupReadinessState.CORE_READY, SetupReadinessState.INFERENCE_READY)
+    core_ready = state in (
+        SetupReadinessState.CORE_READY,
+        SetupReadinessState.INFERENCE_READY,
+    )
     inference_ready = state == SetupReadinessState.INFERENCE_READY
     action = BootstrapHumanAction.NONE
     if core_ready and not inference_ready:
         action = BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED
-    elif state in (SetupReadinessState.DOCKER_MISSING, SetupReadinessState.DOCKER_NOT_RUNNING, SetupReadinessState.DOCKER_COMPOSE_MISSING):
+    elif state in (
+        SetupReadinessState.DOCKER_MISSING,
+        SetupReadinessState.DOCKER_NOT_RUNNING,
+        SetupReadinessState.DOCKER_COMPOSE_MISSING,
+    ):
         action = BootstrapHumanAction.PREREQUISITE_UNAVAILABLE
-    elif state in (SetupReadinessState.MISSING_CONFIG, SetupReadinessState.CONFIG_INCOMPLETE):
+    elif state in (
+        SetupReadinessState.MISSING_CONFIG,
+        SetupReadinessState.CONFIG_INCOMPLETE,
+    ):
         action = BootstrapHumanAction.CREDENTIALS_REQUIRED
     elif state == SetupReadinessState.CONFIG_CONFLICT:
         action = BootstrapHumanAction.CONSENT_REQUIRED
@@ -710,18 +728,22 @@ def _summary(
         recommended_action=recommended_action,
         details=details.strip(),
         bootstrap=BootstrapReadiness(
-            BootstrapWorkflow.COMPLETE if core_ready else BootstrapWorkflow.ACTION_REQUIRED,
-            core_ready, inference_ready, action,
+            (
+                BootstrapWorkflow.COMPLETE
+                if core_ready
+                else BootstrapWorkflow.ACTION_REQUIRED
+            ),
+            core_ready,
+            inference_ready,
+            action,
         ),
     )
 
 
-def _missing_or_placeholder_required_keys(env: Mapping[str, str]) -> list[str]:
-    return [
-        key
-        for key in REQUIRED_LOCAL_CONFIG_KEYS
-        if is_placeholder_config_value(env.get(key))
-    ]
+def _missing_or_placeholder_required_keys(
+    env: Mapping[str, str], required_keys: tuple[str, ...]
+) -> list[str]:
+    return [key for key in required_keys if is_placeholder_config_value(env.get(key))]
 
 
 def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
@@ -734,7 +756,7 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         )
 
     env = read_env_file(env_path)
-    missing = _missing_or_placeholder_required_keys(env)
+    missing = _missing_or_placeholder_required_keys(env, REQUIRED_CORE_CONFIG_KEYS)
     if missing:
         return _summary(
             SetupReadinessState.CONFIG_INCOMPLETE,
@@ -745,8 +767,13 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
 
     conflicts: list[str] = []
     if env.get("LLM_PROVIDER", "").strip().lower() == "ollama":
-        conflicts.append("LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local")
-    if env.get("LLM_PROVIDER", "").strip().lower() != "local":
+        conflicts.append(
+            "LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local"
+        )
+    if (
+        not is_placeholder_config_value(env.get("LLM_PROVIDER"))
+        and env.get("LLM_PROVIDER", "").strip().lower() != "local"
+    ):
         conflicts.append("LLM_PROVIDER must be local")
     if conflicts:
         return _summary(
@@ -889,11 +916,16 @@ def classify_setup_readiness(
         completion = json.loads(chat_detail).get("completion_service", {})
     except (ValueError, AttributeError):
         completion = {}
-    if not chat_ok or completion.get("ok") is not True or completion.get("redis_reachable") is not True:
+    if (
+        not chat_ok
+        or completion.get("ok") is not True
+        or completion.get("redis_reachable") is not True
+    ):
         return _summary(
             SetupReadinessState.BACKEND_UNHEALTHY,
             "Core queue and chat worker health have not passed.",
-            "Run ./scripts/setup to verify or resume core services.", chat_detail,
+            "Run ./scripts/setup to verify or resume core services.",
+            chat_detail,
         )
 
     frontend_ok, frontend_detail = _http_ok(http_getter, frontend_base + "/")
@@ -905,21 +937,47 @@ def classify_setup_readiness(
             frontend_detail,
         )
 
+    missing_inference = _missing_or_placeholder_required_keys(
+        env, REQUIRED_INFERENCE_CONFIG_KEYS
+    )
+    if missing_inference:
+        return _summary(
+            SetupReadinessState.CORE_READY,
+            "Your workspace is ready; inference configuration is incomplete.",
+            "Open Codexify and choose local inference when ready. Chat is unavailable until its health checks pass.",
+            "missing_or_placeholder_keys=" + ",".join(missing_inference),
+        )
+
     llm_ok, llm_detail = _http_ok(http_getter, backend_base + "/health/llm")
     try:
         llm = json.loads(llm_detail)
         details = llm.get("details", {})
-        inference_ready = bool(llm_ok and llm.get("status") in ("ok", "healthy", "online")
+        inference_ready = bool(
+            llm_ok
+            and llm.get("status") in ("ok", "healthy", "online")
             and details.get("provider") == "local"
             and details.get("configured_model_available") is True
             and details.get("models_available") is True
             and details.get("ok") is not False
-            and details.get("provider_runtime", {}).get("available") is not False)
+            and details.get("provider_runtime", {}).get("available") is not False
+        )
     except (ValueError, AttributeError):
         inference_ready = False
     return _summary(
-        SetupReadinessState.INFERENCE_READY if inference_ready else SetupReadinessState.CORE_READY,
-        "Your workspace is ready." if inference_ready else "Your workspace is ready; inference setup is incomplete.",
-        "Open Codexify." if inference_ready else "Open Codexify and choose local inference when ready. Chat is unavailable until its health checks pass.",
+        (
+            SetupReadinessState.INFERENCE_READY
+            if inference_ready
+            else SetupReadinessState.CORE_READY
+        ),
+        (
+            "Your workspace is ready."
+            if inference_ready
+            else "Your workspace is ready; inference setup is incomplete."
+        ),
+        (
+            "Open Codexify."
+            if inference_ready
+            else "Open Codexify and choose local inference when ready. Chat is unavailable until its health checks pass."
+        ),
         "provider=" + env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Local"),
     )
