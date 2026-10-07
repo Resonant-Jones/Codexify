@@ -182,6 +182,12 @@ an explicit dependency inventory and readback proof exist.
    ordered messages, attachments, provenance, and lifecycle state. Codexify
    fields outside that vocabulary remain under a namespaced extension object;
    unknown extensions are preserved as opaque data and never grant authority.
+   Each profile has its own format identifier and schema version. A reader
+   rejects an unsupported required version or feature rather than guessing;
+   additive optional fields may be ignored only when the archive marks them
+   non-required. Unknown namespaced extensions are retained opaquely on
+   round-trip. A semantic breaking change requires a new profile version and
+   an explicit migration path; it is never inferred from app version alone.
 
 This avoids making recovery lossy to satisfy cross-application simplicity.
 Full-account recovery retains Codexify-specific runtime configuration,
