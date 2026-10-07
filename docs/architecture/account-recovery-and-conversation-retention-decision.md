@@ -145,6 +145,14 @@ currently cascades `chat_threads` from the `users` row, which can encounter the
 same dependency constraints. These are code-path observations, not a complete
 production dependency inventory.
 
+The current thread-delete route emits `thread.deleted` after the database call,
+but the repository search found no active `thread.deleted` consumer. The
+Postgres delete method does not invoke storage deletion; the only nearby
+`delete_file` call found is for import staging. Therefore there is no inspected
+proof that hard-deleting a conversation removes external media bytes or
+invalidates derived indexes. Treat those cleanup surfaces as unqualified until
+an explicit dependency inventory and readback proof exist.
+
 ## Decision 1: meaning of “portable”
 
 **Recommendation for review:** define two independently versioned products:
