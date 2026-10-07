@@ -27,10 +27,12 @@ chat execution or restart semantics.
 ### Export versions, emitted families, and omissions
 
 The only public full-account download route is the authenticated
-`GET /account.zip` route in `guardian/routes/api_exports.py`; it calls
+`GET /exports/account.zip` route in `guardian/routes/api_exports.py` (router
+prefix `/exports`, mounted without an additional prefix); it calls
 `build_account_export_zip` without a schema override, so it emits v3. The
 filename is `Codexify-Export.zip`. The separate `/chatgpt.zip` endpoint is a
-transcript-format export, not the canonical account artifact.
+transcript-format endpoint at `GET /exports/chatgpt.zip`, not the canonical
+account artifact.
 
 The actual family sets in `guardian/services/account_export.py` and
 `guardian/core/pgdb.py` are:
@@ -302,7 +304,7 @@ Bounded sequence after human decisions:
   `guardian/services/account_restore.py` (`SUPPORTED_SCHEMA_VERSIONS`,
   `_restore_order_for_schema`, and `restore_from_zip`).
 - Public download and metadata restore routes:
-  `guardian/routes/api_exports.py` (`GET /account.zip`) and
+  `guardian/routes/api_exports.py` (`GET /exports/account.zip`) and
   `guardian/routes/migration.py` (`POST /imports/account/metadata` and
   `/api/imports/account/metadata`).
 - Normative family, profile, Hosted Room, and integrity requirements:
