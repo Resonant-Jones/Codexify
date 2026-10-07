@@ -1,30 +1,36 @@
-# Native candidate adoption runbook — human decision required
+# Native candidate adoption runbook — checkpoint prerequisite established
 
 ## Status and boundary
 
-**HUMAN_DECISION_REQUIRED — an accepted candidate-wide protected checkpoint and
-restore procedure, with an explicitly approved independent destination, is
-missing. STOP before admission closure, drain, backup, adoption or restart.**
+The human-approved checkpoint policy is now implemented by
+[`candidate_runtime_checkpoint.py`](../../scripts/ops/candidate_runtime_checkpoint.py)
+and documented in the
+[checkpoint/restore operator contract](../Ops/candidate-runtime-checkpoint-restore.md).
+The campaign root is `/Volumes/Dev_SSD/offload/codex/checkpoints/`; real-candidate
+checkpoints belong beneath `codexify_candidate_28c95_20261005/<checkpoint-id>/`.
+Rollback isolation means operator-owned host storage outside Docker volumes,
+Git/source worktrees, runtime scratch and candidate read-write mounts. Same-device
+storage is accepted; this is not disk-loss/disaster-recovery protection.
+Completed checkpoints are immutable and retained without automatic pruning,
+timers, keep-latest selection or deletion after restore/success.
 
-This document is the preparation task's stopped result. It provides executable
-read-only inventory and independently pinned inputs; it is **not** an
-execution-ready mutating runbook. Mutating phases are withheld at the task's
-explicit authority gate rather than supplied as guessed commands. No new
-backup location, retention rule, control plane or runtime policy is selected.
-No ADR impact. Release remains **HOLD**.
+This revision replaces the prior missing-policy frontier. The helper passed
+22 ops tests including actual disposable four-store create/validate/restore and
+readback; the observed receipt is in the operator contract. This qualifies only
+the checkpoint capability, not a real-candidate checkpoint or adoption.
+No live candidate checkpoint, writer closure, restore, adoption, qualification,
+chat-embed activation or restart has been performed. This document still supplies
+no mutating adoption commands. The next eligible separately authorized slice is
+real-candidate checkpoint creation/validation and return to its original running
+posture, without adopting new backend/client inputs. Release remains **HOLD**.
 
-Preparation task requirements 4/5 and its final stop rule require
-`HUMAN_DECISION_REQUIRED` when safe supported quiescence/preservation cannot be
-derived or no accepted backup destination/mechanism exists. The single missing
-prerequisite is the candidate protected-checkpoint/restore procedure. It must
-cover the stores below and specify the approved destination, writer closure,
-verification and return-to-original-state steps. Choosing it is a human
-operational decision, not documentation authority.
+ADR-101's separately authorized preservation boundary is respected. PostgreSQL
+remains canonical; Redis operational, Chroma derived/admitted and Neo4j feature
+bounded. No new ADR or persistence semantics are introduced.
 
-ADR-101 at the immutable prepared source states that backup remains separately
-authorized (lines 81–85). Its operations document lines 59–64 repeats that
-boundary. That contract permits admitted-volume reattachment; it does not
-provide a candidate backup/restore protocol.
+The sections below retain the earlier preparation's observations and pins;
+timestamps identify historical evidence, not a claim of current runtime proof.
+Checkpoint implementation source HEAD: `6dac75d443cd6b807235f91c03d11c45b16cf2ec`.
 
 ## Source truth and independently pinned inputs
 
@@ -315,11 +321,11 @@ it failed before rendering. The corrected syntax-only check above passed.
 That correction does not establish a future mutation environment; existing
 resolved container environment was not printed or adopted as policy.
 
-## Drain, quiescence, backups and rollback — withheld at the frontier
+## Drain, quiescence, checkpoints and rollback — candidate execution withheld
 
 Each row below is an explicit STOP gate, not an implied executable step.
-The authoring task cannot finish an authorized procedure by supplying generic
-Docker primitives where the accepted candidate checkpoint contract is missing.
+The accepted cold-capture primitive does not authorize candidate admission closure,
+drain, adoption or restart. Those steps still require their own bounded operation.
 
 | Phase | Source-derived finding and precondition before a future procedure can be approved |
 | --- | --- |
@@ -328,11 +334,11 @@ Docker primitives where the accepted candidate checkpoint contract is missing.
 | In-flight completion | c511f154b chat SIGTERM/SIGINT waits for executor work and logs `accepted work drained`; its 13m5s grace is versioned. Active document embedding is explicitly not bounded by the 10s grace. Chat-embed has no graceful-drain signal implementation at that revision. No timeout escalation or forced task abandonment is defined here. |
 | Durable terminal disposition | Canonical completed-message link/terminal event and original accepted envelope must agree. Neither queue emptiness nor heartbeat/process absence substitutes for this evidence. No attempt state or deadline repair is authorized. |
 | Storage writer quiescence | Relevant backend/worker application writers and database/Redis/Neo4j engine persistence must be distinguished. Chroma attachment scans cannot certify all those stores. A consistent checkpoint requires the candidate-wide procedure, not copying active data directories or calling ordinary admission preflight. |
-| Protected backups | No accepted exact candidate destination or complete PostgreSQL/Redis/Chroma/Neo4j capture-and-restore procedure was found in the inspected versioned machinery. Do not retarget preview-only helpers, choose a path, impose retention, or treat retained scratch dumps as current safe backups. |
+| Protected backups | The approved root and four-store cold capture/validate/restore contract are established by the new operator helper. Create refuses running/unclean services and ambiguous attachments. A valid completed real-candidate checkpoint remains absent; do not retarget preview-only helpers or use historical scratch dumps. |
 | Scoped adoption | Backend image and c511f154b client are independently known, but activation environment, preserved-source overlay, exact mount parity and protected rollback checkpoint are not authorized by this stopped document. No adoption override is generated. |
 | Chat-embed activation | Committed consumer exists, but adding it can immediately consume ordinary/import queues and write Postgres/Chroma. STOP until checkpoint/isolation/readiness and its exact candidate source/env/mount config are approved. |
 | Restart/recreation | ADR-101 requires guarded same-store reattachment. Bare Makefile restart and broad Compose up/down do not establish bounded candidate continuity. No restart command is supplied before checkpoint and adoption fidelity pass. |
-| Rollback | Pre-adoption image/container/mount pins were captured. A consistent data/client/config/worker-set restore with verified independent backups is not derivable from those pins alone. Do not restore historical Chroma, destroy backups, remove volumes or assume image reversal undoes durable writes. |
+| Rollback | Pre-adoption image/container/mount pins were captured. The new helper preserves four stores plus protected runtime configuration, recorded image identities and explicit target guards. Real-candidate rollback and posture recreation remain unproven; image pins alone do not establish them. Do not restore historical Chroma, destroy backups, remove volumes or assume image reversal undoes durable writes. |
 
 The available preview helper freezes its entire hard-coded preview project and
 restarts selected preview services; its PostgreSQL/media restoration proof
@@ -393,7 +399,7 @@ unchanged. Historical stores and current data were not imported, deleted,
 restored or replaced. Browser visibility, request acceptance, build success and
 empty queues have not been promoted to persistence/completion/release proof.
 
-## Authoring validation — observed versus derived versus unproven
+## Historical preparation validation — observed versus derived versus unproven
 
 **Observed:** authoring Git HEAD/status and blocked commit; prepared source
 commit existence; current candidate Docker inventory/volume labels; prepared
@@ -427,7 +433,7 @@ Only this document is created and committed. No application/source/test edits,
 backups, runtime adoption, service stop/restart/recreation, migration, queue/lock
 mutation, merge, push, deployment or release-claim expansion.
 
-## Qualification handoff — ineligible until the frontier is resolved
+## Qualification handoff — separately authorized candidate operation required
 
 After a separately approved executable checkpoint/adoption/rollback procedure
 has actually passed fidelity/readiness, native qualification may check ordinary
@@ -438,7 +444,9 @@ durable readback after restart and a new ordinary chat turn after restart.
 None of those tests was run in this task. Fidelity/readiness alone would prove
 adoption identity, not chat correctness or release readiness.
 
-**STOP — HUMAN_DECISION_REQUIRED.** Approve the missing candidate-wide protected
-checkpoint/restore procedure and independent destination before generating or
-executing mutating adoption commands. This task does not make that selection or
-begin the next slice. Release remains **HOLD**.
+**STOP before candidate mutation.** The missing checkpoint policy decision is
+resolved; disposable capability validation is recorded in the operator contract.
+Create and validate a real-candidate checkpoint only in the next explicitly
+authorized atomic slice, then restore the original running posture. Adoption and
+native qualification remain subsequent work. No adoption commands are added here.
+Release remains **HOLD**.
