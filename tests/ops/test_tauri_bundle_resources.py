@@ -1,4 +1,4 @@
-"""Keep packaged-bootstrap resources present in the final Tauri bundle."""
+"""Keep packaged-bootstrap resources bundled and materialized at runtime."""
 
 from __future__ import annotations
 
@@ -39,6 +39,10 @@ def test_packaged_bootstrap_and_webui_build_inputs_are_bundled():
         "pnpm-lock.yaml",
         "pnpm-workspace.yaml",
     }
+    assert webui_build_inputs <= runtime_required, (
+        "WebUI build inputs are bundled but omitted from runtime materialization: "
+        f"{sorted(webui_build_inputs - runtime_required)}"
+    )
     required = runtime_required | webui_build_inputs
 
     resources = tauri_config["bundle"]["resources"]

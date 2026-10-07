@@ -75,14 +75,18 @@ const PACKAGED_RUNTIME_IMAGE_STATE_FILENAME: &str = ".codexify-runtime-images.js
 const PACKAGED_RUNTIME_COMPOSE_FILENAME: &str = "docker-compose.runtime.yml";
 const LAUNCHER_STARTUP_STATE_FILENAME: &str = ".codexify-launcher-startup-state.json";
 const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
-const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
+const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 16] = [
     ".env.example",
     ".env.template",
     "backend",
     "docker",
     "docker-compose.runtime.yml",
+    "frontend",
     "guardian",
+    "package.json",
     "plugins",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
     "pytest.ini",
     "requirements",
     "requirements.txt",
@@ -6288,6 +6292,76 @@ mod tests {
             resolution_detail: Some("test runtime".to_string()),
             failure_kind: None,
         }
+    }
+
+    #[test]
+    fn packaged_runtime_materializes_and_refreshes_webui_workspace_inputs() {
+        let root = unique_temp_dir("codexify-packaged-webui-inputs");
+        let resource_root = root.join("bundle");
+        let runtime_root = root.join("runtime");
+        fs::create_dir_all(&resource_root).unwrap();
+        for asset in PACKAGED_RUNTIME_REQUIRED_ASSETS {
+            let path = resource_root.join(asset);
+            if [
+                "backend", "docker", "frontend", "guardian", "plugins", "requirements", "scripts", "tests",
+            ]
+            .contains(&asset)
+            {
+                fs::create_dir_all(&path).unwrap();
+            } else {
+                fs::write(&path, format!("bundled {asset}\n")).unwrap();
+            }
+        }
+        fs::create_dir_all(resource_root.join("frontend/src")).unwrap();
+        fs::write(
+            resource_root.join("frontend/src/package.json"),
+            "{\"name\":\"webui\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            resource_root.join("frontend/Dockerfile.webui.workspace"),
+            "COPY frontend/src ./frontend/src\n",
+        )
+        .unwrap();
+
+        let runtime = test_runtime(true, runtime_root.clone(), None);
+        materialize_packaged_runtime_assets(&runtime, &resource_root, &runtime_root).unwrap();
+        for input in [
+            "frontend/src/package.json",
+            "frontend/Dockerfile.webui.workspace",
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+        ] {
+            assert_eq!(
+                fs::read(runtime_root.join(input)).unwrap(),
+                fs::read(resource_root.join(input)).unwrap()
+            );
+        }
+
+        // Each omitted input invalidates an existing attachment; refresh restores it.
+        for input in [
+            "frontend",
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+        ] {
+            let path = runtime_root.join(input);
+            if path.is_dir() {
+                fs::remove_dir_all(&path).unwrap();
+            } else {
+                fs::remove_file(&path).unwrap();
+            }
+            let err = validate_packaged_runtime_attachment(&runtime_root).unwrap_err();
+            assert_eq!(err.failure_kind, FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_CORRUPT);
+            assert!(err.detail.contains(&format!("missingRuntimeAssets={input}")));
+            let details =
+                materialize_packaged_runtime_assets(&runtime, &resource_root, &runtime_root).unwrap();
+            assert!(details.iter().any(|line| line == "attachmentState=refresh"));
+            validate_packaged_runtime_attachment(&runtime_root).unwrap();
+            assert!(path.exists());
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
