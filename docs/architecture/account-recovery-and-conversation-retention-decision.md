@@ -114,6 +114,14 @@ historical round-trip tests exercise v4 consumption. The test preserves the
 manifest assertion; it does not establish that the restore implementation
 rejects v4.
 
+The UMS-04D receipt's equality claim is scoped to the five canonical-memory
+families in its stated fixture: one account, one Project, one thread, one
+message, Persona subjects/bindings, and UMS records. It is not evidence of a
+complete account recovery round-trip across User Profiles, Hosted Rooms,
+project lifecycle fields, all artifact families, or binary object write-back.
+Its recorded run is at historical HEAD `975ce9b27a8be40eef189ae1a2074a51e51f57fe`,
+not this reviewed tip.
+
 The v3 manifest note also says Project ownership is not stored directly and
 that Projects are exported by reachability. Current export SQL selects
 `projects.user_id`, `guardian/core/pgdb.py` requires that column, and ADR-081
