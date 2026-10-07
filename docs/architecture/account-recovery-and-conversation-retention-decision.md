@@ -242,13 +242,15 @@ while retaining a non-content lineage marker.
 
 ## Version recommendation and implementation sequence
 
-Do not mutate v3 or v4 in place. Recommend a new recovery schema version for
-the next format that adds missing canonical families, resolves field-level
-profile privacy, specifies omission accounting, fixes manifest integrity,
-states restore capability accurately, and writes bundled binaries back with
-semantic equivalence checks. If neutral interchange is approved, version and
-qualify it separately. The exact version token is intentionally pending the
-decision on product boundaries.
+Do not mutate v3 or v4 in place. Recommend `account-export.v5` as the next
+Codexify full-account recovery schema: its changes add missing canonical
+families, resolve field-level profile privacy, specify omission accounting,
+fix manifest integrity, state restore capability accurately, and write
+bundled binaries back with semantic-equivalence checks. This recommendation
+does not enable the staged v4 reader/manifest mismatch or change either old
+version's behavior. If neutral interchange is approved, version and qualify it
+as a separate format; its token and container shape remain undecided until
+that product boundary is accepted.
 
 Bounded sequence after human decisions:
 
