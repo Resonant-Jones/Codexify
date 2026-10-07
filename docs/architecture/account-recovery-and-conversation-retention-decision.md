@@ -204,10 +204,13 @@ Alternatives for the human decision:
 - Active conversations cannot be permanently deleted from ordinary chat
   surfaces. DELETE fails closed unless the conversation is archived and the
   caller is using the account's permanent-delete workflow.
-- Keep `chat_threads.archived_at` as the reversible staging marker. Add a
-  durable account-scoped retention setting with `Never` represented explicitly
-  (for example, a nullable day count in an account settings row; do not reuse
-  the memory-mode value). Default is Never.
+- Keep `chat_threads.archived_at` as the reversible staging marker. Add one
+  account-owned `account_conversation_retention` row per user, with a nullable
+  positive `auto_delete_after_days` value (`NULL` means Never) and an FK to
+  `users.id` with account-deletion cascade. No general-purpose account settings
+  table exists in the inspected model. Do not expand IDDB `UserSettings`, which
+  governs identity-modeling policy, or `user_onboarding_state`, which governs
+  account UX progress. Default is Never.
 - Add nullable `chat_threads.purge_eligible_at`. On archive, set it from the
   then-current policy; Never means NULL. Changing account retention recomputes
   deadlines for already archived threads from each original `archived_at`, in
