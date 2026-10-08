@@ -1,4 +1,4 @@
-# Native candidate adoption runbook — checkpoint prerequisite established
+# Native candidate adoption runbook — document closure repaired in source
 
 ## Status and boundary
 
@@ -21,8 +21,8 @@ the checkpoint capability, not a real-candidate checkpoint or adoption.
 No live candidate checkpoint, writer closure, restore, adoption, qualification,
 chat-embed activation or restart has been performed. This document still supplies
 no mutating adoption commands. The next eligible separately authorized slice is
-real-candidate checkpoint creation/validation and return to its original running
-posture, without adopting new backend/client inputs. Release remains **HOLD**.
+preparation of a candidate runtime containing the document-worker repair below,
+then its protected checkpoint prerequisite chain, without backend/client adoption. Release remains **HOLD**.
 
 ADR-101's separately authorized preservation boundary is respected. PostgreSQL
 remains canonical; Redis operational, Chroma derived/admitted and Neo4j feature
@@ -323,17 +323,22 @@ resolved container environment was not printed or adopted as policy.
 
 ## Candidate closure evaluation — runtime control frontier
 
-The [operator evaluation](../Ops/candidate-runtime-checkpoint-restore.md#candidate-closure-evaluation--2026-10-08)
-now classifies the missing procedure as **HUMAN_DECISION_REQUIRED — RUNTIME
-CONTROL PRIMITIVE MISSING**: bounded active-document-worker drain with durable
-terminal acknowledgement. The actual mounted worker has cooperative SIGTERM
-handling, but active native embedding/index work has no document deadline or
-interrupt boundary and exceeds the candidate's 10s grace without a proven bound.
-No executable admission/drain/abort/return sequence is approved. The expected
-running-writer override remains accepted; no candidate signal or checkpoint was
-performed. Do not treat a guessed backend stop, longer timeout, empty queues or
-an idle chat proof as resolution. Existing source behavior and writer inventory
-are recorded in the operator contract; no runtime/ADR repair is authorized here.
+The source-level bounded active-document-worker drain prerequisite is repaired
+and proven in focused tests and a disposable PostgreSQL/Redis/Chroma runtime.
+See the [operator contract and proof](../Ops/candidate-runtime-checkpoint-restore.md#document-worker-closure-repair--source-and-disposable-proof-2026-10-08).
+The worker isolates synchronous model/vector work in a killable, reapable child,
+then commits existing `ready|failed` terminal state in the parent. Its canonical
+execution setting defaults to 120s, accepts finite values up to 600s, and is
+covered by 40s explicit finalization margin plus 645s Compose grace.
+
+The live candidate still uses its older image/mounted source and 10s grace; it
+**does not contain this repair**. No candidate signal, checkpoint, runtime build,
+adoption or qualification occurred. No executable admission/closure/return
+sequence against that old worker is authorized by source proof. The expected
+running-writer override remains accepted. The next atomic task must explicitly
+prepare a fix-containing candidate runtime, verify its source/configuration
+fidelity and rerun the protected live-checkpoint prerequisite chain before any
+backend/client adoption qualification. Release remains **HOLD**.
 
 ## Drain, quiescence, checkpoints and rollback — candidate execution withheld
 
@@ -460,7 +465,8 @@ adoption identity, not chat correctness or release readiness.
 
 **STOP before candidate mutation.** The missing checkpoint policy decision is
 resolved; disposable capability validation is recorded in the operator contract.
-Create and validate a real-candidate checkpoint only in the next explicitly
-authorized atomic slice, then restore the original running posture. Adoption and
-native qualification remain subsequent work. No adoption commands are added here.
+Prepare and verify a runtime containing the document-worker repair in the next
+explicitly authorized atomic slice, then rerun its protected live-checkpoint
+prerequisite chain. The existing candidate has not acquired the repair through
+this documentation update. Adoption and native qualification remain subsequent work. No adoption commands are added here.
 Release remains **HOLD**.

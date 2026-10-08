@@ -281,6 +281,10 @@ slice and return to original running posture, without adoption. It was not begun
 
 ## Candidate closure evaluation — 2026-10-08
 
+Historical live-candidate finding. The source repair and disposable proof below
+supersede the source-level blocker; the unchanged live candidate still lacks
+the repair. This evaluation does not authorize candidate mutation.
+
 **HUMAN_DECISION_REQUIRED — RUNTIME CONTROL PRIMITIVE MISSING.**
 Outcome B: a **bounded active-document-worker drain with durable terminal
 acknowledgement** is the strongest missing primitive. The existing worker has
@@ -423,3 +427,146 @@ or proof file was edited. Only this operator contract and the adoption runbook
 are staged for `docs: record candidate closure authority frontier`. No push.
 The next task requires explicit authority for the missing runtime primitive;
 this task neither designs it nor proceeds to live checkpointing.
+
+
+## Document-worker closure repair — source and disposable proof, 2026-10-08
+
+**Implemented and proven in tests/disposable runtime; unproven on the live
+candidate.** Source baseline: `5526ebf5ce782685a89fb9abc38077ed76938d21`.
+The governing lifecycle remains `processing → ready|failed`, with PostgreSQL
+canonical and Chroma derived. No schema, queue acknowledgement, retry policy,
+job entity, or ADR changes. This repair is aligned with the existing lifecycle.
+
+### Execution and terminal contract
+
+`guardian/workers/document_embed_worker.py` owns one private spawned writer.
+The blocking seam is `VectorStore.add_texts → LocalSemanticEmbedder.embed_and_index
+→ _embed_np → SentenceTransformer.encode`, followed by local Chroma add/upsert
+or synchronous in-memory FAISS insertion. Model initialization, chunking, encoding
+and vector mutation execute in that child; terminal ORM writes execute only in
+the parent. Native encode previously had no cancellation/deadline, and the
+candidate's 10s grace could kill its parent before terminal persistence.
+
+Canonical configuration is
+`guardian.core.config.Settings.DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS`:
+default **120s**, finite **0 < value ≤ 600s**, validated on startup and logged
+without credentials. The monotonic execution deadline includes child/model
+startup and IPC waits; signals do not reset it. Socket waits, including sending
+the document, are physically bounded. There is no timeout thread left running.
+
+On SIGTERM/SIGINT, intake stops. An already-owned job completes within its
+remaining bound. Expiry kills and reaps its entire local writer before committing
+`failed`, with `embedding_error=document_embed_execution_bound_exceeded`.
+Ordinary failures remain `failed`; success remains `ready`. A dequeue already in flight when
+shutdown arrives remains owned and drains as the current job; no subsequent
+dequeue starts. Repeated
+signals set the same shutdown flag and do not duplicate finalization.
+
+Chroma's child is reaped after every job, including success, before the parent
+terminal commit. FAISS preserves its existing process-local in-memory index
+between successful jobs; its completed synchronous insertion has returned and
+the child waits for the next document. On shutdown, failure or timeout that child
+is also reaped before terminal persistence. No active execution survives clean
+worker exit. Interruption prevents later writes; it does not roll back vectors already
+committed before expiry. The hung fixture deliberately blocks before native
+add, so its zero count proves no late writes rather than general rollback.
+No deletion/cleanup policy is introduced. No automatic retry/requeue is introduced; an already-ready queue
+item is skipped. Reaping a failed FAISS writer discards its process-local index,
+as worker restart already does; no new durable FAISS authority is introduced.
+
+Worker-local ORM sessions reuse the existing physical PostgreSQL deadline driver.
+Document read, processing commit and terminal commit each have at most **10s**;
+child reap has **5s**, idle Redis transport **2s**. The explicit **40s** margin
+covers these 37s of preparation/finalization/transport, with 3s additional margin.
+Compose's `worker-document-embed.stop_grace_period` is **10m45s (645s)**:
+`645 > 600 + 40`. The focused test checks the setting's validated maximum
+against the actual service stanza. The old candidate's configuration is unchanged.
+
+`document_embed_writer_reaped` precedes `document_embed_terminal_ack`, which is
+emitted only after the terminal transaction commits and its session closes.
+`document_embed_worker_drained` follows cleanup. These logs support correlation;
+PostgreSQL readback is acknowledgement authority. If reaping or terminal commit
+cannot be confirmed, the worker raises, reports no clean drain/terminal ack,
+and does not authorize checkpointing. In particular, database unavailability
+cannot be converted into a promised durable terminal state; do not infer
+quiescence from a nonzero exit or treat a remaining `processing` row as terminal.
+
+### Focused and disposable evidence
+
+`tests/workers/test_document_worker_shutdown.py` exercises real process signals
+and committed model-backed SQLite readback for idle, active success, ordinary
+failure, hung execution, repeated signals, ready replay, configuration bounds,
+and rejection of an unconfirmed terminal commit. The hung test releases its
+abandoned operation only after exit and observes beyond its polling interval:
+no late vector file, ready state, transaction/update or overwritten failed state.
+A native FAISS test verifies that two successful jobs retain the same child and
+both indexed texts. Existing document-worker lifecycle/store tests also pass.
+
+Disposable project **`codexify_doc_shutdown_01929499`** used real PostgreSQL 15,
+Redis 7 and persistent local Chroma on a project-owned Docker volume. The pinned dependency image was
+`sha256:bcb55917283fc2d6f23b7891b11c06fcebb5ec811e82eb5d62491e09b404ccb6`;
+read-only guardian/backend/config mounts supplied the repaired source. This
+proves source execution, not an image build containing the repair. The worker
+read the real Redis queue and used the repaired PostgreSQL driver/ORM path.
+Its synthetic writer initialized the canonical Chroma store with an explicitly
+mock embedding backend, then blocked before native `add_texts`; this exercises
+termination of the compute/write context without loading a production model.
+The first host-bind fixture hit Chroma `SQLITE_READONLY_DBMOVED` before the intended
+job reached its blocking gate; it was retained as a failed fixture attempt and
+is not claimed as shutdown proof. The successful fixture used a Docker volume.
+
+| Observation | Hung job proof | Normal success proof |
+| --- | --- | --- |
+| Execution bound / Compose grace | 12s / 645s | 12s / 645s |
+| SIGTERM UTC | 2026-10-08T13:43:07.303307Z | 2026-10-08T13:47:14.029013Z |
+| Writer reaped, Docker log UTC | 13:43:16.256842881Z | 13:47:14.154526172Z |
+| Post-commit acknowledgement log UTC | 13:43:16.345064881Z | 13:47:14.308536130Z |
+| Hung container finished UTC | 2026-10-08T13:43:17.025545381Z | Clean exit observed |
+| Signal-to-exit observation | **9.7862s**, exit 0 | **1.2393s**, exit 0 |
+| Canonical row | `failed`, bound-exceeded error | `ready` |
+| Native Chroma readback | 0 records before/after releasing abandoned gate | 1 matching document/chunk |
+| Queue after shutdown | Next document remains queued | Next document remains queued |
+
+Hung-job committed readback occurred at **13:43:17.146422Z**. The document's
+`embedding_completed_at` is a lifecycle timestamp, not an exact commit timestamp;
+the post-commit log and independent PostgreSQL query establish ordering/readback.
+Repeated native Chroma readers after gate release found the same zero records.
+The success fixture then explicitly replayed the ready item after restart:
+PostgreSQL `xmin`/terminal timestamp and Chroma records remained unchanged,
+and no embedding child started. This proves scoped document restart behavior,
+not general candidate restart/recreation or native chat qualification.
+
+Private evidence receipts/scripts/logs are retained under
+`/private/tmp/codexify-document-shutdown-01929499/` (`native-hung-receipt.json`,
+`native-success-receipt.json`, corresponding worker logs). These are disposable
+proof evidence, not candidate checkpoints or a maintained runtime config surface.
+No live candidate signal, build, checkpoint, adoption or qualification occurred.
+
+### Remaining live frontier
+
+The unchanged `codexify_candidate_28c95_20261005` still runs older image/source
+`sha256:910b5acd39be578be8da6fd5c773314bccc4a3bdc516226210fb53ecc746e341`
+with its existing 10s document-worker grace. Source/disposable proof cannot
+qualify that live worker. The next separately authorized task must prepare a
+runtime containing this exact repair and its grace configuration, establish
+custody/source fidelity, and rerun the protected checkpoint prerequisite chain.
+Do not signal or checkpoint the old candidate using this source proof.
+Backend/client adoption, full supported-path proof and release remain deferred.
+**Release HOLD.**
+
+
+### Repair validation and preservation
+
+- `/Volumes/Dev_SSD/Codexify-main/.venv/bin/python -m pytest -v tests/workers/test_document_worker_shutdown.py tests/workers/test_document_embed_worker.py guardian/tests/test_document_embed_worker.py`: **22 passed** (17 focused, 5 existing). Existing SQLAlchemy relationship warnings remain outside this repair.
+- `python3 -m py_compile guardian/workers/document_embed_worker.py guardian/core/config.py`: passed.
+- `/Volumes/Dev_SSD/Codexify-main/.venv/bin/python -m ruff check guardian/workers/document_embed_worker.py guardian/core/config.py tests/workers/test_document_worker_shutdown.py`: passed; existing Ruff configuration deprecation notice remains.
+- Read-only `docker compose --env-file /private/tmp/codexify-document-shutdown-01929499/empty.env -f docker-compose.yml config --no-interpolate --no-env-resolution --format json`: passed; rendered document-worker grace `10m45s`.
+- Scoped six-file `git diff --check`: passed. No schema migration, retry or queue contract changes.
+
+The seven live candidate container IDs, image IDs, mounts, start times and restart
+counts matched the pre-proof baseline. All four recovery-owned file hashes and
+all ten unrelated dirty-file hashes were unchanged. No signal or termination
+was sent to recovery-owned activity. Disposable cleanup is restricted to the
+verified three-container proof project, its network and its private Chroma volume;
+receipts/logs remain in evidence scratch. No merge, push, deployment, live
+checkpoint, prepared input adoption or release claim expansion occurred.
