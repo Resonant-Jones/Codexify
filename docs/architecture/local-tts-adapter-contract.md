@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Define Codexify's canonical local text-to-speech adapter surface. This contract
+Define Codexify's canonical provider-neutral text-to-speech adapter surface. This contract
 keeps TTS backend selection separate from LLM provider/model routing while
 allowing both normal runtime voice synthesis and headless voiceover generation
-to use the same configured local backend.
+to use the same configured backend. The current executable implementation remains
+local-only; this contract normalization implements no remote provider.
 
 ## Current Posture
 
@@ -16,6 +17,10 @@ runtime is installed, importable, and pointed at local model files.
 If Qwen3-TTS is unavailable, the adapter fails explicitly with setup guidance.
 It must not silently fall back to cloud TTS or to the mock sine-wave provider.
 
+TTS / voice execution remains **Out of Beta** under ADR-069. Backend metadata,
+configuration, authorization, health evidence, successful synthesis, and
+release support are independent facts. Nothing in this task promotes support.
+
 ## Backend Islands
 
 TTS engines are backend islands, not Ollama-style interchangeable chat models.
@@ -25,7 +30,9 @@ front of those backend islands:
 
 - backend id, for example `qwen3_tts`
 - display name, for example `Qwen3-TTS`
-- local-only flag
+- local-only flag (`true` for a local adapter, `false` for a remote adapter)
+- supported output formats
+- declared capabilities (`voice_sample_path` currently describes local sample-path input)
 - health probe
 - render request/result shape
 - voice id or preset
@@ -33,9 +40,69 @@ front of those backend islands:
 - output format
 - setup failure reason
 
-## Health States
+## Canonical Execution Seam
 
-The adapter distinguishes:
+`guardian/tts/contracts.py` owns one `TTSRenderRequest` / `TTSRenderResult`
+vocabulary. `guardian/tts/backends/base.py::TTSBackend` is the adapter interface.
+`guardian/tts/backends/__init__.py` owns the executable factory registry and
+`resolve_tts_backend(...)`, keyed by canonical backend id. Only `qwen3_tts` is
+registered in production. Unknown ids fail explicitly without fallback.
+
+`render_voiceover(...)` resolves the selected adapter through this registry;
+adding an adapter requires implementing it and adding its factory registration,
+not provider-name branches in renderer control flow. The base `render_many(...)`
+renders in order via `render(...)`; Qwen retains its optimized batch override.
+Adapters must return one result per request in order. Voiceover assembly consumes
+WAV chunks and optionally exports MP3 locally; adapter output formats describe
+native outputs, not ffmpeg export availability.
+
+The older `tts_service.TTSProvider` / `tts_manager.TTSManager` subsystem predates
+this seam. It remains used by legacy media-backed synthesis services; its Qwen
+wrapper delegates to `Qwen3TTSBackend`. It does not resolve headless or profile
+preview execution and is not a registration authority for this renderer.
+Retirement/consolidation is deferred; legacy provider presence enables no new
+adapter here.
+
+Existing persisted profiles need no migration. Profile writes retain the
+existing local-id allowlist, aligned with the database backend-id CHECK
+constraint. Catalog metadata can describe a registered remote adapter without
+granting profile persistence. A later remote-provider slice must explicitly
+update profile validation and migrate that constraint before persisting remote
+profiles; those schema files are outside this normalization task.
+
+The `LocalTTSConfig` / `get_local_tts_config` names remain for compatibility.
+They carry current operator-local configuration and Qwen-specific settings,
+not remote credentials or egress authority.
+
+## Health Evidence
+
+`TTSHealthProbe` keeps existing Qwen fields and serialized tokens intact. Local
+`installed`, `model_files_available`, and `importable` evidence is optional;
+a remote adapter leaves these fields `null`, rather than claiming local
+installation or model files. `healthy` is also nullable: `null` means
+unestablished/not applicable, `false` means explicitly negative evidence.
+
+Independent optional boolean evidence fields are:
+
+- `configured`: adapter configuration has been established;
+- `credential_available`: operator-local credential availability only, never its value;
+- `egress_allowed`: applicable authority has explicitly allowed egress;
+- `reachable`: only established by an actual bounded probe;
+- `synthesis_proven`: only established by an actual synthesis attempt (true on success).
+
+All default to `null`. Configuration or credential presence must not imply
+authorization, reachability, synthesis success, or release support. A future
+remote adapter may report configuration evidence while status is `unknown`;
+this new TTS-domain token means no overall health conclusion was established.
+It is observational, not a lifecycle transition or permission. Health probes
+must not synthesize audio as a side effect. Render results retain their own
+per-attempt success/failure evidence; health need not cache past renders.
+
+Qwen continues to report detailed local install/model/import checks, failure
+reasons, setup guidance, and local diagnostic details unchanged. Its `healthy`
+status proves readiness checks, not successful synthesis.
+
+The existing adapter status tokens remain:
 
 - `installed`
 - `model_files_available`
@@ -46,7 +113,7 @@ The adapter distinguishes:
 - `backend_unavailable`
 
 These are TTS-domain tokens in `guardian/tts/contracts.py`. They are bounded to
-the local TTS adapter and do not replace provider runtime states used by chat.
+the TTS adapter and do not replace provider runtime states used by chat.
 
 ## Qwen3-TTS Setup Assumptions
 
@@ -198,8 +265,13 @@ backend tuning.
 - No voice sample upload is introduced.
 - Generated audio stays local.
 - Model caches, generated audio, and private voice samples must stay out of git.
-- Backend availability checks are local inspectability checks, not network
-  discovery.
+- Current backend availability checks are local inspectability checks.
+- Profile rows, frontend state, logs, and artifacts must never contain provider
+  credentials; health exposes only credential availability.
+- A future remote adapter must use existing Codexify egress authority and
+  operator-local credentials, with explicit selection and no silent fallback.
+  This contract grants no network authority and makes no remote call.
+- Deepgram is not implemented or registered by this normalization task.
 
 ## Deferred
 
@@ -214,6 +286,12 @@ backend tuning.
 ## ADR Impact
 
 Classification: aligned with existing ADRs / no new ADR expected.
+
+Aligned with ADR-062 capability/evidence distinctions (still Proposed),
+ADR-069 release boundaries, and ADR-082 authored configuration vs binding
+authority. No new ADR is needed for this normalization; new credential
+ownership, general egress authority, release support, or cross-provider routing
+semantics require a separate decision before implementation.
 
 The change follows the existing local-first provider posture, config/ops
 boundary, Persona Studio isolation rules, and canonical token discipline. It
