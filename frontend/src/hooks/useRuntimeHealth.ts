@@ -239,6 +239,14 @@ function readPayloadBoolean(
 }
 
 function deriveHealthySignal(payload: unknown, httpStatus: number | null): boolean | null {
+  const completionOk = readPayloadBoolean(payload, ["completion_service", "ok"])
+    ?? readPayloadBoolean(payload, ["details", "completion_service", "ok"]);
+  const redisReachable = readPayloadBoolean(payload, ["completion_service", "redis_reachable"])
+    ?? readPayloadBoolean(payload, ["details", "completion_service", "redis_reachable"]);
+  // The chat envelope includes provider health; core truth is its queue/worker path.
+  if (completionOk !== null || redisReachable !== null) {
+    return completionOk === true && redisReachable === true;
+  }
   const parsedOk = readParsedOk(payload);
   if (parsedOk !== null) return parsedOk;
   const parsedStatus = readParsedStatus(payload);
@@ -253,6 +261,13 @@ function deriveLlmHealthySignal(
   payload: unknown,
   httpStatus: number | null
 ): boolean | null {
+  const provider = readPayloadString(payload, ["details", "provider"]) ?? readPayloadString(payload, ["provider"]);
+  if (provider == null) return false;
+  if (provider === "local") {
+    const configuredModelAvailable = readPayloadBoolean(payload, ["details", "configured_model_available"]) ?? readPayloadBoolean(payload, ["configured_model_available"]);
+    const modelsAvailable = readPayloadBoolean(payload, ["details", "models_available"]) ?? readPayloadBoolean(payload, ["models_available"]);
+    if (configuredModelAvailable !== true || modelsAvailable !== true) return false;
+  }
   const parsedOk = readParsedOk(payload);
   const parsedStatus = readParsedStatus(payload);
   const detailsOk = readPayloadBoolean(payload, ["details", "ok"]);

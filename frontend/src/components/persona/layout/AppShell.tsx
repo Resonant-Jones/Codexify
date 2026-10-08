@@ -1,3 +1,5 @@
+import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
+import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
 import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
@@ -3378,6 +3380,15 @@ export default function AppShell({
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
   ) : null;
+  const coreSurfacesAvailable = runtimeHealth.backendReachable === true && runtimeHealth.chatHealthy === true;
+  const personalSetupNotice = <PersonalSetupCard readiness={{
+    version: BOOTSTRAP_CONTRACT_VERSION,
+    workflow: coreSurfacesAvailable ? BootstrapWorkflow.COMPLETE : BootstrapWorkflow.VERIFYING,
+    coreReady: coreSurfacesAvailable,
+    inferenceReady: coreSurfacesAvailable && runtimeHealth.llmHealthy === true,
+    humanAction: coreSurfacesAvailable && runtimeHealth.llmHealthy !== true
+      ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
+  }} onOpenSettings={openSettings} />;
   const runtimeStatusNotice = showRuntimeBanner ? (
     <div className="relative z-10 w-full mt-3">
       <div
@@ -3486,6 +3497,7 @@ export default function AppShell({
       >
         {mobileHeaderUtilityActions}
       </div>
+      {personalSetupNotice}
       {runtimeStatusNotice}
       {liveUpdatesNotice}
     </div>
@@ -3781,6 +3793,7 @@ export default function AppShell({
         </div>
       )}
 
+      {!isPhoneFrameFirstShell && personalSetupNotice}
       {!isPhoneFrameFirstShell && runtimeStatusNotice}
       {!isPhoneFrameFirstShell && liveUpdatesNotice}
 

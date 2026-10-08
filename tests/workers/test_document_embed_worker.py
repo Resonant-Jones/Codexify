@@ -228,3 +228,19 @@ def test_worker_write_and_backend_search_share_canonical_store_seam(
     assert matches[0]["text"] == "fresh sentinel from worker"
     assert matches[0]["meta"]["doc_id"] == doc.id
     assert matches[0]["meta"]["namespace"] == "thread:9"
+
+
+def test_idle_worker_defers_optional_model_until_a_task(monkeypatch):
+    import pytest
+
+    seen = []
+    class DeferredStore:
+        def __init__(self, *, initialize_embedder):
+            seen.append(initialize_embedder)
+
+    monkeypatch.delenv("LOCAL_EMBEDDINGS_REQUIRED", raising=False)
+    monkeypatch.setattr(document_embed_worker, "VectorStore", DeferredStore)
+    monkeypatch.setattr(document_embed_worker, "dequeue_document_embed", lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        document_embed_worker.run_forever()
+    assert seen == [False]

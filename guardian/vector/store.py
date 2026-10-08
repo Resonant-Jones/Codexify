@@ -1,4 +1,5 @@
 import json
+import threading
 from typing import Any, Dict, List, Optional
 
 from backend.rag.embedder import Embedder
@@ -64,7 +65,7 @@ def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class VectorStore:
-    def __init__(self, index_dir: Optional[str] = None) -> None:
+    def __init__(self, index_dir: Optional[str] = None, *, initialize_embedder: bool = True) -> None:
         # index_dir is kept for backward compatibility while runtime resolution
         # is centralized through guardian.core.config.
         _ = index_dir
@@ -74,6 +75,23 @@ class VectorStore:
         self.chroma_path = runtime.chroma_path
         self.collection = runtime.collection
 
+        self._embedder = None
+        self._embedder_lock = threading.RLock()
+        if initialize_embedder:
+            self._initialize_embedder()
+
+    @property
+    def embedder(self):
+        with self._embedder_lock:
+            if self._embedder is None:
+                self._initialize_embedder()
+            return self._embedder
+
+    @embedder.setter
+    def embedder(self, value):
+        self._embedder = value
+
+    def _initialize_embedder(self):
         shared_store = None
         try:  # pragma: no cover - import cycle guard
             from guardian.core import dependencies as core_dependencies
