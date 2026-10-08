@@ -1,4 +1,15 @@
-# Live candidate protected checkpoint — stopped at planning gate
+# Live candidate protected checkpoint — resumed authority, closure mechanism missing
+
+## Latest disposition
+
+**HUMAN_DECISION_REQUIRED — approved candidate admission-closure procedure is
+not defined in the required committed operator contract.** The earlier blanket
+running-writer stop has been explicitly overridden by the resumed human task;
+it is no longer the reason for stopping. No live checkpoint was created.
+The latest resume receipt below governs this artifact. Earlier sections are
+retained as historical evidence of the stopped task at `4904b82a5`.
+
+## Historical stopped-task receipt
 
 ## Verdict and authority
 
@@ -237,3 +248,100 @@ change was observed.
 An initial default-sandbox Git staging attempt was denied when creating the
 shared worktree index lock; scoped staging/commit uses the authorized Git-directory
 escalation. This was a sandbox permission error, not an auto-review rejection.
+
+## Resume receipt — expected writer gate authorized, 2026-10-08
+
+Resume source HEAD: `4904b82a5ebf5edacf1a21a64a6a8ecb5ba23104`.
+Authority: the task file
+`/Users/chriscastillo/.codex/attachments/ac8f48a4-6574-4a24-a5f3-2f26c0cd6efa/goal-objective.md`.
+
+**EXPECTED_RUNNING_WRITER_BLOCKER — HUMAN AUTHORIZATION GRANTED.**
+The original helper plan's sole reported blocker is still
+`application/storage writers remain running; create refuses`. The resumed task
+explicitly permits resolving that expected condition. The prior unconditional
+stop rule is not re-applied. No additional runtime drift or unexpected writer
+was found by the refreshed helper inspection and bounded custody checks.
+
+However, authorization condition 5 requires that the accepted helper/operator
+contract provide the closure sequence being executed, and requirement 2 says:
+"Use only the closure mechanism defined by the committed checkpoint/operator
+contract." The required sources do not supply that admission mechanism:
+
+- `docs/Ops/candidate-runtime-checkpoint-restore.md`, Custody and writer closure,
+  step 2: "Close new admission through the approved candidate operation
+  procedure." It names no procedure or concrete admission-control operation.
+- Its Scope and primitive section explicitly says the helper never closes
+  admission or stops/starts services; these are operator prerequisites.
+- `docs/architecture/native-candidate-adoption-runbook.md`, Admission stop row:
+  "A future checkpoint procedure must define safe closure without losing
+  admitted work." It supplies no admission stop operation. Its worker signal
+  drain is explicitly distinguished from closing backend admission.
+- `scripts/ops/candidate_runtime_checkpoint.py::plan` supplies a planned order,
+  not an implementation: establish custody/close admission, drain, stop writers,
+  stop engines, capture, validate, return posture separately. `create` only
+  verifies all required services have already cleanly stopped.
+
+This is a distinct missing operational prerequisite, not the overridden
+running-writer blocker. A worker SIGTERM, empty queue, stopping frontend alone,
+a guessed backend stop, or the preview helper's hard-coded freeze cannot be
+promoted into the absent approved candidate admission procedure. No new
+maintenance flag, route, cancellation, abandonment or forced termination is
+invented. No helper defect or unsupported store has been demonstrated, so
+`FAIL — REPAIR REQUIRED` would be unsupported by this evidence.
+
+### Fresh observed baseline
+
+UTC: `2026-10-08T09:23:40.522088+00:00`. Same exact candidate project and seven services:
+backend, frontend, worker-chat, worker-document-embed, db, redis, neo4j.
+No worker-chat-embed. All candidate container/image IDs, runtime config hashes,
+start timestamps, restart counts, mounts and network names match the original
+live baseline. All eleven volume metadata records and four label-derived Compose
+input hashes match. The helper accepts the explicit approved checkpoint root and
+immutable local helper image. No actual checkpoint ID/path is generated.
+
+Read-only PostgreSQL refresh: migration `f8c2a91d6b40`, 14 threads, 27 messages,
+15 attempts, zero unresolved attempts under the task's two-NULL diagnostic.
+All four specified Redis queues have length zero. Chroma marker still binds
+ADR-101/project/volume/creation identity and admission nonce
+`ef0c3312bdb640e4a35e2783ecfcd687`. These observations do not certify writer
+quiescence; no message/task payloads or credential values were exposed.
+
+The recovery HEAD remains `3c5d5538f8758f96dbc7d07f056af11a41da7ff6`; four dirty
+file bytes and diff/index match. Its status now reports `behind 9` against the
+shared `origin/main` reference, whereas the earlier receipt reported no behind
+count. Local HEAD and file/index state did not change. This independently changed
+remote-reference observation is retained rather than reset or misclassified as a
+recovery source edit. Ten unrelated assigned-checkout file bytes and diff/index
+also match. A fresh escalated read-only process scan found no matching recovery
+Python/pytest/node test process; no process was signalled or terminated.
+
+Fresh evidence: `/private/tmp/codexify-live-candidate-checkpoint-resume-20261008-01a116f7/preflight.json`,
+`postgres.txt`, `process-scan.json`. Evidence scratch is not a checkpoint root.
+
+### Authorized mutation, validated and unproven dispositions
+
+**Authorized mutation performed:** this proof update and owned private evidence
+scratch only. No runtime signals, stop/start, recreation, storage capture, restore,
+queue mutation, schema mutation or source/helper/test edit occurred.
+
+**Validated:** scoped read-only candidate identity/store ownership/destination
+plan, PostgreSQL/queue/admission observations and protected Git byte/diff/index
+preservation. Proof whitespace/staged scope and final commit are checked before
+closeout. No broader application suite applies to the stopped documentation
+result; no live checkpoint proof is claimed from prior disposable tests.
+
+**Still unproven:** admission closure, accepted-work drain, application and engine
+quiescence, four real store captures, manifest/hashes/COMPLETE, immutable live
+checkpoint, return-to-service and post-cycle durable/readiness equivalence.
+The original candidate remains running on its older backend/frontend/source
+bindings. No prepared backend or c511f154b client was adopted, no chat-embed worker
+added and no chat qualification submitted. No merge/push/deploy; release HOLD.
+
+### Latest final verdict and remaining authority frontier
+
+**HUMAN_DECISION_REQUIRED.** The expected running-writer override is accepted;
+execution stops at the missing approved admission/drain/return mechanism required
+by condition 5 and requirement 2. Supply the approved procedure or authorize a
+separate source-grounded procedure preparation task. The helper/contract/runbook
+remain read-only here. The full checkpoint objective remains incomplete and the
+goal stays active; no next adoption slice is begun.
