@@ -278,3 +278,148 @@ Disposable proof establishes the operator capability; it does not qualify those
 candidate behaviors. Release remains **HOLD**. No merge, push or deployment.
 The next authority frontier is the separately authorized real-candidate checkpoint
 slice and return to original running posture, without adoption. It was not begun.
+
+## Candidate closure evaluation — 2026-10-08
+
+**HUMAN_DECISION_REQUIRED — RUNTIME CONTROL PRIMITIVE MISSING.**
+Outcome B: a **bounded active-document-worker drain with durable terminal
+acknowledgement** is the strongest missing primitive. The existing worker has
+cooperative signal handling; this finding is specifically about active work,
+not an absent SIGTERM handler. No complete executable admission/closure/return
+procedure is approved by this evaluation. Do not signal the candidate or invoke
+create using this section. The running-writer override remains accepted; it does
+not supply a missing active-work bound or permit forced abandonment.
+
+Authoring HEAD: `636cdc7da4f7413bf0a248b514148a677c799ebb`.
+Candidate: `codexify_candidate_28c95_20261005`. Its exact seven services remain
+backend, frontend, worker-chat, worker-document-embed, db, redis and neo4j.
+No worker-chat-embed runs. The backend/chat/document image remains
+`sha256:910b5acd39be578be8da6fd5c773314bccc4a3bdc516226210fb53ecc746e341`;
+no prepared backend or c511f154b client is adopted. Release HOLD.
+
+### Evidence ownership and source identities
+
+Docker labels identify the existing Compose inputs under
+`/private/tmp/codexify-mainline-proof-28c95/`: `source/docker-compose.yml`,
+`source/docker-compose.whooshd-smoke.yml`, `candidate.override.yml` and
+`receipt-candidate-adoption/integrated.override.json`. Backend/chat/document
+mount `receipt-candidate-adoption/runtime-source/guardian` at `/app/guardian`.
+Source analysis uses those actual host bytes and immutable Git objects, not the
+uncommitted recovery checkout. Missing governing source was read from immutable
+`c511f154bf70175672a6a9e78e854827482a4b73` without checkout/reset/merge.
+
+Actual worker, API lifespan, queue, model and vector-operation files match that
+immutable revision. `routes/chat.py` and `workers/chat_embedding_worker.py` differ;
+neither is silently substituted. The latter consumer is absent. The document
+worker SHA-256 is
+`3bbf52c10445f77cc987f08280a84e6c9b661045cb7ea26b6a26c76d877862e3`.
+Its vector facade is `guardian/vector/store.py`, not the unrelated in-memory
+stub `guardian/vector_store.py`. Full byte comparison/fingerprints and runtime
+baseline are retained in
+`/private/tmp/codexify-candidate-closure-source-20261008-01a116f7/`.
+That location is evidence only, never a checkpoint destination.
+
+Governing boundaries remain ADR-101, existing Postgres canonical authority,
+Redis operational transport, admitted Chroma and feature-bounded Neo4j. ADR-087's
+accepted chat deadline is not a document-task deadline. No ADR or runtime
+semantics change is made. The dirty current-state conflict markers are preserved;
+neither side supplies release readiness or missing operational authority.
+
+### Candidate writer map
+
+Line references below describe the actual mounted runtime-source bytes unless
+an immutable revision or Compose source is named explicitly. Startup, imports,
+non-chat routes and background operations remain writers even when ordinary
+chat queues are empty.
+
+| Process / path | Triggers and stores | Intake / in-flight ownership and stop behavior | Grace / completion evidence |
+| --- | --- | --- | --- |
+| Backend HTTP | Chat thread/message/attempt writes to Postgres; completion acceptance enqueues Redis and publishes events. Upload/document, account/Project/config and enabled knowledge routes also write Postgres and may initialize/index Chroma. | `routes/chat.py` calls shared completion acceptance; workers execute queued completions independently. PID 1 guard execs Python, `run_backend.py` execs Uvicorn. Stopping frontend or workers does not close this listener. HTTP stop must let accepted handlers finish while DB/Redis/Neo4j remain available. | Actual backend stop timeout 30s. No new maintenance route exists. Backend stop is a candidate operation to qualify, not an approved full-stack closure proof here. |
+| Backend startup/background | `guardian_api.py:322–371,569–833`: seeds, built-in ingestion, provider/default rows, ChatGPT import embedding sweep, system warmup enqueue, optional connector scheduler; Postgres/Redis/Chroma. Graph connection/writes are conditional on existing graph settings. | Startup import uses `asyncio.to_thread` and a tracked async task; lifespan cancels tracked startup wrappers. Cancellation of that wrapper is not evidence that its synchronous child finished. Optional connector worker is cancelled on shutdown. Request listener closure alone is not whole-process writer closure. | Require clean process exit plus applicable durable import/job dispositions and child completion. Candidate `ENABLE_CONNECTOR_WORKER=false`; supported profile quarantines connector routes, so manual detached connector sync is not asserted active here. |
+| Domain events / SSE | Producers append durable outbox through `event_bus`/Postgres; task events use Redis. Graph/event hooks retain their own existing policy. | Backend SSE `guardian_api.py:1546–1642` polls/streams; it retains outbox rows despite an older deletion comment. Consumers' receipt/transport state is not domain completion. Outbox producers remain part of their owning processes. | Outbox/event absence is not drain proof; preserve rows. No deletion or publication-as-completion shortcut. |
+| worker-chat | Redis BRPOP, provider/retrieval work, assistant/terminal writes to Postgres, task events/lock cleanup and derived embedding enqueue in Redis; Chroma initialization/retrieval. Graph-write candidates/inspection are conditional; no new direct Neo4j authority is inferred. | `chat_worker.py:3283–3401`: SIGTERM/SIGINT sets intake flag, executor context waits for already-submitted tasks, heartbeat remains through drain. A task popped while stopping still enters existing handling. Uses original accepted finite deadline, never user-cancellation semantics. | Actual grace 785s. Existing `accepted work drained` log + clean exit must agree with each accepted attempt's completed-message/terminal evidence and lock disposition. The log alone is insufficient. |
+| worker-document-embed | Redis BRPOP removes payload; Postgres UploadedDocument status/timestamps; chunking/model embedding/Chroma writes, then terminal status persistence. No direct Neo4j call in this worker path. | `document_embed_worker.py:127–213,216–287`: signal sets flag, synchronous current task runs before loop can observe it. The handler does not interrupt or bound current encoding/storage/status I/O. `finally` attempts durable status; outer loop catches failures, so exit/log alone does not prove the status committed. | Actual grace 10s. Durable ready/failed + completed timestamp for every owned task and clean process exit are necessary. No finite active-drain envelope or acknowledged abort exists. This is the deciding seam. |
+| worker-chat-embed | Absent now; its ordinary/import queues may retain operational work. Source handles Postgres/Chroma status/indexing and consumes Redis. | Actual source `chat_embedding_worker.py:216–270` loops without graceful signal/drain handling. Do not activate it. A future topology with this worker requires separate requalification, not this candidate procedure. | Absence is not proof its queues are empty; checkpoint retained queues, never flush or replay them. No generic future-worker closure claim. |
+| Frontend | Vite/pnpm/cache filesystem activity and HTTP client initiation; no direct protected-store writer. | Frontend shutdown changes user availability but direct backend clients remain. It cannot establish admission closure. | Require stopped state under helper's all-project-services rule, not a durable-work receipt. |
+| PostgreSQL / Redis / Neo4j | Engine-internal WAL/checkpoints, RDB/AOF/expiry state, graph transaction/log/page persistence. Chroma has no separate engine service; its application processes own SQLite/index writes. | Keep engines available through every application drain; never stop them while a writer might still use them. | PostgreSQL configured image stop signal SIGINT; Redis requires final persisted RDB proof; Neo4j clean exit. Actual Redis command disables periodic save and AOF, so ordinary signal exit must not be assumed to persist keys. |
+
+Queue implementations `redis_queue.py:629–642` and `document_embed_queue.py:41–44`
+use destructive BRPOP/RPOP, without a separate in-flight acknowledgement list.
+Queue length can fall to zero before a worker has marked the row processing.
+For chat, `ChatCompletionAttempt` completed-message link and terminal kind are
+canonical evidence, not an invented status enum. For documents, UploadedDocument
+embedding status/start/completion timestamps are evidence, not a queue receipt.
+No manual row, lock, deadline, event or queue edit is permitted to manufacture
+completion.
+
+### Why the active document drain is not established
+
+The signal handler at `document_embed_worker.py:223–230` sets a flag. That flag
+is checked only at the outer loop boundary, after
+`process_document_embed_task` returns. Native work follows
+`_write_document_chunks` → `guardian/vector/store.py:148–157` →
+`backend/rag/embedder.py:447–470,490+`: synchronous model encode and index writes.
+The document dispatch installs no accepted-work deadline. The vector facade's
+chat budget check does not supply one: `chat_postgres_deadline.py:131–139`
+returns None when no chat budget exists. A timeout measured by an observer does
+not interrupt these native writes or make them terminal.
+
+Thus an active embedding/storage call can remain owned beyond Compose's 10s.
+Ordinary Compose stop may escalate to SIGKILL; SIGKILL cannot run the terminal
+status `finally`. Increasing a guessed grace cannot establish a missing bound.
+An unlimited wait avoids forced loss but cannot provide the required finite
+abort/return transition if the call never returns; its intake flag cannot be
+undone by an existing resume operation. This evaluation does not redefine that
+incomplete state as quiescence. Missing primitive: **bounded active-document
+worker drain with durable terminal acknowledgement**. No design, deadline,
+cancellation token or implementation is introduced here.
+
+The historical private-preview shutdown classification demonstrated forced
+exit-137 behavior and explicitly limits its scope; the idle chat-worker restart
+proof covers queue handoff only. Neither qualifies active document drain for
+this candidate. The worker's existing cooperative handler and possible eventual
+successful completion remain real capabilities, but do not establish the full
+requested safe drain/abort procedure under partial failure.
+
+### Gate and abort dispositions — no executable mutating procedure
+
+| Requested gate / phase | Outcome B disposition |
+| --- | --- |
+| Exact admission-close operation | Not approved as a complete candidate procedure. Native graceful backend listener/process shutdown is the candidate primitive to evaluate after the missing drain boundary is resolved; no new flag, proxy, route or firewall rule is selected. |
+| NEW ADMISSION CLOSED | Must eventually require the owned backend listener unavailable, accepted handlers released and backend process/children stopped, with workers/storage still available. A failed health request or elapsed time alone cannot prove those conditions. Gate not asserted here. |
+| Chat accepted-work drain | Preserve original attempts/deadlines; leave DB/Redis available, account for queued and executor-held attempts, correlate durable terminal/message/lock disposition with the existing drained log and clean exit. Do not signal intake shutdown while treating remaining queued work as completed. |
+| Document accepted-work drain | Gate unavailable for an active native call without the missing primitive. Empty queue, idle-looking DB snapshot or worker absence cannot substitute for ownership and terminal commit evidence. |
+| APPLICATION WRITERS QUIESCENT | Must cover backend/background children, chat/document writers, absent chat-embed classification, every protected-volume attachment and durable receipts. Not established by this evaluation. |
+| Storage ordering | Only after the previous gate, engines may close with their storage-specific clean persistence evidence; Chroma remains the same unmounted-by-writers admitted filesystem. No engine stop command is approved before that gate. Engine-to-engine order cannot compensate for a live application writer. |
+| CHECKPOINT CREATE ELIGIBLE | Withheld. Helper must prove all project services exited 0/non-OOM, exclusive volume custody, final Redis RDB and unchanged identity. No create invocation occurs in this task. |
+| Before any admission closure | Abort with the original runtime unchanged; this is the only phase exercised here (read-only). |
+| After admission closure / partial application shutdown | Keep storage available. Do not destroy/restart a still-owning document process to recover intake. No bounded return-to-original-worker-posture can be certified while its native call is hung; this is why Outcome A is withheld. |
+| After engines stopped before capture | Only an independently established writer-quiescent state could permit storage readiness first, then original backend, workers and frontend using preserved inputs. This unreachable branch is not supplied as a pretend executable recovery path. No data restore/repair without a checkpoint. |
+| Return to original service | Must reuse exact original images/config/source/volumes/network/worker set and gated storage/backend health; backend startup may seed or enqueue warmup. Generic Makefile restart/Compose up cannot prove equivalence. Exact operational sequence remains unapproved, rather than hiding placeholders in executable commands. |
+
+The checkpoint helper remains unchanged and its proven four-store capture is not
+rejected as a storage-format capability. The earlier missing-documentation
+frontier is now classified as an active document-drain runtime control frontier.
+The adoption runbook references this evaluation; it does not mark closure as
+resolved or authorize live execution. No checkpoint, signals, stop/start,
+recreation, adoption or native chat qualification occurred. No live checkpoint
+exists. Release remains HOLD.
+
+### Evaluation validation and preservation receipt
+
+Source-only validation passed: both documents' shell blocks were parsed with
+`bash -n` without execution; the four label-derived Compose files rendered with
+`config --no-interpolate --no-env-resolution -q` and the existing empty-env
+syntax input. This does not prove activation environment, credentials or live
+shutdown. Scoped `git diff --check` passed. No runtime tests apply to this
+non-mutating Outcome B; no live signal/drain/checkpoint proof is claimed.
+
+Final read-only comparison found the seven candidate IDs/images/start timestamps/
+restart counts/mounts/networks unchanged and all eleven mounted-volume metadata
+records equal. Recovery local HEAD, four file hashes and diff/index are preserved;
+the assigned checkout's ten unrelated dirty files and diff/index are preserved.
+No recovery process was signalled, no unrelated project was operated, no source
+or proof file was edited. Only this operator contract and the adoption runbook
+are staged for `docs: record candidate closure authority frontier`. No push.
+The next task requires explicit authority for the missing runtime primitive;
+this task neither designs it nor proceeds to live checkpointing.

@@ -321,6 +321,20 @@ it failed before rendering. The corrected syntax-only check above passed.
 That correction does not establish a future mutation environment; existing
 resolved container environment was not printed or adopted as policy.
 
+## Candidate closure evaluation — runtime control frontier
+
+The [operator evaluation](../Ops/candidate-runtime-checkpoint-restore.md#candidate-closure-evaluation--2026-10-08)
+now classifies the missing procedure as **HUMAN_DECISION_REQUIRED — RUNTIME
+CONTROL PRIMITIVE MISSING**: bounded active-document-worker drain with durable
+terminal acknowledgement. The actual mounted worker has cooperative SIGTERM
+handling, but active native embedding/index work has no document deadline or
+interrupt boundary and exceeds the candidate's 10s grace without a proven bound.
+No executable admission/drain/abort/return sequence is approved. The expected
+running-writer override remains accepted; no candidate signal or checkpoint was
+performed. Do not treat a guessed backend stop, longer timeout, empty queues or
+an idle chat proof as resolution. Existing source behavior and writer inventory
+are recorded in the operator contract; no runtime/ADR repair is authorized here.
+
 ## Drain, quiescence, checkpoints and rollback — candidate execution withheld
 
 Each row below is an explicit STOP gate, not an implied executable step.
