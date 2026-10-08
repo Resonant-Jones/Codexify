@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-07
+2026-10-08
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The post-audit mainline delta contains narrow workspace, Memory Vault, and Pi telemetry changes plus release-accounting housekeeping; no fresh supported-path qualification landed, and the latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-07 audit, only a 2026-10-08 release-accounting log landed; no implementation or supported-path qualification changed, and the latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
@@ -27,8 +27,9 @@ This file is authoritative for:
 - Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
 - Merged a workspace scratchpad save-target capture fix, a bounded Memory Vault request reference, and live-path Pi telemetry test tightening; these are focused changes, not release qualification.
-- Removed stale daily logs, added retired-ADR routing, and recorded a 2026-10-07 no-change checkpoint; no release claim widened.
-- The audit baseline was 1 commit ahead and 0 behind `origin/main`; this refresh adds one local audit commit and does not publish it.
+- Removed stale daily logs, added retired-ADR routing, and recorded no-change checkpoints; no release claim widened.
+- Since the 2026-10-07 audit, `main` added only the 2026-10-08 accounting log; no implementation or qualification change landed.
+- Before this audit commit, the stored refs showed local `main` 3 commits ahead and 9 behind `origin/main`; this audit commit is local-only and is not public publication proof.
 
 ## Current supported reality
 
@@ -67,7 +68,7 @@ This file is authoritative for:
 2. Repair and validate the conflict-marked architecture knowledge-graph metadata.
 3. Close the explicit-model rejection contradiction before provider execution.
 4. Repair and reprove browser new-thread transcript projection.
-5. Prove uninterrupted account import, then requalify only explicitly claimed Preview or ingress surfaces.
+5. Prove uninterrupted account import, then reconcile the local-main publication gap before claiming public-main state.
 
 ## Release definition right now
 
