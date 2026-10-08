@@ -107,6 +107,7 @@ from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
+from guardian.core.task_event_access import authorize_task_event_stream
 from guardian.core.user_manager import get_or_create_default_user
 from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
@@ -1615,7 +1616,6 @@ async def stream_task_events(
     task_id: str,
     last_id_query: str = Query("0-0", alias="last_id"),
     last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
-    api_key: str = Depends(require_api_key),
 ):
     """
     Stream task events from Redis by task_id as Server-Sent Events.
@@ -1623,8 +1623,22 @@ async def stream_task_events(
     - Resumes from `last_id` query param or `Last-Event-ID` header.
     - Emits a `retry: 3000` hint on connect.
     - Stops streaming on task completion, failure, or cancellation.
+
+    Authorization (ADR-091 + ADR-092) completes before any transport side
+    effect: the caller must authenticate as exactly one principal lane, the
+    task must resolve through its durable `ChatCompletionAttempt` to a
+    canonical thread, and that thread must pass the shared thread-read policy.
+    `task_id` is an identifier, never authority. A denied request performs
+    zero Redis event reads.
     """
     from starlette.responses import StreamingResponse
+
+    await asyncio.to_thread(
+        authorize_task_event_stream,
+        task_id=task_id,
+        request=request,
+        chatlog_db=chatlog_db,
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         last_id = str(last_event_id_header or last_id_query or "0-0")

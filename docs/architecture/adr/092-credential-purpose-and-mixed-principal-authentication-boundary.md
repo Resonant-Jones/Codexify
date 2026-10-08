@@ -24,11 +24,27 @@ approved account.
 
 ADR-091 supplies durable `backend_task_id -> ChatCompletionAttempt -> thread_id`
 authority, and the shared thread-read policy accepts an already-authenticated
-account `RequestUserScope` or `HostedRoomGuestPrincipal`. The current task-event
-SSE handler still uses only account-oriented authentication and does not apply
-that durable lookup or thread policy. This ADR defines the missing
-authentication contract. It does not repair the handler or claim the
-public-ingress boundary is closed.
+account `RequestUserScope` or `HostedRoomGuestPrincipal`. At acceptance the
+task-event SSE handler still used only account-oriented generic authentication
+and did not apply that durable lookup or thread policy. This ADR defines the
+authentication contract; it does not itself close the public-ingress boundary.
+
+**Implementation status (2026-10-07).** The accepted task-event SSE
+authorization requirement in §Implementation order step 3 is now implemented
+and test-qualified on that single protected surface. `GET /api/tasks/{task_id}/events`
+no longer relies on the generic `require_api_key` seam. It classifies
+credential presence across the account, Hosted Room guest, and operator lanes,
+rejects mixed lanes with HTTP 400 `mixed_principal_credentials` before any
+protected-resource lookup, resolves exactly one typed principal, resolves the
+task through ADR-091's durable attempt, authorizes the canonical thread through
+the shared thread-read policy, and only then consumes Redis task events. A
+missing durable attempt fails closed, and a denied request performs zero Redis
+reads. Evidence: [`2026-10-07-task-event-sse-authorization-proof.md`](../proofs/runtime/2026-10-07-task-event-sse-authorization-proof.md).
+
+This qualifies **only** that route. Global account-purpose strictness, the
+`auth_dependencies.py` resolver bypass, legacy account-token rejection, and the
+public-ingress requalification remain not runtime-enforced, and
+`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains accurate.
 
 ## Decision
 
@@ -261,8 +277,8 @@ service-capability separation is now qualified by focused tests:
 gate checks exact `account_session` purpose, the approved session, and the
 persisted admin account before capability validation. Strict generic
 account-purpose validation, `auth_dependencies.py` bypass closure, legacy
-account-token rejection, global mixed-principal enforcement, task-event SSE
-authorization, and public-ingress qualification remain deferred.
+account-token rejection, global mixed-principal enforcement outside the
+task-event surface, and public-ingress qualification remain deferred.
 
 The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
 exact signed `purpose=account_session` before consulting the approved session
@@ -402,5 +418,6 @@ operator-only route migration are implemented and test-qualified on their
 bounded surfaces. Global account-purpose strictness and three-lane mixed
 rejection remain accepted contracts that are **not yet runtime-enforced**.
 This document itself changes no token, SSE, Cloudflare, or release behavior.
-The task-event SSE repair and full public-ingress requalification remain
-pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status.
+The full public-ingress requalification remains pending;
+`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status. Cloudflare
+Access remains enabled and unchanged.

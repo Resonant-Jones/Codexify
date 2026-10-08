@@ -361,6 +361,16 @@ def test_non_operator_sentinels_keep_distinct_auth_dependencies():
     assert require_api_key in set(_calls(local_route))
     assert require_operator_auth not in set(_calls(local_route))
 
+    # Task-event SSE (2026-10-07 ADR-091/ADR-092 repair): this route no longer
+    # treats the generic API-key seam as its resource authority. It resolves a
+    # typed principal and authorizes the durable task->thread resource in-body,
+    # so there is no FastAPI auth dependency to introspect here. The sentinel
+    # intent is unchanged: the route is still not operator-gated.
     sse_route = _find("guardian.guardian_api", "GET", "/api/tasks/{task_id}/events")
-    assert require_api_key in set(_calls(sse_route))
+    assert require_api_key not in set(_calls(sse_route))
     assert require_operator_auth not in set(_calls(sse_route))
+    import inspect
+
+    sse_source = inspect.getsource(sse_route.endpoint)
+    assert "authorize_task_event_stream" in sse_source
+    assert "require_api_key" not in sse_source
