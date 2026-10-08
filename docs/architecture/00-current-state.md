@@ -37,7 +37,8 @@ This file is authoritative for:
 - Mainline contains bounded proof for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, and the declared static suites at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical display metadata remains inventory observation.
 - Account import is bounded, not fully supported: isolated proof covers browser-to-materialization and presentation/readback, with later embedding/vector observations.
-- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation/direct messaging remain gated; these are not public Beta support.
+- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation remains gated; these are not public Beta support.
+- Same-node direct messaging (`direct_messages`) is mounted on the default local profile as an **internal experimental capability** (`internal_only` in `v1-local-core-web-mcp`), and is `enabled` on the opted-in private-preview/tester profiles. It is mounted so the People/DM surface can be exercised directly and missing UX/runtime behavior discovered through real use. It is **not Beta Supported**, is same-node only, and mounting it is **not release qualification**; the latest complete supported-Compose qualification remains `HOLD`.
 
 ## Not yet true / do not assume
 
