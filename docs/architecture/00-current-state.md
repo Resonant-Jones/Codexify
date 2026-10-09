@@ -18,17 +18,16 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The post-audit mainline delta contains narrow workspace, Memory Vault, and Pi telemetry changes plus release-accounting housekeeping; no fresh supported-path qualification landed, and the latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-08 audit, only a 2026-10-09 release-accounting log landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
-- Merged consent-based same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
-- Persisted authenticated account-intake provenance for coding runs so operator-created metadata cannot grant account snapshot access.
-- Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
+- Since the prior refresh, `main` added only the 2026-10-09 no-change accounting artifact; no implementation or qualification claim changed.
+- Merged opt-in, same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
+- Persisted authenticated account-intake provenance for coding runs and merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
-- Merged a workspace scratchpad save-target capture fix, a bounded Memory Vault request reference, and live-path Pi telemetry test tightening; these are focused changes, not release qualification.
-- Removed stale daily logs, added retired-ADR routing, and recorded a 2026-10-07 no-change checkpoint; no release claim widened.
-- The audit baseline was 1 commit ahead and 0 behind `origin/main`; this refresh adds one local audit commit and does not publish it.
+- Merged bounded workspace scratchpad, Memory Vault request-reference, and Pi telemetry test tightening; these are focused changes, not release qualification.
+- Removed stale daily logs, added retired-ADR routing, and recorded explicit no-change checkpoints.
 
 ## PR #865 integration boundary
 
@@ -41,18 +40,21 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 - Mainline has bounded evidence for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Account import remains bounded: isolated evidence covers browser staging, materialization, ownership/readback, and later vector observations, not complete recall.
-- Same-node human messaging is enabled only in the opt-in Private Preview profile; it is unavailable in default/public Beta and does not grant project, thread, Guardian, federation, attachment, or realtime authority.
+- Same-node human messaging is enabled only in the opt-in Private Preview profile; it does not grant project, thread, Guardian, federation, attachment, or realtime authority.
 
 ## Not yet true / do not assume
 
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
+- Do not infer exact unavailable-model rejection; the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
+- Do not treat focused tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
+- Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers currently make both fail JSON parsing.
 - Do not infer exact unavailable-model rejection: the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
 - Do not treat focused auth tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
 - Do not treat the focused workspace, Memory Vault, or Pi telemetry changes as evidence of complete supported-path qualification.
 - The two architecture knowledge-graph records now parse and match their source hashes on this repair branch; their freshness remains stale until the declared anchors are reviewed.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
-- Do not infer cross-node messaging, federation, or autonomous coding-worker support from the merged contracts or implementation slices.
+- Do not infer cross-node messaging, federation, or autonomous coding-worker support from merged contracts or implementation slices.
 - Do not treat uncommitted worktree changes or local-only audit commits as synchronized public-main state.
 
 ## Active blockers
@@ -60,10 +62,14 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 - Run the complete supported-Compose qualification on current `main`, including exact-model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
-- Complete a fresh isolated natural import-to-recall run through provider context, answer persistence, and negative scope control.
-- Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
+
+- Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
+- Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on intended live paths.
+- Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
+- Reconcile the local-only `main` commits before treating local artifacts as published state.
 - Review the reconciled architecture knowledge-graph records and their freshness-invalidating anchors before relying on them as current metadata.
 - Publish or explicitly reconcile the local-only `main` commits before treating local artifacts as published state.
+
 
 ## This week's priorities
 
@@ -71,7 +77,7 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 2. Review architecture knowledge-graph metadata freshness on the integrated tip.
 3. Close the explicit-model rejection contradiction before provider execution.
 4. Repair and reprove browser new-thread transcript projection.
-5. Prove uninterrupted account import, then requalify only explicitly claimed Preview or ingress surfaces.
+5. Prove uninterrupted account import, then reconcile the local-main publication gap.
 
 ## Release classes
 
