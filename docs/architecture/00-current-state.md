@@ -46,6 +46,8 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
+- Do not infer exact unavailable-model rejection; the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
+- Do not treat focused tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
 - Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers currently make both fail JSON parsing.
 - Do not infer exact unavailable-model rejection: the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
 - Do not treat focused auth tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
@@ -64,6 +66,9 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 - Reconcile the local-only `main` commits before treating local artifacts as published state.
 - Complete a fresh isolated natural import-to-recall run through provider context, answer persistence, and negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
+- Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
+- Reconcile the local-only `main` commits before treating local artifacts as published state.
+
 - Review the reconciled architecture knowledge-graph records and their freshness-invalidating anchors before relying on them as current metadata.
 - Publish or explicitly reconcile the local-only `main` commits before treating local artifacts as published state.
 
