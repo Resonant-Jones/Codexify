@@ -62,11 +62,13 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 - Run the complete supported-Compose qualification on current `main`, including exact-model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
-
-- Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
-- Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on intended live paths.
 - Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
 - Reconcile the local-only `main` commits before treating local artifacts as published state.
+- Complete a fresh isolated natural import-to-recall run through provider context, answer persistence, and negative scope control.
+- Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
+- Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
+- Reconcile the local-only `main` commits before treating local artifacts as published state.
+
 - Review the reconciled architecture knowledge-graph records and their freshness-invalidating anchors before relying on them as current metadata.
 - Publish or explicitly reconcile the local-only `main` commits before treating local artifacts as published state.
 
