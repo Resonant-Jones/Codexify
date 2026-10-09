@@ -36,6 +36,11 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
+import SystemStatusIndicator, {
+  type SystemStatusIssue,
+  type SystemStatusRow,
+  type SystemStatusTone,
+} from "@/components/persona/layout/SystemStatusIndicator";
 import UnifiedDesktopCompositor, { type BrowserPresentation } from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
@@ -3124,10 +3129,14 @@ export default function AppShell({
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 
-  const runtimeDegraded =
+  const providerRuntimeDegraded =
     providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED ||
     providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE;
-  const runtimeDiagnosticLines = runtimeDegraded
+  const showRuntimeIssue =
+    (providerRuntimeDegraded ||
+      runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY) &&
+    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
+  const runtimeDiagnosticLines = showRuntimeIssue
     ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
     : [];
   const liveUpdatesDisconnected =
@@ -3136,15 +3145,92 @@ export default function AppShell({
     typeof runtimeHealth.diagnostics.liveEvents.statusUpdatedAt === "number" &&
     now - runtimeHealth.diagnostics.liveEvents.statusUpdatedAt > 45_000;
   const liveUpdateDiagnosticLines =
-    !runtimeDegraded && liveUpdatesDisconnected
+    !showRuntimeIssue && liveUpdatesDisconnected
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
-  const showRuntimeBanner =
-    runtimeDegraded &&
-    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
-  const runtimeLastHealthy = runtimeHealth.lastSuccessAt
-    ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
-    : "never";
+  const runtimeIssueGuidance = (() => {
+    switch (runtimeFailureKind) {
+      case RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE:
+        return "Guardian cannot be reached. Check the Guardian service or the node hosting it, then try again.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY:
+        return "Codexify can reach Guardian, but its chat health check is failing. If chat requests are also failing, inspect or restart Guardian.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY:
+        return "Guardian is reachable, but the configured inference provider is not ready. Codexify will keep checking while you review the provider if needed.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.STALE:
+        return "Health data is stale. Codexify will keep checking automatically.";
+      default:
+        return "Codexify detected a runtime problem. Technical details below identify the failing check.";
+    }
+  })();
+  const systemStatusLevel: SystemStatusTone =
+    runtimeHealth.diagnostics.hydrationState === "pending" ||
+    runtimeHealth.backendReachable == null
+      ? "checking"
+      : showRuntimeIssue
+        ? providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE ||
+          runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+          ? "critical"
+          : "attention"
+        : liveUpdatesDisconnected
+          ? "attention"
+          : "healthy";
+  const systemStatusIssue: SystemStatusIssue | null = showRuntimeIssue
+    ? runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY
+      ? {
+          title: "Guardian health degraded",
+          detail:
+            "Guardian is reachable, but the chat health check is reporting a failure.",
+          guidance: runtimeIssueGuidance,
+        }
+      : {
+          title: runtimePresentation.title,
+          detail: runtimeDetail
+            ? `${runtimePresentation.detail} Detail: ${runtimeDetail}`
+            : runtimePresentation.detail,
+          guidance: runtimeIssueGuidance,
+        }
+    : liveUpdatesDisconnected
+      ? {
+          title: "Live updates unavailable",
+          detail:
+            "Guardian is healthy, but the live event stream has not stayed connected.",
+          guidance:
+            "Nothing you need to fix. Codexify will keep retrying automatically.",
+          badge: "No action required",
+        }
+      : null;
+  const guardianStatusRow: SystemStatusRow =
+    runtimeHealth.backendReachable == null
+      ? { label: "Guardian", status: "Checking", tone: "checking" }
+      : runtimeHealth.backendReachable && runtimeHealth.chatHealthy !== false
+        ? { label: "Guardian", status: "Healthy", tone: "healthy" }
+        : {
+            label: "Guardian",
+            status: "Needs attention",
+            tone: runtimeHealth.backendReachable === false ? "critical" : "attention",
+          };
+  const providerStatusRow: SystemStatusRow =
+    runtimeHealth.diagnostics.hydrationState !== "ready" ||
+    runtimeHealth.llmHealthy == null ||
+    runtimeHealth.backendReachable == null
+      ? { label: "Providers", status: "Checking", tone: "checking" }
+      : providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE
+        ? { label: "Providers", status: "Offline", tone: "critical" }
+        : providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED
+          ? { label: "Providers", status: "Degraded", tone: "attention" }
+          : { label: "Providers", status: "Healthy", tone: "healthy" };
+  const liveUpdatesStatusRow: SystemStatusRow =
+    runtimeHealth.diagnostics.liveEvents.connectionState ===
+    LIVE_EVENT_CONNECTION_STATES.CONNECTED
+      ? { label: "Live updates", status: "Healthy", tone: "healthy" }
+      : liveUpdatesDisconnected
+        ? { label: "Live updates", status: "Disconnected", tone: "attention" }
+        : { label: "Live updates", status: "Reconnecting", tone: "checking" };
+  const systemStatusDiagnostics = showRuntimeIssue
+    ? runtimeDiagnosticLines
+    : liveUpdatesDisconnected
+      ? liveUpdateDiagnosticLines
+      : [];
   const workspaceAffordanceState = getWorkspaceAffordanceState({
     isPhoneShell,
     isOpen: workspaceDrawerOpen,
@@ -3268,8 +3354,18 @@ export default function AppShell({
       {documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
     </PhonePressButton>
     ) : null;
+  const systemStatusUtilityAction = (
+    <SystemStatusIndicator
+      level={systemStatusLevel}
+      issue={systemStatusIssue}
+      rows={[guardianStatusRow, providerStatusRow, liveUpdatesStatusRow]}
+      diagnostics={systemStatusDiagnostics}
+      isPhoneShell={isPhoneShell}
+    />
+  );
   const desktopHeaderUtilityActions = (
     <>
+      {systemStatusUtilityAction}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
       {contactsUtilityAction}
@@ -3280,6 +3376,7 @@ export default function AppShell({
   );
   const mobileHeaderUtilityActions = (
     <>
+      {systemStatusUtilityAction}
       {workspaceDrawerToggle}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
@@ -3389,98 +3486,6 @@ export default function AppShell({
     humanAction: coreSurfacesAvailable && runtimeHealth.llmHealthy !== true
       ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
   }} onOpenSettings={openSettings} />;
-  const runtimeStatusNotice = showRuntimeBanner ? (
-    <div className="relative z-10 w-full mt-3">
-      <div
-        className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-        style={{
-          borderColor: "var(--panel-border)",
-          background:
-            "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
-          color: "var(--text)",
-        }}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-semibold tracking-wide">
-            {runtimePresentation.title}
-          </span>
-          <span className="opacity-80">failure: {runtimeFailureKind}</span>
-          <span className="opacity-70">
-            last healthy: {runtimeLastHealthy}
-          </span>
-        </div>
-        {runtimeDetail ? (
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            {runtimePresentation.detail} — detail: {runtimeDetail}
-          </div>
-        ) : (
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            {runtimePresentation.detail}
-          </div>
-        )}
-        {runtimeDiagnosticLines.length > 0 ? (
-          <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-            <summary className="cursor-pointer select-none opacity-80">
-              Technical details
-            </summary>
-            <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-              {runtimeDiagnosticLines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </div>
-          </details>
-        ) : null}
-      </div>
-    </div>
-  ) : null;
-  const liveUpdatesNotice =
-    liveUpdatesDisconnected && !runtimeDegraded ? (
-      <div className="relative z-10 w-full mt-3">
-        <div
-          className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-          style={{
-            borderColor: "var(--panel-border)",
-            background:
-              "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-            color: "var(--text)",
-          }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-semibold tracking-wide">
-              Live updates disconnected
-            </span>
-            <span className="opacity-80">
-              state: {runtimeHealth.diagnostics.liveEvents.connectionState}
-            </span>
-          </div>
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            Guardian is healthy, but the live event stream has not stayed
-            connected.
-          </div>
-          {liveUpdateDiagnosticLines.length > 0 ? (
-            <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-              <summary className="cursor-pointer select-none opacity-80">
-                Technical details
-              </summary>
-              <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-                {liveUpdateDiagnosticLines.map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </div>
-      </div>
-    ) : null;
   const guardianMobileFramePrelude = isNarrowGuardianFrameShell ? (
     <div
       data-testid="guardian-mobile-frame-prelude"
@@ -3498,8 +3503,6 @@ export default function AppShell({
         {mobileHeaderUtilityActions}
       </div>
       {personalSetupNotice}
-      {runtimeStatusNotice}
-      {liveUpdatesNotice}
     </div>
   ) : null;
 
@@ -3794,8 +3797,6 @@ export default function AppShell({
       )}
 
       {!isPhoneFrameFirstShell && personalSetupNotice}
-      {!isPhoneFrameFirstShell && runtimeStatusNotice}
-      {!isPhoneFrameFirstShell && liveUpdatesNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area

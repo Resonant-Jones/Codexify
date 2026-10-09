@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-06
+2026-10-07
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The 2026-10-06 accounting record reports no new implementation, proof, or qualification work; the latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The post-audit mainline delta contains narrow workspace, Memory Vault, and Pi telemetry changes plus release-accounting housekeeping; no fresh supported-path qualification landed, and the latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
@@ -26,8 +26,9 @@ This file is authoritative for:
 - Persisted authenticated account-intake provenance for coding runs so operator-created metadata cannot grant account snapshot access.
 - Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
-- The 2026-10-05 and 2026-10-06 mainline records report no new implementation, proof, or qualification work; no release claim widened.
-- Local `main` remains the audit source at 3 commits ahead and 34 behind `origin/main`; no push or publication reconciliation was performed.
+- Merged a workspace scratchpad save-target capture fix, a bounded Memory Vault request reference, and live-path Pi telemetry test tightening; these are focused changes, not release qualification.
+- Removed stale daily logs, added retired-ADR routing, and recorded a 2026-10-07 no-change checkpoint; no release claim widened.
+- The audit baseline was 1 commit ahead and 0 behind `origin/main`; this refresh adds one local audit commit and does not publish it.
 
 ## Current supported reality
 
@@ -44,6 +45,8 @@ This file is authoritative for:
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection: the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
 - Do not treat focused auth tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
+- Do not treat the focused workspace, Memory Vault, or Pi telemetry changes as evidence of complete supported-path qualification.
+- Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers currently make both fail JSON parsing.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
 - Do not infer cross-node messaging, federation, or autonomous coding-worker support from the merged contracts or implementation slices.
 - Do not treat uncommitted worktree changes or local-only audit commits as synchronized public-main state.
@@ -55,15 +58,16 @@ This file is authoritative for:
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
 - Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
-- Reconcile the divergent local `main` and `origin/main` refs before treating local artifacts as published state.
+- Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
+- Publish or explicitly reconcile the local-only `main` commits before treating local artifacts as published state.
 
 ## This week's priorities
 
 1. Freeze current `main` and run the full supported-Compose proof bundle.
-2. Close the explicit-model rejection contradiction before provider execution.
-3. Repair and reprove browser new-thread transcript projection.
-4. Prove uninterrupted account import through retrieval, answer persistence, and scope isolation.
-5. Requalify only the Preview and ingress surfaces that have an explicit release claim.
+2. Repair and validate the conflict-marked architecture knowledge-graph metadata.
+3. Close the explicit-model rejection contradiction before provider execution.
+4. Repair and reprove browser new-thread transcript projection.
+5. Prove uninterrupted account import, then requalify only explicitly claimed Preview or ingress surfaces.
 
 ## Release definition right now
 
@@ -73,6 +77,7 @@ This file is authoritative for:
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
 - [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, account-import recall, and scope-isolation gates are green on one evaluated tip.
 - [ ] Each claimed Preview or public-ingress path has current live evidence, with no claim inferred from focused tests alone.
+- [ ] Changed release metadata parses cleanly and its freshness points to the evaluated mainline.
 
 ## How to read the rest of the KB
 
