@@ -18,6 +18,13 @@ from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.core.chat_redis_deadline import (
+    redis_operation_scope as _redis_operation_scope,
+    redis_retry_sleep,
+    reset_scoped_redis_client,
+    scoped_redis_client,
+)
+from guardian.tasks.chat_deadline import AcceptedChatTaskDeadlineExceeded
 from guardian.protocol_tokens import ErrorCode
 from guardian.tasks.types import GITHUB_WATCHDOG_REVIEW_TASK_TYPE
 from guardian.utils.log_safety import install_safe_logging
@@ -71,6 +78,13 @@ class QueueEnqueueError(RuntimeError):
 
 class RedisOperationTimeout(RuntimeError):
     """Raised when a Redis operation exceeds the backend fail-fast budget."""
+
+
+def redis_operation_scope(
+    timeout_seconds: float = _DEFAULT_REDIS_OPERATION_TIMEOUT_SECONDS,
+):
+    """Own physical transport waits under the existing operation policy."""
+    return _redis_operation_scope(timeout_seconds)
 
 
 def run_with_redis_timeout(
@@ -455,6 +469,11 @@ def _set_queue_client(client: Any) -> Any:
 
 def _get_request_client() -> Any:
     global _CLIENT
+    scoped = scoped_redis_client(
+        _connect_request_client, synthetic=_running_under_pytest()
+    )
+    if scoped is not None:
+        return scoped
     if _is_mock_client(_CLIENT):
         _set_request_client(None)
     if _CLIENT is None:
@@ -490,16 +509,20 @@ def _with_reconnect(fn: Callable[[Any], Any]) -> Any:
         try:
             client = _get_request_client()
             return fn(client)
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except (RedisConnectionError, RedisTimeoutError) as exc:
             last_err = exc
-            _set_request_client(None)
+            if not reset_scoped_redis_client():
+                _set_request_client(None)
             logger.warning("[redis] connection issue; reconnecting: %s", exc)
-            time.sleep(0.2 * (attempt + 1))
+            redis_retry_sleep(0.2 * (attempt + 1))
         except Exception as exc:
             last_err = exc
-            _set_request_client(None)
+            if not reset_scoped_redis_client():
+                _set_request_client(None)
             logger.warning("[redis] unexpected error; reconnecting: %s", exc)
-            time.sleep(0.2 * (attempt + 1))
+            redis_retry_sleep(0.2 * (attempt + 1))
     if last_err:
         raise last_err
     raise RuntimeError("redis operation failed without exception")

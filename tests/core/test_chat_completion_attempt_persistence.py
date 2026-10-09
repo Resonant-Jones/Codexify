@@ -80,7 +80,8 @@ def acceptance(monkeypatch):
         lambda *_args: events.append("release"),
     )
 
-    def create(_db, *, request_id, backend_task_id, thread_id, turn_id):
+    def create(_db, *, request_id, backend_task_id, thread_id, turn_id,
+               deadline_snapshot, turn_lock_token):
         events.append("commit_attempt")
         rows[backend_task_id] = {
             "request_id": request_id,
@@ -88,6 +89,8 @@ def acceptance(monkeypatch):
             "thread_id": thread_id,
             "turn_id": turn_id,
             "accepted_at": None,
+            "deadline_snapshot": deadline_snapshot.to_dict(),
+            "turn_lock_token": turn_lock_token,
         }
 
     def mark(_db, *, backend_task_id):
@@ -98,6 +101,11 @@ def acceptance(monkeypatch):
         events.append("enqueue")
         assert rows[task.task_id]["thread_id"] == task.thread_id
         assert rows[task.task_id]["request_id"] == task.request_id
+        assert rows[task.task_id]["deadline_snapshot"] == {
+            name: getattr(task, name)
+            for name in ("accepted_at", "work_deadline_at", "terminal_deadline_at")
+        }
+        assert rows[task.task_id]["turn_lock_token"] == task.turn_lock["lease_token"]
 
     monkeypatch.setattr(service, "create_chat_completion_attempt", create)
     monkeypatch.setattr(service, "mark_chat_completion_attempt_accepted", mark)
@@ -167,6 +175,8 @@ def test_queue_failure_retains_unaccepted_attempt(acceptance, monkeypatch):
         )
     assert error.value.reason == "queue_unavailable"
     assert acceptance.rows[task.task_id]["accepted_at"] is None
+    assert acceptance.rows[task.task_id]["deadline_snapshot"]["accepted_at"] == task.accepted_at
+    assert acceptance.rows[task.task_id]["turn_lock_token"] == task.turn_lock["lease_token"]
     assert acceptance.events.index("commit_attempt") < acceptance.events.index("participant_rollback")
     assert acceptance.events[-2:] == ["participant_rollback", "release"]
 
@@ -182,4 +192,5 @@ def test_acceptance_record_failure_keeps_accepted_task(acceptance, monkeypatch):
     assert result.queue_accepted
     assert result.degraded
     assert acceptance.rows[task.task_id]["accepted_at"] is None
+    assert acceptance.rows[task.task_id]["deadline_snapshot"]["terminal_deadline_at"] == task.terminal_deadline_at
     assert "release" not in acceptance.events

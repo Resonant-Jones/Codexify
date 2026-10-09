@@ -243,4 +243,29 @@ def test_idle_worker_defers_optional_model_until_a_task(monkeypatch):
     monkeypatch.setattr(document_embed_worker, "dequeue_document_embed", lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
         document_embed_worker.run_forever()
-    assert seen == [False]
+    assert seen == []
+
+
+def test_required_worker_initialization_failure_exits_before_dequeue(monkeypatch):
+    import pytest
+
+    calls = []
+    class UnavailableExecution:
+        def __init__(self, timeout):
+            calls.append(("bound", timeout))
+
+        def initialize(self):
+            calls.append("initialize")
+            raise TimeoutError("document_embed_execution_bound_exceeded")
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setenv("LOCAL_EMBEDDINGS_REQUIRED", "1")
+    monkeypatch.setattr(document_embed_worker, "_BoundedEmbedding", UnavailableExecution)
+    monkeypatch.setattr(document_embed_worker.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(document_embed_worker, "dequeue_document_embed", lambda **kwargs: pytest.fail("dequeued before required startup"))
+    with pytest.raises(SystemExit) as failure:
+        document_embed_worker.run_forever()
+    assert failure.value.code == 1
+    assert calls[1:] == ["initialize", "close"]

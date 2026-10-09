@@ -712,6 +712,8 @@ services:
   worker-document-embed:
     image: *backend_runtime_image
     pull_policy: never
+    # Maximum execution 600s + explicit 40s finalization margin + 5s slack.
+    stop_grace_period: 10m45s
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -723,6 +725,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
+      DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS: "${DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS:-120}"
       <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8

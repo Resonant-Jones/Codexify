@@ -36,6 +36,7 @@ import {
   type ComposerSendOptions,
 } from "@/features/guardian/components/Composer";
 import ChatView from "@/features/chat/ChatView";
+import { ThreadAttemptObservation, isDurableAttemptTerminal, type AttemptReceipt } from "@/features/chat/components/ThreadAttemptObservation";
 import useChat from "@/features/chat/useChat";
 import api, {
   buildChatThreadsPath,
@@ -95,7 +96,11 @@ import {
   describeInferenceRequestState,
   useInferenceRequestState,
 } from "@/features/chat/hooks/useInferenceRequestState";
-import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
+import {
+  describeTaskFailureDetailText,
+  isRetryableAcceptedTaskFailure,
+  getToolCommandFailureReason,
+} from "@/features/chat/requestFailurePresentation";
 import {
   formatRuntimeHealthDiagnostics,
   type RuntimeHealthStatus,
@@ -969,6 +974,7 @@ export function GuardianChat({
   onSessionModelChange,
   onSessionInferenceModeChange,
   onSessionDraftChange,
+  assistantMessageRefresh,
   compactMobileHeader = false,
   compactMobile = false,
 }: {
@@ -1020,6 +1026,7 @@ export function GuardianChat({
   onSessionModelChange?: (modelId: string) => void;
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
+  assistantMessageRefresh?: { threadId: number; sequence: number } | null;
   compactMobileHeader?: boolean;
   compactMobile?: boolean;
 }) {
@@ -1173,6 +1180,9 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
+  const deferredThreadPromotionRef = useRef(
+    new Map<number, { title: string; tabId: TabId | null }>()
+  );
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
@@ -2675,7 +2685,7 @@ export function GuardianChat({
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     void activateThread(effectiveThreadId);
   }, [activateThread, effectiveThreadId]);
   useEffect(() => {
@@ -2990,6 +3000,40 @@ export function GuardianChat({
     };
   }, [subscribe]);
 
+  const handleCurrentAttemptTerminal = useCallback((receipt: AttemptReceipt): boolean => {
+    const tid = receipt.thread_id;
+    if (effectiveThreadIdRef.current !== tid || !isDurableAttemptTerminal(receipt)) return false;
+    const matchesInference = inferenceRequest.state.threadId === tid &&
+      inferenceRequest.state.taskId === receipt.task_id;
+    const matchesCompletion = completionState.activeThreadId === tid &&
+      completionState.activeTaskId === receipt.task_id;
+    if ((!matchesInference && !matchesCompletion) || (
+      isActiveInferencePhase(inferenceRequest.state.phase) && !matchesInference
+    )) return false;
+
+    updateCompletionSessionTurnId(receipt.task_id, receipt.turn_id);
+    const terminalState = receipt.completed_message_id !== null ? "completed" :
+      receipt.event_type === "task.cancelled" ? "cancelled" : "failed";
+    finalizeCompletionSession({ taskId: receipt.task_id, terminalState });
+    releaseTurnLease(tid, { clearCompletion: true, clearInference: false });
+    if (terminalState === "completed") {
+      inferenceRequest.markCompleted("Guardian finished and saved the response.");
+    } else if (terminalState === "cancelled") {
+      onTaskCancelledRef.current?.(tid, receipt.task_id);
+      inferenceRequest.markCancelled();
+    } else {
+      inferenceRequest.markFailed("A failure was recorded for this response.", {
+        failureCode: receipt.failure_code,
+        durableFailureOnly: true,
+        detailText: isRetryableAcceptedTaskFailure({ failure_code: receipt.failure_code })
+          ? describeTaskFailureDetailText({ failure_code: receipt.failure_code })
+          : "A failure was recorded for this response. Send a new request to try again.",
+      });
+    }
+    return true;
+  }, [completionState.activeThreadId, completionState.activeTaskId, inferenceRequest,
+    updateCompletionSessionTurnId, finalizeCompletionSession, releaseTurnLease]);
+
   // Live thread-created event → refresh thread list for cross-client visibility.
   const LOCAL_CREATION_WINDOW_MS = 3000;
   useEffect(() => {
@@ -3122,6 +3166,7 @@ export function GuardianChat({
           String(payload?.error || "Guardian could not finish the response."),
           {
             detailText: describeTaskFailureDetailText(payload),
+            toolLoopStopReason: getToolCommandFailureReason(payload),
             failureCode:
               typeof payload?.failure_code === "string" ? payload.failure_code : null,
           }
@@ -3169,6 +3214,13 @@ export function GuardianChat({
     subscribe,
     updateCompletionSessionTurnId,
   ]);
+  useEffect(() => {
+    const threadId = assistantMessageRefresh?.threadId;
+    if (threadId == null || Number(activeThread?.id) !== threadId) return;
+    void refreshSnapshot(threadId, "assistant-message-created").catch(
+      () => undefined
+    );
+  }, [activeThread?.id, assistantMessageRefresh, refreshSnapshot]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
@@ -3234,10 +3286,20 @@ export function GuardianChat({
     }
   };
 
+  const promoteDeferredThread = (threadId: number) => {
+    const promotion = deferredThreadPromotionRef.current.get(threadId);
+    if (!promotion) return;
+    deferredThreadPromotionRef.current.delete(threadId);
+    handleThreadCreated(threadId, promotion.title, { tabId: promotion.tabId });
+    onThreadPersisted?.(threadId, promotion.title, {
+      tabId: promotion.tabId,
+    });
+  };
+
   const createThreadFromComposer = useCallback(
     async (
       bodyText: string,
-      options?: { tabId?: TabId | null }
+      options?: { tabId?: TabId | null; deferPromotion?: boolean }
     ): Promise<number | null> => {
       const hydrationState = getRuntimeConfigHydrationState();
       if (hydrationState === "pending") {
@@ -3310,7 +3372,6 @@ export function GuardianChat({
           showToast("Thread id missing from response");
           return null;
         }
-
         setThreadCreationIssue(null);
         const payload =
           response?.data && typeof response.data === "object" && !Array.isArray(response.data)
@@ -3325,12 +3386,19 @@ export function GuardianChat({
             ? thread.title.trim()
             : provisionalTitle;
 
-        handleThreadCreated(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
-        onThreadPersisted?.(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
+        if (options?.deferPromotion) {
+          deferredThreadPromotionRef.current.set(resolution.threadId, {
+            title: derivedTitle,
+            tabId: originTabId,
+          });
+        } else {
+          handleThreadCreated(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+          onThreadPersisted?.(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+        }
         return resolution.threadId;
     } catch (error) {
       console.error("[guardian] thread creation failed", error);
@@ -3695,14 +3763,16 @@ export function GuardianChat({
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
-        createdThreadId = await createThreadFromComposer(contentForSend);
+        createdThreadId = await createThreadFromComposer(contentForSend, {
+          deferPromotion: true,
+        });
         if (createdThreadId == null) {
           setPendingTurnLock(false);
           return;
         }
-        await activateThread(createdThreadId);
         const synced = await syncThreadConfigBeforeSend(createdThreadId);
         if (!synced) {
+          promoteDeferredThread(createdThreadId);
           setPendingTurnLock(false);
           setTurnLockForThread(createdThreadId, false);
           return;
@@ -3714,10 +3784,13 @@ export function GuardianChat({
           project_id: workspaceProjectId ?? undefined,
         });
 
+        promoteDeferredThread(createdThreadId);
+
         emitThreadsRefresh("refresh", {
           reason: "message",
           id: String(createdThreadId),
         });
+        await refreshSnapshot(createdThreadId, "user-send");
         setChatReloadVersion((v) => v + 1);
 
         // Lock the new thread before requesting assistant completion.
@@ -3753,6 +3826,9 @@ export function GuardianChat({
         }, 100);
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
+        if (createdThreadId != null) {
+          promoteDeferredThread(createdThreadId);
+        }
         setPendingTurnLock(false);
         if (createdThreadId != null) {
           setTurnLockForThread(createdThreadId, false);
@@ -4490,6 +4566,16 @@ export function GuardianChat({
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />
+      {effectiveThreadId != null ? (
+        <ThreadAttemptObservation
+          threadId={effectiveThreadId}
+          enabled={authCanSend}
+          identityEpoch={auth.token}
+          currentTaskId={composerInferenceState.taskId}
+          onTerminalObserved={refreshSnapshot}
+          onCurrentTerminalObserved={handleCurrentAttemptTerminal}
+        />
+      ) : null}
 
       {/* Conversation remains flow-based; landing keeps the greeting and Composer
           together as one centered prompt-first unit. */}

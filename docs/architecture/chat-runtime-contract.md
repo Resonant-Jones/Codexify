@@ -234,6 +234,46 @@ before queue visibility; ordinary chat and Hosted Room completion producers
 share this acceptance invariant. The complete request-state and replay model
 below is still a contract, not a fully persisted backend lifecycle.
 
+After successful-terminal validation, the PostgreSQL chat adapter persists the
+canonical assistant message and binds its ID to the exact completion attempt
+in one transaction. The binding includes request, backend task, thread, and
+turn identity; a retry of the same task reuses the already-linked assistant
+instead of creating another. Thread task receipts discover attempts from
+Postgres and may report `task.completed` from this durable link when Redis
+terminal events are unavailable. Redis remains observation evidence for
+attempts without a durable assistant link.
+
+For request-bearing attempts, turn-level duplicate suppression may publish
+`task.completed` only after the exact attempt-link write succeeds. Finding a
+same-turn assistant alone does not establish that another request attempt
+completed; if its link is unavailable, that attempt stays unresolved or keeps
+its already-recorded terminal event. Legacy queued tasks without a request ID
+retain their preexisting compatibility path.
+
+When a worker controls termination, it attempts to record the canonical
+`task.failed` or `task.cancelled` event type on the exact durable attempt before
+publishing the Redis terminal event. When that write commits, the first durable
+failure/cancellation is immutable for the attempt, and assistant completion
+cannot be added afterward. A durable assistant link remains stronger
+completion evidence if present. If a later worker step raises after that link
+commits, the worker rereads the exact request/task/thread/turn-bound attempt
+and publishes completion from the durable message link instead of a conflicting
+failure or cancellation. This stores only the terminal event kind:
+Redis remains the source for diagnostic payload details. If the database write
+fails, Redis remains the observation source until its evidence expires. A
+worker disappearing after destructive dequeue still produces no durable
+terminal outcome under this bounded implementation; its orphan timing,
+ownership proof, and explicit-retry policy remain unresolved.
+
+GuardianChat reads the bounded task-receipt endpoint after thread hydration.
+Unknown or nonterminal receipts render as an unconfirmed outcome, never as a
+guessed running, failed, or completed phase. Newly observed terminal receipts
+refresh canonical messages; the reader never resubmits or replays work. Current
+locally tracked tasks remain under their existing lifecycle controls, and
+thread or credential changes discard stale reads. The newest 100 attempts are
+the observation window. Historical task status is not attached to a specific
+authored message when that association is absent from durable data.
+
 ```ts
 export interface ChatTurnMessage {
   messageId: string; // stable authored turn identity
