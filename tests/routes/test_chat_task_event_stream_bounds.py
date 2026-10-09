@@ -1,10 +1,23 @@
 """Exercise the actual SSE generator with transport seams, no task mutation."""
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from guardian import guardian_api
+from guardian.core import task_event_access
+from guardian.core.dependencies import RequestUserScope
 from guardian.guardian_api import stream_task_events
 from guardian.queue import task_events
+
+
+@pytest.fixture(autouse=True)
+def owned_task_mapping(monkeypatch):
+    monkeypatch.setattr(guardian_api, "chatlog_db", SimpleNamespace(
+        get_chat_thread=lambda thread_id: {"id": thread_id, "user_id": "sse-owner"},
+    ))
+    monkeypatch.setattr(task_event_access, "get_chat_completion_attempt_by_task_id",
+        lambda _db, task_id: {"backend_task_id": task_id, "thread_id": 1})
 
 
 class Request:
@@ -16,7 +29,8 @@ class Request:
 
 async def collect(request, **kwargs):
     response = await stream_task_events(request, "task-a", last_id_query=kwargs.get("last_id", "0-0"),
-        last_event_id_header=kwargs.get("header"), api_key="test-api-key")
+        last_event_id_header=kwargs.get("header"), principal=RequestUserScope(
+            user_id="sse-owner", account_id="sse-owner", multi_user_enabled=True))
     return "".join([row async for row in response.body_iterator])
 
 

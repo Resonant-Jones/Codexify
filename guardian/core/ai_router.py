@@ -1988,6 +1988,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2005,6 +2006,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2020,6 +2022,7 @@ def chat_with_ai(
                     "max_tokens": max_tokens,
                     "tools": tools,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2033,6 +2036,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2048,6 +2052,7 @@ def chat_with_ai(
                     "max_tokens": max_tokens,
                     "prompt_meta": prompt_meta,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -3679,6 +3684,27 @@ def stream_local(
             deadline_transport.close()
 
 
+def _post_provider_request(url, *, json, headers, timeout, accepted_deadline=None):
+    if accepted_deadline is None:
+        return requests.post(url, json=json, headers=headers, timeout=timeout)
+    transport = AcceptedDeadlineTransport(accepted_deadline)
+    try:
+        response = transport.post(
+            url, json=json, headers=headers, stream=False,
+            timeout=(float(timeout), float(timeout)),
+        )
+        # Detach only after the full body arrives under the immutable deadline.
+        # Provider parsers then retain the ordinary Requests response interface.
+        detached = requests.Response()
+        detached.status_code = response.status_code
+        detached.headers.update(response.headers)
+        detached._content = response.content
+        detached.encoding = response.response.encoding
+        return detached
+    finally:
+        transport.close()
+
+
 def call_groq(
     messages,
     model: str,
@@ -3686,6 +3712,7 @@ def call_groq(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     try:
@@ -3714,7 +3741,9 @@ def call_groq(
     url = f"{base_url}/openai/v1/chat/completions"
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = _post_provider_request(
+            url, json=payload, headers=headers, timeout=30, accepted_deadline=accepted_deadline,
+        )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
         logger.exception(
@@ -3799,6 +3828,7 @@ def _call_openai_compatible_chat(
     timeout: float,
     settings: Settings,
     typed_failure_kinds: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     try:
         assert_egress_allowed(egress_target, settings=settings)
@@ -3833,11 +3863,12 @@ def _call_openai_compatible_chat(
     url = f"{resolved_base}{base_path}"
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,
             timeout=float(timeout),
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
@@ -3934,6 +3965,7 @@ def call_openai(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     return _call_openai_compatible_chat(
@@ -3950,6 +3982,7 @@ def call_openai(
         max_tokens=max_tokens,
         timeout=30.0,
         settings=settings,
+        accepted_deadline=accepted_deadline,
     )
 
 
@@ -3962,6 +3995,7 @@ def call_deepseek(
     max_tokens: Optional[int] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     try:
@@ -3994,7 +4028,7 @@ def call_deepseek(
         payload["max_tokens"] = int(max_tokens)
     url = f"{base}/v1/chat/completions"
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers={
@@ -4002,6 +4036,7 @@ def call_deepseek(
                 "Content-Type": "application/json",
             },
             timeout=30.0,
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
@@ -4041,6 +4076,7 @@ def call_alibaba(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     if not bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", True)):
@@ -4100,6 +4136,7 @@ def call_alibaba(
             )
         ),
         settings=settings,
+        accepted_deadline=accepted_deadline,
         typed_failure_kinds=True,
     )
 
@@ -4364,6 +4401,7 @@ def call_minimax(
     max_tokens: Optional[int] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     """Call MiniMax via OpenAI- or Anthropic-compatible endpoints."""
     settings = _resolve_settings(settings)
@@ -4472,11 +4510,12 @@ def call_minimax(
     )
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,
             timeout=timeout,
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)

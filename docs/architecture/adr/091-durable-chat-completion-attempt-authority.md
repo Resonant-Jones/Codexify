@@ -16,4 +16,4 @@ Redis queues, locks, event streams and payloads, replaceable debug fields, and e
 
 ## Scope and consequences
 
-The shared service owns this invariant for all current completion producers. This decision does not implement task-event SSE authorization, the complete replay/orphan/request-state model, or additional account identity. The public-ingress proof remains HOLD, and no release support claim changes.
+The shared service owns this invariant for all current completion producers. This decision does not implement the complete replay/orphan/request-state model or additional account identity. The task-event SSE route resolves `backend_task_id` through the durable attempt, authorizes its canonical `thread_id` through `require_thread_read_access`, and reaches Redis only after that decision succeeds. Unknown and Redis-only task IDs fail closed. This focused code/test qualification does not establish live public-ingress safety; the public-ingress proof remains HOLD, and no release support claim changes.

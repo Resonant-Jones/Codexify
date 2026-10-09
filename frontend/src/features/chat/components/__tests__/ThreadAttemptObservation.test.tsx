@@ -184,8 +184,8 @@ describe("durable current attempt recovery", () => {
     render(<ThreadAttemptObservation {...props} currentTaskId="outside-page" />);
     await settle();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    expect(get).toHaveBeenCalledTimes(2);
-    expect(get.mock.calls[1][1]?.params).toEqual({ limit: 100, offset: 0 });
+    expect(get).toHaveBeenCalledTimes(4);
+    expect(get.mock.calls.map((call) => call[1]?.params?.offset)).toEqual([0, 100, 0, 100]);
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -255,5 +255,50 @@ describe("durable current attempt recovery", () => {
     expect(project).not.toHaveBeenCalled();
     expect(screen.getByText(/observation is unavailable/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("active task history pagination", () => {
+  const newerPage = (offset = 0) => page(Array.from({ length: 100 }, (_, index) => ({
+    ...receipt("terminal", "task.completed"), task_id: `newer-${offset + index}`,
+  })), true);
+
+  it("projects a durable active task beyond the newest receipt page", async () => {
+    get.mockResolvedValueOnce(newerPage()).mockResolvedValueOnce(page([orphanReceipt()]));
+    const project = vi.fn().mockResolvedValue(true);
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    expect(get.mock.calls.map((call) => call[1]?.params?.offset)).toEqual([0, 100]);
+    expect(project).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ task_id: "task-a" }));
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("advances a finite history sweep across polls instead of restarting at the first page", async () => {
+    get.mockImplementation(async (_url, options) => {
+      const offset = Number(options?.params?.offset ?? 0);
+      return offset === 500 ? page([orphanReceipt()]) : newerPage(offset);
+    });
+    const project = vi.fn().mockResolvedValue(true);
+    render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    expect(get.mock.calls.map((call) => call[1]?.params?.offset)).toEqual([0, 100, 200, 300]);
+    expect(project).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(get.mock.calls.map((call) => call[1]?.params?.offset)).toEqual([0, 100, 200, 300, 0, 400, 500]);
+    expect(project).toHaveBeenCalledOnce();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("discards an older-page response after authorization ends", async () => {
+    let finish: (value: unknown) => void = () => {};
+    get.mockResolvedValueOnce(newerPage()).mockImplementationOnce(() => new Promise((done) => { finish = done; }));
+    const project = vi.fn();
+    const { rerender } = render(<ThreadAttemptObservation {...props} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await settle();
+    rerender(<ThreadAttemptObservation {...props} enabled={false} currentTaskId="task-a" onCurrentTerminalObserved={project} />);
+    await act(async () => { finish(page([orphanReceipt()])); });
+    expect(project).not.toHaveBeenCalled();
+    expect(get.mock.calls[1][1]?.signal?.aborted).toBe(true);
   });
 });

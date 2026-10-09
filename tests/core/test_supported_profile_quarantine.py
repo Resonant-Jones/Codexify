@@ -339,13 +339,16 @@ def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
 def test_agent_orchestration_chat_readback_enforced(
     monkeypatch,
 ) -> None:
-    """Prove thread-level coding-run projection route is mounted
-    and enforces authentication for invalid keys."""
+    """Prove coding readback is mounted and requires durable thread authority."""
     with _build_supported_profile_client(monkeypatch) as client:
+        openapi = client.get("/openapi.json")
+        assert openapi.status_code == 200
+        assert "/api/chat/{thread_id}/coding-runs" in openapi.json().get("paths", {})
+
         headers = {"X-API-Key": "test-api-key"}
         authenticated = client.get("/api/chat/1/coding-runs", headers=headers)
-        # Expect 200 (empty list) not 404.
-        assert authenticated.status_code == 200
+        # This fixture establishes no durable account-owned thread.
+        assert authenticated.status_code == 404
 
         # Wrong key must be rejected.
         wrong_key_response = client.get(

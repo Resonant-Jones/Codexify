@@ -25,6 +25,7 @@ type Props = {
 
 const TERMINALS = new Set(["task.completed", "task.failed", "task.cancelled"]);
 const POLL_MS = 10_000;
+const HISTORY_PAGES_PER_POLL = 3;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,6 +132,7 @@ export function ThreadAttemptObservation({
     let controller: AbortController | undefined;
     const observedTerminals = new Set<string>();
     const projectedCurrentTerminals = new Set<string>();
+    let currentTaskOffset = 100;
 
     const read = async () => {
       controller = new AbortController();
@@ -157,7 +159,25 @@ export function ThreadAttemptObservation({
           newTerminals.forEach((row) => observedTerminals.add(row.task_id));
         }
 
-        const current = page.rows.find((row) => row.task_id === currentTaskId);
+        let current = page.rows.find((row) => row.task_id === currentTaskId);
+        if (currentTaskId && !current && page.hasMore) {
+          for (let index = 0; index < HISTORY_PAGES_PER_POLL; index += 1) {
+            const olderResponse = await api.get(`/chat/threads/${threadId}/tasks`, {
+              params: { limit: 100, offset: currentTaskOffset },
+              signal: controller.signal,
+              timeout: 5_000,
+            });
+            if (disposed) return;
+            const olderPage = readPage(olderResponse.data, threadId);
+            current = olderPage.rows.find((row) => row.task_id === currentTaskId);
+            if (current) break;
+            if (!olderPage.hasMore || olderPage.rows.length === 0) {
+              currentTaskOffset = 100;
+              break;
+            }
+            currentTaskOffset += 100;
+          }
+        }
         let currentHandled = false;
         if (current && isDurableAttemptTerminal(current)) {
           const key = JSON.stringify([

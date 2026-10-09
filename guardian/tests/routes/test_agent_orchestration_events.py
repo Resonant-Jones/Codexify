@@ -261,15 +261,13 @@ async def test_agent_run_events_sse_streams_terminal_events(
     assert "succeeded" in observed
 
 
-def test_chat_thread_agent_runs_endpoint(monkeypatch) -> None:
+def test_chat_thread_agent_runs_rejects_memory_only_authority(monkeypatch) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
 
     local_store = AgentStore()
     local_publisher = AgentEventPublisher()
     monkeypatch.setattr(agent_orchestration, "_store", local_store)
-    monkeypatch.setattr(
-        agent_orchestration, "_event_publisher", local_publisher
-    )
+    monkeypatch.setattr(agent_orchestration, "_event_publisher", local_publisher)
 
     deployment = local_store.create_deployment(
         flow_id="flow-thread",
@@ -289,10 +287,38 @@ def test_chat_thread_agent_runs_endpoint(monkeypatch) -> None:
         headers={"X-API-Key": "test-key"},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    run_ids = [item["run_id"] for item in payload["runs"]]
-    assert str(run["run_id"]) in run_ids
+    assert response.status_code == 404
+    assert str(run["run_id"]) not in response.text
+
+
+def test_local_operator_can_read_threadless_agent_run(monkeypatch) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setattr(
+        agent_orchestration.dependencies, "is_private_preview", lambda: False
+    )
+    local_store = AgentStore()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    deployment = local_store.create_deployment(
+        flow_id="operator-threadless",
+        thread_id=None,
+        spec_json={},
+        spec_hash="operator-threadless-spec",
+    )
+    run = local_store.create_run(
+        deployment_id=str(deployment["deployment_id"]),
+        thread_id=None,
+        status="running",
+    )
+
+    response = _build_client().get(
+        f"/api/agents/runs/{run['run_id']}",
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["run"]["run_id"] == run["run_id"]
+    assert response.json()["run"]["thread_id"] is None
 
 
 def test_start_run_terminal_runtime_target_is_persisted_and_emitted(
@@ -440,7 +466,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["spec_json"]["require_human_review_before_merge"] is True
 
 
-def test_coding_run_snapshot_is_scoped_and_path_bounded() -> None:
+def test_internal_coding_snapshot_is_path_bounded_but_not_account_authority() -> None:
     local_store = AgentStore()
     deployment = local_store.create_deployment(
         flow_id="coding_snapshot",
@@ -475,17 +501,16 @@ def test_coding_run_snapshot_is_scoped_and_path_bounded() -> None:
         error_message="worker touched /workspace/repo/secret.py",
     )
 
-    snapshot = local_store.get_coding_run_snapshot(
-        run["run_id"], user_id="alice"
-    )
+    snapshot = local_store.get_coding_run_snapshot(run["run_id"])
     assert snapshot is not None
     assert snapshot["status"] == "failed"
     assert snapshot["source_message_id"] == 99
     assert snapshot["result"]["files_changed_count"] == 1
     assert snapshot["result"]["artifacts"][0]["name"] == "result.patch"
     assert "/workspace/repo" not in json.dumps(snapshot)
+    assert local_store.get_coding_run_snapshot(run["run_id"], user_id="alice") is None
     assert local_store.get_coding_run_snapshot(run["run_id"], user_id="bob") is None
-    assert len(local_store.list_coding_runs_for_thread(42, user_id="alice")) == 1
+    assert local_store.list_coding_runs_for_thread(42, user_id="alice") is None
 
 
 @pytest.mark.asyncio

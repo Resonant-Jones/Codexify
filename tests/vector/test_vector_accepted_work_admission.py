@@ -25,7 +25,7 @@ def test_expired_work_never_enters_native_vector(monkeypatch, backend, surface):
     native = Mock(return_value=[])
     monkeypatch.setenv('CODEXIFY_VECTOR_STORE', backend)
     monkeypatch.setattr(vector, 'Embedder', native)
-    instance = vector.VectorStore.__new__(vector.VectorStore)
+    instance = vector.VectorStore(initialize_embedder=False)
     instance.embedder = SimpleNamespace(search=native)
     with bounds.accepted_postgres_query_scope(envelope(-0.1)):
         with pytest.raises(AcceptedChatTaskDeadlineExceeded) as caught:
@@ -42,7 +42,7 @@ def test_expired_work_never_enters_native_vector(monkeypatch, backend, surface):
 
 def test_invalid_envelope_never_enters_native_search():
     native = Mock(return_value=[])
-    instance = vector.VectorStore.__new__(vector.VectorStore)
+    instance = vector.VectorStore(initialize_embedder=False)
     instance.embedder = SimpleNamespace(search=native)
     with bounds.accepted_postgres_query_scope(None, invalid=True):
         with pytest.raises(ValueError, match='snapshot is invalid'):
@@ -54,7 +54,7 @@ def test_invalid_envelope_never_enters_native_search():
 def test_normal_search_keeps_result_and_authority(scoped):
     expected = [{'text': 'retained', 'score': 0.75, 'metadata': {'user_id': 'owner'}}]
     native = Mock(return_value=expected)
-    instance = vector.VectorStore.__new__(vector.VectorStore)
+    instance = vector.VectorStore(initialize_embedder=False)
     instance.embedder = SimpleNamespace(search=native)
     with bounds.accepted_postgres_query_scope(envelope(30) if scoped else None):
         assert instance.search('query', k=2, namespace=' thread:7 ', user_id=' owner ') is expected
@@ -63,7 +63,7 @@ def test_normal_search_keeps_result_and_authority(scoped):
 
 def test_terminal_database_phase_cannot_renew_vector_work():
     native = Mock(return_value=[])
-    instance = vector.VectorStore.__new__(vector.VectorStore)
+    instance = vector.VectorStore(initialize_embedder=False)
     instance.embedder = SimpleNamespace(search=native)
     with bounds.accepted_postgres_query_scope(envelope(-0.1)):
         bounds.use_postgres_terminal_budget()
@@ -118,7 +118,7 @@ def test_expiry_between_legacy_native_calls_never_starts_replacement(fallback):
             time.sleep(0.04)
         raise TypeError('older signature')
 
-    instance = vector.VectorStore.__new__(vector.VectorStore)
+    instance = vector.VectorStore(initialize_embedder=False)
     instance.embedder = SimpleNamespace(search=native)
     with bounds.accepted_postgres_query_scope(envelope(0.03)):
         with pytest.raises(AcceptedChatTaskDeadlineExceeded):

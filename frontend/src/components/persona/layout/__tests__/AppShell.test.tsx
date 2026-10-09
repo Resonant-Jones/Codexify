@@ -110,6 +110,8 @@ function setUnauthenticatedAuthState() {
 const uploaderState = vi.hoisted(() => ({
   configs: [] as Array<{
     onImages?: (items: Array<Record<string, unknown>>) => void;
+    projectId?: number | string;
+    disabled?: boolean;
   }>,
 }));
 
@@ -172,6 +174,7 @@ vi.mock("@/hooks/useBreakpoint", () => ({
 
 vi.mock("@/lib/authState", () => ({
   useAuthState: () => authTestState.auth,
+  getAuthState: () => authTestState.auth,
   checkAuthGate: () => authTestState.gateAllowed,
 }));
 
@@ -732,9 +735,38 @@ describe("AppShell logo wordmark color contract", () => {
     expect(documentProjectIds).not.toContain(1);
 
     await waitFor(() => {
-      expect(localStorage.getItem("cfy.generalProjectId")).toBe("1");
-      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("1");
-      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBeNull();
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("7");
+      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("7");
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBe("1");
+    });
+  });
+
+  it("revalidates the default project and fences uploads when the account changes", async () => {
+    setRoutePath("/gallery");
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path !== "/api/projects") return { data: {} };
+      return authTestState.auth.token === "account-b"
+        ? { data: [{ id: 8, name: "General", user_id: "account-b" }] }
+        : { data: [{ id: 7, name: "General", user_id: "account-a" }] };
+    });
+
+    const { rerender } = render(<AppShell />);
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("7");
+      expect(uploaderState.configs.at(-1)?.projectId).toBe(7);
+      expect(uploaderState.configs.at(-1)?.disabled).toBe(false);
+    });
+
+    authTestState.auth = { ready: true, status: "authenticated", token: "account-b" };
+    rerender(<AppShell />);
+
+    expect(uploaderState.configs.at(-1)?.projectId).toBeUndefined();
+    expect(uploaderState.configs.at(-1)?.disabled).toBe(true);
+    await waitFor(() => {
+      expect(mockApi.get.mock.calls.filter(([path]) => path === "/api/projects")).toHaveLength(2);
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("8");
+      expect(uploaderState.configs.at(-1)?.projectId).toBe(8);
+      expect(uploaderState.configs.at(-1)?.disabled).toBe(false);
     });
   });
 
@@ -1298,10 +1330,18 @@ describe("AppShell settings utility trigger", () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);
+    mockApi.get.mockImplementation(async (path: string) =>
+      path === "/api/projects"
+        ? { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] }
+        : { data: {} }
+    );
 
     render(<AppShell />);
 
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBe("1");
+    });
 
     await user.click(screen.getByTestId("guardian-set-project-2"));
     await user.click(screen.getByRole("button", { name: "Documents" }));

@@ -1,4 +1,4 @@
-"""Cancellable HTTP I/O for one accepted local stream's immutable envelope.
+"""Cancellable HTTP I/O for one accepted provider request's immutable envelope.
 
 The synchronous parser waits on native async I/O, not an abandoned blocking
 Requests thread. Each await inherits the same absolute monotonic deadline.

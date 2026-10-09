@@ -1,6 +1,7 @@
 """Actual owned TCP waits, inherited retry limits and DNS child cleanup."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 import socket
 import subprocess
 import threading
@@ -566,6 +567,7 @@ def test_worker_scopes_share_one_wall_and_monotonic_anchor(monkeypatch):
     from guardian.workers import chat_worker
     task=ChatCompletionTask(user_id="local",thread_id=1,task_id="owned",
                             **snapshot(seconds=5).to_dict())
+    snapshot_fields = {key: getattr(task, key) for key in ("accepted_at", "work_deadline_at", "terminal_deadline_at")}
     seen=[]
     def body(_task):
         redis_budget=bounds._budget.get()
@@ -573,6 +575,13 @@ def test_worker_scopes_share_one_wall_and_monotonic_anchor(monkeypatch):
         assert redis_budget.work_end==pg_budget.work_end
         assert redis_budget.terminal_end==pg_budget.terminal_end
         seen.append(True)
+    monkeypatch.setattr(chat_worker, "get_chat_completion_attempt_by_task_id", lambda _db, task_id: {
+        "backend_task_id": task_id, "request_id": task.request_id,
+        "thread_id": task.thread_id, "turn_id": chat_worker._extract_turn_id(task),
+        "deadline_snapshot": snapshot_fields,
+    })
+    monkeypatch.setattr(chat_worker, "observe_chat_completion_attempt_terminal", lambda *args, **kwargs:
+        SimpleNamespace(completed_message_id=None, terminal_event_type=None, terminal_outcome=None))
     monkeypatch.setattr(chat_worker,"_run_chat_task_with_query_budget",body)
     chat_worker._run_chat_task(task)
     assert seen and bounds._budget.get() is None
@@ -716,7 +725,17 @@ def test_supported_sse_held_xread_closes_owned_pool_within_transport_budget(monk
 @pytest.mark.asyncio
 async def test_supported_sse_cancelled_consumer_leaves_no_unbounded_reader(monkeypatch):
     import asyncio
+    from guardian import guardian_api
+    from guardian.core import task_event_access
+    from guardian.core.dependencies import RequestUserScope
     from guardian.guardian_api import stream_task_events
+
+    principal = RequestUserScope(user_id="sse-owner", account_id="sse-owner", multi_user_enabled=True)
+    monkeypatch.setattr(guardian_api, "chatlog_db", SimpleNamespace(
+        get_chat_thread=lambda thread_id: {"id": thread_id, "user_id": "sse-owner"},
+    ))
+    monkeypatch.setattr(task_event_access, "get_chat_completion_attempt_by_task_id",
+        lambda _db, task_id: {"backend_task_id": task_id, "thread_id": 1})
 
     class Request:
         async def is_disconnected(self):
@@ -733,7 +752,7 @@ async def test_supported_sse_cancelled_consumer_leaves_no_unbounded_reader(monke
     with peer(b"XREAD") as (state, arrived, eof):
         factory(monkeypatch, state, retry=Retry(NoBackoff(), 3))
         response = await stream_task_events(Request(), "owned-sse-task", last_id_query="0-0",
-                                            last_event_id_header=None, api_key="test-api-key")
+                                            last_event_id_header=None, principal=principal)
         assert await anext(response.body_iterator) == "retry: 3000\n\n"
         pending = asyncio.create_task(anext(response.body_iterator))
         assert await asyncio.to_thread(arrived.wait, .5)

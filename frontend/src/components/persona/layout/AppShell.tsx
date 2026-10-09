@@ -1,3 +1,5 @@
+import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
+import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
 import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
@@ -34,6 +36,11 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
+import SystemStatusIndicator, {
+  type SystemStatusIssue,
+  type SystemStatusRow,
+  type SystemStatusTone,
+} from "@/components/persona/layout/SystemStatusIndicator";
 import UnifiedDesktopCompositor, { type BrowserPresentation } from "@/components/persona/layout/UnifiedDesktopCompositor";
 import {
   MOBILE_MOTION,
@@ -61,7 +68,7 @@ import {
   RUNTIME_HEALTH_STATUSES,
   type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
-import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { checkAuthGate, getAuthState, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import {
@@ -1569,6 +1576,10 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const generalProjectSessionScope =
+    auth.status === "authenticated"
+      ? `authenticated:${auth.token ?? "local"}`
+      : auth.status;
   const lastGuardianPathRef = useRef<string | null>(
     typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
       ? resolvePathForView("guardian", readRouteThreadId())
@@ -1586,7 +1597,13 @@ export default function AppShell({
       if (typeof window === "undefined") return "validated";
       return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
     });
-  const hasFetchedGeneralProjectRef = React.useRef(false);
+  const lastFetchedGeneralProjectSessionScopeRef = React.useRef<string | null>(null);
+  const [generalProjectValidation, setGeneralProjectValidation] = useState<{
+    sessionScope: string;
+    projectIds: number[];
+  } | null>(null);
+  const generalProjectIsValidatedForCurrentAuth =
+    generalProjectValidation?.sessionScope === generalProjectSessionScope;
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
   const phoneSidebarHydrationAttemptedRef = useRef(false);
@@ -1596,8 +1613,11 @@ export default function AppShell({
   const documentsEntrySeededRef = useRef(false);
   const [documentsScopeReady, setDocumentsScopeReady] = useState(false);
   const guardianProjectFallbackId = useMemo<number | null>(
-    () => (generalProjectIdSource === "storage" ? null : generalProjectId),
-    [generalProjectId, generalProjectIdSource]
+    () =>
+      !generalProjectIsValidatedForCurrentAuth || generalProjectIdSource === "storage"
+        ? null
+        : generalProjectId,
+    [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]
   );
   const seedDocumentsScopeFromGuardian = useCallback(() => {
     if (guardianSidebarSnapshot == null && guardianProjectFallbackId == null) {
@@ -1754,12 +1774,17 @@ export default function AppShell({
     (projectId: string | null) => {
       if (projectId == null) return;
       const normalizedProjectId = Number.parseInt(String(projectId), 10);
-      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectValidation?.projectIds.includes(normalizedProjectId) &&
+        Number.isFinite(normalizedProjectId) &&
+        normalizedProjectId > 0
+      ) {
         setGeneralProjectIdSource("user");
         setGeneralProjectId(normalizedProjectId);
       }
     },
-    []
+    [generalProjectIsValidatedForCurrentAuth, generalProjectValidation]
   );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
@@ -1792,13 +1817,17 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectId != null &&
+        generalProjectIdSource !== "storage"
+      ) {
         window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
       } else {
         window.localStorage.removeItem("cfy.generalProjectIdTrusted");
       }
     } catch {}
-  }, [generalProjectId, generalProjectIdSource]);
+  }, [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1807,7 +1836,7 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    if (hasFetchedGeneralProjectRef.current) {
+    if (lastFetchedGeneralProjectSessionScopeRef.current === generalProjectSessionScope) {
       return () => {
         cancelled = true;
       };
@@ -1817,26 +1846,37 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    hasFetchedGeneralProjectRef.current = true;
+    const requestSessionScope = generalProjectSessionScope;
+    lastFetchedGeneralProjectSessionScopeRef.current = requestSessionScope;
     (async () => {
       try {
         const response = await api.get("/api/projects");
-        if (cancelled) return;
+        const currentAuth = getAuthState();
+        if (
+          cancelled ||
+          currentAuth.status !== "authenticated" ||
+          `authenticated:${currentAuth.token ?? "local"}` !== requestSessionScope
+        ) return;
         const payload = response?.data ?? response;
         const list = Array.isArray(payload)
           ? payload
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        if (list.length > 0) {
-          const defaultProject = findDefaultProjectId(list);
-          const currentProjectValid = hasProjectId(list, generalProjectId);
-          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
-          if (nextProjectId !== generalProjectId) {
-            setGeneralProjectId(nextProjectId);
-          }
-          setGeneralProjectIdSource("validated");
+        const projectIds = list.flatMap((project: unknown) => {
+          if (project == null || typeof project !== "object") return [];
+          const row = project as Record<string, unknown>;
+          const id = Number(row.id ?? row.project_id);
+          return Number.isFinite(id) && id > 0 ? [id] : [];
+        });
+        const defaultProject = findDefaultProjectId(list);
+        const currentProjectValid = hasProjectId(list, generalProjectId);
+        const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+        setGeneralProjectValidation({ sessionScope: requestSessionScope, projectIds });
+        if (nextProjectId !== generalProjectId) {
+          setGeneralProjectId(nextProjectId);
         }
+        setGeneralProjectIdSource("validated");
       } catch (err) {
         if (cancelled) return;
         console.warn("[projects] failed to resolve default project", err);
@@ -1845,7 +1885,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, generalProjectId, startupLocked]);
+  }, [auth, generalProjectId, generalProjectSessionScope, startupLocked]);
   useEffect(() => {
     let cancelled = false;
     if (view !== "documents" || !documentsScopeReady) {
@@ -2578,8 +2618,13 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
-    onImages: (items) =>
+    projectId:
+      generalProjectIsValidatedForCurrentAuth && generalProjectIdSource !== "storage"
+        ? generalProjectId ?? undefined
+        : undefined,
+    disabled: !generalProjectIsValidatedForCurrentAuth,
+    onImages: (items) => {
+      if (getAuthState() !== auth) return;
       setGallery((prev) => {
         const normalizedItems = items
           .map((item: any) => normalizeGalleryItem(item))
@@ -2598,7 +2643,8 @@ export default function AppShell({
           return true;
         });
         return merged;
-      }),
+      });
+    },
     onDocuments: (items) =>
       setDocuments((prev) => [
         ...(items || []).map((item: any, idx: number) => normalizeDoc(item, idx)),
@@ -3075,10 +3121,14 @@ export default function AppShell({
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 
-  const runtimeDegraded =
+  const providerRuntimeDegraded =
     providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED ||
     providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE;
-  const runtimeDiagnosticLines = runtimeDegraded
+  const showRuntimeIssue =
+    (providerRuntimeDegraded ||
+      runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY) &&
+    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
+  const runtimeDiagnosticLines = showRuntimeIssue
     ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
     : [];
   const liveUpdatesDisconnected =
@@ -3087,15 +3137,92 @@ export default function AppShell({
     typeof runtimeHealth.diagnostics.liveEvents.statusUpdatedAt === "number" &&
     now - runtimeHealth.diagnostics.liveEvents.statusUpdatedAt > 45_000;
   const liveUpdateDiagnosticLines =
-    !runtimeDegraded && liveUpdatesDisconnected
+    !showRuntimeIssue && liveUpdatesDisconnected
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
-  const showRuntimeBanner =
-    runtimeDegraded &&
-    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
-  const runtimeLastHealthy = runtimeHealth.lastSuccessAt
-    ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
-    : "never";
+  const runtimeIssueGuidance = (() => {
+    switch (runtimeFailureKind) {
+      case RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE:
+        return "Guardian cannot be reached. Check the Guardian service or the node hosting it, then try again.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY:
+        return "Codexify can reach Guardian, but its chat health check is failing. If chat requests are also failing, inspect or restart Guardian.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY:
+        return "Guardian is reachable, but the configured inference provider is not ready. Codexify will keep checking while you review the provider if needed.";
+      case RUNTIME_HEALTH_FAILURE_KINDS.STALE:
+        return "Health data is stale. Codexify will keep checking automatically.";
+      default:
+        return "Codexify detected a runtime problem. Technical details below identify the failing check.";
+    }
+  })();
+  const systemStatusLevel: SystemStatusTone =
+    runtimeHealth.diagnostics.hydrationState === "pending" ||
+    runtimeHealth.backendReachable == null
+      ? "checking"
+      : showRuntimeIssue
+        ? providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE ||
+          runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+          ? "critical"
+          : "attention"
+        : liveUpdatesDisconnected
+          ? "attention"
+          : "healthy";
+  const systemStatusIssue: SystemStatusIssue | null = showRuntimeIssue
+    ? runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY
+      ? {
+          title: "Guardian health degraded",
+          detail:
+            "Guardian is reachable, but the chat health check is reporting a failure.",
+          guidance: runtimeIssueGuidance,
+        }
+      : {
+          title: runtimePresentation.title,
+          detail: runtimeDetail
+            ? `${runtimePresentation.detail} Detail: ${runtimeDetail}`
+            : runtimePresentation.detail,
+          guidance: runtimeIssueGuidance,
+        }
+    : liveUpdatesDisconnected
+      ? {
+          title: "Live updates unavailable",
+          detail:
+            "Guardian is healthy, but the live event stream has not stayed connected.",
+          guidance:
+            "Nothing you need to fix. Codexify will keep retrying automatically.",
+          badge: "No action required",
+        }
+      : null;
+  const guardianStatusRow: SystemStatusRow =
+    runtimeHealth.backendReachable == null
+      ? { label: "Guardian", status: "Checking", tone: "checking" }
+      : runtimeHealth.backendReachable && runtimeHealth.chatHealthy !== false
+        ? { label: "Guardian", status: "Healthy", tone: "healthy" }
+        : {
+            label: "Guardian",
+            status: "Needs attention",
+            tone: runtimeHealth.backendReachable === false ? "critical" : "attention",
+          };
+  const providerStatusRow: SystemStatusRow =
+    runtimeHealth.diagnostics.hydrationState !== "ready" ||
+    runtimeHealth.llmHealthy == null ||
+    runtimeHealth.backendReachable == null
+      ? { label: "Providers", status: "Checking", tone: "checking" }
+      : providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE
+        ? { label: "Providers", status: "Offline", tone: "critical" }
+        : providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED
+          ? { label: "Providers", status: "Degraded", tone: "attention" }
+          : { label: "Providers", status: "Healthy", tone: "healthy" };
+  const liveUpdatesStatusRow: SystemStatusRow =
+    runtimeHealth.diagnostics.liveEvents.connectionState ===
+    LIVE_EVENT_CONNECTION_STATES.CONNECTED
+      ? { label: "Live updates", status: "Healthy", tone: "healthy" }
+      : liveUpdatesDisconnected
+        ? { label: "Live updates", status: "Disconnected", tone: "attention" }
+        : { label: "Live updates", status: "Reconnecting", tone: "checking" };
+  const systemStatusDiagnostics = showRuntimeIssue
+    ? runtimeDiagnosticLines
+    : liveUpdatesDisconnected
+      ? liveUpdateDiagnosticLines
+      : [];
   const workspaceAffordanceState = getWorkspaceAffordanceState({
     isPhoneShell,
     isOpen: workspaceDrawerOpen,
@@ -3219,8 +3346,18 @@ export default function AppShell({
       {documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
     </PhonePressButton>
     ) : null;
+  const systemStatusUtilityAction = (
+    <SystemStatusIndicator
+      level={systemStatusLevel}
+      issue={systemStatusIssue}
+      rows={[guardianStatusRow, providerStatusRow, liveUpdatesStatusRow]}
+      diagnostics={systemStatusDiagnostics}
+      isPhoneShell={isPhoneShell}
+    />
+  );
   const desktopHeaderUtilityActions = (
     <>
+      {systemStatusUtilityAction}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
       {contactsUtilityAction}
@@ -3231,6 +3368,7 @@ export default function AppShell({
   );
   const mobileHeaderUtilityActions = (
     <>
+      {systemStatusUtilityAction}
       {workspaceDrawerToggle}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
@@ -3331,98 +3469,15 @@ export default function AppShell({
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
   ) : null;
-  const runtimeStatusNotice = showRuntimeBanner ? (
-    <div className="relative z-10 w-full mt-3">
-      <div
-        className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-        style={{
-          borderColor: "var(--panel-border)",
-          background:
-            "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
-          color: "var(--text)",
-        }}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-semibold tracking-wide">
-            {runtimePresentation.title}
-          </span>
-          <span className="opacity-80">failure: {runtimeFailureKind}</span>
-          <span className="opacity-70">
-            last healthy: {runtimeLastHealthy}
-          </span>
-        </div>
-        {runtimeDetail ? (
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            {runtimePresentation.detail} — detail: {runtimeDetail}
-          </div>
-        ) : (
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            {runtimePresentation.detail}
-          </div>
-        )}
-        {runtimeDiagnosticLines.length > 0 ? (
-          <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-            <summary className="cursor-pointer select-none opacity-80">
-              Technical details
-            </summary>
-            <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-              {runtimeDiagnosticLines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </div>
-          </details>
-        ) : null}
-      </div>
-    </div>
-  ) : null;
-  const liveUpdatesNotice =
-    liveUpdatesDisconnected && !runtimeDegraded ? (
-      <div className="relative z-10 w-full mt-3">
-        <div
-          className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-          style={{
-            borderColor: "var(--panel-border)",
-            background:
-              "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-            color: "var(--text)",
-          }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-semibold tracking-wide">
-              Live updates disconnected
-            </span>
-            <span className="opacity-80">
-              state: {runtimeHealth.diagnostics.liveEvents.connectionState}
-            </span>
-          </div>
-          <div
-            className="text-[11px] opacity-75"
-            style={{ color: "var(--muted)" }}
-          >
-            Guardian is healthy, but the live event stream has not stayed
-            connected.
-          </div>
-          {liveUpdateDiagnosticLines.length > 0 ? (
-            <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-              <summary className="cursor-pointer select-none opacity-80">
-                Technical details
-              </summary>
-              <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-                {liveUpdateDiagnosticLines.map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </div>
-      </div>
-    ) : null;
+  const coreSurfacesAvailable = runtimeHealth.backendReachable === true && runtimeHealth.chatHealthy === true;
+  const personalSetupNotice = <PersonalSetupCard readiness={{
+    version: BOOTSTRAP_CONTRACT_VERSION,
+    workflow: coreSurfacesAvailable ? BootstrapWorkflow.COMPLETE : BootstrapWorkflow.VERIFYING,
+    coreReady: coreSurfacesAvailable,
+    inferenceReady: coreSurfacesAvailable && runtimeHealth.llmHealthy === true,
+    humanAction: coreSurfacesAvailable && runtimeHealth.llmHealthy !== true
+      ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
+  }} onOpenSettings={openSettings} />;
   const guardianMobileFramePrelude = isNarrowGuardianFrameShell ? (
     <div
       data-testid="guardian-mobile-frame-prelude"
@@ -3439,8 +3494,7 @@ export default function AppShell({
       >
         {mobileHeaderUtilityActions}
       </div>
-      {runtimeStatusNotice}
-      {liveUpdatesNotice}
+      {personalSetupNotice}
     </div>
   ) : null;
 
@@ -3734,8 +3788,7 @@ export default function AppShell({
         </div>
       )}
 
-      {!isPhoneFrameFirstShell && runtimeStatusNotice}
-      {!isPhoneFrameFirstShell && liveUpdatesNotice}
+      {!isPhoneFrameFirstShell && personalSetupNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area

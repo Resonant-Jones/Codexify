@@ -29,10 +29,9 @@ from guardian.core.chat_postgres_deadline import (
 from guardian.db.models import UploadedDocument
 from guardian.queue.document_embed_queue import (
     QUEUE_NAME,
-    dequeue_document_embed,
+    dequeue_document_embed_bounded as dequeue_document_embed,
 )
 from guardian.protocol_tokens import EmbeddingLifecycleStatus
-from guardian.queue.redis_queue import redis_operation_scope
 from guardian.services.document_chunking import chunk_document_text
 from guardian.vector.store import VectorStore
 
@@ -131,7 +130,8 @@ def _embedding_child(connection, factory) -> None:
             try:
                 if store is None:
                     store = factory()
-                _embed_document(doc, lambda: store)
+                if doc != "initialize":
+                    _embed_document(doc, lambda: store)
                 connection.send((True, None))
             except BaseException as exc:
                 connection.send((False, (str(exc) or type(exc).__name__)[:1024]))
@@ -172,7 +172,10 @@ class _BoundedEmbedding:
         self.connection.close()
         self.process = self.connection = None
 
-    def __call__(self, doc: dict[str, Any]) -> None:
+    def initialize(self) -> None:
+        self("initialize")
+
+    def __call__(self, doc: dict[str, Any] | str) -> None:
         try:
             self._run(doc)
         except TimeoutError:
@@ -182,7 +185,7 @@ class _BoundedEmbedding:
             self.close()
             raise
 
-    def _run(self, doc: dict[str, Any]) -> None:
+    def _run(self, doc: dict[str, Any] | str) -> None:
         deadline = time.monotonic() + self.timeout
         if self.process is None:
             context = multiprocessing.get_context("spawn")
@@ -434,18 +437,32 @@ def run_forever() -> None:
         QUEUE_NAME, timeout, DOCUMENT_EMBED_FINALIZATION_MARGIN_SECONDS,
     )
     try:
+        required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        if required:
+            try:
+                execution.initialize()
+            except Exception as exc:
+                logger.error(
+                    "[document-embed] %s",
+                    json.dumps({
+                        "event": "document_embed_worker_boot_failure",
+                        "queue": QUEUE_NAME,
+                        "error": str(exc),
+                    }, sort_keys=True),
+                )
+                raise SystemExit(1) from exc
         while not _shutdown_requested:
             try:
-                with redis_operation_scope(2):
-                    payload = dequeue_document_embed(block=False)
+                payload = dequeue_document_embed(timeout=1)
             except RedisTimeoutError:
                 continue
             except Exception as exc:
                 logger.warning("[document-embed] dequeue error: %s", type(exc).__name__)
-                time.sleep(0.05)
+                time.sleep(1.0)
                 continue
             if not payload:
-                time.sleep(0.05)
                 continue
             # A dequeue already in flight when the signal arrives is still
             # owned. Drain this job; never dequeue another after the signal.

@@ -91,7 +91,7 @@ _SAFE_FIELDS = {
 _UNSAFE_FIELD_RE = re.compile(
     r"(?i)(?:prompt|content|output|response|body|payload|detail|error|err|"
     r"exception|exc|header|authorization|bearer|cookie|token|secret|key|"
-    r"argument|args|kwargs|origin|candidate|result|trace|message)"
+    r"argument|args|kwargs|origin|candidate|result|trace|message|account.session|jwt.assertion|handoff)"
 )
 _PLACEHOLDER_RE = re.compile(
     r"%(?:\([^)]+\))?[#0\- +]?\d*(?:\.\d+)?[diouxXeEfFgGcrsa%]"
@@ -106,7 +106,7 @@ _QUERY_RE = re.compile(
 )
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?secret|"
-    r"password|client[_-]?secret)\s*[=:]\s*)[^\s,;]+"
+    r"password|client[_-]?secret|x-guardian-account-session|cf-access-jwt-assertion)\s*[=:]\s*)[^\s,;]+"
 )
 
 _LOG_RECORD_STANDARD_FIELDS = set(
@@ -119,9 +119,7 @@ _make_record_installed = False
 _original_make_record = logging.Logger.makeRecord
 
 
-def _field_name(
-    template: str, match_start: int, previous_end: int
-) -> str | None:
+def _field_name(template: str, match_start: int, previous_end: int) -> str | None:
     prefix = template[previous_end:match_start]
     match = _FIELD_RE.search(prefix)
     return match.group(1).lower() if match else None
@@ -152,9 +150,7 @@ def _safe_url(value: str) -> str:
         port = f":{parsed.port}" if parsed.port is not None else ""
     except ValueError:
         return _REDACTED
-    return urlunsplit((parsed.scheme, f"{host}{port}", parsed.path, "", ""))[
-        :256
-    ]
+    return urlunsplit((parsed.scheme, f"{host}{port}", parsed.path, "", ""))[:256]
 
 
 def _failure_class(exception: BaseException) -> str:
@@ -192,9 +188,7 @@ def _redacted_summary(value: Any) -> str:
         size = len(value)
     elif isinstance(value, Mapping):
         size = len(value)
-    elif isinstance(value, Sequence) and not isinstance(
-        value, (str, bytes, bytearray)
-    ):
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         size = len(value)
     else:
         size = None
@@ -243,9 +237,7 @@ def _sanitize_value(value: Any, field: str | None = None) -> Any:
             value, (str, bytes, bytearray)
         ):
             if normalized_field == "content_part_counts":
-                return [int(item) for item in value if isinstance(item, int)][
-                    :32
-                ]
+                return [int(item) for item in value if isinstance(item, int)][:32]
             return {"items": len(value)}
         return str(value)[:128]
     if _is_unsafe_field(normalized_field):
@@ -268,8 +260,7 @@ def _sanitize_value(value: Any, field: str | None = None) -> Any:
 def _sanitize_args(template: Any, args: Any) -> Any:
     if isinstance(args, Mapping):
         return {
-            str(key): _sanitize_value(value, str(key))
-            for key, value in args.items()
+            str(key): _sanitize_value(value, str(key)) for key, value in args.items()
         }
     if not isinstance(args, tuple):
         return _sanitize_value(args)
@@ -313,9 +304,7 @@ def _sanitize_freeform_message(message: Any) -> str:
         "bearer ",
         "cookie:",
     )
-    if len(scrubbed) > 200 or any(
-        marker in lowered for marker in content_markers
-    ):
+    if len(scrubbed) > 200 or any(marker in lowered for marker in content_markers):
         return f"log_event={_REDACTED} chars={len(message)}"
     # A free-form message can itself be a prompt/result.  Preserve only the
     # conventional static event forms; dynamic callers must use arguments.
@@ -386,9 +375,7 @@ def _safe_make_record(
 ) -> logging.LogRecord:
     # Logger.makeRecord applies extra fields after invoking the record factory.
     # Sanitize again here so content or credential fields cannot bypass it.
-    return sanitize_record(
-        _original_make_record(logger, *args, **kwargs), force=True
-    )
+    return sanitize_record(_original_make_record(logger, *args, **kwargs), force=True)
 
 
 def install_safe_logging() -> None:

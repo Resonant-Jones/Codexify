@@ -24,6 +24,7 @@ from guardian.account_observability.tokens import (
     ATTRIBUTION_COOKIE_NAME,
     AccountObservabilityInviteAuditAction,
 )
+from guardian.core import scout_qualification as qualification
 from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import resolve_session_user_id
@@ -34,10 +35,7 @@ from guardian.core.preview_access import (
     role_for_preview_email,
 )
 from guardian.core.request_correlation import normalize_request_id
-from guardian.core.session_store import (
-    DEFAULT_SESSION_TTL_SECONDS,
-    get_session_store,
-)
+from guardian.core.session_store import DEFAULT_SESSION_TTL_SECONDS, get_session_store
 from guardian.db.models import User
 
 logger = logging.getLogger(__name__)
@@ -99,9 +97,7 @@ def _get_user_by_email(session: Any, email: str) -> User | None:
     return session.scalar(select(User).where(User.email == email))
 
 
-def _get_user_by_login_identifier(
-    session: Any, identifier: str
-) -> User | None:
+def _get_user_by_login_identifier(session: Any, identifier: str) -> User | None:
     """Resolve a login identifier without changing canonical ownership.
 
     Username lookup remains first for backward compatibility. When the
@@ -175,8 +171,9 @@ def _record_registration_attribution_audit_best_effort(
 def register_user(
     body: AuthRegisterRequest,
     request: Request,
-    attribution_guest_id: str
-    | None = Cookie(default=None, alias=ATTRIBUTION_COOKIE_NAME),
+    attribution_guest_id: str | None = Cookie(
+        default=None, alias=ATTRIBUTION_COOKIE_NAME
+    ),
 ) -> dict[str, Any]:
     if is_private_preview():
         # Preview users are provisioned by the operator, never self-registered.
@@ -237,7 +234,22 @@ def register_user(
 
 @router.post("/login")
 @api_router.post("/login")
-def login_user(body: AuthLoginRequest) -> dict[str, Any]:
+def login_user(body: AuthLoginRequest, request: Request = None) -> dict[str, Any]:
+    identity = qualification.request_attempt(request)
+    qualification.observe(identity, "account_login", "waiting")
+    try:
+        result = _login_user(body)
+    except HTTPException as exc:
+        qualification.observe(identity, "account_login", "failed", exc.status_code)
+        raise
+    except Exception:
+        qualification.observe(identity, "account_login", "failed", 503)
+        raise
+    qualification.observe(identity, "account_login", "passed", 200)
+    return result
+
+
+def _login_user(body: AuthLoginRequest) -> dict[str, Any]:
     username = _normalize_username(body.username)
     password = _normalize_password(body.password)
 
@@ -246,9 +258,7 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
         username = normalize_preview_email(username)
         preview_role = role_for_preview_email(username)
         if not username or preview_role is None:
-            raise HTTPException(
-                status_code=401, detail="Invalid username or password"
-            )
+            raise HTTPException(status_code=401, detail="Invalid username or password")
 
     db = _auth_db()
     with db.get_session() as session:
@@ -283,9 +293,7 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
 
 @router.post("/activate")
 @api_router.post("/activate")
-def activate_user(
-    body: AuthActivateRequest, request: Request
-) -> dict[str, Any]:
+def activate_user(body: AuthActivateRequest, request: Request) -> dict[str, Any]:
     """Redeem a one-time capability without issuing an authenticated session."""
 
     password = _normalize_password(body.password)

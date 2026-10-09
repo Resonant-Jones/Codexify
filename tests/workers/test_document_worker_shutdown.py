@@ -400,3 +400,24 @@ def test_failed_document_is_not_silently_treated_as_ready(tmp_path):
     assert called == ["active"]
     assert _document_state(tmp_path)[0] == ("failed", "explicitly_queued_retry_failed")
     engine.dispose()
+
+
+class _HungStoreInitialization:
+    def __init__(self):
+        # No document has been admitted; model initialization itself is stuck.
+        time.sleep(60)
+
+
+def test_required_model_initialization_is_physically_bounded():
+    from guardian.workers import document_embed_worker as worker
+
+    execution = worker._BoundedEmbedding(1, _HungStoreInitialization)
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="document_embed_execution_bound_exceeded"):
+            execution.initialize()
+        assert time.monotonic() - started < 6
+        assert execution.process is None
+        assert execution.connection is None
+    finally:
+        execution.close()

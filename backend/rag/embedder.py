@@ -399,6 +399,12 @@ class LocalSemanticEmbedder:
 
     def _recover_local_model_once(self, initial_exc: Exception):
         model_name = self.model_name or "UNKNOWN"
+        if any(os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+               for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")):
+            raise RuntimeError(
+                f"LOCAL_EMBED_MODEL '{model_name}' is unavailable in local cache. "
+                "Model download requires explicit provisioning; offline configuration was preserved."
+            ) from initial_exc
         logger.info(
             "[embedder] local model=%s missing from cache; attempting one-time auto-download",
             model_name,

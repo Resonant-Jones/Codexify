@@ -27,6 +27,12 @@ def _parse_sse_events(body: str) -> list[tuple[str, dict[str, object]]]:
 
 def test_task_event_stream_surfaces_lifecycle_states(test_client, monkeypatch):
     task_id = "task-lifecycle-123"
+    monkeypatch.setattr(
+        "guardian.core.task_event_access.get_chat_completion_attempt_by_task_id",
+        lambda _db, backend_task_id: (
+            {"thread_id": 1} if backend_task_id == task_id else None
+        ),
+    )
     events = [
         (
             "1-0",

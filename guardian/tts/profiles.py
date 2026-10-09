@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from guardian.db.models import TTSVoiceProfile
+from guardian.tts.backends import registered_tts_backend_ids, resolve_tts_backend
 from guardian.tts.contracts import (
     TTS_BACKEND_LOCAL_MOCK,
     TTS_BACKEND_LOCAL_OPENAI_COMPATIBLE,
@@ -222,8 +223,9 @@ def profile_to_render_kwargs(profile: TTSVoiceProfile) -> dict[str, Any]:
 def get_tts_backend_control_schemas(
     active_backend_id: str = TTS_BACKEND_QWEN3,
 ) -> list[dict[str, Any]]:
-    active = _normalize_backend_id(active_backend_id)
-    return [
+    # Catalog observation must not grant profile persistence or execution.
+    active = str(active_backend_id or "").strip().lower()
+    schemas = [
         _backend_schema(
             backend_id=TTS_BACKEND_QWEN3,
             display_name="Qwen3-TTS",
@@ -243,6 +245,20 @@ def get_tts_backend_control_schemas(
             controls=[],
         ),
     ]
+    by_id = {schema["backend_id"]: schema for schema in schemas}
+    for backend_id in registered_tts_backend_ids():
+        info = resolve_tts_backend(backend_id).info()
+        schema = by_id.get(backend_id)
+        if schema is None:
+            schema = _backend_schema(
+                backend_id=backend_id,
+                display_name=info.display_name,
+                active=active == backend_id,
+                controls=[],
+            )
+            schemas.append(schema)
+        schema.update(info.to_dict())
+    return schemas
 
 
 def _backend_schema(

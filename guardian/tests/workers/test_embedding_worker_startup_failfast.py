@@ -21,6 +21,7 @@ def test_chat_embedding_worker_fails_fast_on_vector_store_init(monkeypatch):
 
 
 def test_document_embed_worker_fails_fast_on_embedder_boot(monkeypatch):
+    monkeypatch.setenv("LOCAL_EMBEDDINGS_REQUIRED", "1")
     import guardian.runtime.embed.embedder as runtime_embed
 
     class BoomEmbedder:
