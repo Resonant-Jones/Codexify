@@ -127,7 +127,9 @@ start_stack() {
         sleep 1
       done
 
-      docker buildx bake --allow=network.host -f "$bake_file"
+      # A plain progress renderer must be selected on Buildx itself: the
+      # BUILDKIT_PROGRESS env var does not control Bake's console handling.
+      docker buildx bake --progress=plain --allow=network.host -f "$bake_file"
     )
     compose up -d --no-build
   else
