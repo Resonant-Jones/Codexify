@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-06
+2026-10-09
 
 ## Interpretation rule
 
@@ -53,7 +53,7 @@ This file is authoritative for:
 - Run the complete supported-Compose qualification on current `main`, including exact-model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
-- Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
+- Complete a fresh isolated natural import-to-recall run through provider context, answer persistence, and negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
 - Reconcile the divergent local `main` and `origin/main` refs before treating local artifacts as published state.
 
