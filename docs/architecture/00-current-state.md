@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-06
+2026-10-08
 
 ## Interpretation rule
 
@@ -22,6 +22,7 @@ This file is authoritative for:
 
 ## What changed recently
 
+- The [2026-10-08 exact-model reconciliation](./proofs/supported-compose/2026-10-08-explicit-model-requalification.md) passed all 23 focused tests at remote-main `5c6e2ca7`; the historical worker/test fixture contradiction was already corrected by `20bf69b88`. Current-tip live rejection and subsequent persisted chat remain unqualified: resource preflight stopped before starting an isolated stack. The exact-model gate and full supported-Compose qualification remain `HOLD`.
 - Merged consent-based same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
 - Persisted authenticated account-intake provenance for coding runs so operator-created metadata cannot grant account snapshot access.
 - Merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority; agent/coding uses dedicated readback and other families move or quarantine.
@@ -42,7 +43,7 @@ This file is authoritative for:
 
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
-- Do not infer exact unavailable-model rejection: the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
+- Do not infer current-tip live unavailable-model rejection from the passing focused tests. Earlier bounded repair/runtime receipts demonstrated rejection at their evaluated tips, while the latest complete Compose qualification remains `HOLD`; the 2026-10-08 run stopped at resource preflight.
 - Do not treat focused auth tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
 - Do not infer cross-node messaging, federation, or autonomous coding-worker support from the merged contracts or implementation slices.
@@ -51,7 +52,7 @@ This file is authoritative for:
 ## Active blockers
 
 - Run the complete supported-Compose qualification on current `main`, including exact-model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
-- Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
+- Requalify explicit-model rejection and subsequent persisted ordinary chat live on the frozen current tip after safe isolated runtime capacity is available; the historical worker/test contradiction is reconciled by the 2026-10-08 focused tests.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
 - Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on their intended live paths.
@@ -60,7 +61,7 @@ This file is authoritative for:
 ## This week's priorities
 
 1. Freeze current `main` and run the full supported-Compose proof bundle.
-2. Close the explicit-model rejection contradiction before provider execution.
+2. Complete live exact-model rejection and subsequent ordinary-chat proof on the frozen tip; preserve the passing no-substitution behavior.
 3. Repair and reprove browser new-thread transcript projection.
 4. Prove uninterrupted account import through retrieval, answer persistence, and scope isolation.
 5. Requalify only the Preview and ingress surfaces that have an explicit release claim.
