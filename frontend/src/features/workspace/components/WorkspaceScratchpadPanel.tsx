@@ -13,6 +13,11 @@ type WorkspaceScratchpadPanelProps = {
   onMoveToComposer?: (text: string) => void;
 };
 
+type SaveSnapshot = {
+  content: string;
+  threadIdentity?: string | number | null;
+};
+
 async function copyTextToClipboard(text: string): Promise<boolean> {
   if (!text) return false;
 
@@ -62,7 +67,9 @@ export default function WorkspaceScratchpadPanel({
   const textareaId = React.useId();
   const statusId = `${textareaId}-status`;
   const [statusMessage, setStatusMessage] = React.useState("");
-  const [saveSnapshot, setSaveSnapshot] = React.useState<string | null>(null);
+  const [saveSnapshot, setSaveSnapshot] = React.useState<SaveSnapshot | null>(
+    null
+  );
   const saveTriggerRef = React.useRef<HTMLButtonElement>(null);
   const hasContent = text.length > 0;
   const scratchpadPlaceholder =
@@ -90,20 +97,23 @@ export default function WorkspaceScratchpadPanel({
   }, []);
 
   const handleSave = React.useCallback(async (title: string, format: NoteFormat) => {
-    const threadId = Number(threadIdentity);
+    if (!saveSnapshot) {
+      throw new Error("Open the Save dialog before saving this Note.");
+    }
+    const threadId = Number(saveSnapshot.threadIdentity);
     if (!Number.isSafeInteger(threadId) || threadId <= 0) {
       throw new Error("Select a saved thread before saving this Note.");
     }
     const response = await api.post<{ filename: string }>("/documents/notes", {
       thread_id: threadId,
       title,
-      content: saveSnapshot,
+      content: saveSnapshot.content,
       format,
     });
     rememberNoteFormat(format);
     setStatusMessage(`Saved ${response.data.filename} to this thread and project.`);
     closeSaveModal();
-  }, [closeSaveModal, saveSnapshot, threadIdentity]);
+  }, [closeSaveModal, saveSnapshot]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -145,7 +155,7 @@ export default function WorkspaceScratchpadPanel({
           className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-semibold disabled:opacity-35"
           style={{ color: "var(--text-on-accent)", background: "var(--accent)" }}
           disabled={!text.trim()}
-          onClick={() => setSaveSnapshot(text)}
+          onClick={() => setSaveSnapshot({ content: text, threadIdentity })}
         >
           Save
         </button>
@@ -200,7 +210,7 @@ export default function WorkspaceScratchpadPanel({
       </div>
       {saveSnapshot !== null && (
         <WorkspaceNoteSaveModal
-          content={saveSnapshot}
+          content={saveSnapshot.content}
           onClose={closeSaveModal}
           onSave={handleSave}
         />

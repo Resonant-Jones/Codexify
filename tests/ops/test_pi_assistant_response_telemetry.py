@@ -239,6 +239,9 @@ import pytest  # noqa: E402  (kept near the pytest tests for readability)
 
 
 WRAPPER_SOURCE = (WORKTREE / "codex_runner" / "src" / "agent-wrapper.js").read_text()
+RUN_AGENT_SOURCE = WRAPPER_SOURCE.split("async function runAgent()", 1)[1].split(
+    "function buildPrompt", 1
+)[0]
 
 
 def test_wrapper_imports_create_tool_telemetry() -> None:
@@ -270,30 +273,44 @@ def test_wrapper_does_not_own_six_field_accumulator_literal() -> None:
 
 
 def test_wrapper_uses_create_tool_telemetry_call() -> None:
-    """The wrapper must call ``createToolTelemetry()`` to build its
-    accumulator."""
-    assert "createToolTelemetry()" in WRAPPER_SOURCE, (
-        "wrapper does not call createToolTelemetry()"
+    """The live run path must build its accumulator with the helper.
+
+    Scoping this check to ``runAgent`` prevents the deterministic test mode
+    from satisfying the live-wrapper contract by itself.
+    """
+    assert "const toolTelemetry = createToolTelemetry();" in RUN_AGENT_SOURCE, (
+        "live runAgent path does not call createToolTelemetry()"
     )
 
 
 def test_wrapper_wires_assistant_event_observer() -> None:
     """The wrapper must call ``observeAssistantMessageEvent`` inside
     its session subscribe path, independently of OPTIONS.verbose."""
-    assert "observeAssistantMessageEvent(toolTelemetry, event)" in WRAPPER_SOURCE, (
-        "wrapper does not call observeAssistantMessageEvent on each event"
+    subscribe_source = RUN_AGENT_SOURCE.split("session.subscribe((event) => {", 1)[1].split(
+        "\n\t});", 1
+    )[0]
+    observer_call = "observeAssistantMessageEvent(toolTelemetry, event);"
+    assert observer_call in subscribe_source, (
+        "live runAgent subscription does not observe each assistant event"
     )
-    assert WRAPPER_SOURCE.count("observeAssistantMessageEvent(") >= 1
+    assert subscribe_source.index(observer_call) < subscribe_source.index(
+        "if (OPTIONS.verbose)"
+    ), "assistant event telemetry must not depend on verbose logging"
 
 
 def test_wrapper_wires_final_assistant_observer() -> None:
     """The wrapper must call ``observeFinalAssistantMessages`` after
     successful prompt.  No manual independent final assistant scan
     may remain."""
-    assert (
-        "observeFinalAssistantMessages(toolTelemetry, session)"
-        in WRAPPER_SOURCE
-    ), "wrapper does not call observeFinalAssistantMessages"
+    prompt_index = RUN_AGENT_SOURCE.index("await session.prompt(fullPrompt);")
+    observer_index = RUN_AGENT_SOURCE.index(
+        "observeFinalAssistantMessages(toolTelemetry, session);"
+    )
+    success_output_index = RUN_AGENT_SOURCE.index("// Print final output")
+    assert prompt_index < observer_index < success_output_index, (
+        "live runAgent path must observe final assistant messages after a "
+        "successful prompt and before serializing the authorized result"
+    )
 
 
 def test_wrapper_does_not_run_manual_assistant_scan() -> None:
