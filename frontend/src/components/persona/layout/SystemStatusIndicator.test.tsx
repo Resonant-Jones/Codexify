@@ -108,4 +108,16 @@ describe("SystemStatusIndicator overlay", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("system-status-panel")).toBeNull();
   });
+  it.each([50, 375])("keeps a phone panel within both viewport margins for anchor right %s", async (right) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    render(<SystemStatusIndicator level="healthy" issue={null} rows={ROWS} isPhoneShell />);
+    vi.spyOn(screen.getByTestId("system-status-control"), "getBoundingClientRect")
+      .mockReturnValue(anchorRect({ right, left: right - 36 }));
+    fireEvent.click(screen.getByTestId("system-status-toggle"));
+    const panel = screen.getByTestId("system-status-panel");
+    await waitFor(() => expect(panel.style.right).toBe("16px"));
+    const panelWidth = 375 - 32;
+    expect(375 - Number.parseFloat(panel.style.right) - panelWidth).toBe(16);
+  });
+
 });

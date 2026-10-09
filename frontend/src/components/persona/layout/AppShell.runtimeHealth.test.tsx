@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -474,6 +474,22 @@ describe("AppShell system status indicator", () => {
     expect(
       screen.getByText(/Everything is working normally/i)
     ).toBeInTheDocument();
+  });
+
+  it.each([
+    { hydration: "ready", backend: true, llm: null },
+    { hydration: "failed", backend: null, llm: null },
+    { hydration: "ready", backend: null, llm: true },
+  ] as const)("keeps Providers checking without health observations: %j", ({ hydration, backend, llm }) => {
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
+    runtimeHealthState.diagnostics.hydrationState = hydration;
+    runtimeHealthState.backendReachable = backend;
+    runtimeHealthState.llmHealthy = llm;
+    render(<AppShell />);
+    fireEvent.click(screen.getByTestId("system-status-toggle"));
+    const providerRow = screen.getByText("Providers").parentElement!;
+    expect(within(providerRow).getByText("Checking")).toBeInTheDocument();
+    expect(within(providerRow).queryByText("Healthy")).toBeNull();
   });
 
   it("surfaces an unreachable Guardian as a critical status without a persistent banner", () => {

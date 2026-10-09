@@ -1,3 +1,5 @@
+import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
+import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
 import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
@@ -3208,7 +3210,9 @@ export default function AppShell({
             tone: runtimeHealth.backendReachable === false ? "critical" : "attention",
           };
   const providerStatusRow: SystemStatusRow =
-    runtimeHealth.diagnostics.hydrationState === "pending"
+    runtimeHealth.diagnostics.hydrationState !== "ready" ||
+    runtimeHealth.llmHealthy == null ||
+    runtimeHealth.backendReachable == null
       ? { label: "Providers", status: "Checking", tone: "checking" }
       : providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE
         ? { label: "Providers", status: "Offline", tone: "critical" }
@@ -3473,6 +3477,15 @@ export default function AppShell({
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
   ) : null;
+  const coreSurfacesAvailable = runtimeHealth.backendReachable === true && runtimeHealth.chatHealthy === true;
+  const personalSetupNotice = <PersonalSetupCard readiness={{
+    version: BOOTSTRAP_CONTRACT_VERSION,
+    workflow: coreSurfacesAvailable ? BootstrapWorkflow.COMPLETE : BootstrapWorkflow.VERIFYING,
+    coreReady: coreSurfacesAvailable,
+    inferenceReady: coreSurfacesAvailable && runtimeHealth.llmHealthy === true,
+    humanAction: coreSurfacesAvailable && runtimeHealth.llmHealthy !== true
+      ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
+  }} onOpenSettings={openSettings} />;
   const guardianMobileFramePrelude = isNarrowGuardianFrameShell ? (
     <div
       data-testid="guardian-mobile-frame-prelude"
@@ -3489,6 +3502,7 @@ export default function AppShell({
       >
         {mobileHeaderUtilityActions}
       </div>
+      {personalSetupNotice}
     </div>
   ) : null;
 
@@ -3781,6 +3795,8 @@ export default function AppShell({
         </div>
         </div>
       )}
+
+      {!isPhoneFrameFirstShell && personalSetupNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area

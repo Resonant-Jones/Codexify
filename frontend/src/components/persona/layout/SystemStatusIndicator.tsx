@@ -54,8 +54,13 @@ function readOverlayThemeVars(anchor: HTMLElement): React.CSSProperties {
   } as React.CSSProperties;
 }
 
-function measureOverlayPosition(anchor: HTMLElement): OverlayPosition {
+function measureOverlayPosition(anchor: HTMLElement, isPhoneShell: boolean): OverlayPosition {
   const rect = anchor.getBoundingClientRect();
+  const rootFontSize = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+  const panelWidth = Math.min(
+    (isPhoneShell ? 23 : 24) * rootFontSize,
+    window.innerWidth - 2 * OVERLAY_VIEWPORT_MARGIN_PX
+  );
   const top = Math.min(
     rect.bottom + OVERLAY_GAP_PX,
     window.innerHeight - OVERLAY_VIEWPORT_MARGIN_PX
@@ -64,7 +69,10 @@ function measureOverlayPosition(anchor: HTMLElement): OverlayPosition {
     top,
     right: Math.max(
       OVERLAY_VIEWPORT_MARGIN_PX,
-      window.innerWidth - rect.right
+      Math.min(
+        window.innerWidth - rect.right,
+        window.innerWidth - panelWidth - OVERLAY_VIEWPORT_MARGIN_PX
+      )
     ),
     maxHeight: Math.max(
       0,
@@ -120,7 +128,7 @@ export default function SystemStatusIndicator({
     const updateOverlayPosition = () => {
       const anchor = rootRef.current;
       if (!anchor || typeof window === "undefined") return;
-      setOverlayPosition(measureOverlayPosition(anchor));
+      setOverlayPosition(measureOverlayPosition(anchor, isPhoneShell));
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -155,7 +163,7 @@ export default function SystemStatusIndicator({
       window.removeEventListener("scroll", updateOverlayPosition, true);
       resizeObserver?.disconnect();
     };
-  }, [open]);
+  }, [open, isPhoneShell]);
 
   const healthySummary =
     level === "checking"
@@ -332,7 +340,7 @@ export default function SystemStatusIndicator({
             return;
           }
           if (rootRef.current && typeof window !== "undefined") {
-            setOverlayPosition(measureOverlayPosition(rootRef.current));
+            setOverlayPosition(measureOverlayPosition(rootRef.current, isPhoneShell));
           }
           setOpen(true);
         }}

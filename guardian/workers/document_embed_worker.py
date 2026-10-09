@@ -214,7 +214,8 @@ def process_document_embed_task(
 
 def run_forever() -> None:
     try:
-        shared_vector_store = VectorStore()
+        required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
+        shared_vector_store = VectorStore(initialize_embedder=required)
     except Exception as exc:
         logger.error(
             "[document-embed] %s",
