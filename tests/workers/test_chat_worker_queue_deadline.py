@@ -39,9 +39,11 @@ def worker(monkeypatch):
         def now(cls, zone=None):
             return NOW if zone is None else NOW.astimezone(zone)
 
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
     events = []
     work = Mock(side_effect=_WorkReached)
-    release = Mock(return_value=True)
+    release = Mock(return_value=None)
     cleared = Mock()
     monkeypatch.setattr(chat_worker, "datetime", Clock)
     monkeypatch.setattr(chat_worker, "_find_assistant_message_for_turn", lambda **k: None)
@@ -51,7 +53,7 @@ def worker(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda _: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", cleared)
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", work)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", release)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", release)
     monkeypatch.setattr(chat_worker, "_safe_emit_live_event", lambda *a, **k: None)
     monkeypatch.setattr(
         chat_worker,
@@ -62,17 +64,19 @@ def worker(monkeypatch):
 
 
 @pytest.mark.parametrize("age", [720, 721, 800])
-def test_expired_queue_task_fails_before_completion_work(worker, age):
+def test_expired_queue_task_fails_before_completion_work(worker, age, monkeypatch):
     task, snapshot = _task(age)
     events, work, release, _ = worker
-    reached = False
-    try:
-        chat_worker._run_chat_task(task)
-    except _WorkReached:
-        reached = True
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
+    chat_worker._run_chat_task(task)
 
-    release.assert_called_once_with(71, "queued-owner")
-    assert not reached, "expired accepted task reached completion execution boundary"
+    release.assert_called_once_with(task)
+    record_terminal.assert_called_once_with(task, "task.failed")
     work.assert_not_called()
     failed = [p for e, p in events if e == "task.failed"]
     assert len(failed) == 1
@@ -107,7 +111,7 @@ def test_future_or_legacy_queue_task_keeps_existing_work_path(worker, age):
 
     assert work.call_count == 1
     assert work.call_args.args[0] is task
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
     assert not any(e in {"task.completed", "task.failed", "task.cancelled"} for e, _ in events)
     assert {k: getattr(task, k) for k in snapshot} == snapshot
     if age is None:
@@ -122,6 +126,9 @@ def test_existing_durable_completion_precedes_queue_expiry(worker, monkeypatch, 
     task, _ = _task(721)
     events, work, release, _ = worker
     monkeypatch.setattr(chat_worker, dedupe_lookup, lambda **k: 52)
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
+    )
     chat_worker._run_chat_task(task)
 
     completed = [p for e, p in events if e == "task.completed"]
@@ -129,22 +136,29 @@ def test_existing_durable_completion_precedes_queue_expiry(worker, monkeypatch, 
     assert completed[0]["message_id"] == 52
     assert not any(e in {"task.failed", "task.cancelled"} for e, _ in events)
     work.assert_not_called()
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
 
 
 def test_explicit_cancellation_precedes_queue_expiry(worker, monkeypatch):
     task, _ = _task(721)
     events, work, release, cleared = worker
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda _: True)
+    record_terminal = Mock(return_value=True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        record_terminal,
+    )
     chat_worker._run_chat_task(task)
 
     cancelled = [p for e, p in events if e == "task.cancelled"]
     assert len(cancelled) == 1
+    record_terminal.assert_called_once_with(task, "task.cancelled")
     assert cancelled[0]["thread_id"] == 71
     assert not any(e in {"task.failed", "task.completed"} for e, _ in events)
     work.assert_not_called()
     cleared.assert_called_once_with(task.task_id)
-    release.assert_called_once_with(71, "queued-owner")
+    release.assert_called_once_with(task)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -159,10 +173,8 @@ def test_malformed_deadline_cannot_start_work(worker, field, value):
     events, work, release, _ = worker
     chat_worker._run_chat_task(task)
     work.assert_not_called()
-    release.assert_called_once_with(71, "queued-owner")
-    failed = [payload for event, payload in events if event == "task.failed"]
-    assert len(failed) == 1
-    assert failed[0]["error_type"] == "ValueError"
-    assert "failure_code" not in failed[0]
-    assert not any(event in {"task.completed", "task.cancelled"} for event, _ in events)
+    release.assert_not_called()
+    # Invalid request-scoped authority is refused before execution. It cannot
+    # authorize a terminal write, inferred failure publication or lock cleanup.
+    assert events == []
     assert getattr(task, field) == value

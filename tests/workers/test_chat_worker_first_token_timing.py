@@ -124,7 +124,7 @@ def _prepare_worker_harness(
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -467,3 +467,9 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
     assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert "first_token_at" not in terminal_payload
     assert "first_output_at" not in terminal_payload
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)

@@ -122,6 +122,36 @@ describe("useChat refresh ownership", () => {
     });
   });
 
+  it("joins an in-flight first activation for the same thread", async () => {
+    const activation = deferred<any>();
+    apiMock.get
+      .mockImplementationOnce(() => activation.promise)
+      .mockResolvedValueOnce(buildEnvelope([buildMessage(1, "user")], 1));
+
+    const { result } = renderHook(() => useChat());
+    let firstActivation!: Promise<void>;
+    let secondActivation!: Promise<void>;
+
+    act(() => {
+      firstActivation = result.current.activateThread(7);
+      secondActivation = result.current.activateThread(7);
+    });
+
+    expect(apiMock.get).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      activation.resolve(buildEnvelope([], 0));
+      await Promise.all([firstActivation, secondActivation]);
+    });
+
+    await act(async () => {
+      await result.current.refreshSnapshot(7, "user-send");
+    });
+
+    expect(apiMock.get).toHaveBeenCalledTimes(2);
+    expect(result.current.messages.map((message) => message.id)).toEqual([1]);
+  });
+
   it("keeps pagination in flight when snapshot refreshes the same thread", async () => {
     const pagination = deferred<any>();
     let paginationSignal: AbortSignal | null = null;

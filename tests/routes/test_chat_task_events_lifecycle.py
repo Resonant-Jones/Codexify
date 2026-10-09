@@ -120,7 +120,7 @@ def test_task_event_stream_surfaces_lifecycle_states(test_client, monkeypatch):
     ]
     read_events_spy = MagicMock(return_value=events)
     monkeypatch.setattr(
-        "guardian.guardian_api.task_events.read_events",
+        "guardian.guardian_api.task_events.read_events_bounded",
         read_events_spy,
     )
 

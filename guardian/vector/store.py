@@ -1,8 +1,10 @@
 import json
+import threading
 from typing import Any, Dict, List, Optional
 
 from backend.rag.embedder import Embedder
 from guardian.core.config import resolve_vector_store_runtime
+from guardian.core.chat_postgres_deadline import require_accepted_work_budget
 
 DEFAULT_NAMESPACE = "global"
 
@@ -64,7 +66,8 @@ def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class VectorStore:
-    def __init__(self, index_dir: Optional[str] = None) -> None:
+    def __init__(self, index_dir: Optional[str] = None, *, initialize_embedder: bool = True) -> None:
+        require_accepted_work_budget()
         # index_dir is kept for backward compatibility while runtime resolution
         # is centralized through guardian.core.config.
         _ = index_dir
@@ -74,6 +77,23 @@ class VectorStore:
         self.chroma_path = runtime.chroma_path
         self.collection = runtime.collection
 
+        self._embedder = None
+        self._embedder_lock = threading.RLock()
+        if initialize_embedder:
+            self._initialize_embedder()
+
+    @property
+    def embedder(self):
+        with self._embedder_lock:
+            if self._embedder is None:
+                self._initialize_embedder()
+            return self._embedder
+
+    @embedder.setter
+    def embedder(self, value):
+        self._embedder = value
+
+    def _initialize_embedder(self):
         shared_store = None
         try:  # pragma: no cover - import cycle guard
             from guardian.core import dependencies as core_dependencies
@@ -95,6 +115,7 @@ class VectorStore:
             self._embedder_factory_token = id(Embedder)
             return
 
+        require_accepted_work_budget()
         self.embedder = Embedder(
             store=self.store,
             chroma_path=self.chroma_path,
@@ -162,6 +183,7 @@ class VectorStore:
         namespace: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        require_accepted_work_budget()
         normalized_namespace = _normalize_namespace(namespace)
         normalized_user_id = _normalize_namespace(user_id)
         if not normalized_user_id:
@@ -169,6 +191,7 @@ class VectorStore:
         if not normalized_user_id:
             raise ValueError("VectorStore.search requires user_id")
         try:
+            require_accepted_work_budget()
             return self.embedder.search(
                 query,
                 k=k,
@@ -178,12 +201,14 @@ class VectorStore:
         except TypeError:
             # Backward compatibility for alternate embedder implementations.
             try:
+                require_accepted_work_budget()
                 results = self.embedder.search(
                     query,
                     k=k,
                     namespace=normalized_namespace,
                 )
             except TypeError:
+                require_accepted_work_budget()
                 results = self.embedder.search(query, k=k)
             if not isinstance(results, list):
                 return []

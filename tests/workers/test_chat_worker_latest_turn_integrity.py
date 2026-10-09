@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from typing import Any
 
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
@@ -57,7 +59,7 @@ def test_worker_preserves_latest_turn_message_id_through_completion(
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -152,7 +154,7 @@ def test_worker_missing_target_turn_surfaces_explicit_failure(
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -196,3 +198,9 @@ def test_worker_missing_target_turn_surfaces_explicit_failure(
     assert "thread_target_turn_missing" in failure_payload["error"]
     assert live_events
     assert live_events[-1][1]["latest_turn_message_id"] == 99
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
