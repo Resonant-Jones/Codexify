@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from guardian.core.dependencies import RequestUserScope, get_request_user_scope
 from guardian.db.models import TTSVoiceProfile
 from guardian.routes import tts
+from guardian.tts.backends.qwen3 import Qwen3TTSBackend
 
 
 class _RouteTestDB:
@@ -89,7 +90,7 @@ def test_tts_profile_routes_create_roundtrip_update_default_delete(client):
 
 def test_tts_backends_route_exposes_qwen_controls(client, monkeypatch):
     monkeypatch.setattr(
-        tts.Qwen3TTSBackend,
+        Qwen3TTSBackend,
         "health",
         lambda self: SimpleNamespace(
             to_dict=lambda: {
@@ -108,6 +109,11 @@ def test_tts_backends_route_exposes_qwen_controls(client, monkeypatch):
     assert controls["temperature"]["backend_native"] is True
     assert controls["speed"]["delivery_control"] is True
     assert controls["speed"]["backend_native"] is False
+    assert qwen["local_only"] is True
+    assert qwen["output_formats"] == ["wav"]
+    assert qwen["capabilities"] == ["voice_sample_path"]
+    assert qwen["health"]["healthy"] is False
+    assert all("health" not in item for item in response.json()["items"][1:])
 
 
 def test_tts_profile_preview_uses_existing_renderer_without_runtime_side_effects(
@@ -173,3 +179,73 @@ def test_tts_profile_preview_uses_existing_renderer_without_runtime_side_effects
     assert calls[0]["voice_prompt"] == "Close mic."
     assert calls[0]["style_instructions"] == "Patient."
     assert response.json()["artifact"]["media_url"].startswith("/api/tts/previews/")
+
+
+@pytest.mark.parametrize(
+    "backend_id", ["qwen3_tts", "local", "local_openai_compatible"]
+)
+def test_legacy_profile_payloads_remain_compatible(client, backend_id):
+    response = client.post(
+        "/api/tts/profiles", json={"name": "Legacy", "backend_id": backend_id}
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["backend_id"] == backend_id
+    assert payload["backend_params"] == {}
+    readback = client.get(f"/api/tts/profiles/{payload['id']}")
+    assert readback.json() == payload
+
+
+def test_remote_backend_is_not_enabled_by_profile_creation(client):
+    response = client.post(
+        "/api/tts/profiles", json={"name": "Remote", "backend_id": "deepgram"}
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "unsupported_tts_backend:deepgram"
+
+
+def test_backends_route_projects_test_remote_evidence(client, monkeypatch):
+    from guardian.tts import backends
+    from guardian.tts.contracts import TTSBackendInfo, TTSBackendStatus, TTSHealthProbe
+
+    class TestRemoteBackend:
+        def __init__(self, config):
+            pass
+
+        def info(self):
+            return TTSBackendInfo(
+                backend_id="test_remote", display_name="Test remote", local_only=False
+            )
+
+        def health(self):
+            return TTSHealthProbe(
+                backend_id="test_remote",
+                status=TTSBackendStatus.UNKNOWN,
+                configured=True,
+                credential_available=False,
+                egress_allowed=False,
+            )
+
+    monkeypatch.setitem(backends._BACKEND_FACTORIES, "test_remote", TestRemoteBackend)
+    monkeypatch.setenv("CODEXIFY_TTS_BACKEND", "test_remote")
+    response = client.get("/api/tts/backends")
+    assert response.status_code == 200
+    payload = response.json()
+    remote = next(
+        item for item in payload["items"] if item["backend_id"] == "test_remote"
+    )
+    assert payload["active_backend_id"] == "test_remote"
+    assert remote["active"] is True
+    assert remote["local_only"] is False
+    assert remote["health"]["configured"] is True
+    assert remote["health"]["credential_available"] is False
+    assert remote["health"]["installed"] is None
+    assert remote["health"]["model_files_available"] is None
+    assert remote["health"]["importable"] is None
+    assert remote["health"]["reachable"] is None
+    assert remote["health"]["synthesis_proven"] is None
+    created = client.post(
+        "/api/tts/profiles", json={"name": "Test", "backend_id": "test_remote"}
+    )
+    assert created.status_code == 422
+    assert created.json()["detail"]["code"] == "unsupported_tts_backend:test_remote"

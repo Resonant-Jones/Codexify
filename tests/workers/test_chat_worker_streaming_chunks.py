@@ -72,6 +72,19 @@ def _build_task(
     return task
 
 
+def _install_attempt_harness(monkeypatch):
+    # These orchestration fixtures acknowledge durable writes through a seam;
+    # native database tests independently verify attempt identity and fencing.
+    monkeypatch.setattr(chat_worker, "_read_attempt_for_worker", lambda task: {
+        "backend_task_id": task.task_id, "request_id": task.request_id,
+        "thread_id": task.thread_id, "turn_id": chat_worker._extract_turn_id(task),
+        "completed_message_id": None, "terminal_event_type": None,
+        "terminal_outcome": None, "deadline_snapshot": None,
+    })
+    monkeypatch.setattr(chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None)
+
+
 def _prepare_worker_harness(
     monkeypatch,
     *,
@@ -81,6 +94,7 @@ def _prepare_worker_harness(
     assistant_text: str = "Hello world",
 ) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
+    _install_attempt_harness(monkeypatch)
     _isolate_turn_anchor(monkeypatch)
 
     mock_db = SimpleNamespace(
@@ -101,7 +115,7 @@ def _prepare_worker_harness(
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -318,6 +332,13 @@ def test_pre_output_fallback_success_persists_exactly_one_assistant(monkeypatch)
 
     assert persisted == ["rescued"]
     assert [event for event, _payload in published].count("task.completed") == 1
+    completed_payload = next(
+        payload for event, payload in published if event == "task.completed"
+    )
+    assert completed_payload["provider"] == "local"
+    assert completed_payload["model"] == "test-model"
+    assert completed_payload["final_provider"] == "local"
+    assert completed_payload["final_model"] == "test-model"
 
 
 def test_failure_after_visible_chunk_forbids_fallback_and_persistence(

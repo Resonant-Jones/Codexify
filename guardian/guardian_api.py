@@ -1678,7 +1678,11 @@ async def stream_task_events(
 
         heartbeat_elapsed = 0.0
         heartbeat_interval = 15.0
-        block_ms = int(os.getenv("TASK_EVENT_BLOCK_MS", "15000"))
+        try:
+            block_ms = max(1, min(1000, int(os.getenv("TASK_EVENT_BLOCK_MS", "1000"))))
+        except ValueError:
+            logger.warning("[task-events] invalid transport block configuration")
+            return
 
         while True:
             if await request.is_disconnected():
@@ -1686,7 +1690,7 @@ async def stream_task_events(
 
             try:
                 events = await asyncio.to_thread(
-                    task_events.read_events,
+                    task_events.read_events_bounded,
                     task_id,
                     last_id,
                     block_ms=block_ms,
@@ -1694,8 +1698,9 @@ async def stream_task_events(
                 )
             except Exception as exc:
                 logger.warning("[task-events] read failed: %s", exc)
-                await asyncio.sleep(1)
-                continue
+                # Transport uncertainty grants no request terminal outcome.
+                # Close this subscription; existing client recovery may rejoin.
+                return
 
             if events:
                 for ev_id, ev in events:

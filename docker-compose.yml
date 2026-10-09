@@ -18,12 +18,11 @@ x-local-llm: &local_llm
   GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
   GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
 
-x-backend-runtime-image: &backend_runtime_image codexify-backend-runtime:latest
+x-backend-runtime-image: &backend_runtime_image ${CODEXIFY_BACKEND_IMAGE:-codexify-backend-runtime:latest}
 x-backend-runtime-build: &backend_runtime_build
   context: .
   dockerfile: backend/Dockerfile
   target: runtime
-  network: host
 
 services:
   db:
@@ -40,7 +39,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    ports: ["5433:5432"]
+    ports: ["127.0.0.1:${CODEXIFY_POSTGRES_PORT:-5433}:5432"]
     volumes:
       - pg_data:/var/lib/postgresql/data
 
@@ -51,7 +50,7 @@ services:
       # Let the official image handle auth via NEO4J_AUTH (no custom entrypoint).
       # NOTE: Compose will interpolate ${NEO4J_PASS} from your project .env at deploy time.
       NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
-    ports: ["7474:7474", "7687:7687"]
+    ports: ["127.0.0.1:${CODEXIFY_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${CODEXIFY_NEO4J_BOLT_PORT:-7687}:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
@@ -268,7 +267,7 @@ services:
     build: *backend_runtime_build
     working_dir: /app
     entrypoint: ["python"]
-    ports: ["8888:8888"]
+    ports: ["127.0.0.1:${CODEXIFY_BACKEND_PORT:-8888}:8888"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
       interval: 5s
@@ -713,6 +712,8 @@ services:
   worker-document-embed:
     image: *backend_runtime_image
     pull_policy: never
+    # Maximum execution 600s + explicit 40s finalization margin + 5s slack.
+    stop_grace_period: 10m45s
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -724,6 +725,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
+      DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS: "${DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS:-120}"
       <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
@@ -996,7 +998,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:${CODEXIFY_LOCAL_RUNTIME_PORT:-8000}:8000"]
     healthcheck:
       test:
         - CMD
@@ -1018,13 +1020,13 @@ services:
     # NOTE: We run the dev UI using an official Node image so we always have /bin/sh.
     # This avoids breakage if the local ./frontend Dockerfile was refactored into a distroless image.
     image: node:20-alpine
-    pull_policy: always
+    pull_policy: missing
     working_dir: /app
-    ports: ["5173:5173"]
+    ports: ["127.0.0.1:${CODEXIFY_FRONTEND_PORT:-5173}:5173"]
     volumes:
-      - ./frontend:/app
+      - .:/app
       - /app/node_modules
-      - /app/src/node_modules
+      - /app/frontend/src/node_modules
       - corepack_cache:/root/.cache/node/corepack
       - frontend_pnpm_store:/pnpm/store
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
@@ -1059,14 +1061,11 @@ services:
           corepack prepare pnpm@9.12.1 --activate
         fi
 
-        echo "[Frontend] Installing root deps..."
-        pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
-
-        echo "[Frontend] Installing src deps..."
-        pnpm --dir src install --frozen-lockfile=false --ignore-scripts || pnpm --dir src install --ignore-scripts
+        echo "[Frontend] Installing the locked workspace dependencies..."
+        pnpm install --frozen-lockfile --ignore-scripts
 
         echo "[Frontend] Starting Vite dev server..."
-        cd /app/src
+        cd /app/frontend/src
         exec pnpm exec vite dev --host 0.0.0.0 --port 5173
 
   e2e:

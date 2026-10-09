@@ -813,6 +813,16 @@ function deriveLifecycleStates(events: CommandCenterEvent[]): string[] {
   for (const event of events) {
     const state = event.lifecycleState;
     if (!state) continue;
+    // task.created is published after queue insertion. A fast worker can
+    // append running or terminal evidence first, so the later acceptance
+    // breadcrumb must not make the projected lifecycle move back to QUEUED.
+    if (
+      event.type === "task.created" &&
+      state === "QUEUED" &&
+      states.length > 0
+    ) {
+      continue;
+    }
     if (state === previous) continue;
     states.push(state);
     previous = state;
@@ -1483,6 +1493,8 @@ export function aggregateCommandCenterEvents(
       summaryStatus
     );
 
+    const lateCreatedBreadcrumb =
+      event.type === "task.created" && run.eventCount > 0;
     run.eventCount += 1;
     run.events = appendBoundedEvents(run.events, event);
     run.lastEvent = event;
@@ -1504,15 +1516,17 @@ export function aggregateCommandCenterEvents(
     run.runId = event.runId ?? run.runId;
     run.runKind = nextRunKind;
     run.runType = nextRunType;
-    run.state = nextState;
-    run.status =
-      summaryStatus !== COMMAND_CENTER_RUN_STATUSES.UNKNOWN ||
-      run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
-        ? summaryStatus
-        : run.status;
-    run.summary = summary;
+    if (!lateCreatedBreadcrumb) {
+      run.state = nextState;
+      run.status =
+        summaryStatus !== COMMAND_CENTER_RUN_STATUSES.UNKNOWN ||
+        run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
+          ? summaryStatus
+          : run.status;
+      run.summary = summary;
+      run.terminalOutcome = nextOutcome;
+    }
     run.taskId = event.taskId ?? run.taskId;
-    run.terminalOutcome = nextOutcome;
     run.threadId = event.threadId ?? run.threadId;
     run.turnId = event.turnId ?? run.turnId;
     runs.set(key, run);

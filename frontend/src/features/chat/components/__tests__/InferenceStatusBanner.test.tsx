@@ -106,4 +106,26 @@ describe("InferenceStatusBanner", () => {
       screen.queryByText("Guardian is preparing a response.")
     ).not.toBeInTheDocument();
   });
+
+  it("shows an unconfirmed Stop diagnostic while continuing to observe", () => {
+    const detail =
+      "The stop request could not be confirmed. Continuing to observe the task.";
+
+    render(
+      <InferenceStatusBanner
+        state={buildState({
+          phase: "streaming",
+          detailText: detail,
+          canCancel: true,
+        })}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Replying…")).toBeInTheDocument();
+    expect(screen.getByText(detail)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(screen.queryByText("Reply stopped")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reply failed")).not.toBeInTheDocument();
+  });
 });

@@ -125,7 +125,7 @@ const flushPromises = async () => {
 
 function mockHealthResponses(overrides: {
   chat?: "ok" | "fail" | "missing" | "unreachable";
-  llm?: "ok" | "fail" | "missing" | "unreachable" | "nested-ok" | "nested-fail";
+  llm?: "ok" | "fail" | "missing" | "unreachable" | "nested-ok" | "nested-fail" | "core-only";
 } = {}) {
   const chat = overrides.chat ?? "ok";
   const llm = overrides.llm ?? "ok";
@@ -133,7 +133,7 @@ function mockHealthResponses(overrides: {
   apiGet.mockImplementation((path: string) => {
     if (path === "/api/health/llm") {
       if (llm === "ok") {
-        return Promise.resolve({ data: { ok: true, status: "online" } });
+        return Promise.resolve({ data: { ok: true, status: "online", provider: "local", configured_model_available: true, models_available: true } });
       }
       if (llm === "nested-ok") {
         return Promise.resolve({
@@ -143,6 +143,8 @@ function mockHealthResponses(overrides: {
             provider: "local",
             model: "library2/ministral-3:8b",
             details: {
+              configured_model_available: true,
+              models_available: true,
               status: "online",
               ok: true,
               provider_runtime: { available: true },
@@ -180,11 +182,11 @@ function mockHealthResponses(overrides: {
       return Promise.resolve({ data: { ok: false, status: "offline" } });
     }
     if (path === "/health/chat") {
-      if (chat === "ok") {
+      if (chat === "ok" || overrides.llm === "core-only") {
         return Promise.resolve({
           data: {
             ok: true,
-            status: "healthy",
+            status: overrides.llm === "core-only" ? "degraded" : "healthy",
             completion_service: {
               ok: true,
               status_reason: "ok",
@@ -616,5 +618,16 @@ describe("useRuntimeHealth", () => {
       "live_events_disconnected"
     );
     expect(RUNTIME_HEALTH_FAILURE_KINDS.STALE).toBe("stale");
+  });
+});
+
+
+describe("core and inference separation", () => {
+  it("keeps healthy queue/workers available under a degraded no-model envelope", async () => {
+    mockHealthResponses({ llm: "core-only", chat: "ok" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await waitFor(() => expect(result.current.chatHealthy).toBe(true));
+    expect(result.current.backendReachable).toBe(true);
+    expect(result.current.llmHealthy).toBe(false);
   });
 });

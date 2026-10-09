@@ -560,6 +560,131 @@ def test_sharded_export_imports_conversations(
     assert diag.export_format == "sharded"
 
 
+def test_workspace_and_unassigned_dat_shards_import(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """Modern workspace trees and Unassigned shards remain importable."""
+    export_root = tmp_path / "modern-workspace-export"
+    payloads = [
+        (
+            "workspace_123/conversations__part-0001",
+            _build_mapping_conversation(
+                [("user", "Workspace shard marker", 1.0)],
+                conversation_id="workspace-conversation",
+                title="Workspace conversation",
+            ),
+        ),
+        (
+            "Unassigned/conversations__part-0002",
+            _build_mapping_conversation(
+                [("assistant", "Unassigned shard marker", 2.0)],
+                conversation_id="unassigned-conversation",
+                title="Unassigned conversation",
+            ),
+        ),
+    ]
+    for relative_part, conversation in payloads:
+        part = export_root / relative_part
+        part.mkdir(parents=True)
+        (part / "opaque_payload.dat").write_text(
+            json.dumps(conversation),
+            encoding="utf-8",
+        )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.export_format == "sharded"
+    assert diag.conversations_discovered == 2
+    assert diag.conversations_imported == 2
+    assert diag.messages_imported == 2
+    assert {thread["user_id"] for thread in import_store.threads.values()} == {
+        "tester"
+    }
+
+
+def test_same_source_archive_is_idempotent_per_owner(
+    tmp_path: Path,
+    import_store: ImportStore,
+    import_modules: ImportModules,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The same source IDs dedupe within an owner but never cross owners."""
+    store = import_store
+    source_thread_id = "owner-isolation-conversation"
+    export_root = tmp_path / "owner-isolation-export"
+    _write_conversations_json(
+        export_root,
+        [
+            _build_mapping_conversation(
+                [("user", "Owner-scoped marker", 1.0)],
+                conversation_id=source_thread_id,
+            )
+        ],
+    )
+
+    def find_thread(db, user_id, source_thread_id, origin_system=None):
+        _ = db, origin_system
+        for thread_id, thread in store.threads.items():
+            if (
+                thread["user_id"] == user_id
+                and thread["metadata"].get("source_thread_id")
+                == source_thread_id
+            ):
+                return thread_id
+        return None
+
+    def find_message(db, thread_id, source_message_id):
+        _ = db
+        for message in store.messages:
+            if message["thread_id"] != thread_id:
+                continue
+            meta = store.get_message_meta(message["id"])
+            if meta.get("source_message_id") == source_message_id:
+                return {"id": message["id"], "extra_meta": meta}
+        return None
+
+    monkeypatch.setattr(
+        import_modules.chatgpt_migration,
+        "_find_existing_thread_for_source",
+        find_thread,
+    )
+    monkeypatch.setattr(
+        import_modules.chatgpt_migration,
+        "_find_existing_message_for_source",
+        find_message,
+    )
+
+    first = import_openai_export_conversations(
+        export_root,
+        user_id="owner-a",
+        diagnostic_dir=tmp_path / "diag-a-1",
+    )
+    replay = import_openai_export_conversations(
+        export_root,
+        user_id="owner-a",
+        diagnostic_dir=tmp_path / "diag-a-2",
+    )
+    other_owner = import_openai_export_conversations(
+        export_root,
+        user_id="owner-b",
+        diagnostic_dir=tmp_path / "diag-b",
+    )
+
+    assert (first.conversations_imported, first.messages_imported) == (1, 1)
+    assert (replay.conversations_imported, replay.messages_imported) == (0, 0)
+    assert (other_owner.conversations_imported, other_owner.messages_imported) == (1, 1)
+    assert sorted(thread["user_id"] for thread in store.threads.values()) == [
+        "owner-a",
+        "owner-b",
+    ]
+    assert len(store.messages) == 2
+
+
 def test_dry_run_writes_no_db_changes(
     tmp_path: Path,
     import_store: ImportStore,
