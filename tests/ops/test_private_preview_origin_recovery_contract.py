@@ -81,10 +81,10 @@ def test_private_preview_lifecycle_has_explicit_manual_off_boundary() -> None:
 def test_private_preview_build_grants_required_bake_network_entitlement() -> None:
     lifecycle = LIFECYCLE.read_text(encoding="utf-8")
 
-    assert "compose build --print" in lifecycle
+    assert 'compose --ansi never build --print > "$bake_file"' in lifecycle
     assert "mktemp" in lifecycle
     assert 'grep -q \'"default"\'' in lifecycle
-    assert "docker buildx bake --allow=network.host -f \"$bake_file\"" in lifecycle
+    assert 'docker buildx bake --progress=plain --allow=network.host -f "$bake_file"' in lifecycle
     assert "compose up -d --no-build" in lifecycle
 
 

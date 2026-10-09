@@ -116,7 +116,9 @@ start_stack() {
       local attempt
       for attempt in 1 2; do
         : > "$bake_file"
-        compose build --print > "$bake_file"
+        # Compose v5 may try to initialize a terminal when --print redirects
+        # stdout to a file. Disable its console renderer for this invocation.
+        compose --ansi never build --print > "$bake_file"
         if [[ -s "$bake_file" ]] && grep -q '"default"' "$bake_file"; then
           break
         fi
