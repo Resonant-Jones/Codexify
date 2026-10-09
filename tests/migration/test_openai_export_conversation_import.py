@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import importlib
 import json
 import os
@@ -1429,3 +1430,269 @@ def test_postgres_conversation_transaction_rolls_back_and_replays(
                 "AND metadata->>'source_thread_id' = ANY(%s)",
                 ("local", source_ids),
             )
+
+
+def _synthetic_modern_recall_export(root: Path, prefix: str) -> dict[str, bytes]:
+    """Readable shards, repeated source identity, referenced image, opaque orphan."""
+    workspace = _build_mapping_conversation(
+        [("user", "What is the Helix observatory calibration code?", 1000),
+         ("assistant", "Helix observatory calibration code is HELIX-481726.", 1001)],
+        conversation_id=f"{prefix}-workspace", title="Helix calibration",
+    )
+    workspace["workspace_id"] = "external-workspace-provenance"
+    workspace["user_id"] = "untrusted-export-owner"
+    workspace["mapping"]["m1"]["message"]["metadata"] = {
+        "file_path": "assets/calibration.png",
+    }
+    unassigned = _build_mapping_conversation(
+        [("user", "Record the spare sensor designation.", 2000),
+         ("assistant", "The spare sensor is AURORA-92.", 2001)],
+        conversation_id=f"{prefix}-unassigned", title="Spare sensor",
+    )
+    files = {
+        "workspace-helix/conversations__a.part-0001/readable.dat":
+            json.dumps(workspace).encode(),
+        "Unassigned/conversations__b.part-0002/messages.dat":
+            ((json.dumps(unassigned) + "\n") * 2).encode(),
+        "workspace-helix/conversations__a.part-0001/repeated.dat":
+            json.dumps(workspace).encode(),
+        "assets/calibration.png": base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ),
+        "assets/unlinked.dat": b"\x00\xff\x01SYNTHETIC-OPAQUE-ORPHAN",
+        "__export_file_manifests__/conversations.json":
+            json.dumps({"file_name": "readable.dat", "file_size": 100}).encode(),
+    }
+    for relative, content in files.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    return files
+
+
+def test_synthetic_modern_recall_fixture_has_explicit_inventory(tmp_path: Path):
+    from backend.rag.openai_export_adapter import (
+        build_openai_export_image_evidence_index,
+        diagnose_openai_export_path,
+        resolve_openai_export_image_evidence,
+    )
+
+    root = tmp_path / "modern"
+    files = _synthetic_modern_recall_export(root, "inventory")
+    report = diagnose_openai_export_path(root)
+    assert report.inventory.detected_format == "sharded"
+    assert not report.inventory.legacy_detected
+    records = {record.path: record for record in report.inventory.files}
+    assert set(records) == set(files)
+    assert records["Unassigned/conversations__b.part-0002/messages.dat"].detected_kind == "jsonl"
+    assert records["workspace-helix/conversations__a.part-0001/readable.dat"].detected_kind == "json_object"
+    assert records["assets/unlinked.dat"].conversation_candidate is False
+    assert records["__export_file_manifests__/conversations.json"].conversation_candidate is False
+    evidence = build_openai_export_image_evidence_index(report.inventory)
+    linked = resolve_openai_export_image_evidence("assets/calibration.png", evidence)
+    assert (linked.source_tag, linked.source_thread_id, linked.source_message_id) == (
+        "uploaded", "inventory-workspace", "m1",
+    )
+    assert resolve_openai_export_image_evidence("assets/unlinked.dat", evidence).evidence_kind == "unlinked"
+    dry = import_openai_export_conversations(
+        root, user_id="account-a", dry_run=True, diagnostic_dir=tmp_path / "diagnostics",
+    )
+    assert dry.errors == []
+    assert (dry.conversations_discovered, dry.messages_discovered) == (2, 4)
+    opaque = tmp_path / "opaque-only"
+    opaque.mkdir()
+    (opaque / "blob.dat").write_bytes(files["assets/unlinked.dat"])
+    rejected = import_openai_export_conversations(
+        opaque, user_id="account-a", dry_run=True, diagnostic_dir=tmp_path / "opaque-diag",
+    )
+    assert rejected.errors == ["Unrecognized export format: unknown"]
+
+
+@pytest.mark.integration
+def test_postgres_synthetic_modern_account_import_recovery_and_lineage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real staged service/worker/PG writes; queue ports are controlled test doubles.
+
+    This does not consume embeddings or execute a chat completion. Run only with
+    TEST_DATABASE_URL pointing at a migrated disposable PostgreSQL database.
+    """
+    database_url = os.getenv("TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL is required for synthetic PostgreSQL qualification")
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg.rows import dict_row
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
+    from guardian.core.storage import StorageManager
+    from guardian.services.openai_account_import import (
+        AccountImportError, AccountImportLimits, OpenAIAccountImportService, StagedImportFile,
+    )
+    from guardian.workers.account_import_worker import (
+        AccountImportEmbeddingHandoffRetryable, process_account_import_task,
+    )
+    from guardian.queue.account_import_queue import TASK_TYPE
+    from guardian.core import dependencies
+
+    prefix = f"qualification-{uuid.uuid4().hex[:12]}"
+    accounts = [f"{prefix}-a", f"{prefix}-b"]
+    db = PgDB(database_url)
+    monkeypatch.setattr(dependencies, "chatlog_db", db)
+    guardian_db = GuardianDB(db._sa_url)
+    embedding_payloads: list[dict[str, Any]] = []
+    queued: list[tuple[str, str]] = []
+    interrupt_handoff = True
+
+    def enqueue_embedding(payload):
+        if interrupt_handoff:
+            raise RuntimeError("synthetic interruption after durable conversation batch")
+        embedding_payloads.append(payload)
+        return f"test-queue-{len(embedding_payloads)}"
+
+    service = OpenAIAccountImportService(
+        db=guardian_db,
+        staging_storage=StorageManager("local", base_path=tmp_path / "staging", url_prefix="/internal"),
+        media_storage=StorageManager("local", base_path=tmp_path / "media", url_prefix="/media"),
+        enqueue_task=lambda job_id, *, user_id: queued.append((job_id, user_id)),
+        enqueue_import_embedding_task=enqueue_embedding,
+        emit_event=lambda *_args, **_kwargs: None,
+        limits=AccountImportLimits(conversation_batch_size=1),
+    )
+
+    def readback(account):
+        with psycopg.connect(database_url, row_factory=dict_row) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ct.*, p.user_id AS project_user_id "
+                "FROM chat_threads ct JOIN projects p ON p.id=ct.project_id "
+                "WHERE ct.user_id=%s ORDER BY ct.id", (account,),
+            )
+            threads = cur.fetchall()
+            cur.execute(
+                "SELECT * FROM chat_messages "
+                "WHERE user_id=%s ORDER BY id", (account,),
+            )
+            return threads, cur.fetchall()
+
+    def submit(account, files):
+        created = service.create_job(user_id=account, total_file_count=len(files),
+                                     total_byte_count=sum(map(len, files.values())))
+        job_id = created["job_id"]
+        service.stage_files(job_id=job_id, user_id=account,
+                            files=[StagedImportFile(path, data) for path, data in files.items()])
+        service.finalize_job(job_id=job_id, user_id=account)
+        assert queued[-1] == (job_id, account)
+        return job_id, {"type": TASK_TYPE, "job_id": job_id, "user_id": account}
+
+    try:
+        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
+            for account in accounts:
+                cur.execute("INSERT INTO users(id,username,password_hash) VALUES(%s,%s,'synthetic')",
+                            (account, account))
+        baseline = tmp_path / "baseline"
+        _write_conversations_json(baseline, [_build_mapping_conversation(
+            [("user", "Existing synthetic import must remain unchanged.", 10)],
+            conversation_id=f"{prefix}-baseline",
+        )])
+        baseline_diag = import_openai_export_conversations(
+            baseline, user_id=accounts[0], messages_only=True, diagnostic_dir=tmp_path / "baseline-diag",
+        )
+        assert baseline_diag.errors == []
+        before_threads, before_messages = readback(accounts[0])
+        assert (len(before_threads), len(before_messages)) == (1, 1)
+
+        files = _synthetic_modern_recall_export(tmp_path / "modern", prefix)
+        job_id, payload = submit(accounts[0], files)
+        with pytest.raises(AccountImportEmbeddingHandoffRetryable):
+            process_account_import_task(payload, service=service)
+        interrupted = service.get_worker_job(job_id=job_id, user_id=accounts[0])
+        assert interrupted["status"] == "running"
+        assert len(interrupted["checkpoint"]["conversation_ids"]) == 1
+        partial_threads, partial_messages = readback(accounts[0])
+        assert (len(partial_threads), len(partial_messages)) == (2, 3)
+        interrupt_handoff = False
+        assert process_account_import_task(payload, service=service) is True
+        completed = service.get_worker_job(job_id=job_id, user_id=accounts[0])
+        assert completed["status"] == "completed_with_warnings"
+        assert (completed["imported_thread_count"], completed["imported_message_count"]) == (2, 4)
+        assert set(completed["checkpoint"]["conversation_ids"]) == {f"{prefix}-workspace", f"{prefix}-unassigned"}
+        assert any(detail["code"] == "unsupported_attachment_family" and detail["path"] == "assets/unlinked.dat"
+                   for detail in completed["warning_details"])
+        threads, messages = readback(accounts[0])
+        assert threads[:1] == before_threads
+        assert messages[:1] == before_messages
+        imported = messages[1:]
+        assert len(threads) == 3 and len(imported) == 4
+        assert all(t["user_id"] == t["project_user_id"] == accounts[0] for t in threads)
+        assert all(t["origin_system"] == "openai" for t in threads)
+        for source_id in (f"{prefix}-workspace", f"{prefix}-unassigned"):
+            turns = [m for m in imported if m["extra_meta"]["source_thread_id"] == source_id]
+            assert [m["extra_meta"]["source_message_id"] for m in turns] == ["m1", "m2"]
+            assert [m["extra_meta"]["turn_index"] for m in turns] == [0, 1]
+            assert [m["role"] for m in turns] == ["user", "assistant"]
+            assert all(m["extra_meta"]["embedding_status"] == "pending" for m in turns)
+            assert all(m["extra_meta"]["openai_export_source_path"] for m in turns)
+        assert {p["message_id"] for p in embedding_payloads} == {m["id"] for m in imported}
+        assert all(p["meta"]["user_id"] == accounts[0] for p in embedding_payloads)
+        with pytest.raises(AccountImportError) as denied:
+            service.get_job(job_id=job_id, user_id=accounts[1])
+        assert denied.value.status_code == 404
+
+        replay_id, replay_payload = submit(accounts[0], files)
+        assert process_account_import_task(replay_payload, service=service) is True
+        replay_threads, replay_messages = readback(accounts[0])
+        assert replay_threads[:1] == before_threads
+        assert replay_messages == messages
+        # Existing behavior touches replayed threads' updated_at even when no
+        # source entity is added. Every other canonical thread field is stable.
+        stable_thread = lambda row: {key: value for key, value in row.items() if key != "updated_at"}
+        assert list(map(stable_thread, replay_threads)) == list(map(stable_thread, threads))
+        assert all(after["updated_at"] >= before["updated_at"]
+                   for before, after in zip(threads, replay_threads))
+        threads = replay_threads
+        assert service.get_job(job_id=replay_id, user_id=accounts[0])["status"] == "completed_with_warnings"
+        second = _build_mapping_conversation(
+            [("user", "Record the unrelated account's calibration.", 3000),
+             ("assistant", "Other observatory code is OTHER-739105.", 3001)],
+            conversation_id=f"{prefix}-other-account",
+        )
+        second_id, second_payload = submit(accounts[1], {"conversations.json": json.dumps([second]).encode()})
+        assert process_account_import_task(second_payload, service=service) is True
+        second_threads, second_messages = readback(accounts[1])
+        assert (len(second_threads), len(second_messages)) == (1, 2)
+        assert second_threads[0]["user_id"] == second_threads[0]["project_user_id"] == accounts[1]
+        assert "HELIX-481726" not in json.dumps(second_messages, default=str)
+        assert "OTHER-739105" not in json.dumps(messages, default=str)
+        assert readback(accounts[0]) == (threads, messages)
+        with psycopg.connect(database_url, row_factory=dict_row) as conn, conn.cursor() as cur:
+            cur.execute("SELECT thread_id,source_message_id,source_tag,source_relative_path FROM media_assets WHERE user_id=%s", (accounts[0],))
+            assets = cur.fetchall()
+            assert len(assets) == 1
+            linked_thread = next(t["id"] for t in threads if t["metadata"]["source_thread_id"] == f"{prefix}-workspace")
+            assert assets[0] == {"thread_id": linked_thread, "source_message_id": "m1",
+                                 "source_tag": "uploaded", "source_relative_path": "assets/calibration.png"}
+            cur.execute("SELECT count(*) AS n FROM personal_facts WHERE user_id=ANY(%s)", (accounts,))
+            assert cur.fetchone()["n"] == 0
+        print(json.dumps({"evidence": "synthetic-modern-import", "job_id": job_id,
+                          "replay_job_id": replay_id, "second_account_job_id": second_id,
+                          "accounts": accounts, "interrupted_messages": 2, "recovered_messages": 4,
+                          "interrupted_checkpoint": interrupted["checkpoint"]["conversation_ids"],
+                          "completed_checkpoint": completed["checkpoint"]["conversation_ids"],
+                          "status": completed["status"], "warnings": completed["warning_details"],
+                          "second_account_owner": second_threads[0]["user_id"],
+                          "second_account_messages": len(second_messages),
+                          "thread_ids": [t["id"] for t in threads],
+                          "source_lineage": [{"id": m["id"], "owner": m["user_id"],
+                                              "thread": m["extra_meta"]["source_thread_id"],
+                                              "message": m["extra_meta"]["source_message_id"],
+                                              "path": m["extra_meta"]["openai_export_source_path"]} for m in imported],
+                          "embedding_status": "pending", "personal_facts": 0}))
+    finally:
+        # Only the test's uniquely named accounts and their dependent rows.
+        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM media_aliases WHERE asset_id IN (SELECT id FROM media_assets WHERE user_id=ANY(%s))", (accounts,))
+            cur.execute("DELETE FROM uploaded_images WHERE user_id=ANY(%s)", (accounts,))
+            cur.execute("DELETE FROM media_assets WHERE user_id=ANY(%s)", (accounts,))
+            cur.execute("DELETE FROM openai_account_import_jobs WHERE user_id=ANY(%s)", (accounts,))
+            cur.execute("DELETE FROM chat_threads WHERE user_id=ANY(%s)", (accounts,))
+            cur.execute("DELETE FROM projects WHERE user_id=ANY(%s)", (accounts,))
+            cur.execute("DELETE FROM users WHERE id=ANY(%s)", (accounts,))
