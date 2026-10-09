@@ -210,6 +210,11 @@ The acceptance bar for the actual export is therefore:
 6. only then import the complete private archive into the user's canonical
    personal store.
 
+The existing frontend Playwright migration coverage is compatibility-route coverage
+with mocked API responses. It does not prove the current folder-selection,
+account-job, worker-materialization, or natural-retrieval path; those remain
+separate acceptance work.
+
 ## Expected Acceptance/Rejection Behavior
 
 Accepted:
