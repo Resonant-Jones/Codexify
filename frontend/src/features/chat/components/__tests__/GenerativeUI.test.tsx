@@ -7,6 +7,8 @@
  */
 import { render, screen, act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import {
@@ -615,6 +617,47 @@ describe("generative UI streaming", () => {
 // ---------------------------------------------------------------------------
 
 describe("generative UI robustness against malformed model output", () => {
+  it("agrees with the Guardian inference strip on the shared corpus", () => {
+    // The renderer and render_content_for_inference are separate implementations
+    // in two languages. Anything one treats as a marker, the other must strip
+    // too. Reading one corpus from both suites is what prevents a silent
+    // divergence that leaks generated HTML/JS into the model prompt.
+    const corpusPath = resolve(
+      __dirname,
+      "../../../../../../docs/architecture/generative-ui-marker-corpus.json"
+    );
+    const corpus = JSON.parse(readFileSync(corpusPath, "utf-8")) as {
+      cases: Array<{ label: string; marker: string; parses: boolean }>;
+    };
+
+    expect(corpus.cases.length).toBeGreaterThanOrEqual(15);
+
+    for (const testCase of corpus.cases) {
+      if (testCase.label === "oversized payload") continue;
+      const parsed = parseUiArtifacts(`Before.\n${testCase.marker}\nAfter.`);
+
+      expect(parsed.text, `${testCase.label}: marker survived`).not.toContain("cfy-ui");
+      expect(parsed.text, `${testCase.label}: leading prose destroyed`).toContain("Before.");
+      expect(parsed.text, `${testCase.label}: trailing prose destroyed`).toContain("After.");
+      expect(
+        parsed.artifacts.length > 0,
+        `${testCase.label}: expected parses=${testCase.parses}`
+      ).toBe(testCase.parses);
+    }
+  });
+
+  it("rejects an unregistered component at render time, not at parse time", () => {
+    // The corpus records that this envelope parses. It must still display
+    // nothing, because the registry does not resolve unregistered ids.
+    enableGate();
+    const payload = { version: 1, kind: "native", component: "evil.shell", props: {} };
+    expect(parseUiArtifacts(serializeUiArtifactForModel(payload as never)).artifacts).toHaveLength(1);
+
+    const { container } = render(bubble(serializeUiArtifactForModel(payload as never)));
+    expect(container.querySelector('[data-testid="generative-ui-native"]')).toBeNull();
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
   const CASES: Array<[string, string]> = [
     ["raw unencoded JSON", `<!-- cfy-ui:{"version":1,"kind":"native","component":"chart.bar","props":{}} -->`],
     ["single-quoted JSON", `<!-- cfy-ui:{'version':1,'kind':'sandbox','html':'<p>x</p>'} -->`],

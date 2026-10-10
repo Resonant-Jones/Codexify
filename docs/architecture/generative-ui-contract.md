@@ -117,7 +117,7 @@ parser uses that to choose deterministically.
 A marker is delimited by its terminator, not by the first `>`:
 
 ```text
-complete marker      /<!--\s*cfy-ui:(.*?)-->/gis
+complete marker      /<!--\s*cfy-ui:.*?-->/gis   (DOTALL)
 unterminated marker  /<!--\s*cfy-ui:[^\n]*$/gm
 ```
 
@@ -133,10 +133,23 @@ removes a half-streamed payload while leaving prose on later lines intact.
 
 Every marker is removed from display text whether or not it validates. The
 invariant under all malformed model output: **marker syntax never reaches the
-transcript, and anything that does render has passed full validation.** A corpus
-test covers raw JSON, single quotes, a string-valued version, an unknown
-component, non-object props, empty HTML, a bare scalar, percent-escape
-corruption, truncation, an empty payload, and trailing prose.
+transcript, and anything that does render has passed full validation.**
+
+### Cross-boundary marker agreement
+
+The renderer and the inference strip are separate implementations in two
+languages that must agree on what a marker is. When they diverged, the renderer
+matched on `-->` while the strip still stopped at `>`, and an unencoded artifact
+containing HTML leaked its HTML/JS into every subsequent provider turn for that
+thread — invisible in both suites, because each only tested its own side.
+
+Both sides therefore read one shared corpus,
+`docs/architecture/generative-ui-marker-corpus.json`, which is the regression
+mechanism. The corpus distinguishes `parses` (a **codec**-level property: the
+envelope passes structural validation) from *renders*. An envelope naming an
+unregistered component parses but displays nothing, because the registry
+rejects it at render time; conflating those two layers produced a misleading
+assertion while the shared corpus was being written.
 
 ## Model emission contract
 
