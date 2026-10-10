@@ -187,7 +187,16 @@ revision:
   emits a valid `cfy-ui` marker on demand is unproven and depends on model
   behavior and any prompting added later.
 - **No end-to-end Guardian round trip.** The backend side is proven by unit
-  tests over `render_content_for_inference`, not by a live queued worker turn.
+  tests over the pure functions either side of the database, not by a live
+  queued worker turn.
+- **The Postgres round trip is unverified here.** No database is reachable in
+  this environment: `guardian/tests/test_thread_lineage.py` already fails with
+  the same `psycopg.OperationalError`, so a DB-backed assertion would be
+  unverifiable rather than merely failing. Durability is instead covered by
+  tests on `_normalize_message_content_for_persistence` (the write path, which
+  returns plain strings unchanged) and on the read route's row shape, plus the
+  frontend unmount/remount proof and the browser reload. A CI run with a real
+  database is what would close this.
 - **Lint unverified.** `eslint` could not run in this environment:
   `eslint-plugin-react` is declared in `frontend/src/package.json` but is absent
   from the shared installed tree. This is a pre-existing environment gap, not a
