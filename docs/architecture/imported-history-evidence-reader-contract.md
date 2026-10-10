@@ -1,8 +1,10 @@
 # Imported-history evidence reader contract
 
 Date: 2026-10-09. Architecture-impact lane; aligned with ADR-015, ADR-016's
-October 9 inspection clarification, ADR-030, ADR-081 and ADR-084. No new ADR,
-schema, public route, worker, scheduler, UI or release claim.
+October 9 inspection clarification, ADR-030, ADR-081 and ADR-084. The original
+reader added no ADR, schema, public route, worker, scheduler, UI or release claim.
+The subsequent authenticated HTTP caller is documented below; it adds no schema,
+worker, scheduler, UI or release claim.
 
 ## Authority and trust boundary
 
@@ -29,7 +31,8 @@ for this human request immediately before the read. A receipt can only narrow
 ownership authority; it cannot grant another account's records. Never accept it
 from request JSON or historical content. There is no implicit allow-all receipt,
 policy cache, unlock implementation or future import-treatment resolver here.
-No production caller is wired by this task.
+The original reader implementation wired no production caller. The subsequent
+authenticated HTTP caller and its proof boundary are described below.
 
 The reader independently compares `projects.user_id`, each `chat_threads.user_id`,
 Project membership, and every selected thread's `chat_messages.user_id` in **both**
@@ -188,8 +191,87 @@ No disposable database means failed proof, not a skipped successful qualificatio
 
 No models, providers, summaries, Personal Facts, Memory Vault writes, approvals,
 continuity activation, queues, embeddings, events, connectors, source mutation or
-persisted results belong to this reader. No production human-display path is mounted.
+persisted results belong to this reader. The authenticated HTTP caller below exposes this evidence; a frontend
+human-display path remains unimplemented.
 Migration Chronicle synthesis, Daily Chronicle, account-wide/cross-Project synthesis,
 external briefing, continuity governance, natural import-to-recall qualification,
 deployment and release support remain deferred and unproven. Current-state HOLD
 and release claims are unchanged.
+
+## Authenticated HTTP inspection caller
+
+`POST /api/imports/history/inspect` belongs to the existing migration router and
+`CODEXIFY_ENABLE_MIGRATION_ROUTES` mount gate. It requires one canonical Project,
+unique bounded thread IDs, canonical imported origins, all four existing reader
+budgets, and offset. Limits come from the reader; extra authority/account fields,
+native origins, aliases, boolean IDs and duplicate selections are rejected. The
+response is the reader's canonical JSON without additional framing.
+
+This route composes existing `verify_account_session` / `require_account_session`
+and `get_account_user_scope` with server identity resolution. Remote and Private
+Preview require the exact signed account-session purpose; operator credentials
+and Hosted Room guests cannot become accounts. Preview additionally requires the
+existing approved-email session-store mapping. Mixed credential classes and
+conflicting account subjects fail before the reader. Local static keys retain
+the configured `get_single_user_id()` contract; X-User-Id is never passed to scope
+resolution, including under DEBUG/LOCAL_DEV. Legitimate account sessions retain
+existing account resolution. Wrong-purpose local sessions cannot piggyback on a
+static key. Local static-key/session combinations are rejected, and a verified
+remote single-user subject must match the resolved configured identity rather
+than silently borrowing a fallback account. This composition does not change
+other routes' authentication.
+
+`imported_history_inspection_access.resolve_inspection_access` constructs a fresh
+receipt bound to the exact principal object passed to the reader. Positive
+canonical Project ownership, legacy-conflict classification, account-owned
+selected threads, Project membership, explicitly permitted imported origins,
+and a valid `require_thread_read_access` result are required. Missing or malformed
+read decisions fail closed. Both resolver and reader independently compare owners
+in every runtime mode. Message ownership and imported-message eligibility remain
+independently enforced by the unchanged reader.
+
+The ordinary read path in `guardian/core/thread_access.py`, used by chat read
+routes, and ADR-016's October 9 owner-inspection decision provide the positive
+basis for stored source and diary inspection. No independent source-read or diary
+read lock exists in that ordinary read path at this baseline. UserSettings'
+`diary_requires_unlock` gates identity updates in imprint's
+`_identity_updates_allowed`; it is not archive-read consent. Diary flags, identity
+exclusions, modeling exclusions, identity depth, sensitive-modeling settings and
+continuity exclusions do not veto ordinary owner inspection or grant modeling
+through this endpoint. The verified ordinary read decision covers record, stored
+source and diary inspection within the explicitly selected imported scope.
+
+The resolver uses a fresh read-only PostgreSQL transaction without fetching
+message content. The reader retains its separate, unmodified read-only snapshot
+and rechecks changed owners. This is not an atomic cross-transaction or standing
+grant. Any future independently revocable read lock requires separate review of
+its validity across this handoff; it must not be silently admitted by this caller.
+
+Content-free HTTP failures use no new error tokens: 401 for missing/invalid
+account auth, 400 for mixed credential classes, 422 for selection/budget errors,
+404 for denied/missing/conflicted ownership or unsupported selected source,
+409 for unsafe metadata, and 503 for unavailable history/authority storage.
+Account-mapping infrastructure failures retain the existing 500 status. Foreign
+and missing records share a 404; validation errors do not echo client input.
+Successful responses and handled authentication, validation and service errors
+carry `Cache-Control: no-store`. Unexpected authentication-store or read failures
+also return a content-free 503 with no-store rather than leaking diagnostics.
+
+No cache, content log, analytics event, durable receipt, standing consent, model,
+provider, memory write, queue work, or continuity activation is introduced.
+Authentication uses existing session-store reads without creating inspection
+consent. The new caller's proof is `tests/routes/test_imported_history_inspection.py`,
+using real FastAPI HTTP handling and disposable canonical PostgreSQL, with no
+authentication dependency overrides. Deployment, supported-Compose qualification,
+reverse-proxy caching/logging, frontend human initiation and Chronicle inference
+remain separately scoped and unproven. Release HOLD is unchanged.
+
+Executed proof on 2026-10-09 at the `c892bc096` implementation baseline:
+83 HTTP inspection cases, the original 74 reader cases, and 28 existing migration
+route cases passed. The database proof used a task-local native PostgreSQL 15.19
+cluster with migrated, uniquely named disposable databases and explicit
+`TEST_DATABASE_URL`; Docker was unavailable. HTTP fixtures retain real signed
+credential verification and PostgreSQL principal/owner lookup, with only isolated
+session-store transport and deployment settings. Canonical row snapshots,
+server-enforced read-only transactions and worker-thread forbidden-call guards
+passed. This is bounded test proof, not deployed or supported-runtime qualification.
