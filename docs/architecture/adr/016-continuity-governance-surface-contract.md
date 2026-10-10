@@ -140,6 +140,14 @@ The inspection-only reader must resolve the authenticated account server-side, r
 
 A human inspection grant lasts only for the specified read. It cannot be persisted as continuity consent, passed to a model, upgraded into a personal profile, or used to bypass later exclusions. The archive, not the transient inspection output, remains canonical. This decision **unblocks only a bounded inspection-only evidence-reader implementation**, subject to tests proving ownership, provenance, access restrictions, failures, and zero writes. It does **not** unblock model-derived Migration Chronicle previews or establish a live reader, continuity resolver, natural import-to-recall qualification, or release support.
 
+### Request-Scoped Chronicle Interpretation Authorization Clarification (2026-10-10)
+
+Standing Continuity Governance preferences remain durable, user-authored settings for future continuity behavior. Their complete Project-level import-treatment and exclusion resolver is not implemented by this clarification.
+
+A separate one-time Chronicle interpretation request may select `recallable archive` explicitly for one authenticated invocation, one canonical Project, and a bounded selection of imported threads and origins. It also requires explicit interpretation consent in that same request, ordinary account and thread read authority, message-level imported provenance established by the existing evidence reader, and clear server-resolved thread modeling exclusions. This request-local selection is not a saved Project preference, does not alter future treatment, and cannot authorize a subsequent request. `archive only` remains ineligible for modeling. `continuity scaffold` remains unavailable to this operation and does not authorize activation or durable candidate creation.
+
+The resulting internal decision is immutable and bound to the exact authenticated principal, account, Project, selected evidence scope, limits, purpose, treatment, and resolved exclusion decisions. It is neither serialized nor stored, cached, queued, or attached to a provider call. The preflight itself returns no historical text, performs no inference, and writes no state. It establishes request eligibility only; it is not proof that arbitrary message content is safe for model exposure. A future generator must obtain fresh authorization in the consuming request and independently enforce message-level sensitivity and source restrictions before model exposure. If required restrictions cannot be resolved there, generation must fail closed. This clarification makes no atomicity claim across later consumption and does not implement the full Continuity Governance Surface, activation, durable memory, or production qualification.
+
 ### Exclusion Controls
 
 Continuity exclusions must include at least:

@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, Any, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -60,6 +61,11 @@ from guardian.services.imported_history_evidence import (
 )
 from guardian.services.imported_history_inspection_access import (
     resolve_inspection_access,
+)
+from guardian.services.chronicle_interpretation_authorization import (
+    ChronicleAuthorizationError,
+    ChronicleAuthorizationUnavailable,
+    authorize_chronicle_interpretation,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,6 +149,14 @@ class HistoryInspectionRequest(BaseModel):
         ):
             raise ValueError("Explicit imported origins required")
         return value
+
+
+class ChronicleAuthorizationRequest(HistoryInspectionRequest):
+    purpose: Literal["migration_chronicle_preview"]
+    interpretation_consent: bool = Field(strict=True)
+    import_treatment: Literal[
+        "archive_only", "recallable_archive", "continuity_scaffold"
+    ]
 
 
 def _history_inspection_principal(request: Request) -> dependencies.RequestUserScope:
@@ -265,6 +279,72 @@ def inspect_imported_history(
 router.add_api_route(
     "/api/imports/history/inspect",
     inspect_imported_history,
+    methods=["POST"],
+    route_class_override=_HistoryInspectionRoute,
+)
+
+
+def check_chronicle_interpretation_authorization(
+    body: ChronicleAuthorizationRequest,
+    principal: dependencies.RequestUserScope = Depends(_history_inspection_principal),
+):
+    """Check one bounded request; return no evidence and no reusable token."""
+    try:
+        connect = getattr(chatlog_db, "_connect", None)
+        if not callable(connect):
+            raise ChronicleAuthorizationUnavailable("Authorization unavailable")
+        grant = authorize_chronicle_interpretation(
+            connect,
+            principal=principal,
+            project_id=body.project_id,
+            thread_ids=tuple(body.thread_ids),
+            origins=tuple(body.origins),
+            limits=InspectionLimits(
+                body.max_messages,
+                body.max_inspected_messages,
+                body.max_excerpt_bytes,
+                body.max_response_bytes,
+            ),
+            offset=body.offset,
+            purpose=body.purpose,
+            interpretation_consent=body.interpretation_consent,
+            import_treatment=body.import_treatment,
+        )
+        # Deliberately project only scope confirmation; the grant is discarded
+        # with this call and cannot be presented to a later request.
+        return JSONResponse(
+            content={
+                "authorized": True,
+                "scope": {
+                    "project_id": grant.project_id,
+                    "thread_ids": list(grant.thread_ids),
+                    "origins": [origin.value for origin in grant.origins],
+                    "max_messages": grant.limits.max_messages,
+                    "max_inspected_messages": grant.limits.max_inspected_messages,
+                    "max_excerpt_bytes": grant.limits.max_excerpt_bytes,
+                    "max_response_bytes": grant.limits.max_response_bytes,
+                    "offset": grant.offset,
+                    "purpose": grant.purpose,
+                    "import_treatment": grant.import_treatment,
+                },
+            },
+            media_type="application/json",
+        )
+    except ChronicleAuthorizationError as exc:
+        status = 503 if isinstance(exc, ChronicleAuthorizationUnavailable) else 403
+        raise HTTPException(
+            status_code=status,
+            detail=(
+                "Interpretation authorization unavailable"
+                if status == 503
+                else "Interpretation authorization denied"
+            ),
+        ) from None
+
+
+router.add_api_route(
+    "/api/imports/history/chronicle/authorization-check",
+    check_chronicle_interpretation_authorization,
     methods=["POST"],
     route_class_override=_HistoryInspectionRoute,
 )
