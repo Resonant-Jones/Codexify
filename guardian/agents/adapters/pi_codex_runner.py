@@ -9,16 +9,20 @@ from pathlib import Path
 from typing import Any
 
 from guardian.agents.adapters.base import (
-    AgentAdapter,
     AgentExecutionIdentity,
     AgentExecutionRequest,
     AgentRunEnvelope,
 )
 from guardian.agents.pi_readiness import DEFAULT_PI_MODEL
 from guardian.pi.tokens import (
+    PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    PI_AUTHORIZED_EXECUTION_PHASES,
+    PI_AUTHORIZED_PHASE_SENTINEL,
+    PI_AUTHORIZED_REASONING_EFFORTS,
     PI_AUTHORIZED_FAILURE_CLASSES,
     PiAuthorizedFailureClass,
 )
+from guardian.pi.evaluator_result import validate_evaluator_result
 
 
 def _get_pi_wrapper_path() -> Path:
@@ -104,7 +108,9 @@ class PiCodexRunnerAdapter:
         identity: AgentExecutionIdentity,
         *,
         read_only: bool,
+        reasoning_effort: str = "medium",
         required_tool_name: str | None = None,
+        evaluator_result_contract: str | None = None,
     ) -> AgentRunEnvelope:
         """Execute exactly one Guardian-authorized Pi task.
 
@@ -134,9 +140,29 @@ class PiCodexRunnerAdapter:
                 failure_stage="authorization",
             )
 
+        if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+            return AgentRunEnvelope(
+                status="error",
+                summary="Guardian-authorized Pi reasoning effort is unsupported",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="reasoning_effort",
+            )
+
+        if evaluator_result_contract is not None and (
+            evaluator_result_contract != PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+            or not read_only
+            or required_tool_name is not None
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary="Evaluator result contract requires read-only execution",
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="evaluation_result",
+            )
+
         # Required-tool support boundary:
-        # - only the canonical supported provider (anthropic) currently
-        #   admits the bounded required-tool projection. Any other
+        # - only the supported Anthropic and DeepSeek provider lanes
+        #   admit the bounded required-tool projection. Any other
         #   provider must fail closed before subprocess.
         # - the normalizer returns three states: python None (no
         #   required tool), the canonical string "write" (supported),
@@ -158,7 +184,9 @@ class PiCodexRunnerAdapter:
                 failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
                 failure_stage="tool_selection",
             )
-        if normalized_required is not None and identity.provider_id != "anthropic":
+        if normalized_required is not None and identity.provider_id not in {
+            "anthropic", "deepseek"
+        }:
             return AgentRunEnvelope(
                 status="error",
                 summary=(
@@ -168,16 +196,32 @@ class PiCodexRunnerAdapter:
                 failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
                 failure_stage="tool_selection",
             )
+        if (
+            normalized_required is not None
+            and identity.provider_id == "deepseek"
+            and reasoning_effort != "off"
+        ):
+            return AgentRunEnvelope(
+                status="error",
+                summary=(
+                    "DeepSeek required-tool selection needs explicit off "
+                    "reasoning effort on Pi Chat Completions"
+                ),
+                failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                failure_stage="reasoning_effort",
+            )
 
         wrapper_path = _get_pi_wrapper_path()
         env = os.environ.copy()
         # Always strip ambient selection so only the validated argument
         # can grant or force behavior.
         env.pop("PI_GUARDIAN_REQUIRED_TOOL", None)
+        env.pop("PI_GUARDIAN_RESULT_CONTRACT", None)
         env.update(
             {
                 "PI_PROVIDER": identity.provider_id,
                 "PI_MODEL": identity.model_id,
+                "PI_THINKING": reasoning_effort,
                 "PI_GUARDIAN_AUTHORIZED": "1",
                 "PI_GUARDIAN_HARNESS_ID": identity.harness_id,
                 "PI_GUARDIAN_HARNESS_VERSION": identity.harness_version,
@@ -186,6 +230,8 @@ class PiCodexRunnerAdapter:
         )
         if normalized_required is not None:
             env["PI_GUARDIAN_REQUIRED_TOOL"] = normalized_required
+        if evaluator_result_contract is not None:
+            env["PI_GUARDIAN_RESULT_CONTRACT"] = evaluator_result_contract
         cmd = ["node", str(wrapper_path), "guardian-authorized-task", request.prompt]
 
         try:
@@ -202,14 +248,23 @@ class PiCodexRunnerAdapter:
                 require_runtime_identity=True,
                 require_tool_telemetry=True,
                 required_tool_name=normalized_required,
+                expected_reasoning_effort=reasoning_effort,
+                evaluator_result_contract=evaluator_result_contract,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            phases, effort = _parse_authorized_timeout_phases(exc.stderr)
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi execution timed out",
                 failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
                 failure_stage="adapter_execution",
                 metrics={"timeout_seconds": request.timeout_seconds},
+                observed_execution_phases=phases or None,
+                highest_observed_execution_phase=phases[-1] if phases else None,
+                runtime_identity_established=len(phases) >= 2,
+                session_initialized=True if len(phases) >= 3 else None,
+                provider_request_started=True if len(phases) >= 4 else None,
+                effective_reasoning_effort=effort,
             )
         except FileNotFoundError:
             return AgentRunEnvelope(
@@ -294,6 +349,8 @@ class PiCodexRunnerAdapter:
         require_runtime_identity: bool = False,
         require_tool_telemetry: bool = False,
         required_tool_name: str | None = None,
+        expected_reasoning_effort: str | None = None,
+        evaluator_result_contract: str | None = None,
     ) -> AgentRunEnvelope:
         """Parse subprocess result into AgentRunEnvelope.
 
@@ -423,6 +480,22 @@ class PiCodexRunnerAdapter:
                     )
                 )
                 telemetry = _parse_tool_telemetry(data.get("tool_telemetry"))
+                reasoning = data.get("reasoning_effort")
+                if expected_reasoning_effort is not None and (
+                    not isinstance(reasoning, dict)
+                    or reasoning.get("requested") != expected_reasoning_effort
+                    or reasoning.get("effective") != expected_reasoning_effort
+                    or data.get("automatic_retries_disabled") is not True
+                ):
+                    retry_mismatch = data.get("automatic_retries_disabled") is not True
+                    return AgentRunEnvelope(
+                        status="error",
+                        summary="Pi wrapper did not attest bounded reasoning and retry posture",
+                        failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                        failure_stage=("authorized_retry_suppression" if retry_mismatch else "reasoning_effort"),
+                        runtime_identity_established=runtime_identity_established,
+                        provider_request_started=_bounded_bool(data.get("provider_request_started")),
+                    )
                 # Live authorized task must carry valid tool telemetry.
                 if require_tool_telemetry and not _is_valid_tool_telemetry(telemetry):
                     return AgentRunEnvelope(
@@ -529,6 +602,20 @@ class PiCodexRunnerAdapter:
                         hard_tool_selection_applied=selection_evidence[1],
                         hard_tool_selection_application_count=selection_evidence[2],
                     )
+                evaluator_result = None
+                if evaluator_result_contract is not None:
+                    try:
+                        evaluator_result = validate_evaluator_result(
+                            data.get("evaluator_result")
+                        )
+                    except (TypeError, ValueError):
+                        return AgentRunEnvelope(
+                            status="error",
+                            summary="Pi wrapper omitted a valid bounded Evaluator result",
+                            failure_classification=PiAuthorizedFailureClass.WRAPPER_PROTOCOL_FAILED.value,
+                            failure_stage="evaluation_result",
+                            runtime_identity_established=runtime_identity_established,
+                        )
                 return AgentRunEnvelope(
                     status=data.get("status", "ok"),
                     summary=data.get(
@@ -564,6 +651,13 @@ class PiCodexRunnerAdapter:
                         data.get("provider_request_started")
                     ),
                     oauth_available=_bounded_bool(data.get("oauth_available")),
+                    requested_reasoning_effort=(
+                        reasoning.get("requested") if isinstance(reasoning, dict) else None
+                    ),
+                    effective_reasoning_effort=(
+                        reasoning.get("effective") if isinstance(reasoning, dict) else None
+                    ),
+                    automatic_retries_disabled=_bounded_bool(data.get("automatic_retries_disabled")),
                     effective_tool_names=telemetry[0],
                     write_tool_available=telemetry[1],
                     tool_execution_start_count=telemetry[2],
@@ -586,6 +680,7 @@ class PiCodexRunnerAdapter:
                     hard_tool_selection_application_count=(
                         selection_evidence[2] if required_tool_name is not None else None
                     ),
+                    evaluator_result=evaluator_result,
                 )
             except json.JSONDecodeError:
                 if require_runtime_identity:
@@ -916,6 +1011,56 @@ def _parse_authorized_stdout_frame(stdout: str) -> dict[str, Any] | None:
     if not isinstance(parsed, dict):
         return None
     return parsed
+
+
+def _parse_authorized_timeout_phases(
+    stderr: str | bytes | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Recover only a complete, ordered prefix of the bounded phase channel.
+
+    Ordinary stderr is ignored. Any malformed, duplicate, skipped, or
+    out-of-order sentinel frame invalidates the entire trail. A truncated
+    final frame therefore never authorizes an earlier partial trail.
+    """
+    if isinstance(stderr, bytes):
+        if len(stderr) > 65536:
+            return (), None
+        try:
+            stderr = stderr.decode("utf-8")
+        except UnicodeDecodeError:
+            return (), None
+    if not isinstance(stderr, str) or len(stderr.encode("utf-8")) > 65536:
+        return (), None
+
+    phases: list[str] = []
+    effort: str | None = None
+    for line in stderr.splitlines():
+        if not line.startswith(PI_AUTHORIZED_PHASE_SENTINEL):
+            continue
+        try:
+            frame = json.loads(line[len(PI_AUTHORIZED_PHASE_SENTINEL) :])
+        except json.JSONDecodeError:
+            return (), None
+        index = len(phases)
+        if not isinstance(frame, dict) or index >= len(PI_AUTHORIZED_EXECUTION_PHASES):
+            return (), None
+        expected_keys = {"phase", "sequence"}
+        if index == 2:
+            expected_keys.add("effective_reasoning_effort")
+        if (
+            set(frame) != expected_keys
+            or frame.get("phase") != PI_AUTHORIZED_EXECUTION_PHASES[index]
+            or type(frame.get("sequence")) is not int
+            or frame["sequence"] != index + 1
+        ):
+            return (), None
+        if index == 2:
+            candidate = frame["effective_reasoning_effort"]
+            if not isinstance(candidate, str) or candidate not in PI_AUTHORIZED_REASONING_EFFORTS:
+                return (), None
+            effort = candidate
+        phases.append(frame["phase"])
+    return tuple(phases), effort
 
 
 def _failure_stage_for_class(failure_class: str | None) -> str:

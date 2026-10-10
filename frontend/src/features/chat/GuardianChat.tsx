@@ -36,6 +36,7 @@ import {
   type ComposerSendOptions,
 } from "@/features/guardian/components/Composer";
 import ChatView from "@/features/chat/ChatView";
+import { ThreadAttemptObservation, isDurableAttemptTerminal, type AttemptReceipt } from "@/features/chat/components/ThreadAttemptObservation";
 import useChat from "@/features/chat/useChat";
 import api, {
   buildChatThreadsPath,
@@ -95,7 +96,11 @@ import {
   describeInferenceRequestState,
   useInferenceRequestState,
 } from "@/features/chat/hooks/useInferenceRequestState";
-import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
+import {
+  describeTaskFailureDetailText,
+  isRetryableAcceptedTaskFailure,
+  getToolCommandFailureReason,
+} from "@/features/chat/requestFailurePresentation";
 import {
   formatRuntimeHealthDiagnostics,
   type RuntimeHealthStatus,
@@ -969,6 +974,7 @@ export function GuardianChat({
   onSessionModelChange,
   onSessionInferenceModeChange,
   onSessionDraftChange,
+  assistantMessageRefresh,
   compactMobileHeader = false,
   compactMobile = false,
 }: {
@@ -1020,6 +1026,7 @@ export function GuardianChat({
   onSessionModelChange?: (modelId: string) => void;
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
+  assistantMessageRefresh?: { threadId: number; sequence: number } | null;
   compactMobileHeader?: boolean;
   compactMobile?: boolean;
 }) {
@@ -1067,7 +1074,11 @@ export function GuardianChat({
     setCompletionInFlight,
     streamingDraft,
   } = useChat();
-  const inferenceRequest = useInferenceRequestState();
+  const onTaskCancelledRef = useRef<((threadId: number, taskId: string) => void) | null>(null);
+  const onTaskCancelled = useCallback((threadId: number, taskId: string) => {
+    onTaskCancelledRef.current?.(threadId, taskId);
+  }, []);
+  const inferenceRequest = useInferenceRequestState({ onTaskCancelled });
   const {
     providers: catalogProviders,
     getProviderById,
@@ -1110,11 +1121,15 @@ export function GuardianChat({
     ].join("|");
   }, [activeThread.id, persistedThreadConfig]);
   const hydratedThreadConfigKeyRef = useRef<string | null>(null);
-  const pendingFastRetryRef = useRef<{
+  type FastRetryIntent = {
     threadId: number;
+    taskId: string;
     providerId: string | null;
     modelId: string | null;
-  } | null>(null);
+    cancelled: boolean;
+    scheduled: boolean;
+  };
+  const pendingFastRetryRef = useRef<FastRetryIntent | null>(null);
   const threadProfileRequestRef = useRef<{
     controller: AbortController | null;
     promise: Promise<SystemProfileOption | null> | null;
@@ -1165,6 +1180,9 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
+  const deferredThreadPromotionRef = useRef(
+    new Map<number, { title: string; tabId: TabId | null }>()
+  );
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
@@ -1751,6 +1769,7 @@ export function GuardianChat({
   type TurnLeaseReleaseOptions = {
     clearCompletion?: boolean;
     clearInference?: boolean;
+    preserveFastRetry?: boolean;
   };
   const releaseTurnLease = useCallback(
     (
@@ -1759,7 +1778,7 @@ export function GuardianChat({
     ) => {
       const candidate = Number(threadId);
       const normalizedThreadId = Number.isFinite(candidate) ? candidate : null;
-      pendingFastRetryRef.current = null;
+      if (!options.preserveFastRetry) pendingFastRetryRef.current = null;
       setPendingTurnLock(false);
       if (normalizedThreadId != null) {
         setTurnLockForThread(normalizedThreadId, false);
@@ -1896,7 +1915,8 @@ export function GuardianChat({
   );
 
   const startInferenceForThread = useCallback(
-    (threadId: number, options: CompletionRequestOptions = {}) => {
+    (threadId: number, options: CompletionRequestOptions = {}, fastRetry?: FastRetryIntent) => {
+      if (pendingFastRetryRef.current !== fastRetry) pendingFastRetryRef.current = null;
       const selection = resolveCompletionSelection(options);
       inferenceRequest.startRequest({
         threadId,
@@ -2038,30 +2058,38 @@ export function GuardianChat({
   };
 
   const retryWithoutThinkingAfterCancel = useCallback(
-    (threadId: number, attempt = 0) => {
+    (pending: FastRetryIntent, attempt = 0) => {
+      if (pendingFastRetryRef.current !== pending || !pending.cancelled || pending.scheduled) return;
+      pending.scheduled = true;
       const delayMs = 180 + attempt * 180;
       window.setTimeout(() => {
-        const pending = pendingFastRetryRef.current;
-        if (!pending || pending.threadId !== threadId) {
-          return;
-        }
+        if (pendingFastRetryRef.current !== pending) return;
+        pending.scheduled = false;
+        const threadId = pending.threadId;
         void (async () => {
+          setTurnLockForThread(threadId, true);
           startInferenceForThread(threadId, {
             providerId: pending.providerId,
             modelId: pending.modelId,
             reasoningMode: "no_think",
-          });
+          }, pending);
           const outcome = await completeThread(threadId, {
             providerId: pending.providerId,
             modelId: pending.modelId,
             reasoningMode: "no_think",
           });
+          if (pendingFastRetryRef.current !== pending) return;
           if (outcome === "inflight" && attempt < 3) {
-            retryWithoutThinkingAfterCancel(threadId, attempt + 1);
+            retryWithoutThinkingAfterCancel(pending, attempt + 1);
             return;
           }
           pendingFastRetryRef.current = null;
-          if (outcome !== "ok" && outcome !== "inflight") {
+          if (outcome === "inflight") {
+            // No replacement task was admitted. Retire the synthetic retry
+            // lease; the server retains authority over its actual turn lock.
+            releaseTurnLease(threadId, { clearInference: true });
+            showToast("Guardian could not continue in fast mode. Please try again.");
+          } else if (outcome !== "ok") {
             releaseTurnLease(threadId, {
               clearCompletion: false,
               clearInference: false,
@@ -2071,8 +2099,15 @@ export function GuardianChat({
         })();
       }, delayMs);
     },
-    [completeThread, releaseTurnLease, showToast, startInferenceForThread]
+    [completeThread, releaseTurnLease, setTurnLockForThread, showToast, startInferenceForThread]
   );
+  onTaskCancelledRef.current = (threadId, taskId) => {
+    const pending = pendingFastRetryRef.current;
+    if (!pending || pending.threadId !== threadId || pending.taskId !== taskId || pending.cancelled) return;
+    pending.cancelled = true;
+    retryWithoutThinkingAfterCancel(pending);
+  };
+  useEffect(() => () => { pendingFastRetryRef.current = null; }, []);
 
   const numericThreadId = useMemo(() => {
     const n = Number((activeThread as any)?.id);
@@ -2650,7 +2685,7 @@ export function GuardianChat({
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     void activateThread(effectiveThreadId);
   }, [activateThread, effectiveThreadId]);
   useEffect(() => {
@@ -2965,6 +3000,40 @@ export function GuardianChat({
     };
   }, [subscribe]);
 
+  const handleCurrentAttemptTerminal = useCallback((receipt: AttemptReceipt): boolean => {
+    const tid = receipt.thread_id;
+    if (effectiveThreadIdRef.current !== tid || !isDurableAttemptTerminal(receipt)) return false;
+    const matchesInference = inferenceRequest.state.threadId === tid &&
+      inferenceRequest.state.taskId === receipt.task_id;
+    const matchesCompletion = completionState.activeThreadId === tid &&
+      completionState.activeTaskId === receipt.task_id;
+    if ((!matchesInference && !matchesCompletion) || (
+      isActiveInferencePhase(inferenceRequest.state.phase) && !matchesInference
+    )) return false;
+
+    updateCompletionSessionTurnId(receipt.task_id, receipt.turn_id);
+    const terminalState = receipt.completed_message_id !== null ? "completed" :
+      receipt.event_type === "task.cancelled" ? "cancelled" : "failed";
+    finalizeCompletionSession({ taskId: receipt.task_id, terminalState });
+    releaseTurnLease(tid, { clearCompletion: true, clearInference: false });
+    if (terminalState === "completed") {
+      inferenceRequest.markCompleted("Guardian finished and saved the response.");
+    } else if (terminalState === "cancelled") {
+      onTaskCancelledRef.current?.(tid, receipt.task_id);
+      inferenceRequest.markCancelled();
+    } else {
+      inferenceRequest.markFailed("A failure was recorded for this response.", {
+        failureCode: receipt.failure_code,
+        durableFailureOnly: true,
+        detailText: isRetryableAcceptedTaskFailure({ failure_code: receipt.failure_code })
+          ? describeTaskFailureDetailText({ failure_code: receipt.failure_code })
+          : "A failure was recorded for this response. Send a new request to try again.",
+      });
+    }
+    return true;
+  }, [completionState.activeThreadId, completionState.activeTaskId, inferenceRequest,
+    updateCompletionSessionTurnId, finalizeCompletionSession, releaseTurnLease]);
+
   // Live thread-created event → refresh thread list for cross-client visibility.
   const LOCAL_CREATION_WINDOW_MS = 3000;
   useEffect(() => {
@@ -3046,6 +3115,26 @@ export function GuardianChat({
           return;
         }
       } else {
+        const matchesCurrentCompletion =
+          completionState.activeThreadId === tid &&
+          completionState.activeTaskId === eventTaskId;
+        const matchesCurrentInference =
+          inferenceRequest.state.threadId === tid &&
+          inferenceRequest.state.taskId === eventTaskId;
+        if (!matchesCurrentCompletion && !matchesCurrentInference) {
+          return;
+        }
+        // A prior completion tracker cannot terminalize a newer inference.
+        if (
+          isActiveInferencePhase(inferenceRequest.state.phase) &&
+          !matchesCurrentInference
+        ) {
+          return;
+        }
+
+        if (event.type === "task.cancelled") {
+          onTaskCancelledRef.current?.(tid, eventTaskId);
+        }
         if (eventTurnId) {
           updateCompletionSessionTurnId(eventTaskId, eventTurnId);
         }
@@ -3067,6 +3156,9 @@ export function GuardianChat({
         releaseTurnLease(tid, {
           clearCompletion: true,
           clearInference: false,
+          preserveFastRetry: event.type === "task.cancelled" &&
+            pendingFastRetryRef.current?.taskId === eventTaskId &&
+            pendingFastRetryRef.current.cancelled,
         });
       }
       if (event.type === "task.failed" || event.type === "completion.error") {
@@ -3074,6 +3166,9 @@ export function GuardianChat({
           String(payload?.error || "Guardian could not finish the response."),
           {
             detailText: describeTaskFailureDetailText(payload),
+            toolLoopStopReason: getToolCommandFailureReason(payload),
+            failureCode:
+              typeof payload?.failure_code === "string" ? payload.failure_code : null,
           }
         );
         pendingFastRetryRef.current = null;
@@ -3081,9 +3176,6 @@ export function GuardianChat({
       }
       if (event.type === "task.cancelled") {
         inferenceRequest.markCancelled();
-        if (pendingFastRetryRef.current?.threadId === tid) {
-          retryWithoutThinkingAfterCancel(tid);
-        }
         return;
       }
       if (event.type === "task.completed") {
@@ -3123,6 +3215,13 @@ export function GuardianChat({
     updateCompletionSessionTurnId,
   ]);
   useEffect(() => {
+    const threadId = assistantMessageRefresh?.threadId;
+    if (threadId == null || Number(activeThread?.id) !== threadId) return;
+    void refreshSnapshot(threadId, "assistant-message-created").catch(
+      () => undefined
+    );
+  }, [activeThread?.id, assistantMessageRefresh, refreshSnapshot]);
+  useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
       return;
@@ -3132,6 +3231,8 @@ export function GuardianChat({
       releaseTurnLease(lastCompletionThreadRef.current, {
         clearCompletion: false,
         clearInference: false,
+        preserveFastRetry: Boolean(pendingFastRetryRef.current?.cancelled &&
+          pendingFastRetryRef.current.threadId === lastCompletionThreadRef.current),
       });
       lastCompletionThreadRef.current = null;
     }
@@ -3146,6 +3247,9 @@ export function GuardianChat({
     releaseTurnLease(releaseThreadId, {
       clearCompletion: true,
       clearInference: false,
+      preserveFastRetry: Boolean(inferenceRequest.state.phase === "cancelled" &&
+        pendingFastRetryRef.current?.cancelled &&
+        pendingFastRetryRef.current.threadId === releaseThreadId),
     });
   }, [
     completionState.activeThreadId,
@@ -3182,10 +3286,20 @@ export function GuardianChat({
     }
   };
 
+  const promoteDeferredThread = (threadId: number) => {
+    const promotion = deferredThreadPromotionRef.current.get(threadId);
+    if (!promotion) return;
+    deferredThreadPromotionRef.current.delete(threadId);
+    handleThreadCreated(threadId, promotion.title, { tabId: promotion.tabId });
+    onThreadPersisted?.(threadId, promotion.title, {
+      tabId: promotion.tabId,
+    });
+  };
+
   const createThreadFromComposer = useCallback(
     async (
       bodyText: string,
-      options?: { tabId?: TabId | null }
+      options?: { tabId?: TabId | null; deferPromotion?: boolean }
     ): Promise<number | null> => {
       const hydrationState = getRuntimeConfigHydrationState();
       if (hydrationState === "pending") {
@@ -3258,7 +3372,6 @@ export function GuardianChat({
           showToast("Thread id missing from response");
           return null;
         }
-
         setThreadCreationIssue(null);
         const payload =
           response?.data && typeof response.data === "object" && !Array.isArray(response.data)
@@ -3273,12 +3386,19 @@ export function GuardianChat({
             ? thread.title.trim()
             : provisionalTitle;
 
-        handleThreadCreated(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
-        onThreadPersisted?.(resolution.threadId, derivedTitle, {
-          tabId: originTabId,
-        });
+        if (options?.deferPromotion) {
+          deferredThreadPromotionRef.current.set(resolution.threadId, {
+            title: derivedTitle,
+            tabId: originTabId,
+          });
+        } else {
+          handleThreadCreated(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+          onThreadPersisted?.(resolution.threadId, derivedTitle, {
+            tabId: originTabId,
+          });
+        }
         return resolution.threadId;
     } catch (error) {
       console.error("[guardian] thread creation failed", error);
@@ -3643,14 +3763,16 @@ export function GuardianChat({
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
-        createdThreadId = await createThreadFromComposer(contentForSend);
+        createdThreadId = await createThreadFromComposer(contentForSend, {
+          deferPromotion: true,
+        });
         if (createdThreadId == null) {
           setPendingTurnLock(false);
           return;
         }
-        await activateThread(createdThreadId);
         const synced = await syncThreadConfigBeforeSend(createdThreadId);
         if (!synced) {
+          promoteDeferredThread(createdThreadId);
           setPendingTurnLock(false);
           setTurnLockForThread(createdThreadId, false);
           return;
@@ -3662,10 +3784,13 @@ export function GuardianChat({
           project_id: workspaceProjectId ?? undefined,
         });
 
+        promoteDeferredThread(createdThreadId);
+
         emitThreadsRefresh("refresh", {
           reason: "message",
           id: String(createdThreadId),
         });
+        await refreshSnapshot(createdThreadId, "user-send");
         setChatReloadVersion((v) => v + 1);
 
         // Lock the new thread before requesting assistant completion.
@@ -3701,6 +3826,9 @@ export function GuardianChat({
         }, 100);
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
+        if (createdThreadId != null) {
+          promoteDeferredThread(createdThreadId);
+        }
         setPendingTurnLock(false);
         if (createdThreadId != null) {
           setTurnLockForThread(createdThreadId, false);
@@ -3811,29 +3939,30 @@ export function GuardianChat({
     [composerInferenceState]
   );
   const handleCancelInference = () => {
-    const releaseThreadId =
-      inferenceRequest.state.threadId ??
-      completionState.activeThreadId ??
-      effectiveThreadId;
+    // A later explicit Stop supersedes a pending fast-mode handoff.
+    pendingFastRetryRef.current = null;
+    // Keep observing the attempt until its terminal outcome is known.
     void inferenceRequest.requestCancel();
-    releaseTurnLease(releaseThreadId, {
-      clearCompletion: true,
-      clearInference: true,
-    });
   };
   const handleSwitchToNoThink = () => {
-    if (effectiveThreadId == null) return;
+    if (effectiveThreadId == null || !inferenceRequest.state.taskId ||
+        inferenceRequest.state.threadId !== effectiveThreadId ||
+        !isActiveInferencePhase(inferenceRequest.state.phase)) return;
     onSessionInferenceModeChange?.("no_think");
     const selection = resolveCompletionSelection({
       reasoningMode: "no_think",
     });
-    pendingFastRetryRef.current = {
+    const pendingRetry: FastRetryIntent = {
       threadId: effectiveThreadId,
+      taskId: inferenceRequest.state.taskId,
       providerId: selection.providerId,
       modelId: selection.modelId,
+      cancelled: false,
+      scheduled: false,
     };
+    pendingFastRetryRef.current = pendingRetry;
     void inferenceRequest.requestCancel().then((ok) => {
-      if (!ok) {
+      if (!ok && !pendingRetry.cancelled && pendingFastRetryRef.current === pendingRetry) {
         pendingFastRetryRef.current = null;
       }
     });
@@ -4437,6 +4566,16 @@ export function GuardianChat({
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />
+      {effectiveThreadId != null ? (
+        <ThreadAttemptObservation
+          threadId={effectiveThreadId}
+          enabled={authCanSend}
+          identityEpoch={auth.token}
+          currentTaskId={composerInferenceState.taskId}
+          onTerminalObserved={refreshSnapshot}
+          onCurrentTerminalObserved={handleCurrentAttemptTerminal}
+        />
+      ) : null}
 
       {/* Conversation remains flow-based; landing keeps the greeting and Composer
           together as one centered prompt-first unit. */}
@@ -4633,6 +4772,7 @@ export function GuardianChat({
                     selectedProvider?.id ?? activeProviderId ?? null;
 
                   const providerChanged = providerId !== currentProviderId;
+                  if (providerChanged) pendingFastRetryRef.current = null;
 
                   if (
                     providerChanged &&
@@ -4640,10 +4780,6 @@ export function GuardianChat({
                     isTurnLocked(activeRequestThreadId)
                   ) {
                     void inferenceRequest.requestCancel();
-                    releaseTurnLease(activeRequestThreadId, {
-                      clearCompletion: true,
-                      clearInference: true,
-                    });
                   }
 
                   const nextProvider =

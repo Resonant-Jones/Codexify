@@ -42,7 +42,7 @@ def test_review_dispatch_migration_is_the_single_new_head() -> None:
     script = ScriptDirectory.from_config(
         Config(str(REPO_ROOT / "backend" / "alembic.ini"))
     )
-    assert script.get_heads() == ["9c66e490a42b"]
+    assert script.get_heads() == ["2e865c4a9b10"]
 
 
 def test_review_dispatch_schema_keeps_transport_separate_from_result_content() -> None:

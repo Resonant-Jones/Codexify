@@ -21,9 +21,151 @@ from typing import Any, Optional, Tuple
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
+from guardian.protocol_tokens import ErrorCode
+
 
 ACCOUNT_SESSION_PURPOSE = "account_session"
 OPERATOR_SESSION_PURPOSE = "operator_session"
+
+
+def _unverified_session_purpose(token: object) -> str | None:
+    """Read an opaque session or JWT purpose as presence evidence only.
+
+    This parser deliberately does not verify the signature, expiry, subject,
+    or session-store approval. It is used only to reject requests that present
+    multiple credential classes before any credential or resource lookup.
+    """
+    if not isinstance(token, str):
+        return None
+    packed = token.strip()
+    if not packed or len(packed) > 16_384:
+        return None
+    parts = packed.split(".")
+    if len(parts) == 2:
+        payload_b64 = parts[0]
+    elif len(parts) == 3:
+        # JWT claims occupy the middle segment. Header/signature inspection
+        # and ordinary credential verification remain separate from presence.
+        payload_b64 = parts[1]
+    else:
+        return None
+    if not payload_b64:
+        return None
+
+    def reject_duplicate_claims(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        claims: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in claims:
+                raise ValueError("duplicate session claim")
+            claims[key] = value
+        return claims
+
+    try:
+        padded = payload_b64 + ("=" * (-len(payload_b64) % 4))
+        payload = base64.b64decode(
+            padded.encode("ascii"), altchars=b"-_", validate=True
+        )
+        claims = json.loads(
+            payload.decode("utf-8"), object_pairs_hook=reject_duplicate_claims
+        )
+    except (ValueError, RecursionError):
+        return None
+
+    if not isinstance(claims, dict):
+        return None
+    purpose = claims.get("purpose")
+    if isinstance(purpose, str) and purpose in {
+        ACCOUNT_SESSION_PURPOSE,
+        OPERATOR_SESSION_PURPOSE,
+    }:
+        return purpose
+    return None
+
+
+def reject_mixed_principal_credentials(
+    request: Request | None,
+    *,
+    enabled: bool,
+    authorization: str | None = None,
+    gc_session: str | None = None,
+    operator_key_values: tuple[object, ...] = (),
+) -> None:
+    """Reject cross-principal credential presence before validation/lookups.
+
+    The exact, unverified purpose claim is presence evidence only. Raw keys
+    count as operator material only when the caller is an operator-auth seam;
+    service-capability callers must leave ``operator_key_values`` empty.
+    """
+    if not enabled:
+        return
+
+    if request is not None:
+        if authorization is None:
+            authorization = request.headers.get("Authorization")
+        if gc_session is None:
+            gc_session = request.cookies.get("gc_session")
+
+    authorization_value = (
+        authorization.strip() if isinstance(authorization, str) else ""
+    )
+    session_cookie_value = (
+        gc_session.strip() if isinstance(gc_session, str) else ""
+    )
+    guest_selector_present = bool(
+        request is not None
+        and "codexify_hosted_room_session" in request.cookies
+    )
+
+    # A guest selector combined with any other session-selector material is
+    # mixed even when the other token is malformed or expired.
+    if guest_selector_present and (authorization_value or session_cookie_value):
+        _raise_mixed_principal_credentials()
+
+    lanes: set[str] = set()
+    if guest_selector_present:
+        lanes.add("guest")
+    bearer_token = ""
+    if authorization_value.lower().startswith("bearer "):
+        bearer_token = authorization_value[7:].strip()
+    for token in (bearer_token, session_cookie_value):
+        purpose = _unverified_session_purpose(token)
+        if purpose == ACCOUNT_SESSION_PURPOSE:
+            lanes.add("account")
+        elif purpose == OPERATOR_SESSION_PURPOSE:
+            lanes.add("operator")
+
+    if any(isinstance(value, str) and value.strip() for value in operator_key_values):
+        lanes.add("operator")
+
+    if len(lanes) > 1:
+        _raise_mixed_principal_credentials()
+
+
+def reject_non_guest_bootstrap_credentials(request: Request, *, enabled: bool) -> None:
+    """Exclude session-selector material from a guest-only bootstrap.
+
+    Any nonempty Authorization or gc_session value would coexist with the
+    issued guest cookie, including malformed or expired material. This narrow
+    presence check grants no authority and performs no credential validation.
+    """
+    if enabled and any(
+        value and value.strip()
+        for value in (
+            request.headers.get("Authorization"),
+            request.cookies.get("gc_session"),
+        )
+    ):
+        _raise_mixed_principal_credentials()
+
+
+def _raise_mixed_principal_credentials() -> None:
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value,
+            "message": "Conflicting authentication contexts",
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -100,19 +242,12 @@ def issue_session_token(
     return packed, exp
 
 
-def verify_session_token_for_purpose(
-    token: str, expected_purpose: str
-) -> bool:
-    """Validate a current-format signed session token for one exact purpose.
-
-    Unlike the compatibility verifier below, this validator requires the
-    canonical two-part HMAC format and all current claims, including nonce
-    and purpose. Legacy purpose-less tokens cannot cross this boundary.
-    """
+def _verified_session_token_claims(token: str) -> dict[str, Any] | None:
+    """Return structurally valid claims from a signed current-format token."""
     try:
         packed = (token or "").strip()
         if not packed or packed.count(".") != 1:
-            return False
+            return None
         payload_b64, sig_b64 = packed.split(".", 1)
 
         def decode(raw_text: str) -> bytes | None:
@@ -125,24 +260,63 @@ def verify_session_token_for_purpose(
         payload = decode(payload_b64)
         signature = decode(sig_b64)
         if payload is None or signature is None:
-            return False
+            return None
         expected_signature = hmac.new(
             _session_secret(), payload, hashlib.sha256
         ).digest()
         if not hmac.compare_digest(signature, expected_signature):
-            return False
+            return None
 
         claims = json.loads(payload.decode("utf-8"))
         subject = str(claims.get("subject") or "").strip()
         nonce = str(claims.get("nonce") or "").strip()
         purpose = str(claims.get("purpose") or "").strip()
-        expires_at = int(claims.get("exp") or 0)
+        int(claims.get("exp") or 0)
+        if not subject or not nonce or not purpose:
+            return None
+        return claims
+    except Exception:
+        return None
+
+
+def get_verified_session_token_purpose(token: str) -> str | None:
+    """Read a signed token's class for failure classification only.
+
+    Expiry is intentionally not checked here: an expired signed token still
+    identifies which credential lane was presented. Callers must use
+    ``verify_session_token_for_purpose`` to authorize a request.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return None
+    return str(claims.get("purpose") or "").strip() or None
+
+
+def get_unverified_session_token_purpose(token: str) -> str | None:
+    """Read a purpose claim for mixed-lane presence classification only.
+
+    This value is never authentication evidence. Callers must validate the
+    credential with the route's purpose-specific verifier before authorizing.
+    """
+    return _unverified_session_purpose(token)
+
+
+def verify_session_token_for_purpose(
+    token: str, expected_purpose: str
+) -> bool:
+    """Validate a current-format signed session token for one exact purpose.
+
+    Unlike the compatibility verifier below, this validator requires the
+    canonical two-part HMAC format and all current claims, including nonce
+    and purpose. Legacy purpose-less tokens cannot cross this boundary.
+    """
+    claims = _verified_session_token_claims(token)
+    if claims is None:
+        return False
+    try:
         return bool(
-            subject
-            and nonce
-            and purpose
-            and purpose == expected_purpose
-            and expires_at >= int(time.time())
+            str(claims.get("purpose") or "").strip() == expected_purpose
+            and int(claims.get("exp") or 0) >= int(time.time())
         )
     except Exception:
         return False
@@ -263,6 +437,12 @@ def require_auth(
     from guardian.core.preview_access import is_private_preview, role_for_preview_email
 
     if is_private_preview() or _auth_mode() == "remote":
+        reject_mixed_principal_credentials(
+            request,
+            enabled=True,
+            authorization=authorization,
+            gc_session=gc_session,
+        )
         from guardian.core.auth_dependencies import extract_session_token
 
         token = extract_session_token(authorization, gc_session)

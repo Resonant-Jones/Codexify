@@ -158,7 +158,6 @@ export default function SidebarRoot({
   onProjectChange,
   originSystem = null,
   onOriginSystemChange,
-  projects = [],
   projectCache,
   creatingThread,
   hasMoreThreads = false,
@@ -189,7 +188,6 @@ export default function SidebarRoot({
   });
 
   const ownedProjectCache = useProjectsCache({
-    initialProjects: projects,
     threadsForLooseCount: threads,
     enabled: !projectCache,
   });

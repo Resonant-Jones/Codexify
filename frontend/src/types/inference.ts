@@ -1,3 +1,5 @@
+import type { ToolCommandFailureReason } from "@/contracts/runtimeTokens";
+
 export type ComposerInferenceMode = "default" | "no_think" | "think";
 
 export type InferenceLatencyMetric = {
@@ -26,6 +28,10 @@ export interface InferenceRequestState {
   statusText: string | null;
   detailText: string | null;
   errorText: string | null;
+  // A durable terminal receipt proves failure, without establishing its cause.
+  durableFailureOnly?: boolean;
+  failureCode?: string | null;
+  toolLoopStopReason?: ToolCommandFailureReason | null;
   queuedAt?: string | null;
   awaitingModelAt?: string | null;
   awaitingFirstTokenAt?: string | null;
@@ -54,6 +60,9 @@ export function createIdleInferenceRequestState(): InferenceRequestState {
     statusText: null,
     detailText: null,
     errorText: null,
+    durableFailureOnly: false,
+    failureCode: null,
+    toolLoopStopReason: null,
     queuedAt: null,
     awaitingModelAt: null,
     awaitingFirstTokenAt: null,

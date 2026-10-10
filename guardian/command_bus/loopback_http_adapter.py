@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
 
+from guardian.tasks.chat_deadline import (
+    AcceptedChatTaskDeadline,
+    AcceptedChatTaskDeadlineExceeded,
+)
 from guardian.tools.policy import (
     apply_policy_mode,
     evaluate_tool_policy,
@@ -24,6 +30,7 @@ install_safe_logging()
 logger = logging.getLogger(__name__)
 
 RECURSION_BLOCKED_PREFIXES = ("/api/guardian/commands/",)
+LOOPBACK_REQUEST_TIMEOUT_SECONDS = 30.0
 
 
 def resolve_loopback_base() -> str:
@@ -74,8 +81,19 @@ async def execute_loopback_request(
     body: Any,
     inbound_headers: dict[str, str] | None = None,
     policy_context: dict[str, Any] | None = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ) -> dict[str, Any]:
     """Execute raw command over loopback HTTP."""
+    work_limit = None
+    if accepted_deadline is not None:
+        loop = asyncio.get_running_loop()
+        anchor = loop.time()
+        remaining = (
+            accepted_deadline.work_deadline_at - datetime.now(timezone.utc)
+        ).total_seconds()
+        work_limit = anchor + remaining
+        if remaining <= 0:
+            raise AcceptedChatTaskDeadlineExceeded()
     if policy_context:
         command = {
             "method": method.upper(),
@@ -137,13 +155,43 @@ async def execute_loopback_request(
         "url": url,
         "params": query or None,
         "headers": outbound_headers or None,
-        "timeout": 30.0,
+        "timeout": LOOPBACK_REQUEST_TIMEOUT_SECONDS,
     }
     if body is not None and method.upper() not in {"GET", "HEAD"}:
         kwargs["json"] = body
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        response = await client.request(**kwargs)
+    if work_limit is None:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.request(**kwargs)
+    else:
+        remaining = work_limit - loop.time()
+        if remaining <= 0:
+            raise AcceptedChatTaskDeadlineExceeded()
+        child_limit = min(remaining, LOOPBACK_REQUEST_TIMEOUT_SECONDS)
+
+        async def request_with_cleanup():
+            client = httpx.AsyncClient(follow_redirects=True)
+            try:
+                remaining = work_limit - loop.time()
+                if remaining <= 0:
+                    raise AcceptedChatTaskDeadlineExceeded()
+                kwargs["timeout"] = min(remaining, LOOPBACK_REQUEST_TIMEOUT_SECONDS)
+                return await client.request(**kwargs)
+            finally:
+                await client.aclose()
+
+        try:
+            # One total timer includes redirects, response-body reads and close.
+            # Native cancellation is awaited; no blocking request is abandoned.
+            response = await asyncio.wait_for(request_with_cleanup(), child_limit)
+        except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+            if loop.time() >= work_limit:
+                raise AcceptedChatTaskDeadlineExceeded(attempted=True) from None
+            if isinstance(exc, httpx.TimeoutException):
+                raise
+            raise httpx.ReadTimeout("Loopback command request timed out") from exc
+        if loop.time() >= work_limit:
+            raise AcceptedChatTaskDeadlineExceeded(attempted=True)
 
     content_type = (response.headers.get("content-type") or "").lower()
     parsed_body: Any

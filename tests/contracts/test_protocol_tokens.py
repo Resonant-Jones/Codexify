@@ -20,12 +20,17 @@ from guardian.pi.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    ACCOUNT_AUTH_FAILURE_HEADER,
     ACCOUNT_IMPORT_ERROR_CODES,
     ACCOUNT_IMPORT_EVENT_TYPES,
     ACCOUNT_IMPORT_STATUSES,
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    CODEX_APP_SERVER_FAILURE_KINDS,
+    CODEX_APP_SERVER_PROTOCOL_VERSIONS,
+    CODEX_APP_SERVER_SHUTDOWN_STATUSES,
+    CODEX_EXECUTION_INTERFACES,
     COMPLETION_TERMINAL_STATUSES,
     CONNECTION_CAPABILITIES,
     CONNECTION_CATEGORIES,
@@ -38,6 +43,7 @@ from guardian.protocol_tokens import (
     DELEGATION_TERMINAL_STATUSES,
     EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
+    EXECUTION_EVIDENCE_STATUSES,
     EXECUTOR_AUTH_MODES,
     EXECUTOR_AUTH_STATES,
     EXECUTOR_AVAILABILITY_STATES,
@@ -80,6 +86,10 @@ from guardian.protocol_tokens import (
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
     CampaignStatus,
+    CodexAppServerFailureKind,
+    CodexAppServerProtocolVersion,
+    CodexAppServerShutdownStatus,
+    CodexExecutionInterface,
     CompletionTerminalStatus,
     ConnectionCapability,
     ConnectionCategory,
@@ -96,6 +106,7 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    ExecutionEvidenceStatus,
     GuardianDelegationApprovalMode,
     GuardianDelegationApprovalSource,
     GuardianDelegationApprovalState,
@@ -697,6 +708,47 @@ def test_executor_protocol_tokens() -> None:
     }
 
 
+def test_codex_app_server_tokens() -> None:
+    assert CodexExecutionInterface.APP_SERVER.value == "app_server"
+    assert CODEX_EXECUTION_INTERFACES == {"app_server"}
+    assert CodexAppServerProtocolVersion.V2.value == "v2"
+    assert CODEX_APP_SERVER_PROTOCOL_VERSIONS == {"v2"}
+    assert CODEX_APP_SERVER_SHUTDOWN_STATUSES == {
+        "not_started",
+        "clean_exit",
+        "exited_before_close",
+        "terminated",
+        "killed",
+    }
+    assert CodexAppServerShutdownStatus.CLEAN_EXIT.value == "clean_exit"
+    assert CODEX_APP_SERVER_FAILURE_KINDS == {
+        "execution_interface_unsupported",
+        "binary_not_found",
+        "spawn_failed",
+        "initialization_failed",
+        "malformed_protocol",
+        "thread_start_failed",
+        "turn_start_failed",
+        "turn_failed",
+        "timeout",
+        "cancelled",
+        "premature_process_exit",
+        "unsupported_interaction",
+        "shutdown_failed",
+    }
+    assert EXECUTION_EVIDENCE_STATUSES == {
+        "observed",
+        "configured_only",
+        "unavailable",
+        "unknown",
+    }
+    assert (
+        CodexAppServerFailureKind.UNSUPPORTED_INTERACTION.value
+        == "unsupported_interaction"
+    )
+    assert ExecutionEvidenceStatus.CONFIGURED_ONLY.value == "configured_only"
+
+
 def test_pi_invocation_boundary_tokens() -> None:
     assert PiInvocationEnvelopeStatus.PREPARED.value == "prepared"
     assert PiInvocationEnvelopeStatus.VALIDATED.value == "validated"
@@ -936,6 +988,13 @@ def test_delegation_event_tokens() -> None:
 
 
 def test_error_code_tokens() -> None:
+    assert (
+        ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value
+        == "mixed_principal_credentials"
+    )
+    assert ErrorCode.MIXED_PRINCIPAL_CREDENTIALS.value in ERROR_CODES
+    assert ErrorCode.ACCOUNT_SESSION_INVALID.value == "ACCOUNT_SESSION_INVALID"
+    assert ACCOUNT_AUTH_FAILURE_HEADER == "X-Guardian-Auth-Failure"
     assert ErrorCode.QUEUE_ENQUEUE_FAILED.value == "QUEUE_ENQUEUE_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value == "CHAT_COMPLETE_ENQUEUE_FAILED"
@@ -1021,7 +1080,10 @@ def test_error_code_tokens() -> None:
         == "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
     )
     assert ERROR_CODES == {
+        "mixed_principal_credentials",
+        "ACCOUNT_SESSION_INVALID",
         "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+        "CHAT_ACCEPTED_TASK_ORPHANED",
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
@@ -1036,6 +1098,13 @@ def test_error_code_tokens() -> None:
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",
         "DELEGATION_EXECUTOR_SPAWN_FAILED",
+        "DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED",
+        "DELEGATION_EXECUTOR_CANCELLED",
+        "CODEX_APP_SERVER_PROTOCOL_ERROR",
+        "CODEX_APP_SERVER_REQUEST_FAILED",
+        "CODEX_APP_SERVER_TURN_FAILED",
+        "CODEX_APP_SERVER_UNSUPPORTED_INTERACTION",
+        "CODEX_APP_SERVER_SHUTDOWN_FAILED",
         "WORKTREE_LEASE_REQUIRED",
         "WORKTREE_LEASE_NOT_FOUND",
         "WORKTREE_LEASE_NOT_ACTIVE",
@@ -1304,3 +1373,12 @@ def test_remote_recall_trace_event_tokens() -> None:
 
 def test_accepted_chat_deadline_error_token():
     assert ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value == "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"
+
+
+def test_chat_orphan_failure_is_distinct_from_controlled_deadline() -> None:
+    assert ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value == "CHAT_ACCEPTED_TASK_ORPHANED"
+    assert ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value in ERROR_CODES
+    assert (
+        ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED
+        != ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED
+    )

@@ -17,11 +17,28 @@ from guardian.context.retrieval_router_policy import (
     source_mode_boundary_label,
 )
 from guardian.core.dependencies import RequestUserScope
+from guardian.core import chat_completion_service
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.routes import chat as chat_routes
 from guardian.tasks.types import task_from_dict
 from tests.utils import get_test_user_id
 
 setattr(guardian_pkg, "routes", guardian_routes_pkg)
+
+
+def _mock_turn_lock(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chat_completion_service,
+        "acquire_turn_lock",
+        lambda thread_id, owner, **kwargs: build_turn_lock_envelope(
+            thread_id, owner, turn_id=kwargs.get("turn_id")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -67,13 +84,13 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
         "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
-    )
+    _mock_turn_lock(monkeypatch)
     monkeypatch.setattr(
         "guardian.core.chat_completion_service.enqueue",
         lambda task, queue_name: captured.update(
@@ -266,13 +283,13 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
         "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
-    )
+    _mock_turn_lock(monkeypatch)
     monkeypatch.setattr(
         "guardian.core.chat_completion_service.enqueue",
         lambda task, queue_name: captured.update(

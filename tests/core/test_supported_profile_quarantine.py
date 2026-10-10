@@ -15,6 +15,14 @@ def _build_supported_profile_client(monkeypatch):
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    monkeypatch.setenv("CODEXIFY_BETA_CORE_ONLY", "0")
+    for flag in (
+        "CODEXIFY_ENABLE_ADMIN_ROUTES",
+        "CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES",
+        "CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES",
+        "CODEXIFY_ENABLE_OBSIDIAN_ROUTES",
+    ):
+        monkeypatch.setenv(flag, "1")
 
     import guardian.guardian_api as guardian_api
 
@@ -331,13 +339,16 @@ def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
 def test_agent_orchestration_chat_readback_enforced(
     monkeypatch,
 ) -> None:
-    """Prove thread-level coding-run projection route is mounted
-    and enforces authentication for invalid keys."""
+    """Prove coding readback is mounted and requires durable thread authority."""
     with _build_supported_profile_client(monkeypatch) as client:
+        openapi = client.get("/openapi.json")
+        assert openapi.status_code == 200
+        assert "/api/chat/{thread_id}/coding-runs" in openapi.json().get("paths", {})
+
         headers = {"X-API-Key": "test-api-key"}
         authenticated = client.get("/api/chat/1/coding-runs", headers=headers)
-        # Expect 200 (empty list) not 404.
-        assert authenticated.status_code == 200
+        # This fixture establishes no durable account-owned thread.
+        assert authenticated.status_code == 404
 
         # Wrong key must be rejected.
         wrong_key_response = client.get(

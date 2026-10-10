@@ -56,6 +56,7 @@ def test_update_fact_creates_value_revision():
         confidence=0.5,
         is_active=True,
         last_confirmed_at=None,
+        guardrail_metadata=None,
         created_at=None,
         updated_at=None,
     )
@@ -85,6 +86,7 @@ def test_update_fact_sets_last_confirmed_at_on_verify():
         confidence=0.5,
         is_active=True,
         last_confirmed_at=None,
+        guardrail_metadata=None,
         created_at=None,
         updated_at=None,
     )
@@ -107,6 +109,7 @@ def test_deactivate_fact_archives_and_revises():
         confidence=0.8,
         is_active=True,
         last_confirmed_at=None,
+        guardrail_metadata=None,
         created_at=None,
         updated_at=None,
     )

@@ -38,6 +38,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi import routing as fastapi_routing
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -87,6 +88,7 @@ from guardian.core.dependencies import (
     require_account_session,
     require_api_key,
     require_operator_auth,
+    require_task_event_read_principal,
 )
 from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
@@ -102,16 +104,19 @@ from guardian.core.public_exposure import (
     PublicExposureMiddleware,
 )
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.scout_account_transport import ScoutAccountTransportMiddleware
 from guardian.core.storage import ensure_storage_base_path
 from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
+from guardian.core.task_event_access import authorize_task_event_read
 from guardian.core.user_manager import get_or_create_default_user
 from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
     startup_failure_receipt_boundary,
 )
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
@@ -283,7 +288,11 @@ def _include_router(
             if hidden_paths is None:
                 hidden_paths = set()
                 app.state.supported_profile_hidden_paths = hidden_paths
-            for route in app.routes[route_count_before:]:
+            included_routes = app.routes[route_count_before:]
+            iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+            if iter_contexts is not None:
+                included_routes = iter_contexts(included_routes)
+            for route in included_routes:
                 path = getattr(route, "path", None)
                 if isinstance(path, str) and path:
                     hidden_paths.add(path)
@@ -326,7 +335,7 @@ def _run_chatgpt_import_startup_sweep() -> None:
             logger.warning if stats.get("embedding_coverage_degraded") else logger.info
         )
         level(
-            "[startup] ChatGPT import sweep user_id=%s limit=%d candidates=%d persisted=%d failed=%d degraded=%s",
+            "[startup] ChatGPT import sweep user_id=%s limit=%d item_count=%d persisted=%d failed=%d degraded=%s",
             user_id,
             retry_cap,
             int(stats.get("embedding_candidates", 0)),
@@ -483,10 +492,10 @@ def _retrieval_proof_state(
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
-from guardian.routes import configuration_inspector
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
+from guardian.routes import configuration_inspector
 from guardian.routes import connections as connections_routes
 from guardian.routes import continuity_operator
 from guardian.routes import cron as cron_routes
@@ -502,11 +511,10 @@ from guardian.routes import (
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
-from guardian.routes import llm_overrides
-from guardian.routes import memory, migration
 from guardian.routes import (
     hosted_room_guest,
     hosted_rooms,
+    llm_overrides,
     memory,
     memory_vault,
     migration,
@@ -525,7 +533,6 @@ from guardian.routes.connections import router as connections_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
-from guardian.routes.onboarding import router as onboarding_router
 from guardian.routes.direct_messages import router as direct_messages_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
@@ -535,11 +542,13 @@ from guardian.routes.intents import router as intents_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.routes.obsidian import router as obsidian_router
+from guardian.routes.onboarding import router as onboarding_router
 from guardian.routes.persona_profiles import router as persona_profiles_router
 from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.scout_auth import router as scout_auth_router
 from guardian.routes.user_profile import router as user_profile_router
 from guardian.routes.voice import router as voice_router
 from guardian.routes.worktrees import router as worktrees_router
@@ -563,6 +572,7 @@ async def _app_lifespan_body(app: FastAPI):
     Handles startup and shutdown logic.
     """
     global _CONNECTOR_WORKER_STOP, _CONNECTOR_WORKER_TASK
+    skip_seeding = os.getenv("CODEXIFY_SKIP_STARTUP_SEEDING", "0") == "1"
 
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
@@ -609,21 +619,22 @@ async def _app_lifespan_body(app: FastAPI):
     # Initialize shared services (vector store, sensors)
     init_services(db)
 
-    try:
-        from guardian.runtime.ingest.seed_pipeline import seed_global_system_docs
+    if not skip_seeding:
+        try:
+            from guardian.runtime.ingest.seed_pipeline import seed_global_system_docs
 
-        seed_summary = seed_global_system_docs(get_vector_store())
-        logger.info(
-            "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
-            seed_summary.get("seeded", 0),
-            seed_summary.get("candidate_count", 0),
-            seed_summary.get("namespace"),
-        )
-    except Exception as exc:
-        logger.warning(
-            "[startup] global system doc seeding failed: %s",
-            exc,
-        )
+            seed_summary = seed_global_system_docs(get_vector_store())
+            logger.info(
+                "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
+                seed_summary.get("seeded", 0),
+                seed_summary.get("candidate_count", 0),
+                seed_summary.get("namespace"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[startup] global system doc seeding failed: %s",
+                exc,
+            )
 
     # Initialize Prometheus metrics
     metrics.set_db_backend(dependencies.DB_BACKEND)
@@ -666,12 +677,14 @@ async def _app_lifespan_body(app: FastAPI):
         )
 
         try:
-            get_or_create_default_user(guardian_db)
+            if not skip_seeding:
+                get_or_create_default_user(guardian_db)
         except Exception as exc:
             logger.warning("[startup] Failed to ensure default user exists: %s", exc)
 
     try:
-        _run_builtin_help_startup_ingest(guardian_db)
+        if not skip_seeding:
+            _run_builtin_help_startup_ingest(guardian_db)
     except Exception as exc:
         logger.warning("[startup] Built-in help ingest hook failed soft: %s", exc)
 
@@ -687,30 +700,36 @@ async def _app_lifespan_body(app: FastAPI):
 
     # Ensure canonical default "General" project exists
     try:
-        ensure_default_project()
+        if not skip_seeding:
+            ensure_default_project()
     except Exception as exc:
         logger.error("[startup] Failed to initialize default project: %s", exc)
 
     # Ensure sync_jobs table exists
     try:
-        db.ensure_sync_job_support()
+        if not skip_seeding:
+            db.ensure_sync_job_support()
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
 
-    # Seed/sync provider control-plane rows from /api/llm/catalog
-    try:
-        sync_stats = db.sync_inference_provider_rows_from_catalog()
-        logger.info(
-            "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
-            sync_stats.get("provider_rows", 0),
-            sync_stats.get("providers_created", 0),
-            sync_stats.get("providers_updated", 0),
-            sync_stats.get("runtime_created", 0),
-        )
-    except Exception as exc:
-        logger.warning("[startup] Failed to sync inference provider rows: %s", exc)
+    if not skip_seeding:
+        # Seed/sync provider control-plane rows from /api/llm/catalog
+        try:
+            sync_stats = db.sync_inference_provider_rows_from_catalog()
+            logger.info(
+                "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
+                sync_stats.get("provider_rows", 0),
+                sync_stats.get("providers_created", 0),
+                sync_stats.get("providers_updated", 0),
+                sync_stats.get("runtime_created", 0),
+            )
+        except Exception as exc:
+            logger.warning("[startup] Failed to sync inference provider rows: %s", exc)
 
-    _schedule_chatgpt_import_startup_sweep(app)
+    if not skip_seeding:
+        _schedule_chatgpt_import_startup_sweep(app)
+    else:
+        logger.info("scout_startup_provisioning_disabled")
 
     # Initialize Neo4j connection if graph logging is enabled
     if (
@@ -1012,8 +1031,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[ACCOUNT_AUTH_FAILURE_HEADER],
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
+
+# Only the independently qualified hosted Scout composition gets this alternate
+# transport. Mainline validators retain credential purpose and route authority.
+app.add_middleware(ScoutAccountTransportMiddleware)
 
 # Signed media serving base path
 media_storage_path = ensure_storage_base_path().resolve()
@@ -1057,6 +1081,7 @@ def _include_browser_host_negotiation_router() -> None:
 # =========================
 # Router Inclusion
 # =========================
+
 
 def _include_admin_surface() -> None:
     app.include_router(admin.router)
@@ -1102,6 +1127,7 @@ _include_router(
     include_fn=lambda: (
         app.include_router(auth_routes.router),
         app.include_router(auth_routes.api_router),
+        app.include_router(scout_auth_router),
     ),
     core_surface=True,
 )
@@ -1464,10 +1490,10 @@ _include_router(
 _include_router(
     label="direct_messages",
     flag_name="CODEXIFY_ENABLE_DIRECT_MESSAGES_ROUTES",
-    # Private-preview functionality.  Only the hosted/private test profile
-    # (v1-friends-family-web) lists this label; every other supported
-    # profile leaves it unlisted, which route governance treats as
-    # quarantined.  Federation and Guardian execution stay disconnected.
+    # Enabled Private Preview and hosted/private tester human messaging
+    # (v1-whooshd-deepseek-web and v1-friends-family-web, ADR-097).
+    # Default/public Beta leaves the label unavailable. Federation and
+    # Guardian execution stay disconnected.
     include_fn=lambda: app.include_router(direct_messages_router),
     default_enabled=True,
 )
@@ -1627,7 +1653,7 @@ async def stream_task_events(
     task_id: str,
     last_id_query: str = Query("0-0", alias="last_id"),
     last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
-    api_key: str = Depends(require_api_key),
+    principal: Any = Depends(require_task_event_read_principal),
 ):
     """
     Stream task events from Redis by task_id as Server-Sent Events.
@@ -1638,6 +1664,12 @@ async def stream_task_events(
     """
     from starlette.responses import StreamingResponse
 
+    # Authenticate, resolve the durable backend-task mapping, and authorize
+    # its canonical thread before constructing a response or reaching Redis.
+    await asyncio.to_thread(
+        authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
+    )
+
     async def event_stream() -> AsyncGenerator[str, None]:
         last_id = str(last_event_id_header or last_id_query or "0-0")
         if "-" not in last_id:
@@ -1646,7 +1678,11 @@ async def stream_task_events(
 
         heartbeat_elapsed = 0.0
         heartbeat_interval = 15.0
-        block_ms = int(os.getenv("TASK_EVENT_BLOCK_MS", "15000"))
+        try:
+            block_ms = max(1, min(1000, int(os.getenv("TASK_EVENT_BLOCK_MS", "1000"))))
+        except ValueError:
+            logger.warning("[task-events] invalid transport block configuration")
+            return
 
         while True:
             if await request.is_disconnected():
@@ -1654,7 +1690,7 @@ async def stream_task_events(
 
             try:
                 events = await asyncio.to_thread(
-                    task_events.read_events,
+                    task_events.read_events_bounded,
                     task_id,
                     last_id,
                     block_ms=block_ms,
@@ -1662,8 +1698,9 @@ async def stream_task_events(
                 )
             except Exception as exc:
                 logger.warning("[task-events] read failed: %s", exc)
-                await asyncio.sleep(1)
-                continue
+                # Transport uncertainty grants no request terminal outcome.
+                # Close this subscription; existing client recovery may rejoin.
+                return
 
             if events:
                 for ev_id, ev in events:

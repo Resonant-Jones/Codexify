@@ -24,11 +24,19 @@ let package = Package(
                 "Models/ScoutLLMCatalogSnapshot.swift",
                 "Models/ScoutChatThreadSummary.swift",
                 "Models/ScoutChatMessageSummary.swift",
+                "Services/ScoutConversationState.swift",
+                "Services/ScoutThreadActions.swift",
+                "AppIntents/Entities/ScoutThreadEntity.swift",
+                "AppIntents/Queries/ScoutThreadEntityQuery.swift",
+                "AppIntents/Intents/ListScoutThreadsIntent.swift",
+                "AppIntents/Intents/CreateScoutThreadIntent.swift",
+                "AppIntents/ScoutAppShortcuts.swift",
                 "Models/ScoutThreadDocumentSummary.swift",
                 "Models/ScoutDocumentDetail.swift",
                 "Models/ScoutRAGTraceSnapshot.swift",
                 "Models/ScoutTaskReceiptSummary.swift",
                 "Services/ScoutEndpointConnectivityProbe.swift",
+                "Services/ScoutRequestAuthentication.swift",
                 "Services/ScoutLLMHealthProbe.swift",
                 "Services/ScoutLLMCatalogProbe.swift",
                 "Services/ScoutGuardianThreadsProbe.swift",
@@ -44,16 +52,28 @@ let package = Package(
                 "Services/ScoutCreateThreadProbe.swift",
                 "Services/ScoutRenameThreadProbe.swift",
                 "Services/ScoutKeychainStore.swift",
+                "Services/ScoutAccessOAuth.swift",
+                "Services/ScoutAccessCredentialStore.swift",
+                "Services/ScoutAccessSignIn.swift",
+                "Services/ScoutIngressQualification.swift",
+                "Services/ScoutAccountSessionStore.swift",
+                "Services/ScoutAccountHandoff.swift",
+                "Services/ScoutAuthenticationQualification.swift",
             ],
             linkerSettings: [
                 .linkedFramework("Security")
             ]
         ),
+        .testTarget(
+            name: "ScoutTests",
+            dependencies: ["Scout"],
+            path: "Tests/ScoutTests"
+        ),
     ]
 )
 
-// Tests are run via the standalone test runner. XCTest and Swift Testing
-// are unavailable on this system (Command Line Tools only, no Xcode).
+// SwiftPM tests run through the ScoutTests XCTest target. The standalone test
+// runner remains available, and the iOS app itself lives in CodexifyScout.xcodeproj.
 //
 // Build the library:
 //   cd mobile/scout-ios && swift build

@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from requests import exceptions as req_exc
 
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.accepted_deadline_transport import AcceptedDeadlineTransport
+from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline, AcceptedChatTaskDeadlineExceeded
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.core.event_contracts import _coerce_text
@@ -1876,6 +1878,7 @@ def chat_with_ai(
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
     requested_model_is_authoritative: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1971,6 +1974,7 @@ def chat_with_ai(
                     "strict_provider_model": strict_provider_model,
                     "strict_single_request": strict_single_request,
                     "requested_model_is_authoritative": requested_model_is_authoritative,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -1984,6 +1988,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2001,6 +2006,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2016,6 +2022,7 @@ def chat_with_ai(
                     "max_tokens": max_tokens,
                     "tools": tools,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2029,6 +2036,7 @@ def chat_with_ai(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2044,6 +2052,7 @@ def chat_with_ai(
                     "max_tokens": max_tokens,
                     "prompt_meta": prompt_meta,
                     "settings": settings,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
@@ -2568,6 +2577,41 @@ def _build_threadwake_config(settings: Settings | None = None) -> dict | None:
     }
 
 
+def _abort_accepted_whooshd_request(
+    *, deadline_transport, response, base_url, headers, request_id, task_id, attempt_id
+):
+    """Best-effort correlated abort within the immutable terminal reserve."""
+    try:
+        remote_id = _whooshd_request_id_from_response(response)
+        if not remote_id and request_id and task_id and attempt_id:
+            inventory = deadline_transport.terminal_json(
+                "GET", _whooshd_runtime_requests_url(base_url), headers
+            )
+            for item in inventory.get("requests", [])[-256:]:
+                if not isinstance(item, dict):
+                    continue
+                if all(
+                    item.get(field) == expected
+                    for field, expected in (
+                        ("correlation_id", request_id),
+                        ("codexify_task_id", task_id),
+                        ("codexify_attempt_id", attempt_id),
+                    )
+                ):
+                    candidate = item.get("request_id")
+                    if isinstance(
+                        candidate, str
+                    ) and _SAFE_WHOOSHD_REQUEST_ID_RE.fullmatch(candidate):
+                        remote_id = candidate
+                        break
+        if remote_id:
+            deadline_transport.terminal_json(
+                "POST", _whooshd_cancel_url(base_url, remote_id), headers
+            )
+    except Exception:
+        pass
+
+
 def call_local(
     messages,
     model: str,
@@ -2585,6 +2629,7 @@ def call_local(
     strict_provider_model: bool = False,
     strict_single_request: bool = False,
     requested_model_is_authoritative: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2684,10 +2729,33 @@ def call_local(
 
     request_timeout = runtime_policy.request_timeout
 
-    def _post_json(url: str, payload_obj: Dict[str, Any]) -> requests.Response:
-        return requests.post(
-            url, json=payload_obj, headers=headers, timeout=request_timeout
+    deadline_transport = (
+        AcceptedDeadlineTransport(accepted_deadline) if accepted_deadline else None
+    )
+    response = None
+
+    def _post_json(url: str, payload_obj: Dict[str, Any]):
+        nonlocal response
+        if deadline_transport is None:
+            return requests.post(
+                url, json=payload_obj, headers=headers, timeout=request_timeout
+            )
+        response = None
+        response = deadline_transport.post(
+            url,
+            json=payload_obj,
+            headers=headers,
+            stream=True,
+            timeout=request_timeout,
         )
+        try:
+            # Headers and the entire body share the same non-sliding deadline.
+            # Cache the completed body before closing native HTTP I/O so the
+            # existing parser can consume it without another network operation.
+            response.content
+            return response
+        finally:
+            response.close()
 
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
@@ -2695,293 +2763,313 @@ def call_local(
     last_whooshd_error: WhooshdErrorDiagnostic | None = None
     last_transport_url: str = ""
 
-    for base_url in base_urls:
-        attempted_base_urls.append(base_url)
-        is_gateway = base_url.endswith("/v1")
-        attempt_urls = _local_attempt_urls(
-            base_url,
-            compat_first=compat_first,
-            enable_generate_fallback=(
-                enable_generate_fallback and not strict_single_request
-            ),
-            allow_generate=True,
-        )
-        if strict_single_request:
-            attempt_urls = attempt_urls[:1]
-        for kind, url in attempt_urls:
-            if structured_transport is not None and kind != "openai":
-                attempt_failures.append(
-                    f"{url} (strict structured transport requires OpenAI-compatible endpoint)"
-                )
-                continue
-            try:
-                logger.info(
-                    "chat.inference.request.built",
-                    extra={
-                        "provider": "local",
-                        "model": model,
-                        "endpoint_kind": kind,
-                        "has_images": _messages_contain_image_payload(
-                            adapted_messages
-                        ),
-                        "message_count": len(adapted_messages),
-                        "content_part_counts": [
-                            (
-                                len(m.get("content", []))
-                                if isinstance(m.get("content"), list)
-                                else 0
-                            )
-                            for m in adapted_messages
-                        ],
-                        "stream": False,
-                    },
-                )
-                if kind == "openai":
-                    resp = _post_json(url, payload)
-                elif kind == "ollama_chat":
-                    ollama_messages = adapted_messages
-                    if _messages_contain_image_payload(adapted_messages):
-                        ollama_messages = _transform_messages_for_ollama_vision(
-                            adapted_messages
-                        )
-                    payload_ollama: Dict[str, Any] = {
-                        "model": model,
-                        "messages": ollama_messages,
-                        "stream": False,
-                    }
-                    resp = _post_json(url, payload_ollama)
-                else:
-                    # /api/generate expects a single prompt string. Keep it as a last resort.
-                    prompt = "\n\n".join(
-                        str(m.get("content") or "").strip()
-                        for m in adapted_messages
-                        if isinstance(m, dict)
-                        and str(m.get("content") or "").strip()
-                    ).strip()
-                    payload_generate: Dict[str, Any] = {
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                    }
-                    resp = _post_json(url, payload_generate)
-            except req_exc.RequestException as exc:
-                last_transport_error = exc
-                last_transport_url = url
-                classification = _classify_transport_error(exc)
-                attempt_failures.append(f"{url} ({classification}: {exc})")
-                continue
-
-            last_transport_url = url
-            try:
-                whooshd_error = parse_whooshd_error(resp)
-            except WhooshdContractVersionError as exc:
-                raise _whooshd_contract_version_failure(
-                    settings=settings,
-                    model=model,
-                    endpoint=url,
-                    runtime_policy=runtime_policy,
-                    received_version=exc.received_version,
-                    attempted_endpoints=[
-                        f"{url} (contract_version_unsupported)"
-                    ],
-                    attempted_base_urls=attempted_base_urls,
-                ) from exc
-            if whooshd_error is not None:
-                last_whooshd_error = whooshd_error
-                attempt_failures.append(
-                    f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
-                )
-                continue
-            if resp.status_code == 404:
-                if is_gateway:
+    try:
+        for base_url in base_urls:
+            attempted_base_urls.append(base_url)
+            is_gateway = base_url.endswith("/v1")
+            attempt_urls = _local_attempt_urls(
+                base_url,
+                compat_first=compat_first,
+                enable_generate_fallback=(
+                    enable_generate_fallback and not strict_single_request
+                ),
+                allow_generate=True,
+            )
+            if strict_single_request:
+                attempt_urls = attempt_urls[:1]
+            for kind, url in attempt_urls:
+                if structured_transport is not None and kind != "openai":
                     attempt_failures.append(
-                        f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
+                        f"{url} (strict structured transport requires OpenAI-compatible endpoint)"
                     )
-                else:
-                    attempt_failures.append(f"{url} (HTTP 404)")
-                continue
+                    continue
+                try:
+                    logger.info(
+                        "chat.inference.request.built",
+                        extra={
+                            "provider": "local",
+                            "model": model,
+                            "endpoint_kind": kind,
+                            "has_images": _messages_contain_image_payload(
+                                adapted_messages
+                            ),
+                            "message_count": len(adapted_messages),
+                            "content_part_counts": [
+                                (
+                                    len(m.get("content", []))
+                                    if isinstance(m.get("content"), list)
+                                    else 0
+                                )
+                                for m in adapted_messages
+                            ],
+                            "stream": False,
+                        },
+                    )
+                    if kind == "openai":
+                        resp = _post_json(url, payload)
+                    elif kind == "ollama_chat":
+                        ollama_messages = adapted_messages
+                        if _messages_contain_image_payload(adapted_messages):
+                            ollama_messages = _transform_messages_for_ollama_vision(
+                                adapted_messages
+                            )
+                        payload_ollama: Dict[str, Any] = {
+                            "model": model,
+                            "messages": ollama_messages,
+                            "stream": False,
+                        }
+                        resp = _post_json(url, payload_ollama)
+                    else:
+                        # /api/generate expects a single prompt string. Keep it as a last resort.
+                        prompt = "\n\n".join(
+                            str(m.get("content") or "").strip()
+                            for m in adapted_messages
+                            if isinstance(m, dict)
+                            and str(m.get("content") or "").strip()
+                        ).strip()
+                        payload_generate: Dict[str, Any] = {
+                            "model": model,
+                            "prompt": prompt,
+                            "stream": False,
+                        }
+                        resp = _post_json(url, payload_generate)
+                except req_exc.RequestException as exc:
+                    last_transport_error = exc
+                    last_transport_url = url
+                    classification = _classify_transport_error(exc)
+                    attempt_failures.append(f"{url} ({classification}: {exc})")
+                    continue
 
-            if not (200 <= resp.status_code < 300):
-                detail = _extract_provider_error_message(resp, secret=api_key)
-                attempt_failures.append(
-                    f"{url} (HTTP {resp.status_code}: {detail})"
-                )
-                continue
-
-            try:
-                data = json.loads(resp.content.decode("utf-8"))
-            except Exception as exc:
-                attempt_failures.append(f"{url} (invalid JSON: {exc})")
-                continue
-
-            runtime_provenance = (
-                parse_whooshd_runtime_provenance(data.get("runtime_provenance"))
-                if isinstance(data, dict)
-                else None
-            )
-            response_correlation = parse_whooshd_response_correlation(resp)
-            runtime_provenance = merge_whooshd_response_correlation(
-                runtime_provenance,
-                resp,
-            )
-
-            # Ollama /api/chat format
-            if (
-                isinstance(data.get("message"), dict)
-                and "content" in data["message"]
-            ):
-                return ProviderResponse(
-                    data["message"]["content"],
-                    raw_payload=data,
-                    provider="local",
-                    runtime_provenance=runtime_provenance,
-                    response_correlation=response_correlation,
-                )
-
-            # Ollama /api/generate format
-            if "response" in data and isinstance(data.get("response"), str):
-                return ProviderResponse(
-                    data.get("response") or "",
-                    raw_payload=data,
-                    provider="local",
-                    runtime_provenance=runtime_provenance,
-                    response_correlation=response_correlation,
-                )
-
-            # OpenAI-compatible format
-            choices = data.get("choices")
-            if isinstance(choices, list) and choices:
-                message = choices[0].get("message")
-                if isinstance(message, dict) and "content" in message:
-                    if structured_transport is not None:
-                        return WhooshdStructuredResponse(
-                            content=message.get("content"),
-                            raw_payload=data,
-                            runtime_provenance=runtime_provenance,
-                            response_correlation=response_correlation,
-                            command_id=structured_transport.command_id,
-                            argument_schema=structured_transport.argument_schema,
+                last_transport_url = url
+                try:
+                    whooshd_error = parse_whooshd_error(resp)
+                except WhooshdContractVersionError as exc:
+                    raise _whooshd_contract_version_failure(
+                        settings=settings,
+                        model=model,
+                        endpoint=url,
+                        runtime_policy=runtime_policy,
+                        received_version=exc.received_version,
+                        attempted_endpoints=[
+                            f"{url} (contract_version_unsupported)"
+                        ],
+                        attempted_base_urls=attempted_base_urls,
+                    ) from exc
+                if whooshd_error is not None:
+                    last_whooshd_error = whooshd_error
+                    attempt_failures.append(
+                        f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                    )
+                    continue
+                if resp.status_code == 404:
+                    if is_gateway:
+                        attempt_failures.append(
+                            f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
                         )
+                    else:
+                        attempt_failures.append(f"{url} (HTTP 404)")
+                    continue
+
+                if not (200 <= resp.status_code < 300):
+                    detail = _extract_provider_error_message(resp, secret=api_key)
+                    attempt_failures.append(
+                        f"{url} (HTTP {resp.status_code}: {detail})"
+                    )
+                    continue
+
+                try:
+                    data = json.loads(resp.content.decode("utf-8"))
+                except Exception as exc:
+                    attempt_failures.append(f"{url} (invalid JSON: {exc})")
+                    continue
+
+                runtime_provenance = (
+                    parse_whooshd_runtime_provenance(data.get("runtime_provenance"))
+                    if isinstance(data, dict)
+                    else None
+                )
+                response_correlation = parse_whooshd_response_correlation(resp)
+                runtime_provenance = merge_whooshd_response_correlation(
+                    runtime_provenance,
+                    resp,
+                )
+
+                # Ollama /api/chat format
+                if (
+                    isinstance(data.get("message"), dict)
+                    and "content" in data["message"]
+                ):
                     return ProviderResponse(
-                        message.get("content") or "",
+                        data["message"]["content"],
                         raw_payload=data,
                         provider="local",
                         runtime_provenance=runtime_provenance,
                         response_correlation=response_correlation,
                     )
 
-            attempt_failures.append(
-                f"{url} (response did not include assistant content)"
-            )
+                # Ollama /api/generate format
+                if "response" in data and isinstance(data.get("response"), str):
+                    return ProviderResponse(
+                        data.get("response") or "",
+                        raw_payload=data,
+                        provider="local",
+                        runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
+                    )
 
-    if last_whooshd_error is not None:
-        detail = f"Whoosh'd request failed with {last_whooshd_error.code}."
-        raise HTTPException(
-            status_code=502,
-            detail=_local_provider_failure_detail(
-                settings=settings,
-                model=model,
-                endpoint=last_transport_url
-                or (base_urls[-1] if base_urls else ""),
-                failure_kind=whooshd_provider_failure_kind(
-                    last_whooshd_error.code
+                # OpenAI-compatible format
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    message = choices[0].get("message")
+                    if isinstance(message, dict) and "content" in message:
+                        if structured_transport is not None:
+                            return WhooshdStructuredResponse(
+                                content=message.get("content"),
+                                raw_payload=data,
+                                runtime_provenance=runtime_provenance,
+                                response_correlation=response_correlation,
+                                command_id=structured_transport.command_id,
+                                argument_schema=structured_transport.argument_schema,
+                            )
+                        return ProviderResponse(
+                            message.get("content") or "",
+                            raw_payload=data,
+                            provider="local",
+                            runtime_provenance=runtime_provenance,
+                            response_correlation=response_correlation,
+                        )
+
+                attempt_failures.append(
+                    f"{url} (response did not include assistant content)"
+                )
+
+        if last_whooshd_error is not None:
+            detail = f"Whoosh'd request failed with {last_whooshd_error.code}."
+            raise HTTPException(
+                status_code=502,
+                detail=_local_provider_failure_detail(
+                    settings=settings,
+                    model=model,
+                    endpoint=last_transport_url
+                    or (base_urls[-1] if base_urls else ""),
+                    failure_kind=whooshd_provider_failure_kind(
+                        last_whooshd_error.code
+                    ),
+                    message=detail,
+                    provider_error=last_whooshd_error.code,
+                    runtime_policy=runtime_policy,
+                    attempted_endpoints=attempt_failures,
+                    attempted_base_urls=attempted_base_urls,
+                    whooshd_error=last_whooshd_error.as_dict(),
                 ),
-                message=detail,
-                provider_error=last_whooshd_error.code,
+            )
+        if last_transport_error is not None:
+            detail = _format_local_connect_error(
+                last_transport_url,
+                last_transport_error,
+                model=model,
                 runtime_policy=runtime_policy,
+            )
+            attempt_summary = _summarize_local_attempt_failures(attempt_failures)
+            detail = f"{detail} Attempted endpoints: {attempt_summary}"
+            log_method = logger.error if log_exceptions else logger.warning
+            log_method(
+                "local inference request failed provider=%s model=%s "
+                "failure_kind=%s transport=%s attempt_count=%s",
+                "local",
+                model,
+                _provider_transport_failure_kind(last_transport_error),
+                _classify_transport_error(last_transport_error),
+                len(attempt_failures),
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=_local_provider_failure_detail(
+                    settings=settings,
+                    model=model,
+                    endpoint=last_transport_url,
+                    failure_kind=_provider_transport_failure_kind(
+                        last_transport_error
+                    ),
+                    message=detail,
+                    provider_error=_sanitize_provider_error(
+                        str(last_transport_error),
+                        secret=api_key,
+                    ),
+                    transport_classification=_classify_transport_error(
+                        last_transport_error
+                    ),
+                    runtime_policy=runtime_policy,
+                    attempted_endpoints=attempt_failures,
+                    attempted_base_urls=attempted_base_urls,
+                ),
+            ) from last_transport_error
+        elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
+            attempt_failures
+        ):
+            endpoint_resolution = describe_local_endpoint_resolution(
+                settings,
+                attempted_base_urls=base_urls,
+                state="degraded",
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                reason=_summarize_local_attempt_failures(attempt_failures),
+            )
+            detail_payload = local_model_resolution.error_detail(
                 attempted_endpoints=attempt_failures,
-                attempted_base_urls=attempted_base_urls,
-                whooshd_error=last_whooshd_error.as_dict(),
-            ),
-        )
-    if last_transport_error is not None:
-        detail = _format_local_connect_error(
-            last_transport_url,
-            last_transport_error,
-            model=model,
-            runtime_policy=runtime_policy,
-        )
+                endpoint_resolution=endpoint_resolution,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=(
+                    f"Configured local chat model '{model}' from "
+                    f"{local_model_resolution.source} could not be executed; "
+                    "all supported local endpoints returned HTTP 404"
+                ),
+            )
+            log_method = logger.error if log_exceptions else logger.warning
+            log_method(
+                "local inference unavailable provider=%s model=%s failure_kind=%s "
+                "status_code=%s attempt_count=%s",
+                "local",
+                model,
+                LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                404,
+                len(attempt_failures),
+            )
+            raise HTTPException(status_code=502, detail=detail_payload)
+        else:
+            detail = f"Local inference request failed for model '{model}'."
+
         attempt_summary = _summarize_local_attempt_failures(attempt_failures)
         detail = f"{detail} Attempted endpoints: {attempt_summary}"
+
         log_method = logger.error if log_exceptions else logger.warning
         log_method(
-            "local inference request failed provider=%s model=%s "
-            "failure_kind=%s transport=%s attempt_count=%s",
+            "local inference request failed provider=%s model=%s failure_kind=%s "
+            "attempt_count=%s",
             "local",
             model,
-            _provider_transport_failure_kind(last_transport_error),
-            _classify_transport_error(last_transport_error),
+            "request_failed",
             len(attempt_failures),
         )
-        raise HTTPException(
-            status_code=502,
-            detail=_local_provider_failure_detail(
-                settings=settings,
-                model=model,
-                endpoint=last_transport_url,
-                failure_kind=_provider_transport_failure_kind(
-                    last_transport_error
-                ),
-                message=detail,
-                provider_error=_sanitize_provider_error(
-                    str(last_transport_error),
-                    secret=api_key,
-                ),
-                transport_classification=_classify_transport_error(
-                    last_transport_error
-                ),
-                runtime_policy=runtime_policy,
-                attempted_endpoints=attempt_failures,
-                attempted_base_urls=attempted_base_urls,
-            ),
-        ) from last_transport_error
-    elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
-        attempt_failures
-    ):
-        endpoint_resolution = describe_local_endpoint_resolution(
-            settings,
-            attempted_base_urls=base_urls,
-            state="degraded",
-            failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
-            reason=_summarize_local_attempt_failures(attempt_failures),
-        )
-        detail_payload = local_model_resolution.error_detail(
-            attempted_endpoints=attempt_failures,
-            endpoint_resolution=endpoint_resolution,
-            failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
-            message=(
-                f"Configured local chat model '{model}' from "
-                f"{local_model_resolution.source} could not be executed; "
-                "all supported local endpoints returned HTTP 404"
-            ),
-        )
-        log_method = logger.error if log_exceptions else logger.warning
-        log_method(
-            "local inference unavailable provider=%s model=%s failure_kind=%s "
-            "status_code=%s attempt_count=%s",
-            "local",
-            model,
-            LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
-            404,
-            len(attempt_failures),
-        )
-        raise HTTPException(status_code=502, detail=detail_payload)
-    else:
-        detail = f"Local inference request failed for model '{model}'."
-
-    attempt_summary = _summarize_local_attempt_failures(attempt_failures)
-    detail = f"{detail} Attempted endpoints: {attempt_summary}"
-
-    log_method = logger.error if log_exceptions else logger.warning
-    log_method(
-        "local inference request failed provider=%s model=%s failure_kind=%s "
-        "attempt_count=%s",
-        "local",
-        model,
-        "request_failed",
-        len(attempt_failures),
-    )
-    raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=502, detail=detail)
+    except AcceptedChatTaskDeadlineExceeded:
+        if (
+            deadline_transport is not None
+            and str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
+            == "whooshd"
+        ):
+            _abort_accepted_whooshd_request(
+                deadline_transport=deadline_transport,
+                response=response,
+                base_url=base_url,
+                headers=headers,
+                request_id=request_id,
+                task_id=task_id,
+                attempt_id=attempt_id,
+            )
+        raise
+    finally:
+        if deadline_transport is not None:
+            deadline_transport.close()
 
 
 def stream_local(
@@ -2997,6 +3085,7 @@ def stream_local(
     attempt_id: str | None = None,
     cancel_check=None,
     requested_model_is_authoritative: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -3076,6 +3165,8 @@ def stream_local(
     last_transport_error: req_exc.RequestException | None = None
     last_whooshd_error: WhooshdErrorDiagnostic | None = None
     cancel_monitor: _WhooshdCancellationMonitor | None = None
+    deadline_transport = AcceptedDeadlineTransport(accepted_deadline) if accepted_deadline else None
+    post_stream = deadline_transport.post if deadline_transport else requests.post
 
     try:
         for base_url in base_urls:
@@ -3126,7 +3217,7 @@ def stream_local(
                         },
                     )
                     if kind == "openai":
-                        resp = requests.post(
+                        resp = post_stream(
                             url,
                             json=payload,
                             headers=headers,
@@ -3151,7 +3242,7 @@ def stream_local(
                             ),
                             "stream": True,
                         }
-                        resp = requests.post(
+                        resp = post_stream(
                             url,
                             json=payload_ollama,
                             headers=headers,
@@ -3165,6 +3256,11 @@ def stream_local(
                     classification = _classify_transport_error(exc)
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
+
+                except BaseException:
+                    if candidate_cancel_monitor is not None:
+                        candidate_cancel_monitor.stop()
+                    raise
 
                 # A candidate cancellation monitor must not become the active
                 # monitor until its response is accepted. Rejected candidates
@@ -3563,6 +3659,19 @@ def stream_local(
                     attempted_base_urls=attempted_base_urls,
                 ),
             ) from exc
+    except AcceptedChatTaskDeadlineExceeded:
+        # Deadline exhaustion stays distinct from user cancellation.
+        if whooshd_monitoring and deadline_transport is not None:
+            _abort_accepted_whooshd_request(
+                deadline_transport=deadline_transport,
+                response=response,
+                base_url=base_url,
+                headers=headers,
+                request_id=request_id,
+                task_id=task_id,
+                attempt_id=attempt_id,
+            )
+        raise
     finally:
         if cancel_monitor is not None:
             cancel_monitor.stop()
@@ -3571,6 +3680,29 @@ def stream_local(
                 response.close()
             except Exception:
                 pass
+        if deadline_transport is not None:
+            deadline_transport.close()
+
+
+def _post_provider_request(url, *, json, headers, timeout, accepted_deadline=None):
+    if accepted_deadline is None:
+        return requests.post(url, json=json, headers=headers, timeout=timeout)
+    transport = AcceptedDeadlineTransport(accepted_deadline)
+    try:
+        response = transport.post(
+            url, json=json, headers=headers, stream=False,
+            timeout=(float(timeout), float(timeout)),
+        )
+        # Detach only after the full body arrives under the immutable deadline.
+        # Provider parsers then retain the ordinary Requests response interface.
+        detached = requests.Response()
+        detached.status_code = response.status_code
+        detached.headers.update(response.headers)
+        detached._content = response.content
+        detached.encoding = response.response.encoding
+        return detached
+    finally:
+        transport.close()
 
 
 def call_groq(
@@ -3580,6 +3712,7 @@ def call_groq(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     try:
@@ -3608,7 +3741,9 @@ def call_groq(
     url = f"{base_url}/openai/v1/chat/completions"
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = _post_provider_request(
+            url, json=payload, headers=headers, timeout=30, accepted_deadline=accepted_deadline,
+        )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
         logger.exception(
@@ -3693,6 +3828,7 @@ def _call_openai_compatible_chat(
     timeout: float,
     settings: Settings,
     typed_failure_kinds: bool = False,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     try:
         assert_egress_allowed(egress_target, settings=settings)
@@ -3727,11 +3863,12 @@ def _call_openai_compatible_chat(
     url = f"{resolved_base}{base_path}"
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,
             timeout=float(timeout),
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
@@ -3828,6 +3965,7 @@ def call_openai(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     return _call_openai_compatible_chat(
@@ -3844,6 +3982,7 @@ def call_openai(
         max_tokens=max_tokens,
         timeout=30.0,
         settings=settings,
+        accepted_deadline=accepted_deadline,
     )
 
 
@@ -3856,6 +3995,7 @@ def call_deepseek(
     max_tokens: Optional[int] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     try:
@@ -3888,7 +4028,7 @@ def call_deepseek(
         payload["max_tokens"] = int(max_tokens)
     url = f"{base}/v1/chat/completions"
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers={
@@ -3896,6 +4036,7 @@ def call_deepseek(
                 "Content-Type": "application/json",
             },
             timeout=30.0,
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
@@ -3935,6 +4076,7 @@ def call_alibaba(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     settings = _resolve_settings(settings)
     if not bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", True)):
@@ -3994,6 +4136,7 @@ def call_alibaba(
             )
         ),
         settings=settings,
+        accepted_deadline=accepted_deadline,
         typed_failure_kinds=True,
     )
 
@@ -4258,6 +4401,7 @@ def call_minimax(
     max_tokens: Optional[int] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
     """Call MiniMax via OpenAI- or Anthropic-compatible endpoints."""
     settings = _resolve_settings(settings)
@@ -4366,11 +4510,12 @@ def call_minimax(
     )
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,
             timeout=timeout,
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)

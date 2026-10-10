@@ -6,13 +6,13 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "aa4b81d0d2a10b02025d10dda56842dbfcf66aa7d89b98af61e6e3d505259f4c",
+  "content_hash": "85f7ffae75cb8edd65615be03d25b64482e13965a9e1bfa5245881ea624e546d",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "The Document Recall Contract KB entry and current-state routing were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
-    "state": "current",
+    "reason": "Conflict markers repaired and content hash matched to the reconciled source. The declared freshness-invalidating anchors require a separate review at the merged revision; this repair establishes JSON/schema validity only, not runtime or release qualification.",
+    "state": "stale",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",

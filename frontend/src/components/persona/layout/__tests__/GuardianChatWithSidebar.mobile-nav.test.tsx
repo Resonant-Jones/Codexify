@@ -112,6 +112,7 @@ vi.mock("@/components/surface/FrameCard", () => ({
 }));
 
 vi.mock("@/lib/authState", () => ({
+  getAuthState: () => ({ ready: true, status: "authenticated", token: "test-token" }),
   useAuthState: () => ({
     ready: true,
     status: "authenticated",
@@ -247,6 +248,9 @@ describe("Guardian mobile application navigation", () => {
     window.history.pushState({}, "", "/chat");
     setViewportWidth(430);
     apiSpies.get.mockImplementation(async (url: string) => {
+      if (url === "/api/projects") {
+        return { data: [{ id: 2, name: "Project Two", user_id: "account-mobile" }] };
+      }
       if (url === "/api/chat/threads") {
         return {
           data: {
@@ -390,6 +394,8 @@ describe("Guardian mobile application navigation", () => {
       expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.threads).toEqual(
         expect.arrayContaining([expect.objectContaining({ id: "7", title: "Thread Seven" })])
       );
+      expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.projectId).toBe("2");
+      expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.activeId).toBe("7");
     });
     const desktopState = sidebarPropsSpy.mock.calls.at(-1)?.[0];
     const primaryFrame = screen.getByTestId("guardian-primary-frame");

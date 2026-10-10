@@ -210,7 +210,11 @@ export default function DocumentTile({
   if (isDeleted) return null;
 
   const content = (
-    <div className="relative flex h-full w-full flex-col" data-slot="document-tile">
+    <div
+      className="relative grid h-full w-full min-w-0"
+      data-slot="document-tile"
+      style={{ gridTemplateRows: "minmax(0, 1fr) 28px 30px" }}
+    >
       {file?.thumb ? (
         <>
           <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
@@ -228,68 +232,71 @@ export default function DocumentTile({
           }}
         />
       )}
-      <div className="relative flex min-h-0 flex-1 flex-col px-3 pt-3 pb-2">
+      <div
+        className="relative flex min-h-0 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden px-2"
+        data-slot="document-tile-identity"
+      >
         {file?.embeddingStatus ? (
           <div
-            className="codexifyDocumentTileStatusWrap flex min-h-0 justify-center pb-2"
+            className="codexifyDocumentTileStatusWrap flex w-full min-w-0 shrink-0 justify-center"
             data-slot="document-tile-status-wrap"
           >
             <DocumentEmbeddingStatusBadge
               status={file?.embeddingStatus}
               embeddingError={file?.embeddingError}
-              className="codexifyDocumentTileStatus"
+              className="codexifyDocumentTileStatus py-0.5! leading-none"
             />
           </div>
         ) : null}
         <div
-          className="codexifyDocumentTileBody flex min-h-0 flex-1 items-center justify-center"
-          data-slot="document-tile-body"
+          className="flex h-7 w-7 shrink-0 items-center justify-center border"
+          data-slot="document-tile-icon"
+          style={{
+            borderRadius: "calc(var(--tile-radius) - 6px)",
+            background: "color-mix(in oklab, var(--panel-bg, #111827) 80%, white 20%)",
+            borderColor:
+              "color-mix(in oklab, var(--panel-border, rgba(255,255,255,0.12)) 72%, transparent)",
+          }}
         >
-          <div
-            className="flex h-12 w-12 items-center justify-center border"
-            style={{
-              borderRadius: "calc(var(--tile-radius) - 6px)",
-              background: "color-mix(in oklab, var(--panel-bg, #111827) 80%, white 20%)",
-              borderColor:
-                "color-mix(in oklab, var(--panel-border, rgba(255,255,255,0.12)) 72%, transparent)",
-            }}
-          >
-            <Icon className="h-7 w-7 shrink-0" style={{ color: bannerColor }} />
-          </div>
+          <Icon className="h-5 w-5 shrink-0" style={{ color: bannerColor }} />
         </div>
       </div>
-      <div className="mt-auto">
+      <div
+        className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden px-2 text-center"
+        data-slot="document-tile-filename"
+        style={{ background: bannerColor, color: onColor }}
+      >
         <div
-          className="codexifyDocumentTileFooter flex min-h-[54px] flex-col items-center justify-center gap-1 px-3 py-2 text-center"
-          data-slot="document-tile-footer"
-          style={{ background: bannerColor, color: onColor }}
+          className="codexifyDocumentTileName line-clamp-2 max-h-7 w-full min-w-0 text-[11px] font-semibold leading-[14px]"
+          data-slot="document-tile-name"
+          style={{ overflowWrap: "break-word" }}
+          title={fileName}
         >
-          {file?.provenanceLabel ? (
-            <div
-              className="codexifyDocumentTileProvenance max-w-full truncate text-[9px] font-medium leading-[1.1] opacity-85"
-              data-slot="document-tile-provenance"
-              title={file.provenanceLabel}
-            >
-              {file.provenanceLabel}
-            </div>
-          ) : null}
-          <div
-            className="codexifyDocumentTileName max-w-full text-[11px] font-semibold leading-[1.1]"
-            data-slot="document-tile-name"
-            style={{ overflowWrap: "anywhere" }}
-            title={fileName}
-          >
-            {baseName}
-          </div>
-          {extLabel && (
-            <div
-              className="codexifyDocumentTileExtension text-[10px] font-semibold uppercase tracking-[0.18em] opacity-90"
-              data-slot="document-tile-extension"
-            >
-              .{extLabel}
-            </div>
-          )}
+          {baseName}
         </div>
+      </div>
+      <div
+        className="codexifyDocumentTileFooter relative flex min-h-0 min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden px-2 py-0.5 text-center"
+        data-slot="document-tile-metadata"
+        style={{ background: bannerColor, color: onColor }}
+      >
+        {file?.provenanceLabel ? (
+          <div
+            className="codexifyDocumentTileProvenance max-w-full truncate text-[9px] font-medium leading-[10px] opacity-85"
+            data-slot="document-tile-provenance"
+            title={file.provenanceLabel}
+          >
+            {file.provenanceLabel}
+          </div>
+        ) : null}
+        {extLabel && (
+          <div
+            className="codexifyDocumentTileExtension text-[10px] font-semibold uppercase leading-[12px] tracking-[0.18em] opacity-90"
+            data-slot="document-tile-extension"
+          >
+            .{extLabel}
+          </div>
+        )}
       </div>
     </div>
   );

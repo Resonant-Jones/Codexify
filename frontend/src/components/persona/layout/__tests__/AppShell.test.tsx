@@ -110,6 +110,8 @@ function setUnauthenticatedAuthState() {
 const uploaderState = vi.hoisted(() => ({
   configs: [] as Array<{
     onImages?: (items: Array<Record<string, unknown>>) => void;
+    projectId?: number | string;
+    disabled?: boolean;
   }>,
 }));
 
@@ -172,8 +174,11 @@ vi.mock("@/hooks/useBreakpoint", () => ({
 
 vi.mock("@/lib/authState", () => ({
   useAuthState: () => authTestState.auth,
+  getAuthState: () => authTestState.auth,
   checkAuthGate: () => authTestState.gateAllowed,
 }));
+
+const cancelActiveCompletionSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
@@ -188,7 +193,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
         startCompletion: vi.fn(),
         attachCompletionIdentity: vi.fn(),
         failActiveCompletion: vi.fn(),
-        cancelActiveCompletion: vi.fn(),
+        cancelActiveCompletion: cancelActiveCompletionSpy,
       };
     }
     static subscribeActiveSpine() {
@@ -306,7 +311,11 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
 }));
 
 vi.mock("@/features/settings/SettingsView", () => ({
-  default: () => <div data-testid="settings-view-mock" />,
+  default: ({ onOpenConfigurationInspector }: { onOpenConfigurationInspector?: () => void }) => (
+    <div data-testid="settings-view-mock">
+      <button onClick={onOpenConfigurationInspector}>Open Configuration Inspector</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ErrorBoundary", () => ({
@@ -606,6 +615,23 @@ beforeEach(() => {
   setAuthenticatedAuthState();
 });
 
+describe("AppShell Stop request authority", () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it("does not terminalize the session when a Stop POST is dispatched", () => {
+    installMatchMedia(false);
+    localStorage.setItem("cfy.lastView", "guardian");
+    render(<AppShell />);
+    const interceptor = vi.mocked(api.interceptors.request.use).mock.calls.at(-1)?.[0];
+    expect(interceptor).toBeTypeOf("function");
+    const config = { method: "post", url: "/api/tasks/accepted-task/cancel", data: {} };
+
+    expect(interceptor?.(config as any)).toBe(config);
+
+    expect(cancelActiveCompletionSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("AppShell logo wordmark color contract", () => {
   beforeEach(() => {
     setAuthenticatedAuthState();
@@ -709,9 +735,38 @@ describe("AppShell logo wordmark color contract", () => {
     expect(documentProjectIds).not.toContain(1);
 
     await waitFor(() => {
-      expect(localStorage.getItem("cfy.generalProjectId")).toBe("1");
-      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("1");
-      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBeNull();
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("7");
+      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("7");
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBe("1");
+    });
+  });
+
+  it("revalidates the default project and fences uploads when the account changes", async () => {
+    setRoutePath("/gallery");
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path !== "/api/projects") return { data: {} };
+      return authTestState.auth.token === "account-b"
+        ? { data: [{ id: 8, name: "General", user_id: "account-b" }] }
+        : { data: [{ id: 7, name: "General", user_id: "account-a" }] };
+    });
+
+    const { rerender } = render(<AppShell />);
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("7");
+      expect(uploaderState.configs.at(-1)?.projectId).toBe(7);
+      expect(uploaderState.configs.at(-1)?.disabled).toBe(false);
+    });
+
+    authTestState.auth = { ready: true, status: "authenticated", token: "account-b" };
+    rerender(<AppShell />);
+
+    expect(uploaderState.configs.at(-1)?.projectId).toBeUndefined();
+    expect(uploaderState.configs.at(-1)?.disabled).toBe(true);
+    await waitFor(() => {
+      expect(mockApi.get.mock.calls.filter(([path]) => path === "/api/projects")).toHaveLength(2);
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("8");
+      expect(uploaderState.configs.at(-1)?.projectId).toBe(8);
+      expect(uploaderState.configs.at(-1)?.disabled).toBe(false);
     });
   });
 
@@ -769,6 +824,32 @@ describe("AppShell Guardian mobile navigation seam", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it.each([390, 1200])("retains the Inspector on thread refresh at width %s and honors navigation", async (width) => {
+    setViewportWidth(width);
+    setRoutePath("/settings");
+    setAuthenticatedAuthState();
+    render(<AppShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Configuration Inspector" }));
+    await screen.findByRole("heading", { name: "Unable to load configuration snapshot" });
+    const inspectorRequests = () => mockApi.get.mock.calls.filter(([url]) => url === "/api/operator/configuration").length;
+    expect(inspectorRequests()).toBe(1);
+    expect(window.location.pathname).toBe("/settings");
+    if (width === 390) {
+      expect(screen.queryByTestId("app-shell-top-chrome")).not.toBeInTheDocument();
+      expect(screen.getByTestId("phone-primary-frame-header")).toBeInTheDocument();
+    }
+    act(() => { window.dispatchEvent(new CustomEvent("cfy:threads:refresh")); });
+    expect(screen.getByRole("heading", { name: "Configuration Inspector" })).toBeInTheDocument();
+    expect(inspectorRequests()).toBe(1);
+    act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Configuration Inspector" }));
+    await screen.findByRole("heading", { name: "Unable to load configuration snapshot" });
+    expect(inspectorRequests()).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Back to Settings" }));
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 
   it("passes the canonical AppShell navigation seam into Guardian and changes the active view", async () => {
@@ -1249,10 +1330,18 @@ describe("AppShell settings utility trigger", () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);
+    mockApi.get.mockImplementation(async (path: string) =>
+      path === "/api/projects"
+        ? { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] }
+        : { data: {} }
+    );
 
     render(<AppShell />);
 
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBe("1");
+    });
 
     await user.click(screen.getByTestId("guardian-set-project-2"));
     await user.click(screen.getByRole("button", { name: "Documents" }));
@@ -1585,7 +1674,7 @@ describe("AppShell gallery demo content", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
 
     expect(localStorage.getItem("cfy.wallpaper")).toBe(
-      `${window.location.origin}/peekaboo-demo/abstract-signal-study.png`
+      "/peekaboo-demo/abstract-signal-study.png"
     );
     expect(
       screen.getByRole("img", { name: "Abstract signal study" })

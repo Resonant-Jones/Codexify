@@ -572,3 +572,66 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert "proxy_pass http://backend:8888;" in nginx
     assert "service: http://127.0.0.1:8081" in cloudflared
     assert "host.docker.internal:8000" not in nginx
+
+
+def test_private_preview_edge_capability_has_an_exact_internal_boundary() -> None:
+    nginx = (ROOT / "docker/private-preview/nginx.conf").read_text(
+        encoding="utf-8"
+    )
+    public_start = nginx.index("server_name _;")
+    internal_start = nginx.index("server_name guardian-vpc.internal;")
+    public_server = nginx[public_start:internal_start]
+    internal_server = nginx[nginx.rfind("server {", 0, internal_start) :]
+
+    public_denial = re.search(
+        r"location\s+=\s+/api/internal/edge/health\s*\{(?P<body>.*?)\n\s*\}",
+        public_server,
+        flags=re.DOTALL,
+    )
+    assert public_denial is not None
+    assert "return 404;" in public_denial.group("body")
+    assert public_server.index("location = /api/internal/edge/health") < (
+        public_server.index("location /api/")
+    )
+
+    internal_location = re.search(
+        r"location\s+=\s+/api/internal/edge/health\s*\{(?P<body>.*?)\n\s*\}",
+        internal_server,
+        flags=re.DOTALL,
+    )
+    assert internal_location is not None
+    internal_body = internal_location.group("body")
+    assert (
+        "proxy_pass http://guardian_backend/api/internal/edge/health;"
+        in internal_body
+    )
+    assert "proxy_pass_request_headers off;" in internal_body
+    assert "proxy_pass_request_body off;" in internal_body
+    assert "proxy_set_header X-API-Key $http_x_api_key;" in internal_body
+    assert (
+        "proxy_set_header X-Codexify-Edge-Request-ID "
+        "$http_x_codexify_edge_request_id;"
+    ) in internal_body
+    assert "Authorization" not in internal_body
+    assert "Cookie" not in internal_body
+    assert re.search(
+        r"location\s+/\s*\{\s*return\s+404;\s*\}",
+        internal_server,
+        flags=re.DOTALL,
+    )
+
+    assert "location = /health" in public_server
+    assert "location /api/" in public_server
+    assert "location /ws/" in public_server
+    assert "location / {" in public_server
+
+    compose = _render_compose()
+    assert not (compose["services"]["backend"].get("ports") or [])
+    preview_origin_ports = compose["services"]["private-preview-origin"].get(
+        "ports", []
+    )
+    assert preview_origin_ports
+    assert all(
+        "127.0.0.1" in str(port)
+        for port in preview_origin_ports
+    )

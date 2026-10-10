@@ -32,6 +32,11 @@ neo4j
 neomodel
 
 # Lightweight retrieval helpers used by deterministic tests.
+# The hermetic core-loop harness uses real CPU vector indexing with mock embeddings.
+faiss-cpu==1.12.0
 markdownify
 rank-bm25
 jsonschema==4.25.0
+
+# Exercise Scout's atomic, single-use Redis PKCE handoff with Lua enabled.
+fakeredis[lua]==2.39.0

@@ -2,7 +2,7 @@
 
 > Build proof: [SCOUT_V1_BUILD_PROOF.md](./SCOUT_V1_BUILD_PROOF.md)
 
-Scout is a native SwiftUI client for operating against an existing Codexify/Guardian (Vault) backend. It is a mobile operator console, not a full clone of the Codexify web UI.
+Scout is a native SwiftUI client for operating against an existing Codexify/Guardian (Vault) backend. It is a mobile node/client surface; Guardian/Vault owns canonical account, execution and durable state.
 
 This implementation follows the concepts defined in [`../../docs/architecture/ios-scout-vault-remote-contract.md`](../../docs/architecture/ios-scout-vault-remote-contract.md).
 
@@ -18,7 +18,7 @@ Scout V1 implements five tabs:
 | Server Status | Vault health and runtime evidence |
 | Activity | Cross-thread task receipt timeline |
 | Artifacts | Global document listing |
-| Settings | Endpoint profile and API key configuration |
+| Settings | Connection profile, explicit authentication, hosted ingress and Guardian sign-in |
 
 ## Guardian Chat Lifecycle
 
@@ -73,7 +73,7 @@ Settings configures the Vault endpoint profile and API key:
 
 - Scout is not the full Codexify web UI.
 - Scout is not the durable memory authority.
-- Scout does not add backend routes.
+- Canonical domain routes remain authoritative. The separately reviewed backend integration adds only the bounded Scout account handoff/qualification seam.
 - Scout does not replace the supported local Docker Compose path.
 - Scout does not prove model availability by itself.
 - Scout does not widen release support for delegation, federation, graph writes, or cloud providers.
@@ -88,7 +88,12 @@ Settings configures the Vault endpoint profile and API key:
 cd mobile/scout-ios && swift build
 ```
 
-**Test runner (232 assertions):**
+**Complete XCTest suite:**
+```sh
+swift test --package-path mobile/scout-ios
+```
+
+**Standalone legacy test runner:**
 ```bash
 cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
   Scout/Models/*.swift Scout/Services/*.swift Tests/Runner.swift \
@@ -111,3 +116,70 @@ cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
 - [ ] Return to thread list — verify renamed title appears
 - [ ] View Activity tab — verify cross-thread task receipts
 - [ ] View Artifacts tab — verify global document listing
+
+## Hosted ingress and account qualification (October 4, 2026)
+
+The registered public native client uses ASWebAuthenticationSession and PKCE S256.
+For initial setup in Settings, select remote-session mode, then **Use hosted Codexify** and
+**Authorize hosted ingress**. Keep the existing profile on subsequent sign-ins;
+Use hosted Codexify creates a new profile identity. Complete Google/OTP only in the system browser.
+**Check stored ingress** reads only this connection's Keychain credential, renews
+an expired credential through its existing refresh grant when available, and
+qualifies the protected API response without another browser login. A Guardian
+account-session failure marker establishes that the request reached Guardian;
+an Access challenge or an HTTP status alone does not. Returning to Settings
+restores credential-presence status, not an authenticated-account claim.
+The exact callback is `ai.resonantconstructs.codexify.scout://access-callback`.
+No client secret exists. Ingress credentials remain in a separate profile/origin-scoped
+Keychain record; neither credentials nor callback results belong in proof files.
+
+Cloudflare admission and Guardian account identity remain distinct. After ingress
+admission, **Sign in to Guardian** opens the existing canonical web account login.
+An explicit **Continue to Scout** confirmation authorizes a separate native
+session through a 60-second, single-use, origin-bound PKCE code and the already
+registered callback. The server revalidates browser purpose, live session mapping
+and account eligibility, then issues a fresh canonical `account_session` for the
+same `User.id`. Browser session bytes are never returned to Scout. Native nonce,
+expiry, revocation and logout are independent of the browser session.
+No Access identity is converted into a Guardian user.
+
+**Check account session** performs a protected thread read. Restoring a Keychain
+record alone does not prove authentication. **Log out Guardian** removes this
+connection's local account session and requests canonical server revocation;
+the result distinguishes remote confirmation from a failed revocation request.
+After accepted hosted logout, a bounded in-memory replay can additionally prove
+Guardian HTTP 401 while Access remains admitted. No credential is restored or exported.
+A marked account-session failure clears only the affected account credential.
+Unrelated 401 responses preserve it. Expiry requires explicit sign-in again.
+
+Connection = endpoint/transport + explicit authentication mode. Hosted requests
+use Access in Authorization and the approved X-Guardian-Account-Session alternate
+transport for the canonical account credential. Guardian accepts the alternate
+header only at the fixed preview host/application with signed upstream admission;
+its existing strict account validator remains authoritative. The approved
+edge-consumed composition permits missing origin Authorization only after signed
+fixed-host/private-preview Access validation; missing Authorization alone grants no trust.
+Personal HTTPS
+nodes retain account Bearer where supported, or explicitly selected local API
+keys. Tailscale is transport, not identity. There is no local-key fallback.
+All credentials are scoped by profile and origin, held only in Keychain. Legacy
+global API keys are preserved but never silently adopted; explicitly save a key
+for the selected personal connection. Credential-bearing requests cannot follow
+redirects. Profile/account changes reset volatile client projections; Guardian
+remains durable authority.
+
+Source and tests implement this handoff. The independent-session amendment and
+approved no-seed guard are deployed and verified on preview; the proof Simulator
+completed all nine authentication stages, two full persisted-output continuity
+turns, resume, document reads and logout denial. See [the live proof](SCOUT_LIVE_CONTINUITY_2026-10-04.md)
+for exact build revisions and limits. LLM/operator evidence routes are
+not promoted to account-authorized routes by this change. App Intents remain
+downstream of operational continuity.
+
+Live PKCE/token/admission qualification requires human sign-in in the dedicated
+Scout proof simulator. Do not capture credentials, OTPs, callback codes, or tokens
+in screenshots or logs. [The mainline integration receipt](SCOUT_MAINLINE_INTEGRATION_815.md)
+records current-main reconciliation and new validation separately from the
+[historical live proof](SCOUT_LIVE_CONTINUITY_2026-10-04.md). Physical-device
+continuity and release support remain unproven. #816 begins only after both
+integration PRs land and their mainline behavior is verified.

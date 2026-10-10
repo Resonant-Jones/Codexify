@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -89,7 +91,7 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -182,6 +184,13 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
     assert "task.running" in event_types
     assert "task.progress" in event_types
     assert "task.completed" in event_types
+    completed_payload = next(
+        payload for event_type, payload in published if event_type == "task.completed"
+    )
+    assert completed_payload["final_provider"] == completed_payload["provider"]
+    assert completed_payload["final_model"] == completed_payload["model"]
+    assert completed_payload["final_provider"] == "local"
+    assert completed_payload["final_model"] == "test-model"
 
     streaming_index = next(
         index
@@ -257,7 +266,7 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -358,3 +367,9 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     assert completed_item["document_id"] == "doc-provenance-1"
     assert completed_item["chunk_id"] == "vector-chunk-4"
     assert completed_item["chunk_index"] == 4
+
+
+@pytest.fixture(autouse=True)
+def _durable_attempt_seam(monkeypatch):
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)

@@ -5,6 +5,11 @@ export const LIVE_EVENT_CONNECTION_STATES = {
   DISCONNECTED: "disconnected",
 } as const;
 
+export const ACCOUNT_AUTH_FAILURE_HEADER = "X-Guardian-Auth-Failure";
+export const ACCOUNT_AUTH_FAILURE_CODES = {
+  SESSION_INVALID: "ACCOUNT_SESSION_INVALID",
+} as const;
+
 export type LiveEventConnectionState =
   (typeof LIVE_EVENT_CONNECTION_STATES)[keyof typeof LIVE_EVENT_CONNECTION_STATES];
 
@@ -246,6 +251,31 @@ export function describeRuntimeStatusPresentation(
     label: humanizeRuntimeStatus(normalized),
   };
 }
+
+/** Existing bounded tool-loop domain from guardian/protocol_tokens.py. */
+export const TOOL_TURN_STATES = {
+  IDLE: "idle",
+  DECISION_RECEIVED: "decision_received",
+  COMMAND_DISPATCHED: "command_dispatched",
+  RESULT_REINJECTED: "result_reinjected",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  LIMIT_REACHED: "limit_reached",
+} as const;
+
+export const TOOL_LOOP_STOP_REASONS = {
+  PLAIN_ANSWER: "plain_answer",
+  TOOL_TURN_COMPLETED: "tool_turn_completed",
+  TOOL_DECISION_INVALID: "tool_decision_invalid",
+  TOOL_COMMAND_FAILED: "tool_command_failed",
+  TOOL_COMMAND_BLOCKED: "tool_command_blocked",
+  TOOL_TURN_LIMIT_REACHED: "tool_turn_limit_reached",
+  CANCELLED: "cancelled",
+} as const;
+
+export type ToolCommandFailureReason =
+  | typeof TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_FAILED
+  | typeof TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_BLOCKED;
 
 export const CHAT_REQUEST_STATES = {
   DISPATCHING: "dispatching",

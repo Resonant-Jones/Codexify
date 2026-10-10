@@ -17,6 +17,7 @@ Runtime values that are part of the system truth surface, including:
 - Status strings returned by routes or workers.
 - Task event names carried over queues or streams.
 - Machine-readable error codes used for failure classification.
+- Typed response headers that carry registered error codes across auth boundaries.
 
 ## Core rule
 New runtime literals must be added to a canonical protocol-token module before
@@ -45,6 +46,8 @@ inline literals.
   `chat.orphaned_turn_recovered`, `thread.created`
 
 - Error codes:
+  `ACCOUNT_SESSION_INVALID`,
+  `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED`, `CHAT_ACCEPTED_TASK_ORPHANED`,
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
@@ -52,6 +55,23 @@ inline literals.
   `CAMPAIGN_GOAL_NOT_FOUND`, `CAMPAIGN_GOAL_INVALID`,
   `CAMPAIGN_NOT_FOUND`, `CAMPAIGN_INVALID`,
   `CAMPAIGN_EXECUTION_ATTEMPT_INVALID`
+
+  - `CHAT_ACCEPTED_TASK_ORPHANED` records an unresolved durably accepted chat
+    attempt reconciled after its original persisted terminal deadline. Its
+    `reconciled_at` is an observation timestamp, not the time of worker death.
+    Durable assistant completion and existing terminal truth take precedence;
+    this code does not assert whether generation executed or classify a crash
+    as controlled `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED`. Retry requires a new
+    request/task identity. Missing admission confirmation or an original valid
+    snapshot cannot be repaired from Redis or later acceptance timestamps.
+
+- Account-auth failure classification:
+  `X-Guardian-Auth-Failure` carries the registered
+  `ACCOUNT_SESSION_INVALID` code only when Guardian's account-session boundary
+  determines the presented account credential is invalid or missing. A
+  signed credential with another purpose and an operator-route 401 do not emit
+  this header. The frontend may clear account auth state only for this typed
+  signal; HTTP status alone is insufficient.
 
 - Campaign Runner statuses:
   `campaign_goals.status` uses `draft`, `active`, `blocked`, `completed`,
@@ -208,3 +228,21 @@ meaning.
 - No route/queue contract redesigns or new semantics.
 - No migration of unrelated subsystems (collaboration, federation, tools).
 - No full-repo refactor of existing literals in this task.
+
+## Message-request consent domain (ADR-097)
+
+`guardian.messaging.tokens` owns `MessageRequestState` (`pending`, `accepted`,
+`declined`, `withdrawn`, `expired`) and `DirectMessageConsentSource`
+(`historical_conversation`, `accepted_request`). The ORM constrains persisted
+values to these bounded domains; migrations freeze their vocabulary at the
+revision boundary. Participant-local hidden history is separate from lifecycle
+and never creates an `archived` shared request state. Token registration and
+schema presence alone do not establish route enablement or runtime proof.
+
+`MessageRequestError` in the same module owns request/consent error codes:
+`message_request_not_found`, `message_request_unavailable`,
+`messaging_username_required`, `messaging_consent_required`,
+`client_request_key_conflict`, `message_request_note_invalid`,
+`client_request_key_invalid`, `message_request_rate_limited`,
+`message_request_transition_conflict`. Generic initiation failure never
+identifies private suppression policy.

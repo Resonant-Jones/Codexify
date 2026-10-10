@@ -152,7 +152,7 @@ struct ActivityStreamView: View {
 
         let apiKey: String?
         do {
-            apiKey = try keychainStore.loadAPIKey()
+            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
         } catch {
             keychainError = "Could not load API key from Keychain."
             apiKey = nil

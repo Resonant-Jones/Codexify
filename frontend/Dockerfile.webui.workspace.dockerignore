@@ -1,0 +1,16 @@
+# Personal packaged workspace build; do not include host data or secrets.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!frontend/
+!frontend/src/
+!frontend/src/**
+!frontend/Dockerfile.webui.workspace
+!frontend/Dockerfile.webui.workspace.dockerignore
+frontend/src/node_modules/
+frontend/src/dist/
+frontend/src/.vite/
+frontend/src/.cache/
+frontend/src/.env*
+frontend/src/**/*.log

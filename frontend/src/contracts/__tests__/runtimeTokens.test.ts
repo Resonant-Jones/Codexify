@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
   PROVIDER_FAILURE_KINDS,
   PROVIDER_TRANSPORT_CLASSIFICATIONS,
   RUNTIME_STATUS_PRESENTATIONS,
+  TOOL_TURN_STATES,
+  TOOL_LOOP_STOP_REASONS,
   describeRuntimeStatusPresentation,
 } from "@/contracts/runtimeTokens";
 
@@ -51,6 +55,26 @@ const EXPECTED_PROVIDER_TRANSPORT_CLASSIFICATIONS = {
 } as const;
 
 describe("runtimeTokens contract", () => {
+  it("projects the existing backend tool-loop vocabulary without a retryability state", () => {
+    expect(TOOL_TURN_STATES).toEqual({
+      IDLE: "idle", DECISION_RECEIVED: "decision_received",
+      COMMAND_DISPATCHED: "command_dispatched", RESULT_REINJECTED: "result_reinjected",
+      COMPLETED: "completed", FAILED: "failed", LIMIT_REACHED: "limit_reached",
+    });
+    expect(TOOL_LOOP_STOP_REASONS).toEqual({
+      PLAIN_ANSWER: "plain_answer", TOOL_TURN_COMPLETED: "tool_turn_completed",
+      TOOL_DECISION_INVALID: "tool_decision_invalid", TOOL_COMMAND_FAILED: "tool_command_failed",
+      TOOL_COMMAND_BLOCKED: "tool_command_blocked", TOOL_TURN_LIMIT_REACHED: "tool_turn_limit_reached",
+      CANCELLED: "cancelled",
+    });
+  });
+  it("registers the explicit account-session invalidation signal", () => {
+    expect(ACCOUNT_AUTH_FAILURE_HEADER).toBe("X-Guardian-Auth-Failure");
+    expect(ACCOUNT_AUTH_FAILURE_CODES.SESSION_INVALID).toBe(
+      "ACCOUNT_SESSION_INVALID"
+    );
+  });
+
   it("keeps provider failure and transport classifications aligned with backend tokens", () => {
     expect(PROVIDER_FAILURE_KINDS).toEqual(EXPECTED_PROVIDER_FAILURE_KINDS);
     expect(PROVIDER_TRANSPORT_CLASSIFICATIONS).toEqual(
