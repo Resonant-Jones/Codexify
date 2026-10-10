@@ -12,6 +12,8 @@ direct user-authored creation authorities over FastAPI:
     PATCH /api/memory-vault/items/canonical/{memory_id}/hold
     PATCH /api/memory-vault/items/canonical/{memory_id}/project-scope
     PATCH /api/memory-vault/items/canonical/{memory_id}/persona-attribution
+    GET   /api/memory-vault/items/canonical/{memory_id}/purge-preview
+    POST  /api/memory-vault/items/canonical/{memory_id}/purge
 
 It is an adapter only. It does not:
 
@@ -21,7 +23,14 @@ It is an adapter only. It does not:
 - resolve Persona authority independently;
 - mint route-local memory identities;
 - implement CAS, receipts, or no-op logic locally;
+- compute purge fingerprints or confirmation tokens;
+- enumerate or execute purge deletion fan-out;
+- own purge suppression policy;
 - register itself in ``guardian.guardian_api``.
+
+The two purge routes (UMS-11) are destructive and are the only ``POST`` that
+deletes canonical memory. They are internal-only, exactly like the rest of
+this router, and widen no public Beta surface.
 
 Runtime activation in the Guardian application (route registration,
 supported-profile posture, feature-flag posture) is owned by UMS-05B3.
@@ -35,7 +44,7 @@ from datetime import datetime
 from typing import Annotated, Any, Iterator, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardian.core.dependencies import (
     RequestUserScope,
@@ -47,12 +56,26 @@ from guardian.core.memory_compatibility import (
     MemoryCompatibilitySourceRef,
 )
 from guardian.protocol_tokens import MemoryPersonaLinkKind, MemorySemanticSpecies
+from guardian.services.memory_purge import (
+    MemoryPurgeAmbiguousSourceIdentity,
+    MemoryPurgeConflict,
+    MemoryPurgeError,
+    MemoryPurgeInvalid,
+    MemoryPurgeNotAvailable,
+    MemoryPurgeService,
+)
 from guardian.services.memory_vault_creation import (
     MemoryVaultCreationError,
     MemoryVaultCreationIntegrityError,
     MemoryVaultCreationService,
 )
 from guardian.services.memory_vault_mutation import (
+    MemoryVaultContentCorrectionIntegrityError,
+    MemoryVaultContentCorrectionInvalid,
+    MemoryVaultContentCorrectionUnsupported,
+    MemoryVaultLifecycleIntegrityError,
+    MemoryVaultLifecycleInvalid,
+    MemoryVaultLifecycleUnsupported,
     MemoryVaultMutationConflict,
     MemoryVaultMutationError,
     MemoryVaultMutationNotAvailable,
@@ -61,10 +84,14 @@ from guardian.services.memory_vault_mutation import (
     MemoryVaultPersonaSubjectNotAvailable,
     MemoryVaultProjectAuthorityConflict,
     MemoryVaultProjectNotAvailable,
+    MemoryVaultReviewTransitionIntegrityError,
+    MemoryVaultReviewTransitionInvalid,
+    MemoryVaultReviewTransitionUnsupported,
 )
 from guardian.services.memory_vault_read import (
     DEFAULT_LIST_LIMIT,
     LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_DORMANT,
     LIFECYCLE_POSTURE_INACTIVE,
     MAX_LIST_LIMIT,
     REVIEW_POSTURE_APPROVED,
@@ -95,6 +122,7 @@ ReviewPostureParam = Literal[
 #: service so the route never redefines the token set.
 LifecyclePostureParam = Literal[
     LIFECYCLE_POSTURE_ACTIVE,
+    LIFECYCLE_POSTURE_DORMANT,
     LIFECYCLE_POSTURE_INACTIVE,
 ]
 
@@ -104,6 +132,17 @@ _STABLE_ACCOUNT_REQUIRED_DETAIL = "Stable account identity required"
 _MUTATION_UNAVAILABLE_DETAIL = "Memory not available"
 _STALE_WRITE_DETAIL = "Memory changed since it was read"
 _MUTATION_INTEGRITY_DETAIL = "Memory mutation unavailable"
+# UMS-11. Bounded, sanitized purge reasons. None discloses SQL, a stored
+# fingerprint, a plaintext source entity id, a derived-state identifier, or
+# another account's tombstone.
+_PURGE_UNAVAILABLE_DETAIL = "Memory not available"
+_PURGE_STALE_WRITE_DETAIL = "Memory changed since it was read"
+_PURGE_CONFIRMATION_STALE_DETAIL = "Memory purge confirmation is stale or invalid"
+_PURGE_SOURCE_IDENTITY_AMBIGUOUS_DETAIL = (
+    "Memory purge cannot guarantee re-import suppression"
+)
+_PURGE_INTEGRITY_DETAIL = "Memory purge unavailable"
+_PURGE_INVALID_DETAIL = "Memory purge request invalid"
 _PROJECT_UNAVAILABLE_DETAIL = "Project not available"
 _PROJECT_AUTHORITY_CONFLICT_DETAIL = {
     "code": MemoryVaultProjectAuthorityConflict.code,
@@ -172,7 +211,7 @@ class VaultItemResponse(BaseModel):
     account_owner: str = ""
     project_id: int | None = None
     review_posture: str = REVIEW_POSTURE_PENDING
-    lifecycle_posture: str = LIFECYCLE_POSTURE_INACTIVE
+    lifecycle_posture: str = LIFECYCLE_POSTURE_DORMANT
     pinned: bool = False
     held: bool = False
     created_at: datetime | None = None
@@ -207,6 +246,18 @@ class _VaultMutationRequest(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("expected_updated_at must be timezone-aware")
         return value
+
+
+class VaultContentCorrectionRequest(_VaultMutationRequest):
+    """Request body for direct user-authored content correction.
+
+    Only the explicitly human-authored ``content`` text and the shared
+    governance mutation fields are accepted. Caller account, Project,
+    Persona, semantic species, review/lifecycle state, revision identity,
+    and revision numbering are never request authority.
+    """
+
+    content: Annotated[str, Field(strict=True, min_length=1)]
 
 
 class VaultPinRequest(_VaultMutationRequest):
@@ -268,6 +319,23 @@ class VaultCreationResponse(BaseModel):
     """Serialized Vault direct creation result (UMS-05C6)."""
 
     receipt_id: str
+    item: VaultItemResponse
+
+
+class VaultContentCorrectionResponse(BaseModel):
+    """Serialized direct content-correction result (UMS-05C9-W).
+
+    ``revision_id`` / ``revision_number`` and ``receipt_id`` are all
+    ``None`` for an exact no-op. Full old authored text is never exposed
+    separately from the canonical current item.
+    """
+
+    changed: bool
+    receipt_id: str | None
+    revision_id: str | None
+    revision_number: int | None
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
     item: VaultItemResponse
 
 
@@ -358,6 +426,27 @@ def get_memory_vault_creation_service(
     session = db.get_session()
     try:
         yield MemoryVaultCreationService(
+            session,
+            authenticated_account_id=account_id,
+        )
+    finally:
+        session.close()
+
+
+def get_memory_purge_service(
+    scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Iterator[MemoryPurgeService]:
+    """Bind a ``MemoryPurgeService`` to the authenticated account.
+
+    Reuses the same repository database/session authority as the read,
+    mutation, and creation services. The purge service owns the destructive
+    transaction; this adapter never commits, rolls back, or queries.
+    """
+    account_id = _resolve_vault_account(scope)
+    db = _get_vault_db()
+    session = db.get_session()
+    try:
+        yield MemoryPurgeService(
             session,
             authenticated_account_id=account_id,
         )
@@ -760,11 +849,440 @@ def create_vault_item(
     )
 
 
+_CONTENT_CORRECTION_UNAVAILABLE_DETAIL = "Memory content correction unavailable"
+_CONTENT_CORRECTION_INVALID_DETAIL = "Content must be a non-empty string"
+_REVIEW_TRANSITION_UNAVAILABLE_DETAIL = "Memory review transition unavailable"
+_REVIEW_TRANSITION_INVALID_DETAIL = "Action must be one of: approve, reject, dispute"
+_LIFECYCLE_UNAVAILABLE_DETAIL = "Memory lifecycle transition unavailable"
+_LIFECYCLE_INVALID_DETAIL = "Action must be one of: retire, restore"
+
+
+class VaultReviewTransitionRequest(_VaultMutationRequest):
+    """ADR-088 direct review action.
+
+    Only the admitted action is accepted. A raw ``review_state`` is never
+    taken from the caller, so ``pending`` cannot be requested.
+
+    ``extra="forbid"`` is deliberate: caller-supplied authority fields
+    (account, actor, revision identity/number, lifecycle, Project, Persona)
+    are rejected outright rather than silently ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+
+
+class VaultLifecycleTransitionRequest(_VaultMutationRequest):
+    """ADR-089 direct lifecycle action.
+
+    Only the admitted action is accepted. A raw lifecycle target is never
+    taken from the caller, so ``active`` / ``dormant`` / ``retired`` cannot
+    be requested directly.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+
+
+class VaultLifecycleTransitionResponse(BaseModel):
+    """Serialized direct lifecycle transition result (UMS-05C10B-W).
+
+    All three identity fields are ``None`` for an ADR-089 same-state no-op.
+    No internal history-validation diagnostic is exposed.
+    """
+
+    changed: bool
+    action: str
+    receipt_id: str | None
+    lifecycle_revision_id: str | None
+    lifecycle_revision_number: int | None
+    previous_lifecycle_state: str
+    resulting_lifecycle_state: str
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItemResponse
+
+
+class VaultPurgeRequest(_VaultMutationRequest):
+    """Exact-target permanent-erasure request.
+
+    Accepts only what an authenticated account principal can legitimately
+    assert about its own destructive intent. It deliberately does **not**
+    accept a user/account id, a raw tombstone field, a caller-supplied source
+    fingerprint, a caller-supplied purge receipt id, a lifecycle target, a
+    review target, or any cascade control. Those would all let a caller
+    either forge suppression authority or widen the destructive blast radius.
+    """
+
+    confirmation_token: str = Field(
+        min_length=1,
+        description=(
+            "Opaque token returned by the purge-preview route, bound to the "
+            "exact current destructive target."
+        ),
+    )
+
+
+class VaultPurgePreviewResponse(BaseModel):
+    """Serialized exact-target destructive preview.
+
+    Counts and identity only. Never memory content, never another account's
+    state, never raw queue payloads, never vector bodies, never secrets.
+    """
+
+    memory_id: str
+    record_fingerprint: str
+    updated_at: datetime
+    content_revision_count: int
+    review_revision_count: int
+    lifecycle_revision_count: int
+    provenance_count: int
+    persona_link_count: int
+    derived_state_count: int
+    total_affected_rows: int
+    suppression_fingerprint_available: bool
+    suppression_ambiguity: str | None
+    confirmation_token: str
+
+
+class VaultPurgeResponse(BaseModel):
+    """Serialized permanent-erasure result.
+
+    An idempotent retry reports ``changed=False`` / ``already_purged=True``
+    with the original ``purge_receipt_id`` and ``purged_at``; it creates no
+    second tombstone and no second receipt identity.
+    """
+
+    memory_id: str
+    changed: bool
+    already_purged: bool
+    purge_receipt_id: str
+    purged_at: datetime
+    record_fingerprint: str
+    source_atom_fingerprint: str | None
+    suppression: bool
+    deleted_content_revisions: int
+    deleted_review_revisions: int
+    deleted_lifecycle_revisions: int
+    deleted_provenance: int
+    deleted_persona_links: int
+
+
+class VaultReviewTransitionResponse(BaseModel):
+    """Serialized direct review-transition result (UMS-05C10A-W).
+
+    ``receipt_id`` / ``review_revision_id`` / ``review_revision_number`` are
+    all ``None`` for an ADR-088 same-state no-op. No separate copy of memory
+    content is exposed for review-history purposes.
+    """
+
+    changed: bool
+    action: str
+    receipt_id: str | None
+    review_revision_id: str | None
+    review_revision_number: int | None
+    previous_review_state: str
+    resulting_review_state: str
+    previous_updated_at: datetime
+    resulting_updated_at: datetime
+    item: VaultItemResponse
+
+
+@router.patch(
+    "/items/canonical/{memory_id}/content",
+    response_model=VaultContentCorrectionResponse,
+)
+def patch_canonical_vault_item_content(
+    memory_id: str,
+    body: VaultContentCorrectionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultContentCorrectionResponse:
+    """Direct authenticated correction of ordinary-memory content.
+
+    Thin adapter only: it performs no SQL, no revision-number
+    calculation, no CAS comparison, no row locking, no old/new text
+    comparison, and no receipt construction. Account authority comes
+    exclusively from ``RequestUserScope.account_id`` through the
+    existing mutation-service dependency.
+    """
+    try:
+        result = service.correct_content(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            content=body.content,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultContentCorrectionInvalid:
+        # Ordinary request validation, not an integrity failure.
+        raise HTTPException(status_code=422, detail=_CONTENT_CORRECTION_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultContentCorrectionUnsupported,
+        MemoryVaultContentCorrectionIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Sanitized: no species, SQL, constraint, chain, or content detail.
+        raise HTTPException(
+            status_code=409, detail=_CONTENT_CORRECTION_UNAVAILABLE_DETAIL
+        )
+
+    return VaultContentCorrectionResponse(
+        changed=result.changed,
+        receipt_id=result.receipt_id,
+        revision_id=result.revision_id,
+        revision_number=result.revision_number,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
+@router.patch(
+    "/items/canonical/{memory_id}/review",
+    response_model=VaultReviewTransitionResponse,
+)
+def patch_canonical_vault_item_review(
+    memory_id: str,
+    body: VaultReviewTransitionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultReviewTransitionResponse:
+    """Direct authenticated review transition for ordinary memory.
+
+    Thin adapter only: it performs no SQL, no parent lookup, no row
+    locking, no CAS comparison, no no-op determination, no state-machine
+    calculation, no review-revision numbering, no ``reviewed_at`` decision,
+    no receipt construction, and no read-before-write. Account authority
+    comes exclusively from ``RequestUserScope.account_id`` through the
+    existing mutation-service dependency.
+    """
+    try:
+        result = service.transition_review(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            action=body.action,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultReviewTransitionInvalid:
+        raise HTTPException(status_code=422, detail=_REVIEW_TRANSITION_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultReviewTransitionUnsupported,
+        MemoryVaultReviewTransitionIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Sanitized: no species, SQL, constraint, chain, or content detail.
+        raise HTTPException(
+            status_code=409, detail=_REVIEW_TRANSITION_UNAVAILABLE_DETAIL
+        )
+
+    return VaultReviewTransitionResponse(
+        changed=result.changed,
+        action=result.action,
+        receipt_id=result.receipt_id,
+        review_revision_id=result.review_revision_id,
+        review_revision_number=result.review_revision_number,
+        previous_review_state=result.previous_review_state,
+        resulting_review_state=result.resulting_review_state,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
+@router.patch(
+    "/items/canonical/{memory_id}/lifecycle",
+    response_model=VaultLifecycleTransitionResponse,
+)
+def patch_canonical_vault_item_lifecycle(
+    memory_id: str,
+    body: VaultLifecycleTransitionRequest = Body(...),
+    service: MemoryVaultMutationService = Depends(get_memory_vault_mutation_service),
+) -> VaultLifecycleTransitionResponse:
+    """Direct authenticated retire / restore for ordinary memory.
+
+    Thin adapter only: it performs no SQL, no parent lookup, no row locking,
+    no CAS comparison, no no-op determination, no lifecycle state-machine
+    logic, no lifecycle-history read, no restore-target resolution, no
+    revision numbering, no receipt construction, and no read-before-write.
+    Account authority comes exclusively from ``RequestUserScope.account_id``
+    through the existing mutation-service dependency.
+    """
+    try:
+        result = service.transition_lifecycle(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            action=body.action,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryVaultMutationNotAvailable:
+        # Missing and cross-account share one indistinguishable posture.
+        raise HTTPException(status_code=404, detail=_MUTATION_UNAVAILABLE_DETAIL)
+    except MemoryVaultLifecycleInvalid:
+        raise HTTPException(status_code=422, detail=_LIFECYCLE_INVALID_DETAIL)
+    except MemoryVaultMutationConflict:
+        raise HTTPException(status_code=409, detail=_STALE_WRITE_DETAIL)
+    except (
+        MemoryVaultLifecycleUnsupported,
+        MemoryVaultLifecycleIntegrityError,
+        MemoryVaultMutationError,
+    ):
+        # Includes restore where the pre-retirement posture cannot be proven.
+        # Sanitized: no SQL, constraint, chain, or account detail.
+        raise HTTPException(status_code=409, detail=_LIFECYCLE_UNAVAILABLE_DETAIL)
+
+    return VaultLifecycleTransitionResponse(
+        changed=result.changed,
+        action=result.action,
+        receipt_id=result.receipt_id,
+        lifecycle_revision_id=result.lifecycle_revision_id,
+        lifecycle_revision_number=result.lifecycle_revision_number,
+        previous_lifecycle_state=result.previous_lifecycle_state,
+        resulting_lifecycle_state=result.resulting_lifecycle_state,
+        previous_updated_at=result.previous_updated_at,
+        resulting_updated_at=result.resulting_updated_at,
+        item=_item_response(result.item),
+    )
+
+
+@router.get(
+    "/items/canonical/{memory_id}/purge-preview",
+    response_model=VaultPurgePreviewResponse,
+)
+def get_canonical_vault_item_purge_preview(
+    memory_id: str,
+    service: MemoryPurgeService = Depends(get_memory_purge_service),
+) -> VaultPurgePreviewResponse:
+    """Describe exactly what permanent purge of this item would destroy.
+
+    Read-only and account-scoped. Thin adapter only: it performs no SQL, no
+    fingerprint computation, no child enumeration, no CAS comparison, and no
+    confirmation-token construction. Account authority comes exclusively from
+    ``RequestUserScope.account_id``.
+
+    A missing and a cross-account target share one indistinguishable 404
+    posture, so preview never discloses another account's existence.
+    """
+    try:
+        preview = service.preview_purge(memory_id=memory_id)
+    except MemoryPurgeNotAvailable:
+        raise HTTPException(status_code=404, detail=_PURGE_UNAVAILABLE_DETAIL)
+    except MemoryPurgeInvalid:
+        raise HTTPException(status_code=422, detail=_PURGE_INVALID_DETAIL)
+    except MemoryPurgeError:
+        raise HTTPException(status_code=409, detail=_PURGE_INTEGRITY_DETAIL)
+
+    return VaultPurgePreviewResponse(
+        memory_id=preview.memory_id,
+        record_fingerprint=preview.record_fingerprint,
+        updated_at=preview.updated_at,
+        content_revision_count=preview.content_revision_count,
+        review_revision_count=preview.review_revision_count,
+        lifecycle_revision_count=preview.lifecycle_revision_count,
+        provenance_count=preview.provenance_count,
+        persona_link_count=preview.persona_link_count,
+        derived_state_count=preview.derived_state_count,
+        total_affected_rows=preview.total_affected_rows,
+        suppression_fingerprint_available=(preview.suppression_fingerprint_available),
+        suppression_ambiguity=preview.suppression_ambiguity,
+        confirmation_token=preview.confirmation_token,
+    )
+
+
+@router.post(
+    "/items/canonical/{memory_id}/purge",
+    response_model=VaultPurgeResponse,
+)
+def post_canonical_vault_item_purge(
+    memory_id: str,
+    body: VaultPurgeRequest = Body(...),
+    service: MemoryPurgeService = Depends(get_memory_purge_service),
+) -> VaultPurgeResponse:
+    """Permanently erase one canonical ordinary memory.
+
+    Thin adapter only: it performs no SQL, no row locking, no CAS
+    comparison, no confirmation-token recomputation, no fingerprint
+    derivation, no deletion fan-out, no tombstone construction, and no
+    suppression policy. All purge authority belongs to the purge service.
+
+    Requires a fresh CAS token *and* a confirmation token minted against the
+    current destructive target. Both are validated before any deletion.
+
+    HTTP posture:
+
+    * 401 -- missing or blank authenticated account;
+    * 404 -- missing or cross-account target, except that a same-account
+      retry of an already-completed purge succeeds with
+      ``already_purged=True``;
+    * 409 -- stale CAS, stale or wrong confirmation, ambiguous import-origin
+      source identity, or fan-out integrity failure;
+    * 422 -- malformed request body.
+    """
+    try:
+        result = service.purge(
+            memory_id=memory_id,
+            expected_updated_at=body.expected_updated_at,
+            confirmation_token=body.confirmation_token,
+            reason=body.reason,
+            request_ref=body.request_ref,
+        )
+    except MemoryPurgeNotAvailable:
+        raise HTTPException(status_code=404, detail=_PURGE_UNAVAILABLE_DETAIL)
+    except MemoryPurgeAmbiguousSourceIdentity:
+        # Fail closed rather than erase a record whose source atom could not
+        # be suppressed afterwards. Distinct from a generic conflict so the
+        # caller learns the destructive claim is not satisfiable.
+        raise HTTPException(
+            status_code=409, detail=_PURGE_SOURCE_IDENTITY_AMBIGUOUS_DETAIL
+        )
+    except MemoryPurgeConflict as exc:
+        detail = (
+            _PURGE_CONFIRMATION_STALE_DETAIL
+            if "confirmation" in str(exc).lower()
+            else _PURGE_STALE_WRITE_DETAIL
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    except MemoryPurgeInvalid:
+        raise HTTPException(status_code=422, detail=_PURGE_INVALID_DETAIL)
+    except MemoryPurgeError:
+        # Sanitized: no SQL, constraint, fingerprint, or content detail.
+        raise HTTPException(status_code=409, detail=_PURGE_INTEGRITY_DETAIL)
+
+    return VaultPurgeResponse(
+        memory_id=result.memory_id,
+        changed=result.changed,
+        already_purged=result.already_purged,
+        purge_receipt_id=result.purge_receipt_id,
+        purged_at=result.purged_at,
+        record_fingerprint=result.record_fingerprint,
+        source_atom_fingerprint=result.source_atom_fingerprint,
+        suppression=result.suppression,
+        deleted_content_revisions=result.deleted_content_revisions,
+        deleted_review_revisions=result.deleted_review_revisions,
+        deleted_lifecycle_revisions=result.deleted_lifecycle_revisions,
+        deleted_provenance=result.deleted_provenance,
+        deleted_persona_links=result.deleted_persona_links,
+    )
+
+
 __all__ = [
     "router",
     "get_memory_vault_read_service",
     "get_memory_vault_mutation_service",
     "get_memory_vault_creation_service",
+    "get_memory_purge_service",
     "VaultIdentityResponse",
     "VaultItemResponse",
     "VaultListResponse",
@@ -775,6 +1293,15 @@ __all__ = [
     "VaultProjectScopeRequest",
     "VaultPersonaAttributionRequest",
     "VaultCreateMemoryRequest",
+    "VaultContentCorrectionRequest",
+    "VaultContentCorrectionResponse",
+    "VaultLifecycleTransitionRequest",
+    "VaultLifecycleTransitionResponse",
+    "VaultReviewTransitionRequest",
+    "VaultReviewTransitionResponse",
+    "VaultPurgeRequest",
+    "VaultPurgePreviewResponse",
+    "VaultPurgeResponse",
     "VaultMutationResponse",
     "VaultCreationResponse",
     "MemoryCompatibilitySourceRefResponse",

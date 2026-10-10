@@ -23,10 +23,40 @@ from guardian.core.media_signing import extract_media_path
 from guardian.core.storage import FileNotFoundError as StorageFileNotFoundError
 from guardian.core.storage import StorageError, create_storage_from_env
 
+# UMS-11. Single authority for the accepted opaque-fingerprint algorithm
+# versions, so export validation and the purge service cannot drift.
+from guardian.services.memory_purge import (
+    PURGED_RECORD_FINGERPRINT_VERSION,
+    SOURCE_ATOM_FINGERPRINT_VERSION,
+)
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "account-export.v3"
 STAGED_MANIFEST_SCHEMA_VERSION = "account-export.v4"
+#: UMS-05C9. The canonical Unified Memory graph gained a sixth family,
+#: ``memory_revisions``. Adding an entity family changes canonical payload
+#: semantics, so this is a NEW schema version. v4 semantics are preserved
+#: exactly: v4 remains the five-family canonical graph and keeps its
+#: ``restore_mode: unsupported`` posture.
+REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v5"
+#: UMS-05C10A-P. The canonical Unified Memory graph gains a seventh family,
+#: ``memory_review_revisions`` (ordinary-memory review-transition history).
+#: Adding an entity family changes canonical payload semantics, so this is a
+#: NEW schema version. v5 semantics are frozen exactly: v5 remains the
+#: six-family canonical graph and is never widened to carry review history.
+REVIEW_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v6"
+#: UMS-05C10B-P. The canonical Unified Memory graph gains an eighth
+#: family, ``memory_lifecycle_revisions``. Adding an entity family changes
+#: canonical payload semantics, so this is a NEW schema version. v6
+#: semantics are preserved exactly: v6 remains the seven-family canonical
+#: graph and is never widened to carry lifecycle history.
+LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v7"
+#: UMS-11. v8 is the v7 canonical graph plus the minimum non-content
+#: permanent-erasure suppression family. Tombstones have no parent memory
+#: row -- the purge that writes one deletes that row -- so this family is
+#: independent of the erased canonical graph rather than a child of it.
+PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION = "account-export.v8"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -155,6 +185,65 @@ STAGED_PAYLOAD_FAMILIES = tuple(entry[0] for entry in STAGED_PAYLOAD_ORDER)
 UNIFIED_MEMORY_PAYLOAD_FAMILIES = tuple(
     entry[0] for entry in UNIFIED_MEMORY_PAYLOAD_ORDER
 )
+
+#: UMS-05C9. v5 is the v4 canonical graph plus the ordinary-memory content
+#: revision family. ``memory_revisions`` is appended last so a consumer that
+#: walks families in order always has its parent ``memory_records`` first.
+REVISION_MEMORY_PAYLOAD_ORDER = UNIFIED_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_revisions",
+        "entities/memory_revisions.json",
+        "fetch_account_export_memory_revisions_for_user",
+    ),
+)
+REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in REVISION_MEMORY_PAYLOAD_ORDER
+)
+#: UMS-05C10A-P. v6 is the v5 canonical graph plus the ordinary-memory
+#: review-transition revision family. ``memory_review_revisions`` is appended
+#: last so a consumer walking families in order always has its parent
+#: ``memory_records`` first.
+REVIEW_REVISION_MEMORY_PAYLOAD_ORDER = REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_review_revisions",
+        "entities/memory_review_revisions.json",
+        "fetch_account_export_memory_review_revisions_for_user",
+    ),
+)
+REVIEW_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+)
+#: UMS-05C10B-P. v7 is the v6 canonical graph plus the ordinary-memory
+#: lifecycle-transition revision family. Appended last so a consumer walking
+#: families in order always has its parent ``memory_records`` first.
+LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER = REVIEW_REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_lifecycle_revisions",
+        "entities/memory_lifecycle_revisions.json",
+        "fetch_account_export_memory_lifecycle_revisions_for_user",
+    ),
+)
+LIFECYCLE_REVISION_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+)
+#: UMS-11. v8 adds ``memory_purge_tombstones``. Appended last because a
+#: tombstone references no live canonical memory: it is the surviving record
+#: of a memory that is *absent* from this archive by design.
+PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER = LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER + (
+    (
+        "memory_purge_tombstones",
+        "entities/memory_purge_tombstones.json",
+        "fetch_account_export_memory_purge_tombstones_for_user",
+    ),
+)
+PURGE_TOMBSTONE_MEMORY_PAYLOAD_FAMILIES = tuple(
+    entry[0] for entry in PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+)
+# NOTE: FULL_PAYLOAD_ORDER stays bound to v5. Widening it would silently
+# redefine the v5 canonical graph, which is immutable.
+FULL_PAYLOAD_ORDER = PAYLOAD_ORDER + REVISION_MEMORY_PAYLOAD_ORDER
+FULL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in FULL_PAYLOAD_ORDER)
+
 HISTORICAL_PAYLOAD_ORDER = PAYLOAD_ORDER[:-3]
 HISTORICAL_PAYLOAD_FAMILIES = tuple(entry[0] for entry in HISTORICAL_PAYLOAD_ORDER)
 PAYLOAD_ORDER_BY_SCHEMA = {
@@ -162,10 +251,30 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     "account-export.v2": HISTORICAL_PAYLOAD_ORDER,
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
+    REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+    ),
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
     STAGED_MANIFEST_SCHEMA_VERSION: STAGED_PAYLOAD_ORDER,
+    REVISION_MANIFEST_SCHEMA_VERSION: FULL_PAYLOAD_ORDER,
+    REVIEW_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + REVIEW_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + LIFECYCLE_REVISION_MEMORY_PAYLOAD_ORDER
+    ),
+    PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+    ),
 }
 BINARY_FAMILIES = {
     "uploaded_documents",
@@ -392,6 +501,11 @@ def _validate_persona_profile_export(
             raise RuntimeError("persona_profile_export_current_revision_missing")
 
 
+#: UMS-05C10A-P. Canonical ordinary review vocabulary. Used to validate typed
+#: review-transition history. This is a vocabulary check only; it does not
+#: encode a legal-transition policy.
+_REVIEW_STATES = frozenset({"pending", "approved", "rejected", "disputed"})
+
 _UNIFIED_MEMORY_REQUIRED_FIELDS = {
     "persona_subjects": {
         "persona_subject_id",
@@ -425,6 +539,8 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "activated_at",
         "pinned",
         "held",
+        "review_state",
+        "lifecycle_state",
         "extensions",
         "created_at",
         "updated_at",
@@ -454,6 +570,51 @@ _UNIFIED_MEMORY_REQUIRED_FIELDS = {
         "extensions",
         "created_at",
     },
+    "memory_revisions": {
+        "revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_text_content",
+        "new_text_content",
+        "created_at",
+    },
+    # UMS-05C10A-P: ordinary-memory review-transition history. Canonical
+    # history only; intent/receipt evidence stays in memory_provenance.
+    "memory_review_revisions": {
+        "review_revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_review_state",
+        "new_review_state",
+        "actor_account_id",
+        "created_at",
+    },
+    # UMS-05C10B-P: ordinary-memory lifecycle-transition history.
+    # old_lifecycle_state preserves the pre-retirement posture.
+    "memory_lifecycle_revisions": {
+        "lifecycle_revision_id",
+        "memory_id",
+        "user_id",
+        "revision_number",
+        "old_lifecycle_state",
+        "new_lifecycle_state",
+        "created_at",
+    },
+    # UMS-11: minimum non-content permanent-erasure suppression state. This
+    # field set is an allowlist, so it is also the export-side guarantee that
+    # no content-bearing column can reach an archive through this family.
+    "memory_purge_tombstones": {
+        "purge_receipt_id",
+        "user_id",
+        "purged_record_fingerprint",
+        "source_system",
+        "source_entity_kind",
+        "source_atom_fingerprint",
+        "purged_at",
+        "suppress_reimport",
+    },
 }
 
 _UNIFIED_MEMORY_ID_FIELDS = {
@@ -462,6 +623,10 @@ _UNIFIED_MEMORY_ID_FIELDS = {
     "memory_records": "memory_id",
     "memory_persona_links": "link_id",
     "memory_provenance": "provenance_id",
+    "memory_revisions": "revision_id",
+    "memory_review_revisions": "review_revision_id",
+    "memory_lifecycle_revisions": "lifecycle_revision_id",
+    "memory_purge_tombstones": "purge_receipt_id",
 }
 
 _UNIFIED_MEMORY_SORT_KEYS = {
@@ -472,6 +637,12 @@ _UNIFIED_MEMORY_SORT_KEYS = {
         "binding_id",
     ),
     "memory_records": ("memory_id",),
+    "memory_revisions": ("memory_id", "revision_number", "revision_id"),
+    # NOTE: memory_review_revisions is intentionally absent here. It is sorted
+    # with numeric awareness in
+    # _validate_memory_review_revision_export, because the generic loop above
+    # compares sort keys as strings and would order revision_number 10 before
+    # 2. v5 ordering is unchanged.
     "memory_persona_links": (
         "memory_id",
         "persona_subject_id",
@@ -479,6 +650,10 @@ _UNIFIED_MEMORY_SORT_KEYS = {
         "link_id",
     ),
     "memory_provenance": ("memory_id", "provenance_id"),
+    # UMS-11. Tombstones sort by their own stable receipt identity because
+    # they have no parent memory_id to sort within. purge_receipt_id is a
+    # server-authored UUID, so string ordering is already total and stable.
+    "memory_purge_tombstones": ("purge_receipt_id",),
 }
 
 
@@ -486,13 +661,135 @@ def _identity(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _validate_purge_tombstone_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+) -> None:
+    """Fail closed on malformed permanent-erasure suppression state (UMS-11).
+
+    Tombstones are validated by a *different* rule set than the revision
+    families, and deliberately so. A revision family is a child of a live
+    canonical memory and is checked against that parent. A tombstone's
+    defining property is that its parent is **absent**: it is the surviving
+    record of a memory that was permanently erased. Validating a tombstone
+    against ``memory_records`` would therefore be validating it against
+    something that must not be there.
+
+    What is checked instead:
+
+    * account ownership;
+    * well-formed versioned, non-content fingerprints;
+    * that ``suppress_reimport`` is true -- an archive that claimed to
+      carry a relaxation of suppression is malformed, not permissive;
+    * receipt-identity uniqueness; and
+    * absence of any content-bearing field, which is the export-side
+      guarantee that erasure actually held.
+
+    Absence of tombstones is valid. An account that never purged anything
+    carries none, and no tombstone is ever fabricated to fill the family.
+    """
+    if not rows:
+        return
+
+    seen_receipts: set[str] = set()
+    for row in rows:
+        receipt_id = _identity(row.get("purge_receipt_id"))
+        if not receipt_id:
+            raise RuntimeError("purge_tombstone_export_receipt_missing")
+        if receipt_id in seen_receipts:
+            raise RuntimeError("purge_tombstone_export_duplicate_receipt")
+        seen_receipts.add(receipt_id)
+
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("purge_tombstone_export_account_mismatch")
+
+        record_fingerprint = _identity(row.get("purged_record_fingerprint"))
+        if not _is_versioned_digest(record_fingerprint):
+            raise RuntimeError("purge_tombstone_export_record_fingerprint_invalid")
+
+        raw_source_fingerprint = row.get("source_atom_fingerprint")
+        if raw_source_fingerprint is not None:
+            if not _is_versioned_digest(_identity(raw_source_fingerprint)):
+                raise RuntimeError("purge_tombstone_export_source_fingerprint_invalid")
+
+        # A tombstone claiming relaxed suppression is malformed. It is never
+        # exported as permissive and never silently repaired.
+        if row.get("suppress_reimport") is not True:
+            raise RuntimeError("purge_tombstone_export_suppression_not_true")
+
+        if row.get("purged_at") is None:
+            raise RuntimeError("purge_tombstone_export_purged_at_missing")
+
+        # Content audit. A tombstone must carry none of these, and an archive
+        # that somehow contains them has not actually erased anything.
+        for forbidden in (
+            "text_content",
+            "old_text_content",
+            "new_text_content",
+            "excerpt",
+            "content",
+            "source_record_id",
+            "embedding",
+        ):
+            if forbidden in row:
+                raise RuntimeError("purge_tombstone_export_content_field_present")
+
+
+#: UMS-11. Algorithm versions a tombstone fingerprint may carry.
+_ACCEPTED_FINGERPRINT_VERSIONS: frozenset[str] = frozenset(
+    {
+        PURGED_RECORD_FINGERPRINT_VERSION,
+        SOURCE_ATOM_FINGERPRINT_VERSION,
+    }
+)
+
+
+def _is_versioned_digest(value: str) -> bool:
+    """Return True for a ``<known-version>:<64 hex>`` non-content fingerprint.
+
+    Both purged-record and source-atom fingerprints are opaque digests with
+    an explicit algorithm version prefix. Two things are rejected:
+
+    * a bare or unversioned value, so a fingerprint is never ambiguous; and
+    * an **unrecognised** version. An older build must fail closed on a
+      future-versioned tombstone rather than silently reinterpret a digest it
+      does not know how to produce, which could mis-match suppression state
+      in either direction.
+
+    The accepted version set is imported from the purge service so the
+    algorithm authority has exactly one home.
+    """
+    if not value or ":" not in value:
+        return False
+    version, _, digest = value.partition(":")
+    if version.strip() not in _ACCEPTED_FINGERPRINT_VERSIONS:
+        return False
+    if not digest.strip():
+        return False
+    if any(character.isspace() for character in digest):
+        return False
+    try:
+        int(digest, 16)
+    except ValueError:
+        return False
+    return len(digest) == 64
+
+
 def _validate_unified_memory_export(
     rows_by_family: dict[str, list[dict[str, Any]]],
     *,
     user_id: str,
 ) -> None:
-    """Fail closed unless the staged v4 graph is account-scoped and closed."""
+    """Fail closed unless the canonical graph is account-scoped and closed.
+
+    A family is validated only when the archive actually carries it.
+    ``memory_revisions`` is a v5-only family: a v4 archive omits it and must
+    not be rejected for that omission.
+    """
     for family, required_fields in _UNIFIED_MEMORY_REQUIRED_FIELDS.items():
+        if family not in rows_by_family:
+            continue
         seen: set[str] = set()
         identity_field = _UNIFIED_MEMORY_ID_FIELDS[family]
         for row in rows_by_family[family]:
@@ -561,6 +858,45 @@ def _validate_unified_memory_export(
         ):
             raise RuntimeError("memory_persona_link_export_graph_mismatch")
 
+    # UMS-05C9: every revision must belong to the exporting account and to a
+    # memory present in this same archive. A v4 archive has no revision
+    # family and is skipped entirely.
+    for row in rows_by_family.get("memory_revisions", ()):
+        if (
+            _identity(row.get("user_id")) != user_id
+            or _identity(row.get("memory_id")) not in memories_by_id
+        ):
+            raise RuntimeError("memory_revision_export_graph_mismatch")
+
+    # UMS-05C10A-P: review-transition history is canonical and must itself be
+    # well-formed. Malformed history fails closed; it is never repaired, and
+    # provenance extensions are never consulted to repair it.
+    # A v5 or v4 archive carries no review family and is skipped entirely.
+    _validate_memory_review_revision_export(
+        rows_by_family.get("memory_review_revisions", ()),
+        user_id=user_id,
+        memories_by_id=memories_by_id,
+    )
+
+    # UMS-05C10B-P: lifecycle-transition history is canonical and must be
+    # well-formed when present. Malformed history fails closed; it is never
+    # repaired, and provenance extensions are never consulted to repair it.
+    # A v4/v5/v6 archive carries no lifecycle family and is skipped.
+    _validate_memory_lifecycle_revision_export(
+        rows_by_family.get("memory_lifecycle_revisions", ()),
+        user_id=user_id,
+        memories_by_id=memories_by_id,
+    )
+
+    # UMS-11: permanent-erasure suppression state is validated against the
+    # account and against its own non-content shape, never against a live
+    # canonical memory -- a tombstone's parent is absent by definition. A
+    # v4-v7 archive carries no tombstone family and is skipped entirely.
+    _validate_purge_tombstone_export(
+        rows_by_family.get("memory_purge_tombstones", ()),
+        user_id=user_id,
+    )
+
     provenance_memory_ids: set[str] = set()
     for row in rows_by_family["memory_provenance"]:
         memory_id = _identity(row.get("memory_id"))
@@ -592,12 +928,179 @@ def _validate_unified_memory_export(
     if set(memories_by_id) - provenance_memory_ids:
         raise RuntimeError("memory_provenance_export_missing")
 
+    # Deterministic canonical ordering. Families absent from this archive
+    # (a v4 archive has no memory_revisions) are skipped.
     for family, sort_keys in _UNIFIED_MEMORY_SORT_KEYS.items():
+        if family not in rows_by_family:
+            continue
         rows_by_family[family].sort(
             key=lambda row, keys=sort_keys: tuple(
                 _identity(row.get(key)) for key in keys
             )
         )
+
+
+def _validate_memory_review_revision_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+    memories_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Fail closed on malformed canonical ordinary review-transition history.
+
+    UMS-05C10A-P. This is a history *shape* validator, not a legal-transition
+    policy: it checks ownership, species, typed vocabulary, inequality,
+    contiguous numbering, chain continuity, and reconciliation with the parent
+    memory's current ``review_state``. It never asserts that a particular
+    source->target pair is a legal runtime mutation.
+    """
+    if not rows:
+        return
+
+    by_memory: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        memory_id = _identity(row.get("memory_id"))
+        parent = memories_by_id.get(memory_id)
+        if parent is None:
+            raise RuntimeError("memory_review_revision_export_orphan")
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("memory_review_revision_export_account_mismatch")
+        if _identity(row.get("actor_account_id")) != user_id:
+            raise RuntimeError("memory_review_revision_export_actor_mismatch")
+        # Ordinary memory only. Personal Facts keep personal_fact_revisions.
+        if parent.get("semantic_species") != "episodic_semantic_memory":
+            raise RuntimeError(
+                "memory_review_revision_export_unsupported_parent_species"
+            )
+
+        old_state = _identity(row.get("old_review_state"))
+        new_state = _identity(row.get("new_review_state"))
+        if old_state not in _REVIEW_STATES or new_state not in _REVIEW_STATES:
+            raise RuntimeError("memory_review_revision_export_invalid_state")
+        if old_state == new_state:
+            raise RuntimeError("memory_review_revision_export_noop_transition")
+
+        raw_number = row.get("revision_number")
+        if isinstance(raw_number, bool) or not isinstance(raw_number, int):
+            raise RuntimeError("memory_review_revision_export_number_invalid")
+        if raw_number < 1:
+            raise RuntimeError("memory_review_revision_export_number_invalid")
+        by_memory.setdefault(memory_id, []).append(row)
+
+    for memory_id, memory_rows in by_memory.items():
+        # Numeric ordering, not string ordering.
+        memory_rows.sort(
+            key=lambda row: (
+                int(row["revision_number"]),
+                _identity(row.get("review_revision_id")),
+            )
+        )
+        numbers = [int(row["revision_number"]) for row in memory_rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise RuntimeError("memory_review_revision_export_sequence_gap")
+        for previous, following in zip(memory_rows, memory_rows[1:]):
+            if _identity(previous["new_review_state"]) != _identity(
+                following["old_review_state"]
+            ):
+                raise RuntimeError("memory_review_revision_export_chain_mismatch")
+        final_state = _identity(memory_rows[-1]["new_review_state"])
+        parent_state = _identity(memories_by_id[memory_id].get("review_state"))
+        if final_state != parent_state:
+            raise RuntimeError("memory_review_revision_export_final_state_mismatch")
+
+    # Deterministic export ordering: memory_id ASC, revision_number ASC,
+    # review_revision_id ASC.
+    rows.sort(
+        key=lambda row: (
+            _identity(row.get("memory_id")),
+            int(row["revision_number"]),
+            _identity(row.get("review_revision_id")),
+        )
+    )
+
+
+_LIFECYCLE_STATES = frozenset({"active", "dormant", "retired"})
+
+
+def _validate_memory_lifecycle_revision_export(
+    rows: list[dict[str, Any]],
+    *,
+    user_id: str,
+    memories_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Fail closed on malformed canonical ordinary lifecycle history.
+
+    UMS-05C10B-P. This is a history *shape* validator, not a
+    legal-transition policy: it checks ownership, species, typed
+    vocabulary, inequality, contiguous numbering, chain continuity, and
+    reconciliation with the parent memory's current ``lifecycle_state``.
+
+    Absence of history is valid. A memory is never required to carry
+    lifecycle history just because it has a present lifecycle state, and a
+    legacy retired record whose pre-retirement posture was never canonically
+    recorded stays exportable without fabricated history.
+    """
+    if not rows:
+        return
+
+    by_memory: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        memory_id = _identity(row.get("memory_id"))
+        parent = memories_by_id.get(memory_id)
+        if parent is None:
+            raise RuntimeError("memory_lifecycle_revision_export_orphan")
+        if _identity(row.get("user_id")) != user_id:
+            raise RuntimeError("memory_lifecycle_revision_export_account_mismatch")
+        # Ordinary memory only. Personal Facts keep personal_fact_revisions.
+        if parent.get("semantic_species") != "episodic_semantic_memory":
+            raise RuntimeError(
+                "memory_lifecycle_revision_export_unsupported_parent_species"
+            )
+
+        old_state = _identity(row.get("old_lifecycle_state"))
+        new_state = _identity(row.get("new_lifecycle_state"))
+        if old_state not in _LIFECYCLE_STATES or new_state not in _LIFECYCLE_STATES:
+            raise RuntimeError("memory_lifecycle_revision_export_invalid_state")
+        if old_state == new_state:
+            raise RuntimeError("memory_lifecycle_revision_export_noop_transition")
+
+        raw_number = row.get("revision_number")
+        if isinstance(raw_number, bool) or not isinstance(raw_number, int):
+            raise RuntimeError("memory_lifecycle_revision_export_number_invalid")
+        if raw_number < 1:
+            raise RuntimeError("memory_lifecycle_revision_export_number_invalid")
+        by_memory.setdefault(memory_id, []).append(row)
+
+    for memory_id, memory_rows in by_memory.items():
+        # Numeric ordering, not string ordering, so revision 10 follows 9.
+        memory_rows.sort(
+            key=lambda row: (
+                int(row["revision_number"]),
+                _identity(row.get("lifecycle_revision_id")),
+            )
+        )
+        numbers = [int(row["revision_number"]) for row in memory_rows]
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise RuntimeError("memory_lifecycle_revision_export_sequence_gap")
+        for previous, following in zip(memory_rows, memory_rows[1:]):
+            if _identity(previous["new_lifecycle_state"]) != _identity(
+                following["old_lifecycle_state"]
+            ):
+                raise RuntimeError("memory_lifecycle_revision_export_chain_mismatch")
+        final_state = _identity(memory_rows[-1]["new_lifecycle_state"])
+        parent_state = _identity(memories_by_id[memory_id].get("lifecycle_state"))
+        if final_state != parent_state:
+            raise RuntimeError("memory_lifecycle_revision_export_final_state_mismatch")
+
+    # Deterministic export ordering: memory_id ASC, revision_number ASC,
+    # lifecycle_revision_id ASC.
+    rows.sort(
+        key=lambda row: (
+            _identity(row.get("memory_id")),
+            int(row["revision_number"]),
+            _identity(row.get("lifecycle_revision_id")),
+        )
+    )
 
 
 def _family_rows(
@@ -895,7 +1398,80 @@ def _build_manifest(
         )
     )
 
-    if schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
+    if schema_version == PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION:
+        # v8 is the v7 canonical graph plus purge suppression tombstones.
+        compatibility = {
+            "reader": "account_export.v8",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v8 serialization: the v7 eight-family canonical Unified Memory graph plus the memory_purge_tombstones family.",
+            "A purge tombstone carries only minimum non-content suppression state; the memory it describes is absent from this archive by design.",
+            "Tombstones contain no memory text, revision text, evidence excerpt, plaintext source entity id, Project name, Persona name, or embedding.",
+            "Restoring this archive preserves resurrection suppression, so a previously purged source atom stays suppressed on the destination instance.",
+            "A tombstone is never a second authority over a live memory: an archive carrying both a live memory and a suppression claim for the same identity must fail closed on restore.",
+        ]
+    elif schema_version == LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION:
+        # v7 is the eight-family canonical graph.
+        compatibility = {
+            "reader": "account_export.v7",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v7 serialization: the v6 seven-family canonical Unified Memory graph plus the memory_lifecycle_revisions family.",
+            "memory_records.lifecycle_state remains the current lifecycle authority; memory_lifecycle_revisions preserves ordered lifecycle transitions.",
+            "A transition into retired preserves the pre-retirement governed posture in old_lifecycle_state.",
+            "No legal lifecycle transition graph is encoded: this archive records transitions, it does not authorize them.",
+            "Memory with no lifecycle history is exported without fabricated history, including a legacy retired record whose prior posture was never canonically recorded.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == REVIEW_REVISION_MANIFEST_SCHEMA_VERSION:
+        # v6 is the seven-family canonical graph.
+        compatibility = {
+            "reader": "account_export.v6",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v6 serialization: the v5 six-family canonical Unified Memory graph plus the memory_review_revisions family.",
+            "memory_records.review_state remains the current review authority; memory_review_revisions preserves typed review-transition history.",
+            "memory_revisions remains content history only; memory_provenance remains intent/source/audit evidence.",
+            "No legal review-transition graph is encoded: this archive records transitions, it does not authorize them.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == REVISION_MANIFEST_SCHEMA_VERSION:
+        # v5 is the six-family canonical graph. Unlike v4 it is restorable.
+        compatibility = {
+            "reader": "account_export.v5",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "This is an account-export.v5 serialization: the v4 five-family canonical Unified Memory graph plus the memory_revisions family.",
+            "memory_records.text_content remains the current content authority; memory_revisions preserves exact prior/new text transitions.",
+            "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
+            "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
+            "Projects are selected through projects.user_id for staged canonical-memory graph closure.",
+        ]
+    elif schema_version == STAGED_MANIFEST_SCHEMA_VERSION:
         compatibility = {
             "reader": "account_export.v4",
             "restore_mode": "unsupported",
@@ -965,7 +1541,13 @@ def build_account_export_zip(
     resolved_schema_version = _resolve_export_schema_version(schema_version)
     payload_order = EXPORT_PAYLOAD_ORDER_BY_SCHEMA[resolved_schema_version]
     payload_families = tuple(entry[0] for entry in payload_order)
-    include_unified_memory = resolved_schema_version == STAGED_MANIFEST_SCHEMA_VERSION
+    include_unified_memory = resolved_schema_version in (
+        STAGED_MANIFEST_SCHEMA_VERSION,
+        REVISION_MANIFEST_SCHEMA_VERSION,
+        REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
+        LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
+        PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
+    )
     rows_by_family = _load_rows_by_family(
         db,
         user,

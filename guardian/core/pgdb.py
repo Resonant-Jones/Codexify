@@ -4961,6 +4961,15 @@ ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
     "memory_records",
     "memory_persona_links",
     "memory_provenance",
+    "memory_revisions",
+    "memory_review_revisions",
+    "memory_lifecycle_revisions",
+    # UMS-11: minimum non-content permanent-erasure suppression state. It has
+    # no parent memory row -- the purge that writes it deletes that row -- so
+    # it carries no memory_id and cannot participate in the parent-first walk
+    # the revision families rely on. It is therefore last, and it is
+    # deliberately independent of the erased canonical graph.
+    "memory_purge_tombstones",
 )
 
 
@@ -5414,6 +5423,7 @@ def fetch_account_export_bundle_for_user(
                         memory_id, user_id, project_id, semantic_species,
                         text_content, fact_key, fact_value, fact_confidence,
                         reviewed_at, activated_at, pinned, held, extensions,
+                        review_state, lifecycle_state,
                         created_at, updated_at
                     FROM memory_records
                     WHERE user_id = %s
@@ -5450,6 +5460,73 @@ def fetch_account_export_bundle_for_user(
                     FROM memory_provenance
                     WHERE user_id = %s
                     ORDER BY memory_id ASC, provenance_id ASC
+                    """,
+                    (user_id,),
+                )
+                bundles["memory_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        revision_id, memory_id, user_id, revision_number,
+                        old_text_content, new_text_content, created_at
+                    FROM memory_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             revision_id ASC
+                    """,
+                    (user_id,),
+                )
+                # UMS-05C10A-P: ordinary-memory review-transition history.
+                # Deterministic export ordering, independent of the content
+                # revision family.
+                bundles["memory_review_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        review_revision_id, memory_id, user_id,
+                        revision_number, old_review_state, new_review_state,
+                        actor_account_id, created_at
+                    FROM memory_review_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             review_revision_id ASC
+                    """,
+                    (user_id,),
+                )
+
+                # UMS-05C10B-P: ordinary-memory lifecycle-transition history.
+                # old_lifecycle_state preserves the pre-retirement posture
+                # required by the restore contract.
+                bundles["memory_lifecycle_revisions"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        lifecycle_revision_id, memory_id, user_id,
+                        revision_number, old_lifecycle_state,
+                        new_lifecycle_state, created_at
+                    FROM memory_lifecycle_revisions
+                    WHERE user_id = %s
+                    ORDER BY memory_id ASC, revision_number ASC,
+                             lifecycle_revision_id ASC
+                    """,
+                    (user_id,),
+                )
+
+                # UMS-11: permanent-erasure suppression state. Exports only
+                # the minimum non-content fields; the erased canonical memory
+                # and all of its content-bearing history are gone by the time
+                # a tombstone exists, so nothing purged can reappear here.
+                bundles["memory_purge_tombstones"] = _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        purge_receipt_id, user_id,
+                        purged_record_fingerprint,
+                        source_system, source_entity_kind,
+                        source_atom_fingerprint, purged_at, suppress_reimport
+                    FROM memory_purge_tombstones
+                    WHERE user_id = %s
+                    ORDER BY purge_receipt_id ASC
                     """,
                     (user_id,),
                 )
@@ -5684,6 +5761,32 @@ def fetch_account_export_memory_provenance_for_user(
     return _unified_memory_bundle_family_rows(user_id, "memory_provenance")
 
 
+def fetch_account_export_memory_revisions_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _unified_memory_bundle_family_rows(user_id, "memory_revisions")
+
+
+def fetch_account_export_memory_review_revisions_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """UMS-05C10A-P: ordinary-memory review-transition history rows."""
+    return _unified_memory_bundle_family_rows(user_id, "memory_review_revisions")
+
+
+def fetch_account_export_memory_purge_tombstones_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """UMS-11: permanent-erasure suppression tombstone rows.
+
+    Only the minimum non-content fields are ever selected. There is no
+    query path from this reader to purged memory content, because by the
+    time a tombstone exists the erased canonical row and all of its
+    content-bearing history are already gone.
+    """
+    return _unified_memory_bundle_family_rows(user_id, "memory_purge_tombstones")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
     *,
@@ -5811,6 +5914,26 @@ def iter_account_export_payloads_for_user(
                 "memory_provenance",
                 "entities/memory_provenance.json",
                 "fetch_account_export_memory_provenance_for_user",
+            ),
+            (
+                "memory_revisions",
+                "entities/memory_revisions.json",
+                "fetch_account_export_memory_revisions_for_user",
+            ),
+            (
+                "memory_review_revisions",
+                "entities/memory_review_revisions.json",
+                "fetch_account_export_memory_review_revisions_for_user",
+            ),
+            (
+                "memory_lifecycle_revisions",
+                "entities/memory_lifecycle_revisions.json",
+                "fetch_account_export_memory_lifecycle_revisions_for_user",
+            ),
+            (
+                "memory_purge_tombstones",
+                "entities/memory_purge_tombstones.json",
+                "fetch_account_export_memory_purge_tombstones_for_user",
             ),
         )
     for family, path, _reader_name in payload_order:
