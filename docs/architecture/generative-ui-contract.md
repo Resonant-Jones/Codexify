@@ -247,6 +247,11 @@ Beta Supported. Implementation presence does not promote it.
 
 - No `openLink` capability.
 - No direct send from generated UI; a human always presses send.
+- **No `eval` or `new Function`.** The CSP grants `script-src 'unsafe-inline'`
+  but deliberately not `'unsafe-eval'`, so string-compiled code is blocked.
+  Confirmed in a real browser: an `eval`-based expression evaluator silently
+  failed, while a recursive-descent parser computed correctly. Generated code
+  that depends on dynamic compilation will not work.
 - No network access inside generated UI, including map tiles or remote fonts.
   Upstream allows four public CDNs; Codexify ships no importmap.
 - No cross-artifact control synchronization; each artifact is an independent
