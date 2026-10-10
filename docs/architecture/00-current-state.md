@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-09
+2026-10-10
 
 ## Interpretation rule
 
@@ -18,16 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-08 audit, only a 2026-10-09 release-accounting log landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior refresh, mainline added bounded authenticated imported-history inspection; no supported install or release gate widened. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
-- Since the prior refresh, `main` added only the 2026-10-09 no-change accounting artifact; no implementation or qualification claim changed.
-- Merged opt-in, same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
-- Persisted authenticated account-intake provenance for coding runs and merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority.
-- Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.
-- Merged bounded workspace scratchpad, Memory Vault request-reference, and Pi telemetry test tightening; these are focused changes, not release qualification.
-- Removed stale daily logs, added retired-ADR routing, and recorded explicit no-change checkpoints.
+- Added a Chronicle readiness audit that separates authenticated history inspection from natural import-to-recall and defers synthesis.
+- Merged a bounded read-only imported-history evidence reader with account, Project, thread, origin, provenance, coverage, and no-write boundaries.
+- Merged an authenticated HTTP inspection route and access resolver with fail-closed ownership checks, existing account authentication, bounded errors, and `no-store` responses.
+- Recorded bounded proof at the reader baseline: 83 HTTP cases, 74 reader cases, and 28 migration-route cases passed against disposable PostgreSQL; this is test evidence, not supported-runtime qualification.
+- Local `main` is five commits ahead and 131 commits behind the stored `origin/main` ref; no reconciliation or push occurred.
 
 ## Current supported reality
 
@@ -35,7 +34,7 @@ This file is authoritative for:
 - The Beta Supported contract covers local inference, ordinary chat, durable threads/messages/tasks, document upload/embed/readback, workspace retrieval, identity/ownership, migrations, and operator diagnostics; qualification is a separate gate.
 - Mainline has bounded evidence for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
-- Account import remains bounded: isolated evidence covers browser staging, materialization, ownership/readback, and later vector observations, not complete recall.
+- Account import has bounded account-scoped staging, materialization, canonical history, and read-only inspection paths; complete recall is not part of that claim.
 - Same-node human messaging is enabled only in the opt-in Private Preview profile; it does not grant project, thread, Guardian, federation, attachment, or realtime authority.
 
 ## Not yet true / do not assume
@@ -43,10 +42,10 @@ This file is authoritative for:
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection; the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
-- Do not treat focused tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
-- Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers currently make both fail JSON parsing.
+- Do not treat the imported-history route as a supported Chronicle, provider-recall, frontend, deployment, or public-ingress feature.
+- Do not treat focused tests, disposable PostgreSQL, route presence, docs, or isolated Preview proof as supported-Compose or public qualification.
+- Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers make both fail JSON parsing.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
-- Do not infer cross-node messaging, federation, or autonomous coding-worker support from merged contracts or implementation slices.
 - Do not treat uncommitted worktree changes or local-only audit commits as synchronized public-main state.
 
 ## Active blockers
@@ -55,22 +54,22 @@ This file is authoritative for:
 - Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
 - Complete a fresh natural import-to-recall run through provider context, answer persistence, and negative scope control.
+- Keep imported-history inspection out of the release promise until frontend initiation, deployment, consumer behavior, and Chronicle/recall boundaries are separately proven.
 - Requalify Private Preview activation, Chroma/application, provider/persistence/isolation, approved canary, and public-ingress claims on intended live paths.
-- Repair and validate the conflict-marked architecture knowledge-graph metadata before relying on those nodes.
-- Reconcile the local-only `main` commits before treating local artifacts as published state.
+- Repair and validate conflict-marked architecture metadata, then reconcile local-only `main` commits before treating them as published state.
 
 ## This week's priorities
 
 1. Freeze current `main` and run the full supported-Compose proof bundle.
-2. Repair and validate the conflict-marked architecture knowledge-graph metadata.
-3. Close the explicit-model rejection contradiction before provider execution.
-4. Repair and reprove browser new-thread transcript projection.
-5. Prove uninterrupted account import, then reconcile the local-main publication gap.
+2. Close the explicit-model rejection contradiction and browser new-thread projection gap.
+3. Repair and validate the conflict-marked architecture knowledge-graph metadata.
+4. Prove uninterrupted natural import-to-recall without widening scope from the new reader.
+5. Reconcile local `main` with the stored remote ref under an explicit Git policy.
 
 ## Release definition right now
 
 - [x] Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.
-- [x] Bounded chat, cancellation, durable readback, retrieval, and authorization evidence exists at evaluated mainline tips.
+- [x] Bounded chat, cancellation, durable readback, retrieval, authorization, and imported-history inspection evidence exists at evaluated mainline tips.
 - [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery.
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
 - [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, account-import recall, and scope-isolation gates are green on one evaluated tip.
