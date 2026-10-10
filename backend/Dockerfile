@@ -201,6 +201,9 @@ COPY --from=builder-tts /usr/local/lib/python3.11/site-packages /usr/local/lib/p
 # === Compiled runtime proof stage: build a frozen dispatcher artifact ===
 FROM builder AS compiled-builder
 
+# Freezing imports must not acquire optional model assets.
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+
 WORKDIR /src
 RUN apt-get update && \
     apt-get install -y --no-install-recommends binutils && \
@@ -219,6 +222,17 @@ RUN pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec --noconfirm --c
 
 # === Compiled runtime proof image ===
 FROM python:3.11.14-slim AS compiled-runtime
+
+ARG CODEXIFY_SOURCE_REVISION
+LABEL org.opencontainers.image.revision=$CODEXIFY_SOURCE_REVISION
+RUN python - <<'PY_REVISION'
+import os
+import re
+
+revision = os.environ.get("CODEXIFY_SOURCE_REVISION", "")
+if not re.fullmatch(r"[0-9a-f]{40}", revision):
+    raise SystemExit("compiled-runtime requires CODEXIFY_SOURCE_REVISION as a full lowercase Git commit SHA")
+PY_REVISION
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
