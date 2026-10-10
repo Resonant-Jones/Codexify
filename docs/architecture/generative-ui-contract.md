@@ -1,0 +1,252 @@
+# Generative UI Contract
+
+Purpose: Define the normative contract for rendering model-authored interactive
+interfaces inside ordinary Codexify chat, including the artifact channel,
+rendering authority, sandbox containment, host bridge, persistence association,
+and security invariants.
+
+Last updated: 2026-10-10
+
+Source anchors:
+
+- `docs/architecture/00-current-state.md`
+- `docs/architecture/chat-runtime-contract.md`
+- `docs/architecture/adr/003-message-identity-vs-request-identity.md`
+- `docs/architecture/adr/077-sandbox-execution-authority-and-provider-boundary.md`
+- `frontend/src/lib/documentContext.ts`
+- `guardian/core/chat_attachments.py`
+- `guardian/workers/chat_worker.py`
+- upstream `CopilotKit/OpenIntelligentUI` @ `f6e4388b26a64b9a0714943b08a1ce622b924eec`
+
+## Scope
+
+- The artifact channel, renderer selection, sandbox containment, host bridge,
+  and durability association for interactive UI inside ordinary chat.
+- This contract does **not** change provider routing, Guardian authority,
+  completion acceptance, turn-lock semantics, or the task lifecycle.
+- This contract creates no new backend subsystem, table, route, or identity.
+
+## Upstream reference and pinned revision
+
+The reference implementation is
+[`CopilotKit/OpenIntelligentUI`](https://github.com/CopilotKit/OpenIntelligentUI),
+pinned at revision `f6e4388b26a64b9a0714943b08a1ce622b924eec` (2026-10-09),
+MIT licensed.
+
+Upstream's reusable content is:
+
+| Upstream concern | Codexify disposition |
+| --- | --- |
+| `generateSandboxedUi` ordered fields (`initialHeight`, `placeholderMessages`, `css`, `html`, `jsFunctions`, `jsExpressions`) | Adapted into the artifact envelope below. Not adopted as a LangGraph/CopilotKit tool. |
+| Isolated sandbox iframe with progressive preview | Adapted. Rendered via `srcdoc` rather than the Websandbox CDN runtime. |
+| `sendPrompt` / `openLink` host bridge functions | `sendPrompt` adapted. `openLink` **deliberately not implemented**. |
+| Native component registry | Adapted as a Codexify-owned registry. |
+| Next.js `/api/copilotkit` runtime route | **Not adopted.** Codexify's Guardian chat runtime stays authoritative. |
+| LangGraph / `BoundedMemorySaver` process-memory checkpoint | **Not adopted.** Codexify's canonical Postgres persistence stays authoritative. |
+
+Upstream itself documents that its checkpoint store is process memory and that
+restarting or scaling can lose or split conversation state
+(`docs/architecture.md`). Codexify must not inherit that weakness.
+
+## Artifact channel
+
+A generative UI artifact travels as a **structured marker inside canonical
+assistant message content**, following the existing `cfy-`-prefixed marker
+convention already used for `cfy-media` and `cfy-doc-tile`.
+
+```text
+<!-- cfy-ui:<base64url(JSON artifact)> -->
+```
+
+The base64url alphabet (`A-Za-z0-9_-`) excludes `>`, which is what makes an
+HTML-comment-delimited regex safe. This is the same property
+`documentContext.ts` already relies on.
+
+Rationale, with the alternatives it rejects:
+
+- **Chosen — in-content marker.** Codexify already proves this channel end to
+  end for document-context tiles, including mid-stream rendering and
+  restore-after-reload (`frontend/src/lib/documentContext.ts`,
+  `GuardianChat.document-context.test.tsx`). The artifact is therefore owned by
+  the canonical message and thread by construction: it needs **no new storage,
+  no migration, no new read route, and no new authorization surface**. Content
+  is already authorized by `require_thread_read_access` before it is ever
+  returned by `GET /chat/{thread_id}/messages`.
+- **Rejected — new JSONB column on `chat_messages`.** Storage/domain expansion
+  must be earned. `extra_meta` already exists and already round-trips, but the
+  artifact must also render *while streaming*, and the streaming draft carries
+  content only (`ChatView.tsx` constructs the draft bubble from three
+  primitives). A typed slot cannot render mid-stream.
+- **Rejected — separate artifact table.** Reintroduces a second ownership
+  model beside canonical messages, with duplicate-message and orphan risk that
+  ADR-003 explicitly exists to prevent.
+
+### Artifact envelope
+
+```ts
+type GenerativeUiArtifact =
+  | { version: 1; kind: "native"; component: string; props: Record<string, unknown> }
+  | {
+      version: 1;
+      kind: "sandbox";
+      title?: string;
+      html: string;
+      css?: string;
+      js?: string;
+      initialHeight?: number;
+    };
+```
+
+Unknown `version` or unknown `kind` is **rejected at parse time**, not rendered.
+
+## Rendering authority
+
+`ChatBubble` renders artifacts above assistant prose, in the slot already used
+by document-context tiles and attachment tiles. Precedence is:
+
+1. `native` artifact → Codexify-registered trusted React component.
+2. `sandbox` artifact → isolated `srcdoc` iframe.
+3. Neither → ordinary markdown text, unchanged.
+
+A registered native component executes **first-party Codexify code** with
+validated props. A sandbox artifact executes **model-authored untrusted code**
+under containment. Only registered components may be rendered as native;
+there is no arbitrary component resolution.
+
+## Sandbox containment
+
+Sandbox artifacts are untrusted. The containment boundary is the iframe
+`sandbox` attribute plus a document-level CSP.
+
+```html
+<iframe sandbox="allow-scripts" srcdoc="..." />
+```
+
+- `allow-scripts` **only**. Notably absent: `allow-same-origin`, `allow-forms`,
+  `allow-popups`, `allow-top-navigation`, `allow-modals`, `allow-downloads`.
+- Without `allow-same-origin` the frame runs in an opaque origin. It therefore
+  has no same-origin access to host `storage`, cookies, `document`, or any host
+  API. This matches upstream's documented posture ("The sandbox has no
+  same-origin access to storage or host APIs").
+- The frame is built by Codexify, which injects a restrictive CSP **before**
+  any generated content:
+
+  ```text
+  default-src 'none';
+  script-src 'unsafe-inline';
+  style-src 'unsafe-inline';
+  img-src data: blob:;
+  connect-src 'none';
+  form-action 'none';
+  base-uri 'none';
+  frame-src 'none'
+  ```
+
+### Deliberate tightening versus upstream
+
+Upstream's sandbox CSP allows `script-src`/`connect-src` to four public CDNs and
+ships an importmap. **Codexify does not.** Generated UI receives **no network
+access at all**, consistent with the objective's security invariant against
+unrestricted network access and with ADR-077's deny-by-default network posture.
+Codexify therefore ships **no CDN importmap**; generated code may not fetch
+remote modules, fonts, tiles, or APIs.
+
+This is a deliberate, recorded divergence from upstream, not an oversight.
+
+Note also that `src-tauri/tauri.conf.json` declares `"csp": null`. The iframe
+`sandbox` attribute is therefore the load-bearing containment boundary and must
+not be weakened.
+
+## Host bridge
+
+The sandbox may not call host APIs directly. It may only send **validated**
+messages over `postMessage`, each of which Codexify authorizes explicitly.
+
+Every inbound message is accepted only when all of the following hold:
+
+1. `event.source === iframe.contentWindow` (source binding).
+2. `event.origin === "null"` (the opaque origin of a sandboxed frame).
+3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`, where
+   the nonce is minted per mount and bound to that frame (session binding).
+4. `event.data.action` is in the allowed set.
+5. The action payload validates against its schema.
+
+| Action | Payload | Effect |
+| --- | --- | --- |
+| `resize` | `{ height: number }` | Sets frame height, clamped to a bounded range. |
+| `send_prompt` | `{ text: string }` | Submits a bounded user-authored turn through the **existing** Codexify send path. |
+
+Explicitly **not** implemented in this slice:
+
+- `openLink` — denied. Upstream gates it behind
+  `NEXT_PUBLIC_OPEN_LINK_ALLOWED_ORIGINS`; Codexify has no equivalent operator
+  configuration, so the capability is absent rather than half-guarded.
+
+`send_prompt` grants no new authority. It creates one ordinary user-authored
+message on the current thread and therefore reuses canonical message
+authorization, turn locks, completion acceptance, and provider routing. A
+sandbox cannot cause silent action execution or permission escalation: it can
+only ask the host to do what the user could have typed, subject to the existing
+busy-state rejection.
+
+Any unrecognized action, malformed payload, oversized text, or failed
+validation is **ignored**, never partially applied.
+
+## Durability and identity
+
+- The artifact is part of the canonical assistant message's own content. It is
+  therefore owned by that message and that thread, under the existing
+  account/project/thread authorization boundary.
+- Restoring after navigation, reload, or reconnect replays the stored content.
+  The artifact is never regenerated and no message is duplicated.
+- ADR-003 is preserved: the artifact rides message identity. A retry or replay
+  that reuses the same message content restores the same artifact; it does not
+  create a second artifact identity, and an artifact is never bound to request
+  or attempt identity.
+- Code blocks, plain prose, and document tiles around the artifact are
+  unaffected.
+
+## Provider hygiene
+
+Generated UI source is **not** sent back to the model. Before inference,
+Guardian strips `cfy-ui` markers from message content, mirroring the existing
+`cfy-media` strip in `chat_completion_service.py`. This keeps a multi-kilobyte
+base64 blob out of every subsequent provider turn in the thread and keeps
+untrusted script out of the prompt.
+
+## Feature gate
+
+Rendering is gated. With the gate off, artifacts are neither rendered nor
+executed; the marker is stripped from display and the message renders as
+ordinary text. The gate is a build-time `import.meta.env.VITE_GENERATIVE_UI`
+check following the existing `VITE_PRIVATE_PREVIEW` pattern, default **off**.
+
+Per `00-current-state.md`, the release gate is `HOLD` and this surface is not
+Beta Supported. Implementation presence does not promote it.
+
+## Security invariants
+
+1. Generated UI is untrusted and is never granted Guardian credentials, host
+   filesystem access, Tauri native capabilities, privileged APIs, or network
+   access.
+2. Only registered native components may execute as first-party code; an
+   unknown component id degrades to text rather than resolving dynamically.
+3. The sandbox frame runs in an opaque origin with `allow-scripts` only.
+4. Every bridge message is source-bound, session-bound, origin-checked, and
+   schema-validated. Unknown or malformed messages are ignored.
+5. The bridge exposes exactly one host capability in this slice (`send_prompt`)
+   and it routes through the existing authorized send path.
+6. Generated UI source is stripped before provider inference.
+7. A failed or rejected artifact degrades to ordinary assistant text. It never
+   blocks a message from rendering.
+8. No release, provider, or inference configuration claim changes.
+
+## Known limitations
+
+- No `openLink` capability.
+- No network access inside generated UI, including map tiles or remote fonts.
+- No cross-artifact control synchronization; each artifact is an independent
+  snapshot, matching upstream's documented behavior.
+- The native registry is intentionally small; unknown components degrade to
+  text.
+- Gate is build-time only, not operator-configurable at runtime.
