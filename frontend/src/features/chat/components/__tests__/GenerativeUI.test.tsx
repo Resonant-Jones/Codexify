@@ -607,6 +607,75 @@ describe("generative UI streaming", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Robustness against imperfect model output
+//
+// A model will emit malformed markers. The invariant that must hold for every
+// one of them: nothing leaks marker syntax into the transcript, and anything
+// that does render has passed full validation.
+// ---------------------------------------------------------------------------
+
+describe("generative UI robustness against malformed model output", () => {
+  const CASES: Array<[string, string]> = [
+    ["raw unencoded JSON", `<!-- cfy-ui:{"version":1,"kind":"native","component":"chart.bar","props":{}} -->`],
+    ["single-quoted JSON", `<!-- cfy-ui:{'version':1,'kind':'sandbox','html':'<p>x</p>'} -->`],
+    ["missing version", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ kind: "sandbox", html: "<p>x</p>" }))} -->`],
+    ["version as a string", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: "1", kind: "sandbox", html: "<p>x</p>" }))} -->`],
+    ["unknown component id", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1, kind: "native", component: "evil.shell", props: {} }))} -->`],
+    ["props as a string", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1, kind: "native", component: "chart.bar", props: "nope" }))} -->`],
+    ["empty html", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1, kind: "sandbox", html: "   " }))} -->`],
+    ["array instead of object", `<!-- cfy-ui:${encodeURIComponent("[1,2,3]")} -->`],
+    ["bare scalar", `<!-- cfy-ui:${encodeURIComponent("42")} -->`],
+    ["percent-escape corruption", `<!-- cfy-ui:%E0%A4%A -->`],
+    ["not percent encoded at all", `<!-- cfy-ui:!!!not-a-payload!!! -->`],
+    ["truncated mid-payload", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1 })).slice(0, 12)}`],
+    ["empty payload", `<!-- cfy-ui: -->`],
+    ["extra whitespace", `<!--   cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1, kind: "native", component: "chart.bar", props: {} }))}   -->`],
+    ["trailing prose after marker", `<!-- cfy-ui:${encodeURIComponent(JSON.stringify({ version: 1, kind: "native", component: "chart.bar", props: {} }))} -->\n\nAnything else?`],
+  ];
+
+  it.each(CASES)("never leaks marker syntax: %s", (_label, marker) => {
+    const parsed = parseUiArtifacts(`Before.\n\n${marker}\n\nAfter.`);
+
+    expect(parsed.text).not.toContain("cfy-ui");
+    expect(parsed.text).not.toContain("<!--");
+    expect(parsed.text).not.toContain("-->");
+    // Surrounding prose always survives.
+    expect(parsed.text).toContain("Before.");
+    expect(parsed.text).toContain("After.");
+    // Anything that did render passed full structural validation.
+    for (const artifact of parsed.artifacts) {
+      expect(validateUiArtifact(artifact)).toEqual(artifact);
+    }
+  });
+
+  it("renders only the cases that are genuinely valid", () => {
+    const parsed = parseUiArtifacts(
+      CASES.map(([, marker]) => marker).join("\n\n")
+    );
+    // Valid envelopes: an unknown component id is structurally well-formed and
+    // is rejected later by the registry, not by the codec. Everything else in
+    // the corpus is structurally invalid.
+    expect(parsed.artifacts).toHaveLength(3);
+    for (const artifact of parsed.artifacts) {
+      expect(artifact).toMatchObject({ version: 1, kind: "native" });
+    }
+    expect(parsed.artifacts.map((a) => (a.kind === "native" ? a.component : ""))).toEqual([
+      "evil.shell", "chart.bar", "chart.bar",
+    ]);
+  });
+
+  it("keeps a large but in-bounds payload and rejects an oversized one", () => {
+    const inBounds = {
+      version: 1, kind: "sandbox", html: `<p>${"a".repeat(5000)}</p>`,
+    };
+    const outOfBounds = { version: 1, kind: "sandbox", html: "a".repeat(MAX_SANDBOX_HTML_CHARS + 1) };
+
+    expect(parseUiArtifacts(serializeUiArtifact(inBounds as never)).artifacts).toHaveLength(1);
+    expect(parseUiArtifacts(serializeUiArtifact(outOfBounds as never)).artifacts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Gate 3 — durable restore from canonical content
 // ---------------------------------------------------------------------------
 

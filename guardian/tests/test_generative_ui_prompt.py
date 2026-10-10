@@ -8,14 +8,19 @@ payload the renderer actually accepts. See
 from __future__ import annotations
 
 import json
+from typing import Any
 import urllib.parse
 
+import pytest
+
+from guardian.cognition import system_prompt_builder
 from guardian.cognition.generative_ui_prompt import (
     GENERATIVE_UI_ENV_FLAG,
     GENERATIVE_UI_MARKER_PREFIX,
     build_generative_ui_guidance_block,
     generative_ui_enabled,
 )
+from guardian.cognition.identity_resolution import ResolvedImprint, ResolvedPersona
 
 
 def test_disabled_by_default() -> None:
@@ -106,3 +111,112 @@ def test_percent_encoding_excludes_the_html_comment_terminator() -> None:
     assert ">" not in encoded
     assert "-->" not in encoded
     assert json.loads(urllib.parse.unquote(encoded)) == payload
+
+
+# ---------------------------------------------------------------------------
+# Integration: does the block actually reach the assembled system prompt?
+#
+# The unit tests above exercise the builder in isolation. These prove the block
+# survives prompt assembly, budget, and truncation, which is the seam that
+# would silently drop it.
+# ---------------------------------------------------------------------------
+
+
+def _stub_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        system_prompt_builder,
+        "resolve_imprint",
+        lambda *args, **kwargs: ResolvedImprint(
+            source="system_default",
+            imprint_id=None,
+            user_id="user-1",
+            project_id=None,
+            guardian_name="Guardian",
+            preferred_name="Resonant",
+            style="Warm",
+            grammar_prefs={},
+            metrics={},
+            heat_score=None,
+        ),
+    )
+    monkeypatch.setattr(
+        system_prompt_builder,
+        "resolve_persona",
+        lambda *args, **kwargs: ResolvedPersona(
+            source="system_default",
+            persona_id=None,
+            user_id="user-1",
+            project_id=None,
+            body="Be precise.",
+            record_source="system_default",
+        ),
+    )
+    monkeypatch.setattr(
+        system_prompt_builder, "get_docs_for", lambda *args, **kwargs: []
+    )
+
+
+def _assemble(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> str:
+    _stub_identity(monkeypatch)
+    system_prompt, _meta = system_prompt_builder.build_guardian_system_prompt(
+        user_id="user-1",
+        project_id=None,
+        depth="normal",
+        bundle={},
+        **kwargs,
+    )
+    return system_prompt
+
+
+def test_assembled_prompt_omits_the_block_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(GENERATIVE_UI_ENV_FLAG, raising=False)
+    prompt = _assemble(monkeypatch)
+
+    assert GENERATIVE_UI_MARKER_PREFIX not in prompt
+    assert "Generative UI (interactive replies)" not in prompt
+
+
+def test_assembled_prompt_includes_the_block_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(GENERATIVE_UI_ENV_FLAG, "true")
+    prompt = _assemble(monkeypatch)
+
+    assert "Generative UI (interactive replies)" in prompt
+    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:PERCENT_ENCODED_JSON -->" in prompt
+    # The rest of the prompt is untouched.
+    assert "Be precise." in prompt
+
+
+def test_block_survives_the_default_token_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scratchpad content is budgeted and truncated.
+
+    A block silently dropped by truncation would make the feature inert while
+    every isolated unit test still passed.
+    """
+
+    monkeypatch.setenv(GENERATIVE_UI_ENV_FLAG, "true")
+    prompt = _assemble(monkeypatch, token_cap=2000)
+    assert "Generative UI (interactive replies)" in prompt
+
+    # Even at an unusually tight cap the block must remain reachable, because
+    # losing it silently disables the whole feature.
+    tight = _assemble(monkeypatch, token_cap=1200)
+    assert "Generative UI (interactive replies)" in tight
+
+
+def test_enabling_does_not_change_the_base_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(GENERATIVE_UI_ENV_FLAG, raising=False)
+    off = _assemble(monkeypatch)
+
+    monkeypatch.setenv(GENERATIVE_UI_ENV_FLAG, "1")
+    on = _assemble(monkeypatch)
+
+    # Additive only: removing the block must reproduce the off prompt exactly.
+    assert on.replace(build_generative_ui_guidance_block(), "").strip() == off.strip()

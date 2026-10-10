@@ -15,16 +15,23 @@
  * dropped, and the surrounding message renders as ordinary text.
  */
 
-const MARKER_RE = /<!--\s*cfy-ui:([^>]*?)\s*-->/gi;
+/**
+ * A complete marker is terminated by `-->`, so the payload is matched up to
+ * that terminator rather than up to the first `>`.
+ *
+ * Earlier versions stopped at `>` (mirroring the cfy-media convention), which
+ * leaked raw syntax into the transcript whenever a model emitted an unencoded
+ * payload containing HTML. A payload that genuinely contains `-->` still ends
+ * early and then fails validation, which is the intended fail-safe.
+ */
+const MARKER_RE = /<!--\s*cfy-ui:(.*?)-->/gis;
 /**
  * A marker still streaming in has no closing `-->`, so MARKER_RE cannot match
- * it and the raw payload would be shown as text until the reply completes.
- *
- * `[^>]*$` is deliberate: neither wire encoding can contain `>`, so this only
- * matches a genuinely unterminated trailing marker and leaves prose that merely
- * mentions the prefix intact.
+ * it. Strip it to the end of its own line rather than to the end of the
+ * message, so surrounding prose on later lines survives; the contract requires
+ * the marker to be on its own line.
  */
-const UNTERMINATED_MARKER_RE = /<!--\s*cfy-ui:[^>]*$/i;
+const UNTERMINATED_MARKER_RE = /<!--\s*cfy-ui:[^\n]*$/gm;
 const EXCESSIVE_BLANK_LINES_RE = /\n{3,}/g;
 
 export const UI_ARTIFACT_MARKER_PREFIX = "cfy-ui";

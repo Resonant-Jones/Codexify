@@ -112,6 +112,32 @@ parser uses that to choose deterministically.
 - **base64url** — the canonical programmatic form used by
   `serializeUiArtifact`.
 
+### Marker parsing rules
+
+A marker is delimited by its terminator, not by the first `>`:
+
+```text
+complete marker      /<!--\s*cfy-ui:(.*?)-->/gis
+unterminated marker  /<!--\s*cfy-ui:[^\n]*$/gm
+```
+
+Delimiting on `-->` matters. The `cfy-media` convention stops at `>`, which
+leaks raw syntax into the transcript whenever a model emits an *unencoded*
+payload containing HTML, because `<p>` supplies a `>` before the terminator. A
+payload that genuinely contains `-->` still ends early and then fails
+validation, which is fail-safe.
+
+The unterminated pattern strips to the end of its **own line**, not the end of
+the message. The contract requires the marker to sit on its own line, so this
+removes a half-streamed payload while leaving prose on later lines intact.
+
+Every marker is removed from display text whether or not it validates. The
+invariant under all malformed model output: **marker syntax never reaches the
+transcript, and anything that does render has passed full validation.** A corpus
+test covers raw JSON, single quotes, a string-valued version, an unknown
+component, non-object props, empty HTML, a bare scalar, percent-escape
+corruption, truncation, an empty payload, and trailing prose.
+
 ## Model emission contract
 
 The model learns the format from a feature-gated block appended to the Guardian
@@ -129,6 +155,17 @@ The block describes the real sandbox limits (no network, no import map, no
 silently fails at runtime. A test asserts the documented worked examples decode
 to the shapes they claim, and that the stated limits have not drifted from what
 the frame enforces.
+
+Assembly is proven, not assumed: the block is appended to the scratchpad and
+therefore passes through prompt budgeting and truncation. Tests assert it is
+absent when disabled, present when enabled, still present at a tight token cap,
+and that enabling is purely additive — removing the block reproduces the
+disabled prompt exactly. Without this, the block could be silently truncated
+away while every isolated unit test still passed.
+
+**Unproven:** whether a given local or hosted model reliably emits a valid
+marker on request. That requires a live provider turn and has not been
+observed.
 
 ## Rendering authority
 
