@@ -174,20 +174,22 @@ Every inbound message is accepted only when all of the following hold:
 | Action | Payload | Effect |
 | --- | --- | --- |
 | `resize` | `{ height: number }` | Sets frame height, clamped to a bounded range. |
-| `send_prompt` | `{ text: string }` | Submits a bounded user-authored turn through the **existing** Codexify send path. |
+| `send_prompt` | `{ text: string }` | Routes a bounded, requested prompt into the **existing** composer prefill seam (`cfy:composer:prefill`). |
+
+`send_prompt` deliberately does **not** send. It hands the requested text to
+the composer, and the user reviews it and presses send. This is the whole
+point: a sandbox can *request* a turn but can never cause one, which is what
+makes the invariant against silent action execution and permission escalation
+provable rather than aspirational. The request then travels the same authorized
+composer path a human turn would, including existing busy-state rejection.
 
 Explicitly **not** implemented in this slice:
 
 - `openLink` — denied. Upstream gates it behind
   `NEXT_PUBLIC_OPEN_LINK_ALLOWED_ORIGINS`; Codexify has no equivalent operator
   configuration, so the capability is absent rather than half-guarded.
-
-`send_prompt` grants no new authority. It creates one ordinary user-authored
-message on the current thread and therefore reuses canonical message
-authorization, turn locks, completion acceptance, and provider routing. A
-sandbox cannot cause silent action execution or permission escalation: it can
-only ask the host to do what the user could have typed, subject to the existing
-busy-state rejection.
+- Direct send. Upstream submits the prompt itself; Codexify requires a human
+  to press send.
 
 Any unrecognized action, malformed payload, oversized text, or failed
 validation is **ignored**, never partially applied.
@@ -235,18 +237,27 @@ Beta Supported. Implementation presence does not promote it.
 4. Every bridge message is source-bound, session-bound, origin-checked, and
    schema-validated. Unknown or malformed messages are ignored.
 5. The bridge exposes exactly one host capability in this slice (`send_prompt`)
-   and it routes through the existing authorized send path.
+   and it only prefills the composer. It cannot cause a turn.
 6. Generated UI source is stripped before provider inference.
-7. A failed or rejected artifact degrades to ordinary assistant text. It never
-   blocks a message from rendering.
+7. A render-time failure inside an artifact is caught by a dedicated error
+   boundary and degrades to an inline notice. It never blanks the transcript.
 8. No release, provider, or inference configuration claim changes.
 
 ## Known limitations
 
 - No `openLink` capability.
+- No direct send from generated UI; a human always presses send.
 - No network access inside generated UI, including map tiles or remote fonts.
+  Upstream allows four public CDNs; Codexify ships no importmap.
 - No cross-artifact control synchronization; each artifact is an independent
   snapshot, matching upstream's documented behavior.
-- The native registry is intentionally small; unknown components degrade to
-  text.
-- Gate is build-time only, not operator-configurable at runtime.
+- The native registry is intentionally small (`chart.bar`, `table.rows`);
+  unknown components degrade to text rather than resolving dynamically.
+- The gate is build-time only, not operator-configurable at runtime.
+- The artifact payload rides message content, so a large HTML/CSS/JS artifact
+  enlarges the stored message row. It is stripped from provider inference, but
+  it is still persisted. If artifacts grow large enough to matter, a dedicated
+  content-addressed artifact table is the next step — deliberately not taken
+  here, because the artifact must also render mid-stream.
+- A partial (mid-stream) marker fails validation and renders nothing until the
+  payload is complete. This is the intended fail-safe behavior.
