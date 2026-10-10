@@ -118,6 +118,34 @@ regeneration call, no extra message, and no duplicate artifact. Automated
 coverage additionally asserts that two mounts of the same content produce an
 identical frame document apart from the per-mount session nonce.
 
+## Live model emission: attempted and blocked
+
+The one requirement this proof does not satisfy is "a real Codexify chat
+produces an interactive UI". Two routes were attempted and both are blocked by
+the environment, not by the implementation.
+
+**Route 1 — configured model via the agent shell.** A prompt-emission test was
+assembled and attempted against the models reachable from this session
+(`minimax/MiniMax-M3.1-Flash-Preview`, `MiniMax-M3`, `MiniMax-M2.7`) using the
+verbatim output of `build_generative_ui_guidance_block()` as the system prompt.
+The call returned `401 {"code":401,"message":"token is required"}`. A provider
+block exists in the runtime config, but no credential is exposed to the agent
+shell, and retrieving one is not appropriate.
+
+**Route 2 — local model.** Ollama is installed at `/opt/homebrew/bin/ollama`
+but is not serving, and `~/.ollama` is empty (0 B): no models are present. A
+local model would require a multi-GB download, which is the user's call.
+
+**Route 3 — full Codexify stack.** Requires Docker, Postgres, Neo4j, a gateway,
+and provider credentials. Nothing was running: ports 8888, 8001, and 5432 are
+all closed.
+
+Consequently the emission contract is proven only up to the model boundary: the
+guidance block is assembled into the real system prompt, survives prompt
+budgeting, and its worked examples decode to the shapes they claim — but no
+model has been observed emitting a valid marker. Treat model-emission
+reliability as **unproven working theory**.
+
 ## Automated coverage
 
 | Suite | Result |
