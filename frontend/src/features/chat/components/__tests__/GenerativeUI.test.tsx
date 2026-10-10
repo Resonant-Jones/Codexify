@@ -376,6 +376,90 @@ describe("registered native components", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Native components run in the HOST document, so escaping must be proven.
+// ---------------------------------------------------------------------------
+
+describe("registered native component safety", () => {
+  it("renders table.rows from validated props", () => {
+    enableGate();
+    render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "table.rows",
+      props: {
+        title: "Runs",
+        columns: ["provider", "latency"],
+        rows: [{ provider: "local", latency: 42 }, { provider: "deepseek", latency: 310 }],
+      },
+    })));
+
+    expect(screen.getByTestId("generative-ui-native-table")).toBeInTheDocument();
+    expect(screen.getByText("Runs")).toBeInTheDocument();
+    expect(screen.getByText("deepseek")).toBeInTheDocument();
+    expect(screen.getByText("310")).toBeInTheDocument();
+    // Trusted host rendering, not a sandbox.
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("degrades a table with no usable columns", () => {
+    enableGate();
+    render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "table.rows", props: { columns: [], rows: [] },
+    })));
+    expect(screen.getByTestId("generative-ui-native-table")).toBeInTheDocument();
+    expect(screen.getByText("No tabular data.")).toBeInTheDocument();
+  });
+
+  it("does not execute markup injected through native props", () => {
+    enableGate();
+    const payload = "<img src=x onerror=\"window.__cfyXss=1\">";
+    const { container } = render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "chart.bar",
+      props: {
+        title: payload,
+        series: [{ label: payload, value: 1 }],
+      },
+    })));
+
+    // The payload must survive only as inert text.
+    expect(container.querySelector("img")).toBeNull();
+    expect((window as unknown as Record<string, unknown>).__cfyXss).toBeUndefined();
+    // Rendered as text in both the title and the label, and nowhere else.
+    expect(screen.getAllByText(/onerror/).length).toBeGreaterThan(0);
+  });
+
+  it("does not execute markup injected through table cells", () => {
+    enableGate();
+    const payload = "<script>window.__cfyXss=1</script>";
+    const { container } = render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "table.rows",
+      props: {
+        columns: ["a"],
+        rows: [{ a: payload }],
+        title: payload,
+      },
+    })));
+
+    expect(container.querySelector("script")).toBeNull();
+    expect((window as unknown as Record<string, unknown>).__cfyXss).toBeUndefined();
+  });
+
+  it("clamps hostile prop magnitudes instead of rendering unbounded output", () => {
+    enableGate();
+    const huge = { version: 1, kind: "native", component: "chart.bar", props: {
+      title: "x".repeat(5000),
+      height: 100000,
+      series: Array.from({ length: 400 }, (_unused, index) => ({ label: `L${index}`, value: index })),
+    } };
+
+    const { container } = render(bubble(serializeUiArtifact(huge as never)));
+
+    // Series and labels are bounded by the registry, not by the model.
+    expect(container.querySelectorAll("rect").length).toBeLessThanOrEqual(24);
+    const svg = container.querySelector("svg[role='img']")!;
+    expect(Number(svg.getAttribute("height"))).toBeLessThanOrEqual(480);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Gate 2 — host bridge authorization
 // ---------------------------------------------------------------------------
 

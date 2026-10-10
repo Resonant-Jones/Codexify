@@ -150,11 +150,35 @@ reliability as **unproven working theory**.
 
 | Suite | Result |
 | --- | --- |
-| `frontend/src/features/chat/components/__tests__/GenerativeUI.test.tsx` | 32 passed |
-| `frontend/src/features/chat` + `lib/documentContext` (regression) | 523 passed / 43 files |
-| `guardian/tests/test_chat_attachments.py` | 5 passed |
-| Backend inference-path subset | 6 passed |
+| `frontend/src/features/chat/components/__tests__/GenerativeUI.test.tsx` | 64 passed |
+| `frontend/src/features/chat` + `lib/documentContext` (regression) | 555 passed / 43 files |
+| `guardian/tests/test_chat_attachments.py` | 11 passed |
+| `guardian/tests/test_generative_ui_prompt.py` | 8 passed |
+| Backend inference-path subset | 9 passed |
 | `tsc --noEmit` | clean |
+
+Both the frontend parser and the Guardian inference strip read the same
+`docs/architecture/generative-ui-marker-corpus.json`. That shared fixture is a
+regression mechanism: the two are separate implementations in two languages,
+and they previously diverged in a way that leaked generated HTML/JS into the
+model prompt while both suites stayed green.
+
+Native components render into the **host** document rather than the sandbox, so
+their escaping is proven rather than assumed: markup injected through a chart
+title, a series label, a table title, or a table cell survives only as inert
+text, and hostile prop magnitudes are clamped by the registry rather than by the
+model.
+
+## Re-verification after parser changes
+
+Containment and interaction were re-proved in Chrome after the marker-parsing
+changes, so the evidence above matches the current code rather than an earlier
+revision:
+
+- `sandbox="allow-scripts"`, `contentDocument` null, frame `localStorage`
+  blocked with `SecurityError`, deny-all CSP with no remote origin.
+- Marker syntax absent from the rendered page; malformed-artifact prose intact.
+- Calculator again computed `12 + 30 = 42` through real clicks.
 
 ## What this proof does not establish
 
@@ -168,8 +192,15 @@ reliability as **unproven working theory**.
   `eslint-plugin-react` is declared in `frontend/src/package.json` but is absent
   from the shared installed tree. This is a pre-existing environment gap, not a
   regression from this work.
-- **`table.rows` is registered but not exercised in the browser.** It is
-  covered only by registry unit assertions.
+- **`table.rows` is exercised in jsdom only.** It is covered by registry,
+  rendering, degradation, and escaping tests, but was not driven interactively
+  in the browser harness the way `chart.bar` and the calculator were.
+- **A pre-existing backend test fails independently of this work.**
+  `test_metacog_prompt.py` references `MetacognitionEngine.build_summary_prompt`,
+  which exists nowhere in the codebase at base or HEAD; the test file is
+  byte-identical to the base commit. Not a regression here.
+- `ChatView.loop-guards.test.tsx` is a pre-existing scroll-dependent flake: it
+  fails intermittently in a full run and passes 3/3 in isolation.
 
 ## Reproduction
 
