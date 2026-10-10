@@ -147,6 +147,74 @@ describe("generative UI artifact codec", () => {
     expect(validateUiArtifact({ version: 1, kind: "native", component: "" })).toBeNull();
   });
 
+  it("accepts the percent-encoded payload the model is instructed to emit", () => {
+    // The system prompt teaches percent-encoded JSON, not base64url. A model
+    // following it must land on a payload this parser accepts.
+    const payload = {
+      version: 1,
+      kind: "native",
+      component: "chart.bar",
+      props: { title: "Weekly volume", series: [{ label: "Mon", value: 42 }] },
+    };
+    const modelMarker = `<!-- cfy-ui:${encodeURIComponent(JSON.stringify(payload))} -->`;
+
+    const parsed = parseUiArtifacts(`Here you go.\n\n${modelMarker}`);
+
+    expect(parsed.artifacts).toHaveLength(1);
+    expect(parsed.artifacts[0]).toMatchObject({
+      kind: "native", component: "chart.bar",
+      props: { title: "Weekly volume" },
+    });
+    expect(parsed.text).toBe("Here you go.");
+  });
+
+  it("accepts a percent-encoded sandbox payload containing HTML and braces", () => {
+    const payload = {
+      version: 1,
+      kind: "sandbox",
+      title: "Tricky > title",
+      html: "<button style=\"x\">go</button>",
+      css: "button{color:red}",
+      js: "var o=1;",
+    };
+    const encoded = encodeURIComponent(JSON.stringify(payload));
+    // The payload itself must never be able to terminate the comment early.
+    expect(encoded).not.toContain(">");
+    expect(encoded).not.toContain("-->");
+
+    const parsed = parseUiArtifacts(`<!-- cfy-ui:${encoded} -->`);
+    expect(parsed.artifacts).toHaveLength(1);
+    expect(parsed.artifacts[0]).toMatchObject({ kind: "sandbox", title: "Tricky > title" });
+  });
+
+  it("still accepts base64url and rejects a corrupt percent payload", () => {
+    // Disjoint alphabets: '%' can only appear in the percent encoding.
+    expect(parseUiArtifacts(serializeUiArtifact(CALCULATOR)).artifacts).toHaveLength(1);
+    expect(parseUiArtifacts("<!-- cfy-ui:%7B%22version%22%3A9 -->").artifacts).toHaveLength(0);
+    expect(parseUiArtifacts("<!-- cfy-ui:%E0%A4%A -->").artifacts).toHaveLength(0);
+  });
+
+  it("renders a model-emitted native artifact end to end", () => {
+    enableGate();
+    const payload = {
+      version: 1,
+      kind: "native",
+      component: "chart.bar",
+      props: { title: "Model emitted", series: [{ label: "Q1", value: 5 }] },
+    };
+    render(bubble(`<!-- cfy-ui:${encodeURIComponent(JSON.stringify(payload))} -->`));
+
+    expect(screen.getByTestId("generative-ui-native-bar-chart")).toBeInTheDocument();
+    expect(screen.getByText("Model emitted")).toBeInTheDocument();
+  });
+
+  it("rejects an unknown envelope version emitted by a model", () => {
+    enableGate();
+    const payload = { version: 2, kind: "sandbox", html: "<p>x</p>" };
+    const { container } = render(bubble(`<!-- cfy-ui:${encodeURIComponent(JSON.stringify(payload))} -->`));
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
   it("strips malformed markers from display text so they never leak into the transcript", () => {
     const parsed = parseUiArtifacts("Lead in.\n<!-- cfy-ui:@@@not-valid@@@ -->\nTail end.");
     expect(parsed.artifacts).toHaveLength(0);

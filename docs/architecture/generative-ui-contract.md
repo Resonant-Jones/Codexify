@@ -99,6 +99,37 @@ type GenerativeUiArtifact =
 
 Unknown `version` or unknown `kind` is **rejected at parse time**, not rendered.
 
+### Wire encoding
+
+Two encodings are accepted, and their alphabets are disjoint: base64url uses
+only `A-Za-z0-9_-`, so a payload containing `%` cannot be base64url. The
+parser uses that to choose deterministically.
+
+- **percent-encoded JSON** — the model-facing format taught by the system
+  prompt. Models emit base64 unreliably by hand; percent-encoding JSON is a
+  mechanical transform they get right far more often. Excludes `>`, so it stays
+  safe inside an HTML comment.
+- **base64url** — the canonical programmatic form used by
+  `serializeUiArtifact`.
+
+## Model emission contract
+
+The model learns the format from a feature-gated block appended to the Guardian
+system prompt (`guardian/cognition/generative_ui_prompt.py`), enabled by
+`GUARDIAN_GENERATIVE_UI` and **default off**.
+
+This rides the ordinary system prompt rather than the tool-exposure rail on
+purpose. `guardian/tools/chat_exposure.py` advertises tools only to DeepSeek or
+to a local Whoosh'd provider with eligible capability, so a tool-based emission
+channel would silently fail for most user-selected providers and would breach
+the local-first, user-selected-provider invariant.
+
+The block describes the real sandbox limits (no network, no import map, no
+`eval`, only `sendPrompt` and `resize`) so the model does not write code that
+silently fails at runtime. A test asserts the documented worked examples decode
+to the shapes they claim, and that the stated limits have not drifted from what
+the frame enforces.
+
 ## Rendering authority
 
 `ChatBubble` renders artifacts above assistant prose, in the slot already used
@@ -222,6 +253,11 @@ Rendering is gated. With the gate off, artifacts are neither rendered nor
 executed; the marker is stripped from display and the message renders as
 ordinary text. The gate is a build-time `import.meta.env.VITE_GENERATIVE_UI`
 check following the existing `VITE_PRIVATE_PREVIEW` pattern, default **off**.
+
+Emission is gated separately by `GUARDIAN_GENERATIVE_UI`, also default **off**.
+The two flags are independent: enabling emission without rendering would
+produce markers that degrade to text, and enabling rendering without emission
+yields a renderer no model will use. Enable both to turn the feature on.
 
 Per `00-current-state.md`, the release gate is `HOLD` and this surface is not
 Beta Supported. Implementation presence does not promote it.

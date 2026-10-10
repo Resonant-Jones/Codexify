@@ -79,14 +79,47 @@ function encodePayload(payload: unknown): string {
   return toBase64Url(JSON.stringify(payload));
 }
 
-function decodePayload(payload: string): unknown {
-  const decoded = fromBase64Url(payload);
-  if (!decoded) return null;
+/**
+ * Percent-encode a JSON payload.
+ *
+ * This is the model-facing wire format. Base64url is compact but models emit it
+ * unreliably by hand, whereas percent-encoding JSON is a mechanical transform a
+ * model gets right far more often. The alphabet excludes `>`, so it stays safe
+ * inside an HTML comment, and it is trivially reversible.
+ */
+export function encodeUiArtifactPayload(payload: unknown): string {
+  return encodeURIComponent(JSON.stringify(payload));
+}
+
+function decodeJsonText(text: string): unknown {
   try {
-    return JSON.parse(decoded);
+    return JSON.parse(text);
   } catch {
     return null;
   }
+}
+
+/**
+ * Decode a marker payload in either supported encoding.
+ *
+ * The two alphabets are disjoint: base64url uses only `A-Za-z0-9_-`, so a
+ * payload containing `%` cannot be base64url. That makes the check
+ * deterministic rather than order-dependent.
+ */
+function decodePayload(payload: string): unknown {
+  const normalized = normalizeString(payload);
+  if (!normalized) return null;
+
+  if (normalized.includes("%")) {
+    try {
+      return decodeJsonText(decodeURIComponent(normalized));
+    } catch {
+      return null;
+    }
+  }
+
+  const decoded = fromBase64Url(normalized);
+  return decoded ? decodeJsonText(decoded) : null;
 }
 
 /**
@@ -177,6 +210,11 @@ export function parseUiArtifacts(content: string): {
 /** Build the canonical marker for an artifact. Used by authoring and tests. */
 export function serializeUiArtifact(artifact: GenerativeUiArtifact): string {
   return `<!-- ${UI_ARTIFACT_MARKER_PREFIX}:${encodePayload(artifact)} -->`;
+}
+
+/** Build the marker using the model-facing percent-encoded encoding. */
+export function serializeUiArtifactForModel(artifact: GenerativeUiArtifact): string {
+  return `<!-- ${UI_ARTIFACT_MARKER_PREFIX}:${encodeUiArtifactPayload(artifact)} -->`;
 }
 
 /** Stable key for React reconciliation and duplicate suppression. */
