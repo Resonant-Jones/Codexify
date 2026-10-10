@@ -16,6 +16,15 @@
  */
 
 const MARKER_RE = /<!--\s*cfy-ui:([^>]*?)\s*-->/gi;
+/**
+ * A marker still streaming in has no closing `-->`, so MARKER_RE cannot match
+ * it and the raw payload would be shown as text until the reply completes.
+ *
+ * `[^>]*$` is deliberate: neither wire encoding can contain `>`, so this only
+ * matches a genuinely unterminated trailing marker and leaves prose that merely
+ * mentions the prefix intact.
+ */
+const UNTERMINATED_MARKER_RE = /<!--\s*cfy-ui:[^>]*$/i;
 const EXCESSIVE_BLANK_LINES_RE = /\n{3,}/g;
 
 export const UI_ARTIFACT_MARKER_PREFIX = "cfy-ui";
@@ -203,6 +212,7 @@ export function parseUiArtifacts(content: string): {
     return "";
   });
 
+  stripped = stripped.replace(UNTERMINATED_MARKER_RE, "");
   stripped = stripped.replace(EXCESSIVE_BLANK_LINES_RE, "\n\n").trim();
   return { artifacts, text: stripped };
 }

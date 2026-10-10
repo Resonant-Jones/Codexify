@@ -302,3 +302,9 @@ Beta Supported. Implementation presence does not promote it.
   here, because the artifact must also render mid-stream.
 - A partial (mid-stream) marker fails validation and renders nothing until the
   payload is complete. This is the intended fail-safe behavior.
+- A partial marker is also **stripped from display**, not merely ignored. A
+  half-received marker has no closing `-->`, so it would otherwise be shown to
+  the user as raw text until the reply finished. The unterminated-marker pattern
+  is `<!--\s*cfy-ui:[^>]*$`; `[^>]*` is safe because neither wire encoding can
+  contain `>`, so only a genuinely unterminated trailing marker is stripped and
+  prose that merely mentions the prefix is left alone.

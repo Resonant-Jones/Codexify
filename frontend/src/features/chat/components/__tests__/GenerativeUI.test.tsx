@@ -12,6 +12,7 @@ import ChatBubble from "@/features/chat/components/ChatBubble";
 import {
   parseUiArtifacts,
   serializeUiArtifact,
+  serializeUiArtifactForModel,
   validateUiArtifact,
   MAX_SANDBOX_HTML_CHARS,
   type GenerativeUiArtifact,
@@ -51,6 +52,16 @@ const CALCULATOR: GenerativeUiArtifact = {
     'flush();',
     'if (window.cfyUI) window.cfyUI.resizeTo(document.body);',
   ].join("\n"),
+};
+
+const CHART_ARTIFACT: GenerativeUiArtifact = {
+  version: 1,
+  kind: "native",
+  component: "chart.bar",
+  props: {
+    title: "Streamed chart",
+    series: [{ label: "Mon", value: 5 }, { label: "Tue", value: 9 }],
+  },
 };
 
 function bubble(content: string, isGuardian = true) {
@@ -534,6 +545,64 @@ describe("generative UI feature gate", () => {
     expect(screen.getByText("Closing note.")).toBeInTheDocument();
     expect(screen.getByText("print('kept')")).toBeInTheDocument();
     expect(document.querySelector("iframe")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Streaming
+// ---------------------------------------------------------------------------
+
+describe("generative UI streaming", () => {
+  it("renders an artifact from the in-progress streaming draft", () => {
+    // ChatView renders the streaming draft as a ChatBubble carrying only
+    // content (ChatView.tsx:1091), which is exactly why the artifact channel
+    // rides message content rather than a typed slot.
+    enableGate();
+    const { container } = render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "thread-7-streaming-draft",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: `Building your chart…\n\n${serializeUiArtifactForModel(CHART_ARTIFACT)}`,
+          createdAt: null,
+        }}
+      />
+    );
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(screen.getByTestId("generative-ui-native-bar-chart")).toBeInTheDocument();
+    expect(screen.getByText("Building your chart…")).toBeInTheDocument();
+  });
+
+  it("renders nothing until a streamed marker payload is complete", () => {
+    enableGate();
+    // A half-received payload fails validation. It must degrade to text rather
+    // than render a broken artifact or leak marker syntax.
+    const complete = serializeUiArtifactForModel(CHART_ARTIFACT);
+    const partial = complete.slice(0, Math.floor(complete.length / 2));
+
+    const { container } = render(
+      bubble(`Still streaming…\n\n${partial}`)
+    );
+
+    expect(container.querySelector('[data-testid="generative-ui-stack"]')).toBeNull();
+    expect(container.textContent).not.toContain("cfy-ui");
+    expect(screen.getByText(/Still streaming/)).toBeInTheDocument();
+  });
+
+  it("promotes to the same artifact once the payload completes", () => {
+    enableGate();
+    const complete = serializeUiArtifactForModel(CHART_ARTIFACT);
+    const partial = complete.slice(0, Math.floor(complete.length / 2));
+
+    const stream = render(bubble(`Streaming…\n\n${partial}`));
+    expect(stream.container.querySelector('[data-testid="generative-ui-stack"]')).toBeNull();
+
+    stream.rerender(bubble(`Streaming…\n\n${complete}`));
+    expect(stream.container.querySelector('[data-testid="generative-ui-stack"]')).not.toBeNull();
+    expect(screen.getByTestId("generative-ui-native-bar-chart")).toBeInTheDocument();
   });
 });
 
