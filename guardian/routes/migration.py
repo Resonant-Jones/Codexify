@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from guardian.core.dependencies import (
@@ -66,6 +66,11 @@ from guardian.services.chronicle_interpretation_authorization import (
     ChronicleAuthorizationError,
     ChronicleAuthorizationUnavailable,
     authorize_chronicle_interpretation,
+)
+from guardian.services.chronicle_model_exposure import ReviewedEvidenceReference
+from guardian.services.chronicle_preview import (
+    ChroniclePreviewError,
+    generate_chronicle_preview,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,6 +162,29 @@ class ChronicleAuthorizationRequest(HistoryInspectionRequest):
     import_treatment: Literal[
         "archive_only", "recallable_archive", "continuity_scaffold"
     ]
+
+
+class ReviewedEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    thread_id: _CanonicalId
+    message_id: _CanonicalId
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    approve_for_local_chronicle: StrictBool
+
+
+class ChroniclePreviewRequest(ChronicleAuthorizationRequest):
+    reviewed_evidence: list[ReviewedEvidenceRequest] = Field(
+        min_length=1, max_length=MAX_MESSAGES
+    )
+
+    @field_validator("reviewed_evidence")
+    @classmethod
+    def unique_reviewed_evidence(cls, value):
+        keys = [(item.thread_id, item.message_id) for item in value]
+        if len(set(keys)) != len(keys):
+            raise ValueError("Duplicate reviewed evidence")
+        return value
 
 
 def _history_inspection_principal(request: Request) -> dependencies.RequestUserScope:
@@ -279,6 +307,93 @@ def inspect_imported_history(
 router.add_api_route(
     "/api/imports/history/inspect",
     inspect_imported_history,
+    methods=["POST"],
+    route_class_override=_HistoryInspectionRoute,
+)
+
+
+def preview_chronicle(
+    body: ChroniclePreviewRequest,
+    principal: dependencies.RequestUserScope = Depends(_history_inspection_principal),
+):
+    """Generate one ephemeral, cited preview after fresh consumption-time checks."""
+    try:
+        connect = getattr(chatlog_db, "_connect", None)
+        if not callable(connect):
+            raise ChroniclePreviewError("Preview unavailable")
+        limits = InspectionLimits(
+            body.max_messages,
+            body.max_inspected_messages,
+            body.max_excerpt_bytes,
+            body.max_response_bytes,
+        )
+        grant = authorize_chronicle_interpretation(
+            connect,
+            principal=principal,
+            project_id=body.project_id,
+            thread_ids=tuple(body.thread_ids),
+            origins=tuple(body.origins),
+            limits=limits,
+            offset=body.offset,
+            purpose=body.purpose,
+            interpretation_consent=body.interpretation_consent,
+            import_treatment=body.import_treatment,
+        )
+        authority = resolve_inspection_access(
+            connect,
+            principal=principal,
+            project_id=body.project_id,
+            thread_ids=tuple(body.thread_ids),
+            origins=tuple(body.origins),
+        )
+        evidence = ImportedHistoryEvidenceReader(connect).read(
+            principal=principal,
+            project_id=body.project_id,
+            thread_ids=tuple(body.thread_ids),
+            origins=tuple(body.origins),
+            authority=authority,
+            offset=body.offset,
+            limits=limits,
+        )
+        result = generate_chronicle_preview(
+            grant,
+            evidence,
+            tuple(
+                ReviewedEvidenceReference(
+                    item.thread_id,
+                    item.message_id,
+                    item.digest,
+                    item.approve_for_local_chronicle,
+                )
+                for item in body.reviewed_evidence
+            ),
+        )
+        return JSONResponse(content=result, media_type="application/json")
+    except ChronicleAuthorizationUnavailable:
+        raise HTTPException(
+            status_code=503, detail="Chronicle preview unavailable"
+        ) from None
+    except ChronicleAuthorizationError:
+        raise HTTPException(
+            status_code=403, detail="Chronicle preview unavailable"
+        ) from None
+    except (ChroniclePreviewError, EvidenceRequestError):
+        raise HTTPException(
+            status_code=422, detail="Chronicle preview unavailable"
+        ) from None
+    except (EvidenceAccessError, EvidenceMetadataError):
+        raise HTTPException(
+            status_code=403, detail="Chronicle preview unavailable"
+        ) from None
+    except EvidenceReadError:
+        raise HTTPException(
+            status_code=503, detail="Chronicle preview unavailable"
+        ) from None
+
+
+router.add_api_route(
+    "/api/imports/history/chronicle/preview",
+    preview_chronicle,
     methods=["POST"],
     route_class_override=_HistoryInspectionRoute,
 )

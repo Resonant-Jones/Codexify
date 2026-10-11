@@ -150,6 +150,14 @@ The resulting internal decision is immutable and bound to the exact authenticate
 
 ### Exclusion Controls
 
+### Reviewed Chronicle Interpretation Authorization Clarification (2026-10-11)
+
+An authenticated account owner may approve exact, previously inspected imported-message excerpts for one local Migration Chronicle interpretation request. Each selected message requires an explicit boolean `approve_for_local_chronicle: true`, and that approval is bound to the current account, canonical Project, bounded thread/origin selection, request purpose, `recallable_archive` treatment, current inspected excerpt, and recomputed SHA-256 digest. The approval is invocation-local content-use authorization; it is not a digest match, a non-sensitive classification, archive-wide modeling permission, continuity activation, identity inference, or standing import preference.
+
+Authority is evaluated in this order: canonical account and Project authority; source-read restrictions; Project, thread, diary, and modeling exclusions; any applicable configured sensitive-topic or continuity exclusion; explicit one-time treatment and interpretation consent; explicit per-message approval; current provenance and digest integrity; then strict local inference and output controls. A lower-priority approval cannot override a denial. Explicit exclusions remain hard denials, and unknown, conflicting, or unavailable required restrictions fail closed. Where no separate applicable sensitive-topic restriction is configured, this narrowly scoped owner approval establishes content-use permission for the selected message only; it does not manufacture a safety finding.
+
+The grant is immutable and request-local. It is not stored, cached, queued, serialized, logged with source text, transferred to another request, or reused for future access. The consuming request rereads canonical PostgreSQL evidence and rechecks all boundaries before the local-only, tool-free model call. The resulting Chronicle remains cited, ephemeral, zero-write, and non-activating. This amendment does not implement a classifier, a complete Continuity Governance Surface, frontend consent UI, persistence, or release qualification.
+
 Continuity exclusions must include at least:
 
 - diary exclusion
