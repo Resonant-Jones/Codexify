@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..client import MAX_FACT_LIMIT, MAX_LIST_LIMIT, MemoryClient, validate_limit
+from ..client import (
+    MAX_FACT_LIMIT,
+    MAX_LIST_LIMIT,
+    MemoryClient,
+    validate_limit,
+    validate_offset,
+)
 from ..errors import INVALID_REQUEST
 from ._envelope import run_tool
 from .status import VAULT_FILTER_FIELDS
@@ -62,7 +68,9 @@ async def vault_list(
 
     async def body() -> tuple[dict[str, Any], list[str]]:
         params = _check_vault_filter(filters)
-        params.update({"limit": validate_limit(limit), "offset": offset})
+        params.update(
+            {"limit": validate_limit(limit), "offset": validate_offset(offset)}
+        )
         result = await client.list_vault_items(params)
         return (
             {

@@ -53,6 +53,18 @@ async def test_vault_list_rejects_unknown_filter_fields() -> None:
     await client.aclose()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offset", [-1, "not-an-integer"])
+async def test_vault_list_rejects_invalid_offsets(offset: object) -> None:
+    client, transport = make_client(lambda r: httpx.Response(200, json={}))
+    result = await vault_list(client, offset=offset)  # type: ignore[arg-type]
+    assert result["ok"] is False
+    assert result["error"]["code"] == INVALID_REQUEST
+    assert "offset" in result["error"]["message"]
+    assert transport.paths() == []
+    await client.aclose()
+
+
 def test_vault_filter_fields_exclude_any_account_filter() -> None:
     assert "user_id" not in VAULT_FILTER_FIELDS
     assert "account_id" not in VAULT_FILTER_FIELDS

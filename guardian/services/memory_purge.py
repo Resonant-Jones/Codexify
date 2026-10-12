@@ -83,6 +83,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from guardian.db.models import (
@@ -537,7 +538,16 @@ class MemoryPurgeService:
         self._session.add(tombstone)
         # Surface constraint violations (for example a concurrent duplicate
         # suppression entry) before destructive statements run.
-        self._session.flush()
+        try:
+            self._session.flush()
+        except IntegrityError as exc:
+            # A concurrent or duplicate source-atom tombstone is a typed
+            # purge conflict. Roll back the failed transaction before the
+            # caller can reuse the session, and never expose SQL details.
+            self._session.rollback()
+            raise MemoryPurgeConflict(
+                "purge suppression conflicts with an existing tombstone"
+            ) from exc
 
         # 6. Canonical deletion fan-out. Child relations are removed
         #    explicitly rather than relying on CASCADE so the destroyed
