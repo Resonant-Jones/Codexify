@@ -140,12 +140,168 @@ UMS-05C3 VAULT HOLD/RELEASE-HOLD MUTATION: CLOSED
 UMS-05C4 PROJECT-SCOPE MUTATION: CLOSED
 UMS-05C5 PERSONA ATTRIBUTION MUTATION: CLOSED
 UMS-05C6 DIRECT USER-AUTHORED VAULT CREATION: CLOSED
-UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: AUTHORIZED
-UMS-05C8+: NOT AUTHORIZED
+UMS-05C7 REMAINING MUTATION AUTHORITY REVALIDATION: CLOSED
+UMS-05C8 ORDINARY MEMORY REVIEW AND LIFECYCLE STATE PERSISTENCE: CLOSED
+UMS-05C8-Q GOVERNANCE-STATE MIGRATION QUALIFICATION: CLOSED
+UMS-05C9 ORDINARY MEMORY CONTENT REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
+UMS-05C9-W ORDINARY MEMORY CONTENT CORRECTION WRITER: CLOSED
+UMS-05C10A-R REVIEW-TRANSITION HISTORY REVALIDATION: CLOSED
+UMS-05C10A-P REVIEW-TRANSITION REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
+UMS-05C10A-C REVIEW-TRANSITION CONTRACT RESOLUTION: CLOSED
+UMS-05C10A-W ORDINARY MEMORY REVIEW TRANSITION WRITER: CLOSED
+UMS-05C10A: CLOSED
+UMS-05C10B-R ORDINARY MEMORY LIFECYCLE MUTATION AUTHORITY / HISTORY REVALIDATION: CLOSED
+UMS-05C10B-P ORDINARY MEMORY LIFECYCLE-TRANSITION REVISION PERSISTENCE + UMS-04 PORTABILITY: CLOSED
+UMS-05C10B-C ORDINARY MEMORY LIFECYCLE TRANSITION CONTRACT RESOLUTION: CLOSED
+UMS-05C10B-W ORDINARY MEMORY RETIRE / RESTORE WRITER: CLOSED
+UMS-05C10B: CLOSED
+UMS-05C10: CLOSED
+UMS-05C11+: NOT AUTHORIZED
 UMS-05D+: NOT AUTHORIZED
 
-UMS-06+: NOT AUTHORIZED
+UMS-06 - 10: PARKED
+UMS-11 AUDITED PERMANENT ERASURE: CLOSED
+UMS-12 SUPPORTED USER-FACING PROOF: AUTHORIZED
+UMS CAMPAIGN: OPEN FOR PROOF ONLY
 ```
+
+### Campaign revalidation outcome (2026-09-30) — SUPERSEDED BY UMS-11
+
+The verdict below was accurate when recorded and is retained as the audit
+trail for how UMS-11 was admitted. It is **no longer current**: UMS-11 closed
+the one gap it identified. See §UMS-11 closure (2026-09-30) below for current
+state.
+
+```text
+UMS_FOUNDATIONAL_GAP_REMAINS
+
+UMS ARCHITECTURAL BASELINE: NOT YET COMPLETE
+EXACT FOUNDATIONAL GAP: audited permanent erasure with import-resurrection
+  suppression — contract §12 / §9.4 specify it, ADR-084 makes it mandatory
+  before supported user-facing release, and it has no relation, service,
+  route, test, or proof
+SOLE SUCCESSOR: UMS-11 Implement audited permanent erasure (atomic; not a bundle)
+UMS-12: BLOCKED
+
+ARCHITECTURAL STOP RULE: NOT SATISFIED
+NEW FOUNDATION EXPANSION: FROZEN
+UMS-05C11+: NOT AUTHORIZED
+UMS-05D+: NOT AUTHORIZED
+UMS-06 / 07 / 08 / 09 / 10: PARKED
+```
+
+Stop-rule verdict, recorded explicitly:
+
+```text
+expected baseline satisfied:                  NO
+foundational paths sufficiently implemented:  NO
+remaining gaps mainly refinement/proof/advanced: NO
+architectural stop rule satisfied:            NO
+```
+
+Nine of ten maturity dimensions are runtime-proven. The tenth fails. The
+stop-rule test is a conjunction, so one failed dimension fails the rule: a
+dominant pattern of refinement work does not make a foundational gap optional.
+
+Revalidation did **not** stop the campaign. Per maturity classification across
+ten dimensions, the baseline is runtime-proven for ownership, canonical
+persistence, mutation governance, and portability (`account-export.v7`), and is
+product-maturation-only for the operator surface. One dimension fails:
+
+**Permanent erasure.** Contract §12 specifies it and ADR-084 makes it
+mandatory before supported user-facing release, but it has **no runtime, no
+`memory_purge_tombstone` relation, no purge route, no test, and no proof**. The
+contract defers its own implementation to UMS-11 twice (`:1221`, `:2066-2068`),
+so no architecture currently owns it. The Campaign proof matrix already folds
+purge isolation into the account-ownership invariant, so this gap also withholds
+full proof of an otherwise-closed dimension.
+
+This is a foundational gap, not `COMPLETE_BUT_PROOF_PENDING`: proof of erasure
+requires erasure to exist. The `retired` lifecycle shipped in C10B-W is
+explicitly **not** purge.
+
+Every remaining packet was independently tested against the five-point intake
+gate. UMS-11 passed on two criteria - it closes a baseline structural gap and
+it removes a proof-immune blocker (the ADR-084 release gate). Nothing else
+passed. No item was invented to preserve numbering; the C11 slot stays empty
+because the gap is a gap, not a task.
+
+`UMS-12` is **blocked, not parked**. Its own packet depends on every prior task
+and its acceptance and proof both require purge fan-out, so authorizing it
+before UMS-11 would authorize a guaranteed failure. It becomes the candidate
+sole successor the moment UMS-11 closes.
+
+Dispositions: `UMS-11` `ADMIT_NOW`; `UMS-06` and `UMS-09`
+`PARK_PRODUCT_REFINEMENT`; `UMS-07`, `UMS-08`, `UMS-10` `PARK_ADVANCED`;
+`UMS-12` `NOT AUTHORIZED` (blocked on UMS-11). Nothing qualified as
+`OBSOLETE`, `SUPERSEDED`, `NOT_UMS`, or `PROOF_ONLY`, so the `PROOF_ONLY` slot
+is deliberately unused. `UMS-08` additionally carries an external precondition:
+ADR-084 holds Anthropic Project import until ADR-081 is proven.
+
+Full evidence:
+[2026-09-30-ums-campaign-revalidation-stop-rule-proof.md](../../architecture/proofs/runtime/2026-09-30-ums-campaign-revalidation-stop-rule-proof.md)
+
+### UMS-11 closure (2026-09-30)
+
+```text
+UMS-11 AUDITED PERMANENT ERASURE: CLOSED
+
+UMS ARCHITECTURAL BASELINE: COMPLETE
+NEW FOUNDATION EXPANSION: FROZEN
+
+UMS-06: PARKED
+UMS-07: PARKED
+UMS-08: PARKED
+UMS-09: PARKED
+UMS-10: PARKED
+
+UMS-05C11+: NOT AUTHORIZED
+UMS-05D+: NOT AUTHORIZED
+
+UMS-12 SUPPORTED USER-FACING PROOF: AUTHORIZED
+
+UMS CAMPAIGN: OPEN FOR PROOF ONLY
+```
+
+The architectural stop rule is now satisfied. The gap the revalidation
+recorded is closed, and no new foundational architecture is justified.
+
+What UMS-11 added, and nothing more:
+
+- `memory_purge_tombstones` — the one canonical relation permitted to outlive
+  ordinary-memory permanent purge. It carries **no** content, stores no
+  `memory_id`, and its `suppress_reimport` flag is CHECK-pinned true;
+- `MemoryPurgeService` — exact-target preview, account-authorized purge with
+  CAS plus exact confirmation, full canonical deletion fan-out, idempotent
+  retry, and a provider-neutral account-scoped suppression lookup;
+- two internal routes, `GET .../purge-preview` and `POST .../purge`, on the
+  existing internal-only Memory Vault router;
+- `account-export.v8`, carrying suppression state so an erasure survives
+  migration to another instance. v7 and earlier keep their exact meanings and
+  the production default export schema is unchanged;
+- a contradiction rule: an archive carrying both a live memory and a tombstone
+  suppressing that identity or source atom fails closed rather than silently
+  preferring either side.
+
+What UMS-11 deliberately did **not** do:
+
+- it did not build an Anthropic memory adapter or reactivate UMS-08. The
+  canonical-memory writer set is exactly two call sites — direct Vault creation
+  and restore — so there is currently no importer to wire, recorded as
+  `CURRENT CANONICAL IMPORTED-MEMORY WRITER: NONE`;
+- it did not create a vector, heat, cache, queue, or graph erasure framework,
+  because no UMS derived state currently exists to delete. The `heat_score`
+  column in the repository belongs to `imprints` (cognition) and is not a
+  canonical memory relation;
+- it did not purge Personal Facts. They keep their specialized authority and
+  ordinary-memory purge has no schema path to them;
+- it did not add a Memory Vault frontend, a bulk/account/Project-wide purge, or
+  any suppression bypass for a model, Operator, importer, or retry;
+- it did not widen any public Beta surface, and it claims nothing about
+  external backups or previously downloaded archives.
+
+Full evidence:
+[2026-09-30-ums11-audited-permanent-erasure-proof.md](../../architecture/proofs/runtime/2026-09-30-ums11-audited-permanent-erasure-proof.md)
 
 Preserve the Campaign sequencing principle:
 
@@ -978,6 +1134,15 @@ validation commands, scoped staging, commit, and closeout evidence.
 
 ### UMS-11 — Implement audited permanent erasure
 
+> **Status: CLOSED (2026-09-30).** Admitted as the sole successor because it
+> closes a baseline structural gap and removes the ADR-084 release blocker; it
+> is a declared mandatory precondition, not foundation expansion. Every
+> acceptance item below is now implemented and proven. The two items that
+> could not be exercised as written are recorded honestly: there is currently
+> no canonical imported-memory writer to wire, so provider-specific re-import
+> qualification defers to UMS-12, and no current UMS derived state exists to
+> delete, so the derived fan-out is proven as absence rather than as cleanup.
+
 - **Lane:** architecture-impact privacy and destructive lifecycle
 - **Depends on:** UMS-03 through UMS-10
 - **Objective:** provide explicit permanent purge across canonical and derived
@@ -996,6 +1161,11 @@ validation commands, scoped staging, commit, and closeout evidence.
   backups.
 
 ### UMS-12 — Qualify the supported user-facing feature
+
+> **Status: NOT AUTHORIZED — BLOCKED ON UMS-11 (2026-09-30 revalidation).** Its
+> acceptance and proof both require purge fan-out, and it depends on every prior
+> task. It becomes the candidate sole successor once UMS-11 closes. This is
+> blocking, not parking: the dependency clears on its own.
 
 - **Lane:** proof and release
 - **Depends on:** every prior task

@@ -6256,9 +6256,7 @@ class CampaignContinuationAuthorityRecord(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
-    approved_by_actor_id: Mapped[str] = mapped_column(
-        String(255), nullable=False
-    )
+    approved_by_actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
     approved_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
@@ -7179,6 +7177,12 @@ class MemoryRecord(Base):
     held: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'dormant'")
+    )
     extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -7241,6 +7245,14 @@ class MemoryRecord(Base):
             "(reviewed_at IS NOT NULL "
             "AND activated_at >= reviewed_at)",
             name="memory_records_review_activation_order_check",
+        ),
+        CheckConstraint(
+            "review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_records_review_state_check",
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_records_lifecycle_state_check",
         ),
         Index("ix_memory_records_user_id", "user_id"),
         Index("ix_memory_records_user_project", "user_id", "project_id"),

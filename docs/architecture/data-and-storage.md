@@ -79,6 +79,50 @@ Postgres, Redis, Neo4j, media, and model volumes are unchanged.
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
 | `personal_fact_revisions` | Fact history | supports auditability of memory changes |
 
+### Unified Memory Store canonical entities (UMS)
+
+These are the canonical account-owned memory relations. They are **not** the
+same subsystem as the legacy `memory_entries` silo table above, which is
+separately owned by `guardian/core/db.py` and is omitted from account export.
+
+| Entity | Why it matters | Key invariants |
+|---|---|---|
+| `memory_records` | Canonical memory envelope | account-owned; `project_id` scopes without owning; `extensions` is non-authoritative |
+| `memory_persona_links` | Attribution to stable Persona subjects | links a memory to `persona_subjects`, never to mutable profile configuration |
+| `memory_provenance` | Source / intent / audit evidence | one-to-many per memory; evidence, not canonical content history |
+| `memory_revisions` | Ordinary-memory authored content history | append-only; typed `old_text_content` / `new_text_content`; no no-op rows |
+| `memory_review_revisions` | Review-authority history | append-only; `memory_records.review_state` stays present-state authority |
+| `memory_lifecycle_revisions` | Lifecycle-authority history | append-only; `old_lifecycle_state` preserves pre-retirement posture |
+| `memory_purge_tombstones` | Surviving erasure suppression authority (UMS-11) | **minimum non-content**; no `memory_id`; no content column of any kind; `suppress_reimport` is CHECK-pinned true; unique per `(user_id, purged_record_fingerprint)` |
+
+#### `memory_purge_tombstones` specifics
+
+The only state permitted to outlive ordinary-memory permanent purge. It
+deliberately has **no** foreign key to `memory_records` and stores no
+canonical `memory_id`: the purge that writes a tombstone deletes its parent
+row, so a parent foreign key would be unsatisfiable by construction.
+
+- **Identity** is `purged_record_fingerprint`, a versioned domain-separated
+  non-reversible digest of the erased record identity. It is what makes an
+  idempotent retry detectable after the canonical row is gone, and it reveals
+  nothing about erased content.
+- **Replay suppression** is `source_atom_fingerprint`, a digest of the
+  minimum stable source-atom identity. It is legitimately `NULL` for a
+  direct/manual record; an import-origin record must produce exactly one
+  safe value or the purge fails closed before deleting anything. A partial
+  unique index caps each source atom at one suppression per account.
+- **Account scope** is `user_id`, CASCADE-deleted with the account. One
+  account's erasure is never another account's suppression or disclosure.
+- **What is erased** for one target: the `memory_records` parent plus
+  `memory_provisions`, `memory_revisions`, `memory_review_revisions`,
+  `memory_lifecycle_revisions`, and `memory_persona_links` children.
+- **What is untouched:** `personal_facts` and its evidence / revision
+  families keep their specialized authority, and ordinary-memory purge has no
+  schema path to them.
+- **Portability:** the family is carried by `account-export.v8` so suppression
+  survives migration to another instance. Prior export schema meanings are
+  unchanged.
+
 ### Account authentication entities
 
 | Entity | Why it matters | Key invariants |
@@ -347,6 +391,10 @@ invariant is established.
   - assistant message persistence triggers a best-effort trace snapshot + eval enqueue, but completion success still depends only on the existing chat acceptance/persistence path.
 - Postgres is the source of truth for conversation, document metadata, command runs, and audit state.
   - Anchors: `guardian/core/db.py`, `guardian/db/models.py`
+- Postgres is the source of truth for canonical UMS memory, including its erasure suppression state.
+  - Permanent purge of one ordinary memory is atomic: the minimum non-content tombstone and the canonical deletion commit together, so `content absent + no tombstone` and `tombstone present + content still present` are both impossible across a commit boundary.
+  - No current UMS vector, heat, summary, cache, queue, or graph-derived state exists to be deleted. The only `heat_score` column belongs to `imprints` (cognition), which is not a canonical memory relation.
+  - Anchors: `guardian/services/memory_purge.py`, `guardian/db/models.py`
 - Postgres is the source of truth for account-import lifecycle and restart checkpoints.
   - Redis publication is required for route acceptance but is not the durable lifecycle record.
   - The dedicated worker re-enqueues `queued`/`running` jobs on startup because the shared Redis list dequeue is destructive.
