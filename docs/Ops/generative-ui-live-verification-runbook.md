@@ -5,12 +5,14 @@ Purpose: close the last open requirement in
 proving that a **real** Codexify chat, with a real provider, produces an
 interactive UI.
 
-Everything else is already proven. This covers only the model-emission step.
+Rendering, containment, and the pure write/read content handling are tested.
+This runbook also closes the still-missing live provider and Postgres round trip.
 
 ## What is already proven (do not re-test)
 
 Rendering, sandbox containment, host-bridge authorization, streaming, and
-restore-after-reload are proven in a real browser. See the runtime proof.
+restore-after-reload from injected message content were proven in a browser
+harness. That is not a live Guardian persistence proof. See the runtime proof.
 
 ## Prerequisites
 
@@ -20,7 +22,8 @@ restore-after-reload are proven in a real browser. See the runtime proof.
 
 ## 1. Enable both flags
 
-Two independent flags, both default off. Edit your root `.env`:
+Two independent flags, both default off. For a direct local development
+launch, configure them in the relevant backend and Vite environments:
 
 ```dotenv
 GUARDIAN_GENERATIVE_UI=true
@@ -28,10 +31,19 @@ VITE_GENERATIVE_UI=true
 ```
 
 `GUARDIAN_GENERATIVE_UI` is read by the backend process.
-`VITE_GENERATIVE_UI` is build-time, so the frontend dev server must be
-**restarted** after setting it. Vite reads env from `frontend/` with prefix
-`VITE_` (`frontend/src/vite.config.ts:45-47`), so `frontend/.env.local` also
-works if you prefer not to use the root file.
+`VITE_GENERATIVE_UI` is evaluated when Vite starts, so the frontend dev server
+must be **restarted** after setting it. Vite reads env from `frontend/` with
+prefix `VITE_` (`frontend/src/vite.config.ts:45-47`), so `frontend/.env.local`
+is suitable for a direct local Vite launch.
+
+For **Private Preview**, use its operator-owned `.env.private-preview` instead
+of `.env`. The Preview frontend deliberately resets `env_file`; the
+`docker-compose.private-preview.yml` frontend environment explicitly forwards
+`VITE_GENERATIVE_UI` from Compose interpolation (default `false`). Redeploy or
+recreate only the relevant frontend/backend containers through the approved
+Preview lifecycle after the integrated source is in the serving checkout.
+Neither a new flag nor this runbook authorizes switching the Preview checkout
+or disrupting an active Preview without the operator's approval.
 
 Both values are documented in `.env.example`.
 
@@ -39,15 +51,23 @@ Both values are documented in `.env.example`.
 
 Send a request that genuinely warrants a tool, not prose:
 
-> Give me a working calculator I can use right here in the chat. Then show a bar
-> chart of thread volume: Mon 42, Tue 68, Wed 51.
+> Give me a working calculator I can use right here in the chat. Include
+> functioning number and arithmetic buttons, a display, and a clear control.
+
+Test the structured component in a **separate turn**:
+
+> Show a bar chart of thread volume: Mon 42, Tue 68, Wed 51.
+
+The emission guidance currently permits at most one artifact per reply; asking
+for both in one reply would contradict the model-facing contract.
 
 ## 3. Confirm what happened
 
 Check in order:
 
-1. **An artifact rendered.** A calculator with working buttons, and a bar chart.
-   Click the calculator controls — they must compute.
+1. **An artifact rendered.** A calculator with working buttons in the first
+   turn, and a bar chart in the second. Click the calculator controls — they
+   must compute.
 2. **The marker is in the stored message.** View source on the assistant
    message. You should see a line beginning `<!-- cfy-ui:` near the end.
 3. **Restore works.** Reload the app, reopen the thread. Both artifacts must

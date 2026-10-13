@@ -165,6 +165,9 @@ services:
       VITE_GUARDIAN_API_KEY: ""
       VITE_GUARDIAN_DEV_API_KEY: ""
       VITE_PRIVATE_PREVIEW: "true"
+      # The frontend has env_file reset for isolation; pass this opt-in gate
+      # explicitly so it reaches Vite at startup. Default remains disabled.
+      VITE_GENERATIVE_UI: "${VITE_GENERATIVE_UI:-false}"
 
   private-preview-origin:
     image: nginx:1.27-alpine
