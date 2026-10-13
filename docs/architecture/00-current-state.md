@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-09
+2026-10-13
 
 ## Interpretation rule
 
@@ -22,6 +22,9 @@ This file is authoritative for:
 
 ## What changed recently
 
+- PR #869 adds a bounded authenticated, local-only, ephemeral Chronicle preview and removes the persistent Coding Loop composer mode. These are implementation paths, not supported-runtime qualification.
+- Chronicle review repairs compare exact scope independently of order, reject canonical/importer instruction roles, classify local model outages as 503, and retain invalid reader budgets as 422.
+- The 2026-10-12 daily log reports `PASS_CONSTRAINED`, but this PR retains no reproducible qualification test or durable receipt for its referenced commit. That qualification is unverified; release status remains `HOLD`.
 - Since the prior refresh, `main` added only the 2026-10-09 no-change accounting artifact; no implementation or qualification claim changed.
 - Merged opt-in, same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
 - Persisted authenticated account-intake provenance for coding runs and merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority.
@@ -44,6 +47,7 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 
 ## Not yet true / do not assume
 
+- Chronicle preview authorization, structural citation checks, and focused tests do not prove semantic claim support, frontend consent, live local-model behavior, complete continuity, or release qualification.
 - Do not call the supported path release-ready; the latest complete qualification is `HOLD`.
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection; the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
@@ -59,6 +63,7 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 
 ## Active blockers
 
+- Migration-route test collection is blocked by missing UMS revision models on main; disposable evidence-reader migration is blocked by multiple Alembic heads. Chronicle HTTP regression coverage remains unexecuted until those baseline blockers are repaired.
 - Run the complete supported-Compose qualification on current `main`, including exact-model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Resolve the explicit-model worker/test contradiction and retain fail-closed behavior with no silent substitution.
 - Reproduce and repair the new-thread authored-message projection gap, then rerun the real browser and durable-readback path.
