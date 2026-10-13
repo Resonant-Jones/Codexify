@@ -6,6 +6,8 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.parse import unquote, urlparse, urlunparse
@@ -88,6 +90,40 @@ WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON = (
     "configured_model_not_advertised_by_whooshd"
 )
 _SAFE_WHOOSHD_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+# Context-local observation survives provider wrappers and streaming iteration,
+# without monkey-patching requests or sharing an observer across concurrent turns.
+_PROVIDER_REQUEST_OBSERVER = ContextVar("provider_request_observer", default=None)
+
+
+@contextmanager
+def observe_provider_requests(observer):
+    token = _PROVIDER_REQUEST_OBSERVER.set(observer)
+    try:
+        yield
+    finally:
+        _PROVIDER_REQUEST_OBSERVER.reset(token)
+
+
+def _post_provider_request(url, *, json, **kwargs):
+    observer = _PROVIDER_REQUEST_OBSERVER.get()
+    if observer is None:
+        return requests.post(url, json=json, **kwargs)
+    # Use the transport's serializer once, then dispatch those same bytes.
+    prepared = requests.PreparedRequest()
+    prepared.prepare_headers({})
+    prepared.prepare_body(data=None, files=None, json=json)
+    body = prepared.body
+    headers = dict(kwargs.pop("headers", {}) or {})
+    if not any(key.lower() == "content-type" for key in headers):
+        headers["Content-Type"] = "application/json"
+    try:
+        observer(body)
+    except Exception:
+        # Never log raw bodies, observer exceptions, or credentials.
+        pass
+    return requests.post(url, data=body, headers=headers, **kwargs)
 
 
 class _WhooshdCancellationMonitor:
@@ -2685,7 +2721,7 @@ def call_local(
     request_timeout = runtime_policy.request_timeout
 
     def _post_json(url: str, payload_obj: Dict[str, Any]) -> requests.Response:
-        return requests.post(
+        return _post_provider_request(
             url, json=payload_obj, headers=headers, timeout=request_timeout
         )
 
@@ -3126,7 +3162,7 @@ def stream_local(
                         },
                     )
                     if kind == "openai":
-                        resp = requests.post(
+                        resp = _post_provider_request(
                             url,
                             json=payload,
                             headers=headers,
@@ -3151,7 +3187,7 @@ def stream_local(
                             ),
                             "stream": True,
                         }
-                        resp = requests.post(
+                        resp = _post_provider_request(
                             url,
                             json=payload_ollama,
                             headers=headers,
@@ -3608,7 +3644,7 @@ def call_groq(
     url = f"{base_url}/openai/v1/chat/completions"
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = _post_provider_request(url, json=payload, headers=headers, timeout=30)
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
         logger.exception(
@@ -3727,7 +3763,7 @@ def _call_openai_compatible_chat(
     url = f"{resolved_base}{base_path}"
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,
@@ -3888,7 +3924,7 @@ def call_deepseek(
         payload["max_tokens"] = int(max_tokens)
     url = f"{base}/v1/chat/completions"
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers={
@@ -4366,7 +4402,7 @@ def call_minimax(
     )
 
     try:
-        response = requests.post(
+        response = _post_provider_request(
             url,
             json=payload,
             headers=headers,

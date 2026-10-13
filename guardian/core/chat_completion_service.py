@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -68,6 +69,7 @@ from guardian.core.db import (
     mark_chat_completion_attempt_accepted,
 )
 from guardian.core.ai_router import (
+    observe_provider_requests,
     _encode_image_url_to_base64,
     _image_turn_vision_unsupported_detail,
     build_openai_vision_content,
@@ -106,6 +108,7 @@ from guardian.core.request_correlation import (
     correlation_metadata,
     generate_attempt_id,
     normalize_request_id,
+    is_safe_identifier,
 )
 from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
 from guardian.core.chat_attachments import (
@@ -231,6 +234,256 @@ _ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION = (
     "If no relevant workspace context is available, say that no relevant local context was found.\n"
     "This directive does not grant arbitrary external tool access."
 )
+
+
+# Sensitive, non-authoritative diagnostics. No raw data enters task/event stores.
+PROVIDER_CAPTURE_TTL_SECONDS = 300
+PROVIDER_CAPTURE_MAX_BYTES = 2 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_REQUESTS = 64
+PROVIDER_CAPTURE_MAX_DISPATCHES = 16
+PROVIDER_CAPTURE_ORIGIN_MARKER = "provider_request_inspection=enabled"
+_PROVIDER_CAPTURE_LOCK = threading.RLock()
+_PROVIDER_CAPTURE_REQUESTS: dict[str, dict[str, Any]] = {}
+
+
+def _expire_provider_capture(task_id: str, expires_at: float) -> None:
+    with _PROVIDER_CAPTURE_LOCK:
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry and entry["expires_at"] == expires_at:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def _purge_provider_captures() -> None:
+    now = time.monotonic()
+    for task_id, entry in list(_PROVIDER_CAPTURE_REQUESTS.items()):
+        if now >= entry["expires_at"]:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def enable_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    account_id: str,
+    thread_id: int,
+    project_id: int | None,
+) -> bool:
+    """Called only after account, thread and Project authorization by the route."""
+    if not (is_safe_identifier(task_id) and is_safe_identifier(request_id)):
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        if task_id in _PROVIDER_CAPTURE_REQUESTS:
+            return False  # Never reuse consent or captures for another request.
+        if len(_PROVIDER_CAPTURE_REQUESTS) >= PROVIDER_CAPTURE_MAX_REQUESTS:
+            return False
+        expires_at = time.monotonic() + PROVIDER_CAPTURE_TTL_SECONDS
+        _PROVIDER_CAPTURE_REQUESTS[task_id] = {
+            "request_id": request_id,
+            "account_id": account_id,
+            "thread_id": thread_id,
+            "project_id": project_id,
+            "expires_at": expires_at,
+            "captures": {},
+        }
+        timer = threading.Timer(
+            PROVIDER_CAPTURE_TTL_SECONDS,
+            _expire_provider_capture,
+            args=(task_id, expires_at),
+        )
+        timer.daemon = True
+        try:
+            timer.start()
+        except Exception:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+            return False
+        return True
+
+
+def provider_capture_scope(task_id: str) -> dict[str, Any] | None:
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None:
+            return None
+        return {
+            key: entry[key]
+            for key in (
+                "request_id",
+                "account_id",
+                "thread_id",
+                "project_id",
+            )
+        }
+
+
+def store_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    attempt_id: str,
+    dispatch_index: int,
+    provider: str,
+    logical_model: str,
+    body: bytes,
+    byte_size: int,
+) -> bool:
+    """Accept an exact body under existing consent; never truncate or overwrite."""
+    if not is_safe_identifier(attempt_id) or dispatch_index < 1:
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None or entry["request_id"] != request_id:
+            return False
+        key = (attempt_id, dispatch_index)
+        captures = entry["captures"]
+        if key in captures:
+            return False
+        if len(captures) >= PROVIDER_CAPTURE_MAX_DISPATCHES:
+            entry["dispatch_limit_exceeded"] = True
+            return False
+        total = sum(
+            len(item["body"] or b"")
+            for request in _PROVIDER_CAPTURE_REQUESTS.values()
+            for item in request["captures"].values()
+        )
+        reason = None
+        if byte_size > PROVIDER_CAPTURE_MAX_BYTES:
+            reason = "capture_size_exceeded"
+        elif byte_size != len(body):
+            reason = "capture_body_size_mismatch"
+        elif total + byte_size > PROVIDER_CAPTURE_MAX_TOTAL_BYTES:
+            reason = "capture_memory_budget_exceeded"
+        else:
+            try:
+                if not isinstance(json.loads(body.decode("utf-8")), dict):
+                    reason = "invalid_request_json"
+            except (ValueError, UnicodeError, RecursionError):
+                reason = "invalid_request_json"
+        captures[key] = {
+            "body": body if reason is None else None,
+            "byte_size": byte_size,
+            "capture_timestamp": datetime.now(UTC).isoformat(),
+            "request_id": request_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "dispatch_index": dispatch_index,
+            "provider": provider,
+            "logical_model": logical_model,
+            "completeness": "COMPLETE" if reason is None else "CAPTURE_UNAVAILABLE",
+            "omission_reasons": [reason] if reason else [],
+        }
+        return True
+
+
+def read_provider_request_captures(task_id: str) -> dict[str, Any]:
+    """Route must reauthorize canonical ownership before invoking this reader."""
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        items = []
+        for capture in (entry or {}).get("captures", {}).values():
+            item = {key: value for key, value in capture.items() if key != "body"}
+            body = capture["body"]
+            item["raw_json"] = body.decode("utf-8") if body is not None else None
+            item["request_json"] = json.loads(body) if body is not None else None
+            item["model_visible_fields"] = [
+                key
+                for key in ("messages", "system", "prompt", "tools", "response_format")
+                if key in (item["request_json"] or {})
+            ]
+            item["effective_model"] = (item["request_json"] or {}).get("model")
+            item["parameter_fields"] = [
+                key
+                for key in (item["request_json"] or {})
+                if key not in item["model_visible_fields"]
+            ]
+            item["limitations"] = [
+                "Guardian HTTP body only; provider-side templates, tokenization and framing are unobserved",
+                "Transport authentication and headers are excluded",
+            ]
+            item["max_bytes"] = PROVIDER_CAPTURE_MAX_BYTES
+            items.append(item)
+        return {
+            "availability": (
+                "CAPTURED"
+                if any(item["completeness"] == "COMPLETE" for item in items)
+                else "CAPTURE_UNAVAILABLE"
+            ),
+            "dispatch_limit_exceeded": bool((entry or {}).get("dispatch_limit_exceeded")),
+            "omission_reasons": (
+                ["capture_dispatch_limit_exceeded"]
+                if (entry or {}).get("dispatch_limit_exceeded")
+                else ([] if items else ["no_process_local_capture"])
+            ),
+            "retention_seconds": PROVIDER_CAPTURE_TTL_SECONDS,
+            "captures": items,
+        }
+
+
+def _provider_request_capture_observer(task, *, provider: str, model: str):
+    """Relay only opted-in captures to the API's bounded process-local store.
+
+    The service key grants delivery capability, never account read authority.
+    Consent lives in API memory, not in the task's advisory opt-in marker.
+    """
+    if PROVIDER_CAPTURE_ORIGIN_MARKER not in str(task.origin).split("|"):
+        return None
+    try:
+        from guardian.command_bus.loopback_http_adapter import resolve_loopback_base
+        import requests
+
+        request_id = task.request_id
+        task_id = task.task_id
+        attempt_id = task.attempt_id
+        if not all(
+            is_safe_identifier(value) for value in (request_id, task_id, attempt_id)
+        ):
+            return None
+        settings = get_settings()
+        service_key = str(getattr(settings, "GUARDIAN_API_KEY", None) or "").strip()
+        if not service_key:
+            return None
+        url = f"{resolve_loopback_base()}/api/chat/internal/provider-request-captures/{task_id}"
+        headers = {"X-API-Key": service_key}
+        permit = requests.get(url, headers=headers, timeout=1, allow_redirects=False)
+        if permit.status_code != 200 or permit.json().get("enabled") is not True:
+            return None
+    except Exception:
+        return None
+    dispatch_index = 0
+
+    def capture(body):
+        nonlocal dispatch_index
+        dispatch_index += 1
+        if dispatch_index > PROVIDER_CAPTURE_MAX_DISPATCHES + 1:
+            return
+        size = len(body)
+        # No raw content is sent for an oversized request.
+        requests.post(
+            url,
+            data=(
+                body
+                if size <= PROVIDER_CAPTURE_MAX_BYTES
+                and dispatch_index <= PROVIDER_CAPTURE_MAX_DISPATCHES
+                else b""
+            ),
+            params={
+                "request_id": request_id,
+                "attempt_id": attempt_id,
+                "dispatch_index": dispatch_index,
+                "provider": provider,
+                "logical_model": model,
+                "byte_size": size,
+            },
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            timeout=1,
+            allow_redirects=False,
+        )
+
+    return capture
 
 
 class ChatCompletionEnqueueError(RuntimeError):
@@ -1439,8 +1692,34 @@ def _execute_completion_attempt(
 ) -> CompletionAttemptResult:
     request_id, _ = normalize_request_id(getattr(task, "request_id", None))
     task.request_id = request_id
-    attempt_id = generate_attempt_id()
-    task.attempt_id = attempt_id
+    task.attempt_id = generate_attempt_id()
+    try:
+        observer = _provider_request_capture_observer(task, provider=provider, model=model)
+    except Exception:
+        observer = None
+    with observe_provider_requests(observer):
+        return _dispatch_completion_attempt(
+            task=task, messages_for_llm=messages_for_llm, provider=provider,
+            model=model, bundle=bundle, token_callback=token_callback,
+            chunk_callback=chunk_callback, cancel_check=cancel_check,
+            tool_exposure=tool_exposure,
+        )
+
+
+def _dispatch_completion_attempt(
+    *,
+    task: ChatCompletionTask,
+    messages_for_llm: list[dict[str, Any]],
+    provider: str,
+    model: str,
+    bundle: dict[str, Any] | None,
+    token_callback: Callable[[str], None] | None = None,
+    chunk_callback: Callable[[str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    tool_exposure: dict[str, Any] | None = None,
+) -> CompletionAttemptResult:
+    request_id = task.request_id
+    attempt_id = task.attempt_id
     if callable(cancel_check) and cancel_check():
         raise ChatTaskCancelled(provider=provider, model=model)
 

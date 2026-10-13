@@ -1376,3 +1376,151 @@ def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
     assert detail["failure_kind"] == "provider_http_error"
     assert detail["upstream_status"] == 429
     assert detail["provider_error"] == "quota exceeded"
+
+
+def test_provider_capture_dispatches_exact_transport_bytes_and_excludes_headers(
+    monkeypatch,
+):
+    payload = {
+        "model": "effective-model",
+        "messages": [
+            {"role": "system", "content": '  A\n\t\\" Ω'},
+            {"role": "user", "content": "  B  "},
+        ],
+        "tools": [{"type": "function", "function": {"name": "synthetic"}}],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+    }
+    expected = (
+        requests.Request("POST", "https://synthetic.invalid", json=payload)
+        .prepare()
+        .body
+    )
+    captured = []
+    sent = []
+    monkeypatch.setattr(
+        ai_router.requests, "post", lambda *a, **k: sent.append(k) or "reply"
+    )
+    with ai_router.observe_provider_requests(captured.append):
+        assert (
+            ai_router._post_provider_request(
+                "https://synthetic.invalid",
+                json=payload,
+                headers={
+                    "Authorization": "Bearer transport-secret",
+                    "Cookie": "private-cookie",
+                },
+            )
+            == "reply"
+        )
+    assert captured == [expected]
+    assert sent[0]["data"] == expected
+    assert "json" not in sent[0]
+    assert b"transport-secret" not in captured[0]
+    assert b"private-cookie" not in captured[0]
+    assert sent[0]["headers"]["Authorization"] == "Bearer transport-secret"
+    assert sent[0]["headers"]["Content-Type"] == "application/json"
+
+
+def test_provider_capture_default_keeps_transport_behavior(monkeypatch):
+    sent = []
+    monkeypatch.setattr(ai_router.requests, "post", lambda *a, **k: sent.append(k))
+    payload = {"messages": []}
+    ai_router._post_provider_request("https://synthetic.invalid", json=payload)
+    assert sent == [{"json": payload}]
+
+
+def test_provider_capture_context_is_separate_between_concurrent_requests(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    barrier = Barrier(2)
+    captures = {"one": [], "two": []}
+    monkeypatch.setattr(ai_router.requests, "post", lambda *a, **k: "reply")
+
+    def dispatch(name):
+        with ai_router.observe_provider_requests(captures[name].append):
+            barrier.wait()
+            ai_router._post_provider_request(
+                "https://synthetic.invalid", json={"model": name}
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(dispatch, captures))
+    assert json.loads(captures["one"][0])["model"] == "one"
+    assert json.loads(captures["two"][0])["model"] == "two"
+
+
+def test_capture_observes_anthropic_provider_transformation(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+    settings = Settings(
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        MINIMAX_API_KEY="synthetic-transport-key",
+        MINIMAX_API_BASE="https://synthetic.invalid",
+        MINIMAX_API_FLAVOR="anthropic",
+    )
+    captured, sent = [], []
+
+    def post(url, **kwargs):
+        sent.append(kwargs["data"])
+        return _MockResponse({"content": [{"type": "text", "text": "reply"}]})
+
+    monkeypatch.setattr(ai_router.requests, "post", post)
+    with ai_router.observe_provider_requests(captured.append):
+        assert (
+            call_minimax(
+                [
+                    {"role": "system", "content": "Synthetic system"},
+                    {"role": "user", "content": "  Synthetic user\n"},
+                ],
+                "effective",
+                max_tokens=123,
+                temperature=0.1,
+                settings=settings,
+            )
+            == "reply"
+        )
+    assert captured == sent and len(sent) == 1
+    payload = json.loads(captured[0])
+    assert payload["system"] == "Synthetic system"
+    assert payload["messages"][0]["role"] == "user"
+    assert payload["max_tokens"] == 123 and payload["temperature"] == 0.1
+    assert b"synthetic-transport-key" not in captured[0]
+
+
+def test_capture_observes_local_stream_request_after_reasoning_transformation(
+    monkeypatch,
+):
+    _disable_supported_profile(monkeypatch)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://synthetic.invalid/v1",
+        LOCAL_CHAT_MODEL="synthetic-model",
+        LOCAL_LLM_MODEL="synthetic-model",
+    )
+    captured, sent = [], []
+
+    def post(url, **kwargs):
+        sent.append(kwargs["data"])
+        return _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"reply"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", post)
+    with ai_router.observe_provider_requests(captured.append):
+        stream = stream_local(
+            [{"role": "user", "content": "  Synthetic\n"}],
+            "synthetic-model",
+            settings=settings,
+        )
+        assert list(stream) == ["reply"]
+    assert captured == sent and len(sent) == 1
+    payload = json.loads(captured[0])
+    assert payload["stream"] is True
+    assert payload["model"] == "synthetic-model"
+    assert payload["messages"][0]["content"] == "  Synthetic\n"

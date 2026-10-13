@@ -487,3 +487,89 @@ Message behavior:
 - Pagination: `after_id` (cursor) + `limit` (default 100, max 200), ascending ID order.
 - Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
 - No completion side effect from posting a message: mentions (`@Guardian`, `@Luna`) persist as text; explicit invocation requires one of the two routes above and a source `message_id`.
+
+## Opt-in provider request inspection
+
+This internal diagnostic slice captures a new actual completion attempt; it
+cannot establish the payload of a past request. Release remains **HOLD**. It
+adds no provider support, inference replay, retrieval policy, prompt editing,
+or frontend viewer. The existing SystemPromptInspector continues to resolve
+prompt metadata and estimates independently.
+
+An authenticated account owner enables inspection for one ordinary completion
+with `X-Provider-Request-Inspection: true` on
+`POST /api/chat/{thread_id}/complete` (or `/chat/{thread_id}/complete`). Guardian
+requires a canonical account principal, current thread ownership, and current
+Project ownership through `projects.user_id` when the thread has a Project.
+A static service key, local user hint, or operator credential alone does not
+grant account content access. An independent operator content-read grant is
+not implemented in this slice. Inspection is disabled by default.
+
+The shared completion service retains ownership of consent, capture lifecycle,
+and canonical request/task/attempt correlation. At each inference dispatch,
+`ai_router` observes the final provider body after adapter transformation. The
+observer uses `requests`' JSON serializer once and sends those same serialized
+bytes as the HTTP body. It observes OpenAI-compatible, Ollama chat/generate,
+DeepSeek, and MiniMax OpenAI/Anthropic request construction where these existing
+adapters dispatch. Streaming iteration stays inside the observer scope. It
+does not observe cancellation, readiness, image-download, or auxiliary model
+requests outside that completion attempt.
+
+Readback is `GET /api/chat/{thread_id}/debug/provider-requests/{task_id}`. It
+requires the canonical authenticated account principal and rechecks thread
+and Project ownership, the durable completion-attempt/task-to-thread binding,
+and the original consent scope. A thread moved to another Project or transferred
+to another owner invalidates its old capture scope. Cross-account or
+cross-Project reads are rejected. Readback is read-only, carries
+`Cache-Control: no-store`, and never consults current prompt assembly to invent
+a missing capture.
+
+Each capture includes exact UTF-8 `raw_json`, `request_json` parsed from those
+same bytes, capture receipt timestamp, canonical request/task/attempt IDs,
+provider, logical model, effective body model, and a transport dispatch index
+within that canonical attempt. Endpoint fallbacks within one attempt and
+subsequent tool-loop/retry attempts remain separate entries; no new attempt
+identity is introduced. Model-visible field names (`messages`, `system`,
+`prompt`, `tools`, `response_format`) are distinguished from accompanying
+parameter field names without rewriting either. Provider-side templates,
+tokenization, framing, and hidden defaults remain unobserved. Transport headers,
+authentication, API keys, cookies, and endpoint credentials are not captured.
+Secrets deliberately present in model-visible account content remain sensitive
+account content; the inspection payload must not be exported to public logs.
+
+The API and queue worker normally run in separate processes. The worker checks
+existing consent and delivers captured bytes over the existing configured
+Guardian internal HTTP base using the existing service capability. The
+`GET`/`POST /api/chat/internal/provider-request-captures/{task_id}` endpoints
+only check existing consent or accept delivery under that consent; they cannot
+create consent or return raw content. They revalidate canonical binding and
+ownership. Raw bytes never enter Redis tasks/events, Postgres, memory/search
+indexes, analytics, or application logs. The task carries only an advisory
+opt-in marker; that marker cannot authorize capture without API-local consent.
+
+Retention is bounded API-process memory only: five minutes from consent,
+actively deleted by a process-local timer even without readback. Restart,
+expiration, failed delivery, missing consent, or hitting another API replica
+returns `CAPTURE_UNAVAILABLE` when no actual captured payload exists. This
+initial slice assumes one API process or routing to the process holding consent;
+it does not provide replica affinity or a shared capture store. Capture failure
+never triggers another inference request or prevents ordinary chat execution.
+
+The limits are 2 MiB per serialized request, 16 MiB total raw capture bytes,
+64 concurrent consent records, and 16 transport dispatch records per consent.
+Oversized requests are delivered as size metadata without raw bytes; overflow,
+size mismatch, invalid JSON, and memory-budget exhaustion produce an explicit
+`CAPTURE_UNAVAILABLE` entry with omission reasons and byte-size metadata.
+Content is never silently truncated and labeled complete. Additional dispatches
+past the record ceiling are not retained; readback reports
+`dispatch_limit_exceeded: true` and `capture_dispatch_limit_exceeded`. Missing
+records never receive a reconstructed substitute.
+
+This is aligned with ADR-069's distinction between internal diagnostics and
+release proof, ADR-081's independent canonical Project/thread ownership, and
+ADR-093's separation of Guardian routing authority from provider identity.
+Operator analytics under ADR-039/ADR-049 do not gain raw-content access. No
+persistent authority surface or new ADR is introduced. Deterministic synthetic
+byte-equivalence, ownership, expiry, overflow, concurrency, relay, and chat
+regression tests establish only their exercised test surface; supported-path
+live qualification and a Raw JSON/Readable frontend viewer remain deferred.
