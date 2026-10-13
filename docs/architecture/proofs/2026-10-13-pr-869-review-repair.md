@@ -25,5 +25,8 @@ These repairs align with ADR-016 and the existing request-scoped interpretation 
 - Standalone imported-history reader PostgreSQL tests failed fixture setup: Alembic has multiple heads (`2e865c4a9b10`, `c7f4a9b2e6d1`). A separate temporary PostgreSQL container was used; production databases and existing containers were untouched.
 - `python3 scripts/validate_docs.py`: passed.
 - `git diff --check`: passed.
+- After hydrating architecture fixtures, `pytest -q --disable-warnings tests/architecture`: 431 passed. The three stale canonical source hashes (ADR index, current-state, KB entrypoint) were synchronized; freshness and authority fields were not promoted.
+- Remote frontend CI: 1,946 passed, one failed, one skipped; its sidebar failure is reproduced on main.
+- Remote backend CI failed collection because the CI dependency environment lacks `mcp`; no backend suite pass is claimed.
 
 HTTP regression tests for the review fixes are added but remain blocked by those inherited backend failures. No HTTP, deployed-provider, semantic-entailment, or release qualification is claimed. Release remains `HOLD`.
