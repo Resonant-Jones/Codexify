@@ -4658,9 +4658,6 @@ export function GuardianChat({
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
-                onExecutionModeChange={(mode) => {
-                  if (mode === "coding") setCodingLoopObserverEnabled(true);
-                }}
                 compactMobile={compactMobile}
                 activeProviderId={selectedProvider?.id ?? activeProviderId}
                 mobileModelId={selectedModel?.id ?? activeModelId}

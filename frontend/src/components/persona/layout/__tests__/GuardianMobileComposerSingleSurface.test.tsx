@@ -370,6 +370,9 @@ describe("Guardian mobile composer single surface", () => {
       />
     );
 
+    expect(screen.queryByTestId("composer-coding-loop-toggle")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+
     // Before focus: only one composer root
     const roots = document.querySelectorAll("[data-composer-root]");
     expect(roots.length).toBe(1);
@@ -601,13 +604,13 @@ describe("Guardian mobile composer single surface", () => {
     );
 
     expect(screen.getByTestId("composer-control-row")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-coding-loop-toggle")).toBeInTheDocument();
+    expect(screen.queryByTestId("composer-coding-loop-toggle")).toBeNull();
     expect(screen.getByRole("button", { name: "Open composer actions" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select provider" })).toBeInTheDocument();
     expect(screen.queryByTestId("composer-landing-controls-toggle")).toBeNull();
   });
 
-  it("clears draft on successful send and preserves on failure", async () => {
+  it("clears draft on successful send", async () => {
     let resolveSend: (() => void) | null = null;
     const onSend = vi.fn(
       () =>
@@ -630,6 +633,9 @@ describe("Guardian mobile composer single surface", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend).toHaveBeenCalledWith("Persist this turn", {
+      threadIdOverride: undefined,
+    });
     // Draft preserved during send
     expect(textarea).toHaveValue("Persist this turn");
 
@@ -666,6 +672,10 @@ describe("Guardian mobile composer single surface", () => {
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(textarea).toHaveValue("Keep this draft");
+    expect(onSend).toHaveBeenCalledWith("Keep this draft", {
+      threadIdOverride: undefined,
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
 
     // Exactly one composer surface remains
     const roots = document.querySelectorAll("[data-composer-root]");
