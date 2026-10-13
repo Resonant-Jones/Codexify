@@ -6,38 +6,20 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "82a0db540819a3a3ee6c5de10a4ebfe7a2534d4d7768ba0d2f2742be27da3bae",
+  "content_hash": "85f7ffae75cb8edd65615be03d25b64482e13965a9e1bfa5245881ea624e546d",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-<<<<<<< ours
-<<<<<<< ours
-    "reason": "The Document Recall Contract KB entry and current-state routing were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
-=======
-    "reason": "Re-verified Architecture KB entrypoint metadata against committed source revision 1613a88fab15fe755c6cd877512dc8cb9440e792. The KB entrypoint and declared freshness-invalidating anchors were re-reviewed after restoring the current-state Browser side-panel / Browser Host qualification-pending gate. Architecture KB routing remains semantically valid; no runtime, provider, or authority claim was widened. Unrelated warnings and collisions are not claimed repaired.",
->>>>>>> theirs
-=======
-    "reason": "Re-verified Architecture KB entrypoint metadata; 1ce3a735e91ac05094051c92b9a64d47cb50dfc1 is the lineage-safe ancestry marker for cross-branch validation. The KB entrypoint and all declared freshness-invalidating anchors were re-reviewed. The current-state ADR-069 restoration is included. Current Architecture KB routing remains semantically valid; no runtime, release, provider, or authority claim was widened. Unrelated warnings/collisions are not claimed repaired.",
->>>>>>> theirs
-    "state": "current",
+    "reason": "Conflict markers repaired and content hash matched to the reconciled source. The declared freshness-invalidating anchors require a separate review at the merged revision; this repair establishes JSON/schema validity only, not runtime or release qualification.",
+    "state": "stale",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-<<<<<<< ours
-<<<<<<< ours
     "verified_at": "2026-09-24T20:46:58Z",
     "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
-=======
-    "verified_at": "2026-09-06T16:18:57Z",
-    "verified_commit": "1613a88fab15fe755c6cd877512dc8cb9440e792"
->>>>>>> theirs
-=======
-    "verified_at": "2026-09-06T13:59:09Z",
-    "verified_commit": "1ce3a735e91ac05094051c92b9a64d47cb50dfc1"
->>>>>>> theirs
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

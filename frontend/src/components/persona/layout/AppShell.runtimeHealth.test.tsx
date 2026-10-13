@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import AppShell from "@/components/persona/layout/AppShell";
 import {
   LIVE_EVENT_CONNECTION_STATES,
@@ -369,7 +370,7 @@ vi.mock("@/theme", () => ({
   normalizeSurfaceWarmth: vi.fn((value: number) => value),
 }));
 
-describe("AppShell runtime health banner", () => {
+describe("AppShell system status indicator", () => {
   beforeEach(() => {
     Object.defineProperty(window, "localStorage", {
       value: {
@@ -386,6 +387,10 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.failureKind = null;
     runtimeHealthState.llmDetail = null;
     runtimeHealthState.backendReachable = true;
+    runtimeHealthState.chatHealthy = true;
+    runtimeHealthState.llmHealthy = true;
+    runtimeHealthState.liveEventsStatus = LIVE_EVENT_CONNECTION_STATES.CONNECTED;
+    runtimeHealthState.stale = false;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
     runtimeHealthState.lastFailedAt = null;
     routeCapabilityState.ready = true;
@@ -458,12 +463,36 @@ describe("AppShell runtime health banner", () => {
     }
   });
 
-  it("does not render banner when runtime is healthy", () => {
+  it("keeps healthy runtime detail behind the green status indicator", () => {
     render(<AppShell />);
-    expect(screen.queryByText(/Runtime degraded/i)).toBeNull();
+
+    const toggle = screen.getByTestId("system-status-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "System status: Healthy");
+    expect(screen.queryByTestId("system-status-panel")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(
+      screen.getByText(/Everything is working normally/i)
+    ).toBeInTheDocument();
   });
 
-  it("renders banner when runtime is degraded with failure kind and last healthy", () => {
+  it.each([
+    { hydration: "ready", backend: true, llm: null },
+    { hydration: "failed", backend: null, llm: null },
+    { hydration: "ready", backend: null, llm: true },
+  ] as const)("keeps Providers checking without health observations: %j", ({ hydration, backend, llm }) => {
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
+    runtimeHealthState.diagnostics.hydrationState = hydration;
+    runtimeHealthState.backendReachable = backend;
+    runtimeHealthState.llmHealthy = llm;
+    render(<AppShell />);
+    fireEvent.click(screen.getByTestId("system-status-toggle"));
+    const providerRow = screen.getByText("Providers").parentElement!;
+    expect(within(providerRow).getByText("Checking")).toBeInTheDocument();
+    expect(within(providerRow).queryByText("Healthy")).toBeNull();
+  });
+
+  it("surfaces an unreachable Guardian as a critical status without a persistent banner", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
@@ -527,14 +556,18 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
+    const toggle = screen.getByTestId("system-status-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "System status: Action required");
+    expect(screen.queryByText(/Provider offline/i)).toBeNull();
+
+    fireEvent.click(toggle);
     expect(screen.getByText(/Provider offline/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/failure:\s*backend_unreachable/i)
+      screen.getByText(/Guardian cannot be reached/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/last healthy:/i)).toBeInTheDocument();
   });
 
-  it("does not render banner for missing health endpoint failure kind", () => {
+  it("does not elevate the intentionally ignored missing health endpoint state", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -544,13 +577,18 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
-    expect(screen.queryByText(/Runtime degraded/i)).toBeNull();
+    expect(screen.getByTestId("system-status-toggle")).toHaveAttribute(
+      "aria-label",
+      "System status: Healthy"
+    );
+    expect(screen.queryByTestId("system-status-panel")).toBeNull();
   });
 
-  it("renders banner for llm_unhealthy degradation", () => {
+  it("surfaces llm_unhealthy degradation through the status panel", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
+    runtimeHealthState.llmHealthy = false;
     runtimeHealthState.llmDetail =
       "MiniMax live discovery unavailable using documented model list";
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
@@ -592,18 +630,21 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
+    const toggle = screen.getByTestId("system-status-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "System status: Needs attention");
+    expect(screen.queryByText(/Provider degraded/i)).toBeNull();
+    fireEvent.click(toggle);
+
     expect(screen.getByText(/Provider degraded/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/failure:\s*llm_unhealthy/i)
-    ).toBeInTheDocument();
     expect(
       screen.getByText(/MiniMax live discovery unavailable/i)
     ).toBeInTheDocument();
   });
 
-  it("renders a live updates warning without calling the provider degraded when chat and llm are healthy", () => {
+  it("keeps a live updates warning behind the amber status indicator", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
     runtimeHealthState.failureKind = null;
+    runtimeHealthState.liveEventsStatus = LIVE_EVENT_CONNECTION_STATES.DISCONNECTED;
     runtimeHealthState.diagnostics.failureKind = null;
     runtimeHealthState.diagnostics.liveEvents = {
       endpoint: "http://127.0.0.1:8888/api/events",
@@ -627,8 +668,14 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Live updates disconnected/i)).toBeInTheDocument();
+    const toggle = screen.getByTestId("system-status-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "System status: Needs attention");
+    expect(screen.queryByText(/Live updates unavailable/i)).toBeNull();
     expect(screen.queryByText(/Provider degraded/i)).toBeNull();
+    fireEvent.click(toggle);
+
+    expect(screen.getByText(/Live updates unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing you need to fix/i)).toBeInTheDocument();
     expect(
       screen.getByText(/live events connection state=disconnected/i)
     ).toBeInTheDocument();
@@ -637,6 +684,7 @@ describe("AppShell runtime health banner", () => {
   it("renders sanitized technical details when llm health is degraded", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
+    runtimeHealthState.llmHealthy = false;
     runtimeHealthState.llmDetail =
       "MiniMax live discovery unavailable using documented model list";
     runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
@@ -697,6 +745,9 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
+    expect(screen.queryByText(/Technical details/i)).toBeNull();
+    fireEvent.click(screen.getByTestId("system-status-toggle"));
+
     expect(screen.getByText(/Technical details/i)).toBeInTheDocument();
     expect(
       screen.getByText(/resolved api base url=http:\/\/127\.0\.0\.1:8888\/api/i)
@@ -722,10 +773,11 @@ describe("AppShell runtime health banner", () => {
     expect(screen.queryByText("desktop-secret-key")).toBeNull();
   });
 
-  it("does not render the provider banner for chat_unhealthy when provider checks are green", () => {
+  it("reports chat_unhealthy as a Guardian issue without blaming the provider", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
+    runtimeHealthState.chatHealthy = false;
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
       resolvedApiBaseUrlSource: "runtime-desktop",
@@ -783,8 +835,13 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
+    const toggle = screen.getByTestId("system-status-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "System status: Needs attention");
     expect(screen.queryByText(/Provider degraded/i)).toBeNull();
-    expect(screen.queryByText(/failure:\s*chat_unhealthy/i)).toBeNull();
-    expect(screen.queryByText(/Technical details/i)).toBeNull();
+    fireEvent.click(toggle);
+
+    expect(screen.getByText(/Guardian health degraded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Provider degraded/i)).toBeNull();
+    expect(screen.getByText(/failureKind=chat_unhealthy/i)).toBeInTheDocument();
   });
 });

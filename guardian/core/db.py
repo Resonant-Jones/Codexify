@@ -8,6 +8,7 @@ flow through Postgres tables managed by Alembic migrations.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
@@ -22,6 +23,11 @@ from guardian.core.project_lifecycle import (
     PROJECT_SYSTEM_ROLE_GENERAL,
     require_mutable_project_container,
     require_project_deletable,
+)
+from guardian.protocol_tokens import ErrorCode, TaskEventType
+from guardian.tasks.chat_deadline import (
+    AcceptedChatTaskDeadline,
+    parse_accepted_chat_task_deadline,
 )
 
 # Import ORM models
@@ -61,8 +67,17 @@ def create_chat_completion_attempt(
     backend_task_id: str,
     thread_id: int,
     turn_id: str,
+    deadline_snapshot: AcceptedChatTaskDeadline | None = None,
+    turn_lock_token: str | None = None,
 ) -> None:
     """Commit the resource binding before the task can enter Redis."""
+    if deadline_snapshot is not None:
+        if not isinstance(deadline_snapshot, AcceptedChatTaskDeadline):
+            raise ValueError("Recovery requires the original accepted deadline")
+        if not isinstance(turn_lock_token, str) or not turn_lock_token.strip():
+            raise ValueError("Recovery requires the existing turn lock token")
+    elif turn_lock_token is not None:
+        raise ValueError("Turn lock token requires an original deadline snapshot")
     with chatlog_db._sa_session() as session:
         session.add(
             ChatCompletionAttempt(
@@ -70,6 +85,10 @@ def create_chat_completion_attempt(
                 backend_task_id=backend_task_id,
                 thread_id=thread_id,
                 turn_id=turn_id,
+                deadline_snapshot=(
+                    deadline_snapshot.to_dict() if deadline_snapshot is not None else None
+                ),
+                turn_lock_token=turn_lock_token,
             )
         )
 
@@ -85,6 +104,224 @@ def mark_chat_completion_attempt_accepted(
             .one()
         )
         attempt.accepted_at = datetime.now(timezone.utc)
+
+
+def record_chat_completion_attempt_success(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    assistant_message_id: int,
+) -> bool:
+    """Bind an already-persisted assistant to its exact durable attempt."""
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id,
+                backend_task_id=backend_task_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
+            .with_for_update()
+            .one_or_none()
+        )
+        if attempt is None:
+            return False
+        if attempt.terminal_event_type is not None:
+            return False
+        message = (
+            session.query(ChatMessage.id)
+            .filter_by(
+                id=assistant_message_id,
+                thread_id=thread_id,
+                role="assistant",
+            )
+            .one_or_none()
+        )
+        if message is None:
+            raise ValueError(
+                "Successful completion message is not an assistant in its thread"
+            )
+        if (
+            attempt.completed_message_id is not None
+            and attempt.completed_message_id != assistant_message_id
+        ):
+            raise ValueError("Completion attempt is already bound to another assistant")
+        attempt.completed_message_id = assistant_message_id
+        return True
+
+
+def record_chat_completion_attempt_terminal_event(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    event_type: str,
+) -> bool:
+    """Persist a worker-owned failure or cancellation without changing identity."""
+    if event_type not in {
+        TaskEventType.TASK_FAILED.value,
+        TaskEventType.TASK_CANCELLED.value,
+    }:
+        raise ValueError("Unsupported chat attempt terminal event")
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id,
+                backend_task_id=backend_task_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
+            .with_for_update()
+            .one_or_none()
+        )
+        if attempt is None or attempt.completed_message_id is not None:
+            return False
+        if attempt.terminal_event_type is not None:
+            # A late worker cannot claim ownership of a controller orphan outcome.
+            return (
+                attempt.terminal_outcome is None
+                and attempt.terminal_event_type == event_type
+            )
+        attempt.terminal_event_type = event_type
+        return True
+
+
+@dataclass(frozen=True)
+class ChatAttemptReconciliation:
+    """Private controller result; the lock capability must never enter a receipt."""
+
+    completed_message_id: int | None
+    terminal_event_type: str | None
+    terminal_outcome: dict[str, str] | None
+    turn_lock_token: str | None
+
+
+def observe_chat_completion_attempt_terminal(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+) -> ChatAttemptReconciliation:
+    """Read exact existing terminal authority; never reconcile unresolved work.
+
+    The caller owns a bounded maintenance scope. The private lock capability is
+    returned only after transaction acknowledgement and never enters receipts.
+    """
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(
+                request_id=request_id, backend_task_id=backend_task_id,
+                thread_id=thread_id, turn_id=turn_id,
+            )
+            .one_or_none()
+        )
+        if attempt is None:
+            raise ValueError("Terminal observation does not match its durable attempt")
+        if attempt.completed_message_id is not None:
+            assistant = session.query(ChatMessage.id).filter_by(
+                id=attempt.completed_message_id, thread_id=thread_id, role="assistant",
+            ).one_or_none()
+            if assistant is None:
+                raise ValueError("Completion attempt points to no assistant in its thread")
+        elif attempt.terminal_event_type not in {
+            None, TaskEventType.TASK_FAILED.value, TaskEventType.TASK_CANCELLED.value,
+        }:
+            raise ValueError("Terminal observation has no supported durable outcome")
+        terminal = (
+            attempt.completed_message_id is not None
+            or attempt.terminal_event_type is not None
+        )
+        result = ChatAttemptReconciliation(
+            completed_message_id=attempt.completed_message_id,
+            terminal_event_type=attempt.terminal_event_type,
+            terminal_outcome=(dict(attempt.terminal_outcome)
+                              if attempt.terminal_outcome is not None else None),
+            turn_lock_token=attempt.turn_lock_token if terminal else None,
+        )
+    return result
+
+
+def reconcile_chat_completion_attempt_after_deadline(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    now: datetime | None = None,
+) -> ChatAttemptReconciliation:
+    """Fence an unresolved accepted attempt after its original terminal deadline.
+
+    The caller must bound this maintenance transaction separately from execution.
+    No Redis observation or heartbeat may replace durable admission/envelope truth.
+    ``now`` is a trusted controller/test clock, never a client request field.
+    """
+    with chatlog_db._sa_session() as session:
+        attempt = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(backend_task_id=backend_task_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if attempt is None or (
+            attempt.request_id != request_id
+            or attempt.thread_id != thread_id
+            or attempt.turn_id != turn_id
+        ):
+            raise ValueError("Reconciliation identity does not match its durable attempt")
+        if attempt.completed_message_id is not None:
+            assistant = (
+                session.query(ChatMessage.id)
+                .filter_by(
+                    id=attempt.completed_message_id, thread_id=thread_id, role="assistant"
+                )
+                .one_or_none()
+            )
+            if assistant is None:
+                raise ValueError("Completion attempt points to no assistant in its thread")
+        elif attempt.terminal_event_type is None and attempt.accepted_at is not None:
+            snapshot = attempt.deadline_snapshot
+            if snapshot is not None:
+                if not isinstance(snapshot, dict):
+                    raise ValueError("Accepted chat recovery snapshot is invalid")
+                deadline = parse_accepted_chat_task_deadline(snapshot)
+                if deadline is None:
+                    raise ValueError("Accepted chat recovery snapshot is incomplete")
+                instant = now if now is not None else datetime.now(timezone.utc)
+                if not isinstance(instant, datetime) or instant.utcoffset() is None:
+                    raise ValueError("Reconciliation requires an aware server timestamp")
+                instant = instant.astimezone(timezone.utc)
+                if instant >= deadline.terminal_deadline_at:
+                    attempt.terminal_event_type = TaskEventType.TASK_FAILED.value
+                    attempt.terminal_outcome = {
+                        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value,
+                        "reconciled_at": instant.isoformat(),
+                    }
+        terminal = (
+            attempt.completed_message_id is not None
+            or attempt.terminal_event_type is not None
+        )
+        result = ChatAttemptReconciliation(
+            completed_message_id=attempt.completed_message_id,
+            terminal_event_type=attempt.terminal_event_type,
+            terminal_outcome=(
+                dict(attempt.terminal_outcome)
+                if attempt.terminal_outcome is not None else None
+            ),
+            turn_lock_token=attempt.turn_lock_token if terminal else None,
+        )
+    # Return only after commit acknowledgement; commit errors cannot claim recovery.
+    return result
 
 
 def get_chat_completion_attempt_by_task_id(
@@ -104,9 +341,61 @@ def get_chat_completion_attempt_by_task_id(
             "backend_task_id": attempt.backend_task_id,
             "thread_id": attempt.thread_id,
             "turn_id": attempt.turn_id,
+            "completed_message_id": attempt.completed_message_id,
+            "terminal_event_type": attempt.terminal_event_type,
+            "terminal_outcome": attempt.terminal_outcome,
+            "deadline_snapshot": attempt.deadline_snapshot,
             "created_at": attempt.created_at,
             "accepted_at": attempt.accepted_at,
         }
+
+
+def list_chat_completion_attempts_for_thread(
+    chatlog_db: Any, thread_id: int, *, limit: int = 100, offset: int = 0
+) -> List[Dict[str, Any]]:
+    """Read durable task identities for an already-authorized thread."""
+    with chatlog_db._sa_session() as session:
+        attempts = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(thread_id=thread_id)
+            .order_by(
+                ChatCompletionAttempt.created_at.desc(),
+                ChatCompletionAttempt.request_id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        rows: List[Dict[str, Any]] = []
+        for attempt in attempts:
+            completed_message_id = attempt.completed_message_id
+            if completed_message_id is not None:
+                assistant = (
+                    session.query(ChatMessage.id)
+                    .filter_by(
+                        id=completed_message_id,
+                        thread_id=thread_id,
+                        role="assistant",
+                    )
+                    .one_or_none()
+                )
+                if assistant is None:
+                    completed_message_id = None
+            rows.append(
+                {
+                    "request_id": attempt.request_id,
+                    "backend_task_id": attempt.backend_task_id,
+                    "thread_id": attempt.thread_id,
+                    "turn_id": attempt.turn_id,
+                    "completed_message_id": completed_message_id,
+                    "terminal_event_type": attempt.terminal_event_type,
+                    "terminal_outcome": attempt.terminal_outcome,
+                    "deadline_snapshot": attempt.deadline_snapshot,
+                    "created_at": attempt.created_at,
+                    "accepted_at": attempt.accepted_at,
+                }
+            )
+        return rows
 
 
 def _default_user_id() -> str:

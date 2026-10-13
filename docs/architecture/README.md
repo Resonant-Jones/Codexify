@@ -440,3 +440,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ## Onboarding and Tips
 
 [Account onboarding and Tips contract](onboarding-and-tips-contract.md) defines separate account UX persistence, optional device tours, static Tips, and capability-dependent social setup. It does not widen release claims.
+
+## Clone-to-ready bootstrap
+
+[ADR-101](adr/101-clone-to-ready-bootstrap-and-readiness.md) proposes shared workflow, core, inference, and human-action semantics generated from `contracts/bootstrap/readiness.v1.json`. Source setup uses `./scripts/setup`; desktop retains its native adapter. Core availability precedes inference configuration. This is onboarding work with qualification pending, and does not widen supported Beta or desktop support.

@@ -30,7 +30,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    ports: ["5433:5432"]
+    ports: ["127.0.0.1:${CODEXIFY_POSTGRES_PORT:-5433}:5432"]
     volumes:
       - pg_data:/var/lib/postgresql/data
 
@@ -39,7 +39,7 @@ services:
     environment:
       NEO4J_server_default__listen__address: 0.0.0.0
       NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
-    ports: ["7474:7474", "7687:7687"]
+    ports: ["127.0.0.1:${CODEXIFY_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${CODEXIFY_NEO4J_BOLT_PORT:-7687}:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
@@ -159,7 +159,7 @@ services:
   backend:
     image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    ports: ["8888:8888"]
+    ports: ["127.0.0.1:${CODEXIFY_BACKEND_PORT:-8888}:8888"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
       interval: 5s
@@ -463,10 +463,10 @@ services:
   # ─────────────────────────────────────────────────────────────────
   webui:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.webui
+      context: .
+      dockerfile: frontend/Dockerfile.webui.workspace
     ports:
-      - "3000:80"
+      - "127.0.0.1:${CODEXIFY_FRONTEND_PORT:-3000}:80"
     restart: unless-stopped
     depends_on:
       backend:

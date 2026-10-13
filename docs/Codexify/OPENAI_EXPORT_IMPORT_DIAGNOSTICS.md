@@ -25,6 +25,17 @@ The legacy `conversations.json` importer path is preserved. If
 `conversations.json` is present, legacy conversation import behavior remains the
 primary lane.
 
+## Browser Account-Import Boundary
+
+The current WebUI account-import path is folder-first: the Settings import modal
+can stage a selected export folder, a single ZIP, or a single readable JSON/`.dat`
+file through the owner-scoped account-import job. Folder-relative paths are
+preserved for diagnosis and replay. A single compatibility upload remains
+available for legacy `conversations.json` and one readable modern `.dat` shard,
+but it is not the full multi-file account-export path. For the current routes,
+batch limits, ownership checks, ZIP boundary, and retrieval qualification status,
+see [`CHATGPT_IMPORT_RUNBOOK.md`](CHATGPT_IMPORT_RUNBOOK.md).
+
 ## Diagnostic Mode
 
 Use diagnostic mode when inspecting an unknown export before mutating the

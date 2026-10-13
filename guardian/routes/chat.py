@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
+from typing import Annotated, Any, AsyncGenerator, Dict, List, Literal, Optional
 from urllib.parse import quote, unquote
 
 from fastapi import (
@@ -58,6 +58,8 @@ from guardian.conversation_origin import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
+from guardian.core.db import list_chat_completion_attempts_for_thread
+from guardian.core.chat_postgres_deadline import postgres_operation_scope
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )
@@ -71,6 +73,7 @@ from guardian.core.chat_completion_service import (
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
     enqueue_chat_completion,
+    reconcile_chat_attempt_receipts,
     _merge_thread_metadata_patch,
     resolve_thread_completion_settings,
     split_history_and_latest_turn,
@@ -109,6 +112,7 @@ from guardian.queue.redis_queue import (
     RedisOperationTimeout,
     enqueue,
     enqueue_chat_embed,
+    redis_operation_scope,
     run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
@@ -2410,43 +2414,77 @@ def chat_list_tasks(
     thread_id: int,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Return task lifecycle receipts for a thread.
 
-    Returns a list of task receipts derived from persisted task
-    identity tracking and task-event terminal-state evidence.
-    Missing or non-terminal tasks are reported honestly without
-    fabricating completion.
+    Durable attempt rows establish task identity. Redis task events remain
+    observation evidence; a persisted assistant link establishes completion
+    when terminal events are no longer available.
     """
-    thread = chatlog_db.get_chat_thread(thread_id)
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-    _require_thread_account_scope(
-        thread_id,
-        request_user_scope,
-        thread=thread,
-    )
-
-    metadata = _fetch_thread_metadata(thread_id)
-    task_id = _thread_latest_task_id(thread_id, metadata)
-
+    try:
+        with postgres_operation_scope(2):
+            thread = chatlog_db.get_chat_thread(thread_id)
+            if not thread:
+                raise HTTPException(status_code=404, detail="Thread not found")
+            _require_thread_account_scope(
+                thread_id, request_user_scope, thread=thread,
+            )
+            attempts = list_chat_completion_attempts_for_thread(
+                chatlog_db, thread_id, limit=limit + 1, offset=offset
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Chat receipts could not be confirmed.") from exc
+    page = reconcile_chat_attempt_receipts(chatlog_db, attempts[:limit])
     receipts: list[dict[str, Any]] = []
-    if task_id:
-        state = task_events.describe_terminal_state(task_id)
-        receipts.append(
-            {
-                "task_id": task_id,
-                "state": state.get("state"),
-                "event_type": state.get("event_type"),
-                "reason": state.get("reason"),
-            }
-        )
+    with redis_operation_scope():
+        for attempt in page:
+            task_id = attempt["backend_task_id"]
+            if attempt.get("completed_message_id") is not None:
+                state = {
+                    "state": "terminal",
+                    "event_type": "task.completed",
+                    "reason": "durable_completion_recorded",
+                }
+            elif attempt.get("terminal_event_type") in {
+                "task.failed",
+                "task.cancelled",
+            }:
+                state = {
+                    "state": "terminal",
+                    "event_type": attempt["terminal_event_type"],
+                    "reason": "durable_terminal_outcome_recorded",
+                }
+            else:
+                state = task_events.describe_terminal_state_in_scope(task_id)
+            receipts.append(
+                {
+                    "task_id": task_id,
+                    **{
+                        key: value
+                        for key, value in attempt.items()
+                        if key not in {"backend_task_id", "terminal_event_type", "turn_lock_token"}
+                    },
+                    "state": state.get("state"),
+                    "event_type": state.get("event_type"),
+                    "reason": state.get("reason"),
+                    **({"failure_code": attempt["terminal_outcome"]["failure_code"]}
+                       if attempt.get("terminal_outcome") else {}),
+                }
+            )
 
     return {
         "ok": True,
         "thread_id": thread_id,
         "tasks": receipts,
         "count": len(receipts),
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + len(receipts),
+        "has_more": len(attempts) > limit,
     }
 
 
@@ -5255,6 +5293,24 @@ def api_chat_get_thread(
         thread_id,
         api_key=api_key,
         request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get("/threads/{thread_id}/tasks")
+def api_chat_list_tasks(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Compatibility adapter using the canonical durable receipt policy."""
+    return chat_list_tasks(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+        limit=limit,
+        offset=offset,
     )
 
 

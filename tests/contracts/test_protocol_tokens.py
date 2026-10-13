@@ -1083,6 +1083,7 @@ def test_error_code_tokens() -> None:
         "mixed_principal_credentials",
         "ACCOUNT_SESSION_INVALID",
         "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+        "CHAT_ACCEPTED_TASK_ORPHANED",
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
@@ -1372,3 +1373,12 @@ def test_remote_recall_trace_event_tokens() -> None:
 
 def test_accepted_chat_deadline_error_token():
     assert ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value == "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"
+
+
+def test_chat_orphan_failure_is_distinct_from_controlled_deadline() -> None:
+    assert ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value == "CHAT_ACCEPTED_TASK_ORPHANED"
+    assert ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value in ERROR_CODES
+    assert (
+        ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED
+        != ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED
+    )

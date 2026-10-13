@@ -178,6 +178,8 @@ vi.mock("@/lib/authState", () => ({
   checkAuthGate: () => authTestState.gateAllowed,
 }));
 
+const cancelActiveCompletionSpy = vi.hoisted(() => vi.fn());
+
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
     static getRegisteredSpine() {
@@ -191,7 +193,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
         startCompletion: vi.fn(),
         attachCompletionIdentity: vi.fn(),
         failActiveCompletion: vi.fn(),
-        cancelActiveCompletion: vi.fn(),
+        cancelActiveCompletion: cancelActiveCompletionSpy,
       };
     }
     static subscribeActiveSpine() {
@@ -611,6 +613,23 @@ describe("AppShell canonical desktop geometry", () => {
 beforeEach(() => {
   setViewportWidth(1280);
   setAuthenticatedAuthState();
+});
+
+describe("AppShell Stop request authority", () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it("does not terminalize the session when a Stop POST is dispatched", () => {
+    installMatchMedia(false);
+    localStorage.setItem("cfy.lastView", "guardian");
+    render(<AppShell />);
+    const interceptor = vi.mocked(api.interceptors.request.use).mock.calls.at(-1)?.[0];
+    expect(interceptor).toBeTypeOf("function");
+    const config = { method: "post", url: "/api/tasks/accepted-task/cancel", data: {} };
+
+    expect(interceptor?.(config as any)).toBe(config);
+
+    expect(cancelActiveCompletionSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("AppShell logo wordmark color contract", () => {

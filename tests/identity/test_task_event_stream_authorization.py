@@ -55,7 +55,7 @@ def task_event_client(monkeypatch):
             )
         ]
     )
-    monkeypatch.setattr(task_events, "read_events", redis_read)
+    monkeypatch.setattr(task_events, "read_events_bounded", redis_read)
 
     from guardian.guardian_api import app
 

@@ -22,10 +22,7 @@ from guardian.services.account_export import (
     UNIFIED_MEMORY_PAYLOAD_FAMILIES,
     build_account_export_zip,
 )
-from guardian.services.account_restore import (
-    AccountRestoreError,
-    AccountRestoreService,
-)
+from guardian.services.account_restore import AccountRestoreError, AccountRestoreService
 from tests.migration.test_canonical_memory_persistence_migration import _upgrade
 from tests.migration.test_canonical_memory_persistence_migration import (  # noqa: PLC0414
     temporary_postgres as temporary_postgres,
@@ -195,6 +192,8 @@ def _unified_memory_bundle() -> dict[str, list[dict[str, Any]]]:
             "activated_at": LATER,
             "pinned": False,
             "held": True,
+            "review_state": "approved",
+            "lifecycle_state": "active",
             "extensions": {"display_hint": "sovereignty"},
             "created_at": NOW,
             "updated_at": LATER,
@@ -212,6 +211,8 @@ def _unified_memory_bundle() -> dict[str, list[dict[str, Any]]]:
             "activated_at": NOW,
             "pinned": True,
             "held": False,
+            "review_state": "approved",
+            "lifecycle_state": "active",
             "extensions": {"display_hint": "architecture"},
             "created_at": NOW,
             "updated_at": LATER,
@@ -356,14 +357,17 @@ def test_default_and_explicit_v3_remain_v3(tmp_path: Path, schema_version: str |
 
 
 def test_unsupported_export_schema_fails_closed(tmp_path: Path):
+    # UMS-05C9 introduced ``account-export.v5`` as the supported six-family
+    # canonical graph, so the unknown-version example is now a later token.
+    # The fail-closed guardrail itself is unchanged.
     with pytest.raises(
         RuntimeError,
-        match="unsupported_account_export_schema_version:account-export.v5",
+        match="unsupported_account_export_schema_version:account-export.v99",
     ):
         _archive_bytes(
             StagedExportDB(),
             tmp_path,
-            schema_version="account-export.v5",
+            schema_version="account-export.v99",
         )
 
 
@@ -425,6 +429,8 @@ def test_explicit_v4_serializes_exact_canonical_graph_and_manifest(tmp_path: Pat
         "activated_at": NOW,
         "pinned": True,
         "held": False,
+        "review_state": "approved",
+        "lifecycle_state": "active",
         "extensions": {"display_hint": "architecture"},
         "created_at": NOW,
         "updated_at": LATER,

@@ -47,6 +47,7 @@ inline literals.
 
 - Error codes:
   `ACCOUNT_SESSION_INVALID`,
+  `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED`, `CHAT_ACCEPTED_TASK_ORPHANED`,
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
@@ -54,6 +55,15 @@ inline literals.
   `CAMPAIGN_GOAL_NOT_FOUND`, `CAMPAIGN_GOAL_INVALID`,
   `CAMPAIGN_NOT_FOUND`, `CAMPAIGN_INVALID`,
   `CAMPAIGN_EXECUTION_ATTEMPT_INVALID`
+
+  - `CHAT_ACCEPTED_TASK_ORPHANED` records an unresolved durably accepted chat
+    attempt reconciled after its original persisted terminal deadline. Its
+    `reconciled_at` is an observation timestamp, not the time of worker death.
+    Durable assistant completion and existing terminal truth take precedence;
+    this code does not assert whether generation executed or classify a crash
+    as controlled `CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED`. Retry requires a new
+    request/task identity. Missing admission confirmation or an original valid
+    snapshot cannot be repaired from Redis or later acceptance timestamps.
 
 - Account-auth failure classification:
   `X-Guardian-Auth-Failure` carries the registered

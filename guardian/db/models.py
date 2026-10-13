@@ -1344,10 +1344,46 @@ class ChatCompletionAttempt(Base):
         index=True,
     )
     turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    completed_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    terminal_event_type: Mapped[str | None] = mapped_column(String(32))
+    terminal_outcome: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    deadline_snapshot: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    turn_lock_token: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "terminal_event_type IS NULL OR terminal_event_type IN "
+            "('task.failed', 'task.cancelled')",
+            name="ck_chat_completion_attempts_terminal_event",
+        ),
+        CheckConstraint(
+            "terminal_outcome IS NULL OR COALESCE(("
+            "jsonb_typeof(terminal_outcome) = 'object' "
+            "AND terminal_outcome->>'failure_code' = 'CHAT_ACCEPTED_TASK_ORPHANED' "
+            "AND terminal_event_type = 'task.failed' "
+            "AND completed_message_id IS NULL AND accepted_at IS NOT NULL "
+            "AND deadline_snapshot IS NOT NULL "
+            "AND (terminal_outcome->>'reconciled_at')::timestamptz >= "
+            "(deadline_snapshot->>'terminal_deadline_at')::timestamptz), false)",
+            name="ck_chat_attempt_orphan_outcome",
+        ),
+        CheckConstraint(
+            "(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR "
+            "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
+            "AND length(trim(turn_lock_token)) > 0)",
+            name="ck_chat_attempt_recovery_snapshot_pair",
+        ),
+    )
 
 
 class ChatMessage(Base):
@@ -6220,9 +6256,7 @@ class CampaignContinuationAuthorityRecord(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
-    approved_by_actor_id: Mapped[str] = mapped_column(
-        String(255), nullable=False
-    )
+    approved_by_actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
     approved_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
@@ -7143,6 +7177,12 @@ class MemoryRecord(Base):
     held: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'dormant'")
+    )
     extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -7205,6 +7245,14 @@ class MemoryRecord(Base):
             "(reviewed_at IS NOT NULL "
             "AND activated_at >= reviewed_at)",
             name="memory_records_review_activation_order_check",
+        ),
+        CheckConstraint(
+            "review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_records_review_state_check",
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_records_lifecycle_state_check",
         ),
         Index("ix_memory_records_user_id", "user_id"),
         Index("ix_memory_records_user_project", "user_id", "project_id"),
