@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-11
+2026-10-13
 
 ## Interpretation rule
 
@@ -18,13 +18,16 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior refresh, mainline merged request-scoped Chronicle interpretation authorization and a release-accounting log; neither changes the supported install path or qualification status. The latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The latest implementation merge adds a bounded authenticated, local-only, ephemeral Chronicle preview with focused tests; the 2026-10-13 mainline log records no new implementation. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
 - Merged request-scoped Chronicle interpretation authorization with exact authenticated scope, explicit consent/treatment, fail-closed exclusions, and no-write/no-model boundaries.
+- Merged the ephemeral Migration Chronicle preview route with reviewed-evidence digests, per-message approval, strict local dispatch, cited output validation, and zero-write/no-store behavior.
+- Added focused route/service tests for Chronicle scope, exclusions, malformed output, citation integrity, strict local dispatch, and no Redis writes; this is code/test evidence only.
 - Added PostgreSQL-backed HTTP regression coverage for the Chronicle preflight; this is code/test evidence, not supported-runtime qualification.
-- Recorded the 2026-10-11 release-accounting log; no supported-path qualification changed.
+- Recorded the 2026-10-12 bounded Chronicle constrained-JSON qualification as `PASS_CONSTRAINED`; missing retained telemetry and physical provenance keep release status at `HOLD`.
+- Recorded the 2026-10-13 no-change release-accounting log; no supported-path qualification changed.
 - The prior refresh's imported-history evidence reader and authenticated inspection route remain bounded code/test paths, not a complete import-to-recall capability.
 - Merged opt-in, same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
 - Persisted authenticated account-intake provenance for coding runs and merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority.
@@ -39,6 +42,7 @@ This file is authoritative for:
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Account import remains bounded: isolated evidence covers browser staging, materialization, ownership/readback, and later vector observations, not complete recall.
 - Same-node human messaging is enabled only in the opt-in Private Preview profile; it does not grant project, thread, Guardian, federation, attachment, or realtime authority.
+- A bounded authenticated Chronicle preview exists on `main` as an ephemeral, local-only, zero-write path; it is not part of the supported Beta promise.
 
 ## Not yet true / do not assume
 
@@ -46,6 +50,7 @@ This file is authoritative for:
 - Do not infer current-tip restart/shutdown recovery, browser transcript coherence before reload, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection; the current complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
 - Do not treat Chronicle authorization as recall, generation, provider context, model handoff, or a complete continuity-exclusion resolver.
+- Do not treat the Chronicle preview as complete continuity, frontend consent, semantic claim support, live local-model proof, deployed qualification, or supported Beta capability.
 - Do not treat focused tests, disposable PostgreSQL, isolated Preview proof, docs, or route presence as deployed/public-ingress qualification.
 - Do not treat the two changed architecture knowledge-graph JSON nodes as valid metadata; committed conflict markers currently make both fail JSON parsing.
 - Do not treat direct messaging, activation, browser/import, connectors, Watchdog, retention, hosted sandbox, Atlas, Pi, or branch-local work as default Beta support without current-main qualification.
