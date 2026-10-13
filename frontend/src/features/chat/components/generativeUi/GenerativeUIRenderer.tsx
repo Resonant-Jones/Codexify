@@ -41,7 +41,12 @@ const NativeArtifact: React.FC<{ artifact: NativeUiArtifact }> = ({ artifact }) 
   if (!entry) return null;
   const Component = entry.component;
   return (
-    <div data-testid="generative-ui-native" data-component={artifact.component} className={entry.className}>
+    <div
+      data-testid="generative-ui-native"
+      data-component={artifact.component}
+      data-layout={artifact.layout ?? "compact"}
+      className={artifact.layout === "wide" ? "w-full max-w-full" : entry.className}
+    >
       <Component {...artifact.props} />
     </div>
   );

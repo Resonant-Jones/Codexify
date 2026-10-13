@@ -10,6 +10,7 @@
  */
 import React from "react";
 import { createRoot } from "react-dom/client";
+import "./index.css";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import {
   serializeUiArtifact,
@@ -117,6 +118,15 @@ const CHART: GenerativeUiArtifact = {
   },
 };
 
+const WIDE_PANEL: GenerativeUiArtifact = {
+  version: 1,
+  kind: "sandbox",
+  title: "Responsive canvas",
+  layout: "wide",
+  initialHeight: 120,
+  html: '<div data-testid="tall-canvas" style="height:390px;border:1px solid #888;border-radius:12px;padding:16px">Content-driven height</div>',
+};
+
 const MESSAGES = [
   { label: "sandbox-calculator", content: [
     "Here is a calculator. Click the controls:",
@@ -125,6 +135,10 @@ const MESSAGES = [
   { label: "native-chart", content: [
     "Thread volume this week:",
     serializeUiArtifact(CHART),
+  ].join("\n\n") },
+  { label: "sandbox-wide", content: [
+    "This canvas should use the full available chat width and fit its height:",
+    serializeUiArtifact(WIDE_PANEL),
   ].join("\n\n") },
   { label: "malformed", content: [
     "This artifact is malformed and must degrade safely:",

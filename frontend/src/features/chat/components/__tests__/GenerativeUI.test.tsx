@@ -207,6 +207,19 @@ describe("generative UI artifact codec", () => {
     expect(parseUiArtifacts("<!-- cfy-ui:%E0%A4%A -->").artifacts).toHaveLength(0);
   });
 
+  it("round-trips bounded wide layout hints for both artifact kinds", () => {
+    const wideSandbox = { ...CALCULATOR, layout: "wide" as const };
+    expect(parseUiArtifacts(serializeUiArtifact(wideSandbox)).artifacts[0]).toMatchObject({
+      kind: "sandbox", layout: "wide", initialHeight: 260,
+    });
+    const wideChart = { version: 1 as const, kind: "native" as const, component: "chart.bar", props: {}, layout: "wide" as const };
+    expect(parseUiArtifacts(serializeUiArtifactForModel(wideChart)).artifacts[0]).toMatchObject({
+      kind: "native", layout: "wide",
+    });
+    expect(validateUiArtifact({ ...CALCULATOR, layout: "fullscreen" })).toBeNull();
+    expect(validateUiArtifact({ ...CALCULATOR, layout: 10000 })).toBeNull();
+  });
+
   it("renders a model-emitted native artifact end to end", () => {
     enableGate();
     const payload = {
@@ -301,6 +314,16 @@ describe("generative UI sandbox containment", () => {
     expect(doc).toContain('addEventListener("click"');
     expect(doc).toContain("btn.dataset.key");
     expect(doc).toContain("display.textContent = expr");
+  });
+
+  it("automatically schedules in-frame content measurement without widening sandbox privileges", () => {
+    const doc = buildSandboxDocument(CALCULATOR as never, "sess");
+    expect(doc).toContain("new ResizeObserver(scheduleMeasure)");
+    expect(doc).toContain("new MutationObserver(scheduleMeasure)");
+    expect(doc).toContain("document.body.scrollHeight");
+    expect(doc).toContain('window.addEventListener("resize", scheduleMeasure)');
+    expect(doc).toContain('post("resize", { height: target })');
+    expect(doc).toContain("Math.min(Math.max(contentHeight, 80), 640)");
   });
 
   it("degrades a throwing artifact to an inline notice via the error boundary", () => {
@@ -582,6 +605,29 @@ describe("generative UI host bridge", () => {
 // ---------------------------------------------------------------------------
 
 describe("generative UI feature gate", () => {
+  it("allows wide sandbox artifacts to use the chat lane without expanding ordinary bubbles", () => {
+    enableGate();
+    const wide = render(bubble(serializeUiArtifact({ ...CALCULATOR, layout: "wide" })));
+    const wideFrame = wide.container.querySelector('[data-layout="wide"]') as HTMLElement;
+    expect(wideFrame).toBeInTheDocument();
+    expect(wideFrame.className).toContain("max-w-full");
+    expect(wide.container.querySelector('[data-testid="generative-ui-stack"]')?.parentElement?.className).toContain("w-full");
+
+    const compact = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const compactFrame = compact.container.querySelector('[data-layout="compact"]') as HTMLElement;
+    expect(compactFrame.className).toContain("max-w-[min(34rem,100%)]");
+    expect(compact.container.querySelector('[data-testid="generative-ui-stack"]')?.parentElement?.className).toContain("max-w-[85%]");
+  });
+
+  it("widens registered native components only when requested", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "table.rows", props: { columns: ["a"], rows: [{ a: "x" }] }, layout: "wide",
+    })));
+    expect(container.querySelector('[data-testid="generative-ui-native"]')?.getAttribute("class")).toContain("max-w-full");
+    expect(container.querySelector('[data-testid="generative-ui-stack"]')?.parentElement?.className).toContain("w-full");
+  });
+
   it("renders nothing and executes nothing when the gate is off", () => {
     enableGate("false");
     const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));

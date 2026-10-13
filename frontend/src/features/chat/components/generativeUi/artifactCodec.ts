@@ -44,11 +44,15 @@ export const MAX_SANDBOX_TOTAL_CHARS = 260_000;
 export const MAX_NATIVE_PROPS_CHARS = 20_000;
 export const MAX_TITLE_CHARS = 200;
 
+/** Width is a hint only; the host owns the chat lane's actual bounds. */
+export type UiArtifactLayout = "compact" | "wide";
+
 export type NativeUiArtifact = {
   version: 1;
   kind: "native";
   component: string;
   props: Record<string, unknown>;
+  layout?: UiArtifactLayout;
 };
 
 export type SandboxUiArtifact = {
@@ -59,6 +63,7 @@ export type SandboxUiArtifact = {
   css?: string;
   js?: string;
   initialHeight?: number;
+  layout?: UiArtifactLayout;
 };
 
 export type GenerativeUiArtifact = NativeUiArtifact | SandboxUiArtifact;
@@ -148,6 +153,8 @@ export function validateUiArtifact(candidate: unknown): GenerativeUiArtifact | n
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
   const raw = candidate as Record<string, unknown>;
   if (raw.version !== 1) return null;
+  if (raw.layout !== undefined && raw.layout !== "compact" && raw.layout !== "wide") return null;
+  const layout = raw.layout as UiArtifactLayout | undefined;
 
   if (raw.kind === "native") {
     const component = normalizeString(raw.component);
@@ -163,7 +170,10 @@ export function validateUiArtifact(candidate: unknown): GenerativeUiArtifact | n
       return null;
     }
     if (serialized.length > MAX_NATIVE_PROPS_CHARS) return null;
-    return { version: 1, kind: "native", component, props: (props ?? {}) as Record<string, unknown> };
+    return {
+      version: 1, kind: "native", component, props: (props ?? {}) as Record<string, unknown>,
+      ...(layout ? { layout } : {}),
+    };
   }
 
   if (raw.kind === "sandbox") {
@@ -193,6 +203,7 @@ export function validateUiArtifact(candidate: unknown): GenerativeUiArtifact | n
       ...(css.trim() ? { css } : {}),
       ...(js.trim() ? { js } : {}),
       ...(initialHeight !== undefined ? { initialHeight } : {}),
+      ...(layout ? { layout } : {}),
     };
   }
 

@@ -21,7 +21,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
-import GenerativeUIRenderer from "@/features/chat/components/generativeUi/GenerativeUIRenderer";
+import GenerativeUIRenderer, { isGenerativeUiEnabled } from "@/features/chat/components/generativeUi/GenerativeUIRenderer";
 import { parseUiArtifacts } from "@/features/chat/components/generativeUi/artifactCodec";
 import { requestComposerPrefill } from "@/features/chat/components/generativeUi/hostActions";
 
@@ -497,6 +497,7 @@ export function ChatBubble({
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(assistantContent);
   const hasUiArtifacts = uiArtifacts.length > 0;
+  const hasWideUi = isGuardian && isGenerativeUiEnabled() && uiArtifacts.some((artifact) => artifact.layout === "wide");
   const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles || hasUiArtifacts;
   const formattedTime = fmtTime(message.createdAt);
   const execution = message.execution;
@@ -660,7 +661,7 @@ export function ChatBubble({
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
         className={cn(
           "mr-auto min-w-0 space-y-1",
-          isPhoneShell ? "w-full max-w-full" : "max-w-[85%]"
+          isPhoneShell || hasWideUi ? "w-full max-w-full" : "max-w-[85%]"
         )}
       >
         <div

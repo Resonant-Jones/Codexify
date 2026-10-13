@@ -85,7 +85,7 @@ Rationale, with the alternatives it rejects:
 
 ```ts
 type GenerativeUiArtifact =
-  | { version: 1; kind: "native"; component: string; props: Record<string, unknown> }
+  | { version: 1; kind: "native"; component: string; props: Record<string, unknown>; layout?: "compact" | "wide" }
   | {
       version: 1;
       kind: "sandbox";
@@ -94,10 +94,26 @@ type GenerativeUiArtifact =
       css?: string;
       js?: string;
       initialHeight?: number;
+      layout?: "compact" | "wide";
     };
 ```
 
 Unknown `version` or unknown `kind` is **rejected at parse time**, not rendered.
+
+### Responsive artifact sizing
+
+`layout` is an optional width hint. `compact` (default) retains the existing
+34rem artifact bound. `wide` uses the available Codexify chat lane; it cannot
+request an arbitrary pixel width or extend outside the conversation viewport.
+Unknown layout tokens fail validation. Native charts/tables and sandbox frames
+share this same hint.
+
+The isolated sandbox measures its body after scripts initialize and again when
+content changes. A `ResizeObserver` and a DOM observer schedule bounded height
+updates over the existing `resize` bridge. `initialHeight` sets first paint
+height only. The host still clamps every request to 80-640px; taller interfaces
+scroll inside the frame. No new host actions, credentials, or permissions are
+introduced by measurement or width hints.
 
 ### Wire encoding
 

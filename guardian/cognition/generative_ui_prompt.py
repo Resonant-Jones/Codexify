@@ -44,7 +44,7 @@ Available components: `chart.bar` (props: `title`, `series` of
 and `table.rows` (props: `title`, `columns` of key strings, `rows` of objects).
 
 Sandboxed custom interface:
-`{"version":1,"kind":"sandbox","title":"Calculator","initialHeight":260,"html":"<button>..</button>","css":"button{...}","js":"document.querySelector('button').onclick=()=>{...}"}`
+`{"version":1,"kind":"sandbox","title":"Calculator","layout":"wide","initialHeight":260,"html":"<button>..</button>","css":"button{...}","js":"document.querySelector('button').onclick=()=>{...}"}`
 
 Rules:
 - Use `native` for data visualization. Use `sandbox` only when the user needs
@@ -52,6 +52,10 @@ Rules:
 - Prefer plain prose for ordinary answers. Do not emit a marker for simple
   factual replies, summaries, or anything a sentence handles well.
 - At most one artifact per reply.
+- Either artifact kind may declare `"layout":"wide"` for a broad canvas;
+  otherwise it uses compact width. The host always bounds layout to chat width.
+- Sandbox content is measured and fitted vertically up to a safe height cap;
+  `initialHeight` is a starting size, not a clipping requirement.
 - Any prose before the marker is rendered normally; keep the marker last.
 - The artifact source is stripped before you see it again later, so do not
   refer to it as if it persisted in conversation history.
@@ -65,6 +69,7 @@ access and no direct access to the host. Therefore:
 - The only host functions available are `window.cfyUI.sendPrompt(text)`, which
   prefills the user's composer for them to review and send themselves, and
   `window.cfyUI.resize(height)`. Calling `sendPrompt` never sends anything.
+  The host also observes content size, so manual resize is optional.
 - Keep the interface self-contained, accessible, and light on dark backgrounds.
 """
 

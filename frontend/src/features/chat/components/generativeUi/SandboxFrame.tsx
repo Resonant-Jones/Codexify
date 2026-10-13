@@ -85,7 +85,7 @@ function bridgeScript(session: string): string {
   function clamp(height) {
     var n = Number(height);
     if (!isFinite(n)) return;
-    post("resize", { height: Math.min(Math.max(Math.round(n), 80), 640) });
+    post("resize", { height: Math.min(Math.max(Math.round(n), ${MIN_FRAME_HEIGHT}), ${MAX_FRAME_HEIGHT}) });
   }
   window.addEventListener("message", function (ev) {
     if (ev.source !== parent) return;
@@ -109,6 +109,39 @@ function bridgeScript(session: string): string {
     writable: false,
     configurable: false
   });
+  // The generated interface should not need to implement its own sizing bridge.
+  // Measure within the opaque-origin frame; only bounded height crosses to the host.
+  var lastMeasuredHeight = 0;
+  var measureQueued = false;
+  function measureContent() {
+    if (!document.body) return;
+    var bounds = document.body.getBoundingClientRect();
+    var contentHeight = Math.ceil(Math.max(document.body.scrollHeight, bounds.height));
+    if (!isFinite(contentHeight) || contentHeight <= 0) return;
+    var target = Math.min(Math.max(contentHeight, ${MIN_FRAME_HEIGHT}), ${MAX_FRAME_HEIGHT});
+    if (target === lastMeasuredHeight) return;
+    lastMeasuredHeight = target;
+    post("resize", { height: target });
+  }
+  function scheduleMeasure() {
+    if (measureQueued) return;
+    measureQueued = true;
+    requestAnimationFrame(function () {
+      measureQueued = false;
+      measureContent();
+    });
+  }
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(scheduleMeasure).observe(document.body);
+  }
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(scheduleMeasure).observe(document.body, {
+      childList: true, subtree: true, characterData: true
+    });
+  }
+  window.addEventListener("load", scheduleMeasure);
+  window.addEventListener("resize", scheduleMeasure);
+  scheduleMeasure();
 })();`;
 }
 
@@ -134,7 +167,8 @@ export function buildSandboxDocument(artifact: SandboxUiArtifact, session: strin
 <title>${title}</title>
 <style>
   :root { color-scheme: light dark; }
-  html, body {
+  html { margin: 0; padding: 0; }
+  body {
     margin: 0;
     padding: 0.75rem;
     background: transparent;
@@ -187,7 +221,7 @@ const SandboxFrame: React.FC<SandboxFrameProps> = ({ artifact, onSendPrompt, onH
   sessionRef.current = session;
   const promptHandlerRef = React.useRef<SandboxBridgeHandler["onSendPrompt"]>(undefined);
   promptHandlerRef.current = onSendPrompt;
-  const heightHandlerRef = React.useRef<SandboxBridgeHandler["onSendPrompt"]>(undefined);
+  const heightHandlerRef = React.useRef<SandboxFrameProps["onHeightChange"]>(undefined);
   heightHandlerRef.current = onHeightChange;
 
   const doc = React.useMemo(() => buildSandboxDocument(artifact, session), [artifact, session]);
@@ -232,7 +266,12 @@ const SandboxFrame: React.FC<SandboxFrameProps> = ({ artifact, onSendPrompt, onH
 
   return (
     <div
-      className="max-w-[min(34rem,100%)] overflow-hidden rounded-xl border"
+      data-layout={artifact.layout ?? "compact"}
+      className={
+        artifact.layout === "wide"
+          ? "w-full max-w-full overflow-hidden rounded-xl border"
+          : "w-full max-w-[min(34rem,100%)] overflow-hidden rounded-xl border"
+      }
       style={{ borderColor: "color-mix(in srgb, var(--panel-border) 80%, transparent)" }}
     >
       <iframe
