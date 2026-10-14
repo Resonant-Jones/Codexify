@@ -35,6 +35,7 @@ from guardian.command_bus.contracts import (
     InvokeRequest,
 )
 from guardian.command_bus.invoke import execute_invoke
+from guardian.command_bus.redaction_policy import compute_args_hash
 from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
@@ -64,7 +65,10 @@ from guardian.context.retrieval_router_policy import (
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.db import (
+    ChatToolCheckpointError,
     create_chat_completion_attempt,
+    freeze_chat_tool_decision,
+    get_chat_tool_checkpoint,
     mark_chat_completion_attempt_accepted,
 )
 from guardian.core.ai_router import (
@@ -6154,6 +6158,37 @@ def _execute_bounded_tool_turn_completion(
     )
     normalized_first_output = normalize_completion_output(first_attempt.output)
     if normalized_first_output.kind != "tool_decision":
+        try:
+            frozen = get_chat_tool_checkpoint(
+                dependencies.chatlog_db,
+                request_id=request_id or "",
+                backend_task_id=str(getattr(task, "task_id", "") or ""),
+                thread_id=task.thread_id,
+                turn_id=str(getattr(task, "turn_id", "") or ""),
+                account_id=str(getattr(task, "user_id", "") or ""),
+            )
+        except Exception as exc:
+            raise ToolLoopExecutionError(
+                "tool_checkpoint_unavailable",
+                metadata=_tool_loop_identity_fields(
+                    task=task,
+                    tool_turn_id=None,
+                    tool_turn_state=ToolTurnState.FAILED.value,
+                    loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                    command_run_id=None,
+                ),
+            ) from exc
+        if frozen is not None:
+            raise ToolLoopExecutionError(
+                "tool_decision_conflict",
+                metadata=_tool_loop_identity_fields(
+                    task=task,
+                    tool_turn_id=frozen["tool_turn_id"],
+                    tool_turn_state=ToolTurnState.FAILED.value,
+                    loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                    command_run_id=None,
+                ),
+            )
         assistant_text = normalized_first_output.text or ""
         if not assistant_text.strip():
             assistant_text = "No assistant response was generated."
@@ -6285,6 +6320,37 @@ def _execute_bounded_tool_turn_completion(
         auth_subject = task.user_id
         inbound_headers = {"X-API-Key": local_api_key}
 
+    try:
+        checkpoint = freeze_chat_tool_decision(
+            dependencies.chatlog_db,
+            request_id=request_id or "",
+            backend_task_id=str(getattr(task, "task_id", "") or ""),
+            thread_id=task.thread_id,
+            turn_id=str(getattr(task, "turn_id", "") or ""),
+            account_id=str(getattr(task, "user_id", "") or ""),
+            command_id=command_id,
+            args_hash=compute_args_hash(
+                arguments.model_dump(mode="json", exclude_none=False)
+            ),
+        )
+    except Exception as exc:
+        reason = (
+            str(exc)
+            if isinstance(exc, ChatToolCheckpointError)
+            else "tool_checkpoint_unavailable"
+        )
+        raise ToolLoopExecutionError(
+            reason,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            ),
+        ) from exc
+    tool_turn_id = checkpoint["tool_turn_id"]
+    actor = actor.model_copy(update={"session_id": tool_turn_id})
     invocation = BoundedToolTurnInvocation(
         tool_turn_id=tool_turn_id,
         request_id=request_id or tool_turn_id,
@@ -6344,8 +6410,36 @@ def _execute_bounded_tool_turn_completion(
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
-    if command_status == "blocked":
-        loop_stop_reason = ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+    if (
+        not command_run_id
+        or command_status not in {"completed", "failed", "blocked"}
+        or (command_status == "completed" and "inline_result" not in command_result)
+    ):
+        raise ToolLoopExecutionError(
+            "tool_command_incomplete",
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.COMMAND_DISPATCHED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_FAILED.value,
+                command_run_id=command_run_id,
+            ),
+        )
+    if command_status in {"failed", "blocked"}:
+        raise ToolLoopExecutionError(
+            "tool_command_terminal_failure",
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=(
+                    ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+                    if command_status == "blocked"
+                    else ToolLoopStopReason.TOOL_COMMAND_FAILED.value
+                ),
+                command_run_id=command_run_id,
+            ),
+        )
     tool_turn_state = ToolTurnState.COMMAND_DISPATCHED.value
 
     if normalized_first_output.provider == "whooshd":

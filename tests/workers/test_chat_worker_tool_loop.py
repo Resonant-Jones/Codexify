@@ -62,6 +62,34 @@ def _prepare_worker_harness(
         write_audit_log=lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    checkpoints: dict[str, dict[str, Any]] = {}
+
+    def _freeze(_db, **values):
+        request_id = values["request_id"]
+        existing = checkpoints.get(request_id)
+        if existing is None:
+            existing = {
+                "tool_turn_id": f"tool-turn-{request_id}",
+                "command_id": values["command_id"],
+                "args_hash": values["args_hash"],
+            }
+            checkpoints[request_id] = existing
+        elif (existing["command_id"], existing["args_hash"]) != (
+            values["command_id"], values["args_hash"]
+        ):
+            raise chat_worker._chat_completion_service.ChatToolCheckpointError(
+                "tool_decision_conflict"
+            )
+        return existing
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service, "freeze_chat_tool_decision", _freeze
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **values: checkpoints.get(values["request_id"]),
+    )
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",

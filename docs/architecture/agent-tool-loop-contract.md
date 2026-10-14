@@ -40,21 +40,36 @@ If the provider returns plain output, the existing completion path continues.
 
 If the provider returns a structured tool decision:
 
-1. The runtime generates a `toolTurnId`.
+1. Guardian uses the accepted `requestId` and its durable
+   `ChatCompletionAttempt` to freeze one tool decision. The checkpoint records
+   the stable `toolTurnId`, canonical command ID, canonical arguments hash, and
+   creation time. It stores no raw arguments or provider payload.
 2. The runtime derives the canonical command IDs from the nonempty tool set authorized and advertised through `ChatCompletionTask.tools` for that request.
 3. The selected canonical `command_id` must belong to that exact set; missing or nonmatching advertised authority stops with `tool_command_blocked` before `execute_invoke`, with `toolTurnState=failed` and no `commandRunId`.
 4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
-5. The runtime executes exactly one authorized command through the command bus.
+5. After the advertised-subset gate and durable request, task, thread, turn,
+   and account binding checks, the first decision wins an atomic checkpoint
+   commit. The attempt row is committed before queue enqueue; `accepted_at`
+   may be recorded later and is not the checkpoint authority gate.
+   A matching retry uses its stored `toolTurnId`; a different command or
+   argument hash fails before Command Bus dispatch. A plain answer cannot
+   replace a previously frozen decision.
+6. The runtime executes exactly one authorized command through the command bus.
    An idempotent Command Bus replay may reuse its existing run only when the
    command identity, key, authorization subject, and canonical arguments hash
    match the original invocation. Conflicting or missing stored identity
    fails closed before returning a prior result or executing another command.
-6. The resulting `commandRunId` is captured.
-7. The command result is re-injected into the completion messages as bounded context.
-8. The runtime requests one final assistant answer.
-9. The runtime hard-stops after that final answer.
+7. The resulting `commandRunId` is captured. `CommandRun` remains the authority
+   for command status and result; a queued or running run is not a completed
+   tool result. Matching replay reuses its completed result and cannot execute
+   the command a second time under the same key.
+8. The command result is re-injected into the completion messages as bounded context.
+9. The runtime requests one final assistant answer.
+10. The runtime hard-stops after that final answer.
 
 No recursive retry choreography, planner loop, or second tool turn is part of this slice.
+The checkpoint does not provide automatic continuation after worker loss or
+arbitrary process failure. That requires separate restart and worker-loss proof.
 
 ## Canonical Observability Fields
 

@@ -8,6 +8,7 @@ flow through Postgres tables managed by Alembic migrations.
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,125 @@ from guardian.db.models import (
     SyncJob,
     ThreadMove,
 )
+
+
+class ChatToolCheckpointError(ValueError):
+    """The accepted request cannot safely use the proposed tool decision."""
+
+
+def _accepted_tool_attempt(
+    session: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    account_id: str,
+) -> ChatCompletionAttempt:
+    attempt = (
+        session.query(ChatCompletionAttempt)
+        .filter_by(request_id=request_id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if (
+        attempt is None
+        or attempt.backend_task_id != backend_task_id
+        or attempt.thread_id != thread_id
+        or attempt.turn_id != turn_id
+    ):
+        raise ChatToolCheckpointError("accepted_tool_attempt_unavailable")
+    owner = session.query(ChatThread.user_id).filter_by(id=thread_id).scalar()
+    if not account_id or owner != account_id:
+        raise ChatToolCheckpointError("accepted_tool_attempt_unavailable")
+    return attempt
+
+
+def _checkpoint_from_attempt(attempt: ChatCompletionAttempt) -> dict[str, Any] | None:
+    fields = (
+        attempt.tool_turn_id,
+        attempt.tool_command_id,
+        attempt.tool_args_hash,
+        attempt.tool_checkpoint_at,
+    )
+    if all(value is None for value in fields):
+        return None
+    if (
+        not all(value is not None for value in fields)
+        or not isinstance(attempt.tool_turn_id, str)
+        or not attempt.tool_turn_id.strip()
+        or not isinstance(attempt.tool_command_id, str)
+        or not attempt.tool_command_id.strip()
+        or not isinstance(attempt.tool_args_hash, str)
+        or len(attempt.tool_args_hash) != 64
+        or any(c not in "0123456789abcdef" for c in attempt.tool_args_hash)
+    ):
+        raise ChatToolCheckpointError("invalid_tool_checkpoint")
+    return {
+        "tool_turn_id": attempt.tool_turn_id,
+        "command_id": attempt.tool_command_id,
+        "args_hash": attempt.tool_args_hash,
+        "created_at": attempt.tool_checkpoint_at,
+    }
+
+
+def get_chat_tool_checkpoint(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    account_id: str,
+) -> dict[str, Any] | None:
+    """Read the checkpoint only through the accepted request's authority."""
+    with chatlog_db._sa_session() as session:
+        attempt = _accepted_tool_attempt(
+            session,
+            request_id=request_id,
+            backend_task_id=backend_task_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            account_id=account_id,
+        )
+        return _checkpoint_from_attempt(attempt)
+
+
+def freeze_chat_tool_decision(
+    chatlog_db: Any,
+    *,
+    request_id: str,
+    backend_task_id: str,
+    thread_id: int,
+    turn_id: str,
+    account_id: str,
+    command_id: str,
+    args_hash: str,
+) -> dict[str, Any]:
+    """Commit first-decision-wins identity before Command Bus dispatch."""
+    if not command_id or len(args_hash) != 64 or any(
+        c not in "0123456789abcdef" for c in args_hash
+    ):
+        raise ChatToolCheckpointError("invalid_tool_decision")
+    with chatlog_db._sa_session() as session:
+        attempt = _accepted_tool_attempt(
+            session,
+            request_id=request_id,
+            backend_task_id=backend_task_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            account_id=account_id,
+        )
+        existing = _checkpoint_from_attempt(attempt)
+        if existing is not None:
+            if existing["command_id"] != command_id or existing["args_hash"] != args_hash:
+                raise ChatToolCheckpointError("tool_decision_conflict")
+            return existing
+        attempt.tool_turn_id = str(uuid.uuid4())
+        attempt.tool_command_id = command_id
+        attempt.tool_args_hash = args_hash
+        attempt.tool_checkpoint_at = datetime.now(timezone.utc)
+        return _checkpoint_from_attempt(attempt)
 
 logger = logging.getLogger(__name__)
 EXPECTED_TABLES = set(Base.metadata.tables.keys()) | {"alembic_version"}

@@ -1348,6 +1348,21 @@ class ChatCompletionAttempt(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    tool_turn_id: Mapped[str | None] = mapped_column(String(128))
+    tool_command_id: Mapped[str | None] = mapped_column(String(512))
+    tool_args_hash: Mapped[str | None] = mapped_column(String(64))
+    tool_checkpoint_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "(tool_turn_id IS NULL AND tool_command_id IS NULL AND "
+            "tool_args_hash IS NULL AND tool_checkpoint_at IS NULL) OR "
+            "(tool_turn_id IS NOT NULL AND tool_command_id IS NOT NULL AND "
+            "tool_args_hash IS NOT NULL AND tool_checkpoint_at IS NOT NULL)",
+            name="ck_chat_completion_attempt_tool_checkpoint_complete",
+        ),
+    )
 
 
 class ChatMessage(Base):
