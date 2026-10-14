@@ -59,7 +59,7 @@ describe("Persona Studio acknowledgement persistence", () => {
   it("waits for acknowledgement before clearing dirty state, then reverts to that acknowledgement", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-    const name = await screen.findByLabelText(/persona name/i);
+    const name = await screen.findByLabelText(/lens name/i);
     await user.clear(name);
     await user.type(name, "Submitted draft");
     expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Unsaved changes · saved rev 12");
@@ -76,7 +76,7 @@ describe("Persona Studio acknowledgement persistence", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument());
     expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 30");
 
-    await user.type(screen.getByLabelText(/persona name/i), " changed");
+    await user.type(screen.getByLabelText(/lens name/i), " changed");
     await user.click(screen.getByTestId("persona-studio-action-reset"));
     expect(screen.getByDisplayValue("Acknowledged name")).toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 30");
@@ -85,7 +85,7 @@ describe("Persona Studio acknowledgement persistence", () => {
   it("leaves a failed save dirty and lets Revert restore the prior acknowledgement", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
-    const name = await screen.findByLabelText(/persona name/i);
+    const name = await screen.findByLabelText(/lens name/i);
     await user.type(name, " unsaved");
     personaStudioApiMock.updatePersonaProfile.mockRejectedValueOnce(new Error("offline"));
     await user.click(screen.getByTestId("persona-studio-action-save"));
@@ -106,7 +106,7 @@ describe("Persona Studio acknowledgement persistence", () => {
 
     await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
     await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
-    const name = await screen.findByLabelText(/persona name/i);
+    const name = await screen.findByLabelText(/lens name/i);
     await user.type(name, " newer");
     const body = personaStudioApiMock.createPersonaProfile.mock.calls[0]?.[0] as {
       manifest: { profileIdentity: string; [key: string]: unknown };

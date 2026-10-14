@@ -3766,7 +3766,7 @@ export default function AppShell({
                 onClick={() => navigateToView("personaStudio")}
                 style={getMobileNavPillStyle("personaStudio")}
               >
-                Persona Studio
+                Lens
               </PhonePressButton>
             </div>
           </div>
