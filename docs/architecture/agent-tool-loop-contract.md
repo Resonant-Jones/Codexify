@@ -1,5 +1,5 @@
 Purpose: Define the implemented bounded tool-augmented chat completion contract so the backend exposes one honest tool turn without implying a general autonomous agent loop.
-Last updated: 2026-04-22
+Last updated: 2026-10-14
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/core/ai_router.py
@@ -68,8 +68,57 @@ If the provider returns a structured tool decision:
 10. The runtime hard-stops after that final answer.
 
 No recursive retry choreography, planner loop, or second tool turn is part of this slice.
-The checkpoint does not provide automatic continuation after worker loss or
-arbitrary process failure. That requires separate restart and worker-loss proof.
+
+## Same-Task Reentry Proof
+
+A deterministic PostgreSQL-backed integration test now demonstrates same-task
+reentry after a completed `CommandRun` and before assistant-message persistence.
+The first provider continuation is interrupted after command completion. A
+separate chat database handle reads the accepted attempt checkpoint, and a
+separate Command Bus store reads the completed run and its stored result. A
+matching replay retains the frozen `toolTurnId`, passes the original command
+and canonical arguments through the existing idempotency key, receives the
+original `commandRunId` and result, and persists one assistant answer. The
+loopback command transport is mocked and counted once; the PostgreSQL-backed
+checkpoint and CommandRun persistence are real. The test also confirms that
+`running` is rejected as incomplete, `failed` remains a terminal failure, and
+secret-bearing arguments are not present in persisted redacted arguments or
+assistant metadata.
+
+The durable recovery evidence is limited to the existing accepted
+`ChatCompletionAttempt` binding and frozen command ID, argument hash, and
+`toolTurnId`, plus the Command Bus `CommandRun` identity, status, authorization
+subject, argument hash, and completed result. A replay must use the original
+request/task/thread/turn/account binding. Changed command or arguments conflict
+before dispatch; a plain answer cannot replace a frozen tool decision; missing
+or mismatched ownership fails closed. CommandRun status remains authoritative:
+queued/running runs are not reinjected as completed results, and failed or
+blocked runs do not trigger an automatic side-effect retry.
+
+Reentry repeats provider inference. For DeepSeek, the continuation uses the
+newly returned raw assistant tool call and that response's own `tool_call_id`;
+the provider regression test uses a different ID after reentry and confirms
+the tool result is correlated to that current ID. Whoosh'd continues through
+its existing structured translator, and the generic provider path uses its
+existing bounded result message. Provider-private state is not reconstructed
+from canonical identity. If inference does not reproduce the frozen canonical
+decision, reentry fails closed. Recovery from an opaque provider session that
+requires prior private continuation bytes unavailable in the current provider
+response remains unsupported; no provider continuation payload is added to
+durable storage here.
+
+The persisted assistant message now carries the accepted `requestId`, authored
+`turnId`, stable `toolTurnId`, original `commandRunId`, provider/model, and
+terminal evidence in its existing `extra_meta`, committed atomically with the
+message row on the Postgres chat adapter. Existing worker turn deduplication
+prevents a second completion attempt from creating another answer after that
+turn is already persisted.
+
+This proof uses fresh database handles and deterministic injected provider
+outputs; it is not a full process restart. It does not prove dequeued-task
+redelivery, automatic worker resurrection, recovery after arbitrary process
+loss, live Compose restart recovery, or multi-step coding execution. Those
+remain separate proof requirements.
 
 ## Canonical Observability Fields
 
@@ -77,10 +126,15 @@ The bounded slice records these runtime fields at the backend seam, on task even
 
 - `messageId`
 - `requestId`
+- `turnId`
 - `toolTurnId`
 - `toolTurnState`
 - `loopStopReason`
 - `commandRunId`
+- `provider`
+- `model`
+- `terminalEvidence`
+- `commandStatus`
 
 These fields are surfaced as explicit observability data, not hidden in prose or inline literals.
 

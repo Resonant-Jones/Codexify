@@ -365,3 +365,39 @@ def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
     assert failure_payload["loopStopReason"] == "tool_command_failed"
     assert failure_payload.get("commandRunId") is None
     assert json.dumps(failure_payload)
+
+
+def test_worker_replay_after_persisted_turn_deduplicates_before_execution(
+    monkeypatch,
+):
+    persisted_meta: list[dict[str, Any]] = []
+    published = _prepare_worker_harness(monkeypatch, persisted_meta=persisted_meta)
+    task = _build_task(task_id="task-worker-reentry-deduplicated")
+    provider_calls: list[Any] = []
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_for_turn",
+        lambda **_kwargs: 991,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: provider_calls.append(True),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        lambda **_kwargs: command_calls.append(True),
+    )
+
+    chat_worker._run_chat_task(task)
+
+    completed = next(
+        payload for kind, payload in published if kind == "task.completed"
+    )
+    assert completed["message_id"] == 991
+    assert completed["selection_source"] == "turn_id_dedupe"
+    assert provider_calls == []
+    assert command_calls == []
+    assert persisted_meta == []

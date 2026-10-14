@@ -881,6 +881,7 @@ def test_matching_retry_reuses_actual_command_run_without_second_execution(
 @pytest.mark.parametrize(
     "status,expected_error,expected_stop",
     [
+        ("queued", "tool_command_incomplete", "tool_command_failed"),
         ("running", "tool_command_incomplete", "tool_command_failed"),
         ("completed", "tool_command_incomplete", "tool_command_failed"),
         ("failed", "tool_command_terminal_failure", "tool_command_failed"),

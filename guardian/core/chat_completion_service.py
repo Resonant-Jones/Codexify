@@ -67,6 +67,7 @@ from guardian.core import dependencies, event_bus
 from guardian.core.db import (
     ChatToolCheckpointError,
     create_chat_completion_attempt,
+    create_chat_message_with_metadata,
     freeze_chat_tool_decision,
     get_chat_tool_checkpoint,
     mark_chat_completion_attempt_accepted,
@@ -7172,31 +7173,42 @@ def run_chat_completion_task(
     if not persist_assistant_message:
         return result
 
-    message_id = dependencies.chatlog_db.create_message(
+    assistant_message_meta = {
+        **(
+            {"provider_replay_state": provider_replay_state}
+            if provider == "deepseek" and isinstance(provider_replay_state, dict)
+            else {}
+        ),
+        **(
+            {"whooshd_runtime_provenance": completion_runtime_provenance}
+            if completion_runtime_provenance is not None
+            else {}
+        ),
+        **(
+            {"request_correlation": completion_request_correlation}
+            if completion_request_correlation is not None
+            else {}
+        ),
+        "requestId": request_id,
+        "turnId": str(getattr(task, "turn_id", "") or "") or None,
+        "toolTurnId": result.get("toolTurnId"),
+        "toolTurnState": result.get("toolTurnState"),
+        "loopStopReason": result.get("loopStopReason"),
+        "commandRunId": result.get("commandRunId"),
+        "commandStatus": (
+            result.get("command_status")
+            or payload_summary.get("command_status")
+        ),
+        "provider": provider,
+        "model": model,
+        "terminalEvidence": terminal_evidence.as_dict(),
+    }
+    message_id = create_chat_message_with_metadata(
+        dependencies.chatlog_db,
         task.thread_id,
         "assistant",
         assistant_text,
-        extra_meta=(
-            {
-                **(
-                    {"provider_replay_state": provider_replay_state}
-                    if provider == "deepseek"
-                    and isinstance(provider_replay_state, dict)
-                    else {}
-                ),
-                **(
-                    {"whooshd_runtime_provenance": completion_runtime_provenance}
-                    if completion_runtime_provenance is not None
-                    else {}
-                ),
-                **(
-                    {"request_correlation": completion_request_correlation}
-                    if completion_request_correlation is not None
-                    else {}
-                ),
-            }
-            or None
-        ),
+        extra_meta=assistant_message_meta,
     )
     result["message_id"] = message_id
     result["persistence_outcome"] = "persisted"

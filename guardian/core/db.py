@@ -51,6 +51,42 @@ class ChatToolCheckpointError(ValueError):
     """The accepted request cannot safely use the proposed tool decision."""
 
 
+def create_chat_message_with_metadata(
+    chatlog_db: Any,
+    thread_id: int,
+    role: str,
+    content: str,
+    *,
+    extra_meta: dict[str, Any],
+) -> int:
+    """Persist a chat message and its bounded metadata in one DB transaction."""
+    sa_session = getattr(chatlog_db, "_sa_session", None)
+    if not callable(sa_session):
+        return chatlog_db.create_message(
+            thread_id, role, content, extra_meta=extra_meta
+        )
+
+    with sa_session() as session:
+        thread = session.query(ChatThread).filter_by(id=thread_id).one_or_none()
+        if thread is None:
+            raise ValueError("chat_thread_unavailable")
+        now = datetime.now(timezone.utc)
+        message = ChatMessage(
+            thread_id=thread_id,
+            user_id=thread.user_id,
+            role=role,
+            content=content,
+            kind="chat",
+            event_at=now,
+            extra_meta=dict(extra_meta),
+        )
+        session.add(message)
+        thread.updated_at = now
+        thread.last_interaction_at = now
+        session.flush()
+        return int(message.id)
+
+
 def _accepted_tool_attempt(
     session: Any,
     *,
