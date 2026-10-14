@@ -303,6 +303,7 @@ class DelegationEventType(str, Enum):
 
 
 class ErrorCode(str, Enum):
+    COMMAND_BUS_IDEMPOTENCY_CONFLICT = "command_bus_idempotency_conflict"
     MIXED_PRINCIPAL_CREDENTIALS = "mixed_principal_credentials"
     ACCOUNT_SESSION_INVALID = "ACCOUNT_SESSION_INVALID"
     CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED = "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"

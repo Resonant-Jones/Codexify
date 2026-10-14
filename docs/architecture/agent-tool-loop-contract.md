@@ -45,6 +45,10 @@ If the provider returns a structured tool decision:
 3. The selected canonical `command_id` must belong to that exact set; missing or nonmatching advertised authority stops with `tool_command_blocked` before `execute_invoke`, with `toolTurnState=failed` and no `commandRunId`.
 4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
 5. The runtime executes exactly one authorized command through the command bus.
+   An idempotent Command Bus replay may reuse its existing run only when the
+   command identity, key, authorization subject, and canonical arguments hash
+   match the original invocation. Conflicting or missing stored identity
+   fails closed before returning a prior result or executing another command.
 6. The resulting `commandRunId` is captured.
 7. The command result is re-injected into the completion messages as bounded context.
 8. The runtime requests one final assistant answer.

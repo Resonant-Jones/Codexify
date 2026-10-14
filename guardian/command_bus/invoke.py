@@ -45,6 +45,7 @@ from guardian.codex_runner_bridge.command_bus import (
     execute_guardian_bridge_command,
     is_guardian_bridge_command,
 )
+from guardian.protocol_tokens import ErrorCode
 from guardian.tools.policy import (
     apply_policy_mode,
     evaluate_tool_policy,
@@ -105,6 +106,30 @@ def _response_from_existing_run(
     if run.get("error_text") is not None:
         response["error"] = str(run["error_text"])
     return response
+
+
+def _validate_existing_run_replay(
+    *,
+    run: dict[str, Any],
+    command_id: str,
+    idempotency_key: str,
+    auth_subject: str,
+    args_hash: str,
+) -> None:
+    if str(run.get("auth_subject") or "") != auth_subject:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "idempotency_key_not_permitted"},
+        )
+    if (
+        run.get("command_id") != command_id
+        or run.get("idempotency_key") != idempotency_key
+        or run.get("args_hash") != args_hash
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={"error": ErrorCode.COMMAND_BUS_IDEMPOTENCY_CONFLICT.value},
+        )
 
 
 def _optional_text(raw: object) -> str | None:
@@ -329,6 +354,7 @@ async def execute_invoke(
             },
         )
 
+    args_hash = compute_args_hash(args_dict)
     idempotency_key = (payload.idempotency_key or "").strip() or None
     if idempotency_key:
         existing_run = store.get_run_by_idempotency_key(
@@ -336,11 +362,13 @@ async def execute_invoke(
             idempotency_key,
         )
         if existing_run is not None:
-            if str(existing_run.get("auth_subject") or "") != auth_subject:
-                raise HTTPException(
-                    status_code=403,
-                    detail={"error": "idempotency_key_not_permitted"},
-                )
+            _validate_existing_run_replay(
+                run=existing_run,
+                command_id=command.command_id,
+                idempotency_key=idempotency_key,
+                auth_subject=auth_subject,
+                args_hash=args_hash,
+            )
             return _response_from_existing_run(
                 run=existing_run,
                 manifest_version=manifest.manifest_version,
@@ -400,7 +428,6 @@ async def execute_invoke(
                 f"{external_policy_decision.code}"
             )
 
-    args_hash = compute_args_hash(args_dict)
     args_redacted = redact_arguments(command.command_id, args_dict)
     is_guardian_bridge_internal = (
         command.layer == "internal"
@@ -455,11 +482,13 @@ async def execute_invoke(
         )
     except IdempotencyConflictError as exc:
         existing_run = exc.existing_run
-        if str(existing_run.get("auth_subject") or "") != auth_subject:
-            raise HTTPException(
-                status_code=403,
-                detail={"error": "idempotency_key_not_permitted"},
-            ) from exc
+        _validate_existing_run_replay(
+            run=existing_run,
+            command_id=command.command_id,
+            idempotency_key=idempotency_key,
+            auth_subject=auth_subject,
+            args_hash=args_hash,
+        )
         return _response_from_existing_run(
             run=existing_run,
             manifest_version=manifest.manifest_version,
