@@ -174,6 +174,14 @@ class Settings(BaseSettings):
         default="deepseek-v4-flash",
         description="Default chat model for DeepSeek completions.",
     )
+    DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS: float = Field(
+        default=120.0,
+        gt=0,
+        le=600,
+        allow_inf_nan=False,
+        description="Maximum active document embedding execution, including model startup.",
+    )
+
     EMBEDDER_PROVIDER: str = Field(
         default="local_api",
         description=(

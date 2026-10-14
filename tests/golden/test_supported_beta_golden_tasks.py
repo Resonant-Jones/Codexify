@@ -14,6 +14,7 @@ from guardian.core import config as config_module
 from guardian.core import dependencies as dependencies_module
 from guardian.core.dependencies import RequestUserScope
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.routes import chat
 from guardian.services import builtin_help_ingest as help_ingest
 from tests.utils import get_test_api_key, get_test_auth_headers
@@ -371,7 +372,18 @@ def test_golden_completion_acceptance_contract(monkeypatch):
     monkeypatch.setattr(
         chat_completion_service,
         "acquire_turn_lock",
-        lambda *args, **kwargs: True,
+        lambda thread_id, owner, **kwargs: build_turn_lock_envelope(
+            thread_id,
+            owner,
+            turn_id=kwargs.get("turn_id"),
+            ttl_seconds=kwargs.get("ttl_seconds"),
+            source=kwargs.get("source"),
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
     )
     monkeypatch.setattr(
         chat_completion_service,

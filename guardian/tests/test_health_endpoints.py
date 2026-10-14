@@ -1,11 +1,19 @@
 import json
+import logging
+from types import SimpleNamespace
 
 import pytest
 import requests
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from guardian.core import dependencies as guardian_dependencies
 from guardian.guardian_api import app
 from guardian.routes import health as health_routes
+
+
+EDGE_CAPABILITY_PATH = "/api/internal/edge/health"
+EDGE_REQUEST_ID = "27a38831-4869-4ea7-a7bd-428d9c27f4f5"
 
 
 class _FakeRedisClient:
@@ -64,6 +72,139 @@ def test_health_endpoints_ok():
     assert deps.status_code == 200
     data = deps.json()
     assert data.get("status") == "ok"
+
+
+def test_guardian_edge_health_accepts_only_the_dedicated_non_principal_key(
+    monkeypatch, caplog
+):
+    edge_key = "edge-capability-test-secret"
+    monkeypatch.setenv("GUARDIAN_EDGE_CAPABILITY_KEY", edge_key)
+    monkeypatch.setenv("GUARDIAN_API_KEY", "ordinary-guardian-service-key")
+
+    with caplog.at_level(logging.INFO, logger="guardian.routes.health"):
+        response = TestClient(app).get(
+            EDGE_CAPABILITY_PATH,
+            headers={
+                "X-API-Key": edge_key,
+                "X-Codexify-Edge-Request-ID": EDGE_REQUEST_ID,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "guardian",
+        "capability": "edge.health",
+        "status": "ok",
+    }
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["X-Codexify-Edge-Request-ID"] == EDGE_REQUEST_ID
+    log_record = next(
+        record
+        for record in caplog.records
+        if record.name == "guardian.routes.health"
+        and "guardian_edge_capability_request" in record.getMessage()
+    )
+    assert log_record.getMessage() == (
+        "event_type=guardian_edge_capability_request "
+        f"request_id={EDGE_REQUEST_ID} status_code=200"
+    )
+    assert edge_key not in log_record.getMessage()
+    assert guardian_dependencies.require_edge_capability(edge_key) is None
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"X-API-Key": "ordinary-guardian-service-key"},
+        {"Authorization": "Bearer edge-capability-test-secret"},
+        {"Cookie": "gc_session=edge-capability-test-secret"},
+    ],
+)
+def test_guardian_edge_health_rejects_other_credential_domains(
+    monkeypatch, headers
+):
+    monkeypatch.setenv(
+        "GUARDIAN_EDGE_CAPABILITY_KEY", "edge-capability-test-secret"
+    )
+    monkeypatch.setenv("GUARDIAN_API_KEY", "ordinary-guardian-service-key")
+
+    response = TestClient(app).get(
+        EDGE_CAPABILITY_PATH,
+        headers={"X-Codexify-Edge-Request-ID": EDGE_REQUEST_ID, **headers},
+    )
+
+    assert response.status_code == 401
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_guardian_edge_health_fails_closed_when_dedicated_key_is_unconfigured(
+    monkeypatch,
+):
+    monkeypatch.delenv("GUARDIAN_EDGE_CAPABILITY_KEY", raising=False)
+    monkeypatch.setenv("GUARDIAN_API_KEY", "ordinary-guardian-service-key")
+
+    response = TestClient(app).get(
+        EDGE_CAPABILITY_PATH,
+        headers={
+            "X-API-Key": "ordinary-guardian-service-key",
+            "X-Codexify-Edge-Request-ID": EDGE_REQUEST_ID,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_edge_key_is_not_accepted_by_the_general_service_key_dependency(
+    monkeypatch,
+):
+    monkeypatch.setenv("GUARDIAN_API_KEY", "ordinary-guardian-service-key")
+    monkeypatch.delenv("GUARDIAN_API_KEYS", raising=False)
+    monkeypatch.setattr(
+        guardian_dependencies,
+        "get_settings",
+        lambda: SimpleNamespace(
+            GUARDIAN_API_KEY="ordinary-guardian-service-key",
+            GUARDIAN_API_KEYS="",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        guardian_dependencies.require_service_api_key(
+            "edge-capability-test-secret"
+        )
+
+    assert error.value.status_code == 401
+
+
+def test_guardian_edge_health_requires_a_canonical_edge_request_id(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_EDGE_CAPABILITY_KEY", "edge-capability-test-secret")
+
+    response = TestClient(app).get(
+        EDGE_CAPABILITY_PATH,
+        headers={
+            "X-API-Key": "edge-capability-test-secret",
+            "X-Codexify-Edge-Request-ID": "caller-controlled-id",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers.get("X-Codexify-Edge-Request-ID") is None
+
+
+def test_guardian_edge_health_rejects_a_missing_edge_request_id(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_EDGE_CAPABILITY_KEY", "edge-capability-test-secret")
+
+    response = TestClient(app).get(
+        EDGE_CAPABILITY_PATH,
+        headers={"X-API-Key": "edge-capability-test-secret"},
+    )
+
+    assert response.status_code == 400
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers.get("X-Codexify-Edge-Request-ID") is None
 
 
 def test_health_reports_no_release_hold_for_local_only_settings(monkeypatch):

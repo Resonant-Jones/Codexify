@@ -13,6 +13,9 @@ from guardian.core.executors.base import (
     ExecutorTerminalResult,
 )
 from guardian.core.executors.codex_executor import CodexExecutor
+from guardian.core.executors.codex_app_server_executor import (
+    CodexAppServerExecutor,
+)
 from guardian.protocol_tokens import (
     DelegationEventType,
     DelegationExecutorName,
@@ -37,9 +40,14 @@ def _request() -> DelegationDraftRequest:
     )
 
 
-def _make_service() -> tuple[DelegationService, Any]:
+def _make_service(
+    *, execution_interface: str | None = None
+) -> tuple[DelegationService, Any]:
     service = DelegationService()
-    packet = service.draft_packet(_request())
+    request = _request()
+    if execution_interface is not None:
+        request.context["execution_interface"] = execution_interface
+    packet = service.draft_packet(request)
     approval = service.approve_packet(packet.packet_id)
     service.mark_job_queued(approval.job.delegation_id)
     return service, approval
@@ -219,6 +227,96 @@ def test_worker_publishes_running_progress_completed_lifecycle(
     assert escalation_payloads
     assert escalation_payloads[0]["escalation"]["kind"] == "needs_permission"
     assert escalation_payloads[0]["request_id"] == approval.job.delegation_id
+
+
+def test_worker_persists_explicit_app_server_result_with_codexify_lineage(
+    monkeypatch,
+) -> None:
+    service, approval = _make_service(execution_interface="app_server")
+    published: list[tuple[str, str, dict[str, Any]]] = []
+    captured: dict[str, Any] = {}
+
+    def fake_execute(self, request, *, on_output=None, should_stop=None):  # type: ignore[no-untyped-def]
+        captured["executor"] = self
+        captured["request"] = request
+        return ExecutorTerminalResult(
+            request_id=request.request_id,
+            delegation_id=request.delegation_id,
+            task_id=request.task_id,
+            thread_id=request.thread_id,
+            source_message_id=request.source_message_id,
+            project_id=request.project_id,
+            executor_id=request.executor_id,
+            title=request.title,
+            status=DelegationJobStatus.COMPLETED.value,
+            summary="App Server inspected the fixture.",
+            final_text="App Server inspected the fixture.",
+            stdout="App Server inspected the fixture.",
+            raw_transcript='{"method":"turn/completed"}\n',
+            result={
+                "execution_channel": "codex",
+                "execution_interface": "app_server",
+                "native_codex_thread_id": "native-thread-1",
+                "native_codex_turn_id": "native-turn-1",
+            },
+            metadata={
+                "execution_channel": "codex",
+                "execution_interface": "app_server",
+                "native_codex_thread_id": "native-thread-1",
+                "native_codex_turn_id": "native-turn-1",
+                "funding_route": {"evidence_status": "unknown"},
+            },
+        )
+
+    monkeypatch.setattr(delegation_worker, "is_cancelled", lambda *_: False)
+    monkeypatch.setattr(delegation_worker, "clear_cancelled", lambda *_: None)
+    monkeypatch.setattr(
+        delegation_worker.task_events,
+        "publish_with_visibility",
+        lambda task_id, event_type, data: (
+            published.append((task_id, event_type, dict(data or {})))
+            or {
+                "ok": True,
+                "task_id": task_id,
+                "event_type": event_type,
+                "visibility_scope": "progress",
+                "terminal_visibility": False,
+                "execution_continued": True,
+                "event_id": f"evt-{len(published)}",
+            }
+        ),
+    )
+    monkeypatch.setattr(CodexAppServerExecutor, "execute", fake_execute)
+
+    result = delegation_worker.process_delegation_task(
+        approval.task,
+        service=service,
+    )
+
+    assert isinstance(captured["executor"], CodexAppServerExecutor)
+    executor_request = captured["request"]
+    assert executor_request.metadata["execution_interface"] == "app_server"
+    assert result["status"] == DelegationJobStatus.COMPLETED.value
+    assert result["request_id"] == approval.job.delegation_id
+    assert result["thread_id"] == approval.job.thread_id
+    assert result["source_message_id"] == approval.task.source_message_id
+    assert result["project_id"] == approval.job.project_id
+    assert result["executor_id"] == DelegationExecutorName.CODEX.value
+    assert result["summary"] == "App Server inspected the fixture."
+
+    job = service.get_job(approval.job.delegation_id)
+    summary = service.get_summary(approval.job.delegation_id)
+    assert job is not None
+    assert job.status == DelegationJobStatus.COMPLETED.value
+    assert summary is not None
+    assert summary.thread_id == approval.job.thread_id
+    assert summary.source_message_id == approval.task.source_message_id
+    assert summary.result["execution_interface"] == "app_server"
+    assert summary.result["native_codex_thread_id"] == "native-thread-1"
+    assert summary.metadata["execution_channel"] == "codex"
+    assert summary.metadata["native_codex_turn_id"] == "native-turn-1"
+    assert summary.metadata["funding_route"]["evidence_status"] == "unknown"
+    assert published[-1][1] == DelegationEventType.COMPLETED.value
 
 
 def test_worker_publishes_terminal_failed_state_on_executor_failure(
@@ -465,3 +563,31 @@ def test_worker_short_circuits_when_job_is_already_terminal(
     assert result["status"] == DelegationJobStatus.CANCELLED.value
     assert result["delegation_id"] == approval.job.delegation_id
     assert result["task_id"] == approval.task.task_id
+
+
+def test_completed_replay_delivery_error_does_not_rerun_or_downgrade(monkeypatch):
+    service, approval = _make_service()
+    service.mark_job_completed(approval.job.delegation_id)
+
+    def unavailable(*_):
+        raise RuntimeError("password=do-not-publish")
+
+    monkeypatch.setattr(service, "deliver_completed_result", unavailable)
+    monkeypatch.setattr(
+        service,
+        "resolve_executor",
+        lambda *_args, **_kwargs: pytest.fail("completed inference must not rerun"),
+    )
+    published = []
+    monkeypatch.setattr(
+        delegation_worker.task_events,
+        "publish_with_visibility",
+        lambda task_id, event_type, data: published.append((event_type, data))
+        or {"ok": True},
+    )
+    result = delegation_worker.process_delegation_task(approval.task, service=service)
+    assert result["status"] == "completed"
+    assert service.get_job(approval.job.delegation_id).status == "completed"
+    assert result["metadata"]["delivery_ok"] is False
+    assert "do-not-publish" not in str(result)
+    assert published[-1][0] == "delegation.completed"

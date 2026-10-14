@@ -104,4 +104,5 @@ def test_docs_link_static_bundle_surfaces() -> None:
         assert "guardian-evidence-reducer-input-bundle-template.v1.json" in text
         assert "guardian-evidence-reducer-input-bundle.local-tooling.v1.json" in text
     assert "static ReducerInputBundle template and fixture" in reducer_contract
-    assert "static Guardian Evidence Reducer input bundle template" in current
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current

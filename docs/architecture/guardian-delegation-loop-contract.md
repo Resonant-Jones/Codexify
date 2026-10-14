@@ -2,7 +2,7 @@
 
 Purpose: define v1 as a hybrid bridge: `Guardian-owned chat intake -> task normalization -> durable intent artifact -> existing coding-run backbone -> Guardian thread continuation -> Command Center transcript mirror`.
 
-Last updated: 2026-05-25
+Last updated: 2026-09-24
 
 Source anchors:
 - docs/architecture/00-current-state.md
@@ -17,6 +17,7 @@ Source anchors:
 - docs/architecture/delegation-runtime.md
 - docs/architecture/adr/020-guardian-mediated-coding-agent-execution-contract.md
 - docs/architecture/adr/022-guardian-intent-spine-and-cross-surface-control-plane.md
+- docs/architecture/adr/ADR-048-guardian-three-channel-delegation-topology.md
 - docs/iddb_policy_v1.md
 
 ## Classification
@@ -50,6 +51,14 @@ Boundary posture for this contract:
 - Nodes in scope: Guardian-owned chat intake, durable intent artifact storage, existing coding-run/AgentRun backbone, source-thread continuation path, and Command Center transcript mirror.
 - Trust boundary: Guardian remains the owner of intake, approval, lineage, and posting; the coding-run backbone is execution substrate only; the Command Center transcript is a mirror only.
 - Threat posture: design first for honest-but-buggy execution, delayed visibility, superseded runs, and context leakage risk; block broader authority and personal-context spillover by default.
+
+## Delegated Task read projection
+
+A Delegated Task is a product/read-model projection over Guardian delegation lineage. Chat is the only implemented source surface in this slice; the projection itself must not redefine delegation as a chat-thread subtype. `GuardianDelegationIntent.intent_id` remains its identity and durable delegation authority. `GET /api/guardian/delegations?thread_id=<id>` lists the existing intents for one canonical source Chat Thread, using separate intent, run, approval, and visibility axes. The existing per-intent transcript endpoint remains read-only execution inspection truth.
+
+Delegated Tasks are subordinate execution lineage, not conversational transcript authority. One Chat Thread may spawn many Delegated Tasks, and a Delegated Task may carry one or more execution attempts/runs under the existing execution records. Questions and clarifications return through Guardian to the originating Chat Thread; results are delivered back through Guardian. Direct human conversation inside a Delegated Task is not part of this slice.
+
+Workspace inspection is the intended future presentation direction, but is not implemented here. Work Threads, sidebar task rows, and persistent reattachable stdout/stderr/PTY sessions remain deferred. This read projection does not change supported release posture.
 
 ## Current-Truth Anchors
 

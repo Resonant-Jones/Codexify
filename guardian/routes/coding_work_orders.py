@@ -14,9 +14,12 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from guardian.agents.campaign_continuation_authority import (
+    CampaignContinuationAuthorityEnvelope,
+)
 from guardian.agents.campaign_runner_store import (
     CampaignRunnerNotFound,
     CampaignRunnerStore,
@@ -32,7 +35,8 @@ from guardian.agents.work_order_store import (
 from guardian.agents.work_orders import WORK_ORDER_STATUSES, WorkOrderCreate
 from guardian.agents.worktree_lease_store import WorktreeLeaseStore
 from guardian.command_bus.store import CommandBusStore
-from guardian.core.dependencies import require_operator_auth
+from guardian.core.auth_dependencies import get_current_user_id
+from guardian.core.dependencies import get_single_user_id, require_operator_auth
 from guardian.db.models import WorkOrderResultReceipt
 from guardian.protocol_tokens import ErrorCode
 
@@ -133,6 +137,28 @@ class CampaignCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CampaignContinuationAuthorityApprovalRequest(BaseModel):
+    envelope: CampaignContinuationAuthorityEnvelope
+    expires_at: datetime | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("expires_at")
+    @classmethod
+    def require_timezone_aware_expiry(
+        cls, value: datetime | None
+    ) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("expires_at must include a timezone")
+        return value
+
+
+class CampaignContinuationAuthorityRevocationRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
 def _ensure_store_configured() -> WorkOrderStore:
     if _store.db is None:
         raise HTTPException(
@@ -158,6 +184,18 @@ def _ensure_campaign_runner_store_configured() -> CampaignRunnerStore:
             detail="campaign_runner_store_unavailable",
         )
     return _campaign_runner_store
+
+
+def _resolved_operator_actor_id(
+    request: Request,
+    operator_auth_kind: str = Depends(require_operator_auth),
+) -> str:
+    """Resolve approval identity from Guardian auth, never from request data."""
+    if operator_auth_kind == "operator-api-key":
+        return get_single_user_id()
+    if operator_auth_kind == "operator-session":
+        return get_current_user_id(request)
+    raise HTTPException(status_code=401, detail="Operator authentication required")
 
 
 def _list_all_work_orders(
@@ -250,6 +288,108 @@ async def create_campaign(
         ) from exc
 
     return {"ok": True, "campaign": campaign}
+
+
+@campaign_runner_router.put(
+    "/campaigns/{campaign_id}/continuation-authority"
+)
+async def approve_campaign_continuation_authority(
+    campaign_id: str,
+    body: CampaignContinuationAuthorityApprovalRequest,
+    approved_by_actor_id: str = Depends(_resolved_operator_actor_id),
+) -> dict[str, Any]:
+    """Persist an operator-approved envelope; this route never dispatches work."""
+    campaign_store = _ensure_campaign_runner_store_configured()
+    try:
+        authority = campaign_store.approve_continuation_authority(
+            campaign_id=campaign_id,
+            envelope=body.envelope.model_dump(mode="json"),
+            approved_by_actor_id=approved_by_actor_id,
+            expires_at=body.expires_at,
+        )
+    except CampaignRunnerNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.CAMPAIGN_NOT_FOUND.value,
+        ) from exc
+    except CampaignRunnerValidationError as exc:
+        conflict_reasons = {
+            "continuation_authority_already_exists",
+            "terminal_campaign_continuation_authority",
+        }
+        raise HTTPException(
+            status_code=409 if exc.reason_code in conflict_reasons else 400,
+            detail=(
+                "A Campaign Continuation Authority already exists, or the "
+                "Campaign is terminal."
+                if exc.reason_code in conflict_reasons
+                else ErrorCode.CAMPAIGN_INVALID.value
+            ),
+        ) from exc
+
+    return {
+        "ok": True,
+        "authority": authority,
+        "runtime_enforcement_enabled": False,
+    }
+
+
+@campaign_runner_router.get(
+    "/campaigns/{campaign_id}/continuation-authorities"
+)
+async def list_campaign_continuation_authorities(
+    campaign_id: str,
+) -> dict[str, Any]:
+    campaign_store = _ensure_campaign_runner_store_configured()
+    try:
+        authorities = campaign_store.list_continuation_authorities(campaign_id)
+    except CampaignRunnerNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.CAMPAIGN_NOT_FOUND.value,
+        ) from exc
+    return {
+        "ok": True,
+        "authorities": authorities,
+        "runtime_enforcement_enabled": False,
+    }
+
+
+@campaign_runner_router.post(
+    "/campaigns/{campaign_id}/continuation-authorities/{authority_id}/revoke"
+)
+async def revoke_campaign_continuation_authority(
+    campaign_id: str,
+    authority_id: str,
+    body: CampaignContinuationAuthorityRevocationRequest,
+    revoked_by_actor_id: str = Depends(_resolved_operator_actor_id),
+) -> dict[str, Any]:
+    campaign_store = _ensure_campaign_runner_store_configured()
+    try:
+        authority = campaign_store.revoke_continuation_authority(
+            campaign_id=campaign_id,
+            authority_id=authority_id,
+            revoked_by_actor_id=revoked_by_actor_id,
+            reason=body.reason,
+        )
+    except CampaignRunnerNotFound as exc:
+        detail = (
+            ErrorCode.CAMPAIGN_NOT_FOUND.value
+            if exc.entity == "campaign"
+            else "Campaign Continuation Authority not found."
+        )
+        raise HTTPException(status_code=404, detail=detail) from exc
+    except CampaignRunnerValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorCode.CAMPAIGN_INVALID.value,
+        ) from exc
+
+    return {
+        "ok": True,
+        "authority": authority,
+        "runtime_enforcement_enabled": False,
+    }
 
 
 @campaign_runner_router.get("/campaigns/{campaign_id}")

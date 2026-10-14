@@ -20,9 +20,12 @@ from guardian.core.executors.base import (
 from guardian.core.executors.registry import ExecutorId, get_executor_entry
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
+    CodexAppServerFailureKind,
+    CodexExecutionInterface,
     DELEGATION_SUMMARY_OUTCOME_TYPE,
     DELEGATION_TERMINAL_STATUSES,
     DelegationJobStatus,
+    ErrorCode,
 )
 from guardian.tasks.types import (
     DelegationDraftRequest,
@@ -411,6 +414,13 @@ class DelegationConflictError(DelegationServiceError):
     """Raised when an operation is incompatible with the current state."""
 
 
+class DelegationExecutionInterfaceError(DelegationConflictError):
+    """Raised when an explicitly requested executor interface is unsupported."""
+
+    error_code = ErrorCode.DELEGATION_EXECUTION_INTERFACE_UNSUPPORTED.value
+    failure_kind = CodexAppServerFailureKind.EXECUTION_INTERFACE_UNSUPPORTED.value
+
+
 class DelegationService:
     """Owns delegation packet and job lifecycle transitions."""
 
@@ -565,7 +575,12 @@ class DelegationService:
             )
         return job
 
-    def resolve_executor(self, executor_name: str) -> CodeExecutor:
+    def resolve_executor(
+        self,
+        executor_name: str,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> CodeExecutor:
         normalized = _normalize_executor_id(executor_name)
         try:
             entry = get_executor_entry(normalized)
@@ -578,6 +593,19 @@ class DelegationService:
             raise DelegationConflictError(
                 f"unsupported_executor:{entry.executor_id.value}"
             )
+
+        selection = context or {}
+        if "execution_interface" in selection:
+            requested_interface = selection["execution_interface"]
+            if requested_interface != CodexExecutionInterface.APP_SERVER.value:
+                raise DelegationExecutionInterfaceError(
+                    f"unsupported_execution_interface:{requested_interface!r}"
+                )
+            from guardian.core.executors.codex_app_server_executor import (
+                CodexAppServerExecutor,
+            )
+
+            return CodexAppServerExecutor()
 
         from guardian.core.executors.codex_executor import CodexExecutor
 
@@ -595,7 +623,7 @@ class DelegationService:
                 f"packet_not_approvable:{packet.packet_id}:{packet_status}"
             )
         # Validate the executor choice before creating durable queue state.
-        self.resolve_executor(packet.executor)
+        self.resolve_executor(packet.executor, context=packet.context)
 
         now_iso = _now_iso()
         existing_job = self.get_job_by_packet(packet.packet_id)
@@ -762,6 +790,10 @@ class DelegationService:
         request.metadata.setdefault("title", request.title)
         request.metadata.setdefault("tags", list(request.tags))
         request.metadata.setdefault("repo_path", request.repo_path)
+        if "execution_interface" in merged_context:
+            request.metadata["execution_interface"] = merged_context[
+                "execution_interface"
+            ]
         return request
 
     # ------------------------------------------------------------------
@@ -796,6 +828,30 @@ class DelegationService:
         summary_packet = summary or self.build_summary_packet(job)
         self.record_summary(summary_packet)
         return job
+
+    def deliver_completed_result(self, delegation_id: str) -> DelegationSummary | None:
+        """Retry only Guardian transcript delivery from the accepted summary.
+
+        Execution status is never changed by this operation. AgentStore owns the
+        durable delivery lock and atomic message/receipt transaction.
+        """
+        from guardian.agents.store import AgentStore
+
+        summary = self.get_summary(delegation_id)
+        if summary is None or summary.status != DelegationJobStatus.COMPLETED.value:
+            return summary
+        receipt = AgentStore(db=self._db).deliver_completed_delegation(delegation_id)
+        summary.metadata.update(receipt)
+        if self._db is None:
+            self._summaries[delegation_id] = summary
+            return summary
+        try:
+            recovered = self.get_summary(delegation_id) or summary
+            recovered.metadata.update(receipt)
+            return recovered
+        except Exception:  # noqa: BLE001 - isolate transcript failures from execution
+            # Return bounded delivery evidence even if durable readback is down.
+            return summary
 
     def mark_job_failed(
         self,

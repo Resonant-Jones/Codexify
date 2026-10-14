@@ -9,6 +9,8 @@ from urllib.parse import urlparse, urlunparse
 
 import requests
 
+from guardian.tasks.chat_deadline import AcceptedChatTaskDeadlineExceeded
+
 WHOOSHD_CONTROL_PLANE_VERSION = "whooshd.control.v1"
 WHOOSHD_CONTROL_VERSION_HEADER = "X-Whooshd-Contract-Version"
 WHOOSHD_RUNTIME_PROVENANCE_SCHEMA = "whooshd.runtime.v1"
@@ -458,6 +460,8 @@ def parse_whooshd_error(
         return None
     try:
         body = response.json()
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception:
         return None
     if not isinstance(body, dict):

@@ -32,7 +32,7 @@ class WizardState:
     mode: str  # "fast" | "custom"
     deps: dict[str, DepStatus]
     openai_api_key: str = ""
-    allow_cloud_providers: bool = True
+    allow_cloud_providers: bool = False
     runtime_profile: str = "docker"  # "docker" | "external"
     enable_notion: bool = False
     enable_github: bool = False
@@ -123,7 +123,7 @@ class SetupWizardApp(App[Optional[str]]):
             yield Static("Custom options (Custom setup only)", classes="row")
             yield Checkbox(
                 "Allow cloud providers",
-                value=True,
+                value=False,
                 id="allow_cloud_providers",
                 classes="row",
             )
@@ -322,7 +322,7 @@ class SetupWizardApp(App[Optional[str]]):
                 widget.disabled = not is_custom
 
         if not is_custom:
-            self.query_one("#allow_cloud_providers", Checkbox).value = True
+            self.query_one("#allow_cloud_providers", Checkbox).value = False
             self.query_one("#chk_notion", Checkbox).value = False
             self.query_one("#chk_github", Checkbox).value = False
 
@@ -555,7 +555,7 @@ class SetupWizardApp(App[Optional[str]]):
                 "#chk_github", Checkbox
             ).value
         else:
-            self.state.allow_cloud_providers = True
+            self.state.allow_cloud_providers = False
             self.state.runtime_profile = "docker"
             self.state.enable_notion = False
             self.state.enable_github = False

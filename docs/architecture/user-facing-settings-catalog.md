@@ -631,3 +631,8 @@ Directory rows may link to Settings, the composer, Persona Studio, Connections, 
 - Backend declaration and consumer search: guardian/core/config.py; guardian/config/core.py; guardian/core/dependencies.py; guardian/guardian_api.py; guardian/core/supported_profile.py; guardian/config_loader.py; guardian/config/settings.py; guardian/config/system_config.py; direct os.getenv/os.environ users in Guardian, backend and specialized workers; targeted route, resolver and persistence reads named in each family.
 - Product and client search: frontend/src/features/settings, frontend/src/lib/runtimeConfig.ts, frontend/src/lib/providerPref.ts, frontend/src/components/persona/layout/AppShell.tsx, frontend/src/features/chat, Persona Studio state, guardian/routes/chat.py, guardian/routes/imprint.py, guardian/services/iddb_settings_service.py, guardian/connections and relevant DB models.
 - Evidence is static repository inspection of declarations and reachable code paths plus accepted contracts. It does not verify a live installed environment, secret value, mounted route in a particular deployment, provider health, effective model inventory, or supported release.
+
+
+## Help & Learning
+
+Help & Learning opens static Codexify Tips, restarts optional onboarding/current-device tours, and saves `contextual_tips_enabled` in the dedicated account-owned `user_onboarding_state` table. This is separate from IDDB identity policy. See [the contract](onboarding-and-tips-contract.md).

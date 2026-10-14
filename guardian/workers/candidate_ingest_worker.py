@@ -86,6 +86,7 @@ def _build_graph_write_task(
         logger.info(
             f"[candidate-ingest] {GRAPH_WRITE_SKIP_EMPTY_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_SKIP_EMPTY_LOG,
                 "request_id": normalized_task["request_id"],
                 "thread_id": normalized_task["thread_id"],
                 "candidate_trace_id": normalized_task["candidate_trace_id"],
@@ -148,6 +149,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
     logger.info(
         f"[candidate-ingest] {NORMALIZATION_SUMMARY_LOG}",
         extra={
+            "event_type": NORMALIZATION_SUMMARY_LOG,
             "request_id": request_id,
             "thread_id": thread_id,
             "candidate_trace_id": candidate_trace_id,
@@ -161,6 +163,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
         logger.warning(
             f"[candidate-ingest] {NORMALIZATION_WARNING_LOG}",
             extra={
+                "event_type": NORMALIZATION_WARNING_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -188,6 +191,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
     logger.info(
         f"[candidate-ingest] {GRAPH_CANDIDATE_SUMMARY_LOG}",
         extra={
+            "event_type": GRAPH_CANDIDATE_SUMMARY_LOG,
             "request_id": request_id,
             "thread_id": thread_id,
             "candidate_trace_id": candidate_trace_id,
@@ -203,6 +207,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
         logger.warning(
             f"[candidate-ingest] {GRAPH_CANDIDATE_WARNING_LOG}",
             extra={
+                "event_type": GRAPH_CANDIDATE_WARNING_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -223,6 +228,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
         logger.exception(
             f"[candidate-ingest] {GRAPH_WRITE_ENQUEUE_FAILED_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_ENQUEUE_FAILED_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -233,6 +239,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
     logger.info(
         f"[candidate-ingest] {GRAPH_WRITE_ENQUEUE_LOG}",
         extra={
+            "event_type": GRAPH_WRITE_ENQUEUE_LOG,
             "request_id": request_id,
             "thread_id": thread_id,
             "candidate_trace_id": candidate_trace_id,

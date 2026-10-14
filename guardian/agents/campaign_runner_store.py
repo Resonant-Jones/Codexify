@@ -7,7 +7,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from guardian.db.models import Campaign, CampaignExecutionAttempt, CampaignGoal
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
+
+from guardian.agents.campaign_continuation_authority import (
+    CampaignContinuationAuthorityEnvelope,
+)
+from guardian.db.models import (
+    Campaign,
+    CampaignContinuationAuthorityRecord,
+    CampaignExecutionAttempt,
+    CampaignGoal,
+)
 from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
@@ -59,6 +70,18 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
 
 def _coerce_mapping(raw: Any) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _same_optional_timestamp(
+    left: datetime | None, right: datetime | None
+) -> bool:
+    if left is None or right is None:
+        return left is right
+    if left.tzinfo is None:
+        left = left.replace(tzinfo=UTC)
+    if right.tzinfo is None:
+        right = right.replace(tzinfo=UTC)
+    return left.astimezone(UTC) == right.astimezone(UTC)
 
 
 def _normalize_attempt_status(raw: Any) -> str:
@@ -122,6 +145,39 @@ def _attempt_row_to_dict(row: CampaignExecutionAttempt) -> dict[str, Any]:
         "evidence_json": dict(row.evidence_json or {}),
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
+    }
+
+
+def _continuation_authority_row_to_dict(
+    row: CampaignContinuationAuthorityRecord,
+    *,
+    campaign_status: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    checked_at = now or _utc_now()
+    expires_at = row.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    expired = expires_at is not None and expires_at <= checked_at
+    revoked = row.revoked_at is not None
+    terminal_campaign = campaign_status in {"completed", "archived"}
+    return {
+        "authority_id": row.authority_id,
+        "campaign_id": row.campaign_id,
+        "envelope": dict(row.envelope_json or {}),
+        "approved_by_actor_id": row.approved_by_actor_id,
+        "approved_at": row.approved_at.isoformat(),
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "revoked_by_actor_id": row.revoked_by_actor_id,
+        "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+        "revocation_reason": row.revocation_reason,
+        "configured": True,
+        "revoked": revoked,
+        "expired": expired,
+        "campaign_terminal": terminal_campaign,
+        "currently_valid": not (revoked or expired or terminal_campaign),
+        "automatic_retry_execution_enabled": False,
+        "automatic_downstream_dispatch_enabled": False,
     }
 
 
@@ -240,6 +296,215 @@ class CampaignRunnerStore:
                 .first()
             )
             return _campaign_row_to_dict(row) if row is not None else None
+
+    def approve_continuation_authority(
+        self,
+        *,
+        campaign_id: str,
+        envelope: dict[str, Any],
+        approved_by_actor_id: str,
+        expires_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        normalized_campaign_id = str(campaign_id or "").strip()
+        normalized_actor_id = str(approved_by_actor_id or "").strip()
+        if not normalized_campaign_id:
+            raise CampaignRunnerValidationError(
+                "missing required field: campaign_id",
+                reason_code="missing_continuation_authority_campaign_id",
+            )
+        if not normalized_actor_id:
+            raise CampaignRunnerValidationError(
+                "missing authenticated approver identity",
+                reason_code="missing_continuation_authority_actor",
+            )
+        try:
+            validated_envelope = CampaignContinuationAuthorityEnvelope.model_validate(
+                envelope
+            )
+        except ValidationError as exc:
+            raise CampaignRunnerValidationError(
+                "invalid Campaign Continuation Authority envelope",
+                reason_code="invalid_continuation_authority_envelope",
+            ) from exc
+
+        now = _utc_now()
+        normalized_expiry = expires_at
+        if normalized_expiry is not None:
+            if (
+                normalized_expiry.tzinfo is None
+                or normalized_expiry.utcoffset() is None
+            ):
+                raise CampaignRunnerValidationError(
+                    "expires_at must include a timezone",
+                    reason_code="invalid_continuation_authority_expiry",
+                )
+            normalized_expiry = normalized_expiry.astimezone(UTC)
+            if normalized_expiry <= now:
+                raise CampaignRunnerValidationError(
+                    "expires_at must be in the future",
+                    reason_code="invalid_continuation_authority_expiry",
+                )
+
+        normalized_envelope = validated_envelope.model_dump(mode="json")
+        with self.db.get_session() as session:
+            campaign = (
+                session.query(Campaign)
+                .filter_by(campaign_id=normalized_campaign_id)
+                .with_for_update()
+                .first()
+            )
+            if campaign is None:
+                raise CampaignRunnerNotFound("campaign", normalized_campaign_id)
+            if campaign.status in {"completed", "archived"}:
+                raise CampaignRunnerValidationError(
+                    "continuation authority cannot be approved for a terminal Campaign",
+                    reason_code="terminal_campaign_continuation_authority",
+                )
+
+            existing = (
+                session.query(CampaignContinuationAuthorityRecord)
+                .filter_by(campaign_id=normalized_campaign_id)
+                .filter(CampaignContinuationAuthorityRecord.revoked_at.is_(None))
+                .first()
+            )
+            if existing is not None:
+                if (
+                    existing.envelope_json == normalized_envelope
+                    and existing.approved_by_actor_id == normalized_actor_id
+                    and _same_optional_timestamp(
+                        existing.expires_at, normalized_expiry
+                    )
+                ):
+                    return _continuation_authority_row_to_dict(
+                        existing, campaign_status=campaign.status, now=now
+                    )
+                raise CampaignRunnerValidationError(
+                    "an unrevoked continuation authority already exists; "
+                    "revoke it before replacement",
+                    reason_code="continuation_authority_already_exists",
+                )
+
+            row = CampaignContinuationAuthorityRecord(
+                authority_id=_new_id("cauth"),
+                campaign_id=normalized_campaign_id,
+                envelope_json=normalized_envelope,
+                approved_by_actor_id=normalized_actor_id,
+                approved_at=now,
+                expires_at=normalized_expiry,
+                created_at=now,
+            )
+            session.add(row)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                existing = (
+                    session.query(CampaignContinuationAuthorityRecord)
+                    .filter_by(campaign_id=normalized_campaign_id)
+                    .filter(
+                        CampaignContinuationAuthorityRecord.revoked_at.is_(None)
+                    )
+                    .first()
+                )
+                if (
+                    existing is not None
+                    and existing.envelope_json == normalized_envelope
+                    and existing.approved_by_actor_id == normalized_actor_id
+                    and _same_optional_timestamp(
+                        existing.expires_at, normalized_expiry
+                    )
+                ):
+                    return _continuation_authority_row_to_dict(
+                        existing, campaign_status=campaign.status, now=now
+                    )
+                raise CampaignRunnerValidationError(
+                    "an unrevoked continuation authority already exists; "
+                    "revoke it before replacement",
+                    reason_code="continuation_authority_already_exists",
+                ) from exc
+            session.refresh(row)
+            return _continuation_authority_row_to_dict(
+                row, campaign_status=campaign.status, now=now
+            )
+
+    def list_continuation_authorities(
+        self, campaign_id: str
+    ) -> list[dict[str, Any]]:
+        normalized_campaign_id = str(campaign_id or "").strip()
+        with self.db.get_session() as session:
+            campaign = (
+                session.query(Campaign)
+                .filter_by(campaign_id=normalized_campaign_id)
+                .first()
+            )
+            if campaign is None:
+                raise CampaignRunnerNotFound("campaign", normalized_campaign_id)
+            rows = (
+                session.query(CampaignContinuationAuthorityRecord)
+                .filter_by(campaign_id=normalized_campaign_id)
+                .order_by(
+                    CampaignContinuationAuthorityRecord.approved_at.desc(),
+                    CampaignContinuationAuthorityRecord.authority_id.desc(),
+                )
+                .all()
+            )
+            now = _utc_now()
+            return [
+                _continuation_authority_row_to_dict(
+                    row, campaign_status=campaign.status, now=now
+                )
+                for row in rows
+            ]
+
+    def revoke_continuation_authority(
+        self,
+        *,
+        campaign_id: str,
+        authority_id: str,
+        revoked_by_actor_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        normalized_campaign_id = str(campaign_id or "").strip()
+        normalized_authority_id = str(authority_id or "").strip()
+        normalized_actor_id = str(revoked_by_actor_id or "").strip()
+        normalized_reason = str(reason or "").strip()
+        if not normalized_actor_id or not normalized_reason:
+            raise CampaignRunnerValidationError(
+                "revocation requires an authenticated actor and reason",
+                reason_code="invalid_continuation_authority_revocation",
+            )
+
+        with self.db.get_session() as session:
+            campaign = (
+                session.query(Campaign)
+                .filter_by(campaign_id=normalized_campaign_id)
+                .first()
+            )
+            if campaign is None:
+                raise CampaignRunnerNotFound("campaign", normalized_campaign_id)
+            row = (
+                session.query(CampaignContinuationAuthorityRecord)
+                .filter_by(
+                    campaign_id=normalized_campaign_id,
+                    authority_id=normalized_authority_id,
+                )
+                .with_for_update()
+                .first()
+            )
+            if row is None:
+                raise CampaignRunnerNotFound(
+                    "continuation authority", normalized_authority_id
+                )
+            if row.revoked_at is None:
+                now = _utc_now()
+                row.revoked_by_actor_id = normalized_actor_id
+                row.revoked_at = now
+                row.revocation_reason = normalized_reason
+                session.commit()
+                session.refresh(row)
+            return _continuation_authority_row_to_dict(
+                row, campaign_status=campaign.status
+            )
 
     def record_execution_attempt(
         self,

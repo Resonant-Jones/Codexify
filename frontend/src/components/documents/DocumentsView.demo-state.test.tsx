@@ -75,8 +75,9 @@ describe("DocumentsView demo content", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText(/Applet|Workbench/i)).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/Prioritized|Knowledge Base|cost tier|book badge/i)
+      screen.queryByText(/Prioritized|cost tier|book badge/i)
     ).not.toBeInTheDocument();
+    expect(screen.getByText("Project Knowledge Base")).toBeInTheDocument();
     expect(container.querySelector(".fc-root")).toBeNull();
   });
 

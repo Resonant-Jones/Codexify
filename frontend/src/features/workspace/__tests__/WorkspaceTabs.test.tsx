@@ -57,7 +57,7 @@ describe("WorkspaceTabs", () => {
       />
     );
 
-    await user.click(screen.getByRole("tab", { name: "Scratchpad" }));
+    await user.click(screen.getByRole("tab", { name: "Notes" }));
     expect(onTabChange).toHaveBeenCalledWith("scratchpad");
 
     const shelfTab = screen.getByRole("tab", { name: "Shelf" });

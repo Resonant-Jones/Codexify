@@ -3,6 +3,7 @@ from __future__ import annotations
 from guardian.core import chat_completion_service
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from tests.utils import get_test_user_id
 
 
@@ -27,6 +28,24 @@ def _thread_config_snapshot() -> dict[str, object]:
     }
 
 
+def _mock_turn_lock(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chat_completion_service,
+        "acquire_turn_lock",
+        lambda thread_id, owner, **kwargs: build_turn_lock_envelope(
+            thread_id, owner, turn_id=kwargs.get("turn_id")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
+    )
+    monkeypatch.setattr(
+        chat_completion_service, "release_turn_lock", lambda *_a, **_k: True
+    )
+
+
 def test_chat_complete_queues_latest_user_turn_identity(
     test_client, mock_db, monkeypatch
 ):
@@ -36,6 +55,8 @@ def test_chat_complete_queues_latest_user_turn_identity(
         "user_id": expected_user_id,
         "project_id": 1,
         "thread_config": _thread_config_snapshot(),
+        "active_profile_id": None,
+        "active_profile_revision": None,
     }
     mock_db.list_messages.return_value = [
         {"id": 1, "role": "user", "content": "question A"},
@@ -46,8 +67,7 @@ def test_chat_complete_queues_latest_user_turn_identity(
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *a, **k: True)
-    monkeypatch.setattr(chat_completion_service, "release_turn_lock", lambda *a, **k: True)
+    _mock_turn_lock(monkeypatch)
     monkeypatch.setattr(
         chat_completion_service,
         "_publish_completion_start_event",
@@ -101,8 +121,7 @@ def test_chat_complete_rejects_threads_without_a_user_turn(
     enqueue_calls: list[object] = []
     publish_calls: list[object] = []
 
-    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *a, **k: True)
-    monkeypatch.setattr(chat_completion_service, "release_turn_lock", lambda *a, **k: True)
+    _mock_turn_lock(monkeypatch)
     monkeypatch.setattr(
         chat_completion_service,
         "enqueue",

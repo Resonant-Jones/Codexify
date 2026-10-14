@@ -12,7 +12,8 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "7e5a5fccf253"
+CANONICAL_HEAD = "2e865c4a9b10"
+MESSAGE_REQUEST_REVISION = "9e52b1d3c8fa"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -114,9 +115,28 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
         assert migration is not None
         assert migration.down_revision == expected_down_revision
 
+    # The additive consent migration must extend onboarding, preserving all
+    # existing branches rather than introducing another independent head.
+    message_requests = script.get_revision(MESSAGE_REQUEST_REVISION)
+    assert message_requests is not None
+    assert message_requests.down_revision == "8d41a0c2b7ef"
+    assert Path(message_requests.path).name == "9e52b1d3c8fa_add_message_request_consent.py"
+
     heads = script.get_heads()
     assert heads == [CANONICAL_HEAD]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
     )
+
+
+def test_chat_deadline_campaign_merge_preserves_both_installed_lineages():
+    script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
+    merge = script.get_revision(CANONICAL_HEAD)
+    assert merge.down_revision == ("f1a6d83b9024", "17b23052da6a")
+    for installed_head in merge.down_revision:
+        pending = list(script.iterate_revisions(CANONICAL_HEAD, installed_head, implicit_base=True))
+        assert pending[0].revision == CANONICAL_HEAD
+        assert installed_head not in {revision.revision for revision in pending}
+        other_head = next(head for head in merge.down_revision if head != installed_head)
+        assert other_head in {revision.revision for revision in pending}

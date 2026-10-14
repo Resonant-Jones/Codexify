@@ -1,3 +1,4 @@
+import { useOnboarding } from "@/features/onboarding/OnboardingProvider";
 import { ContactRound } from "lucide-react";
 
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
@@ -29,6 +30,7 @@ export default function ContactsLauncher({
   sourceThreadId = null,
   state: parentState,
 }: ContactsLauncherProps) {
+  const onboarding = useOnboarding();
   const ownedState = usePeopleMessagingState();
   const state = parentState ?? ownedState;
   const capability = useRuntimeRouteCapability(
@@ -54,6 +56,7 @@ export default function ContactsLauncher({
       >
         <ContactRound className="h-4 w-4" aria-hidden="true" />
       </button>
+      {onboarding?.incomplete && <button type="button" className="text-xs learning-muted" aria-label="Resume optional Codexify setup" onClick={event => { event.stopPropagation(); onboarding.resume(); }}>Setup</button>}
       <ContactsWindow
         state={state}
         contacts={[]}

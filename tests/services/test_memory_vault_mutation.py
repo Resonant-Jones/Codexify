@@ -114,9 +114,11 @@ def _migrate_to_head(database_url: str) -> None:
     config.set_main_option(
         "script_location", str(repo_root / "guardian" / "db" / "migrations")
     )
-    os.environ["DATABASE_URL"] = database_url
-    os.environ["GUARDIAN_DATABASE_URL"] = database_url
-    upgrade(config, "head")
+    config.config_file_name = None
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url)
+        patch.setenv("GUARDIAN_DATABASE_URL", database_url)
+        upgrade(config, "head")
 
 
 @pytest.fixture

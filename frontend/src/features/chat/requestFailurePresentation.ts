@@ -1,6 +1,9 @@
 import {
   PROVIDER_FAILURE_KINDS,
   PROVIDER_TRANSPORT_CLASSIFICATIONS,
+  TOOL_LOOP_STOP_REASONS,
+  TOOL_TURN_STATES,
+  type ToolCommandFailureReason,
 } from "@/contracts/runtimeTokens";
 
 export const GENERIC_PROVIDER_FAILURE_DETAIL_TEXT =
@@ -11,6 +14,53 @@ export const PROVIDER_TIMEOUT_DETAIL_TEXT =
 
 export const PROVIDER_FIRST_TOKEN_TIMEOUT_DETAIL_TEXT =
   "Provider timed out after accepting the request and before the first token. Try again or switch to a faster mode.";
+
+export const ACCEPTED_TASK_ORPHAN_DETAIL_TEXT =
+  "No completed response was recorded. This request was closed after its recovery deadline. Send a new request to try again.";
+
+export const ACCEPTED_TASK_DEADLINE_DETAIL_TEXT =
+  "The request reached its execution time limit. Try again.";
+
+export const TOOL_COMMAND_FAILED_DETAIL_TEXT =
+  "The requested action failed. Guardian could not finish this reply.";
+
+export const TOOL_COMMAND_BLOCKED_DETAIL_TEXT =
+  "The requested action was not authorized. Guardian could not finish this reply.";
+
+export function getToolCommandFailureReason(
+  payload: Record<string, unknown> | null | undefined
+): ToolCommandFailureReason | null {
+  if (isRetryableAcceptedTaskFailure(payload)) return null;
+  if (
+    (payload?.toolTurnState ?? payload?.tool_turn_state) !== TOOL_TURN_STATES.FAILED
+  ) {
+    return null;
+  }
+  const reason = payload?.loopStopReason ?? payload?.loop_stop_reason;
+  return reason === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_FAILED ||
+    reason === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_BLOCKED
+    ? reason
+    : null;
+}
+
+export function isAcceptedTaskDeadlineFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  // Existing Guardian ErrorCode; presentation must follow typed failure truth.
+  return payload?.failure_code === "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED";
+}
+
+export function isAcceptedTaskOrphanFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  return payload?.failure_code === "CHAT_ACCEPTED_TASK_ORPHANED";
+}
+
+export function isRetryableAcceptedTaskFailure(
+  payload: Record<string, unknown> | null | undefined
+): boolean {
+  return isAcceptedTaskOrphanFailure(payload) || isAcceptedTaskDeadlineFailure(payload);
+}
 
 function normalizeToken(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
@@ -63,6 +113,21 @@ export function describeTaskFailureDetailText(
 ): string {
   if (!payload) {
     return GENERIC_PROVIDER_FAILURE_DETAIL_TEXT;
+  }
+
+  if (isAcceptedTaskOrphanFailure(payload)) {
+    return ACCEPTED_TASK_ORPHAN_DETAIL_TEXT;
+  }
+  if (isAcceptedTaskDeadlineFailure(payload)) {
+    return ACCEPTED_TASK_DEADLINE_DETAIL_TEXT;
+  }
+
+  const toolFailure = getToolCommandFailureReason(payload);
+  if (toolFailure === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_FAILED) {
+    return TOOL_COMMAND_FAILED_DETAIL_TEXT;
+  }
+  if (toolFailure === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_BLOCKED) {
+    return TOOL_COMMAND_BLOCKED_DETAIL_TEXT;
   }
 
   if (isFirstTokenTimeout(payload)) {

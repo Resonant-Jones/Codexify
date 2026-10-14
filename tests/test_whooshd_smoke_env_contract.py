@@ -39,10 +39,10 @@ CANONICAL_PROVIDER_CONTRACT = {
 }
 
 CANONICAL_SMOKE_MODELS = {
-    "LOCAL_CHAT_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
-    "LOCAL_LLM_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
-    "LLM_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
-    "DEFAULT_LOCAL_MODEL": "${LOCAL_CHAT_MODEL:-local-chat}",
+    "LOCAL_CHAT_MODEL": "local-chat",
+    "LOCAL_LLM_MODEL": "local-chat",
+    "LLM_MODEL": "local-chat",
+    "DEFAULT_LOCAL_MODEL": "local-chat",
     "LOCAL_VISION_MODEL": "${LOCAL_VISION_MODEL:-}",
     "LOCAL_GGUF_MODEL": "${LOCAL_GGUF_MODEL:-}",
 }

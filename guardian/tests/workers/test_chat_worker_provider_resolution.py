@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -30,6 +31,7 @@ class _FakeContextBroker:
 
 def _fake_settings() -> Settings:
     return Settings(
+        _env_file=None,
         LLM_PROVIDER="local",
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
@@ -113,6 +115,17 @@ def _patch_common(
         "validate_llm_config",
         lambda settings, provider_override=None: None,
     )
+    # Routing tests own their synthetic catalog; ambient runtime policy is not
+    # evidence for provider precedence or unavailable-model behavior.
+    monkeypatch.setattr(
+        chat_worker,
+        "validate_provider_model_selection",
+        lambda **kwargs: (
+            (False, "Requested model 'missing-model' is not available")
+            if kwargs.get("model_id") == "missing-model"
+            else (True, None)
+        ),
+    )
     monkeypatch.setattr(chat_worker, "ContextBroker", _FakeContextBroker)
     monkeypatch.setattr(chat_worker, "build_guardian_system_prompt", None)
     monkeypatch.setattr(
@@ -159,13 +172,21 @@ def test_explicit_model_unavailable_fails_instead_of_fallback(monkeypatch):
         thread_id=1,
         provider="groq",
         model="missing-model",
+        requested_model="missing-model",
+        selection_source="explicit",
         max_context=10,
     )
 
+    fallback = Mock()
+    context = Mock()
+    monkeypatch.setattr(chat_worker, "_degraded_provider_model_fallback", fallback)
+    monkeypatch.setattr(chat_worker, "ContextBroker", context)
     with pytest.raises(
         LLMConfigError, match="Requested model 'missing-model' is not available"
     ):
         asyncio.run(chat_worker._build_messages_for_llm(task))
+    fallback.assert_not_called()
+    context.assert_not_called()
 
 
 def test_explicit_model_selects_provider_even_with_profile_override(

@@ -24,22 +24,22 @@ approved account.
 
 ADR-091 supplies durable `backend_task_id -> ChatCompletionAttempt -> thread_id`
 authority, and the shared thread-read policy accepts an already-authenticated
-account `RequestUserScope` or `HostedRoomGuestPrincipal`. At acceptance the
-task-event SSE handler still used only account-oriented generic authentication
-and did not apply that durable lookup or thread policy. This ADR defines the
-authentication contract; it does not itself close the public-ingress boundary.
-
-**Implementation status (2026-10-07).** The accepted task-event SSE
-authorization requirement in §Implementation order step 3 is now implemented
-and test-qualified on that single protected surface. `GET /api/tasks/{task_id}/events`
-no longer relies on the generic `require_api_key` seam. It classifies
-credential presence across the account, Hosted Room guest, and operator lanes,
-rejects mixed lanes with HTTP 400 `mixed_principal_credentials` before any
-protected-resource lookup, resolves exactly one typed principal, resolves the
-task through ADR-091's durable attempt, authorizes the canonical thread through
-the shared thread-read policy, and only then consumes Redis task events. A
-missing durable attempt fails closed, and a denied request performs zero Redis
-reads. Evidence: [`2026-10-07-task-event-sse-authorization-proof.md`](../proofs/runtime/2026-10-07-task-event-sse-authorization-proof.md).
+account `RequestUserScope` or `HostedRoomGuestPrincipal`. The task-event SSE
+route now composes those authorities: it resolves the task through the durable
+attempt, applies the thread-read policy, and only then consumes Redis events.
+Principal resolution for that surface is centralized in the shared
+`require_task_event_read_principal` dependency in
+`guardian/core/dependencies.py` instead of the generic `require_api_key` seam.
+Mixed lanes are rejected with HTTP 400 `mixed_principal_credentials` before
+verification or any protected-resource lookup, the ordering recorded for the
+public task-event ingress surface in
+[ADR-098](./098-public-task-event-ingress-as-chat-completion-readback.md);
+a missing durable attempt fails closed and a denied request performs zero Redis
+reads. The route accepts only account/local request-user or purpose-scoped
+guest principals; remote operator credentials do not resolve thread authority.
+This bounded code/test result does not claim the public-ingress boundary is
+closed. Evidence:
+[`2026-10-07-task-event-sse-authorization-proof.md`](../proofs/runtime/2026-10-07-task-event-sse-authorization-proof.md).
 
 This qualifies **only** that route. Global account-purpose strictness, the
 `auth_dependencies.py` resolver bypass, legacy account-token rejection, and the
@@ -49,6 +49,55 @@ public-ingress requalification remain not runtime-enforced, and
 ## Decision
 
 ### Distinct principal and credential lanes
+
+#### Qualified hosted Scout transport (approved 2026-10-02; amended 2026-10-04)
+
+Resonant Jones approved `X-Guardian-Account-Session` strictly as an alternate
+transport of the existing canonical `account_session`. It defines no new
+credential class, principal, ownership, or permission. It is accepted only for
+the qualified `preview.codexify.space` private-preview composition where
+upstream Access occupies `Authorization` at the client/edge boundary. Native
+qualification proved Access admission while the origin received no Authorization
+header. On 2026-10-04, Resonant Jones withdrew the requirement that the opaque
+Access Bearer reach Guardian for this independently qualified composition.
+Personal nodes retain account Bearer where no upstream consumes Authorization.
+
+The amended handoff must issue a new exact-purpose `account_session` through the
+canonical issuer for the same canonical `User.id`; it must not return or reuse
+the browser's session token. The native session has an independent nonce, expiry,
+store entry and revocation/logout lifecycle. Browser authorization is revalidated
+at redemption. The code is fixed-callback and origin-bound, expires within 60
+seconds, and is atomically consumed only by its S256 verifier. This remains the
+same account credential class and strict validator, not a new authority.
+
+The adapter must validate the upstream signed Access assertion against the fixed
+team issuer and application audience, including signature and expiry, and restrict
+normalization to explicitly scoped Scout account APIs on this exact preview host
+and private-preview mode. One Host and one signed Access assertion are required.
+After those admission checks, an absent Authorization header is the qualified
+edge-consumed shape; its absence alone is never evidence of trusted ingress.
+If forwarded, Authorization must remain one opaque Access Bearer; duplicate or
+other forwarded forms fail closed. No Access credential may be reconstructed,
+copied, synthesized or moved into another origin header. Access remains mandatory;
+this amendment changes no Access policy, OAuth registration, Tunnel, DNS or BIC.
+Access claims
+never resolve a Guardian user. The account bytes then pass through the existing
+strict account-purpose, stored-session, canonical-user and account-approval checks.
+Duplicate/conflicting credentials fail closed. Invalid alternate account material
+cannot retry the ingress credential, cookie, guest, operator or API-key lane.
+Operator and guest routes must reject this alternate header. The header and
+upstream assertion must be redacted from diagnostics. This approval does not
+establish implementation, deployment, authenticated reads or continuity proof.
+
+The native qualification and PKCE exchange seams use the same scoped signed
+Access gate before recognizing the edge-consumed shape. Qualification issues no
+account authority; exchange still requires and revalidates the canonical browser
+account grant. Fixed diagnostic labels may report “Access admitted / Authorization
+edge-consumed” only after verified admission. Account identity remains independently
+authenticated through the existing exact-purpose account_session in
+X-Guardian-Account-Session. Invalid/missing account material cannot fall back to
+an API key, guest, operator, cookie or anonymous identity. Personal-node behavior,
+session expiry/revocation and profile/origin isolation remain unchanged.
 
 - The **account lane** uses the supported account session/Bearer mechanisms,
   currently `Authorization` and `gc_session`, and resolves a canonical
@@ -277,8 +326,14 @@ service-capability separation is now qualified by focused tests:
 gate checks exact `account_session` purpose, the approved session, and the
 persisted admin account before capability validation. Strict generic
 account-purpose validation, `auth_dependencies.py` bypass closure, legacy
-account-token rejection, global mixed-principal enforcement outside the
-task-event surface, and public-ingress qualification remain deferred.
+account-token rejection, and public-ingress qualification remain deferred.
+Task-event SSE object authorization is implemented at the shared
+`require_task_event_read_principal` seam and remains subject to the focused
+proof receipt. Remote HTTP mixed-principal rejection is now implemented at the
+generic and strict account dependencies, the explicit operator-auth dependency,
+the account-observability human gate, and authenticated Hosted Room guest
+session-inspection, message, and invoke routes. It does not change
+local/single-user handling or establish task-event ownership.
 
 The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
 exact signed `purpose=account_session` before consulting the approved session
@@ -350,9 +405,14 @@ rule; this is not a remote credential fallback.
 The canonical mixed-lane response is **HTTP 400** with machine-readable error
 `mixed_principal_credentials` and a generic message such as `Conflicting
 authentication contexts`. It must reveal neither credential's validity nor
-the existence of a task, thread, or room. The error value is a contract for a
-future runtime implementation; it is not an emitted token today and must be
-registered under the runtime protocol-token rules before use.
+the existence of a task, thread, or room. The error is registered in
+`guardian/protocol_tokens.py` and emitted by the shared remote HTTP presence
+check. That check reads an unverified purpose claim only to classify account
+versus operator presence; it does not treat the claim as authority. Raw
+operator keys are classified only at the operator-auth seam, so a route's
+non-principal service-capability factor remains separate. The implementation
+does not change local/single-user behavior, WebSocket authentication, or
+task-event object authorization.
 
 | Request state | Result before protected data access |
 |---|---|
@@ -412,12 +472,16 @@ presented in only one lane.
   Redis transports events and never decides ownership.
 
 This decision extends those boundaries without superseding them. Intentional
-local/single-user defaults remain separate and unchanged. The explicit
+local/single-user defaults remain separate and unchanged. The task-event SSE
+route uses the existing mixed-principal presence detector before task lookup,
+then exact remote account-session validation or the existing local request-user
+path; a guest cookie resolves only to its guest principal. The explicit
 operator-session seam, qualified Continuity operator consumer, and frozen
 operator-only route migration are implemented and test-qualified on their
 bounded surfaces. Global account-purpose strictness and three-lane mixed
-rejection remain accepted contracts that are **not yet runtime-enforced**.
-This document itself changes no token, SSE, Cloudflare, or release behavior.
-The full public-ingress requalification remains pending;
-`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status. Cloudflare
-Access remains enabled and unchanged.
+rejection remain accepted contracts that are **not yet globally
+runtime-enforced**. The task-event route enforces its own mixed-credential
+boundary without changing global credential defaults. This document itself
+changes no token, SSE, Cloudflare, or release behavior. Full public-ingress
+requalification remains pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains
+the accurate status. Cloudflare Access remains enabled and unchanged.

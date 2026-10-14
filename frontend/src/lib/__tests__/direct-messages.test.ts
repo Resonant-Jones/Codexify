@@ -351,6 +351,28 @@ describe("normalizeDirectMessageError", () => {
     expect(normalized.code).toBe("conversation_not_found");
   });
 
+  it.each([400, 409, 429])("preserves safe policy text at status %s without diagnostic disclosure", (status) => {
+    const error = Object.assign(new Error(`Request failed with status code ${status}`), {
+      response: { status, data: { detail: {
+        error: "message_request_unavailable", message: "Unable to send this request. Please try later.",
+        recipient_policy: "private suppression state", internal_id: "private-account",
+      } } },
+    });
+    const normalized = normalizeDirectMessageError(error);
+    expect(normalized.message).toBe("Unable to send this request. Please try later.");
+    expect(normalized.status).toBe(status);
+    expect(normalized.code).toBe("message_request_unavailable");
+    expect(JSON.stringify(normalized)).not.toContain("private");
+    expect(normalizeDirectMessageError(normalized)).toBe(normalized);
+  });
+
+  it.each([
+    ["Choose a different username", "Choose a different username"],
+    [[{ msg: "Invalid username" }, { msg: "Too long" }], "Invalid username; Too long"],
+  ])("preserves existing string and validation-array details", (detail, expected) => {
+    expect(normalizeDirectMessageError({ response: { status: 422, data: { detail } } }).message).toBe(expected);
+  });
+
   it("falls back to a generic failure for unknown shapes", () => {
     const normalized = normalizeDirectMessageError(new Error("boom"));
     expect(normalized.status).toBe(0);

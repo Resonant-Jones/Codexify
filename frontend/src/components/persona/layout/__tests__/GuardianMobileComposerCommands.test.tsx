@@ -77,7 +77,10 @@ describe("Guardian mobile composer inline commands", () => {
     expect(
       textarea.closest("[data-composer-root]")
     ).toHaveAttribute("data-mobile-compact", "true");
-    expect(textarea.parentElement).toBe(compactRow);
+    expect(textarea.parentElement).toBe(screen.getByTestId("composer-textarea-surface"));
+    expect(compactRow.closest("[data-composer-root]")).toBe(
+      textarea.closest("[data-composer-root]")
+    );
     expect(
       screen.getByRole("button", { name: "Open composer actions" })
     ).toBeInTheDocument();

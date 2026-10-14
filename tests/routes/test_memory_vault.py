@@ -953,6 +953,39 @@ def test_pin_mutation_delegates_exactly(
     assert call["request_ref"] == "req-1"
 
 
+def test_mutation_request_ref_is_bounded_to_provenance_column(
+    fake_mutation_service: FakeVaultMutationService, client: TestClient
+) -> None:
+    fake_mutation_service.result = _mutation_result(
+        changed=True,
+        receipt_id="receipt-bounded-ref",
+        item=_canonical_item("mem-1", pinned=True, updated_at=T2),
+    )
+    accepted_ref = "r" * 255
+
+    accepted = client.patch(
+        _pin_url("mem-1"),
+        json={
+            "pinned": True,
+            "expected_updated_at": T1.isoformat(),
+            "request_ref": accepted_ref,
+        },
+    )
+    rejected = client.patch(
+        _pin_url("mem-1"),
+        json={
+            "pinned": True,
+            "expected_updated_at": T1.isoformat(),
+            "request_ref": "r" * 256,
+        },
+    )
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 422
+    assert len(fake_mutation_service.calls) == 1
+    assert fake_mutation_service.calls[0]["request_ref"] == accepted_ref
+
+
 def test_unpin_mutation_delegates(
     fake_mutation_service: FakeVaultMutationService, client: TestClient
 ) -> None:
@@ -1490,10 +1523,19 @@ def test_router_method_surface() -> None:
         if path.startswith("/api/memory-vault"):
             for forbidden in ("put", "delete"):
                 assert forbidden not in operations, f"{path} exposes {forbidden}"
-    # Only the explicit creation PATCH route may carry POST.
+    # Only two routes may carry POST: the admitted explicit creation route
+    # (C6) and the UMS-11 permanent-erasure route, which is the only
+    # destructive surface on this router. Everything else is GET/PATCH.
+    admitted_posts = {
+        "/api/memory-vault/items",
+        "/api/memory-vault/items/canonical/{memory_id}/purge",
+    }
     assert "post" in schema["paths"]["/api/memory-vault/items"]
+    assert (
+        "post" in schema["paths"]["/api/memory-vault/items/canonical/{memory_id}/purge"]
+    )
     for path, operations in schema["paths"].items():
-        if path.startswith("/api/memory-vault") and path != "/api/memory-vault/items":
+        if path.startswith("/api/memory-vault") and path not in admitted_posts:
             assert "post" not in operations, f"{path} exposes post"
 
 

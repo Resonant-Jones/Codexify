@@ -12,7 +12,7 @@ struct ScoutThreadDocumentsProbe {
         endpoint: ScoutEndpointProfile,
         threadId: Int,
         apiKey: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = .scoutAuthenticated
     ) async -> ScoutThreadDocumentsResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -39,13 +39,12 @@ struct ScoutThreadDocumentsProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+            }
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return ScoutThreadDocumentsResult(

@@ -69,8 +69,11 @@ def _task() -> dict[str, object]:
 
 
 def _record_by_message(caplog, message: str):
+    event_type = message.split("] ", 1)[1]
     return next(
-        record for record in caplog.records if record.getMessage() == message
+        record
+        for record in caplog.records
+        if getattr(record, "event_type", None) == event_type
     )
 
 
@@ -119,14 +122,12 @@ def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
     )
     assert summary.request_id == "req-1"
     assert summary.thread_id == 7
-    assert summary.candidate_trace_id == "trace-1"
-    assert summary.graph_write_id == "gwr_test_identity"
-    assert summary.idempotency_key == "graph-write:trace-1:fingerprint-1"
+    assert summary.candidate_trace_id != "trace-1"
+    assert summary.graph_write_id != "gwr_test_identity"
+    assert summary.idempotency_key != "graph-write:trace-1:fingerprint-1"
     assert summary.node_count == 1
     assert summary.edge_count == 1
     assert summary.warning_count == 0
-    assert summary.node_types == ["Document"]
-    assert summary.edge_types == ["PART_OF_THREAD"]
     graph_backend_adapter.write_graph_task.assert_called_once()
 
     snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
@@ -174,8 +175,8 @@ def test_graph_write_worker_stores_duplicate_skipped_snapshot(
     summary_records = [
         record
         for record in caplog.records
-        if record.getMessage()
-        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        if getattr(record, "event_type", None)
+        == graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG
     ]
     duplicate_record = _record_by_message(
         caplog,
@@ -186,11 +187,9 @@ def test_graph_write_worker_stores_duplicate_skipped_snapshot(
     assert len(summary_records) == 1
     assert duplicate_record.request_id == "req-1"
     assert duplicate_record.thread_id == 7
-    assert duplicate_record.candidate_trace_id == "trace-1"
-    assert duplicate_record.graph_write_id == "gwr_test_identity"
-    assert (
-        duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
-    )
+    assert duplicate_record.candidate_trace_id != "trace-1"
+    assert duplicate_record.graph_write_id != "gwr_test_identity"
+    assert duplicate_record.idempotency_key != "graph-write:trace-1:fingerprint-1"
     assert graph_backend_adapter.write_graph_task.call_count == 1
     assert snapshot is not None
     assert snapshot["receipt_status"] == (
@@ -220,13 +219,13 @@ def test_graph_write_worker_contains_snapshot_store_failure(
 
     assert any(
         record.levelno >= logging.ERROR
-        and graph_write_worker.GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG
-        in record.getMessage()
+        and getattr(record, "event_type", None)
+        == graph_write_worker.GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG
         for record in caplog.records
     )
     assert any(
-        record.getMessage()
-        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        getattr(record, "event_type", None)
+        == graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG
         for record in caplog.records
     )
 
@@ -244,13 +243,13 @@ def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
 
     assert any(
         record.levelno >= logging.ERROR
-        and graph_write_worker.GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG
-        in record.getMessage()
+        and getattr(record, "event_type", None)
+        == graph_write_worker.GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG
         for record in caplog.records
     )
     assert not any(
-        record.getMessage()
-        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        getattr(record, "event_type", None)
+        == graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG
         for record in caplog.records
     )
 

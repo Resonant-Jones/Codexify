@@ -145,6 +145,26 @@ model execution and again immediately before assistant persistence. Public
 invocation routes expose acceptance only; they do not imply execution or
 assistant persistence.
 
+### Task-event SSE authorization
+
+`GET /api/tasks/{task_id}/events` is intentionally a **chat-completion-only**
+public read surface under [ADR-098](./adr/098-public-task-event-ingress-as-chat-completion-readback.md)
+and the [accepted ingress matrix](./task-event-ingress-matrix.md). It treats
+`{task_id}` as the exact completion backend task ID.
+Before creating the SSE response, the route authenticates an eligible local or
+account principal, or a purpose-scoped Hosted Room guest principal; resolves
+the exact ID through `ChatCompletionAttempt.backend_task_id`; and authorizes
+the attempt's canonical `thread_id` with `require_thread_read_access`. Redis
+remains event transport and is reached only after that policy allows access.
+Agent/coding uses owner-authorized dedicated snapshots/thread lists; dedicated
+public agent SSE is quarantined. Delegation uses its operator surface; account
+import uses owner-scoped job polling. Voice outer tasks and internal warmup
+have no generic public admission. Historical Redis publication and client ID
+possession do not create a supported reader. No family-dispatch or new task
+ownership mapping is introduced. Unknown, moved/quarantined, Redis-only,
+request-ID-as-task-ID, and inaccessible resources fail closed. This route-specific guard does not change generic local-first auth
+defaults or establish live public-ingress qualification.
+
 ## Canonical Provider States
 
 ```ts
@@ -213,6 +233,46 @@ execution identifier. The attempt binds to a canonical chat thread in Postgres
 before queue visibility; ordinary chat and Hosted Room completion producers
 share this acceptance invariant. The complete request-state and replay model
 below is still a contract, not a fully persisted backend lifecycle.
+
+After successful-terminal validation, the PostgreSQL chat adapter persists the
+canonical assistant message and binds its ID to the exact completion attempt
+in one transaction. The binding includes request, backend task, thread, and
+turn identity; a retry of the same task reuses the already-linked assistant
+instead of creating another. Thread task receipts discover attempts from
+Postgres and may report `task.completed` from this durable link when Redis
+terminal events are unavailable. Redis remains observation evidence for
+attempts without a durable assistant link.
+
+For request-bearing attempts, turn-level duplicate suppression may publish
+`task.completed` only after the exact attempt-link write succeeds. Finding a
+same-turn assistant alone does not establish that another request attempt
+completed; if its link is unavailable, that attempt stays unresolved or keeps
+its already-recorded terminal event. Legacy queued tasks without a request ID
+retain their preexisting compatibility path.
+
+When a worker controls termination, it attempts to record the canonical
+`task.failed` or `task.cancelled` event type on the exact durable attempt before
+publishing the Redis terminal event. When that write commits, the first durable
+failure/cancellation is immutable for the attempt, and assistant completion
+cannot be added afterward. A durable assistant link remains stronger
+completion evidence if present. If a later worker step raises after that link
+commits, the worker rereads the exact request/task/thread/turn-bound attempt
+and publishes completion from the durable message link instead of a conflicting
+failure or cancellation. This stores only the terminal event kind:
+Redis remains the source for diagnostic payload details. If the database write
+fails, Redis remains the observation source until its evidence expires. A
+worker disappearing after destructive dequeue still produces no durable
+terminal outcome under this bounded implementation; its orphan timing,
+ownership proof, and explicit-retry policy remain unresolved.
+
+GuardianChat reads the bounded task-receipt endpoint after thread hydration.
+Unknown or nonterminal receipts render as an unconfirmed outcome, never as a
+guessed running, failed, or completed phase. Newly observed terminal receipts
+refresh canonical messages; the reader never resubmits or replays work. Current
+locally tracked tasks remain under their existing lifecycle controls, and
+thread or credential changes discard stale reads. The newest 100 attempts are
+the observation window. Historical task status is not attached to a specific
+authored message when that association is absent from durable data.
 
 ```ts
 export interface ChatTurnMessage {

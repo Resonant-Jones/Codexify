@@ -26,6 +26,8 @@ from guardian.db.models import (
     HostedRoom,
     HostedRoomInvite,
     HostedRoomParticipant,
+    PersonaProfile,
+    PersonaProfileRevision,
     Project,
     User,
 )
@@ -49,6 +51,8 @@ def hosted_room_engine():
     for table in (
         User.__table__,
         Project.__table__,
+        PersonaProfile.__table__,
+        PersonaProfileRevision.__table__,
         ChatThread.__table__,
         ChatMessage.__table__,
         HostedRoom.__table__,

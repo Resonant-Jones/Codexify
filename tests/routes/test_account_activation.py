@@ -87,9 +87,10 @@ class _ActivationDb:
 
 
 @pytest.fixture
-def activation_client():
+def activation_client(monkeypatch):
     from guardian.routes import auth
 
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "test-activation-session-secret")
     db = _ActivationDb()
     app = FastAPI()
     app.include_router(auth.api_router)

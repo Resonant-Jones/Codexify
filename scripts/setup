@@ -1,0 +1,373 @@
+#!/bin/sh
+# The initial bootstrap needs only a shell and Python's standard library.
+# This generated shell binding keeps prerequisite failures machine-readable even
+# before Python exists. Host installation remains the user's decision.
+. "${0%/*}/bootstrap_readiness.generated.sh"
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+  setup_json=false
+  for setup_arg in "$@"; do
+    case "$setup_arg" in --json) setup_json=true ;; esac
+  done
+  if [ "$setup_json" = true ]; then
+    printf '{"version":%s,"workflow":"%s","coreReady":false,"inferenceReady":false,"humanAction":"%s","message":"Python 3.10+ is required. Install Python, then rerun ./scripts/setup. Host installation requires your consent."}\n' "$BOOTSTRAP_CONTRACT_VERSION" "$BootstrapWorkflow_ACTION_REQUIRED" "$BootstrapHumanAction_PREREQUISITE_UNAVAILABLE"
+  else
+    printf '%s\n' 'Codexify needs Python 3.10+ to begin setup. Install Python, then rerun ./scripts/setup.' >&2
+  fi
+  exit 2
+fi
+exec python3 - "$0" "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+import platform
+import re
+import secrets
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve().parents[1]
+parser = argparse.ArgumentParser(prog='./scripts/setup', description="Bring Codexify's local workspace online; configure inference later.")
+parser.add_argument('--json', action='store_true', help='Emit canonical JSON events; never answer consent prompts for the user.')
+parser.add_argument('--logs', action='store_true', help='Also display detailed, redacted command logs on stderr.')
+parser.add_argument('--no-open', action='store_true', help='Print the workspace URL without opening a browser.')
+parser.add_argument('--inspect', action='store_true', help='Inspect prerequisites without writing configuration or starting services.')
+parser.add_argument('--timeout', type=float, default=1200, help='Core readiness deadline in seconds.')
+parser.add_argument('--project-name', default=os.environ.get('COMPOSE_PROJECT_NAME'), help='Compose project identity; use a separate identity for disposable proof.')
+parser.add_argument('--state-dir', type=Path, help='Override local checkpoint/log directory.')
+args = parser.parse_args(sys.argv[2:])
+if args.timeout <= 0 or (args.project_name is not None and not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', args.project_name)):
+    parser.error('Use a positive timeout and a lowercase Compose project name.')
+
+
+def load_file(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Load only dependency-free source modules, bypassing Guardian's package initializer.
+binding = load_file('codexify_bootstrap_contract', root / 'guardian/ops/bootstrap_readiness_generated.py')
+Workflow = binding.BootstrapWorkflow
+Action = binding.BootstrapHumanAction
+Readiness = binding.BootstrapReadiness
+state_home = args.state_dir or (
+    Path.home() / ('Library/Application Support/Codexify/source-bootstrap' if platform.system() == 'Darwin' else '.local/state/codexify/source-bootstrap')
+    / hashlib.sha256(str(root).encode()).hexdigest()[:16]
+)
+env_path = root / '.env'
+values = {}
+log_path = state_home / 'setup.log'
+core_ready = False
+inference_ready = False
+# Python reads this program from the shell heredoc, so stdin is not the user's TTY.
+terminal_input = None
+if sys.stdout.isatty() and not args.json:
+    try:
+        terminal_input = open('/dev/tty', 'r')
+    except OSError:
+        pass
+interactive = terminal_input is not None
+
+
+def ask_yes_no(message):
+    if not interactive:
+        return False
+    print(message + ' [y/N] ', end='', flush=True)
+    return terminal_input.readline().strip().lower() == 'y'
+
+
+
+def emit(workflow, message, action=Action.NONE, **extra):
+    snapshot = Readiness(workflow, core_ready, inference_ready, action).as_dict()
+    snapshot.update(message=message, **extra)
+    if args.json:
+        print(json.dumps(snapshot, sort_keys=True), flush=True)
+    else:
+        print(f'[{workflow.value}] {message}', flush=True)
+        if extra.get('logPath'):
+            print('Detailed logs: ' + extra['logPath'], flush=True)
+        if extra.get('resume'):
+            print('Resume: ' + extra['resume'], flush=True)
+        if extra.get('workspaceUrl'):
+            print('Workspace: ' + extra['workspaceUrl'], flush=True)
+    if not args.inspect:
+        state_home.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temp = state_home / 'checkpoint.tmp'
+        temp.write_text(json.dumps(snapshot, sort_keys=True) + '\n')
+        temp.chmod(0o600)
+        os.replace(temp, state_home / 'checkpoint.json')
+
+
+def stop(workflow, message, action=Action.NONE, code=2):
+    emit(workflow, message, action, resume='./scripts/setup', logPath=str(log_path))
+    raise SystemExit(code)
+
+
+def redact(text):
+    for key, value in sorted(values.items(), key=lambda item: len(item[1]), reverse=True):
+        if value and any(marker in key for marker in ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASS')):
+            text = text.replace(value, '<redacted>')
+    return text
+
+
+def run(command, *, retry=False, failure_action=Action.NONE):
+    attempts = 3 if retry else 1
+    for attempt in range(attempts):
+        try:
+            proc = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=args.timeout)
+        except subprocess.TimeoutExpired as exc:
+            partial = exc.stdout or ''
+            if isinstance(partial, bytes):
+                partial = partial.decode(errors='replace')
+            proc = subprocess.CompletedProcess(command, 1, partial + '\nconnection timed out: runtime operation deadline exceeded')
+        output = redact(proc.stdout)
+        if not args.inspect:
+            state_home.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with log_path.open('a') as log:
+                log.write('$ ' + shlex.join(command) + '\n' + output + '\n')
+            log_path.chmod(0o600)
+        if args.logs and output:
+            print(output, file=sys.stderr, flush=True)
+        if proc.returncode == 0:
+            return proc.stdout
+        network_failure = any(marker in proc.stdout.lower() for marker in (
+            'network is unreachable', 'network unreachable', 'i/o timeout',
+            'connection timed out', 'connection reset', 'could not resolve',
+            'temporary failure in name resolution', 'tls handshake timeout',
+            'failed to fetch', 'failed to resolve source metadata',
+        ))
+        if retry and not network_failure:
+            action = Action.CREDENTIALS_REQUIRED if any(marker in proc.stdout.lower() for marker in ('unauthorized', 'authentication required', 'access denied')) else Action.NONE
+            stop(Workflow.ACTION_REQUIRED if action == Action.CREDENTIALS_REQUIRED else Workflow.FAILED,
+                 'Required asset acquisition failed. Inspect the log; setup will preserve configuration and completed work.', action, code=1)
+        if attempt + 1 < attempts:
+            emit(Workflow.PAUSED, f'Required asset acquisition did not finish. Retry {attempt + 2}/{attempts}.', Action.NETWORK_UNAVAILABLE)
+            time.sleep(2 ** attempt)
+    stop(Workflow.PAUSED if retry else Workflow.FAILED,
+         'Required asset acquisition is interrupted. Completed work is preserved; check the detailed log and rerun.' if retry else 'A runtime operation failed. Completed work is preserved; inspect the log and rerun.',
+         failure_action if retry else Action.NONE, code=1)
+
+
+def read_env():
+    result = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            match = re.match(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=(.*)$', line)
+            if match:
+                try:
+                    parts = shlex.split(match[2], comments=True)
+                    result[match[1]] = ' '.join(parts)
+                except ValueError:
+                    stop(Workflow.ACTION_REQUIRED, 'An existing .env value is malformed. Repair it before setup continues.', Action.CREDENTIALS_REQUIRED)
+    return result
+
+
+def placeholder(value):
+    return not value or value.strip().lower() in {'change-me', 'changeme', 'placeholder', 'todo', 'dev-local-only-change-me'} or value.lower().startswith('replace-with-')
+
+
+def supported_provider_defaults():
+    # This entrypoint has no YAML dependency. Read the current manifest's flat scalar
+    # provider block, failing closed if its schema becomes more complex.
+    path = root / 'config/supported_profiles/v1-local-core-web-mcp.yaml'
+    block = path.read_text().split('\nprovider_contract:\n', 1)[1].split('\ncriticality:', 1)[0]
+    result = {}
+    for line in block.splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        match = re.fullmatch(r'  ([A-Z_0-9]+): (.*)', line)
+        if not match:
+            raise ValueError('Unsupported provider manifest shape; setup cannot infer new policy.')
+        value = match[2].strip()
+        result[match[1]] = json.loads(value) if value.startswith('"') else value
+    return result
+
+
+def configure(docker):
+    global values
+    values = read_env()
+    args.project_name = args.project_name or values.get('COMPOSE_PROJECT_NAME') or 'codexify'
+    if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', args.project_name):
+        stop(Workflow.ACTION_REQUIRED, 'The configured Compose project name is invalid. Resolve that choice before setup continues.', Action.CONSENT_REQUIRED)
+    volumes = run([docker, 'volume', 'ls', '--filter', f'label=com.docker.compose.project={args.project_name}', '--format', '{{.Name}}'])
+    existing_data = bool(volumes.strip())
+    if not env_path.exists() and existing_data:
+        stop(Workflow.ACTION_REQUIRED, 'Existing project data has no .env. Restore its configuration and storage credentials before continuing.', Action.CREDENTIALS_REQUIRED)
+    fixed = {**supported_provider_defaults(), 'GUARDIAN_AUTH_MODE': 'local', 'CODEXIFY_SUPPORTED_PROFILE': 'v1-local-core-web-mcp'}
+    for key, expected in fixed.items():
+        current = values.get(key, '').lower()
+        equivalent = current == expected.lower()
+        if expected.lower() in {'true', 'false'}:
+            equivalent = current in ({'true', '1', 'yes', 'on'} if expected.lower() == 'true' else {'false', '0', 'no', 'off'})
+        if not placeholder(values.get(key)) and not equivalent:
+            stop(Workflow.ACTION_REQUIRED, f'{key} conflicts with the supported personal profile. Your configuration was preserved; resolve the choice explicitly.', Action.CONSENT_REQUIRED)
+    presets = load_file('codexify_local_runtime_presets', root / 'guardian/core/local_runtime_presets.py')
+    preset = values.get('LOCAL_RUNTIME_PRESET') or fixed['LOCAL_RUNTIME_PRESET']
+    defaults = {**presets.local_runtime_env_defaults(preset), **fixed,
+                'CODEXIFY_CONFIG_SOURCE': 'core', 'GUARDIAN_AUTH_MODE': 'local',
+                'GUARDIAN_API_KEY': secrets.token_hex(32), 'NEO4J_USER': 'neo4j', 'NEO4J_PASS': secrets.token_urlsafe(24),
+                'POSTGRES_USER': 'codexify', 'POSTGRES_DB': 'Codexify'}
+    if placeholder(values.get('LOCAL_CHAT_MODEL')) and not placeholder(values.get('LOCAL_LLM_MODEL')):
+        defaults['LOCAL_CHAT_MODEL'] = values['LOCAL_LLM_MODEL']
+    frontend_port = values.get('CODEXIFY_FRONTEND_PORT', '5173')
+    defaults['GUARDIAN_ALLOWED_ORIGINS'] = f'http://localhost:{frontend_port},http://127.0.0.1:{frontend_port},tauri://localhost,http://tauri.localhost,https://tauri.localhost'
+    # Existing installations may rely on Compose's previous storage default.
+    defaults['POSTGRES_PASSWORD'] = 'codexify' if existing_data else secrets.token_hex(24)
+    changes = {key: value for key, value in defaults.items() if placeholder(values.get(key))}
+    key = changes.get('GUARDIAN_API_KEY', values.get('GUARDIAN_API_KEY'))
+    if placeholder(values.get('VITE_GUARDIAN_API_KEY')):
+        changes['VITE_GUARDIAN_API_KEY'] = key
+    elif values['VITE_GUARDIAN_API_KEY'] != key:
+        stop(Workflow.ACTION_REQUIRED, 'The browser and backend keys differ. Resolve the existing configuration explicitly.', Action.CREDENTIALS_REQUIRED)
+    values.update(changes)
+    if changes:
+        original = env_path.read_text() if env_path.exists() else '# Codexify personal local configuration. Keep secrets out of Git.\n'
+        lines = original.splitlines()
+        remaining = dict(changes)
+        for index, line in enumerate(lines):
+            match = re.match(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=', line)
+            if match and match[1] in changes:
+                lines[index] = f'{match[1]}={json.dumps(changes[match[1]])}'
+                remaining.pop(match[1], None)
+        lines += [f'{key}={json.dumps(value)}' for key, value in remaining.items()]
+        temp = env_path.with_name('.env.setup.tmp')
+        temp.write_text('\n'.join(lines) + '\n')
+        temp.chmod(0o600)
+        os.replace(temp, env_path)
+
+
+def probe(url, *, as_json=True, allow_degraded=False):
+    try:
+        with urllib.request.urlopen(url, timeout=3) as response:
+            if not 200 <= response.status < 400:
+                return None
+            return json.load(response) if as_json else True
+    except urllib.error.HTTPError as exc:
+        if as_json and allow_degraded and exc.code == 503:
+            try:
+                return json.load(exc)
+            except ValueError:
+                pass
+        return None
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+
+
+def local_inference_ready(payload):
+    if not isinstance(payload, dict):
+        return False
+    details = payload.get('details') or payload
+    if not isinstance(details, dict):
+        return False
+    provider_runtime = details.get('provider_runtime') or {}
+    endpoint_resolution = details.get('endpoint_resolution') or {}
+    if not isinstance(provider_runtime, dict) or not isinstance(endpoint_resolution, dict):
+        return False
+    return bool(
+        details.get('provider', payload.get('provider')) == 'local'
+        and details.get('configured_model_available') is True
+        and details.get('models_available') is True
+        and payload.get('status') in {'ok', 'online', 'healthy', 'ready'}
+        and details.get('ok') is not False
+        and provider_runtime.get('available') is not False
+        and endpoint_resolution.get('state', 'available') == 'available'
+    )
+
+
+def core_health_ready(health, chat):
+    if not isinstance(health, dict) or not isinstance(chat, dict):
+        return False
+    completion = chat.get('completion_service')
+    return isinstance(completion, dict) and health.get('status') == 'ok' and completion.get('ok') is True and completion.get('redis_reachable') is True
+
+
+def core_services_running(compose):
+    output = run(compose + ['ps', '--format', 'json', 'db', 'redis', 'backend', 'worker-chat', 'worker-document-embed', 'frontend'])
+    try:
+        rows = json.loads(output) if output.lstrip().startswith('[') else [json.loads(line) for line in output.splitlines() if line.strip()]
+    except ValueError:
+        return False
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return False
+    required = {'db', 'redis', 'backend', 'worker-chat', 'worker-document-embed', 'frontend'}
+    running = {row.get('Service') for row in rows if row.get('State') == 'running' and row.get('Health') not in {'unhealthy', 'starting'}}
+    return required <= running
+
+
+def main():
+    global core_ready, inference_ready
+    if not args.json:
+        print('Codexify — personal local setup\nInspect → Configure → Acquire → Start → Migrate → Verify\n')
+    emit(Workflow.INSPECTING, 'Inspecting current prerequisites. No input is needed while these checks run.')
+    if platform.system() not in {'Darwin', 'Linux'}:
+        stop(Workflow.ACTION_REQUIRED, 'This setup path targets macOS and Linux.', Action.PREREQUISITE_UNAVAILABLE)
+    docker = shutil.which('docker')
+    if not docker and platform.system() == 'Darwin':
+        docker = next((str(path) for path in (Path('/opt/homebrew/bin/docker'), Path('/usr/local/bin/docker'), Path('/Applications/Docker.app/Contents/Resources/bin/docker')) if path.is_file() and os.access(path, os.X_OK)), None)
+    if not docker:
+        if ask_yes_no('Docker with Compose is required. Open installation instructions?'):
+            webbrowser.open('https://docs.docker.com/get-started/get-docker/')
+        stop(Workflow.ACTION_REQUIRED, 'Install Docker with Compose using your host installer, then rerun. Codexify does not approve package installation or elevation for you.', Action.PREREQUISITE_UNAVAILABLE)
+    for command, explanation in (([docker, 'compose', 'version'], 'Docker Compose is unavailable.'), ([docker, 'info'], 'The Docker daemon is unavailable. Start Docker, then rerun.')):
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode:
+            stop(Workflow.ACTION_REQUIRED, explanation, Action.PREREQUISITE_UNAVAILABLE)
+    if args.inspect:
+        emit(Workflow.COMPLETE, 'Host prerequisites are available. Core runtime readiness has not been established.')
+        return
+    emit(Workflow.CONFIGURING, 'Generating only missing safe defaults; existing choices and data remain authoritative.')
+    configure(docker)
+    compose = [docker, 'compose', '--project-name', args.project_name, '--env-file', str(env_path), '-f', str(root / 'docker-compose.yml')]
+    run(compose + ['config', '--quiet'])
+    emit(Workflow.DOWNLOADING, 'Acquiring required application images and dependencies. Inference runtimes and models are deferred.')
+    run(compose + ['pull', '--policy', 'missing', 'db', 'redis', 'frontend'], retry=True, failure_action=Action.NETWORK_UNAVAILABLE)
+    # The backend image is shared by the existing migration and worker services.
+    run(compose + ['build', 'backend'], retry=True, failure_action=Action.NETWORK_UNAVAILABLE)
+    emit(Workflow.STARTING, 'Starting database and queue infrastructure.')
+    run(compose + ['up', '-d', '--wait', '--wait-timeout', str(int(args.timeout)), 'db', 'redis'])
+    emit(Workflow.MIGRATING, 'Running the existing database migration path.')
+    run(compose + ['run', '--rm', '--no-deps', 'migrator'])
+    emit(Workflow.STARTING, 'Starting existing core services. Model preparation remains deferred.')
+    run(compose + ['up', '-d', '--no-deps', 'backend', 'worker-chat', 'worker-document-embed', 'frontend'])
+    backend = 'http://127.0.0.1:' + values.get('CODEXIFY_BACKEND_PORT', '8888')
+    workspace = 'http://127.0.0.1:' + values.get('CODEXIFY_FRONTEND_PORT', '5173')
+    emit(Workflow.VERIFYING, 'Waiting for live core health and the workspace. No model is required for this milestone.')
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        health = probe(backend + '/health') or {}
+        chat = probe(backend + '/health/chat', allow_degraded=True) or {}
+        core_ready = bool(probe(backend + '/ping', as_json=False) and core_health_ready(health, chat) and probe(workspace, as_json=False) and core_services_running(compose))
+        if core_ready:
+            break
+        time.sleep(2)
+    if not core_ready:
+        stop(Workflow.PAUSED, 'Core services have not become healthy before the deadline. Inspect the log and rerun; configuration and data are preserved.', code=1)
+    inference_ready = local_inference_ready(probe(backend + '/health/llm'))
+    emit(Workflow.COMPLETE,
+         'The workspace and local inference are ready.' if inference_ready else 'The workspace is available. Configure and verify local inference from personal setup before chatting.',
+         Action.NONE if inference_ready else Action.PROVIDER_MODEL_CHOICE_REQUIRED, workspaceUrl=workspace)
+    if not args.no_open and interactive:
+        webbrowser.open(workspace)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        stop(Workflow.PAUSED, 'Setup was interrupted. Completed work is preserved. Rerun the same command to re-inspect and resume.', code=130)
+    except (OSError, ValueError, KeyError, IndexError) as exc:
+        stop(Workflow.FAILED, 'A local operation could not complete: ' + redact(str(exc)), code=1)
+PY

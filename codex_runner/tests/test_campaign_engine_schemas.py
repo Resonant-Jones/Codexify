@@ -241,6 +241,12 @@ def _cross_object_errors(document: dict[str, Any]) -> list[str]:
             continue
         if "live_role_binding" not in binding:
             continue
+        required_tool_name = binding["live_role_binding"].get("required_tool_name")
+        if required_tool_name is not None and binding["role"] != "executor":
+            errors.append(
+                f"binding {binding['binding_id']} required_tool_name is only "
+                "supported for a live executor"
+            )
         granted = binding["live_role_binding"].get("granted_permissions", [])
         requested = binding["live_role_binding"].get("requested_permissions", [])
         if set(granted) - set(requested):
@@ -326,6 +332,36 @@ def test_valid_campaign_fixture_passes_validation() -> None:
     assert _validation_errors(_fixture("valid_campaign.json")) == []
 
 
+def test_live_executor_required_tool_is_optional_and_write_is_supported() -> None:
+    document = _fixture("live_role_execution_campaign.json")
+    executor = next(binding for binding in document["role_bindings"] if binding["role"] == "executor")
+    assert "required_tool_name" not in executor["live_role_binding"]
+    assert _validation_errors(document) == []
+
+    executor["live_role_binding"]["required_tool_name"] = "write"
+    assert _validation_errors(document) == []
+
+
+@pytest.mark.parametrize("value", ["edit", "bash", "patch", None])
+def test_unsupported_live_executor_required_tool_is_rejected(value: str | None) -> None:
+    document = _fixture("live_role_execution_campaign.json")
+    executor = next(binding for binding in document["role_bindings"] if binding["role"] == "executor")
+    executor["live_role_binding"]["required_tool_name"] = value
+    assert _validation_errors(document)
+
+
+def test_required_tool_cannot_be_declared_by_live_evaluator() -> None:
+    document = _fixture("live_role_execution_campaign.json")
+    evaluator = next(binding for binding in document["role_bindings"] if binding["role"] == "evaluator")
+    if "live_role_binding" not in evaluator:
+        executor = next(binding for binding in document["role_bindings"] if binding["role"] == "executor")
+        evaluator["execution_mode"] = "live"
+        evaluator["redaction_status"] = "redacted"
+        evaluator["live_role_binding"] = deepcopy(executor["live_role_binding"])
+    evaluator["live_role_binding"]["required_tool_name"] = "write"
+    assert any("only supported for a live executor" in error for error in _validation_errors(document))
+
+
 def test_invalid_model_limit_fixture_is_rejected() -> None:
     errors = _validation_errors(
         _fixture("invalid_role_binding_model_limit.json")
@@ -390,12 +426,6 @@ def test_evaluation_must_reference_a_declared_attempt() -> None:
 
 def _validate_single_entity(entity: str, payload: dict, label: str) -> list:
     """Validate one Campaign Engine entity using the existing schema validator."""
-    schema_name = {
-        "attempt": "attempt",
-        "evaluation": "evaluation",
-        "receipt": "receipt",
-        "role_binding": "role_binding",
-    }[entity]
     from jsonschema import Draft202012Validator, FormatChecker
     schema = _read_json(SCHEMA_ROOT / {
         "attempt": "attempt.schema.json",
@@ -782,7 +812,6 @@ def test_live_executor_attempt_must_reference_executor_role_binding() -> None:
 def test_live_executor_attempt_must_reference_live_executor_binding() -> None:
     """A live Attempt's referenced RoleBinding must itself be a live binding."""
     document = deepcopy(_load_live_role_campaign())
-    attempt = next(a for a in document["attempts"] if a["attempt_id"] == "attempt-live-001")
     bindings = {b["binding_id"]: b for b in document["role_bindings"]}
     executor_id = next(b for b in bindings.values() if b["role"] == "executor")[
         "binding_id"

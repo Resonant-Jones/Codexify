@@ -1,8 +1,23 @@
-"""ADR-087 accepted chat deadline authority; no execution enforcement."""
+"""Immutable ADR-087 accepted chat deadline authority."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
+
+from fastapi import HTTPException
+from guardian.protocol_tokens import ErrorCode
+
+
+class AcceptedChatTaskDeadlineExceeded(HTTPException):
+    def __init__(self, *, attempted: bool = False):
+        super().__init__(status_code=504, detail={
+            "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value,
+            "message": "Accepted chat task work deadline exceeded.",
+            "completion_truth": {
+                "accepted": True, "attempted": attempted,
+                "fallback_attempted": False, "executed": False, "completed": False,
+            },
+        })
 
 ACCEPTED_CHAT_TASK_WORK_BUDGET_SECONDS = 720
 ACCEPTED_CHAT_TASK_TERMINAL_BUDGET_SECONDS = 60
@@ -72,3 +87,10 @@ def parse_accepted_chat_task_deadline(
         )
     except (TypeError, ValueError, OverflowError):
         raise ValueError("accepted chat deadline snapshot is invalid") from None
+
+
+def accepted_chat_deadline_for_task(task: Any) -> AcceptedChatTaskDeadline | None:
+    snapshot = {name: getattr(task, name, None) for name in DEADLINE_FIELDS}
+    if all(value is None for value in snapshot.values()):
+        return None
+    return parse_accepted_chat_task_deadline(snapshot)

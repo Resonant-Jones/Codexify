@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import fastapi.routing as fastapi_routing
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -25,6 +26,7 @@ from guardian.core.dependencies import (
     require_account_session,
     require_api_key,
     require_operator_auth,
+    require_task_event_read_principal,
 )
 from guardian.core.hosted_room_session import issue_guest_session_token
 from guardian.core.supported_profile import load_supported_profile
@@ -36,6 +38,9 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
     "guardian.guardian_api": (
         ("GET", "/api/events", "stream_events"),
         ("GET", "/graph", "get_graph"),
+    ),
+    "guardian.routes.configuration_inspector": (
+        ("GET", "/api/operator/configuration", "get_configuration_snapshot"),
     ),
     "guardian.routes.agent_orchestration": (
         ("POST", "/api/agents/plans", "create_plan"),
@@ -91,6 +96,7 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("GET", "/graph", "get_graph"),
     ),
     "guardian.routes.guardian_delegations": (
+        ("GET", "/api/guardian/delegations", "list_guardian_delegations"),
         ("POST", "/api/guardian/delegations", "create_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/approve", "approve_guardian_delegation"),
         ("POST", "/api/guardian/delegations/{intent_id}/cancel", "cancel_guardian_delegation"),
@@ -119,6 +125,7 @@ ENABLED_MODULES = {
     "guardian.guardian_api",
     "guardian.routes.agent_orchestration",
     "guardian.routes.coding_work_orders",
+    "guardian.routes.configuration_inspector",
     "guardian.routes.obsidian",
 }
 DEFAULT_OFF_MODULES = {
@@ -158,6 +165,13 @@ def _routes(module_name: str) -> list[APIRoute]:
     ]
 
 
+def _effective_app_routes(app: FastAPI) -> list:
+    # FastAPI 0.142+ keeps included routers nested until request/schema use.
+    # Its public iterator exposes the effective path and original endpoint.
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    return list(iter_contexts(app.routes) if iter_contexts else app.routes)
+
+
 def _calls(route: APIRoute) -> Iterator[object]:
     def visit(dependant) -> Iterator[object]:
         for child in dependant.dependencies:
@@ -186,9 +200,9 @@ def _sign_legacy(secret: str) -> str:
     return f"{encode(payload)}.{encode(signature)}"
 
 
-def test_frozen_operator_manifest_has_exactly_56_registrations_in_12_files():
-    assert len(EXPECTED) == 12
-    assert sum(map(len, EXPECTED.values())) == 56
+def test_frozen_operator_manifest_has_exactly_58_registrations_in_13_files():
+    assert len(EXPECTED) == 13
+    assert sum(map(len, EXPECTED.values())) == 58
 
     for module_name, registrations in EXPECTED.items():
         for method, path, handler in registrations:
@@ -209,8 +223,8 @@ def test_frozen_operator_manifest_has_exactly_56_registrations_in_12_files():
 
 
 def test_frozen_activation_ledger_and_supported_profile_posture():
-    assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 23
-    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 28
+    assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 24
+    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 29
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
 
@@ -249,7 +263,7 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert default_off_flags == {"guardian_delegations": False, "worktrees": False}
 
 
-def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeypatch):
+def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeypatch):
     from tests.core.test_supported_profile_quarantine import (
         _build_supported_profile_client,
     )
@@ -259,10 +273,11 @@ def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeyp
         subject="account", purpose=ACCOUNT_SESSION_PURPOSE
     )
     with _build_supported_profile_client(monkeypatch) as client:
+        app_routes = _effective_app_routes(client.app)
         mounted = {
             (method, route.path, route.endpoint.__module__, route.endpoint.__name__)
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
             for method in route.methods
         }
         enabled = [
@@ -270,9 +285,17 @@ def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeyp
             for module in ENABLED_MODULES
             for method, path, handler in EXPECTED[module]
         ]
-        assert len(enabled) == 23
+        assert len(enabled) == 24
         for module, method, path, handler in enabled:
-            assert (method, path, module, handler) in mounted
+            expected_route = (method, path, module, handler)
+            assert expected_route in mounted, {
+                "expected": expected_route,
+                "same_path": sorted(route for route in mounted if route[1] == path),
+                "same_module": sorted(route for route in mounted if route[2] == module),
+                "enabled_labels": sorted(
+                    client.app.state.supported_profile_enabled_labels
+                ),
+            }
             concrete_path = path
             for segment in path.split("/"):
                 if segment.startswith("{") and segment.endswith("}"):
@@ -291,8 +314,8 @@ def test_local_supported_topology_mounts_23_and_excludes_disabled_routes(monkeyp
                 assert (method, path, module, handler) not in mounted
         assert not any(
             route.endpoint.__module__ == "guardian.routes.graph"
-            for route in client.app.routes
-            if isinstance(route, APIRoute)
+            for route in app_routes
+            if isinstance(getattr(route, "original_route", route), APIRoute)
         )
 
 
@@ -361,16 +384,17 @@ def test_non_operator_sentinels_keep_distinct_auth_dependencies():
     assert require_api_key in set(_calls(local_route))
     assert require_operator_auth not in set(_calls(local_route))
 
-    # Task-event SSE (2026-10-07 ADR-091/ADR-092 repair): this route no longer
-    # treats the generic API-key seam as its resource authority. It resolves a
-    # typed principal and authorizes the durable task->thread resource in-body,
-    # so there is no FastAPI auth dependency to introspect here. The sentinel
-    # intent is unchanged: the route is still not operator-gated.
+    # Task-event SSE (ADR-091 + ADR-092 + ADR-098): this route no longer treats the
+    # generic API-key seam as its resource authority. It authenticates exactly one
+    # principal lane through the shared read-principal dependency, then authorizes
+    # the durable task->thread resource before any transport side effect. The
+    # sentinel intent is unchanged: the route is still not operator-gated.
     sse_route = _find("guardian.guardian_api", "GET", "/api/tasks/{task_id}/events")
+    assert require_task_event_read_principal in set(_calls(sse_route))
     assert require_api_key not in set(_calls(sse_route))
     assert require_operator_auth not in set(_calls(sse_route))
     import inspect
 
     sse_source = inspect.getsource(sse_route.endpoint)
-    assert "authorize_task_event_stream" in sse_source
+    assert "authorize_task_event_read" in sse_source
     assert "require_api_key" not in sse_source

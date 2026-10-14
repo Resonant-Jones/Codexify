@@ -370,12 +370,13 @@ struct ServerStatusView: View {
         llmResult = nil
         catalogResult = nil
 
-        let apiKey: String?
-        do {
-            apiKey = try keychainStore.loadAPIKey()
-        } catch {
-            keychainError = "Could not load API key from Keychain."
-            apiKey = nil
+        var apiKey: String?
+        if profile.authenticationMode == .localAPIKey {
+            do {
+                apiKey = try keychainStore.loadAPIKey(for: profile)
+            } catch {
+                keychainError = "Could not load API key from Keychain."
+            }
         }
 
         result = await ScoutEndpointConnectivityProbe.probe(endpoint: profile, apiKey: apiKey)

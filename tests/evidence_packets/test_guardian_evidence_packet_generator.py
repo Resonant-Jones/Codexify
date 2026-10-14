@@ -79,5 +79,8 @@ def test_generator_fails_closed_on_non_object_read_results_entry(tmp_path: Path)
 
 
 def test_generator_docs_are_linked() -> None:
-    for path in ("docs/architecture/guardian-evidence-packet-generator-contract.md", "docs/architecture/README.md", "docs/architecture/00-current-state.md"):
+    for path in ("docs/architecture/guardian-evidence-packet-generator-contract.md", "docs/architecture/README.md"):
         assert "generate_evidence_packet.py" in (ROOT / path).read_text()
+    current = (ROOT / "docs/architecture/00-current-state.md").read_text()
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current

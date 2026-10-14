@@ -59,8 +59,10 @@ from guardian.extensions.tokens import (
     INSTALL_GATE_DECISION_TOKENS,
 )
 from guardian.messaging.tokens import (
+    DM_CONSENT_SOURCES,
     DM_CONTENT_TYPES,
     DM_CONVERSATION_KINDS,
+    MESSAGE_REQUEST_STATES,
     USERNAME_STATES,
 )
 from guardian.protocol_tokens import (
@@ -172,12 +174,8 @@ class AccountActivationCapability(Base):
     expires_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    consumed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     resulting_user_id: Mapped[str | None] = mapped_column(
         String(255),
         ForeignKey("users.id", ondelete="RESTRICT"),
@@ -1346,10 +1344,46 @@ class ChatCompletionAttempt(Base):
         index=True,
     )
     turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    completed_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    terminal_event_type: Mapped[str | None] = mapped_column(String(32))
+    terminal_outcome: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    deadline_snapshot: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    turn_lock_token: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "terminal_event_type IS NULL OR terminal_event_type IN "
+            "('task.failed', 'task.cancelled')",
+            name="ck_chat_completion_attempts_terminal_event",
+        ),
+        CheckConstraint(
+            "terminal_outcome IS NULL OR COALESCE(("
+            "jsonb_typeof(terminal_outcome) = 'object' "
+            "AND terminal_outcome->>'failure_code' = 'CHAT_ACCEPTED_TASK_ORPHANED' "
+            "AND terminal_event_type = 'task.failed' "
+            "AND completed_message_id IS NULL AND accepted_at IS NOT NULL "
+            "AND deadline_snapshot IS NOT NULL "
+            "AND (terminal_outcome->>'reconciled_at')::timestamptz >= "
+            "(deadline_snapshot->>'terminal_deadline_at')::timestamptz), false)",
+            name="ck_chat_attempt_orphan_outcome",
+        ),
+        CheckConstraint(
+            "(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR "
+            "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
+            "AND length(trim(turn_lock_token)) > 0)",
+            name="ck_chat_attempt_recovery_snapshot_pair",
+        ),
+    )
 
 
 class ChatMessage(Base):
@@ -1855,6 +1889,217 @@ DM_CONVERSATION_KIND_VALUES_SQL = "','".join(sorted(DM_CONVERSATION_KINDS))
 DM_CONVERSATION_KIND_CHECK = f"kind IN ('{DM_CONVERSATION_KIND_VALUES_SQL}')"
 DM_CONTENT_TYPE_VALUES_SQL = "','".join(sorted(DM_CONTENT_TYPES))
 DM_CONTENT_TYPE_CHECK = f"content_type IN ('{DM_CONTENT_TYPE_VALUES_SQL}')"
+
+
+class MessageRequest(Base):
+    """Shared solicitation truth, independent of pair identity and local history."""
+
+    __tablename__ = "message_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(
+        ForeignKey("direct_message_relationships.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    transitioned_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_message_conversations.id", ondelete="RESTRICT"), unique=True
+    )
+    first_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_messages.id", ondelete="RESTRICT"), unique=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('" + "','".join(sorted(MESSAGE_REQUEST_STATES)) + "')",
+            name="ck_message_requests_state",
+        ),
+        CheckConstraint(
+            "sender_profile_id <> recipient_profile_id",
+            name="ck_message_requests_distinct_profiles",
+        ),
+        CheckConstraint(
+            "length(trim(note)) > 0 AND length(note) <= 32000",
+            name="ck_message_requests_note",
+        ),
+        CheckConstraint("expires_at > created_at", name="ck_message_requests_expiry"),
+        CheckConstraint(
+            "(state = 'pending' AND transitioned_at IS NULL) OR "
+            "(state <> 'pending' AND transitioned_at IS NOT NULL)",
+            name="ck_message_requests_transition",
+        ),
+        CheckConstraint(
+            "(state = 'accepted' AND conversation_id IS NOT NULL AND first_message_id IS NOT NULL) OR "
+            "(state <> 'accepted' AND conversation_id IS NULL AND first_message_id IS NULL)",
+            name="ck_message_requests_materialization",
+        ),
+        Index(
+            "uq_message_requests_pending_direction",
+            "sender_profile_id",
+            "recipient_profile_id",
+            unique=True,
+            postgresql_where=text("state = 'pending'"),
+            sqlite_where=text("state = 'pending'"),
+        ),
+        Index(
+            "ix_message_requests_recipient_created",
+            "recipient_profile_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_message_requests_sender_created",
+            "sender_profile_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_message_requests_expiry", "state", "expires_at"),
+    )
+
+
+class MessageRequestAttempt(Base):
+    """Durable idempotency binding, including reverse-direction affirmative intent."""
+
+    __tablename__ = "message_request_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), nullable=False
+    )
+    client_request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    materialized_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("direct_messages.id", ondelete="RESTRICT"), unique=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sender_profile_id",
+            "client_request_key",
+            name="uq_message_request_attempts_sender_key",
+        ),
+        CheckConstraint(
+            "length(trim(client_request_key)) > 0 AND length(client_request_key) <= 128",
+            name="ck_message_request_attempts_key",
+        ),
+        CheckConstraint(
+            "length(trim(note)) > 0 AND length(note) <= 32000",
+            name="ck_message_request_attempts_note",
+        ),
+        Index("ix_message_request_attempts_rate", "sender_profile_id", "created_at"),
+    )
+
+
+class DirectMessageConsent(Base):
+    """Pair-scoped ordinary DM consent; never Contact, trust or resource access."""
+
+    __tablename__ = "direct_message_consents"
+
+    relationship_id: Mapped[str] = mapped_column(
+        ForeignKey("direct_message_relationships.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), unique=True
+    )
+    established_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('" + "','".join(sorted(DM_CONSENT_SOURCES)) + "')",
+            name="ck_direct_message_consents_source",
+        ),
+        CheckConstraint(
+            "(source = 'historical_conversation' AND request_id IS NULL) OR "
+            "(source = 'accepted_request' AND request_id IS NOT NULL)",
+            name="ck_direct_message_consents_provenance",
+        ),
+    )
+
+
+class MessageRequestSuppression(Base):
+    """Recipient-owned directional solicitation policy, separate from attempts."""
+
+    __tablename__ = "message_request_suppressions"
+
+    sender_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), primary_key=True
+    )
+    recipient_profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="RESTRICT"), primary_key=True
+    )
+    source_request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    cleared_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "sender_profile_id <> recipient_profile_id",
+            name="ck_message_request_suppressions_distinct_profiles",
+        ),
+    )
+
+
+class MessageRequestPreferences(Base):
+    """Account-owned history preference; never deletes shared request truth."""
+
+    __tablename__ = "message_request_preferences"
+
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"), primary_key=True
+    )
+    auto_hide_terminal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+
+
+class MessageRequestVisibility(Base):
+    """Participant-local archive projection; canonical lifecycle remains intact."""
+
+    __tablename__ = "message_request_visibility"
+
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("message_requests.id", ondelete="RESTRICT"), primary_key=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"), primary_key=True
+    )
+    hidden_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
 
 
 class DirectMessageRelationship(Base):
@@ -5276,6 +5521,7 @@ class AgentRun(Base):
         ForeignKey("agent_deployments.id", ondelete="CASCADE"),
         nullable=False,
     )
+    account_origin_user_id: Mapped[str | None] = mapped_column(String(255))
     thread_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
     )
@@ -6106,6 +6352,61 @@ class Campaign(Base):
         ),
         Index("ix_campaigns_goal_id", "goal_id"),
         Index("ix_campaigns_status", "status"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CampaignContinuationAuthorityRecord(Base):
+    """Operator-approved, Campaign-scoped continuation authority record."""
+
+    __tablename__ = "campaign_continuation_authorities"
+
+    authority_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    campaign_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("campaigns.campaign_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    envelope_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    approved_by_actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_by_actor_id: Mapped[str | None] = mapped_column(String(255))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revocation_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > approved_at",
+            name="campaign_continuation_authorities_expiry_check",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by_actor_id IS NULL "
+            "AND revocation_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
+            "AND revocation_reason IS NOT NULL)",
+            name="campaign_continuation_authorities_revocation_check",
+        ),
+        Index(
+            "uq_campaign_continuation_authorities_unrevoked_campaign",
+            "campaign_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+        Index(
+            "ix_campaign_continuation_authorities_campaign_approved_at",
+            "campaign_id",
+            "approved_at",
+        ),
     )
     __mapper_args__ = {"eager_defaults": True}
 
@@ -6991,6 +7292,12 @@ class MemoryRecord(Base):
     held: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'dormant'")
+    )
     extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -7053,6 +7360,14 @@ class MemoryRecord(Base):
             "(reviewed_at IS NOT NULL "
             "AND activated_at >= reviewed_at)",
             name="memory_records_review_activation_order_check",
+        ),
+        CheckConstraint(
+            "review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_records_review_state_check",
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_records_lifecycle_state_check",
         ),
         Index("ix_memory_records_user_id", "user_id"),
         Index("ix_memory_records_user_project", "user_id", "project_id"),
@@ -7209,3 +7524,44 @@ class MemoryProvenance(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class UserOnboardingState(Base):
+    """Account-owned introduction progress; separate from identity policy."""
+
+    __tablename__ = "user_onboarding_state"
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    onboarding_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="not_started"
+    )
+    last_step_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    desktop_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    mobile_tour_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    contextual_tips_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('not_started', 'in_progress', 'skipped', 'completed')",
+            name="user_onboarding_status_check",
+        ),
+        CheckConstraint("onboarding_version = 1", name="user_onboarding_version_check"),
+    )

@@ -24,6 +24,7 @@ from guardian.db.models import (
     DirectMessage,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
+    DirectMessageConsent,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
     Project,
@@ -36,6 +37,7 @@ from guardian.messaging.envelope import (
     envelope_payload,
 )
 from guardian.messaging.tokens import (
+    MessageRequestError,
     normalize_username,
     validate_username_state,
 )
@@ -254,6 +256,7 @@ def search_profiles(
         session.execute(
             select(UserProfile)
             .where(
+                UserProfile.node_id == local_node_id(session),
                 UserProfile.username_state == "active",
                 UserProfile.username.like(pattern, escape="\\"),
             )
@@ -328,6 +331,12 @@ def _resolve_local_peer(
             "recipient profile does not exist on this node",
         )
     recipient = ensure_profile_identity(session, recipient)
+    if recipient.node_id != dest_node:
+        raise _err(
+            404,
+            "recipient_profile_not_found",
+            "recipient profile does not exist on this node",
+        )
     return sender_profile, recipient
 
 
@@ -367,9 +376,6 @@ def resolve_or_create_relationship(
         id=uuid.uuid4().hex,
         participant_pair_key=pair_key,
     )
-    session.add(relationship)
-    session.flush()
-
     addresses = sorted(
         [
             (sender_profile.node_id, sender_profile.profile_id),
@@ -377,17 +383,18 @@ def resolve_or_create_relationship(
         ],
         key=lambda address: (address[0], address[1]),
     )
-    for node_id, profile_id in addresses:
-        session.add(
-            DirectMessageRelationshipParticipant(
-                id=uuid.uuid4().hex,
-                relationship_id=relationship.id,
-                node_id=node_id,
-                profile_id=profile_id,
-            )
-        )
-
     try:
+        session.add(relationship)
+        session.flush()
+        for node_id, profile_id in addresses:
+            session.add(
+                DirectMessageRelationshipParticipant(
+                    id=uuid.uuid4().hex,
+                    relationship_id=relationship.id,
+                    node_id=node_id,
+                    profile_id=profile_id,
+                )
+            )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -466,6 +473,10 @@ def relationship_payload(
     )
     return {
         "relationship_id": relationship.id,
+        "messaging_consent_established": session.get(
+            DirectMessageConsent, relationship.id
+        )
+        is not None,
         "participants": participants,
         "peer": peer,
         "created_at": relationship.created_at.isoformat(),
@@ -589,6 +600,16 @@ def _validated_origin(
     return project_id, thread_id
 
 
+def require_messaging_consent(session, relationship_id: str) -> None:
+    """Neutral pair membership alone cannot authorize a new conversation."""
+    if session.get(DirectMessageConsent, relationship_id) is None:
+        raise _err(
+            403,
+            MessageRequestError.CONSENT_REQUIRED.value,
+            "A message request must be accepted first",
+        )
+
+
 def create_conversation(
     session,
     relationship: DirectMessageRelationship,
@@ -609,6 +630,7 @@ def create_conversation(
         creator_profile.node_id,
         creator_profile.profile_id,
     )
+    require_messaging_consent(session, relationship.id)
     resolved_origin_project_id, resolved_origin_thread_id = _validated_origin(
         session,
         creator_profile,
@@ -1159,6 +1181,7 @@ def create_message(
     require_participant(
         session, conversation, sender_profile.node_id, sender_profile.profile_id
     )
+    require_messaging_consent(session, conversation.relationship_id)
 
     now = datetime.now(timezone.utc)
     message = DirectMessage(

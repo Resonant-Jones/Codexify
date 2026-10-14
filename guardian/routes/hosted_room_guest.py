@@ -46,7 +46,13 @@ from guardian.core.chat_completion_service import (
     ChatCompletionEnqueueError,
     enqueue_chat_completion,
 )
+from guardian.core.auth import (
+    reject_mixed_principal_credentials,
+    reject_non_guest_bootstrap_credentials,
+)
+from guardian.core.dependencies import _auth_mode
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.preview_access import is_private_preview
 from guardian.core.thread_access import require_thread_read_access
 from guardian.db.models import (
     HostedRoom,
@@ -65,6 +71,13 @@ _MAX_TOKEN_LENGTH = 256  # generous upper bound for URL-safe tokens
 _TOKEN_CHAR_CLASS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
+
+
+def _reject_mixed_guest_request(request: Request) -> None:
+    reject_mixed_principal_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+    )
 
 
 # ── Request / Response models ────────────────────────────────────────────
@@ -315,6 +328,7 @@ def _validate_session_lifecycle(
 
 @router.post("/api/hosted-room-invitations/exchange", response_model=ExchangeResponse)
 def exchange_invitation(
+    request: Request,
     body: ExchangeRequest = Body(...),
     response: Response = None,  # injected by FastAPI
 ) -> dict[str, Any]:
@@ -324,6 +338,11 @@ def exchange_invitation(
     metadata is returned.  The invitation token is consumed and cannot be
     reused.
     """
+    _reject_mixed_guest_request(request)
+    reject_non_guest_bootstrap_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+    )
     token = body.invitation_token  # already validated by Pydantic
 
     # Hash the supplied token to look up the invitation
@@ -428,6 +447,7 @@ def exchange_invitation(
 @router.get("/api/hosted-room-session", response_model=SessionInspectResponse)
 def inspect_session(request: Request) -> dict[str, Any]:
     """Return bounded room and participant metadata for a valid guest session."""
+    _reject_mixed_guest_request(request)
     token = extract_session_token_from_request(request)
     if not token:
         raise _unauthorized()
@@ -538,6 +558,7 @@ def guest_invoke_guardian(
     request: Request = None,
     request_id: str | None = Header(None, alias="X-Request-ID"),
 ) -> dict[str, Any]:
+    _reject_mixed_guest_request(request)
     token = extract_session_token_from_request(request)
     if not token:
         raise _unauthorized()
@@ -583,6 +604,7 @@ def guest_list_messages(
     after_id: int | None = None,
     limit: int = _DEFAULT_PAGE_LIMIT,
 ) -> list[dict[str, Any]]:
+    _reject_mixed_guest_request(request)
     token = extract_session_token_from_request(request)
     if not token:
         raise _unauthorized()
@@ -623,6 +645,7 @@ def guest_post_message(
     request: Request,
     body: PostMessageRequest = Body(...),
 ) -> dict[str, Any]:
+    _reject_mixed_guest_request(request)
     token = extract_session_token_from_request(request)
     if not token:
         raise _unauthorized()

@@ -31,6 +31,7 @@ import json
 import os
 import uuid
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import sqlalchemy as sa
@@ -70,6 +71,24 @@ from guardian.services.memory_vault_read import (
 
 ACCOUNT_A = "ums05b1-account-a"
 ACCOUNT_B = "ums05b1-account-b"
+
+
+def test_list_queries_bound_each_source_before_projection() -> None:
+    """A one-item page never starts with an unbounded authority query."""
+    session = Mock()
+    query = session.query.return_value
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.limit.return_value = query
+    query.all.return_value = []
+
+    service = MemoryVaultReadService(session, authenticated_account_id=ACCOUNT_A)
+    assert service.list_items(limit=1) == []
+
+    # Canonical records, legacy entries, and Personal Facts each receive the
+    # requested candidate-window bound before any row is projected.
+    assert query.limit.call_count == 3
+    query.limit.assert_called_with(1)
 
 
 def _admin_url() -> str:
@@ -117,9 +136,11 @@ def _migrate_to_head(database_url: str) -> None:
     config.set_main_option(
         "script_location", str(repo_root / "guardian" / "db" / "migrations")
     )
-    os.environ["DATABASE_URL"] = database_url
-    os.environ["GUARDIAN_DATABASE_URL"] = database_url
-    upgrade(config, "head")
+    config.config_file_name = None
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url)
+        patch.setenv("GUARDIAN_DATABASE_URL", database_url)
+        upgrade(config, "head")
 
 
 @pytest.fixture
@@ -182,6 +203,8 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     canonical_ids["episodic_id"] = episodic_id
@@ -199,6 +222,8 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     canonical_ids["project_scoped_id"] = project_scoped_id
@@ -216,6 +241,8 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=True,
             held=False,
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     canonical_ids["pinned_id"] = pinned_id
@@ -233,6 +260,8 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=True,
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     canonical_ids["held_id"] = held_id
@@ -251,6 +280,8 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     session.flush()
@@ -361,6 +392,8 @@ def _seed_account_b_fixtures(session, *, account_id: str) -> dict:
             text_content="Account-B canonical memory",
             reviewed_at=sa.func.now(),
             activated_at=sa.func.now(),
+            review_state="approved",
+            lifecycle_state="active",
         )
     )
     me_b = MemoryEntry(

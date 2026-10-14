@@ -222,7 +222,8 @@ def test_docs_and_existing_local_tools_remain_aligned() -> None:
     assert "bounded read artifacts" in contract
     assert "only through a separate generator implementation" in generator
     assert "scripts/guardian/read_bounded_evidence.py" in readme
-    assert "local Guardian Evidence bounded-read tooling" in current
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current
 
     for target in (
         "guardian-evidence-packets-validate",

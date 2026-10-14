@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,6 +23,7 @@ from guardian.cognition.system_profiles import (
 from guardian.cognition.system_profiles import store as persona_profile_store
 from guardian.core import chat_completion_service
 from guardian.db import models as db_models
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.tasks.types import (
     ChatCompletionTask,
     PersonaSelectionSnapshot,
@@ -112,7 +115,42 @@ def _accept_task(monkeypatch, db, task):
 
     queued = []
     monkeypatch.setattr(chat_completion_service.dependencies, "chatlog_db", db)
-    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *_a: True)
+
+    def acquire(thread_id, owner, **kwargs):
+        assert kwargs["return_envelope"] is True
+        return build_turn_lock_envelope(
+            thread_id,
+            owner,
+            turn_id=kwargs["turn_id"],
+            source=kwargs["source"],
+            ttl_seconds=kwargs["ttl_seconds"],
+        )
+
+    def renew(thread_id, lock, *, ttl_seconds, return_envelope):
+        assert thread_id == task.thread_id
+        assert return_envelope is True
+        now = datetime.now(timezone.utc)
+        return replace(
+            lock,
+            renewed_at=now.isoformat(),
+            lease_expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat(),
+            lease_ttl_seconds=ttl_seconds,
+        )
+
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(chat_completion_service, "renew_turn_lock", renew)
+    # This fixture proves Persona snapshot selection, not attempt persistence.
+    # That durable boundary has its own acceptance/persistence test suites.
+    monkeypatch.setattr(
+        chat_completion_service,
+        "create_chat_completion_attempt",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "mark_chat_completion_attempt_accepted",
+        lambda *a, **k: None,
+    )
     monkeypatch.setattr(
         chat_completion_service,
         "enqueue",

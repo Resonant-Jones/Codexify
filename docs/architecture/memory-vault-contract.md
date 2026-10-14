@@ -34,8 +34,13 @@ The Memory Vault is **not**:
 - an importer of any external memory corpus;
 - an automatic suggestion engine;
 - an activation / heat / decay projection engine;
-- a permanent-erasure implementation;
 - a parallel writable authority.
+
+Permanent erasure is no longer out of scope: it was implemented in UMS-11 as
+`MemoryPurgeService` over one exact canonical ordinary-memory record. It is
+still **internal-only** and has no Vault UI affordance, and it does **not**
+purge Personal Facts, external corpus imports, or any non-canonical memory
+subsystem. See §Permanent erasure (UMS-11) below.
 
 ### Naming collision warning
 
@@ -184,18 +189,151 @@ revision / audit / intent receipt, and fail-closed cases.
 | Action | Authority owner | Resulting mutation | Receipt |
 | --- | --- | --- | --- |
 | Direct Vault creation of a user-authored canonical memory | canonical user-authored memory service | new canonical `memory_records` row with `source_subject_kind = 'vault'` and `authentication_principal = account_user` | durable mutation receipt + revision |
-| Approve (where the subtype permits) | subtype-specific authority (e.g. Personal Facts review service) | canonical review-state transition | durable mutation receipt |
-| Reject / dispute (where the subtype permits) | subtype-specific authority | canonical review-state transition | durable mutation receipt |
+| Approve (where the subtype permits) | subtype-specific authority (e.g. Personal Facts review service) | canonical `memory_records.review_state` transition, plus one `memory_review_revisions` row for ordinary memory | durable mutation receipt + canonical review revision |
+| Reject / dispute (where the subtype permits) | subtype-specific authority | canonical `memory_records.review_state` transition, plus one `memory_review_revisions` row for ordinary memory | durable mutation receipt + canonical review revision |
 | Correct / edit user-governed content | canonical revision service for the subtype | new canonical revision, audit-trailed | durable mutation receipt |
 | Change Project scope (within the calling account) | canonical scope mutation service | canonical `memory_records.project_id` change with provenance note | durable mutation receipt |
 | Add / remove stable Persona attribution | canonical Persona link service | canonical `memory_persona_links` insert / delete | durable mutation receipt |
 | Pin / unpin | canonical pin service | canonical `memory_records.pinned` flip | durable mutation receipt |
 | Hold / release hold | canonical hold service | canonical `memory_records.held` flip | durable mutation receipt |
-| Retire | canonical retirement service | canonical retirement (reversible soft removal) | durable mutation receipt |
-| Restore from retirement | canonical retirement service | canonical re-instatement | durable mutation receipt |
+| Retire | canonical retirement service | canonical `memory_records.lifecycle_state` transition (`active`/`dormant` -> `retired`), plus one `memory_lifecycle_revisions` row | durable mutation receipt + canonical lifecycle revision |
+| Restore from retirement | canonical retirement service | canonical `memory_records.lifecycle_state` transition back to the recovered pre-retirement `active`/`dormant` posture, plus one `memory_lifecycle_revisions` row | durable mutation receipt + canonical lifecycle revision |
 
 For Personal Facts, every action above delegates to the Personal Facts
 service rather than mutating competing envelope state.
+
+#### 5.1.1 Review-transition semantics (UMS-05C10A-C, implemented by UMS-05C10A-W)
+
+The Approve / Reject / dispute rows above are **implemented** as the
+internal endpoint below. `review_state` is written at creation and,
+for ordinary episodic memory, by this writer.
+
+Both prerequisites that UMS-05C10A-R identified are now closed:
+
+1. **Review-transition history persistence.** Closed by UMS-05C10A-P,
+   which added the canonical `memory_review_revisions` family and
+   carried it through `account-export.v6`. The table rows above now
+   state the review-revision requirement explicitly.
+2. **Legal review-transition graph.** Closed by
+   [ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md),
+   which freezes the ordinary-memory state machine; it is normative in
+   Unified Memory Store contract §3.3.1.
+
+UMS-05C10A-W implements the frozen state machine as an internal
+endpoint on the existing `memory_vault` surface:
+
+```text
+PATCH /api/memory-vault/items/canonical/{memory_id}/review
+```
+
+Request: `action` (`approve` | `reject` | `dispute`),
+`expected_updated_at`, optional `reason`, optional `request_ref`. The
+request model forbids extra fields, so caller-supplied account, actor,
+revision, lifecycle, Project, or Persona authority is rejected rather
+than ignored. A raw `review_state` is never accepted, so `pending`
+cannot be requested.
+
+Response: `changed`, `action`, `receipt_id`, `review_revision_id`,
+`review_revision_number`, `previous_review_state`,
+`resulting_review_state`, `previous_updated_at`,
+`resulting_updated_at`, and the canonical `item`.
+
+| Aspect | Implemented behavior |
+| --- | --- |
+| Direct actions | `approve`, `reject`, `dispute` only |
+| Legal targets | `approved`, `rejected`, `disputed` — never `pending` |
+| Same-state request | no-op **after** successful CAS validation: no review revision, no receipt, no `updated_at` advance |
+| Stale CAS | conflicts, even when the target equals current state |
+| Changed transition | one `memory_review_revisions` row **and** one `memory-vault-mutation.v1` receipt |
+| Approval | does not activate |
+| Rejection / dispute | does not retire |
+| `reviewed_at` | first authoritative approval only; preserved on re-approval; never cleared |
+| Actor | authenticated account principal; suggestions cannot self-approve |
+| Personal Facts | the ordinary writer refuses specialized species without writing generic review state; it does not delegate |
+
+**Reading the table above.** The `Receipt` column enumerates durable
+evidence per action. The §5.1-versus-§3.3 wording divergence recorded by
+UMS-05C10A-R is now resolved in the direction of the normative §3.3
+rule: a review transition that changes state produces a revision
+*and* a receipt, never a receipt alone.
+
+The writer enforces ADR-088 exactly and remains **internal-only and
+hidden from public OpenAPI** under the existing `memory_vault` profile
+posture. Each changed transition commits the current-state update, the
+`reviewed_at` first-approval update when required, the CAS advance, the
+review revision, and the intent receipt in a single transaction; any
+failure rolls all of them back. Parent-row `SELECT ... FOR UPDATE`
+serializes concurrent review mutations so two transitions cannot claim
+the same next review revision number.
+
+Lifecycle mutation is not implemented here and remains separately
+governed.
+
+#### 5.1.2 Lifecycle semantics (frozen by C10B-C, implemented by C10B-W)
+
+The Retire and Restore rows above are **implemented** as the internal
+endpoint below. `MemoryVaultMutationService.transition_lifecycle` and
+`PATCH /api/memory-vault/items/canonical/{memory_id}/lifecycle` exist.
+There is still no activate, reactivate, or decay writer, and no direct
+route or service method can target a raw lifecycle state.
+
+Both prerequisites that UMS-05C10B-R identified are closed.
+
+**History persistence — closed by UMS-05C10B-P.** The canonical
+`memory_lifecycle_revisions` family exists and is carried through
+`account-export.v7`. A retirement from `active` and a retirement from
+`dormant` are now distinguishable in canonical history and survive
+export and restore, because the pre-retirement posture is the
+`old_lifecycle_state` of the retirement revision.
+
+**Transition graph — frozen by UMS-05C10B-C** in
+[ADR-089 — Ordinary Memory Lifecycle Transition
+Semantics](./adr/089-ordinary-memory-lifecycle-transition-semantics.md),
+normative in Unified Memory Store contract §3.3.2. The graph that
+UMS-05C10B-R recorded as `LIFECYCLE_TRANSITION_GRAPH: PARTIAL` is now
+resolved.
+
+Implemented internal behavior:
+
+| Aspect | Implemented behavior |
+| --- | --- |
+| Direct actions | `retire`, `restore` only — no generic `activate` / `set_lifecycle_state`; the request model forbids extra fields so a raw target cannot be submitted |
+| Retire from `active` / `dormant` | -> `retired`, one lifecycle revision + one receipt |
+| Retire on `retired` | no-op after fresh CAS |
+| Restore from `retired` | -> canonical pre-retirement `active`/`dormant` posture, one lifecycle revision + one receipt |
+| Restore on `active` / `dormant` | no-op after fresh CAS |
+| Restore with unreconstructable pre-retirement history | **fail closed** with a bounded `409` — never guesses `active` or `dormant`, and never reads provenance extensions or derived state as authority |
+| Restore target | taken from the **current** lifecycle-history tail, not the first retirement ever recorded |
+| Stale CAS | conflicts, even on a same-state no-op |
+| Review state | preserved exactly; never approved, rejected, disputed, or reset |
+| Hold | blocks governed automatic decay only, never explicit retire/restore; preserved unchanged |
+| Pin | preserved; pin is not activation |
+| Automatic decay | separate authority; `active -> dormant`, forbidden while held; not owned by this writer |
+| Automatic `dormant -> active` | not established |
+| Legacy retired row with no history | valid, portable, and unrestorable generically |
+
+The `§5.1` Retire/Restore rows above now state the canonical
+lifecycle revision alongside the receipt, which resolves the
+receipt-only divergence UMS-05C10B-R recorded. That row wording is
+consistent with §3.3, which requires a revision **and** an intent
+receipt for every authority-changing transition.
+
+A changed transition commits the `lifecycle_state` update, the CAS
+advance, exactly one `memory_lifecycle_revisions` row, and exactly one
+`memory-vault-mutation.v1` receipt in one transaction; any failure rolls
+all of them back. Parent-row `SELECT ... FOR UPDATE` serializes concurrent
+lifecycle mutations so two transitions cannot claim the same revision
+number. Review state, hold, pin, content, Project scope, Persona
+attribution, and both other revision families are preserved unchanged.
+`memory_records` has no context-posture column on this branch; that fact
+is recorded rather than invented.
+
+Automatic decay remains a separate, unimplemented authority: the direct
+service is not called from any background decay path, and no automatic
+`dormant -> active` behavior was introduced. The lifecycle route remains
+**internal-only** and hidden from public OpenAPI under the existing
+`memory_vault` posture. The review writer in §5.1.1 is complete,
+internal-only, and unaffected.
 
 ### 5.2 Not UMS-05 actions (explicitly deferred)
 
@@ -206,7 +344,7 @@ service rather than mutating competing envelope state.
 | Anthropic / external corpus import | UMS-08 |
 | Consent-gated automatic suggestion acceptance flow | UMS-09 |
 | Heat / activation projections | UMS-10 |
-| Permanent purge / erasure | UMS-11 |
+| ~~Permanent purge / erasure~~ | UMS-11 — **live since UMS-11** |
 
 The Vault UI may render a disabled / placeholder affordance for any of
 the above **only** with explicit "Not available in this build" copy.
@@ -412,7 +550,7 @@ The implementation boundary for UMS-05 is frozen by this matrix.
 | Stable Persona attribution inspection | Live in UMS-05B | canonical `memory_persona_links` against `persona_subjects` | UMS-05B | No | never derives from display names |
 | Direct Vault creation (user-authored) | Live in UMS-05C | canonical user-authored memory service | UMS-05C | Yes | enters approved + active per UMS contract for explicit user-authored memory |
 | Review action (approve / reject / dispute) | Live in UMS-05C | subtype-specific review service (Personal Facts review for fact species) | UMS-05C | Yes | Personal Facts delegates |
-| Content correction | Live in UMS-05C | canonical revision service | UMS-05C | Yes | revisioned; previous values in receipt |
+| Content correction | Live in UMS-05C9-W | canonical revision service (`MemoryVaultMutationService.correct_content`) | UMS-05C9-W | Yes | one `memory_revisions` row + one receipt per change; exact prior/new text |
 | Project scope change | Live in UMS-05C | canonical scope mutation service | UMS-05C | Yes | provenance noted |
 | Persona attribution change | Live in UMS-05C | canonical Persona link service | UMS-05C | Yes | stable Persona subject only |
 | Pin / unpin | Live in UMS-05C | canonical pin service | UMS-05C | Yes | affects priority only |
@@ -424,7 +562,7 @@ The implementation boundary for UMS-05 is frozen by this matrix.
 | External corpus import | **Deferred** | not in Vault | UMS-08 | n/a | not exposed |
 | Automatic suggestion acceptance | **Deferred** | not in Vault | UMS-09 | n/a | not exposed |
 | Heat / activation projection | **Deferred** | not in Vault | UMS-10 | n/a | not exposed |
-| Permanent erasure | **Deferred** | not in Vault | UMS-11 | n/a | no live purge action |
+| Permanent erasure (purge) | Live in UMS-11 | canonical purge service | UMS-11 | Yes | **irreversible**; leaves a minimum non-content suppression tombstone |
 | Ambient eligibility override | **Never** | n/a | n/a | n/a | always computed |
 | Cross-account Vault access | **Never** | n/a | n/a | n/a | fails closed |
 | Host Operator memory-content read | **Never** | n/a | n/a | n/a | fails closed |
@@ -454,6 +592,81 @@ remain NOT AUTHORIZED until UMS-05B qualifies the read surface.
 If repository discovery proves this dependency order wrong, UMS-05B
 must document the reason before any later slice starts; the Campaign
 order is not silently reshuffled.
+
+---
+
+## 16. Permanent erasure (UMS-11)
+
+Permanent purge is implemented and live, internally, since UMS-11. It closes
+the single foundational gap admitted by the 2026-09-30 Campaign
+revalidation (`UMS_FOUNDATIONAL_GAP_REMAINS`), which held that retirement is
+not purge and that no canonical purge relation, service, route, or proof
+existed.
+
+### 16.1 Purge is not retirement
+
+The distinction is load-bearing and is never collapsed:
+
+| | Retire / restore (ADR-089) | Purge (UMS-11) |
+| --- | --- | --- |
+| Content | retained canonically | destroyed |
+| Reversible | yes, from lifecycle history | **no** |
+| Surviving state | full record + history | minimum non-content tombstone only |
+| Recalls | direct authorized recall of `retired` | target is gone |
+
+`retired` remains canonically retrievable and is **not** erasure. A Vault that
+offers a "delete" affordance backed by `retire` would be lying to the user.
+
+### 16.2 Surface
+
+Two internal routes, both on the internal-only Memory Vault router, both
+hidden from any public surface:
+
+```text
+GET  /api/memory-vault/items/canonical/{memory_id}/purge-preview
+POST /api/memory-vault/items/canonical/{memory_id}/purge
+```
+
+They are thin adapters. SQL, row locking, CAS, confirmation-token
+recomputation, fingerprint derivation, deletion fan-out, tombstone
+construction, and suppression policy all belong to `MemoryPurgeService`.
+
+### 16.3 Required posture
+
+- exact-target preview is account-scoped and reports the real affected-row
+  inventory before anything is destroyed;
+- purge requires a fresh CAS token **and** a confirmation token minted
+  against the current destructive target; both are validated before any
+  deletion, and the canonical row is locked so purge cannot interleave with
+  content correction, review transition, lifecycle transition, Persona
+  attribution, pin, or hold;
+- the authenticated owning account is the only authority. Infrastructure
+  Operator, model, and Persona authority are insufficient, and Project
+  ownership does not replace account ownership;
+- missing and cross-account targets share one indistinguishable 404;
+- a retry of a completed purge is idempotent and returns the original
+  `purge_receipt_id` and `purged_at`; a cross-account retry learns nothing.
+
+### 16.4 What survives
+
+Exactly one minimum non-content `memory_purge_tombstones` row. It carries no
+memory text, no revision text, no evidence excerpt, no plaintext source entity
+id, no Project or Persona name, no embedding, and no extensions JSON. Identity
+is a versioned opaque digest, and `suppress_reimport` is structurally
+incapable of becoming false.
+
+An import-origin record that cannot yield one safe deterministic source-atom
+identity **fails closed before deletion**. Erasing it while knowingly leaving
+automatic resurrection possible would be a false erasure claim.
+
+### 16.5 Boundary that remains
+
+UMS-11 does not purge Personal Facts, which retain their specialized
+authority; ordinary-memory purge has no schema path to them. It does not
+delete from external user backups, previously downloaded account-export
+archives, or any system outside Codexify's immediate control. It provides no
+Vault UI affordance and no generic suppression bypass for any model,
+Operator, importer, or retry.
 
 ---
 

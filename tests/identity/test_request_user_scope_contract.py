@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from guardian.core.auth import issue_session_token
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 
 
 def _configure_identity_modules(monkeypatch, **env_overrides):
@@ -53,6 +53,7 @@ def test_multi_user_authenticated_subject_resolves_to_stable_account_id(
     session_token, _expires = issue_session_token(
         subject="subject-123",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     monkeypatch.setattr(
@@ -88,6 +89,7 @@ def test_multi_user_missing_principal_mapping_fails_closed(monkeypatch):
     session_token, _expires = issue_session_token(
         subject="subject-404",
         ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
     )
 
     monkeypatch.setattr(

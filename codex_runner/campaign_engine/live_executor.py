@@ -26,27 +26,32 @@ for a deterministic fake without exposing any public runtime argument.
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
-import os
 import re
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from guardian.agents.coding_agent_contracts import (
+    CodingAgentPermissionPolicy,
+    CodingAgentTaskEnvelope,
+)
+from guardian.agents.test_results import NormalizedTestResult
+from guardian.agents.validation import (
+    run_validation_command,
+    validation_timeout_seconds,
+)
+
 from .artifacts import ArtifactPublisher, atomic_write_json
 from .errors import (
     CampaignArtifactError,
-    CampaignEngineError,
     CampaignLiveExecutorError,
     CampaignOutputExistsError,
-    CampaignValidationError,
 )
 from .identity import (
     binding_identity_hash,
-    build_attempt_id,
     build_campaign_state_id,
     build_evaluation_id,
     build_receipt_id,
@@ -55,6 +60,7 @@ from .identity import (
     sha256_canonical,
     sha256_text,
 )
+from .filesystem import physical_files, tracked_symlink_snapshot
 from .models import (
     AcceptanceCriterionResult,
     CampaignClock,
@@ -77,10 +83,8 @@ SCHEMA_VERSION = "campaign-engine/v0"
 
 LIVE_EXECUTOR_CLASSIFICATION_VALUE = "live_executor"
 
-# Bounded canonical required-tool name for the live Executor.
-# Campaign Engine declares this as an execution requirement. It is NOT
-# a permission grant and NOT provider authority. The initial supported
-# value is "write". Any other value is rejected by Guardian.
+# Initial supported explicit required-tool value. The locked Executor
+# RoleBinding decides whether to request it; this token grants no permission.
 LIVE_EXECUTOR_REQUIRED_TOOL_NAME = "write"
 
 _LINEAGE_ABSENT_TOKEN = "absent"
@@ -90,6 +94,21 @@ _LINEAGE_ABSENT_TOKEN = "absent"
 # "filesystem.write.*" — see the rail for the canonical token registry.
 _PERMISSION_FILES_READ = "files.read"
 _PERMISSION_FILES_WRITE = "files.write"
+_VALIDATION_EVIDENCE_TEXT_LIMIT = 2048
+_VALIDATION_SIGNATURE_LIMIT = 4096
+_VALIDATION_FAILURE_TEST_LIMIT = 20
+_VALIDATION_FAILURE_TEST_TEXT_LIMIT = 512
+_VALIDATION_ERROR_TEXT_LIMIT = 1024
+_VALIDATION_CREDENTIAL_SHAPE = re.compile(
+    r"\bsk-[A-Za-z0-9_-]{16,}|Bearer\s+\S{8,}|"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+    r"(?:api[_-]?key|password|secret)\s*[:=]\s*\S{8,}",
+    re.IGNORECASE,
+)
+
+# Campaign Engine owns this seam only to compose the shared Coding Loop
+# primitive; the command runner itself remains Guardian/Coding Loop-owned.
+_task_validation_runner: Callable[..., NormalizedTestResult] = run_validation_command
 
 # Test-only seam: tests may set ``live_executor._invoker`` to a callable
 # returning a deterministic ``PiLiveInvocationOutcome`` (typically via
@@ -105,6 +124,7 @@ class _Invoker(Protocol):
         cwd: Any,
         timeout_seconds: int,
         required_tool_name: str | None = None,
+        reasoning_effort: str = "medium",
     ) -> Any: ...
 
 
@@ -116,7 +136,9 @@ def _real_invoker(
     cwd: Any,
     timeout_seconds: int,
     required_tool_name: str | None = None,
+    reasoning_effort: str = "medium",
 ) -> Any:
+    """Pass the caller's explicit effort to the canonical Guardian/Pi rail."""
     from guardian.pi.invocation import invoke_guardian_authorized_pi
 
     return invoke_guardian_authorized_pi(
@@ -126,6 +148,7 @@ def _real_invoker(
         cwd=cwd,
         timeout_seconds=timeout_seconds,
         required_tool_name=required_tool_name,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -164,7 +187,14 @@ def _build_executor_prompt(
     non-required-tool runs).
     """
 
-    canonical_task = json.dumps(task_record, sort_keys=True, separators=(",", ":"))
+    # Task validation is host-side Coding Loop authority. Keep its command
+    # out of the model prompt so provider output cannot turn it into an
+    # alternate execution request.
+    prompt_task_record = {
+        key: value for key, value in task_record.items()
+        if key != "validation_command"
+    }
+    canonical_task = json.dumps(prompt_task_record, sort_keys=True, separators=(",", ":"))
     allowed = ", ".join(allowed_file_paths)
     primary_target = allowed_file_paths[0] if allowed_file_paths else ""
     # The prompt must consume the declared required tool from preparation,
@@ -225,6 +255,28 @@ def _read_git_head(target: Path) -> str | None:
         return None
 
 
+def _read_git_worktree_status(target: Path) -> str | None:
+    """Return the bounded porcelain status needed to detect command-side staging."""
+    if not (target / ".git").exists():
+        return None
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "status", "--porcelain=v1", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        return out.stdout
+    except Exception as exc:
+        raise CampaignLiveExecutorError(
+            "could not verify target Git status around task validation",
+            failure_reason="task_validation_target_unverifiable",
+            diagnostic_stage="task_validation",
+            runner_call_count=1,
+        ) from exc
+
+
 def _read_target_remote(target: Path) -> tuple[str, str]:
     """Return ``('', '')`` when the target has no remote. No credentials are returned."""
     try:
@@ -250,6 +302,23 @@ def _hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _check_symlink_topology(
+    target: Path, *, expected: tuple[tuple[str, str, str], ...] | None = None,
+    stage: str = "preparation", calls: int = 0,
+) -> tuple[tuple[str, str, str], ...]:
+    try:
+        actual = tracked_symlink_snapshot(target)
+        if expected is not None and actual != expected:
+            raise ValueError("symlink identity changed")
+        return actual
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise CampaignLiveExecutorError(
+            "disposable target symlink topology is unproven or changed",
+            failure_reason="target_symlink_topology_changed",
+            diagnostic_stage=stage, runner_call_count=calls,
+        ) from exc
+
+
 def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     """Return ``{relative_path: (sha256_before, sha256_after)}`` for files
     within ``target`` excluding ``.git``.
@@ -261,12 +330,8 @@ def _snapshot_target(target: Path) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     if not target.is_dir():
         return entries
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            entries[str(path.relative_to(target))] = (
-                _hash_file(path),
-                "",
-            )
+    for path in physical_files(target):
+        entries[str(path.relative_to(target))] = (_hash_file(path), "")
     return entries
 
 
@@ -280,21 +345,18 @@ def _rehydrate_post_snapshot(target: Path, snap: dict[str, tuple[str, str]]) -> 
     behavior.
     """
 
-    # Update pre-existing entries and find new files.
+    current = _snapshot_target(target)
     for rel in list(snap.keys()):
-        abspath = target / rel
         pre_hash, _ = snap[rel]
-        post_hash = _hash_file(abspath) if abspath.is_file() else ""
+        post_hash = current.get(rel, ("", ""))[0]
         snap[rel] = (pre_hash, post_hash)
 
     # Add post-only files (new files created during the live invocation).
     if not target.is_dir():
         return
-    for path in sorted(target.rglob("*")):
-        if path.is_file() and ".git" not in path.relative_to(target).parts:
-            rel = str(path.relative_to(target))
-            if rel not in snap:
-                snap[rel] = ("", _hash_file(path))
+    for rel, hashes in current.items():
+        if rel not in snap:
+            snap[rel] = ("", hashes[0])
 
 
 def _baseline_hash(snapshot: dict[str, tuple[str, str]]) -> str:
@@ -385,6 +447,133 @@ def _resource_within_allowed(
 # ---------------------------------------------------------------------------
 
 
+def _task_validation_authorization_payload(
+    preparation: LiveExecutorPreparation,
+    authorization: CodingAgentTaskEnvelope | None,
+) -> dict[str, Any] | None:
+    """Validate and project the existing Coding Loop task envelope.
+
+    This does not create command permission. The immutable
+    ``CodingAgentTaskEnvelope`` and its ``CodingAgentPermissionPolicy`` are
+    supplied by Guardian; Campaign Engine verifies that their existing
+    fields bind exactly to this Task, Attempt, and disposable target.
+    """
+    if preparation.validation_command is None:
+        if authorization is not None:
+            raise CampaignLiveExecutorError(
+                "validation authorization supplied for a Task without validation_command",
+                failure_reason="validation_authorization_unexpected",
+                diagnostic_stage="validation_authorization",
+            )
+        return None
+    if not isinstance(authorization, CodingAgentTaskEnvelope):
+        raise CampaignLiveExecutorError(
+            "Guardian Coding Loop validation authorization is required",
+            failure_reason="validation_authorization_missing",
+            diagnostic_stage="validation_authorization",
+        )
+
+    policy = authorization.permission_policy
+    if not isinstance(policy, CodingAgentPermissionPolicy):
+        raise CampaignLiveExecutorError(
+            "validation authorization does not use CodingAgentPermissionPolicy",
+            failure_reason="validation_authorization_mismatch",
+            diagnostic_stage="validation_authorization",
+            issues=["permission_policy"],
+        )
+    repo_root = (
+        Path(authorization.repo_root).resolve()
+        if isinstance(authorization.repo_root, (str, Path))
+        and str(authorization.repo_root).strip()
+        else None
+    )
+    mismatches: list[str] = []
+    if authorization.campaign_id != preparation.campaign_id:
+        mismatches.append("campaign_id")
+    if authorization.coding_task_id != preparation.task_id:
+        mismatches.append("task_id")
+    if authorization.attempt_id != preparation.attempt_id:
+        mismatches.append("attempt_id")
+    if repo_root != preparation.target_path or str(repo_root or "") != preparation.target_repository_identity:
+        mismatches.append("target_repository_identity")
+    if authorization.validation_command != preparation.validation_command:
+        mismatches.append("validation_command")
+    if policy.allow_shell is not True:
+        mismatches.append("allow_shell")
+    if tuple(policy.allowed_paths) != preparation.allowed_file_paths:
+        mismatches.append("allowed_paths")
+    if type(authorization.max_validation_attempts) is not int or authorization.max_validation_attempts != 1:
+        mismatches.append("max_validation_attempts")
+    if authorization.commit_after_validation is not False:
+        mismatches.append("commit_after_validation")
+    if type(policy.max_runtime_seconds) is not int or policy.max_runtime_seconds < 1:
+        mismatches.append("max_runtime_seconds")
+    if mismatches:
+        raise CampaignLiveExecutorError(
+            "Guardian Coding Loop validation authorization does not match the immutable Task",
+            failure_reason="validation_authorization_mismatch",
+            diagnostic_stage="validation_authorization",
+            issues=mismatches,
+        )
+
+    return {
+        "campaign_id": authorization.campaign_id,
+        "task_id": authorization.coding_task_id,
+        "attempt_id": authorization.attempt_id,
+        "target_repository_identity": preparation.target_repository_identity,
+        "repo_root": str(repo_root),
+        "validation_command": authorization.validation_command,
+        "permission_policy": {
+            "allow_shell": policy.allow_shell,
+            "allow_network": policy.allow_network,
+            "allow_write": policy.allow_write,
+            "allowed_paths": list(policy.allowed_paths),
+            "max_runtime_seconds": policy.max_runtime_seconds,
+        },
+        "max_validation_attempts": authorization.max_validation_attempts,
+        "commit_after_validation": authorization.commit_after_validation,
+    }
+
+
+def _validation_authorization_reference_from_payload(
+    payload: dict[str, Any] | None,
+) -> str | None:
+    return sha256_canonical(payload) if payload is not None else None
+
+
+def validation_authorization_reference(
+    preparation: LiveExecutorPreparation,
+    authorization: CodingAgentTaskEnvelope | None,
+) -> str | None:
+    """Return the content-addressed reference for Guardian authorization metadata."""
+    payload = _task_validation_authorization_payload(preparation, authorization)
+    return _validation_authorization_reference_from_payload(payload)
+
+
+def _bounded_task_validation_result(
+    result: NormalizedTestResult,
+) -> dict[str, Any]:
+    """Project normalized Coding Loop evidence into a bounded durable shape."""
+    payload = result.model_dump(mode="json")
+    for key, limit in (
+        ("stdout_preview", _VALIDATION_EVIDENCE_TEXT_LIMIT),
+        ("stderr_preview", _VALIDATION_EVIDENCE_TEXT_LIMIT),
+        ("fail_signature", _VALIDATION_SIGNATURE_LIMIT),
+        ("error_message", _VALIDATION_ERROR_TEXT_LIMIT),
+    ):
+        value = payload.get(key)
+        if isinstance(value, str) and len(value) > limit:
+            payload[key] = value[: limit - 1] + "…"
+    failing_tests = payload.get("failing_tests")
+    if isinstance(failing_tests, list):
+        payload["failing_tests"] = [
+            value[:_VALIDATION_FAILURE_TEST_TEXT_LIMIT]
+            for value in failing_tests[:_VALIDATION_FAILURE_TEST_LIMIT]
+            if isinstance(value, str)
+        ]
+    return payload
+
+
 def prepare_live_executor_campaign(
     campaign_path: Path,
     target_path: Path,
@@ -458,6 +647,7 @@ def prepare_live_executor_campaign(
             failure_reason="target_not_directory",
             diagnostic_stage="preparation",
         )
+    symlinks = _check_symlink_topology(target_path)
     git_head_pre = _read_git_head(target_path) or ""
 
     # 5. Source-selection lineage.
@@ -468,16 +658,24 @@ def prepare_live_executor_campaign(
         )
         source_context_reference = source_record.packet_id
         source_context_hash = sha256_canonical(source_record.as_artifact())
-        source_artifact = source_record.as_artifact()
+        source_record.as_artifact()
     else:
         source_context_reference = "absent"
         source_context_hash = _LINEAGE_ABSENT_TOKEN
-        source_artifact = None
 
     # 6. Exactly one runnable Task (deterministic selection).
     task = validate_task_selection(document)
     task_id = task["task_id"]
     validate_path_component(task_id, "task_id")
+    validation_command = task.get("validation_command")
+    if validation_command is not None and (
+        not isinstance(validation_command, str) or not validation_command.strip()
+    ):
+        raise CampaignLiveExecutorError(
+            "Task validation_command must be a non-empty string",
+            failure_reason="validation_command_invalid",
+            diagnostic_stage="preparation",
+        )
     campaign_id = document["campaign"]["campaign_id"]
     validate_path_component(campaign_id, "campaign_id")
 
@@ -486,6 +684,7 @@ def prepare_live_executor_campaign(
     requested_permissions: tuple[str, ...] = tuple(live_role["requested_permissions"])
     granted_permissions: tuple[str, ...] = tuple(live_role["granted_permissions"])
     operator_consent_reference = str(live_role["operator_consent_reference"])
+    required_tool_name = live_role.get("required_tool_name")
 
     # prompt_sha256 is computed from prompt bytes; we lock it BEFORE the
     # prompt body is finalized by passing it as a placeholder the
@@ -493,8 +692,12 @@ def prepare_live_executor_campaign(
     # compose the prompt using the SHA-256 of the Task record + the
     # declared bounds; we then verify the locked SHA-256 against the
     # prompt's actual hash below.
+    prompt_task = {
+        key: value for key, value in task.items()
+        if key != "validation_command"
+    }
     locked_prompt_sha256_placeholder = sha256_canonical(
-        {"task": task, "allowed": list(allowed_file_paths)}
+        {"task": prompt_task, "allowed": list(allowed_file_paths)}
     )
 
     prompt_body = _build_executor_prompt(
@@ -504,7 +707,7 @@ def prepare_live_executor_campaign(
         allowed_file_paths=allowed_file_paths,
         target_repository_identity=str(bound_target),
         prompt_sha256=locked_prompt_sha256_placeholder,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     actual_prompt_sha256 = sha256_text(prompt_body)
 
@@ -580,8 +783,10 @@ def prepare_live_executor_campaign(
         target_baseline_hash=target_baseline_hash,
         target_baseline_git_head=git_head_pre,
         target_baseline_file_hashes=target_baseline_file_hashes,
+        target_baseline_symlinks=symlinks,
         campaign_input_hash=campaign_input_hash,
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
+        validation_command=validation_command,
     )
 
 
@@ -597,9 +802,20 @@ def _build_live_attempt_id(
     executor_binding_hash: str,
     clock_iso_str: str,
 ) -> str:
-    return f"attempt-live-" + sha256_text(
+    return "attempt-live-" + sha256_text(
         f"{run_id}|{task_id}|{task_hash}|{executor_binding_hash}|{clock_iso_str}|live"
     )[:24]
+
+
+def _actual_changed_entries(
+    snapshot: dict[str, tuple[str, str]],
+) -> dict[str, tuple[str, str]]:
+    """Select mutations from a full pre/post snapshot, including adds and deletes."""
+    return {
+        rel: (pre_hash, post_hash)
+        for rel, (pre_hash, post_hash) in snapshot.items()
+        if pre_hash != post_hash
+    }
 
 
 def _build_boundary_artifact(
@@ -608,7 +824,7 @@ def _build_boundary_artifact(
     envelope_payload: dict[str, Any],
     outcome_payload: dict[str, Any],
     target_post_head: str | None,
-    target_post_changed: dict[str, tuple[str, str]],
+    target_post_snapshot: dict[str, tuple[str, str]],
     receipt_id: str | None,
     harness_result_id: str | None,
     expected_provider: str,
@@ -652,7 +868,7 @@ def _build_boundary_artifact(
     # Allowed scope agreement.
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     out_of_scope = [
-        rel for rel in target_post_changed.keys()
+        rel for rel in _actual_changed_entries(target_post_snapshot)
         if not _resource_within_allowed(rel, allowed_norm)
     ]
     checks.append({
@@ -854,6 +1070,8 @@ def _read_identity(identity_obj: Any) -> dict[str, Any]:
 def _check_guardian_metadata(
     envelope: Any,
     preparation: LiveExecutorPreparation,
+    *,
+    validation_command_reference: str | None = None,
 ) -> None:
     """Verify that the supplied Guardian authorization metadata is keyed
     to the immutable preparation.
@@ -877,6 +1095,9 @@ def _check_guardian_metadata(
         "expected_output_contract": preparation.expected_output_contract,
         "prompt_sha256": preparation.prompt_sha256,
     }
+    if preparation.validation_command is not None:
+        expected["validation_command"] = preparation.validation_command
+        expected["validation_command_reference"] = validation_command_reference
     diff: list[str] = []
     for key, expected_value in expected.items():
         actual_value = campaign_engine_block.get(key)
@@ -970,12 +1191,17 @@ def _run_live_attempt(
     envelope: Any,
     decision: Any,
     timeout_seconds: int,
+    reasoning_effort: str = "medium",
 ) -> Any:
     """Internal single-call invocation. Returns the
     :class:`PiLiveInvocationOutcome` from the canonical rail.
     """
 
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     return _invoker(
         envelope=envelope,
         decision=decision,
@@ -983,6 +1209,7 @@ def _run_live_attempt(
         cwd=target_path,
         timeout_seconds=timeout_seconds,
         required_tool_name=preparation.required_tool_name,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -999,39 +1226,15 @@ def _pre_execution_drift_check(
     - current Campaign input hash (re-load);
     - current target baseline evidence (re-snapshot);
     - re-loaded locked binding identity;
-    - current required-tool requirement re-derivation from the
-      canonical Campaign Engine constant;
-    - current prompt hash (re-derived from the canonical requirement,
+    - current required-tool requirement re-derivation from the locked
+      Executor RoleBinding;
+    - current prompt hash (re-derived from canonical Campaign input,
       not from the preparation field);
     - current target identity.
 
     Any material drift fails closed before invocation with
     ``runner_call_count = 0``.
     """
-
-    # 0. Required-tool requirement re-derivation from Campaign Engine
-    # authority.  The canonical live Executor required tool is the
-    # ``LIVE_EXECUTOR_REQUIRED_TOOL_NAME`` constant, NOT the mutable
-    # preparation field.  A preparation whose declared
-    # ``required_tool_name`` no longer equals the canonical value is
-    # material post-authorization drift: the preparation is evidence
-    # of the earlier decision, not authority to redefine that decision
-    # later.  ``None`` is not equivalent to the canonical ``"write"``
-    # requirement.  Fail closed before any other drift check so the
-    # failure reason is unambiguous.
-    if preparation.required_tool_name != LIVE_EXECUTOR_REQUIRED_TOOL_NAME:
-        raise CampaignLiveExecutorError(
-            "preparation required_tool_name drifted from canonical "
-            "Campaign Engine live Executor requirement",
-            failure_reason="drift_after_authorization",
-            diagnostic_stage="pre_invocation_drift",
-            issues=[
-                f"preparation.required_tool_name="
-                f"{preparation.required_tool_name!r} does not match "
-                f"canonical LIVE_EXECUTOR_REQUIRED_TOOL_NAME="
-                f"{LIVE_EXECUTOR_REQUIRED_TOOL_NAME!r}"
-            ],
-        )
 
     # 1. Campaign input hash.
     if source_context_path is not None:
@@ -1049,8 +1252,6 @@ def _pre_execution_drift_check(
     # token is part of the canonical input digest. We use the same
     # recipe as the runtime: hash the loaded document + canonical lineage.
     document = parse_json_strict(campaign_path)
-    from .identity import canonical_json
-
     if current_source_hash is None:
         # Inability to recompute source hash means material drift.
         raise CampaignLiveExecutorError(
@@ -1075,6 +1276,10 @@ def _pre_execution_drift_check(
 
     # 2. Target baseline evidence.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="pre_invocation_drift",
+    )
     snapshot_now = _snapshot_target(target_path)
     target_baseline_now = _baseline_hash(snapshot_now)
     if target_baseline_now != preparation.target_baseline_hash:
@@ -1083,7 +1288,7 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         head_now = _read_git_head(target_path) or ""
         if head_now != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
@@ -1113,6 +1318,15 @@ def _pre_execution_drift_check(
             failure_reason="drift_after_authorization",
             diagnostic_stage="pre_invocation_drift",
         )
+    required_tool_name = current_executor["live_role_binding"].get(
+        "required_tool_name"
+    )
+    if preparation.required_tool_name != required_tool_name:
+        raise CampaignLiveExecutorError(
+            "preparation required_tool_name drifted from locked Executor RoleBinding",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+        )
 
     # 4. Prompt hash re-derivation.
     task = validate_task_selection(document)
@@ -1125,14 +1339,17 @@ def _pre_execution_drift_check(
     allowed_file_paths: tuple[str, ...] = tuple(
         current_executor["live_role_binding"]["allowed_file_paths"]
     )
-    # Recompose the expected prompt from the CANONICAL live Executor
-    # required-tool authority, not the preparation field.  This is the
-    # second of two independent protections against a forged
-    # ``required_tool_name=None`` preparation that also recomposed a
-    # matching prompt/hash: the prompt the runtime would build now
-    # always contains the canonical MANDATORY ACTION clause, so a
-    # forged preparation whose prompt omits it cannot match the
-    # recomposed prompt hash either.
+    # Recompose from the locked binding, never from the preparation field.
+    if task.get("validation_command") != preparation.validation_command:
+        raise CampaignLiveExecutorError(
+            "Task validation_command drifted after preparation",
+            failure_reason="drift_after_authorization",
+            diagnostic_stage="pre_invocation_drift",
+        )
+    prompt_task = {
+        key: value for key, value in task.items()
+        if key != "validation_command"
+    }
     recomposed_prompt = _build_executor_prompt(
         campaign_id=preparation.campaign_id,
         task_id=preparation.task_id,
@@ -1140,9 +1357,9 @@ def _pre_execution_drift_check(
         allowed_file_paths=allowed_file_paths,
         target_repository_identity=preparation.target_repository_identity,
         prompt_sha256=sha256_canonical(
-            {"task": task, "allowed": list(allowed_file_paths)}
+            {"task": prompt_task, "allowed": list(allowed_file_paths)}
         ),
-        required_tool_name=LIVE_EXECUTOR_REQUIRED_TOOL_NAME,
+        required_tool_name=required_tool_name,
     )
     if sha256_text(recomposed_prompt) != preparation.prompt_sha256:
         raise CampaignLiveExecutorError(
@@ -1181,14 +1398,17 @@ def _build_live_attempt_record(
     changed_files: list[dict[str, Any]],
     source_mutation_count: int,
     boundary_validation_hash: str,
+    validation_command_reference: str | None = None,
+    validation_result_hash: str | None = None,
+    task_validation_passed: bool = True,
 ) -> dict[str, Any]:
-    return {
+    record = {
         "schema_version": SCHEMA_VERSION,
         "attempt_id": preparation.attempt_id,
         "task_id": preparation.task_id,
         "role_binding_id": preparation.executor_binding_id,
         "created_at": preparation.created_at,
-        "state": "succeeded" if outcome_payload.get("ok") else "succeeded",
+        "state": "succeeded" if task_validation_passed else "failed",
         "execution_mode": "live",
         "invocation_authorization_reference": str(outcome_payload.get("decision", {}).get("policy_decision_id", "")),
         "permission_resolution_reference": str(outcome_payload.get("decision", {}).get("policy_decision_id", "")),
@@ -1200,8 +1420,8 @@ def _build_live_attempt_record(
         "provider_harness_receipt_reference": receipt_id,
         "provider_call_count": 1,
         "target_proof_identifier": preparation.target_repository_identity,
-        "validation_result_hash": boundary_validation_hash,
-        "exit_classification": "succeeded",
+        "boundary_validation_hash": boundary_validation_hash,
+        "exit_classification": "succeeded" if task_validation_passed else "failed_validation",
         "source_mutation_count": source_mutation_count,
         "secret_redaction_status": "redacted",
         "commit_performed": False,
@@ -1209,6 +1429,48 @@ def _build_live_attempt_record(
         "durable_ingestion_performed": False,
         **({"changed_files": changed_files} if changed_files else {}),
     }
+    if validation_command_reference is not None:
+        record["validation_command_reference"] = validation_command_reference
+    if validation_result_hash is not None:
+        record["validation_result_hash"] = validation_result_hash
+    return record
+
+
+def _publish_failed_task_validation_evidence(
+    output_root: Path,
+    *,
+    preparation: LiveExecutorPreparation,
+    campaign_document: dict[str, Any],
+    attempt_record: dict[str, Any],
+    boundary_payload: dict[str, Any],
+    validation_authorization_payload: dict[str, Any],
+    validation_result_payload: dict[str, Any],
+) -> Path:
+    """Persist a truthful failed Attempt without advancing to Evaluation."""
+    failure_dir = (
+        Path(output_root)
+        / preparation.campaign_id
+        / "failed-validation"
+        / preparation.attempt_id
+    )
+    if failure_dir.exists():
+        raise CampaignOutputExistsError(
+            f"failed validation evidence already exists for Attempt {preparation.attempt_id}"
+        )
+    failure_dir.mkdir(parents=True)
+    atomic_write_json(failure_dir, "campaign-input.json", campaign_document)
+    atomic_write_json(failure_dir, "preparation.json", preparation.as_payload())
+    atomic_write_json(
+        failure_dir,
+        "validation-authorization.json",
+        validation_authorization_payload,
+    )
+    atomic_write_json(failure_dir, "task-validation.json", validation_result_payload)
+    atomic_write_json(failure_dir, "campaign-boundary-validation.json", boundary_payload)
+    attempts_dir = failure_dir / "attempts"
+    attempts_dir.mkdir()
+    atomic_write_json(attempts_dir, f"{preparation.attempt_id}.json", attempt_record)
+    return failure_dir
 
 
 def _interim_live_evaluation_record(
@@ -1290,13 +1552,17 @@ def run_live_executor_campaign(
     decision: Any,
     timeout_seconds: int,
     campaign_path: Path | None = None,
+    reasoning_effort: str = "medium",
+    validation_authorization: CodingAgentTaskEnvelope | None = None,
 ) -> LiveExecutorRunResult:
     """Execute one Guardian-authorized live Executor Campaign run.
 
     Re-derives every material value, fails closed on drift, invokes the
     canonical Guardian/Pi rail exactly once, records one schema-valid
     live Attempt and one non-independent interim Evaluation, publishes
-    bounded evidence, and returns the structured run envelope.
+    bounded evidence, and returns the structured run envelope. The caller
+    may select a bounded reasoning effort for this invocation; Guardian/Pi
+    validates the selected and effective values before accepting a result.
     """
 
     if not isinstance(preparation, LiveExecutorPreparation):
@@ -1307,8 +1573,23 @@ def run_live_executor_campaign(
         )
     output_root = Path(output_root)
 
+    # Task-specific command authority is separate from provider/tool
+    # authority. Validate the immutable Coding Loop envelope before any
+    # live provider invocation, then bind its content reference into the
+    # Guardian/Pi authorization metadata.
+    validation_authorization_payload = _task_validation_authorization_payload(
+        preparation, validation_authorization
+    )
+    validation_command_reference = _validation_authorization_reference_from_payload(
+        validation_authorization_payload
+    )
+
     # 1. Authorization-shape checks.
-    _check_guardian_metadata(envelope, preparation)
+    _check_guardian_metadata(
+        envelope,
+        preparation,
+        validation_command_reference=validation_command_reference,
+    )
     _check_decision_allowed(decision)
     _check_write_scope_agreement(envelope, preparation)
 
@@ -1324,6 +1605,20 @@ def run_live_executor_campaign(
         campaign_path=campaign_path,
         source_context_path=None,
     )
+    locked_live = validate_role_binding_semantics(
+        parse_json_strict(campaign_path)
+    )["executor"]["live_role_binding"]
+    envelope_payload = _to_payload(envelope)
+    if (
+        ("reasoning_effort" in locked_live and locked_live["reasoning_effort"] != reasoning_effort)
+        or ("harness_id" in locked_live and locked_live["harness_id"] != envelope_payload.get("harness_id"))
+        or ("harness_version" in locked_live and locked_live["harness_version"] != envelope_payload.get("harness_version"))
+    ):
+        raise CampaignLiveExecutorError(
+            "locked Executor harness or effort differs from authorization",
+            failure_reason="locked_executor_configuration_mismatch",
+            diagnostic_stage="pre_invocation_drift",
+        )
 
     # 3. Live execution via the canonical Guardian/Pi rail.
     outcome = _run_live_attempt(
@@ -1331,6 +1626,7 @@ def run_live_executor_campaign(
         envelope=envelope,
         decision=decision,
         timeout_seconds=timeout_seconds,
+        reasoning_effort=reasoning_effort,
     )
     outcome_payload: dict[str, Any] = _to_payload(outcome)
 
@@ -1343,6 +1639,11 @@ def run_live_executor_campaign(
             runner_call_count=int(outcome_payload.get("runner_call_count", 0) or 0),
             retry_count=int(outcome_payload.get("retry_count", 0) or 0),
             fallback_count=int(outcome_payload.get("fallback_count", 0) or 0),
+            observed_execution_phases=outcome_payload.get("observed_execution_phases"),
+            highest_observed_execution_phase=outcome_payload.get(
+                "highest_observed_execution_phase"
+            ),
+            effective_reasoning_effort=outcome_payload.get("effective_reasoning_effort"),
             **kwargs,
         )
 
@@ -1398,6 +1699,15 @@ def run_live_executor_campaign(
             failure_reason="identity_model_mismatch",
             diagnostic_stage="post_invocation",
         )
+    if (
+        ("harness_id" in locked_live and actual_harness != locked_live["harness_id"])
+        or ("harness_version" in locked_live and actual_harness_version != locked_live["harness_version"])
+    ):
+        raise CampaignLiveExecutorError(
+            "actual harness differs from locked Executor binding",
+            failure_reason="locked_executor_harness_mismatch",
+            diagnostic_stage="post_invocation",
+        )
 
     receipt_payload = (
         _to_payload(receipt)
@@ -1425,23 +1735,23 @@ def run_live_executor_campaign(
     # pre-snapshot was mutated during the harness write; only the
     # preparation's recorded pre hashes survive unchanged.
     target_path = preparation.target_path
+    _check_symlink_topology(
+        target_path, expected=preparation.target_baseline_symlinks,
+        stage="post_invocation", calls=1,
+    )
     baseline_lookup: dict[str, str] = dict(preparation.target_baseline_file_hashes)
     snapshot: dict[str, tuple[str, str]] = {}
     if target_path.is_dir():
-        for path in sorted(target_path.rglob("*")):
-            if path.is_file() and ".git" not in path.relative_to(target_path).parts:
-                rel = str(path.relative_to(target_path))
-                snapshot[rel] = (
-                    baseline_lookup.get(rel, ""),
-                    _hash_file(path),
-                )
+        for path in physical_files(target_path):
+            rel = str(path.relative_to(target_path))
+            snapshot[rel] = (baseline_lookup.get(rel, ""), _hash_file(path))
     # Add pre-only entries (files that existed at baseline but were
     # deleted post-invocation).
     for rel, pre_hash in baseline_lookup.items():
         if rel not in snapshot:
             snapshot[rel] = (pre_hash, "")
     target_post_head = _read_git_head(target_path) or ""
-    if (target_path / ".git").is_dir():
+    if (target_path / ".git").exists():
         if target_post_head != preparation.target_baseline_git_head:
             raise CampaignLiveExecutorError(
                 "target Git HEAD changed after invocation",
@@ -1453,9 +1763,7 @@ def run_live_executor_campaign(
     allowed_norm = _normalize_allowed(preparation.allowed_file_paths)
     changed_files: list[dict[str, Any]] = []
     out_of_scope: list[str] = []
-    for rel, (pre_hash, post_hash) in sorted(snapshot.items()):
-        if pre_hash == post_hash:
-            continue
+    for rel, (_, post_hash) in sorted(_actual_changed_entries(snapshot).items()):
         if not _resource_within_allowed(rel, allowed_norm):
             out_of_scope.append(rel)
             continue
@@ -1483,7 +1791,7 @@ def run_live_executor_campaign(
         envelope_payload=_to_payload(envelope),
         outcome_payload=outcome_payload,
         target_post_head=target_post_head or None,
-        target_post_changed=snapshot,
+        target_post_snapshot=snapshot,
         receipt_id=receipt_id,
         harness_result_id=harness_result_id,
         expected_provider=preparation.expected_provider_id,
@@ -1549,10 +1857,103 @@ def run_live_executor_campaign(
             issues=failed,
         )
 
-    # 7. Build the live Attempt record and assemble document.
-    by_role = validate_role_binding_semantics(
-        parse_json_strict(campaign_path)
-    )
+    # 7. Run the exact Guardian-authorized Coding Loop command once, after
+    # the Executor mutation and Campaign boundary checks have passed.
+    task_validation_payload: dict[str, Any] | None = None
+    task_validation_result_hash: str | None = None
+    task_validation_authorization_artifact: dict[str, Any] | None = None
+    task_validation_passed = True
+    if preparation.validation_command is not None:
+        assert validation_authorization is not None
+        assert validation_authorization_payload is not None
+        pre_validation_hashes = {
+            rel: after_hash for rel, (_, after_hash) in snapshot.items() if after_hash
+        }
+        pre_validation_git_state = (
+            _read_git_head(preparation.target_path),
+            _read_git_worktree_status(preparation.target_path),
+        )
+        try:
+            normalized_validation_result = _task_validation_runner(
+                command=preparation.validation_command,
+                cwd=preparation.target_path,
+                timeout_seconds=validation_timeout_seconds(
+                    validation_authorization.permission_policy.max_runtime_seconds
+                ),
+            )
+        except Exception as exc:
+            normalized_validation_result = NormalizedTestResult(
+                status="error",
+                command=preparation.validation_command,
+                error_message=f"validation_command_error: {type(exc).__name__}",
+            )
+        if not isinstance(normalized_validation_result, NormalizedTestResult):
+            raise CampaignLiveExecutorError(
+                "Coding Loop validation runner returned an invalid result",
+                failure_reason="validation_result_invalid",
+                diagnostic_stage="task_validation",
+                runner_call_count=1,
+            )
+        if normalized_validation_result.command != preparation.validation_command:
+            raise CampaignLiveExecutorError(
+                "Coding Loop validation result command differs from immutable Task input",
+                failure_reason="validation_result_command_mismatch",
+                diagnostic_stage="task_validation",
+                runner_call_count=1,
+            )
+        task_validation_payload = _bounded_task_validation_result(
+            normalized_validation_result
+        )
+        task_validation_authorization_artifact = {
+            "validation_command_reference": validation_command_reference,
+            "coding_loop_authority": validation_authorization_payload,
+        }
+        validation_evidence_text = json.dumps(
+            {"authorization": task_validation_authorization_artifact, "result": task_validation_payload},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if (
+            _contains_sensitive_key(task_validation_payload)
+            or _contains_sensitive_key(task_validation_authorization_artifact)
+            or _VALIDATION_CREDENTIAL_SHAPE.search(validation_evidence_text)
+        ):
+            raise CampaignLiveExecutorError(
+                "credential-shaped task validation evidence was rejected",
+                failure_reason="credential_material_rejected",
+                diagnostic_stage="task_validation",
+                runner_call_count=1,
+            )
+        task_validation_result_hash = sha256_canonical(task_validation_payload)
+        _check_symlink_topology(
+            preparation.target_path, expected=preparation.target_baseline_symlinks,
+            stage="task_validation", calls=1,
+        )
+        post_validation_hashes = {
+            rel: hashes[0]
+            for rel, hashes in _snapshot_target(preparation.target_path).items()
+        }
+        post_validation_git_state = (
+            _read_git_head(preparation.target_path),
+            _read_git_worktree_status(preparation.target_path),
+        )
+        if (
+            post_validation_hashes != pre_validation_hashes
+            or post_validation_git_state != pre_validation_git_state
+        ):
+            raise CampaignLiveExecutorError(
+                "task validation command changed the disposable target or Git state",
+                failure_reason="task_validation_target_mutated",
+                diagnostic_stage="task_validation",
+                runner_call_count=1,
+                issues=["target content or Git state changed while the validation command ran"],
+            )
+        task_validation_passed = task_validation_payload.get("status") == "passed"
+
+    # 8. Build the live Attempt record and assemble document.
+    campaign_document = parse_json_strict(campaign_path)
+    by_role = validate_role_binding_semantics(campaign_document)
     attempt_record = _build_live_attempt_record(
         preparation=preparation,
         outcome_payload={
@@ -1567,7 +1968,38 @@ def run_live_executor_campaign(
         changed_files=changed_files,
         source_mutation_count=source_mutation_count,
         boundary_validation_hash=boundary_validation_hash,
+        validation_command_reference=validation_command_reference,
+        validation_result_hash=task_validation_result_hash,
+        task_validation_passed=task_validation_passed,
     )
+    if not task_validation_passed:
+        assert task_validation_payload is not None
+        assert task_validation_result_hash is not None
+        assert validation_authorization_payload is not None
+        failure_dir = _publish_failed_task_validation_evidence(
+            output_root,
+            preparation=preparation,
+            campaign_document=campaign_document,
+            attempt_record=attempt_record,
+            boundary_payload=boundary_payload,
+            validation_authorization_payload={
+                "validation_command_reference": validation_command_reference,
+                "coding_loop_authority": validation_authorization_payload,
+            },
+            validation_result_payload=task_validation_payload,
+        )
+        raise CampaignLiveExecutorError(
+            "task-specific validation did not pass; Campaign progression stopped",
+            failure_reason="task_validation_failed",
+            diagnostic_stage="task_validation",
+            runner_call_count=1,
+            issues=[
+                f"status={task_validation_payload.get('status')}",
+                f"validation_command_reference={validation_command_reference}",
+                f"validation_result_hash={task_validation_result_hash}",
+                f"failure_evidence={failure_dir}",
+            ],
+        )
 
     evaluator_binding_id = by_role["evaluator"]["binding_id"]
     evaluation_record = _interim_live_evaluation_record(
@@ -1622,14 +2054,8 @@ def run_live_executor_campaign(
         "proof_target_identifier": preparation.target_repository_identity,
     }
 
-    final_task = {
-        "schema_version": SCHEMA_VERSION,
-        "task_id": preparation.task_id,
-        "campaign_id": preparation.campaign_id,
-        "created_at": preparation.created_at,
-        "state": "completed",
-        "objective": "Executor task completed by live Guardian/Pi invocation",
-    }
+    final_task = dict(validate_task_selection(campaign_document))
+    final_task["state"] = "completed"
     final_campaign_state = {
         "schema_version": SCHEMA_VERSION,
         "campaign_state_id": preparation.campaign_state_id,
@@ -1722,6 +2148,9 @@ def run_live_executor_campaign(
             receipt_id,
             harness_result_id,
             boundary_validation_hash,
+            task_validation_authorization_artifact=task_validation_authorization_artifact,
+            task_validation_result_payload=task_validation_payload,
+            task_validation_result_hash=task_validation_result_hash,
         )
         publisher.promote(staging, final_dir)
     except Exception:
@@ -1840,6 +2269,10 @@ def _publish_live_artifacts(
     receipt_id: str,
     harness_result_id: str,
     boundary_validation_hash: str,
+    *,
+    task_validation_authorization_artifact: dict[str, Any] | None = None,
+    task_validation_result_payload: dict[str, Any] | None = None,
+    task_validation_result_hash: str | None = None,
 ) -> None:
     atomic_write_json(staging, "campaign-input.json", assembled_document)
     authorization_dir = staging / "authorization"
@@ -1847,6 +2280,12 @@ def _publish_live_artifacts(
     atomic_write_json(authorization_dir, "executor-preparation.json", preparation.as_payload())
     atomic_write_json(authorization_dir, "executor-envelope.json", _to_payload(envelope))
     atomic_write_json(authorization_dir, "executor-policy-decision.json", _to_payload(decision))
+    if task_validation_authorization_artifact is not None:
+        atomic_write_json(
+            authorization_dir,
+            "task-validation-authorization.json",
+            task_validation_authorization_artifact,
+        )
 
     execution_dir = staging / "execution"
     execution_dir.mkdir(parents=True, exist_ok=True)
@@ -1855,7 +2294,14 @@ def _publish_live_artifacts(
     atomic_write_json(execution_dir, "executor-pi-receipt.json", receipt_payload)
     atomic_write_json(execution_dir, "executor-pi-harness-result.json", harness_payload)
     atomic_write_json(execution_dir, "executor-boundary-validation.json", boundary_payload)
+    if task_validation_result_payload is not None:
+        atomic_write_json(
+            execution_dir,
+            "task-validation.json",
+            task_validation_result_payload,
+        )
     atomic_write_json(execution_dir, "target-before.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_hash": preparation.target_baseline_hash,
         "target_baseline_git_head": preparation.target_baseline_git_head,
@@ -1865,6 +2311,7 @@ def _publish_live_artifacts(
         },
     })
     atomic_write_json(execution_dir, "target-after.json", {
+        "symlinks": preparation.as_payload()["target_baseline_symlinks"],
         "target_repository_identity": preparation.target_repository_identity,
         "target_baseline_git_head_after": preparation.target_baseline_git_head,
         "post_git_head": preparation.target_baseline_git_head,
@@ -1922,6 +2369,8 @@ def _publish_live_artifacts(
             "campaign_input_hash": preparation.campaign_input_hash,
             "prompt_sha256": preparation.prompt_sha256,
             "boundary_validation_hash": boundary_validation_hash,
+            **({"task_validation_result_hash": task_validation_result_hash}
+               if task_validation_result_hash is not None else {}),
         },
         "created_at": preparation.created_at,
     }

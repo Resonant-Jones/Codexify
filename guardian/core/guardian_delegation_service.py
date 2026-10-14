@@ -769,6 +769,56 @@ class GuardianDelegationService:
                 run_status=self._resolve_row_run_status(row),
             )
 
+    def list_delegated_tasks(self, thread_id: int) -> dict[str, Any]:
+        """Project one source thread's delegation intents for read-only inspection."""
+        db = self._require_db()
+        with db.get_session() as session:
+            if session.query(ChatThread).filter_by(id=thread_id).first() is None:
+                raise GuardianDelegationNotFoundError("thread_not_found")
+            rows = (
+                session.query(GuardianDelegationIntent)
+                .filter_by(thread_id=thread_id)
+                .order_by(
+                    GuardianDelegationIntent.created_at.desc(),
+                    GuardianDelegationIntent.intent_id.desc(),
+                )
+                .all()
+            )
+            delegated_tasks = []
+            for row in rows:
+                intent = self._serialize_intent(
+                    row, run_status=self._resolve_row_run_status(row)
+                )
+                delegated_tasks.append(
+                    {
+                        key: intent[key]
+                        for key in (
+                            "intent_id",
+                            "thread_id",
+                            "source_message_id",
+                            "project_id",
+                            "intent_status",
+                            "run_status",
+                            "approval_state",
+                            "approval_source",
+                            "visibility_status",
+                            "run_id",
+                        )
+                    }
+                    | {
+                        "created_at": self._serialize_timestamp(row.created_at),
+                        "updated_at": self._serialize_timestamp(row.updated_at),
+                        "transcript_url": (
+                            f"/api/guardian/delegations/{row.intent_id}/transcript"
+                        ),
+                    }
+                )
+            return {
+                "thread_id": thread_id,
+                "delegated_tasks": delegated_tasks,
+                "count": len(delegated_tasks),
+            }
+
     def get_transcript(self, intent_id: str) -> dict[str, Any]:
         db = self._require_db()
         with db.get_session() as session:

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -41,13 +42,16 @@ MACOS_FALLBACK_BINARIES: dict[str, tuple[str, ...]] = {
     ),
 }
 
-REQUIRED_LOCAL_CONFIG_KEYS = (
+REQUIRED_CORE_CONFIG_KEYS = (
     "GUARDIAN_API_KEY",
+    "NEO4J_USER",
+    "NEO4J_PASS",
+)
+
+REQUIRED_INFERENCE_CONFIG_KEYS = (
     "LLM_PROVIDER",
     "LOCAL_BASE_URL",
     "LOCAL_CHAT_MODEL",
-    "NEO4J_USER",
-    "NEO4J_PASS",
 )
 
 LOCAL_BETA_DEFAULTS = {
@@ -83,22 +87,12 @@ PLACEHOLDER_VALUES = {
 }
 
 
-class SetupReadinessState(str, Enum):
-    MISSING_CONFIG = "missing_config"
-    CONFIG_INCOMPLETE = "config_incomplete"
-    CONFIG_CONFLICT = "config_conflict"
-    DOCKER_MISSING = "docker_missing"
-    DOCKER_NOT_RUNNING = "docker_not_running"
-    DOCKER_COMPOSE_MISSING = "docker_compose_missing"
-    OLLAMA_MISSING = "ollama_missing"
-    OLLAMA_NOT_RUNNING = "ollama_not_running"
-    MODEL_MISSING = "model_missing"
-    COMPOSE_CONFIG_INVALID = "compose_config_invalid"
-    EXISTING_VOLUMES_DETECTED = "existing_volumes_detected"
-    BACKEND_NOT_RUNNING = "backend_not_running"
-    BACKEND_UNHEALTHY = "backend_unhealthy"
-    FRONTEND_NOT_RUNNING = "frontend_not_running"
-    READY = "ready"
+from guardian.ops.bootstrap_readiness_generated import (
+    BootstrapHumanAction,
+    BootstrapReadiness,
+    BootstrapWorkflow,
+    SetupReadinessState,
+)
 
 
 @dataclass(frozen=True)
@@ -107,6 +101,7 @@ class SetupReadinessSummary:
     explanation: str
     recommended_action: str
     details: str = ""
+    bootstrap: BootstrapReadiness | None = None
 
 
 def _os_hint_lines(dep: str) -> str:
@@ -147,9 +142,7 @@ def _macos_fallback_binary_paths(binary_name: str) -> tuple[Path, ...]:
     if platform.system().lower() != "darwin":
         return ()
 
-    return tuple(
-        Path(path) for path in MACOS_FALLBACK_BINARIES.get(binary_name, ())
-    )
+    return tuple(Path(path) for path in MACOS_FALLBACK_BINARIES.get(binary_name, ()))
 
 
 def _resolve_macos_fallback_binary_path(binary_name: str) -> str | None:
@@ -181,8 +174,7 @@ def _dependency_help_text(
         )
 
     return (
-        "Not found via PATH or macOS fallback probe. "
-        f"{_os_hint_lines(binary_name)}"
+        "Not found via PATH or macOS fallback probe. " f"{_os_hint_lines(binary_name)}"
     )
 
 
@@ -264,71 +256,66 @@ def write_env_file(
     env_path = env_path.expanduser().resolve()
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if env_path.exists() and create_backup:
-        backup_path = env_path.with_suffix(env_path.suffix + ".bak")
-        backup_path.write_text(
-            env_path.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-
-    existing_env_values = (
-        _read_env_with_order(env_path)[1] if env_path.exists() else {}
-    )
+    original = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    existing = read_env_file(env_path) if env_path.exists() else {}
     template_root = (repo_root or env_path.parent).expanduser().resolve()
     template_path = template_root / ".env.template"
-    if template_path.exists():
-        base_order, base_values = _read_env_with_order(template_path)
-    elif env_path.exists():
-        base_order, base_values = _read_env_with_order(env_path)
-    else:
-        base_order, base_values = ([], {})
-
-    merged_values = dict(base_values)
-    for key, value in kv.items():
-        if value is None:
-            continue
-        merged_values[key] = value
-
-    normalizer = normalize_local_beta_config_values(merged_values)
-    merged_values = normalizer.values
-
-    guardian_api_key = _choose_guardian_api_key(
-        existing_env_value=existing_env_values.get("GUARDIAN_API_KEY", ""),
-        seed_value=base_values.get("GUARDIAN_API_KEY", ""),
-        kv_value=merged_values.get("GUARDIAN_API_KEY", ""),
+    template = read_env_file(template_path) if template_path.exists() else {}
+    merged = {
+        **template,
+        **existing,
+        **{k: str(v) for k, v in kv.items() if v is not None},
+    }
+    # A template is an example, never authority to enable cloud policy on a new install.
+    for key, default in LOCAL_BETA_DEFAULTS.items():
+        if key not in existing and key not in kv:
+            merged[key] = default
+    normalizer = normalize_local_beta_config_values(merged)
+    if normalizer.conflict_keys:
+        raise ValueError(
+            "Existing configuration requires a user decision: "
+            + ", ".join(normalizer.conflict_keys)
+        )
+    merged = normalizer.values
+    key = _choose_guardian_api_key(
+        existing_env_value=existing.get("GUARDIAN_API_KEY", ""),
+        seed_value=template.get("GUARDIAN_API_KEY", ""),
+        kv_value=merged.get("GUARDIAN_API_KEY", ""),
     )
-    merged_values["GUARDIAN_API_KEY"] = guardian_api_key
-    merged_values["VITE_GUARDIAN_API_KEY"] = guardian_api_key
-
+    merged["GUARDIAN_API_KEY"] = key
+    mirror = merged.get("VITE_GUARDIAN_API_KEY")
+    if not is_placeholder_config_value(mirror) and mirror != key:
+        raise ValueError(
+            "Existing frontend API key differs; preserve it and resolve the conflict before setup."
+        )
+    merged["VITE_GUARDIAN_API_KEY"] = key
     lines = []
-    lines.append("# Generated by Codexify Setup Wizard")
-    lines.append(
-        "# Safe to edit. Re-running the wizard will overwrite this file "
-        "(and create a .bak)."
-    )
-
-    written: set[str] = set()
-    for key in base_order:
-        if key in merged_values and key not in written:
-            lines.append(f"{key}={env_kv_sanitize(merged_values[key])}")
-            written.add(key)
-
-    for key in kv:
-        if key in merged_values and key not in written:
-            lines.append(f"{key}={env_kv_sanitize(merged_values[key])}")
-            written.add(key)
-
-    for key in normalizer.required_order:
-        if key in merged_values and key not in written:
-            lines.append(f"{key}={env_kv_sanitize(merged_values[key])}")
-            written.add(key)
-
-    for key, value in merged_values.items():
-        if key in written:
+    written = set()
+    for line in original.splitlines():
+        match = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=", line)
+        if not match:
+            lines.append(line)
             continue
-        lines.append(f"{key}={env_kv_sanitize(value)}")
-
-    lines.append("")
-    env_path.write_text("\n".join(lines), encoding="utf-8")
+        name = match[1]
+        written.add(name)
+        if existing.get(name) == merged.get(name):
+            lines.append(line)
+        else:
+            lines.append(f"{name}={env_kv_sanitize(merged[name])}")
+    for name, value in merged.items():
+        if name not in written:
+            lines.append(f"{name}={env_kv_sanitize(value)}")
+    content = "\n".join(lines) + "\n"
+    if content == original:
+        return
+    if original and create_backup:
+        backup = env_path.with_suffix(env_path.suffix + ".bak")
+        backup.write_text(original, encoding="utf-8")
+        backup.chmod(0o600)
+    temporary = env_path.with_suffix(env_path.suffix + ".setup.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, env_path)
 
 
 def default_env_target(repo_root: Path) -> Path:
@@ -408,9 +395,7 @@ def is_placeholder_config_value(value: str | None) -> bool:
     normalized = (value or "").strip().lower()
     if normalized in PLACEHOLDER_VALUES:
         return True
-    return normalized.startswith("replace-with-") or normalized.endswith(
-        "-change-me"
-    )
+    return normalized.startswith("replace-with-") or normalized.endswith("-change-me")
 
 
 @dataclass(frozen=True)
@@ -443,13 +428,10 @@ def normalize_local_beta_config_values(
     if str(values.get("LLM_PROVIDER", "")).strip().lower() != "local":
         if str(values.get("LLM_PROVIDER", "")).strip():
             conflicts.append("LLM_PROVIDER")
-        values["LLM_PROVIDER"] = "local"
-        repaired.append("LLM_PROVIDER")
+        # A conflicting valid choice is preserved for explicit user resolution.
 
     # Apply canonical local runtime preset env defaults.
-    preset_id = normalize_local_runtime_preset(
-        values.get("LOCAL_RUNTIME_PRESET")
-    )
+    preset_id = normalize_local_runtime_preset(values.get("LOCAL_RUNTIME_PRESET"))
     preset_env = local_runtime_env_defaults(preset_id, docker=True)
     for key, value in preset_env.items():
         existing = values.get(key)
@@ -558,7 +540,9 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
     deps = detect_core_dependencies()
 
     allow_cloud = _truthy(env.get("ALLOW_CLOUD_PROVIDERS", "true"))
-    ollama_required = not allow_cloud
+    ollama_required = (
+        False  # Inference is a later capability, never a core prerequisite.
+    )
 
     # Docker requiredness: enforce only if existing config explicitly implies it.
     docker_required = False
@@ -597,9 +581,7 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
         )
     )
 
-    def req_if_enabled(
-        flag_key: str, secret_key: str, label: str
-    ) -> DoctorItem:
+    def req_if_enabled(flag_key: str, secret_key: str, label: str) -> DoctorItem:
         enabled = _truthy(env.get(flag_key, "false"))
         secret = env.get(secret_key, "").strip()
         ok = (not enabled) or bool(secret)
@@ -719,20 +701,49 @@ def _summary(
     recommended_action: str,
     details: str = "",
 ) -> SetupReadinessSummary:
+    core_ready = state in (
+        SetupReadinessState.CORE_READY,
+        SetupReadinessState.INFERENCE_READY,
+    )
+    inference_ready = state == SetupReadinessState.INFERENCE_READY
+    action = BootstrapHumanAction.NONE
+    if core_ready and not inference_ready:
+        action = BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED
+    elif state in (
+        SetupReadinessState.DOCKER_MISSING,
+        SetupReadinessState.DOCKER_NOT_RUNNING,
+        SetupReadinessState.DOCKER_COMPOSE_MISSING,
+    ):
+        action = BootstrapHumanAction.PREREQUISITE_UNAVAILABLE
+    elif state in (
+        SetupReadinessState.MISSING_CONFIG,
+        SetupReadinessState.CONFIG_INCOMPLETE,
+    ):
+        action = BootstrapHumanAction.CREDENTIALS_REQUIRED
+    elif state == SetupReadinessState.CONFIG_CONFLICT:
+        action = BootstrapHumanAction.CONSENT_REQUIRED
     return SetupReadinessSummary(
         state=state,
         explanation=explanation,
         recommended_action=recommended_action,
         details=details.strip(),
+        bootstrap=BootstrapReadiness(
+            (
+                BootstrapWorkflow.COMPLETE
+                if core_ready
+                else BootstrapWorkflow.ACTION_REQUIRED
+            ),
+            core_ready,
+            inference_ready,
+            action,
+        ),
     )
 
 
-def _missing_or_placeholder_required_keys(env: Mapping[str, str]) -> list[str]:
-    return [
-        key
-        for key in REQUIRED_LOCAL_CONFIG_KEYS
-        if is_placeholder_config_value(env.get(key))
-    ]
+def _missing_or_placeholder_required_keys(
+    env: Mapping[str, str], required_keys: tuple[str, ...]
+) -> list[str]:
+    return [key for key in required_keys if is_placeholder_config_value(env.get(key))]
 
 
 def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
@@ -745,7 +756,7 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         )
 
     env = read_env_file(env_path)
-    missing = _missing_or_placeholder_required_keys(env)
+    missing = _missing_or_placeholder_required_keys(env, REQUIRED_CORE_CONFIG_KEYS)
     if missing:
         return _summary(
             SetupReadinessState.CONFIG_INCOMPLETE,
@@ -756,8 +767,13 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
 
     conflicts: list[str] = []
     if env.get("LLM_PROVIDER", "").strip().lower() == "ollama":
-        conflicts.append("LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local")
-    if env.get("LLM_PROVIDER", "").strip().lower() != "local":
+        conflicts.append(
+            "LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local"
+        )
+    if (
+        not is_placeholder_config_value(env.get("LLM_PROVIDER"))
+        and env.get("LLM_PROVIDER", "").strip().lower() != "local"
+    ):
         conflicts.append("LLM_PROVIDER must be local")
     if conflicts:
         return _summary(
@@ -865,33 +881,6 @@ def classify_setup_readiness(
             detail,
         )
 
-    ollama = detect_dependency("ollama", "Ollama", custom_path=env.get("OLLAMA_BIN"))
-    if not ollama.is_present:
-        return _summary(
-            SetupReadinessState.OLLAMA_MISSING,
-            "Ollama is not installed or could not be found.",
-            "Install Ollama, then retry.",
-            ollama.help_text,
-        )
-
-    ollama_ok, ollama_detail = _http_ok(http_getter, "http://127.0.0.1:11434/api/tags")
-    if not ollama_ok:
-        return _summary(
-            SetupReadinessState.OLLAMA_NOT_RUNNING,
-            "Ollama is installed, but it is not running.",
-            "Start Ollama, then retry.",
-            ollama_detail,
-        )
-
-    model = env.get("LOCAL_CHAT_MODEL", "").strip()
-    if model and model not in _ollama_model_names(ollama_detail):
-        return _summary(
-            SetupReadinessState.MODEL_MISSING,
-            f"The selected Ollama model is not installed: {model}.",
-            f"Install the model with `ollama pull {model}`, then retry.",
-            "installed_models=" + ",".join(sorted(_ollama_model_names(ollama_detail))),
-        )
-
     ok, detail = _command_ok(runner, [docker_cmd, "compose", "config"], cwd=root)
     if not ok:
         return _summary(
@@ -901,26 +890,10 @@ def classify_setup_readiness(
             detail,
         )
 
-    ok, volume_detail = _command_ok(
-        runner,
-        [docker_cmd, "volume", "ls", "--format", "{{.Name}}"],
-        cwd=root,
-    )
-    if ok:
-        volumes = [
-            line.strip()
-            for line in volume_detail.splitlines()
-            if line.strip().startswith("codexify")
-        ]
-        if volumes:
-            return _summary(
-                SetupReadinessState.EXISTING_VOLUMES_DETECTED,
-                "Existing Codexify data was found. No data was deleted.",
-                "Continue if this is expected, or back up/reset local beta data later. Reset is not implemented in this setup flow yet.",
-                "volumes=" + ",".join(volumes),
-            )
-
-    backend_ok, backend_detail = _http_ok(http_getter, "http://127.0.0.1:8888/ping")
+    # Existing volumes are owned state, never a reason to block a healthy rerun.
+    backend_base = "http://127.0.0.1:" + env.get("CODEXIFY_BACKEND_PORT", "8888")
+    frontend_base = "http://127.0.0.1:" + env.get("CODEXIFY_FRONTEND_PORT", "5173")
+    backend_ok, backend_detail = _http_ok(http_getter, backend_base + "/ping")
     if not backend_ok:
         return _summary(
             SetupReadinessState.BACKEND_NOT_RUNNING,
@@ -929,7 +902,7 @@ def classify_setup_readiness(
             backend_detail,
         )
 
-    health_ok, health_detail = _http_ok(http_getter, "http://127.0.0.1:8888/health")
+    health_ok, health_detail = _http_ok(http_getter, backend_base + "/health")
     if not health_ok or '"ok"' not in health_detail.lower():
         return _summary(
             SetupReadinessState.BACKEND_UNHEALTHY,
@@ -938,7 +911,24 @@ def classify_setup_readiness(
             health_detail,
         )
 
-    frontend_ok, frontend_detail = _http_ok(http_getter, "http://127.0.0.1:5173/")
+    chat_ok, chat_detail = _http_ok(http_getter, backend_base + "/health/chat")
+    try:
+        completion = json.loads(chat_detail).get("completion_service", {})
+    except (ValueError, AttributeError):
+        completion = {}
+    if (
+        not chat_ok
+        or completion.get("ok") is not True
+        or completion.get("redis_reachable") is not True
+    ):
+        return _summary(
+            SetupReadinessState.BACKEND_UNHEALTHY,
+            "Core queue and chat worker health have not passed.",
+            "Run ./scripts/setup to verify or resume core services.",
+            chat_detail,
+        )
+
+    frontend_ok, frontend_detail = _http_ok(http_getter, frontend_base + "/")
     if not frontend_ok:
         return _summary(
             SetupReadinessState.FRONTEND_NOT_RUNNING,
@@ -947,9 +937,47 @@ def classify_setup_readiness(
             frontend_detail,
         )
 
+    missing_inference = _missing_or_placeholder_required_keys(
+        env, REQUIRED_INFERENCE_CONFIG_KEYS
+    )
+    if missing_inference:
+        return _summary(
+            SetupReadinessState.CORE_READY,
+            "Your workspace is ready; inference configuration is incomplete.",
+            "Open Codexify and choose local inference when ready. Chat is unavailable until its health checks pass.",
+            "missing_or_placeholder_keys=" + ",".join(missing_inference),
+        )
+
+    llm_ok, llm_detail = _http_ok(http_getter, backend_base + "/health/llm")
+    try:
+        llm = json.loads(llm_detail)
+        details = llm.get("details", {})
+        inference_ready = bool(
+            llm_ok
+            and llm.get("status") in ("ok", "healthy", "online")
+            and details.get("provider") == "local"
+            and details.get("configured_model_available") is True
+            and details.get("models_available") is True
+            and details.get("ok") is not False
+            and details.get("provider_runtime", {}).get("available") is not False
+        )
+    except (ValueError, AttributeError):
+        inference_ready = False
     return _summary(
-        SetupReadinessState.READY,
-        "Codexify local runtime is ready.",
-        "Open Codexify.",
-        "provider=" + env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
+        (
+            SetupReadinessState.INFERENCE_READY
+            if inference_ready
+            else SetupReadinessState.CORE_READY
+        ),
+        (
+            "Your workspace is ready."
+            if inference_ready
+            else "Your workspace is ready; inference setup is incomplete."
+        ),
+        (
+            "Open Codexify."
+            if inference_ready
+            else "Open Codexify and choose local inference when ready. Chat is unavailable until its health checks pass."
+        ),
+        "provider=" + env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Local"),
     )

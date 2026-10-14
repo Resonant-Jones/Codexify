@@ -82,11 +82,12 @@ vi.mock("@/features/chat/useChat", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = {
     subscribe: () => () => {},
-  }),
-}));
+  };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/state/contextTrace", () => ({
   setTrace: vi.fn(),

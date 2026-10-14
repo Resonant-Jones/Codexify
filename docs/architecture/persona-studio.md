@@ -3,7 +3,7 @@
 Purpose: describe the production Persona Studio composition, local draft flow,
 and authority boundary without treating configuration UI as runtime proof.
 
-Last updated: 2026-09-22
+Last updated: 2026-10-14
 
 Source anchors:
 
@@ -16,10 +16,14 @@ Source anchors:
 
 ## Purpose and Scope
 
-Persona Studio is a non-conversational configuration surface for Persona
-Profiles. It keeps broad browser-local drafts while the backend persists the
-canonical typed authored manifest, immutable positive revisions, and a
-server-owned account binding under ADR-082.
+The Lens Editor is a non-conversational configuration surface for a Lens. A
+Lens changes the authored approach and configuration Guardian works under; it
+is not a separate autonomous agent and does not replace Guardian, which
+remains the primary runtime and assistant authority.
+
+It keeps broad browser-local drafts while the backend persists the canonical
+typed authored manifest, immutable positive revisions, and a server-owned
+account binding under ADR-082.
 
 Only a coherent backend-returned manifest/revision establishes saved Persona
 truth. Browser localStorage provides draft/cache continuity and selection; it
@@ -28,17 +32,27 @@ projection remains limited to name, system prompt, model provider, model ID,
 and temperature. Broad authored fields remain requested/inert until separately
 implemented and proven enforcement seams exist.
 
-Persona Studio is not a chat, memory-writing, thread/history, provider-runtime,
+The Lens Editor is not a chat, memory-writing, thread/history, provider-runtime,
 or authority-granting surface.
+
+## Naming Layers
+
+Product language is **Lens**: the nav entry, page, frames, and form sections.
+Internal implementation remains **Persona** — `personaStudio` module,
+`PersonaStudioPage`, `persona-studio-*` test IDs, `/persona-studio` route — and
+is not a simplification target. Canonical authority remains **Persona Profile**
+(`PersonaProfileManifest`, `PersonaProfileBinding`, ADR-082).
 
 ## Current Implementation Status
 
 | Surface | Status now | Meaning |
 |---|---|---|
 | AppShell route | runtime-active | `/persona-studio` is a first-class shell view; AppShell owns Dock, scene, theme, and route wrapper. |
-| V2 workspace | frontend-active | `PersonaStudioPage` directly owns two canonical FrameCards: Studio Assistant and Configuration. |
-| Build | frontend-local | A pure deterministic configurator mutates recognized fields in the selected local draft only. |
+| V2 workspace | frontend-active | `PersonaStudioPage` directly owns two canonical FrameCards: Lens Assistant and Lens Editor. |
+| Build | frontend-local | A pure deterministic configurator mutates recognized fields in the selected local draft only, and expands the Advanced disclosure when it changes an advanced section. |
 | Test | frontend-local preview | Existing deterministic, draft-aware preview is ephemeral and non-threaded. |
+| Default path | frontend-active | Lens identity, Behavior / Instructions, and Voice are the common authoring surface. |
+| Advanced disclosure | frontend-active | Model, Capabilities, Retrieval, Activation & Bindings, Manifest, and Effective are reachable behind one explicit disclosure without losing values. |
 | Form / Manifest | frontend-local | Two views over the same authored draft; Manifest JSON is strict and excludes revision/bindings/credentials. |
 | Effective | observational | Requested values can be inspected; no authoritative effective-config resolver is present. |
 | Profile persistence | backend-active | Account-scoped full manifests and immutable revisions establish acknowledged baselines. |
@@ -47,13 +61,14 @@ or authority-granting surface.
 
 ## Where It Lives in the Shell
 
-Persona Studio is a sibling AppShell view alongside Guardian, Dashboard,
-Documents, Gallery, and Settings.
+The Lens Editor is a sibling AppShell view alongside Guardian, Dashboard,
+Documents, Gallery, and Settings. It appears in AppShell navigation as `Lens`.
 
 - Route: `/persona-studio`
+- Nav entry: Lens
 - Shell entry: AppShell navigation
 - Route containment: AppShell renders `PersonaStudioPage` directly, without an
-  outer Persona Studio FrameCard.
+  outer FrameCard.
 
 The page itself renders the two production FrameCards. AppShell remains the
 only owner of global Dock, wallpaper/gradient, theme, and shell tokens.
@@ -62,24 +77,35 @@ only owner of global Dock, wallpaper/gradient, theme, and shell tokens.
 
 ```text
 AppShell scene + Dock
-└── Persona Studio route
+└── /persona-studio route (nav entry: Lens)
     └── PersonaStudioPage
-        ├── FrameCard: Studio Assistant
+        ├── FrameCard: Lens Assistant
         │   ├── Build — deterministic local draft edits
         │   └── Test — embedded ephemeral preview
-        └── FrameCard: Configuration
+        └── FrameCard: Lens Editor
             ├── profile / acknowledgement actions
-            └── Form | Manifest | Effective
+            ├── Lens identity
+            ├── Behavior / Instructions
+            ├── Voice
+            └── Advanced disclosure
+                ├── Model, Capabilities, Retrieval, Activation & Bindings
+                └── Manifest | Effective
 ```
 
-The desktop grid intentionally gives Configuration more width than Assistant;
-narrow viewports stack the two surfaces. No page-wide status/footer band is
-rendered. Profile state, Revert, Save, and Duplicate-as-new live in the
-Configuration action area.
+The desktop grid intentionally gives Lens Editor more width than Lens
+Assistant; narrow viewports stack the two surfaces. No page-wide
+status/footer band is rendered. Profile state, Revert, Save, and
+Duplicate-as-new live in the Lens Editor action area.
 
-Form has collapsible Identity, Behavior / Prompt, Model, Voice, Capabilities,
-Retrieval, and Activation & Bindings sections. This replaces the retired
-top-level Identity/Model/Voice/Prompt/Tools/Retrieval/Truth Matrix tab row.
+Lens identity and Behavior / Instructions open by default. Voice is a
+user-intent-level preference kept on the common path but collapsed. Model,
+Capabilities, Retrieval, Activation & Bindings, Manifest, and Effective sit
+behind one explicit Advanced disclosure. This replaces the retired top-level
+Identity/Model/Voice/Prompt/Tools/Retrieval/Truth Matrix tab row.
+
+The disclosure is presentation reduction only: no field, value, or editing
+capability is removed. Build expands it automatically when a recognized change
+targets an advanced section, so an applied value is never hidden.
 
 ## Local State and Persistence Flow
 
@@ -142,17 +168,19 @@ not bind a thread or alter active runtime behavior.
 
 ## Proof and Limits
 
-Focused component/store tests prove the V2 page composition, deterministic
-local Build behavior, preview boundary, Manifest round-trip and rejection,
-acknowledged revision behavior, failure preservation, concurrent edits, and
-Revert. They are mocked/local code-path proof, not authenticated-browser,
-live-backend, provider, resolver, or release qualification.
+Focused component/store tests prove the page composition, deterministic
+local Build behavior including automatic expansion of the Advanced disclosure,
+the default path and its reachability guarantee, preview boundary, Manifest
+round-trip and rejection, acknowledged revision behavior, failure preservation,
+concurrent edits, and Revert. They are mocked/local code-path proof, not
+authenticated-browser, live-backend, provider, resolver, or release
+qualification.
 
 ### Component and State Flow
 
 ```mermaid
 flowchart LR
-    A["Form / Manifest / Build"] --> B["selected local draft"]
+    A["Lens form / Manifest / Build"] --> B["selected local draft"]
     B --> C["Test preview\nephemeral"]
     B --> D["explicit Save"]
     D --> E["profile API\nmanifest without revision"]

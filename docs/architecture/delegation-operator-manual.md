@@ -2,7 +2,7 @@
 
 Purpose: give a solo operator a practical playbook for supervising delegated work in Codexify, with explicit attention to route acceptance, queue or worker execution, task-event visibility, and durable provenance.
 
-Last updated: 2026-04-04
+Last updated: 2026-09-30
 
 Source anchors:
 - docs/architecture/00-current-state.md
@@ -109,6 +109,12 @@ If the run produces an artifact but does not return a source-addressable summary
 2. Verify that the source thread and source message still exist.
 3. Confirm that the result injection step was idempotent and not blocked by provenance validation.
 4. Do not publish a second summary until you know why the first one failed.
+
+For completed `DelegationService` packet/job results, inspect `summary.metadata.delivery_ok`, `delivery_status`, `delivery_reason`, `delivery_key`, and `result_message_id` independently of execution status. A completed executor job with degraded delivery remains successful execution with incomplete transcript return. The terminal event carries delivery posture; it does not prove the message exists. Read the assistant `coding_result` in Postgres and verify its original source-message/thread/project lineage.
+
+After restoring database availability or resolving a legitimate lineage discrepancy, an authorized operator can call `DelegationService(db).deliver_completed_result(delegation_id)` using the existing Guardian database binding. This service operation reads accepted terminal state and retries only transcript delivery; it does not enqueue work or rerun Codex. There is no new public retry endpoint in this slice. The deterministic key `delegation:<delegation_id>:thread_result` and job-row lock recover an existing message across fresh sessions and concurrent retries. Do not guess a missing destination or copy raw executor output into the transcript.
+
+The [September 30 proof](./2026-09-30-codex-app-server-source-thread-return-proof.md) covers one live App Server completion and delivery-only replay. Failed/cancelled result UX, native-session reuse, Auto routing, and public support are outside this proof.
 
 ### The artifact exists, but lineage is missing
 

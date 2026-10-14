@@ -247,6 +247,17 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared task"
             )
+        else:
+            task = tasks[attempt["task_id"]]
+            if task.get("validation_command") and attempt.get("execution_mode") == "live":
+                if not attempt.get("validation_command_reference"):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} requires a validation_command_reference"
+                    )
+                if not attempt.get("validation_result_hash"):
+                    errors.append(
+                        f"attempt {attempt['attempt_id']} requires a validation_result_hash"
+                    )
         if attempt["role_binding_id"] not in bindings:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared role binding"
@@ -290,6 +301,12 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
             continue
         if "live_role_binding" not in binding:
             continue
+        required_tool_name = binding["live_role_binding"].get("required_tool_name")
+        if required_tool_name is not None and binding["role"] != "executor":
+            errors.append(
+                f"binding {binding['binding_id']} required_tool_name is only "
+                "supported for a live executor"
+            )
         granted = binding["live_role_binding"].get("granted_permissions", [])
         requested = binding["live_role_binding"].get("requested_permissions", [])
         if set(granted) - set(requested):
@@ -416,6 +433,13 @@ def validate_role_binding_semantics(
                 f"role binding {binding['binding_id']} is not locked "
                 f"(state={binding['binding_state']!r})"
             )
+        live_role = binding.get("live_role_binding", {})
+        if "required_tool_name" in live_role:
+            if binding["role"] != "executor" or live_role["required_tool_name"] != "write":
+                raise CampaignValidationError(
+                    f"role binding {binding['binding_id']} has unsupported "
+                    "required_tool_name"
+                )
     return by_role
 
 

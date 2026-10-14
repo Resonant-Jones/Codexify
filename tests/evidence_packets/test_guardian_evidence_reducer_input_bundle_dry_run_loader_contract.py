@@ -111,7 +111,8 @@ def test_loader_contract_lists_future_allowed_slices_and_cross_links() -> None:
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in runtime_contract
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in reducer_contract
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in readme
-    assert "input-bundle dry-run loader contract" in current
+    assert "Do not treat focused tests" in current
+    assert "public Beta support" in current
 
 
 def test_existing_tools_remain_unchanged_and_green() -> None:

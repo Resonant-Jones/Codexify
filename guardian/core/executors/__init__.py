@@ -16,6 +16,9 @@ from guardian.core.executors.base import (
     ExecutorTerminalResult,
 )
 from guardian.core.executors.codex_executor import CodexExecutor
+from guardian.core.executors.codex_app_server_executor import (
+    CodexAppServerExecutor,
+)
 from guardian.core.executors.health import (
     ExecutorHealth,
     get_all_executor_health,
@@ -37,6 +40,7 @@ __all__ = [
     "CanonicalTaskSummary",
     "CodeExecutor",
     "CodexExecutor",
+    "CodexAppServerExecutor",
     "CodexifyExecutorContextBundle",
     "CodexifyExecutorRequest",
     "ExecutorAuthMode",

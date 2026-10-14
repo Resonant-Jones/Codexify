@@ -1,5 +1,10 @@
 # Scout V1 Build Proof
 
+> Historical V1 receipt. Current integration/build evidence is recorded separately in
+> [SCOUT_MAINLINE_INTEGRATION_815.md](SCOUT_MAINLINE_INTEGRATION_815.md); the hosted live
+> proof is [SCOUT_LIVE_CONTINUITY_2026-10-04.md](SCOUT_LIVE_CONTINUITY_2026-10-04.md).
+
+
 ## Scope
 
 This document records the current build-surface classification of `mobile/scout-ios/` as of the Scout V1 capability baseline. It captures exact commands, results, and limitations of the current build toolchain.

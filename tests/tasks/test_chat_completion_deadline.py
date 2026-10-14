@@ -81,3 +81,13 @@ def test_invalid_snapshot_rejected(field, value):
 def test_naive_clock_rejected():
     with pytest.raises(ValueError, match='aware'):
         build_accepted_chat_task_deadline(NOW.replace(tzinfo=None))
+
+
+def test_task_deadline_reader_preserves_snapshot_and_legacy():
+    from guardian.tasks.chat_deadline import accepted_chat_deadline_for_task
+    from guardian.tasks.types import ChatCompletionTask
+    snapshot = build_accepted_chat_task_deadline(NOW).to_dict()
+    task = ChatCompletionTask(user_id="owner", **snapshot)
+    assert accepted_chat_deadline_for_task(task).to_dict() == snapshot
+    assert {key: getattr(task, key) for key in snapshot} == snapshot
+    assert accepted_chat_deadline_for_task(ChatCompletionTask(user_id="owner")) is None

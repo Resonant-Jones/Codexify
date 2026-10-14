@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
 
@@ -78,7 +79,8 @@ async def test_chat_complete_injects_local_user_id_into_task_payload(
         request=None,
         api_key="test",
         request_id=None,
-        request_user_scope=SimpleNamespace(
+        request_user_scope=RequestUserScope(
+            user_id="local",
             multi_user_enabled=False,
             account_id=None,
         ),
@@ -136,7 +138,8 @@ async def test_chat_complete_uses_request_account_id_for_task_payload(
         request=None,
         api_key="test",
         request_id=None,
-        request_user_scope=SimpleNamespace(
+        request_user_scope=RequestUserScope(
+            user_id="acct-123",
             multi_user_enabled=True,
             account_id="acct-123",
         ),
@@ -172,7 +175,7 @@ def test_chat_create_thread_normalizes_display_label_in_single_user_mode(
     result = chat_routes.chat_create_thread(
         {"title": "Legacy", "user_id": "Resonant Jones"},
         api_key="test-api-key",
-        request_user_scope=SimpleNamespace(
+        request_user_scope=RequestUserScope(
             user_id="local",
             account_id=None,
             multi_user_enabled=False,
@@ -244,7 +247,7 @@ def test_chat_message_create_on_send_normalizes_display_label_in_single_user_mod
             project_id=7,
         ),
         api_key="test-api-key",
-        request_user_scope=SimpleNamespace(
+        request_user_scope=RequestUserScope(
             user_id="local",
             account_id=None,
             multi_user_enabled=False,

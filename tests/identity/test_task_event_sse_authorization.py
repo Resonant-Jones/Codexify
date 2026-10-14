@@ -22,6 +22,7 @@ import json
 import os
 import tempfile
 import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -31,13 +32,25 @@ from starlette.requests import Request
 os.environ.setdefault("STORAGE_BASE_PATH", os.path.join(tempfile.mkdtemp(prefix="task-evt-authz-"), "media"))
 os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
 
+from guardian.core import dependencies  # noqa: E402
 from guardian.core import task_event_access  # noqa: E402
 from guardian.core.auth import (  # noqa: E402
     ACCOUNT_SESSION_PURPOSE,
     OPERATOR_SESSION_PURPOSE,
     issue_session_token,
 )
-from guardian.core.hosted_room_session import issue_guest_session_token  # noqa: E402
+from guardian.core.dependencies import require_task_event_read_principal  # noqa: E402
+from guardian.core.hosted_room_session import (  # noqa: E402
+    HostedRoomGuestPrincipal,
+    issue_guest_session_token,
+)
+
+# ADR-098 moved principal resolution for this surface onto the shared
+# `require_task_event_read_principal` seam. These labels describe which lane a
+# resolved principal belongs to; they are test-local evidence labels, not a
+# production authorization constant.
+ACCOUNT_LANE = "account"
+GUEST_LANE = "hosted_room_guest"
 
 ACCOUNT_A = "account-a@fixture.invalid"
 ACCOUNT_B = "account-b@fixture.invalid"
@@ -78,9 +91,36 @@ def _account_token(subject: str, *, purpose: str | None, ttl_seconds: int = 3600
     return f"{_b64(payload)}.{_sign(payload)}"
 
 
+def _account_jwt(
+    *,
+    subject: str,
+    purpose: str | None = ACCOUNT_SESSION_PURPOSE,
+    exp: int | None = None,
+    secret: str = SESSION_SECRET,
+) -> str:
+    """Mint an HS256 account-session JWT for the remote account lane.
+
+    ADR-098 resolves this lane through `dependencies._remote_single_user_account_jwt_subject`,
+    which accepts only a real HS256 JWT carrying `exp`, `sub`, and the account
+    session purpose. A native two-part token is rejected there and falls through
+    to a non-multi-user scope, where cross-account ownership is not enforced.
+
+    The native `_account_token` above stays in use for the mixed-lane and
+    wrong-purpose rejection tests, which assert credential-class rejection
+    before any account identity is resolved.
+    """
+    jwt = pytest.importorskip("jwt")
+    claims = {"sub": subject, "exp": exp or int(time.time()) + 120}
+    if purpose is not None:
+        claims["purpose"] = purpose
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
 @pytest.fixture(autouse=True)
 def remote_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run every case at the remote multi-principal boundary ADR-092 governs."""
+    monkeypatch.setattr(dependencies, "is_private_preview", lambda: False)
+    monkeypatch.setattr(dependencies, "_multi_user_mode_enabled", lambda: False)
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", SESSION_SECRET)
     monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
     monkeypatch.delenv("GUARDIAN_EXPOSURE_MODE", raising=False)
@@ -171,9 +211,34 @@ def _chatlog() -> _FakeChatlogDB:
     return _FakeChatlogDB(THREADS)
 
 
-def _authorize(task_id: str, request: Request):
-    return task_event_access.authorize_task_event_stream(
-        task_id=task_id, request=request, chatlog_db=_chatlog()
+def _authorize(task_id: str, request: Request, chatlog_db=None):
+    """Authenticate exactly one principal lane, then authorize durable lineage.
+
+    Mirrors the route: `require_task_event_read_principal` resolves the lane
+    (rejecting mixed lanes before any resource lookup), and
+    `authorize_task_event_read` resolves the durable attempt to its canonical
+    thread. A denial therefore raises before any thread or Redis access.
+    """
+    principal = require_task_event_read_principal(
+        request,
+        x_api_key=request.headers.get("X-API-Key"),
+        authorization=request.headers.get("Authorization"),
+        gc_session=request.cookies.get("gc_session"),
+    )
+    access = task_event_access.authorize_task_event_read(
+        task_id,
+        principal,
+        chatlog_db=_chatlog() if chatlog_db is None else chatlog_db,
+    )
+    return SimpleNamespace(
+        task_id=task_id,
+        thread_id=access.thread_id,
+        principal=principal,
+        principal_kind=(
+            GUEST_LANE
+            if isinstance(principal, HostedRoomGuestPrincipal)
+            else ACCOUNT_LANE
+        ),
     )
 
 
@@ -430,29 +495,34 @@ def test_mixed_guest_with_invalid_signed_material_rejected(
 
 
 def test_account_a_may_read_own_task_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positive control for the two denials below.
+
+    The owner passes the very same ownership check that denies a foreign
+    account. A non-multi-user principal would clear it vacuously and make the
+    cross-account denials meaningless, so the resolved scope is asserted too.
+    """
     calls = _redis_probe(monkeypatch)
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
-    access = _authorize(TASK_A, _request(bearer=token))
+    access = _authorize(TASK_A, _request(bearer=_account_jwt(subject=ACCOUNT_A)))
     assert access.thread_id == THREAD_A
-    assert access.principal_kind == task_event_access.ACCOUNT_LANE
+    assert access.principal_kind == ACCOUNT_LANE
+    assert access.principal.multi_user_enabled is True
+    assert access.principal.account_id == ACCOUNT_A
     # Authorization alone must not consume events.
     assert calls == []
 
 
 def test_account_b_cannot_read_account_a_task_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _redis_probe(monkeypatch)
-    token, _ = issue_session_token(subject=ACCOUNT_B, purpose=ACCOUNT_SESSION_PURPOSE)
     with pytest.raises(HTTPException) as exc:
-        _authorize(TASK_A, _request(bearer=token))
+        _authorize(TASK_A, _request(bearer=_account_jwt(subject=ACCOUNT_B)))
     assert exc.value.status_code == 403
     assert calls == []
 
 
 def test_account_a_cannot_read_account_b_task_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _redis_probe(monkeypatch)
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
     with pytest.raises(HTTPException) as exc:
-        _authorize(TASK_B, _request(bearer=token))
+        _authorize(TASK_B, _request(bearer=_account_jwt(subject=ACCOUNT_A)))
     assert exc.value.status_code == 403
     assert calls == []
 
@@ -461,7 +531,7 @@ def test_unknown_thread_denied_without_leaking_ownership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = _redis_probe(monkeypatch)
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     with pytest.raises(HTTPException) as exc:
         # Durable attempt exists; canonical thread does not.
         _authorize("task-with-missing-thread", _request(bearer=token))
@@ -472,17 +542,24 @@ def test_unknown_thread_denied_without_leaking_ownership(
 def test_missing_durable_attempt_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     """No durable ChatCompletionAttempt means no authority, not a guess."""
     calls = _redis_probe(monkeypatch)
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
-    with pytest.raises(HTTPException) as exc:
+    token = _account_jwt(subject=ACCOUNT_A)
+    with pytest.raises(HTTPException) as missing:
         _authorize(TASK_MISSING, _request(bearer=token))
-    assert exc.value.status_code == 404
-    assert exc.value.detail["error"] == "not_found"
+    assert missing.value.status_code == 404
     assert calls == []
+
+    # The current contract is a single non-disclosing 404 string. "No durable
+    # attempt" must be indistinguishable from "no such task", so a caller cannot
+    # probe which task ids or thread lineage exist.
+    with pytest.raises(HTTPException) as unknown:
+        _authorize("task-that-never-existed", _request(bearer=token))
+    assert unknown.value.status_code == missing.value.status_code
+    assert unknown.value.detail == missing.value.detail
 
 
 def test_missing_attempt_denied_before_thread_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Redis-derived ownership inference is never attempted."""
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     seen: list[int] = []
 
     class _Tripwire(_FakeChatlogDB):
@@ -491,9 +568,7 @@ def test_missing_attempt_denied_before_thread_lookup(monkeypatch: pytest.MonkeyP
             return super().get_chat_thread(thread_id)
 
     with pytest.raises(HTTPException):
-        task_event_access.authorize_task_event_stream(
-            task_id=TASK_MISSING, request=_request(bearer=token), chatlog_db=_Tripwire(THREADS)
-        )
+        _authorize(TASK_MISSING, _request(bearer=token), _Tripwire(THREADS))
     assert seen == []
 
 
@@ -507,7 +582,7 @@ def test_same_room_guest_may_read_room_backing_thread_task(
     _install_guest_db(monkeypatch)
     access = _authorize(TASK_ROOM, _request(guest=_guest_token()))
     assert access.thread_id == THREAD_ROOM
-    assert access.principal_kind == task_event_access.GUEST_LANE
+    assert access.principal_kind == GUEST_LANE
     assert calls == []
 
 
@@ -616,7 +691,7 @@ def test_route_no_longer_depends_on_generic_api_key() -> None:
     assert "api_key" not in params
     source = inspect.getsource(module.stream_task_events)
     assert "require_api_key" not in source
-    assert "authorize_task_event_stream" in source
+    assert "authorize_task_event_read" in source
 
 
 def test_authorized_request_preserves_sse_framing(

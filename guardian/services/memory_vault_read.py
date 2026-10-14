@@ -46,8 +46,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterable, Optional
+from typing import Any
 
+from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
 from guardian.core.memory_compatibility import (
@@ -57,6 +58,7 @@ from guardian.core.memory_compatibility import (
     read_memory_compatibility_projection,
 )
 from guardian.db.models import (
+    MemoryEntry,
     MemoryPersonaLink,
     MemoryProvenance,
     MemoryRecord,
@@ -79,13 +81,21 @@ DEFAULT_LIST_LIMIT: int = 50
 MAX_LIST_LIMIT: int = 100
 
 #: Closed lifecycle / review posture vocabulary. Frozen by UMS-04C
-#: and §4.10 of the Unified Memory Store Contract. The Vault
-#: projection renders these strings to the operator; it does not
-#: invent new posture values.
+#: and §4.10 of the Unified Memory Store Contract, and finalized for
+#: ordinary canonical memory by UMS-05C8. The Vault projection reads
+#: these strings from the canonical ``review_state`` and
+#: ``lifecycle_state`` columns; it does not derive posture from
+#: timestamp presence and does not invent new posture values.
 REVIEW_POSTURE_PENDING: str = "pending"
 REVIEW_POSTURE_APPROVED: str = "approved"
+REVIEW_POSTURE_REJECTED: str = "rejected"
 REVIEW_POSTURE_DISPUTED: str = "disputed"
 LIFECYCLE_POSTURE_ACTIVE: str = "active"
+LIFECYCLE_POSTURE_DORMANT: str = "dormant"
+LIFECYCLE_POSTURE_RETIRED: str = "retired"
+#: Backwards-compatibility alias for the Personal Facts posture
+#: branch only. Personal Facts retain specialized authority (per
+#: ADR-084); they are not rewritten as ordinary-memory governance.
 LIFECYCLE_POSTURE_INACTIVE: str = "inactive"
 PINNED_TRUE: str = "pinned"
 PINNED_FALSE: str = "not_pinned"
@@ -222,7 +232,7 @@ class VaultItem:
     project_id: int | None = None
 
     review_posture: str = REVIEW_POSTURE_PENDING
-    lifecycle_posture: str = LIFECYCLE_POSTURE_INACTIVE
+    lifecycle_posture: str = LIFECYCLE_POSTURE_DORMANT
 
     pinned: bool = False
     held: bool = False
@@ -339,10 +349,20 @@ class MemoryVaultReadService:
 
         items: list[VaultItem] = []
 
-        canonical_items = self._list_canonical_items(effective_filter)
+        # Fetch only enough already-filtered rows from each authority to
+        # determine the requested page in the combined presentation order.
+        # A row ranked below this window in its own source cannot occur in the
+        # first ``candidate_limit`` rows of the merged source set.
+        candidate_limit = effective_offset + effective_limit
+
+        canonical_items = self._list_canonical_items(
+            effective_filter, candidate_limit=candidate_limit
+        )
         items.extend(canonical_items)
 
-        compatibility_items = self._list_compatibility_items(effective_filter)
+        compatibility_items = self._list_compatibility_items(
+            effective_filter, candidate_limit=candidate_limit
+        )
         items.extend(compatibility_items)
 
         items = self._apply_filters(items, effective_filter)
@@ -389,8 +409,10 @@ class MemoryVaultReadService:
 
     # -- Canonical projection --------------------------------------------
 
-    def _list_canonical_items(self, flt: VaultListFilter) -> list[VaultItem]:
-        """Query canonical ``memory_records`` for the account."""
+    def _list_canonical_items(
+        self, flt: VaultListFilter, *, candidate_limit: int
+    ) -> list[VaultItem]:
+        """Query a bounded, filtered canonical candidate window."""
         try:
             query = self._session.query(MemoryRecord).filter(
                 MemoryRecord.user_id == self._account
@@ -407,7 +429,43 @@ class MemoryVaultReadService:
                 query = query.filter(MemoryRecord.pinned == flt.pinned)
             if flt.held is not None:
                 query = query.filter(MemoryRecord.held == flt.held)
-            rows = query.all()
+            if flt.persona_subject_id is not None:
+                query = query.filter(
+                    self._session.query(MemoryPersonaLink.link_id)
+                    .filter(MemoryPersonaLink.memory_id == MemoryRecord.memory_id)
+                    .filter(MemoryPersonaLink.user_id == self._account)
+                    .filter(
+                        MemoryPersonaLink.persona_subject_id == flt.persona_subject_id
+                    )
+                    .exists()
+                )
+            if flt.review_posture is not None:
+                query = query.filter(
+                    MemoryRecord.reviewed_at.is_not(None)
+                    if flt.review_posture == REVIEW_POSTURE_APPROVED
+                    else MemoryRecord.reviewed_at.is_(None)
+                )
+            if flt.lifecycle_posture is not None:
+                query = query.filter(
+                    MemoryRecord.activated_at.is_not(None)
+                    if flt.lifecycle_posture == LIFECYCLE_POSTURE_ACTIVE
+                    else MemoryRecord.activated_at.is_(None)
+                )
+            if flt.source_system is not None:
+                query = query.filter(
+                    self._session.query(MemoryProvenance.provenance_id)
+                    .filter(MemoryProvenance.memory_id == MemoryRecord.memory_id)
+                    .filter(MemoryProvenance.user_id == self._account)
+                    .filter(MemoryProvenance.source_system == flt.source_system)
+                    .exists()
+                )
+            rows = (
+                query.order_by(
+                    MemoryRecord.created_at.desc(), MemoryRecord.memory_id.asc()
+                )
+                .limit(candidate_limit)
+                .all()
+            )
         except Exception as exc:  # pragma: no cover - SQL layer failure
             raise MemoryVaultReadError(
                 "failed to query canonical memory records"
@@ -520,14 +578,25 @@ class MemoryVaultReadService:
             content = None
 
         review_posture = (
-            REVIEW_POSTURE_APPROVED
-            if row.reviewed_at is not None
+            row.review_state
+            if row.review_state
+            in (
+                REVIEW_POSTURE_PENDING,
+                REVIEW_POSTURE_APPROVED,
+                REVIEW_POSTURE_REJECTED,
+                REVIEW_POSTURE_DISPUTED,
+            )
             else REVIEW_POSTURE_PENDING
         )
         lifecycle_posture = (
-            LIFECYCLE_POSTURE_ACTIVE
-            if row.activated_at is not None
-            else LIFECYCLE_POSTURE_INACTIVE
+            row.lifecycle_state
+            if row.lifecycle_state
+            in (
+                LIFECYCLE_POSTURE_ACTIVE,
+                LIFECYCLE_POSTURE_DORMANT,
+                LIFECYCLE_POSTURE_RETIRED,
+            )
+            else LIFECYCLE_POSTURE_DORMANT
         )
 
         return VaultItem(
@@ -555,7 +624,9 @@ class MemoryVaultReadService:
 
     # -- Compatibility projection -----------------------------------------
 
-    def _list_compatibility_items(self, flt: VaultListFilter) -> list[VaultItem]:
+    def _list_compatibility_items(
+        self, flt: VaultListFilter, *, candidate_limit: int
+    ) -> list[VaultItem]:
         """Query the admitted compatibility sources for the account.
 
         Uses the proven UMS-03E/F/G adapters through the UMS-03I
@@ -577,13 +648,22 @@ class MemoryVaultReadService:
 
         # memory_entries (any silo) -> episodic_semantic_memory.
         try:
-            from guardian.db.models import MemoryEntry
-
-            memory_entry_rows = (
-                self._session.query(MemoryEntry)
-                .filter(MemoryEntry.user_id == self._account)
-                .all()
+            query = self._session.query(MemoryEntry).filter(
+                MemoryEntry.user_id == self._account
             )
+            if not self._memory_entries_can_match(flt):
+                memory_entry_rows = []
+            else:
+                if flt.pinned is not None:
+                    query = query.filter(MemoryEntry.pinned == flt.pinned)
+                memory_entry_rows = (
+                    query.order_by(
+                        MemoryEntry.created_at.desc(),
+                        cast(MemoryEntry.id, String).asc(),
+                    )
+                    .limit(candidate_limit)
+                    .all()
+                )
         except Exception as exc:  # pragma: no cover - SQL layer failure
             raise MemoryVaultReadError("failed to query memory_entries") from exc
 
@@ -602,11 +682,42 @@ class MemoryVaultReadService:
 
         # personal_facts: both verified + active AND candidate.
         try:
-            personal_fact_rows = (
-                self._session.query(PersonalFact)
-                .filter(PersonalFact.user_id == self._account)
-                .all()
+            query = self._session.query(PersonalFact).filter(
+                PersonalFact.user_id == self._account
             )
+            if not self._personal_facts_can_match(flt):
+                personal_fact_rows = []
+            else:
+                verified_active = (
+                    PersonalFact.status == "verified"
+                ) & PersonalFact.is_active.is_(True)
+                if (
+                    flt.semantic_species == PersonalFactVerifiedSemanticSpecies()
+                    or flt.review_posture == REVIEW_POSTURE_APPROVED
+                    or flt.lifecycle_posture == LIFECYCLE_POSTURE_ACTIVE
+                ):
+                    query = query.filter(verified_active)
+                elif (
+                    flt.semantic_species == PersonalFactCandidateSemanticSpecies()
+                    or flt.review_posture == REVIEW_POSTURE_PENDING
+                    or flt.lifecycle_posture == LIFECYCLE_POSTURE_INACTIVE
+                ):
+                    query = query.filter(
+                        or_(
+                            PersonalFact.status.in_(
+                                ("candidate", "disputed", "archived")
+                            ),
+                            PersonalFact.is_active.is_(False),
+                        )
+                    )
+                personal_fact_rows = (
+                    query.order_by(
+                        PersonalFact.created_at.desc(),
+                        cast(PersonalFact.id, String).asc(),
+                    )
+                    .limit(candidate_limit)
+                    .all()
+                )
         except Exception as exc:  # pragma: no cover - SQL layer failure
             raise MemoryVaultReadError("failed to query personal_facts") from exc
 
@@ -624,6 +735,41 @@ class MemoryVaultReadService:
             items.append(self._project_compatibility_projection(projection))
 
         return items
+
+    @staticmethod
+    def _memory_entries_can_match(flt: VaultListFilter) -> bool:
+        """Return whether a legacy memory entry can satisfy ``flt``."""
+        return not (
+            (
+                flt.semantic_species is not None
+                and flt.semantic_species != "episodic_semantic_memory"
+            )
+            or flt.project_id is not None
+            or flt.persona_subject_id is not None
+            or flt.review_posture not in (None, REVIEW_POSTURE_APPROVED)
+            or flt.lifecycle_posture not in (None, LIFECYCLE_POSTURE_ACTIVE)
+            or flt.source_system not in (None, "codexify")
+            or flt.held is True
+        )
+
+    @staticmethod
+    def _personal_facts_can_match(flt: VaultListFilter) -> bool:
+        """Return whether a compatibility Personal Fact can satisfy ``flt``."""
+        return not (
+            (
+                flt.semantic_species is not None
+                and flt.semantic_species
+                not in {
+                    PersonalFactVerifiedSemanticSpecies(),
+                    PersonalFactCandidateSemanticSpecies(),
+                }
+            )
+            or flt.project_id is not None
+            or flt.persona_subject_id is not None
+            or flt.source_system not in (None, "codexify")
+            or flt.pinned is True
+            or flt.held is True
+        )
 
     def _get_compatibility_item(
         self, source: MemoryCompatibilitySourceRef
@@ -842,6 +988,13 @@ def PersonalFactVerifiedSemanticSpecies() -> str:
     from guardian.protocol_tokens import MemorySemanticSpecies
 
     return MemorySemanticSpecies.VERIFIED_PERSONAL_FACT.value
+
+
+def MemoryEntrySemanticSpecies() -> str:
+    """Return the canonical ``episodic_semantic_memory`` species token."""
+    from guardian.protocol_tokens import MemorySemanticSpecies
+
+    return MemorySemanticSpecies.EPISODIC_SEMANTIC_MEMORY.value
 
 
 def PersonalFactCandidateSemanticSpecies() -> str:

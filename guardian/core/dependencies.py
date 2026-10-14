@@ -33,13 +33,13 @@ from guardian.core import event_bus
 from guardian.core.auth import (
     ACCOUNT_SESSION_PURPOSE,
     OPERATOR_SESSION_PURPOSE,
+    get_unverified_session_token_purpose,
     get_verified_session_token_purpose,
+    reject_mixed_principal_credentials,
     resolve_account_session_subject,
     verify_session_token,
     verify_session_token_for_purpose,
 )
-from guardian.core.hosted_room_session import is_verified_guest_session_token
-from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER, ErrorCode
 from guardian.core.auth_dependencies import (
     extract_session_token,
     resolve_session_user_id,
@@ -49,11 +49,18 @@ from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.config import get_settings as get_core_settings
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
-from guardian.db.models import AuthenticatedPrincipal
-from guardian.core.preview_access import (
-    is_private_preview,
-    require_preview_principal,
+from guardian.core.hosted_room_session import HostedRoomGuestPrincipal
+from guardian.core.hosted_room_session import (
+    decode_principal as decode_hosted_room_guest_principal,
 )
+from guardian.core.hosted_room_session import (
+    extract_session_token_from_request as extract_hosted_room_guest_session,
+)
+from guardian.core.hosted_room_session import is_verified_guest_session_token
+from guardian.core.preview_access import is_private_preview, require_preview_principal
+from guardian.db.models import AuthenticatedPrincipal
+from guardian.protocol_tokens import ACCOUNT_AUTH_FAILURE_HEADER, ErrorCode
+
 # NOTE: The legacy SQLite-backed `guardian.memory.query_memory.MemoryStore` import
 # was previously eager on this line:
 #     from guardian.memory.query_memory import memory_store as _memory_store
@@ -134,9 +141,7 @@ def _load_env_chain() -> None:
     Each layer can override previous ones, but actual environment vars always win.
     """
     if _dotenv_disabled():
-        logger.info(
-            "[env] dotenv loading skipped (CODEXIFY_DISABLE_DOTENV set)"
-        )
+        logger.info("[env] dotenv loading skipped (CODEXIFY_DISABLE_DOTENV set)")
         return
 
     cwd = Path(__file__).resolve().parents[2]  # Go up to project root
@@ -171,13 +176,9 @@ GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
 GROQ_FALLBACK_MODEL = (os.getenv("GROQ_FALLBACK_MODEL") or "").strip() or None
 
 # Back/forward-compatible aliases
-CHAT_PROVIDER = (
-    os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER
-).lower()
+CHAT_PROVIDER = (os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER).lower()
 DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
-GROQ_BASE_URL = os.getenv(
-    "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
-).rstrip("/")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 
 # Feature flags
 ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in (
@@ -255,9 +256,7 @@ def _env_bool(name: str, *, default: bool = False) -> bool:
 
 
 def _allow_user_header_override() -> bool:
-    return _env_bool("DEBUG", default=False) or _env_bool(
-        "LOCAL_DEV", default=False
-    )
+    return _env_bool("DEBUG", default=False) or _env_bool("LOCAL_DEV", default=False)
 
 
 def get_single_user_id() -> str:
@@ -364,9 +363,7 @@ def _resolve_account_id_for_subject(subject_id: str) -> str | None:
                 )
             )
     except RuntimeError as exc:
-        logger.error(
-            "[auth] stable principal mapping unavailable: %s", str(exc)
-        )
+        logger.error("[auth] stable principal mapping unavailable: %s", str(exc))
         raise HTTPException(
             status_code=500,
             detail=(
@@ -416,9 +413,7 @@ def get_request_user_id(
 
     session_token = extract_session_token(authorization, gc_session)
     session_user_id = (
-        resolve_session_user_id(authorization, gc_session)
-        if session_token
-        else None
+        resolve_session_user_id(authorization, gc_session) if session_token else None
     )
     if session_user_id:
         return session_user_id
@@ -432,22 +427,16 @@ def get_request_user_id(
         )
         raise HTTPException(
             status_code=401,
-            detail=(
-                "Multi-user mode requires an authenticated session/JWT subject"
-            ),
+            detail=("Multi-user mode requires an authenticated session/JWT subject"),
         )
 
     candidate = _coerce_text(x_user_id)
     allow_override = _allow_user_header_override()
     if candidate and allow_override:
-        logger.debug(
-            "[auth] honoring X-User-Id override due to DEBUG/LOCAL_DEV"
-        )
+        logger.debug("[auth] honoring X-User-Id override due to DEBUG/LOCAL_DEV")
         return candidate
     if candidate and not allow_override:
-        logger.debug(
-            "[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV"
-        )
+        logger.debug("[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV")
     return get_single_user_id()
 
 
@@ -474,9 +463,7 @@ def get_request_user_scope(
 
     session_token = extract_session_token(authorization, gc_session)
     session_user_id = (
-        resolve_session_user_id(authorization, gc_session)
-        if session_token
-        else None
+        resolve_session_user_id(authorization, gc_session) if session_token else None
     )
     if session_user_id:
         return RequestUserScope(
@@ -546,6 +533,41 @@ def _remote_token_secrets() -> List[str]:
     return secrets
 
 
+def _remote_single_user_account_jwt_subject(token: str) -> str | None:
+    """Return the verified account subject for the single-user JWT lane."""
+    if jwt is None or _multi_user_mode_enabled():
+        return None
+
+    raw = token.strip()
+    if not raw:
+        return None
+
+    # The raw Guardian API key is operator material, not an account JWT signer.
+    account_secrets = []
+    for env_name in ("GUARDIAN_SESSION_SECRET", "GUARDIAN_JWT_SECRET"):
+        secret = (os.getenv(env_name) or "").strip()
+        if secret and secret not in account_secrets:
+            account_secrets.append(secret)
+
+    for secret in account_secrets:
+        try:
+            claims = jwt.decode(
+                raw,
+                secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False, "require": ["exp", "sub"]},
+            )
+        except Exception:
+            continue
+        if (
+            isinstance(claims, dict)
+            and str(claims.get("sub") or "").strip()
+            and claims.get("purpose") == ACCOUNT_SESSION_PURPOSE
+        ):
+            return str(claims["sub"]).strip()
+    return None
+
+
 def _is_valid_remote_token(token: str) -> bool:
     """
     Validate a remote-mode bearer/cookie token as session or JWT.
@@ -578,6 +600,52 @@ def _is_valid_remote_token(token: str) -> bool:
             continue
 
     return False
+
+
+def _configured_local_api_keys() -> List[str]:
+    """Read the same configured static keys used by local ``verify_api_key``."""
+    allowed: List[str] = []
+    try:
+        settings = get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                value.strip()
+                for value in raw_multi.replace(";", ",").split(",")
+                if value.strip()
+            )
+    except Exception:
+        pass
+
+    if not allowed:
+        env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+        if env_key:
+            allowed.append(env_key)
+    return allowed
+
+
+def _valid_local_api_key_candidate(
+    x_api_key: Optional[str], authorization: Optional[str]
+) -> tuple[str, str] | None:
+    """Return the transport and value of a valid configured local API key."""
+    candidates: list[tuple[str, str]] = []
+    if x_api_key:
+        value = x_api_key.strip()
+        if value:
+            candidates.append(("x-api-key", value))
+    if authorization and authorization.lower().startswith("bearer "):
+        value = authorization[7:].strip()
+        if value:
+            candidates.append(("bearer", value))
+
+    allowed = _configured_local_api_keys()
+    for transport, candidate in candidates:
+        if any(hmac.compare_digest(candidate, key) for key in allowed):
+            return transport, candidate
+    return None
 
 
 def _verify_session_token_fallback(token: str) -> bool:
@@ -637,7 +705,16 @@ def verify_api_key(
 
     Note: GUARDIAN_EXPOSURE_MODE=public_allowlist always forces remote mode.
     """
-    if is_private_preview():
+    private_preview = is_private_preview()
+    remote_boundary = private_preview or _auth_mode() == "remote"
+    reject_mixed_principal_credentials(
+        request,
+        enabled=remote_boundary,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
+
+    if private_preview:
         # No static browser/API keys in a tunnelled preview.  The caller must
         # present a signed session for an allowlisted email.
         return require_preview_principal(request).email
@@ -681,9 +758,7 @@ def verify_api_key(
         if gc_session and _is_valid_remote_token(gc_session):
             return gc_session
 
-        logger.warning(
-            "Unauthorized remote auth attempt (session/JWT required)"
-        )
+        logger.warning("Unauthorized remote auth attempt (session/JWT required)")
         raise HTTPException(
             status_code=401,
             detail="Remote mode requires a valid session/JWT token",
@@ -802,6 +877,35 @@ def require_service_capability(
     return None
 
 
+def require_edge_capability(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> None:
+    """Authorize only the private Cloudflare Guardian health capability.
+
+    This key is intentionally outside the general Guardian service-key and
+    principal credential domains. It never creates or returns an identity.
+    """
+    configured_key = os.getenv("GUARDIAN_EDGE_CAPABILITY_KEY")
+    if not configured_key:
+        logger.error("guardian_edge_capability_unconfigured")
+        raise HTTPException(
+            status_code=503,
+            detail="Edge capability unavailable",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    candidate = x_api_key or ""
+    if not candidate or not hmac.compare_digest(
+        candidate.encode("utf-8"), configured_key.encode("utf-8")
+    ):
+        logger.warning("guardian_edge_capability_denied")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -816,6 +920,7 @@ def require_operator_auth(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+    request: Request = None,
 ) -> str:
     """Require explicit operator authority without resolving an account.
 
@@ -827,13 +932,25 @@ def require_operator_auth(
     bearer = ""
     if authorization and authorization.lower().startswith("bearer "):
         bearer = authorization[7:].strip()
+    bearer_purpose = get_unverified_session_token_purpose(bearer) if bearer else None
+    # At this operator-only seam, an unclassified Bearer value is also a
+    # supported raw API-key selector. Purpose-tagged account credentials stay
+    # in the account lane and are never reinterpreted as operator material.
+    raw_bearer_key = bearer if bearer and bearer_purpose is None else None
+
+    reject_mixed_principal_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+        authorization=authorization,
+        gc_session=gc_session,
+        operator_key_values=(x_api_key, raw_bearer_key),
+    )
+
     cookie_token = _coerce_text(gc_session)
     presented_token = bearer or cookie_token
 
     if presented_token:
-        if verify_session_token_for_purpose(
-            presented_token, OPERATOR_SESSION_PURPOSE
-        ):
+        if verify_session_token_for_purpose(presented_token, OPERATOR_SESSION_PURPOSE):
             return "operator-session"
         if _is_valid_remote_token(presented_token) or cookie_token:
             raise HTTPException(
@@ -899,8 +1016,17 @@ def verify_account_session(
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """Authenticate a frozen account route without changing other auth lanes."""
-    if not is_private_preview() and _auth_mode() != "remote":
+    private_preview = is_private_preview()
+    remote_boundary = private_preview or _auth_mode() == "remote"
+    if not remote_boundary:
         return verify_api_key(request, x_api_key, authorization, gc_session)
+
+    reject_mixed_principal_credentials(
+        request,
+        enabled=True,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
 
     token = extract_session_token(authorization, gc_session)
     if not token:
@@ -928,7 +1054,7 @@ def verify_account_session(
                 },
             ) from exc
         raise
-    if is_private_preview():
+    if private_preview:
         principal = require_preview_principal(request)
         if principal.email != subject:
             raise HTTPException(status_code=401, detail="Account session mismatch")
@@ -940,6 +1066,108 @@ def require_account_session(
     credential: str = Depends(verify_account_session),
 ) -> str:
     return credential
+
+
+def _verify_task_event_account_session(
+    request: Request,
+    authorization: Optional[str],
+    gc_session: Optional[str],
+) -> RequestUserScope | None:
+    """Preserve task-event's supported remote JWT lane without widening other routes."""
+    token = extract_session_token(authorization, gc_session)
+    subject_id = (
+        _remote_single_user_account_jwt_subject(token)
+        if token and not is_private_preview() and _auth_mode() == "remote"
+        else None
+    )
+    if subject_id:
+        # The verified JWT subject is the account identity. Force the shared
+        # thread reader to compare that subject with the durable thread owner
+        # before task events reach Redis.
+        return RequestUserScope(
+            user_id=subject_id,
+            subject_id=subject_id,
+            account_id=subject_id,
+            multi_user_enabled=True,
+        )
+    verify_account_session(
+        request=request,
+        x_api_key=None,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
+    return None
+
+
+def require_task_event_read_principal(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> RequestUserScope | HostedRoomGuestPrincipal:
+    """Authenticate a task-event reader in an existing thread-read lane.
+
+    This is a narrow resource-specific composition of existing credential
+    resolvers. It does not authenticate a guest as an account or treat remote
+    operator credentials as user authority.
+    """
+    remote_boundary = is_private_preview() or _auth_mode() == "remote"
+    reject_mixed_principal_credentials(
+        request,
+        enabled=remote_boundary,
+        authorization=authorization,
+        gc_session=gc_session,
+        operator_key_values=(x_api_key,) if remote_boundary else (),
+    )
+
+    guest_token = extract_hosted_room_guest_session(request)
+    if guest_token and not remote_boundary:
+        local_key = _valid_local_api_key_candidate(x_api_key, authorization)
+        if local_key:
+            transport, credential = local_key
+            if transport == "x-api-key":
+                verify_api_key(
+                    request=request,
+                    x_api_key=credential,
+                    authorization=None,
+                    gc_session=None,
+                )
+            else:
+                verify_api_key(
+                    request=request,
+                    x_api_key=None,
+                    authorization=f"Bearer {credential}",
+                    gc_session=None,
+                )
+            return get_request_user_scope(
+                request=request,
+                x_user_id=None,
+                authorization=None,
+                gc_session=None,
+            )
+
+    if guest_token:
+        return decode_hosted_room_guest_principal(guest_token)
+
+    if remote_boundary:
+        # Require the exact account-session class before resolving account
+        # identity. Operator sessions and raw API keys cannot become users.
+        jwt_principal = _verify_task_event_account_session(
+            request, authorization, gc_session
+        )
+        if jwt_principal is not None:
+            return jwt_principal
+    else:
+        # Preserve local API-key/session operation, but do not allow a
+        # supplemental X-User-Id header to establish the local principal.
+        verify_api_key(request, x_api_key, authorization, gc_session)
+
+    return get_request_user_scope(
+        request=request,
+        x_user_id=None,
+        authorization=authorization,
+        gc_session=gc_session,
+    )
 
 
 def _account_scope_gate(
@@ -1003,9 +1231,7 @@ def init_database() -> Optional[Any]:
         chatlog_db = PostgresChatLogDB(db_url)  # type: ignore[arg-type]
         # PgDB/PostgresChatLogDB manage schema via migrations; no explicit ensure_schema required.
         PG_DSN = db_url
-        logger.info(
-            "[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url)
-        )
+        logger.info("[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url))
         return chatlog_db
 
     logger.warning(
@@ -1055,7 +1281,15 @@ def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
     Called by guardian_api.py during startup.
     """
     global _vector_store, _sensors
-    _vector_store = VectorStore()
+    # Optional embedding capability cannot hold the core workspace behind model acquisition.
+    # An explicitly required pre-provisioned model retains the existing fail-closed gate.
+    required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    _vector_store = VectorStore(initialize_embedder=required)
     _sensors = Sensors(db)
     return _vector_store, _sensors
 
@@ -1077,9 +1311,7 @@ def _embedder_preflight_cache_ttl_seconds() -> float:
     return max(0.0, ttl)
 
 
-def get_embedder_preflight_status(
-    *, force_refresh: bool = False
-) -> dict[str, Any]:
+def get_embedder_preflight_status(*, force_refresh: bool = False) -> dict[str, Any]:
     """Return cached embedder preflight status without constructing VectorStore."""
 
     global _embedder_preflight_cache, _embedder_preflight_cache_ts
@@ -1189,9 +1421,7 @@ def _groq_complete(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     if not GROQ_API_KEY:
-        raise HTTPException(
-            status_code=500, detail="GROQ_API_KEY not configured"
-        )
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
 
     # Inject RAG context as system message if broker provided a bundle
     enriched_messages = list(messages)  # Copy to avoid modifying original
@@ -1206,9 +1436,7 @@ def _groq_complete(
                 if snippet:
                     sem_parts.append(f"- {snippet}")
             if sem_parts:
-                context_parts.append(
-                    "**Semantic Context:**\n" + "\n".join(sem_parts)
-                )
+                context_parts.append("**Semantic Context:**\n" + "\n".join(sem_parts))
 
         # Add memory context
         if context.get("memory"):
@@ -1218,9 +1446,7 @@ def _groq_complete(
                 if txt:
                     mem_parts.append(f"- {txt}")
             if mem_parts:
-                context_parts.append(
-                    "**Memory Context:**\n" + "\n".join(mem_parts)
-                )
+                context_parts.append("**Memory Context:**\n" + "\n".join(mem_parts))
 
         # Add sensors/state context
         if context.get("sensors"):
@@ -1231,9 +1457,7 @@ def _groq_complete(
             if sensors.get("thread_count") is not None:
                 sensor_info.append(f"Active Threads: {sensors['thread_count']}")
             if sensor_info:
-                context_parts.append(
-                    "**System State:**\n" + "\n".join(sensor_info)
-                )
+                context_parts.append("**System State:**\n" + "\n".join(sensor_info))
 
         # Insert the context system message *after* any leading system prompts
         if context_parts:
@@ -1281,9 +1505,7 @@ def _groq_complete(
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=60)
             if resp.status_code != 200:
-                logger.error(
-                    "[groq] HTTP %d: %s", resp.status_code, resp.text[:200]
-                )
+                logger.error("[groq] HTTP %d: %s", resp.status_code, resp.text[:200])
                 return None
 
             data = resp.json()
@@ -1333,9 +1555,7 @@ def _groq_complete(
 
     # Try fallback if configured
     if GROQ_FALLBACK_MODEL and GROQ_FALLBACK_MODEL != target_model:
-        logger.info(
-            "[groq] retrying with fallback model=%s", GROQ_FALLBACK_MODEL
-        )
+        logger.info("[groq] retrying with fallback model=%s", GROQ_FALLBACK_MODEL)
         result = _attempt_completion(GROQ_FALLBACK_MODEL)
         if result:
             return result
@@ -1356,8 +1576,10 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "require_operator_auth",
+    "require_task_event_read_principal",
     "require_service_api_key",
     "require_service_capability",
+    "require_edge_capability",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",

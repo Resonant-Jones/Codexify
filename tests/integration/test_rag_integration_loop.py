@@ -7,11 +7,13 @@ from typing import Any
 
 import pytest
 
-from guardian.core import dependencies
+from guardian.core import chat_completion_service, dependencies
+from guardian.core.ai_router import LocalModelResolution
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.queue import redis_queue, task_events
 from guardian.queue.redis_queue import dequeue, dequeue_chat_embed
+from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.routes import chat as chat_routes
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
 from guardian.vector.store import VectorStore
@@ -32,6 +34,8 @@ class StubChatLog:
             "project_id": None,
             "parent_id": None,
             "archived_at": None,
+            "active_profile_id": None,
+            "active_profile_revision": None,
         }
         self._messages: list[dict[str, Any]] = []
         self._next_id = 1
@@ -44,6 +48,7 @@ class StubChatLog:
         title: str,
         summary: str,
         project_id: int | None = None,
+        origin_system: str | None = None,
     ) -> dict[str, Any]:
         if thread_id != self.thread["id"]:
             self.thread = {
@@ -70,6 +75,7 @@ class StubChatLog:
                 "thread_id": thread_id,
                 "role": role,
                 "content": content,
+                "extra_meta": {},
             }
         )
         return message_id
@@ -154,6 +160,12 @@ async def test_rag_integration_memory_loop(monkeypatch):
     memory_text = "Remember: the Orion window is 2026-01-20."
     observed: dict[str, Any] = {}
     chatlog = StubChatLog(thread_id=1)
+    request_scope = dependencies.RequestUserScope(
+        user_id="test_user",
+        subject_id="test_user",
+        account_id="test_user",
+        multi_user_enabled=False,
+    )
     vector_store = VectorStore()
     memory_store = object()
 
@@ -383,6 +395,27 @@ async def test_rag_integration_memory_loop(monkeypatch):
     monkeypatch.setattr(dependencies, "_sensors", None)
     monkeypatch.setattr(chat_routes, "chatlog_db", chatlog)
     monkeypatch.setattr(chat_routes, "_vector_store", vector_store)
+    monkeypatch.setattr(chat_embedding_worker, "_get_db", lambda: chatlog)
+
+    def load_message(_db, message_id):
+        return next(
+            (
+                message
+                for message in chatlog._messages
+                if str(message["id"]) == message_id
+            ),
+            None,
+        )
+
+    def update_embedding_status(_db, message_id, **status):
+        message = load_message(_db, message_id)
+        assert message is not None
+        message["extra_meta"]["embedding_status"] = status["status"]
+
+    monkeypatch.setattr(chat_embedding_worker, "_load_message", load_message)
+    monkeypatch.setattr(
+        chat_embedding_worker, "_update_embedding_status", update_embedding_status
+    )
     monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", chatlog)
     monkeypatch.setattr(chat_worker.dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(chat_worker.dependencies, "_memory_store", memory_store)
@@ -427,7 +460,48 @@ async def test_rag_integration_memory_loop(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(redis_queue, "_CLIENT", None)
+    redis = redis_queue._InMemoryRedis()
+    monkeypatch.setattr(redis_queue, "_CLIENT", redis)
+    monkeypatch.setattr(redis_queue, "_QUEUE_CLIENT", redis)
+    monkeypatch.setattr(
+        chat_worker,
+        "resolve_local_execution_model",
+        lambda **_kwargs: LocalModelResolution(
+            model="test-local-model",
+            source="test",
+            strict=False,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "acquire_turn_lock",
+        lambda thread_id, owner, **kwargs: build_turn_lock_envelope(
+            thread_id,
+            owner,
+            turn_id=kwargs["turn_id"],
+            ttl_seconds=kwargs["ttl_seconds"],
+            source=kwargs["source"],
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
+    )
+
+    def create_attempt(_db, **binding):
+        observed["attempt"] = binding
+
+    def accept_attempt(_db, *, backend_task_id):
+        assert observed["attempt"]["backend_task_id"] == backend_task_id
+        observed["attempt_accepted"] = True
+
+    monkeypatch.setattr(
+        chat_completion_service, "create_chat_completion_attempt", create_attempt
+    )
+    monkeypatch.setattr(
+        chat_completion_service, "mark_chat_completion_attempt_accepted", accept_attempt
+    )
 
     chat_routes._thread_latest_task.clear()
     _drain_chat_queue()
@@ -442,6 +516,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
                 "user_id": "test_user",
             },
             api_key="test",
+            request_user_scope=request_scope,
         )
         assert posted["ok"] is True
 
@@ -455,6 +530,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
             is True
         )
         assert dequeue_chat_embed(block=False) is None
+        assert chatlog._messages[0]["extra_meta"]["embedding_status"] == "ready"
 
         completion = await chat_routes.chat_complete(
             1,
@@ -464,11 +540,15 @@ async def test_rag_integration_memory_loop(monkeypatch):
                 depth_mode="deep",
             ),
             api_key="test",
+            request_user_scope=request_scope,
         )
         assert isinstance(completion, dict)
         task_id = completion.get("task_id")
         assert isinstance(task_id, str)
         assert task_id.strip()
+        assert observed["attempt"]["backend_task_id"] == task_id
+        assert observed["attempt"]["thread_id"] == 1
+        assert observed["attempt_accepted"] is True
 
         queued_payload = dequeue(CHAT_QUEUE_NAME, block=False)
         assert isinstance(queued_payload, dict)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from unittest.mock import Mock
 
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
@@ -121,6 +122,9 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 55
     )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
+    )
 
     chat_worker._run_chat_task(task)
 
@@ -133,6 +137,36 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
     assert completed_payloads
     assert completed_payloads[-1]["message_id"] == 55
     assert completed_payloads[-1]["selection_source"] == "turn_id_dedupe"
+
+
+def test_duplicate_turn_does_not_complete_without_attempt_binding(monkeypatch):
+    _isolate_turn_anchor(monkeypatch)
+    task = _build_task(task_id="task-unbound-duplicate")
+    published: list[tuple[str, str, dict[str, Any]]] = []
+    run_completion = Mock()
+
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
+    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "run_chat_completion_task", run_completion)
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda task_id, event_type, data: published.append(
+            (task_id, event_type, dict(data or {}))
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 55
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: False
+    )
+
+    chat_worker._run_chat_task(task)
+
+    assert task.request_id
+    run_completion.assert_not_called()
+    assert not any(event == "task.completed" for _, event, _ in published)
 
 
 def test_existing_assistant_message_completes_idempotently_and_releases_lock(
@@ -162,6 +196,9 @@ def test_existing_assistant_message_completes_idempotently_and_releases_lock(
     )
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 1
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
     )
     monkeypatch.setattr(
         chat_worker,

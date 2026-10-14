@@ -151,6 +151,7 @@ def _invoke_graph_backend_adapter(
         logger.exception(
             f"[graph-write] {GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -189,6 +190,7 @@ def process_graph_write_task(task: dict) -> None:
         logger.exception(
             f"[graph-write] {GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -204,6 +206,7 @@ def process_graph_write_task(task: dict) -> None:
         logger.exception(
             f"[graph-write] {GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -232,6 +235,7 @@ def process_graph_write_task(task: dict) -> None:
             logger.exception(
                 f"[graph-write] {GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG}",
                 extra={
+                    "event_type": GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG,
                     "request_id": request_id,
                     "thread_id": thread_id,
                     "candidate_trace_id": candidate_trace_id,
@@ -243,6 +247,7 @@ def process_graph_write_task(task: dict) -> None:
         logger.info(
             f"[graph-write] {GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_DUPLICATE_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -273,6 +278,7 @@ def process_graph_write_task(task: dict) -> None:
         logger.exception(
             f"[graph-write] {GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
@@ -294,6 +300,7 @@ def process_graph_write_task(task: dict) -> None:
     logger.info(
         f"[graph-write] {GRAPH_WRITE_WORKER_SUMMARY_LOG}",
         extra={
+            "event_type": GRAPH_WRITE_WORKER_SUMMARY_LOG,
             "request_id": request_id,
             "thread_id": thread_id,
             "candidate_trace_id": candidate_trace_id,
@@ -312,6 +319,7 @@ def process_graph_write_task(task: dict) -> None:
         logger.warning(
             f"[graph-write] {GRAPH_WRITE_WORKER_WARNING_LOG}",
             extra={
+                "event_type": GRAPH_WRITE_WORKER_WARNING_LOG,
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,

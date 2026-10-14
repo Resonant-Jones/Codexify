@@ -252,8 +252,8 @@ vi.mock("@/features/chat/useChat", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveEvents", () => ({
-  useLiveEvents: () => ({
+vi.mock("@/hooks/useLiveEvents", () => {
+  const snapshot = {
     subscribe: (eventType: string, handler: (event: { type: string; data: unknown }) => void) => {
       const listeners = liveEventHandlers.get(eventType) ?? new Set();
       listeners.add(handler);
@@ -267,8 +267,9 @@ vi.mock("@/hooks/useLiveEvents", () => ({
         }
       };
     },
-  }),
-}));
+  };
+  return { useLiveEvents: () => snapshot };
+});
 
 vi.mock("@/features/chat/hooks/useInferenceRequestState", () => ({
   describeInferenceRequestState: () => ({

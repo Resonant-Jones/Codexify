@@ -1,5 +1,39 @@
 import Foundation
 
+private struct GuardianHealthDetails: Decodable {
+    private struct DetailKey: CodingKey {
+        let stringValue: String
+        let intValue: Int? = nil
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+        }
+
+        init?(intValue: Int) {
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        _ = try decoder.container(keyedBy: DetailKey.self)
+    }
+}
+
+private struct GuardianHealthResponse: Decodable {
+    let status: String
+    let service: String
+    let timestamp: String
+    let details: GuardianHealthDetails
+
+    var isVerifiedGuardian: Bool {
+        status == "ok" && service == "core" && !timestamp.isEmpty
+    }
+
+    var snapshot: ScoutHealthSnapshot {
+        ScoutHealthSnapshot(status: status, service: service, timestamp: timestamp)
+    }
+}
+
 struct ScoutEndpointConnectivityResult {
     let validationState: ScoutEndpointValidationState
     let authenticationState: ScoutEndpointAuthenticationState
@@ -11,7 +45,7 @@ struct ScoutEndpointConnectivityResult {
 
 struct ScoutEndpointConnectivityProbe {
 
-    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil, session: URLSession = .shared) async -> ScoutEndpointConnectivityResult {
+    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil, session: URLSession = .scoutAuthenticated) async -> ScoutEndpointConnectivityResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !urlString.isEmpty else {
@@ -45,15 +79,14 @@ struct ScoutEndpointConnectivityProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
-        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if let key = apiKey, hasApiKey {
-            request.setValue(key, forHTTPHeaderField: "X-API-Key")
-        }
-
         let requestStart = Date()
 
         do {
+            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+            }
             let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -68,37 +101,35 @@ struct ScoutEndpointConnectivityProbe {
             }
 
             let statusCode = httpResponse.statusCode
-            let healthSnapshot = (200..<300).contains(statusCode)
-                ? try? JSONDecoder().decode(ScoutHealthSnapshot.self, from: data)
-                : nil
 
             switch statusCode {
             case 200..<300:
-                if hasApiKey {
+                guard let healthResponse = try? JSONDecoder().decode(GuardianHealthResponse.self, from: data),
+                      healthResponse.isVerifiedGuardian else {
                     return ScoutEndpointConnectivityResult(
-                        validationState: .reachable,
-                        authenticationState: .authenticated,
-                        message: "Vault is reachable and authenticated (HTTP \(statusCode)).",
-                        connectedAt: Date(),
-                        snapshot: healthSnapshot,
-                        latencyMilliseconds: latencyMs
-                    )
-                } else {
-                    return ScoutEndpointConnectivityResult(
-                        validationState: .reachable,
+                        validationState: .unreachable,
                         authenticationState: .unconfigured,
-                        message: "Vault is reachable, but no API key was used (HTTP \(statusCode)).",
-                        connectedAt: Date(),
-                        snapshot: healthSnapshot,
+                        message: "Endpoint responded, but did not return a valid Guardian health response.",
+                        connectedAt: nil,
+                        snapshot: nil,
                         latencyMilliseconds: latencyMs
                     )
                 }
-            case 401, 403:
+
                 return ScoutEndpointConnectivityResult(
                     validationState: .reachable,
-                    authenticationState: .authRequired,
-                    message: "Vault is reachable but authentication is required (HTTP \(statusCode)).",
+                    authenticationState: .unconfigured,
+                    message: "Guardian is reachable (HTTP \(statusCode)).",
                     connectedAt: Date(),
+                    snapshot: healthResponse.snapshot,
+                    latencyMilliseconds: latencyMs
+                )
+            case 401, 403:
+                return ScoutEndpointConnectivityResult(
+                    validationState: .unreachable,
+                    authenticationState: .authRequired,
+                    message: "Endpoint requires authentication (HTTP \(statusCode)); Guardian identity was not verified.",
+                    connectedAt: nil,
                     snapshot: nil,
                     latencyMilliseconds: latencyMs
                 )
@@ -112,6 +143,15 @@ struct ScoutEndpointConnectivityProbe {
                     latencyMilliseconds: latencyMs
                 )
             }
+        } catch let error as ScoutRequestAuthenticationError {
+            return ScoutEndpointConnectivityResult(
+                validationState: .invalidConfiguration,
+                authenticationState: .unconfigured,
+                message: error.localizedDescription,
+                connectedAt: nil,
+                snapshot: nil,
+                latencyMilliseconds: nil
+            )
         } catch let error as URLError where error.code == .timedOut {
             return ScoutEndpointConnectivityResult(
                 validationState: .unreachable,

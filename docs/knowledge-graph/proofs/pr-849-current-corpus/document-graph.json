@@ -1,0 +1,995 @@
+{
+  "generated_at": "2026-10-02T23:08:38-04:00",
+  "graph_id": "codexify:graph:document-lifecycle",
+  "graph_revision": "87f2373018ec3b5509595fcc85fd0815b64c8c2a80cd87706ac7feb604327edd",
+  "illustrative": false,
+  "nodes": [
+    {
+      "aliases": [],
+      "authority_class": "accepted_adr",
+      "authority_scopes": [
+        "Document Lifecycle Graph architecture and governance",
+        "Git-canonical document identity and metadata persistence",
+        "DLG rollout and human-review boundaries"
+      ],
+      "content_hash": "3cd9e3e3ec9e86adc41f55e1fb439451f3667ef6ce447894a0cecb639894f9aa",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "The accepted decision and its normative contract were reviewed at the Phase 1 base.",
+        "state": "current",
+        "triggers": [
+          "the decision is superseded or contradicted",
+          "the accepted DLG scope or canonical persistence doctrine materially changes",
+          "the normative DLG contract materially diverges from the decision"
+        ],
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
+      },
+      "governing_adr_posture": "accepted",
+      "kind": "adr",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "DLG corpus migration or automatic document classification",
+        "resolver, retrieval, graph projection, or database implementation",
+        "runtime behavior or release support"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md",
+      "read_when": [
+        "making or reviewing a DLG architecture decision",
+        "interpreting DLG authority, persistence, or human-review boundaries",
+        "planning a separately approved DLG rollout phase"
+      ],
+      "record_type": "document_node",
+      "relations": [],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_decision",
+          "dlg_classification",
+          "document_retrieval"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 6,
+        "priority": "primary",
+        "section_hints": [
+          "Decision",
+          "Authority and truth boundary",
+          "Rollout posture",
+          "Non-goals"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/document-lifecycle-graph-contract.md"
+        }
+      ],
+      "summary": "Accepted decision establishing the Git-backed DLG control-plane architecture, stable document identity, orthogonal metadata, and phased migration boundaries.",
+      "temporal": {
+        "created_at": "2026-08-07T11:46:16Z",
+        "effective_from": "2026-08-07T00:00:00Z"
+      },
+      "title": "ADR-056: Document Lifecycle Graph Control Plane"
+    },
+    {
+      "aliases": [],
+      "authority_class": "accepted_adr",
+      "authority_scopes": [
+        "Product Architecture Ontology integration with the DLG",
+        "stable product-architecture concept identity",
+        "product-architecture assertion and relationship doctrine",
+        "product-architecture dependency directions"
+      ],
+      "content_hash": "c555995be833d45cffd739892f84afce512a230f21e896900a29106538303d12",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "The accepted decision, contract, and ontology status were reviewed at the Phase 1 base.",
+        "state": "current",
+        "triggers": [
+          "the decision is superseded or contradicted",
+          "the accepted ontology identity or assertion model materially changes",
+          "the Product Lanes contract or canonical ontology diverges from the decision"
+        ],
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
+      },
+      "governing_adr_posture": "accepted",
+      "kind": "adr",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "a current product-architecture relationship or posture assertion corpus",
+        "source-subsystem classification or repository restructuring",
+        "runtime implementation, current support posture, or release qualification"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md",
+      "read_when": [
+        "making or reviewing a Product Architecture Ontology decision",
+        "classifying product programs, capabilities, clients, adapters, or source subsystems",
+        "interpreting product-architecture assertion or dependency-direction boundaries"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "Product Architecture Ontology integration with the accepted DLG control plane",
+          "canonicality": "canonical",
+          "rationale": "ADR-057 extends the accepted DLG and preserves DLG document identity as the sole ADR and contract identity domain.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_decision",
+          "product_architecture",
+          "task_classification"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 7,
+        "priority": "primary",
+        "section_hints": [
+          "Decision",
+          "Governing ADRs and alignment",
+          "Explicitly deferred work",
+          "Non-goals"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/product-lanes-and-boundaries.md"
+        },
+        {
+          "anchor_type": "schema",
+          "invalidates_freshness": true,
+          "path": "docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json"
+        }
+      ],
+      "summary": "Accepted decision establishing the Product Architecture Ontology as a DLG extension with stable concepts, typed relationships, temporal assertions, and dependency-direction doctrine.",
+      "temporal": {
+        "created_at": "2026-08-07T16:00:01Z",
+        "effective_from": "2026-08-07T00:00:00Z"
+      },
+      "title": "ADR-057: Product Architecture Ontology as a Document Lifecycle Graph Extension"
+    },
+    {
+      "aliases": [
+        "Architecture Decision Record Index"
+      ],
+      "authority_class": "structural_authority",
+      "authority_scopes": [
+        "ADR discovery and routing",
+        "ADR reading order",
+        "ADR graph navigation"
+      ],
+      "content_hash": "4b97a03c459c6af1ca2a74d3567624c7104094d14c006e0fbcf3c84c675ff8a4",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:architecture:adr-index",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "ADR-089 index entry and governed ADR source were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
+        "state": "current",
+        "triggers": [
+          "an ADR is added, removed, renumbered, or retitled",
+          "an indexed ADR review posture changes",
+          "the documented ADR graph or reading order changes"
+        ],
+        "verified_at": "2026-09-24T20:46:58Z",
+        "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "runtime_map",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "acceptance or decision authority independently of the indexed ADR",
+        "runtime implementation of an indexed decision",
+        "release support for capabilities mentioned by indexed ADRs"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/adr/adr-index.md",
+      "read_when": [
+        "locating an applicable Architecture Decision Record",
+        "reviewing the ADR reading order or documented ADR graph",
+        "checking which decision document should be read directly"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "ADR discovery and routing for the indexed Document Lifecycle Graph decision",
+          "canonicality": "canonical",
+          "rationale": "The ADR Index directly indexes ADR-056 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+        },
+        {
+          "authority_scope": "ADR discovery and routing for the indexed Product Architecture Ontology decision",
+          "canonicality": "canonical",
+          "rationale": "The ADR Index directly indexes ADR-057 as a current architecture decision, and its declared freshness contract requires re-review when indexed ADR identity, numbering, title, or review posture changes.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "adr_discovery",
+          "architecture_decision",
+          "historical_provenance"
+        ],
+        "default_policy": "conditional",
+        "excluded_intents": [
+          "live_runtime_proof",
+          "release_support"
+        ],
+        "maximum_chunk_budget": 5,
+        "priority": "supporting",
+        "section_hints": [
+          "Purpose",
+          "Reading Order",
+          "ADR Graph"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/adr-index.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/*.md"
+        }
+      ],
+      "summary": "Structural routing index for the Architecture Decision Record set, its reading order, and its recorded ADR graph.",
+      "temporal": {
+        "created_at": "2026-04-14T20:56:05Z",
+        "effective_from": "2026-04-14T20:56:05Z"
+      },
+      "title": "ADR Index"
+    },
+    {
+      "aliases": [],
+      "authority_class": "release_authority",
+      "authority_scopes": [
+        "release readiness",
+        "supported install path",
+        "active release blockers",
+        "current priorities",
+        "present release promise"
+      ],
+      "content_hash": "9cb4dd20bd0e6dcb6be40aa50297d45c26bf3b4e1939b9fded77b13da8c4e5cc",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:architecture:current-state",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "Current-state source reverified after recording the contract-proven private-preview Chroma named-volume Compose implementation. Live volume adoption, ADR-067 retirement and fresh initialization, retrieval and reindex proof, Persona runtime and browser qualification, and reconciliation restoration remain pending; no release or Beta claim is widened.",
+        "state": "current",
+        "triggers": [
+          "the weekly freshness window expires",
+          "the supported profile or release interpretation changes",
+          "active blockers, priorities, or the audited implementation tip change"
+        ],
+        "verified_at": "2026-09-11T20:55:06Z",
+        "verified_commit": "fe6d2222f9db8082c5df7aa55849ed5682fbb4f0",
+        "window_days": 7
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "current_state",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "live runtime health at the current head",
+        "implementation or support outside its declared release scope",
+        "long-term architecture decisions outside current-state scope"
+      ],
+      "owners": [
+        "Codexify release maintainers"
+      ],
+      "path": "docs/architecture/00-current-state.md",
+      "read_when": [
+        "answering release readiness or support questions",
+        "checking the supported install path, active blockers, or current priorities",
+        "bounding a product or architecture claim to the present release promise"
+      ],
+      "record_type": "document_node",
+      "relations": [],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_decision",
+          "current_state",
+          "release_support"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 6,
+        "priority": "required",
+        "section_hints": [
+          "Current supported reality",
+          "Not yet true / do not assume",
+          "Active blockers",
+          "Release definition right now"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/00-current-state.md"
+        }
+      ],
+      "summary": "Canonical short-horizon authority for release readiness, supported paths, active blockers, current priorities, and the present release promise.",
+      "temporal": {
+        "created_at": "2026-03-11T13:30:22Z",
+        "effective_from": "2026-08-08T00:00:00Z"
+      },
+      "title": "Codexify Current State"
+    },
+    {
+      "aliases": [],
+      "authority_class": "normative_contract",
+      "authority_scopes": [
+        "DLG document-node metadata semantics",
+        "DLG relationship and graph invariants",
+        "DLG freshness and retrieval policy",
+        "Agent Reading Packet and staged migration doctrine"
+      ],
+      "content_hash": "b568b35f1907fff910042790460c39c79f74cb38df8abc6147bd95f56f1d0b16",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "Verified after the canonical Phase 1 and Phase 2 sequencing repair.",
+        "state": "current",
+        "triggers": [
+          "ADR-056 is superseded or its accepted scope changes",
+          "the DLG node or packet schemas change",
+          "DLG phase sequencing or graph-invariant doctrine changes"
+        ],
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
+      },
+      "governing_adr_posture": "accepted",
+      "kind": "architecture_contract",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "a migrated or relation-complete DLG corpus",
+        "automatic retrieval, resolver, generator, or graph projection behavior",
+        "runtime implementation, agent authority, or release support"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/document-lifecycle-graph-contract.md",
+      "read_when": [
+        "creating or reviewing DLG node records",
+        "interpreting DLG authority, lifecycle, freshness, evidence, or retrieval fields",
+        "planning DLG relationships, semantic validation, or Agent Reading Packets"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "DLG document metadata, relationships, freshness, retrieval, and staged-migration doctrine",
+          "canonicality": "canonical",
+          "rationale": "ADR-056 adopts the DLG and names this contract as its normative design.",
+          "relation_type": "governed_by",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_decision",
+          "dlg_classification",
+          "document_retrieval"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 10,
+        "priority": "primary",
+        "section_hints": [
+          "Canonical token domains and orthogonal axes",
+          "Document node record",
+          "Graph invariants",
+          "Freshness and invalidation",
+          "Staged corpus migration"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/document-lifecycle-graph-contract.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md"
+        },
+        {
+          "anchor_type": "schema",
+          "invalidates_freshness": true,
+          "path": "schemas/knowledge/document-lifecycle-graph.schema.json"
+        },
+        {
+          "anchor_type": "test",
+          "invalidates_freshness": true,
+          "path": "tests/architecture/test_document_lifecycle_graph_phase_sequencing.py"
+        }
+      ],
+      "summary": "Accepted normative contract for DLG document metadata, relation semantics, freshness, retrieval, Agent Reading Packets, and staged migration.",
+      "temporal": {
+        "created_at": "2026-08-07T11:46:16Z",
+        "effective_from": "2026-08-07T00:00:00Z"
+      },
+      "title": "Document Lifecycle Graph Contract"
+    },
+    {
+      "aliases": [],
+      "authority_class": "structural_authority",
+      "authority_scopes": [
+        "architecture source routing",
+        "Codexify subsystem orientation",
+        "architecture change-location guidance"
+      ],
+      "content_hash": "d5649213e80957592204001dd2165ac22ee6c3dfd03ed634ec6eb17c9357eef2",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "The Document Recall Contract KB entry and current-state routing were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
+        "state": "current",
+        "triggers": [
+          "architecture entrypoints or validity guidance change",
+          "listed subsystem ownership or change-location paths change",
+          "the current-state routing boundary changes"
+        ],
+        "verified_at": "2026-09-24T20:46:58Z",
+        "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "runtime_map",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "release readiness or supported-path truth independently of current-state authority",
+        "live runtime behavior",
+        "normative authority inherited from linked ADRs or contracts"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/README.md",
+      "read_when": [
+        "orienting to the Codexify architecture corpus",
+        "finding the governing source for a subsystem or task",
+        "locating the code and documents affected by a proposed change"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "release-truth routing and short-horizon architecture orientation",
+          "canonicality": "canonical",
+          "rationale": "The Architecture KB explicitly instructs readers to start with 00-current-state.md for release readiness, supported-path interpretation, active blockers, and short-horizon priorities, and the KB node already treats current-state as a freshness-invalidating source anchor.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:current-state"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_orientation",
+          "implementation_planning",
+          "source_routing"
+        ],
+        "default_policy": "conditional",
+        "excluded_intents": [
+          "current_head_proof",
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 8,
+        "priority": "primary",
+        "section_hints": [
+          "Doc Map",
+          "Start Here",
+          "Where Do I Change X?"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/README.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/00-current-state.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/"
+        },
+        {
+          "anchor_type": "code",
+          "invalidates_freshness": true,
+          "path": "guardian/routes/"
+        },
+        {
+          "anchor_type": "code",
+          "invalidates_freshness": true,
+          "path": "guardian/workers/"
+        },
+        {
+          "anchor_type": "code",
+          "invalidates_freshness": true,
+          "path": "frontend/src/App.tsx"
+        }
+      ],
+      "summary": "Architecture KB entrypoint that routes readers to current truth, governing documents, subsystem maps, and change locations.",
+      "temporal": {
+        "created_at": "2026-02-17T16:32:37Z",
+        "effective_from": "2026-02-17T16:32:37Z"
+      },
+      "title": "Codexify Architecture KB"
+    },
+    {
+      "aliases": [],
+      "authority_class": "normative_contract",
+      "authority_scopes": [
+        "Product Architecture Ontology vocabulary",
+        "product-architecture assertion semantics",
+        "product-architecture relationship vocabulary",
+        "product-architecture dependency and projection doctrine"
+      ],
+      "content_hash": "c52e8f2c8741fe275627d5125f6154f1c7d02ae13bff9593c4a85c7986fe25c9",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "Re-verified against accepted ADR-057, the canonical ontology, assertion schema, and the bounded ADR-069 Beta posture corpus; no complete source-subsystem or relationship inventory is implied.",
+        "state": "current",
+        "triggers": [
+          "ADR-057 is superseded or its accepted scope changes",
+          "the canonical ontology concepts or relationship vocabulary change",
+          "the Product Architecture Assertion schemas or dependency doctrine change"
+        ],
+        "verified_at": "2026-08-14T23:27:22Z",
+        "verified_commit": "f4fece599e9e081154a7a7a96e1923f7f5c205b5"
+      },
+      "governing_adr_posture": "accepted",
+      "kind": "architecture_contract",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "current support, runtime participation, ownership, strategy, or integration posture",
+        "current product-architecture relationship instances or source-subsystem mappings",
+        "runtime implementation, repository restructuring, or release support"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/architecture/product-lanes-and-boundaries.md",
+      "read_when": [
+        "classifying stable product programs, capabilities, clients, adapters, or source subsystems",
+        "reviewing Product Architecture Assertion or relationship semantics",
+        "checking dependency directions, projection rules, or product-lane boundaries"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "Product Architecture Ontology vocabulary, assertions, relationships, and dependency doctrine",
+          "canonicality": "canonical",
+          "rationale": "Accepted ADR-057 establishes this Product Architecture Ontology contract and its bounded doctrine.",
+          "relation_type": "governed_by",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
+        },
+        {
+          "authority_scope": "Product Architecture Ontology integration with DLG identity, authority, lifecycle, evidence, and retrieval semantics",
+          "canonicality": "canonical",
+          "rationale": "Product Lanes extends the DLG and relies on it for document identity, authority, lifecycle, evidence, and retrieval semantics.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_decision",
+          "product_architecture",
+          "task_classification"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "live_runtime_proof"
+        ],
+        "maximum_chunk_budget": 10,
+        "priority": "primary",
+        "section_hints": [
+          "Relationship to the DLG",
+          "Stable product-program identities",
+          "Product Architecture Assertions",
+          "Product Architecture relationship vocabulary",
+          "Allowed dependency directions",
+          "Non-goals"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/product-lanes-and-boundaries.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md"
+        },
+        {
+          "anchor_type": "schema",
+          "invalidates_freshness": true,
+          "path": "docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json"
+        },
+        {
+          "anchor_type": "schema",
+          "invalidates_freshness": true,
+          "path": "schemas/knowledge/product-architecture-ontology.schema.json"
+        },
+        {
+          "anchor_type": "schema",
+          "invalidates_freshness": true,
+          "path": "schemas/knowledge/product-architecture-assertion.schema.json"
+        }
+      ],
+      "summary": "Accepted normative Product Architecture Ontology contract for programs, capabilities, clients, adapters, assertions, relationship vocabulary, and dependency boundaries.",
+      "temporal": {
+        "created_at": "2026-08-07T16:00:01Z",
+        "effective_from": "2026-08-07T00:00:00Z"
+      },
+      "title": "Product Lanes and Boundaries"
+    },
+    {
+      "aliases": [],
+      "authority_class": "structural_authority",
+      "authority_scopes": [
+        "Axis Node entrypoint and orientation routing",
+        "Axis role, node, instance, and harness terminology",
+        "Axis Node docs-only interface and current implementation boundary"
+      ],
+      "content_hash": "94cfcae9b3cbd1f8d85d997729c7d895901c522eaa184e67b9654ef2cfb2ba09",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:axis-node:readme",
+      "evidence_class": "documented-contract",
+      "freshness": {
+        "reason": "Verified against the Axis Node contract, manifest, and invocation protocol at the Phase 1 base.",
+        "state": "current",
+        "triggers": [
+          "the Axis Node contract or terminology changes",
+          "the source manifest or orientation protocol changes",
+          "the documented Axis Node implementation boundary changes"
+        ],
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "runtime_map",
+      "lifecycle_state": "active",
+      "must_not_prove": [
+        "a live autonomous agent, harness, hidden memory, or automatic retrieval system",
+        "runtime execution or architecture-approval authority for an Axis instance",
+        "release readiness or a parallel repository truth store"
+      ],
+      "owners": [
+        "Codexify architecture maintainers"
+      ],
+      "path": "docs/axis-node/README.md",
+      "read_when": [
+        "orienting an Axis-capable session",
+        "resolving Axis Node terms, source hierarchy, or task-generation boundaries",
+        "checking what the docs-backed Axis interface does and does not implement"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "Axis orientation for current release and support claims",
+          "canonicality": "canonical",
+          "rationale": "The Axis Node entrypoint explicitly requires 00-current-state.md before any release or support claim and states that current-state remains release truth rather than allowing Axis Node to become a parallel truth store.",
+          "relation_type": "depends_on",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:current-state"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "architecture_orientation",
+          "axis_orientation",
+          "task_generation"
+        ],
+        "default_policy": "conditional",
+        "excluded_intents": [
+          "live_runtime_proof",
+          "release_support"
+        ],
+        "maximum_chunk_budget": 6,
+        "priority": "primary",
+        "section_hints": [
+          "Purpose",
+          "Start here",
+          "What this does not do",
+          "Current implementation status"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/axis-node/README.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/axis-node/axis-node-contract.md"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/axis-node/source-manifest.json"
+        },
+        {
+          "anchor_type": "document",
+          "invalidates_freshness": true,
+          "path": "docs/axis-node/invocation-protocol.md"
+        }
+      ],
+      "summary": "Axis Node entrypoint for role terminology, orientation workflow, source-authority routing, and the docs-only reasoning-interface boundary.",
+      "temporal": {
+        "created_at": "2026-07-15T17:21:01Z",
+        "effective_from": "2026-07-15T17:21:01Z"
+      },
+      "title": "Axis Node"
+    },
+    {
+      "aliases": [],
+      "authority_class": "evidence_only",
+      "authority_scopes": [
+        "canonical Git ancestry of the recorded DLG and pre-acceptance PAO milestones",
+        "recorded DLG and PAO validation results at the documented revisions",
+        "non-force publication of the reconciled architecture history"
+      ],
+      "content_hash": "a7a21363992ec0bbdba7e56e954682882c8f844e9b678e079fc3253591fc45b2",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+      "evidence_class": "proven-test",
+      "freshness": {
+        "reason": "This immutable receipt proves bounded historical publication and validation, not current-head coverage.",
+        "state": "not_applicable",
+        "triggers": [
+          "a correction requires a frozen replacement record with explicit lineage"
+        ],
+        "verified_at": "2026-08-08T13:54:04Z",
+        "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53"
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "proof",
+      "lifecycle_state": "frozen",
+      "must_not_prove": [
+        "ADR-057 acceptance, which occurred after this receipt's stated pre-acceptance scope",
+        "current-head runtime behavior or release readiness",
+        "DLG or PAO runtime implementation, retrieval, projection, or current relationship instances"
+      ],
+      "owners": [
+        "Codexify proof maintainers"
+      ],
+      "path": "docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md",
+      "read_when": [
+        "checking canonical publication of the recorded DLG and pre-acceptance PAO history",
+        "reviewing the recorded rebase, ancestry, and validation evidence",
+        "answering historical provenance questions about the listed architecture milestones"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "canonical publication and ancestry of ADR-056 definition and acceptance milestones on 2026-08-07",
+          "canonicality": "canonical",
+          "rationale": "The receipt records the DLG definition and acceptance milestones and verifies their canonical origin/main ancestry.",
+          "relation_type": "evidence_for",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+        },
+        {
+          "authority_scope": "canonical publication and bounded validation of the DLG contract history recorded on 2026-08-07",
+          "canonicality": "canonical",
+          "rationale": "The receipt verifies canonical ancestry for the DLG definition and acceptance history and records bounded architecture validation at those revisions.",
+          "relation_type": "evidence_for",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract"
+        },
+        {
+          "authority_scope": "pre-acceptance canonical publication and validation of ADR-057 proposal history on 2026-08-07",
+          "canonicality": "canonical",
+          "rationale": "The receipt verifies the PAO proposal and relationship-semantic repair before ADR-057 acceptance; it does not prove acceptance.",
+          "relation_type": "evidence_for",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
+        },
+        {
+          "authority_scope": "pre-acceptance canonical publication and validation of the Product Architecture Ontology contract history on 2026-08-07",
+          "canonicality": "canonical",
+          "rationale": "The receipt verifies the PAO proposal and semantic-repair history and records bounded ontology validation; it does not prove later acceptance.",
+          "relation_type": "evidence_for",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:product-lanes-and-boundaries"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "historical_provenance",
+          "proof_history",
+          "repository_history"
+        ],
+        "default_policy": "conditional",
+        "excluded_intents": [
+          "current_head_proof",
+          "live_runtime_proof",
+          "release_support"
+        ],
+        "maximum_chunk_budget": 6,
+        "priority": "historical",
+        "section_hints": [
+          "Pre-reconciliation state",
+          "Reconciliation",
+          "Post-rebase milestone SHAs",
+          "Publication status"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "proof",
+          "invalidates_freshness": false,
+          "path": "docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md"
+        }
+      ],
+      "summary": "Frozen receipt for canonical Git publication of specified pre-acceptance DLG and PAO history and its recorded validation results.",
+      "temporal": {
+        "created_at": "2026-08-07T20:13:17Z",
+        "effective_from": "2026-08-07T20:14:56Z"
+      },
+      "title": "DLG / PAO Canonical History Publication Proof"
+    },
+    {
+      "aliases": [],
+      "authority_class": "evidence_only",
+      "authority_scopes": [
+        "Anthropic / Claude account-export conversation import on the supported local Web/runtime path",
+        "durable account-import job accounting and PostgreSQL persistence for the proven import job",
+        "terminal completed state and the source-discovery vs commit distinction for the proven import"
+      ],
+      "content_hash": "7dd544e67dad176b1382562468644c968ea69b5e12cc665206e865602d25d4f8",
+      "disposition": "accepted",
+      "document_id": "codexify:doc:proof:2026-08-19-anthropic-account-import-supported-runtime-proof-r2",
+      "evidence_class": "proven-live-runtime",
+      "freshness": {
+        "reason": "Immutable supported-runtime receipt for Anthropic account-export conversation import, re-verified as current evidence at the R2 commit 0f494b398 during the 2026-08-19 Beta-boundary reconciliation.",
+        "state": "current",
+        "triggers": [
+          "the immutable receipt's source bytes change",
+          "a corrected replacement receipt supersedes this record"
+        ],
+        "verified_at": "2026-08-20T00:03:57Z",
+        "verified_commit": "0f494b398b79f73c077322ef82456027e51d38f1"
+      },
+      "governing_adr_posture": "not_applicable",
+      "kind": "proof",
+      "lifecycle_state": "frozen",
+      "must_not_prove": [
+        "unrestricted release support for Anthropic import or any other surface",
+        "Anthropic Projects, memories.json, users.json persona/profile, or binary media reconstruction import",
+        "Anthropic API, Claude cloud inference, provider routing, or cloud egress authorization",
+        "support for arbitrary or future Anthropic export formats",
+        "live runtime health at any revision other than the recorded proof revision"
+      ],
+      "owners": [
+        "Codexify proof maintainers"
+      ],
+      "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md",
+      "read_when": [
+        "answering whether Anthropic / Claude account-export conversation import reached a real supported runtime",
+        "checking durable job accounting and PostgreSQL readback evidence for the proven import job",
+        "bounding the Anthropic conversation-import release claim to the proven path"
+      ],
+      "record_type": "document_node",
+      "relations": [
+        {
+          "authority_scope": "Anthropic / Claude account-export conversation import Beta Bounded / Conditional support on the proven supported local Web/runtime path",
+          "canonicality": "canonical",
+          "rationale": "The immutable R2 supported-runtime receipt is the proven-live-runtime evidence for the bounded Anthropic account-export conversation-import posture already recorded by current release truth; it does not prove arbitrary Anthropic import, Projects, memories/persona/profile import, media reconstruction, Anthropic inference, cloud authorization, or current-head runtime health.",
+          "relation_type": "evidence_for",
+          "review_status": "accepted",
+          "target_document_id": "codexify:doc:architecture:current-state"
+        }
+      ],
+      "retrieval_policy": {
+        "applicable_intents": [
+          "live_runtime_proof",
+          "proof_history",
+          "release_support"
+        ],
+        "default_policy": "include",
+        "excluded_intents": [
+          "current_head_proof"
+        ],
+        "maximum_chunk_budget": 6,
+        "priority": "primary",
+        "section_hints": [
+          "Result",
+          "Job lifecycle",
+          "Accounting evidence",
+          "Persistence evidence",
+          "Source-vs-commit distinction",
+          "Negative checks"
+        ]
+      },
+      "schema_version": "1.0.0",
+      "source_anchors": [
+        {
+          "anchor_type": "proof",
+          "invalidates_freshness": false,
+          "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md"
+        }
+      ],
+      "summary": "Successful supported-runtime receipt for Anthropic / Claude account-export conversation import on the supported local Web/runtime path: rendered Web UI -> durable account-import job with source system \"anthropic\" -> Redis -> worker-account-import -> Anthropic adapter -> canonical Claude writer -> PostgreSQL, terminal job state completed with durable counters matching PostgreSQL readback (63 threads / 784 messages; discovery 65 vs committed 63 kept distinct).",
+      "temporal": {
+        "created_at": "2026-08-20T00:03:57Z",
+        "effective_from": "2026-08-19T00:00:00Z"
+      },
+      "title": "Anthropic Account Import Supported Runtime Proof R2"
+    }
+  ],
+  "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
+  "record_type": "document_graph",
+  "repository_revision": "b7efce7cf15f5e5a0f4d38c16904cc0d38fe2648",
+  "schema_version": "1.0.0",
+  "supersession_set": []
+}

@@ -41,6 +41,7 @@ def test_build_system_prompt_returns_single_string_and_fixed_order() -> None:
         "imprint",
         "persona",
         "system_docs",
+        "skills",
         "scratchpad",
     ]
     assert segments[0]["text"] == "Base rules"
@@ -62,6 +63,7 @@ def test_build_system_prompt_meta_includes_segment_token_counts() -> None:
     assert segments["imprint"]["estimated_tokens"] > 0
     assert segments["persona"]["estimated_tokens"] > 0
     assert segments["system_docs"]["estimated_tokens"] == 0
+    assert segments["skills"]["estimated_tokens"] == 0
     assert segments["scratchpad"]["estimated_tokens"] == 0
 
 

@@ -88,6 +88,8 @@ export type FrameCardProps = PropsWithChildren<{
    * Defaults to true.
    */
   fill?: boolean;
+  /** Hide chrome while preserving the content subtree through presentation changes. */
+  unframed?: boolean;
   /** Optional testing hook forwarded to the root element. */
   "data-testid"?: string;
 }>;
@@ -109,6 +111,7 @@ export default function FrameCard({
   shimmerMode = "subtle",
   liquidBezel = true,
   fill = true,
+  unframed = false,
   ["data-testid"]: dataTestId,
 }: FrameCardProps) {
   const d = clamp(depth, 0.5, 1.75, 1);
@@ -142,6 +145,16 @@ export default function FrameCard({
     // Conditionally set height and width to avoid double-layer glass when nested inside another FrameCard
     height: fill ? "100%" : "auto",
     width: fill ? "100%" : "auto",
+    ...(unframed
+      ? {
+          background: "transparent",
+          boxShadow: "none",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          padding: 0,
+          borderRadius: 0,
+        }
+      : {}),
   };
 
   return (
@@ -151,6 +164,7 @@ export default function FrameCard({
       role="group"
       aria-label={ariaLabel}
       data-testid={dataTestId}
+      data-unframed={unframed ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
       data-hoverpop={hoverPop ? "true" : undefined}
     >
@@ -315,6 +329,29 @@ export default function FrameCard({
         }
         .fc-liquid.shimmer-ambient {
           animation: shimmerRipple 6s ease-in-out infinite;
+        }
+        /* Target only this card's layers, leaving nested cards intact. */
+        .fc-root[data-unframed="true"] > .fc-bezel,
+        .fc-root[data-unframed="true"] > .fc-liquid {
+          display: none;
+        }
+        .fc-root[data-unframed="true"] > .fc-frame {
+          padding: 0;
+          border-radius: 0;
+        }
+        .fc-root[data-unframed="true"] > .fc-frame > .fc-rim {
+          margin: 0;
+          padding: 0;
+          border-radius: 0;
+        }
+        .fc-root[data-unframed="true"] > .fc-frame > .fc-rim > .fc-inner-clip {
+          border-radius: 0;
+        }
+        .fc-root[data-unframed="true"] > .fc-frame > .fc-rim > .fc-inner-clip > .fc-inner {
+          padding: 0;
+          background: transparent;
+          box-shadow: none;
+          border-radius: 0;
         }
       `}</style>
     </div>

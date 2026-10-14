@@ -2,7 +2,7 @@
 
 ## Verdict
 
-`PASS — TEST_PROCESS_SETTINGS_DRIFT`
+`PASS — TEST_PROCESS_SETTINGS_DRIFT REPAIRED`
 
 The two failing retrieval-startup tests select `v1-local-core-web-mcp` after
 the process has imported the module that creates the shared core `Settings`
@@ -10,6 +10,13 @@ object. Their environment mutation does not update that already-created
 object. The supported-profile contract, a fresh settings instance, a clean
 process initialized with the contract environment, and the canonical Compose
 render all agree.
+
+The two test-owned startup harnesses now establish the complete
+`v1-local-core-web-mcp` environment and synchronize their already-instantiated
+shared `Settings` singleton before application startup. The repaired startup
+pair passes, three cases in the full golden file pass while the known
+independent Persona fixture returns HTTP 503, and the supported-profile suite
+continues to pass.
 
 This is a configuration-boundary qualification, not live runtime proof. It
 does not change fail-closed supported-profile validation or assert that a
@@ -110,17 +117,18 @@ coherent. It is not a live deployment proof.
 constructs `settings = Settings()` at module import. `get_settings()` returns
 that same object; it does not rebuild from `os.environ`.
 
-The two failing modules import `guardian.core.config` at module scope before
-their test bodies mutate environment values:
+The two originally failing modules import `guardian.core.config` at module
+scope before their test bodies mutate environment values:
 
-| Harness | Import before mutation | Environment mutation | Synchronizes shared settings? |
+| Harness | Import before mutation | Environment mutation | Synchronizes shared settings after repair? |
 | --- | --- | --- | --- |
-| `test_builtin_help_startup.py` | `config_module` at module import | selects the profile and retrieval test inputs at test start | No |
-| `_supported_help_startup_client` in the golden file | `config_module` at module import | selects the profile and retrieval test inputs at helper start | No |
+| `test_builtin_help_startup.py` | `config_module` at module import | establishes the complete profile and retrieval test environment at test start | Yes |
+| `_supported_help_startup_client` in the golden file | `config_module` at module import | establishes the complete profile and retrieval test environment at helper start | Yes |
 
-Both subsequently reload `guardian.guardian_api`, but that reload obtains the
-existing `get_settings()` singleton. Neither harness assigns the provider
-contract fields on that object.
+Both subsequently reload `guardian.guardian_api`, and that reload obtains the
+existing `get_settings()` singleton. Before the repair, neither harness
+assigned the provider-contract fields on that object. Both now assign the
+complete contract to the test-owned environment and singleton before startup.
 
 By contrast, `_load_guardian_api` in
 `tests/core/test_supported_profile_startup.py` sets every provider-contract
@@ -198,8 +206,9 @@ All required conditions for this classification hold:
 3. A fresh settings instance after environment setup matches the manifest.
 4. The previously constructed singleton remains at its defaults after the
    same environment mutation.
-5. Both failing harnesses omit the synchronization used by the dedicated
-   supported-profile startup harness.
+5. Both failing harnesses omitted the synchronization used by the dedicated
+   supported-profile startup harness, and both pass after adding that
+   synchronization.
 
 ### Rejected: `CANONICAL_SUPPORTED_CONFIGURATION_DRIFT`
 
@@ -219,14 +228,26 @@ environment. It does not make a live-runtime availability claim.
 The independent contract suite, direct singleton/fresh probes, test-harness
 inspection, and canonical Compose render establish one coherent boundary.
 
-## Smallest next repair boundary
+## Completed repair and post-repair validation
 
-A subsequent test-only task may repair the two affected startup harnesses so
-their owned configuration setup establishes the complete supported provider
-contract before startup and synchronizes or reconstructs the test-owned
-settings lifecycle. It must preserve `_refresh_supported_profile_state` and
-its fail-closed behavior, make no production configuration change, and
-requalify the dedicated startup and golden retrieval paths.
+The test-only repair updates
+`tests/routes/test_builtin_help_startup.py` and
+`tests/golden/test_supported_beta_golden_tasks.py`. Each harness now owns both
+parts of its startup configuration boundary: the complete supported-profile
+environment and the matching fields on the already-instantiated shared
+`Settings` object. No production configuration or startup implementation was
+changed, and `_refresh_supported_profile_state` remains fail closed.
+
+| Validation | Result |
+| --- | --- |
+| Repaired route and golden retrieval startup pair | `2 passed` |
+| Supported-profile contract suite | `68 passed` |
+| Full `tests/golden/test_supported_beta_golden_tasks.py` | `3 passed, 1 failed`; the independent Persona fixture failed with HTTP 503 |
+| Broader Backend Tests | stopped at the pre-existing Guardian Evidence current-state DLG content-hash mismatch after `9/10` affected checks passed |
+
+The two unrelated failures do not weaken the focused repair result. They remain
+outside this task: the Persona fixture HTTP 503 and Guardian Evidence mismatch
+have separate ownership and are not treated as repaired by this receipt.
 
 ## ADR impact and exclusions
 
@@ -234,7 +255,8 @@ No ADR impact. This receipt does not alter supported-profile authority,
 provider routing, startup behavior, deployment configuration, current-state
 truth, or release claims.
 
-No source, test, manifest, environment template, Compose file, runtime code,
+Only this receipt and the two named test harnesses were modified. No source,
+manifest, environment template, Compose file, production runtime code,
 container, Chroma volume, Redis, database, Docker resource, or deployment
-state was modified. The separate dirty Persona-fixture and Guardian Evidence
-worktrees were not entered or changed.
+state was modified. The separate Persona-fixture and Guardian Evidence defects
+were not changed.

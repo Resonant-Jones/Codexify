@@ -63,6 +63,7 @@ from guardian.account_observability.tokens import (
 )
 from guardian.core.auth import (
     ACCOUNT_SESSION_PURPOSE,
+    reject_mixed_principal_credentials,
     verify_session_token,
     verify_session_token_for_purpose,
 )
@@ -72,6 +73,7 @@ from guardian.core.auth_dependencies import (
 )
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
+    _auth_mode,
     get_request_user_id,
     require_service_capability,
     verify_api_key,
@@ -147,8 +149,15 @@ def _audit_best_effort(
 def _require_account_admin(
     authorization: str | None = Header(default=None, alias="Authorization"),
     gc_session: str | None = Cookie(default=None, alias="gc_session"),
+    request: Request = None,
 ) -> str:
     """Resolve a current account session and its canonical admin permission."""
+    reject_mixed_principal_credentials(
+        request,
+        enabled=is_private_preview() or _auth_mode() == "remote",
+        authorization=authorization,
+        gc_session=gc_session,
+    )
     token = extract_session_token(authorization, gc_session)
     if not token or not verify_session_token_for_purpose(
         token, ACCOUNT_SESSION_PURPOSE

@@ -1,38 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
-import sys
-import types
-from pathlib import Path
 
 import pytest
 
-
-def _load_knowledge_compiler_package() -> types.ModuleType:
-    repo_root = Path(__file__).resolve().parents[2]
-    guardian_root = repo_root / "guardian"
-    package_root = guardian_root / "knowledge_compiler"
-
-    guardian_package = types.ModuleType("guardian")
-    guardian_package.__path__ = [str(guardian_root)]
-    sys.modules["guardian"] = guardian_package
-
-    spec = importlib.util.spec_from_file_location(
-        "guardian.knowledge_compiler",
-        package_root / "__init__.py",
-        submodule_search_locations=[str(package_root)],
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load guardian.knowledge_compiler package.")
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["guardian.knowledge_compiler"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-knowledge_compiler = _load_knowledge_compiler_package()
+import guardian.knowledge_compiler as knowledge_compiler
 
 KnowledgeArtifactKind = knowledge_compiler.KnowledgeArtifactKind
 KnowledgeChangeState = knowledge_compiler.KnowledgeChangeState

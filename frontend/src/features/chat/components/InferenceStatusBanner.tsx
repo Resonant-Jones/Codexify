@@ -48,7 +48,8 @@ export function InferenceStatusBanner({
 
   const isActiveLifecycleDiagnostic =
     typeof state.detailText === "string" &&
-    /still (waiting|warming up|streaming)/i.test(state.detailText);
+    (/still (waiting|warming up|streaming)/i.test(state.detailText) ||
+      /stop request could not be confirmed/i.test(state.detailText));
   const detail =
     !isActive || isActiveLifecycleDiagnostic
       ? state.detailText ?? (state.phase === "failed" ? state.errorText : null)

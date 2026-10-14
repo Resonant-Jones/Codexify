@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -154,6 +156,9 @@ def _evidence(**overrides: str | None) -> PiHarnessRuntimeEvidence:
         actual_harness_version=overrides.get(
             "actual_harness_version", IDENTITY["harness_version"]
         ),
+        requested_reasoning_effort="medium",
+        effective_reasoning_effort="medium",
+        automatic_retries_disabled=True,
     )
 
 
@@ -203,6 +208,215 @@ def _assert_blocked(outcome: object, reason: PiValidationFailureReason) -> None:
     assert outcome.failure_reason == reason.value
     assert outcome.retry_count == 0
     assert outcome.fallback_count == 0
+
+
+def test_bounded_read_only_evaluator_result_crosses_guardian_once(tmp_path: Path) -> None:
+    from guardian.pi.tokens import PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+
+    envelope = _envelope()
+    decision = _decision(envelope)
+    verdict = {
+        "verdict": "passed", "summary": "The bounded fixture satisfies the criterion.",
+        "structured_acceptance_results": [{
+            "criterion_id": "fixture", "verdict": "pass",
+            "evidence_refs": ["changed-files"], "basis": "The bounded diff shows the marker.",
+        }],
+    }
+    runner = _RecordingRunner(evidence=replace(_evidence(), evaluator_result=verdict))
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=decision, prompt="Read only evaluation.",
+        cwd=tmp_path, timeout_seconds=15, harness_runner=runner,
+        reasoning_effort="medium",
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert outcome.ok
+    assert len(runner.calls) == 1
+    assert runner.calls[0].read_only is True
+    assert runner.calls[0].reasoning_effort == "medium"
+    assert runner.calls[0].evaluator_result_contract == PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+    assert outcome.evaluator_result == verdict
+    assert outcome.retry_count == outcome.fallback_count == 0
+
+
+def test_bounded_evaluator_result_fails_closed_before_or_after_runner(tmp_path: Path) -> None:
+    from guardian.pi.tokens import PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT
+
+    write = _write_permission("proof_target.txt")
+    envelope = _envelope(requested_permissions=(_read_permission(), write), granted_permissions=(_read_permission(), write))
+    decision = _decision(envelope)
+    runner = _RecordingRunner()
+    blocked = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=decision, prompt="Evaluate.", cwd=tmp_path,
+        timeout_seconds=15, harness_runner=runner,
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert not blocked.ok and blocked.runner_call_count == 0 and runner.calls == []
+
+    envelope = _envelope()
+    runner = _RecordingRunner(evidence=_evidence())
+    missing = invoke_guardian_authorized_pi(
+        envelope=envelope, decision=_decision(envelope), prompt="Evaluate.", cwd=tmp_path,
+        timeout_seconds=15, harness_runner=runner,
+        evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
+    )
+    assert not missing.ok and missing.runner_call_count == 1
+    assert missing.receipt is None and missing.harness_result is None
+
+
+@pytest.mark.parametrize(
+    ("behavior", "expected_phases", "provider_started", "effort"),
+    [
+        (
+            "hang-after-payload",
+            ("wrapper_started", "runtime_identity_established", "session_initialized", "provider_request_started"),
+            True,
+            "high",
+        ),
+        ("hang-before-payload", ("wrapper_started", "runtime_identity_established", "session_initialized"), None, "high"),
+    ],
+)
+def test_real_fake_pi_timeout_preserves_phase_evidence_without_terminal_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    behavior: str,
+    expected_phases: tuple[str, ...],
+    provider_started: bool | None,
+    effort: str,
+) -> None:
+    fake_source = Path(__file__).resolve().parent / "fixtures" / "fake_pi_package"
+    fake_package = tmp_path / "fake_pi_package"
+    (fake_package / "dist").mkdir(parents=True)
+    shutil.copyfile(fake_source / "package.json", fake_package / "package.json")
+    shutil.copyfile(fake_source / "source" / "index.js", fake_package / "dist" / "index.js")
+    target = tmp_path / "read_only_target"
+    target.mkdir()
+    (target / "proof.txt").write_text("unchanged\n")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("PI_CODING_AGENT_PACKAGE_ROOT", str(fake_package))
+    monkeypatch.setenv("PI_FAKE_I_BEHAVIOR", behavior)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    envelope = _envelope(model_id="gpt-5.6-sol", harness_version="0.82.1")
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Provider-free timeout fixture",
+        cwd=target,
+        timeout_seconds=2,
+        reasoning_effort="high",
+    )
+    assert outcome.ok is False
+    assert outcome.failure_reason == PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE.value
+    assert outcome.diagnostic_class == "adapter_timeout"
+    assert outcome.observed_execution_phases == expected_phases
+    assert outcome.highest_observed_execution_phase == expected_phases[-1]
+    assert outcome.provider_request_started is provider_started
+    assert outcome.effective_reasoning_effort == effort
+    assert outcome.actual_identity is None
+    assert outcome.receipt is None and outcome.harness_result is None
+    assert (outcome.runner_call_count, outcome.retry_count, outcome.fallback_count) == (1, 0, 0)
+    assert (target / "proof.txt").read_text() == "unchanged\n"
+    assert sorted(path.name for path in target.iterdir()) == ["proof.txt"]
+    if behavior == "hang-after-payload":
+        # The fake intentionally never writes the wrapper's terminal JSON.
+        # Inspect the actual child timeout separately from Guardian's
+        # sanitized outcome; no provider SDK or network is involved.
+        env = os.environ.copy()
+        env.update({
+            "PI_PROVIDER": "openai-codex",
+            "PI_MODEL": "gpt-5.6-sol",
+            "PI_THINKING": "high",
+            "PI_GUARDIAN_AUTHORIZED": "1",
+            "PI_GUARDIAN_HARNESS_ID": "pi-coding-agent",
+            "PI_GUARDIAN_HARNESS_VERSION": "0.82.1",
+            "PI_DISABLE_TOOLS": "1",
+        })
+        wrapper = Path(__file__).resolve().parents[2] / "codex_runner/src/agent-wrapper.js"
+        with pytest.raises(subprocess.TimeoutExpired) as timeout:
+            subprocess.run(
+                ["node", str(wrapper), "guardian-authorized-task", "fixture"],
+                cwd=target, env=env, capture_output=True, text=True, timeout=2,
+            )
+        captured_stdout = timeout.value.stdout or b""
+        if isinstance(captured_stdout, bytes):
+            captured_stdout = captured_stdout.decode("utf-8")
+        assert captured_stdout.strip() == "FAKE_PI_SDK_DIAGNOSTIC"
+        assert (target / "proof.txt").read_text() == "unchanged\n"
+
+
+def test_timeout_phase_evidence_cannot_override_read_only_violation(tmp_path: Path) -> None:
+    target_file = tmp_path / "proof.txt"
+    target_file.write_text("before\n")
+    evidence = replace(
+        _evidence(status="error"),
+        failure_classification="adapter_timeout",
+        observed_execution_phases=(
+            "wrapper_started", "runtime_identity_established",
+            "session_initialized", "provider_request_started",
+        ),
+        highest_observed_execution_phase="provider_request_started",
+        provider_request_started=True,
+    )
+    runner = _RecordingRunner(
+        evidence=evidence,
+        mutation=lambda _request: target_file.write_text("after\n"),
+    )
+    outcome = _invoke(tmp_path, runner)
+    assert outcome.diagnostic_class == "target_posture_violation"
+    assert outcome.failure_reason == PiValidationFailureReason.READ_ONLY_VIOLATION.value
+    assert outcome.observed_execution_phases is None
+    assert outcome.receipt is None and outcome.harness_result is None
+    assert len(runner.calls) == 1
+
+
+def test_guardian_requests_high_effort_and_records_bounded_configuration(tmp_path: Path) -> None:
+    calls: list[PiAuthorizedHarnessRequest] = []
+
+    def runner(request: PiAuthorizedHarnessRequest) -> PiHarnessRuntimeEvidence:
+        calls.append(request)
+        return replace(
+            _evidence(),
+            requested_reasoning_effort=request.reasoning_effort,
+            effective_reasoning_effort=request.reasoning_effort,
+        )
+
+    envelope = _envelope()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Read the disposable fixture only.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=runner,
+        reasoning_effort="high",
+    )
+    assert outcome.ok is True
+    assert len(calls) == 1
+    assert calls[0].read_only is True
+    assert calls[0].reasoning_effort == "high"
+    assert outcome.retry_count == 0
+    assert outcome.fallback_count == 0
+    assert outcome.receipt.validation_metadata["reasoning_effort"] == {
+        "requested": "high", "effective": "high"
+    }
+    assert outcome.harness_result.validation_metadata["automatic_retries_disabled"] is True
+
+
+def test_guardian_rejects_unattested_effective_effort(tmp_path: Path) -> None:
+    envelope = _envelope()
+    outcome = invoke_guardian_authorized_pi(
+        envelope=envelope,
+        decision=_decision(envelope),
+        prompt="Read only.",
+        cwd=tmp_path,
+        timeout_seconds=15,
+        harness_runner=_RecordingRunner(evidence=_evidence()),
+        reasoning_effort="high",
+    )
+    assert outcome.ok is False
+    assert outcome.diagnostic_stage == "reasoning_effort"
+    assert outcome.receipt is None
 
 
 def _fixture_tree(tmp_path: Path) -> None:
@@ -569,13 +783,15 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
                 {
                     "status": "ok",
                     "summary": "bounded",
-                    "actual_runtime_identity": {
+                        "actual_runtime_identity": {
                         "actual_provider_id": IDENTITY["provider_id"],
                         "actual_model_id": IDENTITY["model_id"],
                         "actual_harness_id": IDENTITY["harness_id"],
-                        "actual_harness_version": IDENTITY["harness_version"],
-                    },
-                    "tool_telemetry": {
+                            "actual_harness_version": IDENTITY["harness_version"],
+                        },
+                        "reasoning_effort": {"requested": "high", "effective": "high"},
+                        "automatic_retries_disabled": True,
+                        "tool_telemetry": {
                         "effective_tool_names": ["read", "bash", "edit", "write"],
                         "write_tool_available": True,
                         "tool_execution_start_count": 0,
@@ -597,10 +813,12 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
     monkeypatch.setenv("PI_PROVIDER", "ambient-provider")
     monkeypatch.setenv("PI_MODEL", "ambient-model")
+    monkeypatch.setenv("PI_THINKING", "ambient-low")
     result = PiCodexRunnerAdapter().execute_authorized(
         AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
         AgentExecutionIdentity(**IDENTITY),
         read_only=True,
+        reasoning_effort="high",
     )
 
     environment = observed["environment"]
@@ -608,6 +826,7 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     assert observed["command"][-2] == "guardian-authorized-task"
     assert environment["PI_PROVIDER"] == IDENTITY["provider_id"]
     assert environment["PI_MODEL"] == IDENTITY["model_id"]
+    assert environment["PI_THINKING"] == "high"
     assert environment["PI_GUARDIAN_AUTHORIZED"] == "1"
     assert environment["PI_DISABLE_TOOLS"] == "1"
     assert result.actual_provider_id == IDENTITY["provider_id"]
@@ -616,6 +835,8 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     assert result.actual_harness_version == IDENTITY["harness_version"]
     assert result.errors == []
     assert result.status == "ok"
+    assert result.effective_reasoning_effort == "high"
+    assert result.automatic_retries_disabled is True
     assert result.summary == "bounded"
 
 
@@ -773,6 +994,8 @@ def _mock_wrapper_subprocess_assistant(
                         "actual_harness_id": IDENTITY["harness_id"],
                         "actual_harness_version": IDENTITY["harness_version"],
                     },
+                    "reasoning_effort": {"requested": "medium", "effective": "medium"},
+                    "automatic_retries_disabled": True,
                     **({"tool_telemetry": payload_telemetry}
                        if payload_telemetry is not None else {}),
                 }
@@ -941,6 +1164,60 @@ def test_assistant_telemetry_string_event_types_with_invalid_member_fails_closed
 # ---------------------------------------------------------------------------
 
 
+def test_deepseek_required_write_rejects_positive_effort_before_subprocess(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    def forbidden_subprocess(*_args, **_kwargs):
+        raise AssertionError("DeepSeek positive-effort required write launched Pi")
+
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", forbidden_subprocess)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
+        AgentExecutionIdentity(
+            provider_id="deepseek",
+            model_id="deepseek-v4-pro",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=False,
+        reasoning_effort="high",
+        required_tool_name="write",
+    )
+    assert result.status == "error"
+    assert result.failure_stage == "reasoning_effort"
+
+
+def test_deepseek_required_write_projects_explicit_off_to_wrapper(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    captured = []
+
+    def capture_subprocess(*_args, **kwargs):
+        captured.append(kwargs["env"])
+        raise FileNotFoundError("provider-free launch sentinel")
+
+    monkeypatch.setattr(pi_codex_runner.subprocess, "run", capture_subprocess)
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
+        AgentExecutionIdentity(
+            provider_id="deepseek",
+            model_id="deepseek-v4-pro",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=False,
+        reasoning_effort="off",
+        required_tool_name="write",
+    )
+    assert result.failure_stage == "wrapper_launch"
+    assert len(captured) == 1
+    assert captured[0]["PI_PROVIDER"] == "deepseek"
+    assert captured[0]["PI_MODEL"] == "deepseek-v4-pro"
+    assert captured[0]["PI_THINKING"] == "off"
+    assert captured[0]["PI_GUARDIAN_REQUIRED_TOOL"] == "write"
+    assert captured[0]["PI_DISABLE_TOOLS"] == "0"
+
+
 def test_default_invocation_reaches_runner_with_no_required_tool(tmp_path: Path) -> None:
     """Default invocation: no required tool reaches the runner."""
     _fixture_tree(tmp_path)
@@ -1090,6 +1367,9 @@ def test_selection_evidence_copies_into_outcome_and_validation_metadata(
         actual_model_id=IDENTITY["model_id"],
         actual_harness_id=IDENTITY["harness_id"],
         actual_harness_version=IDENTITY["harness_version"],
+        requested_reasoning_effort="medium",
+        effective_reasoning_effort="medium",
+        automatic_retries_disabled=True,
         required_tool_name=selection["required_tool_name"],
         hard_tool_selection_applied=selection["hard_tool_selection_applied"],
         hard_tool_selection_application_count=(

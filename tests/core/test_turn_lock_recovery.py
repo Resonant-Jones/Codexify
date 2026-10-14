@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from guardian.queue import task_events
-from guardian.protocol_tokens import ChatEventType
+from guardian.protocol_tokens import ChatEventType, ErrorCode
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from guardian.core import chat_completion_service
 from guardian.routes import chat as chat_routes
@@ -49,6 +51,12 @@ def mock_db():
 def test_client(mock_db, monkeypatch, tmp_path):
     monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
     monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "test_user")
+    # These cases exercise orphan recovery; lease renewal has separate coverage.
+    monkeypatch.setattr(
+        chat_completion_service,
+        "renew_turn_lock",
+        lambda _thread_id, lock, **_kwargs: lock,
+    )
     with patch("logging.info"):
         with patch("guardian.guardian_api.chatlog_db", mock_db):
             with patch("guardian.core.dependencies.chatlog_db", mock_db):
@@ -203,26 +211,12 @@ def _heartbeat_evidence(
 
 
 def test_terminal_state_helper_detects_terminal_event(monkeypatch):
-    batches = [
-        [
-            ("1-1", {"type": "task.running", "data": {"step": 1}}),
-            ("1-2", {"type": "task.completed", "data": {"result": "ok"}}),
-        ]
+    client = MagicMock()
+    client.xrange.return_value = [
+        ("1-1", {"type": "task.running", "data": '{"step":1}'}),
+        ("1-2", {"type": "task.completed", "data": '{"result":"ok"}'}),
     ]
-
-    def fake_read_events(
-        _task_id: str,
-        _last_id: str,
-        *,
-        block_ms: int = 15000,
-        count: int = 100,
-    ) -> list[tuple[str, dict[str, object]]]:
-        _ = block_ms, count
-        if batches:
-            return batches.pop(0)
-        return []
-
-    monkeypatch.setattr(task_events, "read_events", fake_read_events)
+    monkeypatch.setattr(task_events, "_with_reconnect", lambda fn: fn(client))
 
     evidence = task_events.describe_terminal_state("task-123")
 
@@ -231,239 +225,119 @@ def test_terminal_state_helper_detects_terminal_event(monkeypatch):
     assert evidence["event"]["data"] == {"result": "ok"}
 
 
-def test_complete_recovers_orphaned_turn_lock(
-    test_client, mock_db, monkeypatch
+
+@pytest.fixture
+def durable_recovery(monkeypatch):
+    lock = _stale_lock()
+    attempt = {"request_id": "request-stale", "backend_task_id": lock.owner_task_id,
+               "thread_id": lock.thread_id, "turn_id": lock.turn_id}
+    read = MagicMock(return_value=attempt)
+    reconcile = MagicMock(return_value=ChatAttemptReconciliation(None, None, None, None))
+    cleanup = MagicMock(return_value=True)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: lock)
+    monkeypatch.setattr(chat_completion_service, "get_chat_completion_attempt_by_task_id", read)
+    monkeypatch.setattr(chat_completion_service, "reconcile_chat_completion_attempt_after_deadline", reconcile)
+    monkeypatch.setattr(chat_completion_service, "release_terminal_attempt_turn_lock", cleanup)
+    monkeypatch.setattr(chat_completion_service, "_task_terminal_event", MagicMock(side_effect=AssertionError("Redis events are not recovery authority")))
+    monkeypatch.setattr(chat_completion_service, "_chat_worker_heartbeat_evidence", MagicMock(side_effect=AssertionError("Heartbeat is not recovery authority")))
+    return lock, attempt, read, reconcile, cleanup
+
+
+def test_complete_recovers_from_durable_orphan_with_only_new_queue_identity(
+    test_client, mock_db, monkeypatch, durable_recovery
 ):
-    captured: dict[str, object] = {}
-    acquire_calls = {"count": 0}
-    orphan_events: list[dict[str, object]] = []
+    lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    reconcile.return_value = ChatAttemptReconciliation(None, "task.failed", {
+        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value,
+        "reconciled_at": "2026-10-04T00:00:00+00:00",
+    }, lock.lease_token)
+    captured, calls, events = {}, [], []
 
-    def _acquire(*args, **kwargs):
-        acquire_calls["count"] += 1
-        if acquire_calls["count"] == 1:
+    def acquire(thread, owner, **kwargs):
+        calls.append(owner)
+        if len(calls) == 1:
             return None
-        return build_turn_lock_envelope(
-            args[0],
-            args[1],
-            turn_id=kwargs.get("turn_id"),
-            source=kwargs.get("source"),
-        )
+        return build_turn_lock_envelope(thread, owner, turn_id=kwargs["turn_id"])
 
-    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", _acquire)
-    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_task_terminal_event",
-        lambda *_: _terminal_evidence("terminal"),
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_chat_worker_heartbeat_evidence",
-        lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
-    )
-    cleared: list[tuple[int, str]] = []
-    monkeypatch.setattr(
-        chat_completion_service,
-        "clear_turn_lock",
-        lambda thread_id, expected=None: cleared.append(
-            (thread_id, getattr(expected, "owner_task_id", ""))
-        )
-        or True,
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.event_bus.emit_event",
-        lambda event_name, payload: orphan_events.append(
-            {"name": event_name, "payload": dict(payload)}
-        ),
-    )
-
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", acquire)
+    monkeypatch.setattr(chat_completion_service, "enqueue", lambda task, queue_name: captured.update(task=task, queue_name=queue_name))
+    monkeypatch.setattr(chat_routes.event_bus, "emit_event", lambda name, payload: events.append(name))
     response = test_client.post("/chat/1/complete", json={})
-
     assert response.status_code == 200
-    assert cleared == [(1, "task-stale")]
-    assert mock_db.write_audit_log.call_args[0] == (
-        "recover_orphaned_turn_lock",
-        "chat_thread",
-        "1",
-    )
-    assert mock_db.write_audit_log.call_args.kwargs == {"user_id": "system"}
     task = captured["task"]
-    assert getattr(task, "turn_lock_owner") == getattr(task, "task_id")
-    assert getattr(task, "turn_lock")["turn_id"]
-
-    # ── Orphan event assertions ────────────────────────────────────
-    assert len(orphan_events) == 1
-    orphan = orphan_events[0]
-    assert orphan["name"] == ChatEventType.ORPHANED_TURN_RECOVERED.value
-    assert orphan["payload"]["thread_id"] == 1
-    assert orphan["payload"]["owner_task_id"] == "task-stale"
-    assert orphan["payload"]["lifecycle_state"] == "orphaned"
-    assert orphan["payload"]["recovery_reason"] == "terminal_task_event"
-
-
-@pytest.mark.parametrize("worker_state", ["stale", "missing"])
-def test_complete_recovers_orphaned_turn_lock_when_worker_not_fresh(
-    test_client, mock_db, monkeypatch, worker_state
-):
-    captured: dict[str, object] = {}
-    acquire_calls = {"count": 0}
-
-    def _acquire(*args, **kwargs):
-        acquire_calls["count"] += 1
-        if acquire_calls["count"] == 1:
-            return None
-        return build_turn_lock_envelope(
-            args[0],
-            args[1],
-            turn_id=kwargs.get("turn_id"),
-            source=kwargs.get("source"),
-        )
-
-    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", _acquire)
-    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_task_terminal_event",
-        lambda *_: _terminal_evidence("nonterminal"),
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_chat_worker_heartbeat_evidence",
-        lambda: _heartbeat_evidence(worker_state),
-    )
-    cleared: list[tuple[int, str]] = []
-    monkeypatch.setattr(
-        chat_completion_service,
-        "clear_turn_lock",
-        lambda thread_id, expected=None: cleared.append(
-            (thread_id, getattr(expected, "owner_task_id", ""))
-        )
-        or True,
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "enqueue",
-        lambda task, queue_name: captured.update(
-            {"task": task, "queue_name": queue_name}
-        ),
-    )
-
-    response = test_client.post("/chat/1/complete", json={})
-
-    assert response.status_code == 200
-    assert acquire_calls["count"] == 2
-    assert cleared == [(1, "task-stale")]
+    assert len(calls) == 2 and calls[0] == calls[1] == task.task_id
+    assert task.task_id != lock.owner_task_id and task.request_id != "request-stale"
     assert captured["queue_name"] == "codexify:queue:chat"
-    assert getattr(captured["task"], "turn_lock_owner") == getattr(
-        captured["task"], "task_id"
-    )
-
-
-def test_complete_denies_recovery_when_worker_fresh(
-    test_client, mock_db, monkeypatch
-):
-    monkeypatch.setattr(
-        chat_completion_service,
-        "acquire_turn_lock",
-        lambda *_a, **_k: None,
-    )
-    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_task_terminal_event",
-        lambda *_: _terminal_evidence("nonterminal"),
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_chat_worker_heartbeat_evidence",
-        lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
-    )
-    clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
-    orphan_events: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        chat_routes.event_bus,
-        "emit_event",
-        lambda event_name, payload: orphan_events.append(
-            {"name": event_name, "payload": dict(payload)}
-        ),
-    )
-
-    response = test_client.post("/chat/1/complete", json={})
-
-    assert response.status_code == 429
-    assert response.json()["detail"] == "turn_in_flight"
-    clear_spy.assert_not_called()
+    cleanup.assert_called_once_with(1, owner_task_id=lock.owner_task_id, lease_token=lock.lease_token)
     mock_db.write_audit_log.assert_not_called()
-    assert len(orphan_events) == 0  # no orphan event on denied recovery
+    assert ChatEventType.ORPHANED_TURN_RECOVERED.value not in events
 
 
-def test_complete_denies_recovery_on_unknown_terminal_state(
-    test_client, mock_db, monkeypatch
+@pytest.mark.parametrize("worker_state", ["fresh", "stale", "missing", "unknown"])
+def test_complete_does_not_infer_recovery_from_heartbeat(
+    test_client, mock_db, monkeypatch, durable_recovery, worker_state
 ):
-    monkeypatch.setattr(
-        chat_completion_service,
-        "acquire_turn_lock",
-        lambda *_a, **_k: None,
-    )
-    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_task_terminal_event",
-        lambda *_: _terminal_evidence("unknown", reason="event_probe_failed"),
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_chat_worker_heartbeat_evidence",
-        lambda: _heartbeat_evidence("stale", age_seconds=27.0),
-    )
-    clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
-
+    _lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *a, **kw: None)
+    # None of these observational states can override an unresolved durable attempt.
+    probe = MagicMock(return_value=_heartbeat_evidence(worker_state))
+    monkeypatch.setattr(chat_completion_service, "_chat_worker_heartbeat_evidence", probe)
     response = test_client.post("/chat/1/complete", json={})
-
-    assert response.status_code == 429
-    assert response.json()["detail"] == "turn_in_flight"
-    clear_spy.assert_not_called()
+    assert response.status_code == 429 and response.json()["detail"] == "turn_in_flight"
+    assert reconcile.call_count == 1
+    cleanup.assert_not_called()
+    probe.assert_not_called()
     mock_db.write_audit_log.assert_not_called()
 
 
-def test_complete_keeps_active_turn_lock_in_place(
-    test_client, mock_db, monkeypatch
-):
-    monkeypatch.setattr(
-        chat_completion_service,
-        "acquire_turn_lock",
-        lambda *_a, **_k: None,
+@pytest.mark.parametrize("kind", ["completed", "task.failed", "task.cancelled"])
+def test_durable_terminal_truth_releases_lock_without_claiming_orphan(durable_recovery, kind):
+    lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    reconcile.return_value = ChatAttemptReconciliation(
+        71 if kind == "completed" else None, None if kind == "completed" else kind, None, lock.lease_token
     )
-    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: False)
-    clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
-    orphan_events: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        chat_routes.event_bus,
-        "emit_event",
-        lambda event_name, payload: orphan_events.append(
-            {"name": event_name, "payload": dict(payload)}
-        ),
-    )
+    assert chat_completion_service._recover_orphaned_turn_lock(1)
+    cleanup.assert_called_once_with(1, owner_task_id=lock.owner_task_id, lease_token=lock.lease_token)
 
-    response = test_client.post("/chat/1/complete", json={})
 
-    assert response.status_code == 429
-    assert response.json()["detail"] == "turn_in_flight"
-    clear_spy.assert_not_called()
-    mock_db.write_audit_log.assert_not_called()
-    assert len(orphan_events) == 0  # no orphan event on active lock
+def test_terminal_recovery_does_not_wait_for_lock_safety_margin(durable_recovery, monkeypatch):
+    lock, _attempt, _read, reconcile, _cleanup = durable_recovery
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: replace(lock, lease_expires_at="2099-01-01T00:00:00+00:00"))
+    reconcile.return_value = ChatAttemptReconciliation(None, "task.failed", {
+        "failure_code": ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value,
+    }, lock.lease_token)
+    assert chat_completion_service._recover_orphaned_turn_lock(1)
+
+
+@pytest.mark.parametrize("binding", ["thread_id", "turn_id", "missing"])
+def test_mismatched_attempt_lock_binding_fails_closed(durable_recovery, binding):
+    _lock, attempt, read, reconcile, cleanup = durable_recovery
+    read.return_value = None if binding == "missing" else attempt | {binding: 999 if binding == "thread_id" else "wrong"}
+    assert not chat_completion_service._recover_orphaned_turn_lock(1)
+    reconcile.assert_not_called()
+    cleanup.assert_not_called()
+
+
+def test_legacy_terminal_uses_only_matching_observed_capability(durable_recovery):
+    lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    reconcile.return_value = ChatAttemptReconciliation(71, None, None, None)
+    assert chat_completion_service._recover_orphaned_turn_lock(1)
+    cleanup.assert_called_once_with(1, owner_task_id=lock.owner_task_id, lease_token=lock.lease_token)
+
+
+def test_reconciliation_error_cannot_release_lock(durable_recovery):
+    from fastapi import HTTPException
+
+    _lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    reconcile.side_effect = RuntimeError("injected uncertain commit")
+    with pytest.raises(HTTPException) as error:
+        chat_completion_service._recover_orphaned_turn_lock(1)
+    assert error.value.status_code == 503
+    cleanup.assert_not_called()
+
+
+def test_replacement_lock_cannot_be_released(durable_recovery):
+    lock, _attempt, _read, reconcile, cleanup = durable_recovery
+    reconcile.return_value = ChatAttemptReconciliation(None, "task.failed", None, lock.lease_token)
+    cleanup.return_value = False
+    assert not chat_completion_service._recover_orphaned_turn_lock(1)

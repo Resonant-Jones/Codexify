@@ -1,3 +1,6 @@
+import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
+import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
+import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
 /**
  * AppShell projects responsive layout and active material colors.
  * Static desktop geometry is injected by the canonical theme registry.
@@ -19,6 +22,8 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
+import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
@@ -63,7 +68,7 @@ import {
   RUNTIME_HEALTH_STATUSES,
   type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
-import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { checkAuthGate, getAuthState, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import {
@@ -162,6 +167,7 @@ type AppShellView =
   | "guardian"
   | "flowBuilder"
   | "settings"
+  | "configurationInspector"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
@@ -258,6 +264,7 @@ const APP_SHELL_VIEWS = [
   "guardian",
   "flowBuilder",
   "settings",
+  "configurationInspector",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
@@ -277,7 +284,7 @@ export function resolveAppShellPresentationProfile(
   activeView: AppShellView,
   isPhoneShell: boolean
 ): "default" | "phone_frame_first" {
-  return isPhoneShell && isPrimaryMobileApplicationView(activeView)
+  return isPhoneShell && resolveMobileApplicationView(activeView) != null
     ? "phone_frame_first"
     : "default";
 }
@@ -292,6 +299,11 @@ function isPrimaryMobileApplicationView(
     view === "dashboard" ||
     view === "settings"
   );
+}
+
+function resolveMobileApplicationView(view: AppShellView): MobileApplicationView | null {
+  if (view === "configurationInspector") return "settings";
+  return isPrimaryMobileApplicationView(view) ? view : null;
 }
 
 function isAppShellView(value: string | null): value is AppShellView {
@@ -763,11 +775,6 @@ function extractMessageThreadId(pathname: string): string | null {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
-function extractCancelTaskId(pathname: string): string | null {
-  const match = pathname.match(/\/tasks\/([^/]+)\/cancel$/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
 function isCreateMessagePath(pathname: string): boolean {
   return pathname.endsWith("/chat/messages");
 }
@@ -1028,11 +1035,8 @@ export default function AppShell({
         });
       }
 
-      const cancelTaskId = extractCancelTaskId(pathname);
-      if (cancelTaskId) {
-        spine.cancelActiveCompletion({ taskId: cancelTaskId });
-      }
-
+      // Stop is a nonterminal request. The chat observer retains ownership
+      // until an accepted terminal event or durable receipt resolves it.
       return config;
     });
 
@@ -1369,6 +1373,11 @@ export default function AppShell({
     window.history.replaceState({}, "", "/chat");
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [view]);
+  const configurationSnapshotRequest = useRef<Promise<ConfigurationSnapshot> | null>(null);
+  useEffect(() => {
+    // The request belongs to one Inspector opening, never to a durable cache.
+    if (view !== "configurationInspector") configurationSnapshotRequest.current = null;
+  }, [view]);
   const [isPhoneSidebarOpen, setIsPhoneSidebarOpen] = useState(false);
   const [browserPresentation, setBrowserPresentation] = useState<BrowserPresentation>("closed");
   const [focusedSidebarOpen, setFocusedSidebarOpen] = useState(false);
@@ -1385,7 +1394,7 @@ export default function AppShell({
   }, []);
   const [isApplicationNavigationExpanded, setIsApplicationNavigationExpanded] =
     useState(
-      () => isPrimaryMobileApplicationView(view) && view !== "guardian"
+      () => resolveMobileApplicationView(view) != null && view !== "guardian"
     );
   const phoneSidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousApplicationViewRef = useRef<AppShellView>(view);
@@ -1479,7 +1488,7 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const syncRouteState = () => {
+    const syncRouteState = (event?: Event) => {
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1496,7 +1505,12 @@ export default function AppShell({
         setActiveRouteThreadId(null);
       }
       if (routeView) {
-        setView(routeView);
+        setView((current) =>
+          event?.type === "cfy:threads:refresh" &&
+          current === "configurationInspector" && routeView === "settings"
+            ? current
+            : routeView
+        );
       }
     };
 
@@ -1562,6 +1576,10 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const generalProjectSessionScope =
+    auth.status === "authenticated"
+      ? `authenticated:${auth.token ?? "local"}`
+      : auth.status;
   const lastGuardianPathRef = useRef<string | null>(
     typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
       ? resolvePathForView("guardian", readRouteThreadId())
@@ -1579,7 +1597,13 @@ export default function AppShell({
       if (typeof window === "undefined") return "validated";
       return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
     });
-  const hasFetchedGeneralProjectRef = React.useRef(false);
+  const lastFetchedGeneralProjectSessionScopeRef = React.useRef<string | null>(null);
+  const [generalProjectValidation, setGeneralProjectValidation] = useState<{
+    sessionScope: string;
+    projectIds: number[];
+  } | null>(null);
+  const generalProjectIsValidatedForCurrentAuth =
+    generalProjectValidation?.sessionScope === generalProjectSessionScope;
   const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
     useState<GuardianSidebarSnapshot | null>(null);
   const phoneSidebarHydrationAttemptedRef = useRef(false);
@@ -1589,8 +1613,11 @@ export default function AppShell({
   const documentsEntrySeededRef = useRef(false);
   const [documentsScopeReady, setDocumentsScopeReady] = useState(false);
   const guardianProjectFallbackId = useMemo<number | null>(
-    () => (generalProjectIdSource === "storage" ? null : generalProjectId),
-    [generalProjectId, generalProjectIdSource]
+    () =>
+      !generalProjectIsValidatedForCurrentAuth || generalProjectIdSource === "storage"
+        ? null
+        : generalProjectId,
+    [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]
   );
   const seedDocumentsScopeFromGuardian = useCallback(() => {
     if (guardianSidebarSnapshot == null && guardianProjectFallbackId == null) {
@@ -1667,7 +1694,7 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (isPrimaryMobileApplicationView(nextView)) {
+      if (resolveMobileApplicationView(nextView) != null) {
         if (nextView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
@@ -1677,7 +1704,8 @@ export default function AppShell({
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
       setView(nextView);
-      if (typeof window === "undefined") return;
+      // The Inspector is internal to Settings; it has no URL route of its own.
+      if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(nextView, activeRouteThreadId);
       if (window.location.pathname !== nextPath) {
@@ -1746,12 +1774,17 @@ export default function AppShell({
     (projectId: string | null) => {
       if (projectId == null) return;
       const normalizedProjectId = Number.parseInt(String(projectId), 10);
-      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectValidation?.projectIds.includes(normalizedProjectId) &&
+        Number.isFinite(normalizedProjectId) &&
+        normalizedProjectId > 0
+      ) {
         setGeneralProjectIdSource("user");
         setGeneralProjectId(normalizedProjectId);
       }
     },
-    []
+    [generalProjectIsValidatedForCurrentAuth, generalProjectValidation]
   );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
@@ -1784,13 +1817,17 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+      if (
+        generalProjectIsValidatedForCurrentAuth &&
+        generalProjectId != null &&
+        generalProjectIdSource !== "storage"
+      ) {
         window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
       } else {
         window.localStorage.removeItem("cfy.generalProjectIdTrusted");
       }
     } catch {}
-  }, [generalProjectId, generalProjectIdSource]);
+  }, [generalProjectId, generalProjectIdSource, generalProjectIsValidatedForCurrentAuth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1799,7 +1836,7 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    if (hasFetchedGeneralProjectRef.current) {
+    if (lastFetchedGeneralProjectSessionScopeRef.current === generalProjectSessionScope) {
       return () => {
         cancelled = true;
       };
@@ -1809,26 +1846,37 @@ export default function AppShell({
         cancelled = true;
       };
     }
-    hasFetchedGeneralProjectRef.current = true;
+    const requestSessionScope = generalProjectSessionScope;
+    lastFetchedGeneralProjectSessionScopeRef.current = requestSessionScope;
     (async () => {
       try {
         const response = await api.get("/api/projects");
-        if (cancelled) return;
+        const currentAuth = getAuthState();
+        if (
+          cancelled ||
+          currentAuth.status !== "authenticated" ||
+          `authenticated:${currentAuth.token ?? "local"}` !== requestSessionScope
+        ) return;
         const payload = response?.data ?? response;
         const list = Array.isArray(payload)
           ? payload
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        if (list.length > 0) {
-          const defaultProject = findDefaultProjectId(list);
-          const currentProjectValid = hasProjectId(list, generalProjectId);
-          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
-          if (nextProjectId !== generalProjectId) {
-            setGeneralProjectId(nextProjectId);
-          }
-          setGeneralProjectIdSource("validated");
+        const projectIds = list.flatMap((project: unknown) => {
+          if (project == null || typeof project !== "object") return [];
+          const row = project as Record<string, unknown>;
+          const id = Number(row.id ?? row.project_id);
+          return Number.isFinite(id) && id > 0 ? [id] : [];
+        });
+        const defaultProject = findDefaultProjectId(list);
+        const currentProjectValid = hasProjectId(list, generalProjectId);
+        const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+        setGeneralProjectValidation({ sessionScope: requestSessionScope, projectIds });
+        if (nextProjectId !== generalProjectId) {
+          setGeneralProjectId(nextProjectId);
         }
+        setGeneralProjectIdSource("validated");
       } catch (err) {
         if (cancelled) return;
         console.warn("[projects] failed to resolve default project", err);
@@ -1837,7 +1885,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, generalProjectId, startupLocked]);
+  }, [auth, generalProjectId, generalProjectSessionScope, startupLocked]);
   useEffect(() => {
     let cancelled = false;
     if (view !== "documents" || !documentsScopeReady) {
@@ -2174,7 +2222,7 @@ export default function AppShell({
     const previousView = previousApplicationViewRef.current;
     previousApplicationViewRef.current = view;
     setIsPhoneSidebarOpen(false);
-    if (!isPhoneShell || !isPrimaryMobileApplicationView(view)) return;
+    if (!isPhoneShell || resolveMobileApplicationView(view) == null) return;
     if (view === "guardian") {
       setIsApplicationNavigationExpanded(false);
       return;
@@ -2186,7 +2234,7 @@ export default function AppShell({
   useEffect(() => {
     if (
       !isPhoneShell ||
-      !isPrimaryMobileApplicationView(view) ||
+      resolveMobileApplicationView(view) == null ||
       view === "guardian" ||
       guardianSidebarSnapshot != null ||
       phoneSidebarHydrationAttemptedRef.current ||
@@ -2432,11 +2480,12 @@ export default function AppShell({
     }
   }, [ingestionEnabled]);
 
-  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  // Clear mocks only after a real user upload. Selecting a seeded image as the
+  // wallpaper changes `wallpaper` too, but must not consume the demo content.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
-    if (hasUpload || !!wallpaper) {
+    if (hasUpload) {
       const filteredGallery = gallery.filter((g) => !g.mock);
       if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
       const filteredDocs = documents.filter((d) => !d.mock);
@@ -2569,8 +2618,13 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
-    onImages: (items) =>
+    projectId:
+      generalProjectIsValidatedForCurrentAuth && generalProjectIdSource !== "storage"
+        ? generalProjectId ?? undefined
+        : undefined,
+    disabled: !generalProjectIsValidatedForCurrentAuth,
+    onImages: (items) => {
+      if (getAuthState() !== auth) return;
       setGallery((prev) => {
         const normalizedItems = items
           .map((item: any) => normalizeGalleryItem(item))
@@ -2589,7 +2643,8 @@ export default function AppShell({
           return true;
         });
         return merged;
-      }),
+      });
+    },
     onDocuments: (items) =>
       setDocuments((prev) => [
         ...(items || []).map((item: any, idx: number) => normalizeDoc(item, idx)),
@@ -3147,7 +3202,9 @@ export default function AppShell({
             tone: runtimeHealth.backendReachable === false ? "critical" : "attention",
           };
   const providerStatusRow: SystemStatusRow =
-    runtimeHealth.diagnostics.hydrationState === "pending"
+    runtimeHealth.diagnostics.hydrationState !== "ready" ||
+    runtimeHealth.llmHealthy == null ||
+    runtimeHealth.backendReachable == null
       ? { label: "Providers", status: "Checking", tone: "checking" }
       : providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE
         ? { label: "Providers", status: "Offline", tone: "critical" }
@@ -3403,15 +3460,24 @@ export default function AppShell({
       onApplicationNavigationExpandedChange={
         setIsApplicationNavigationExpanded
       }
-      activeApplicationView={isPrimaryMobileApplicationView(view) ? view : "guardian"}
+      activeApplicationView={resolveMobileApplicationView(view) ?? "guardian"}
       applicationDestinations={PHONE_NAVIGATION_DESTINATIONS}
       onNavigateApplicationView={navigateToView}
       returnFocusRef={phoneSidebarTriggerRef}
-      wallpaperUrl={activeWallpaper}
+      wallpaperUrl={activeWallpaperMedia.src || null}
     >
       {phoneSidebarWorkspace}
     </MobileAppSidebarDrawer>
   ) : null;
+  const coreSurfacesAvailable = runtimeHealth.backendReachable === true && runtimeHealth.chatHealthy === true;
+  const personalSetupNotice = <PersonalSetupCard readiness={{
+    version: BOOTSTRAP_CONTRACT_VERSION,
+    workflow: coreSurfacesAvailable ? BootstrapWorkflow.COMPLETE : BootstrapWorkflow.VERIFYING,
+    coreReady: coreSurfacesAvailable,
+    inferenceReady: coreSurfacesAvailable && runtimeHealth.llmHealthy === true,
+    humanAction: coreSurfacesAvailable && runtimeHealth.llmHealthy !== true
+      ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
+  }} onOpenSettings={openSettings} />;
   const guardianMobileFramePrelude = isNarrowGuardianFrameShell ? (
     <div
       data-testid="guardian-mobile-frame-prelude"
@@ -3428,6 +3494,7 @@ export default function AppShell({
       >
         {mobileHeaderUtilityActions}
       </div>
+      {personalSetupNotice}
     </div>
   ) : null;
 
@@ -3455,6 +3522,7 @@ export default function AppShell({
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <OnboardingProvider key={auth.token ?? auth.status} ready={auth.ready && auth.status === "authenticated" && !startupLocked} mobile={isPhoneShell}>
     <UnifiedDesktopCompositor
       enabled={!isPhoneShell}
       shellStyle={styleVars as React.CSSProperties}
@@ -3552,7 +3620,7 @@ export default function AppShell({
       <FloatingConversation state={peopleMessagingState} />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
-          wallpaperUrl={activeWallpaper}
+          wallpaperUrl={activeWallpaperMedia.src || null}
           className="w-full h-full rounded-[var(--radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
@@ -3604,7 +3672,7 @@ export default function AppShell({
             {/* glass backdrop */}
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[inherit] pointer-events-none">
               <RefractiveGlassCard
-                wallpaperUrl={activeWallpaper}
+                wallpaperUrl={activeWallpaperMedia.src || null}
                 className="w-full h-full rounded-[inherit]"
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
@@ -3698,7 +3766,7 @@ export default function AppShell({
                 onClick={() => navigateToView("personaStudio")}
                 style={getMobileNavPillStyle("personaStudio")}
               >
-                Persona Studio
+                Lens
               </PhonePressButton>
             </div>
           </div>
@@ -3719,6 +3787,8 @@ export default function AppShell({
         </div>
         </div>
       )}
+
+      {!isPhoneFrameFirstShell && personalSetupNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -4175,8 +4245,28 @@ export default function AppShell({
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
                     onStartFeedbackConversation={openFeedbackConversation}
+                    onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
+              </div>
+            </FrameCard>
+          )}
+          {!startupLocked && activeRoomId == null && view === "configurationInspector" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="mx-auto flex w-full min-w-0 min-h-0 max-h-full flex-col overflow-hidden"
+              data-testid="configuration-inspector-framecard"
+              style={settingsLayout}
+            >
+              {phonePrimaryFrameHeader}
+              <div className="w-full min-w-0 min-h-0 flex-1 overflow-auto">
+                <ErrorBoundary>
+                  <ConfigurationInspectorView
+                    onBackToSettings={() => navigateToView("settings")}
+                    snapshotRequest={configurationSnapshotRequest}
                   />
                 </ErrorBoundary>
               </div>
@@ -4322,5 +4412,6 @@ export default function AppShell({
       )}
     </div>
     </UnifiedDesktopCompositor>
+    </OnboardingProvider>
   );
 }

@@ -24,6 +24,7 @@ const taskEventSources = vi.hoisted(() => ({
   instances: [] as MockGuardianEventSource[],
 }));
 const composerSendResolvedSpy = vi.hoisted(() => vi.fn());
+const refreshSnapshotMock = vi.hoisted(() => vi.fn());
 const liveEventsMock = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
 }));
@@ -152,7 +153,7 @@ vi.mock("@/features/chat/useChat", () => {
     error: null,
     hasMore: false,
     activateThread: vi.fn().mockResolvedValue(chatState.messages),
-    refreshSnapshot: vi.fn().mockResolvedValue(chatState.messages),
+    refreshSnapshot: refreshSnapshotMock,
     loadOlderMessages: vi.fn().mockResolvedValue(chatState.messages),
     completionState: {
       isCompleting: false,
@@ -348,7 +349,10 @@ function buildSessionTabs(threadId: string) {
   ];
 }
 
-function renderChat(threadId = "1") {
+function renderChat(
+  threadId = "1",
+  assistantMessageRefresh?: { threadId: number; sequence: number } | null
+) {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
   const utils = render(
     <GuardianChat
@@ -361,6 +365,7 @@ function renderChat(threadId = "1") {
       activeSessionTabId={"tab-1" as any}
       activeProviderId="local"
       activeModelId="local-model"
+      assistantMessageRefresh={assistantMessageRefresh}
     />
   );
 
@@ -372,8 +377,7 @@ function renderChat(threadId = "1") {
 
 async function advanceTimers(ms: number) {
   await act(async () => {
-    vi.advanceTimersByTime(ms);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(ms);
   });
 }
 
@@ -407,6 +411,7 @@ describe("GuardianChat lifecycle timing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    refreshSnapshotMock.mockResolvedValue(chatState.messages);
     try {
       window.localStorage.setItem("cfy.voice.playbackEnabled", "");
       window.localStorage.setItem("cfy.voice.turnEnabled", "");
@@ -598,6 +603,17 @@ describe("GuardianChat lifecycle timing", () => {
       expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
+  });
+
+  it("refreshes the active thread when the sidebar receives a persisted assistant event", async () => {
+    renderChat("1", { threadId: 1, sequence: 1 });
+
+    await waitFor(() => {
+      expect(refreshSnapshotMock).toHaveBeenCalledWith(
+        1,
+        "assistant-message-created"
+      );
+    });
   });
 
   it("renders provider first-token timeout as retryable timeout instead of offline", async () => {

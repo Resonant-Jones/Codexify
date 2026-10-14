@@ -158,7 +158,7 @@ def test_tester_lifecycle_is_pinned_to_dual_provider_profile() -> None:
 
     assert "dual-provider" in script
     assert "v1-whooshd-deepseek-web" in env_template
-    assert "LOCAL_CHAT_MODEL=gemma-4-12b-it-qat-4bit" in env_template
+    assert "LOCAL_CHAT_MODEL=local-chat" in env_template
     assert "DEEPSEEK_CHAT_MODEL=deepseek-v4-flash" in env_template
 
 

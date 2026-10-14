@@ -1,4 +1,4 @@
-"""Executable retrieval evaluation pack for the supported Obsidian seam."""
+"""Executable Chroma storage/search evaluation pack for Obsidian ingest."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 
 from guardian.cli import ingest_cli
 from guardian.memoryos.retriever import MemoryOSRetriever
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.vector.store import VectorStore
 
 FIXTURE_ROOT = (
@@ -40,9 +41,23 @@ def _make_retriever() -> tuple[VectorStore, MemoryOSRetriever]:
     return store, MemoryOSRetriever(store)
 
 
+def _query_ingested_docs(store: VectorStore, query: str, limit: int = 3) -> list[dict]:
+    collection = store.embedder._chroma_collection
+    assert collection is not None
+    found = collection.query(
+        query_embeddings=store.embedder._embed_np([query]).tolist(),
+        n_results=limit,
+        where={"namespace": OBSIDIAN_NAMESPACE},
+        include=["documents", "metadatas"],
+    )
+    return [
+        {"text": text, "metadata": metadata}
+        for text, metadata in zip(found["documents"][0], found["metadatas"][0])
+    ]
+
+
 # Retrieval Eval A
-@pytest.mark.asyncio
-async def test_retrieval_eval_distinctive_fixture_hit(tmp_path, monkeypatch):
+def test_retrieval_eval_distinctive_fixture_hit(tmp_path, monkeypatch):
     pytest.importorskip("chromadb")
 
     vault_root = _copy_fixture_vault(tmp_path)
@@ -53,9 +68,9 @@ async def test_retrieval_eval_distinctive_fixture_hit(tmp_path, monkeypatch):
     source_id = ingest_cli._obsidian_source_id(
         vault_root, vault_root / DISTINCTIVE_NOTE.name
     )
-    _, retriever = _make_retriever()
+    store = VectorStore()
     query = DISTINCTIVE_NOTE.read_text(encoding="utf-8")
-    results = await retriever.retrieve(query, limit=3)
+    results = _query_ingested_docs(store, query)
 
     assert results
     hit = next(
@@ -85,7 +100,9 @@ async def test_retrieval_eval_absent_query_does_not_false_hit_distinctive_note(
     )
     _, retriever = _make_retriever()
 
-    results, trace = await retriever.retrieve_with_trace("", limit=3)
+    results, trace = await retriever.retrieve_with_trace(
+        "", limit=3, user_id="local-test-account"
+    )
 
     assert results == []
     assert trace["reason"] == "empty_query"
@@ -97,8 +114,7 @@ async def test_retrieval_eval_absent_query_does_not_false_hit_distinctive_note(
 
 
 # Retrieval Eval C
-@pytest.mark.asyncio
-async def test_retrieval_eval_repeat_ingest_is_stable(tmp_path, monkeypatch):
+def test_retrieval_eval_repeat_ingest_is_stable(tmp_path, monkeypatch):
     pytest.importorskip("chromadb")
 
     vault_root = _copy_fixture_vault(tmp_path)
@@ -109,7 +125,7 @@ async def test_retrieval_eval_repeat_ingest_is_stable(tmp_path, monkeypatch):
 
     source_path = vault_root / DISTINCTIVE_NOTE.name
     source_id = ingest_cli._obsidian_source_id(vault_root, source_path)
-    store, retriever = _make_retriever()
+    store = VectorStore()
     collection = store.embedder._chroma_collection
     assert collection is not None
     assert collection.count() == 4
@@ -119,7 +135,7 @@ async def test_retrieval_eval_repeat_ingest_is_stable(tmp_path, monkeypatch):
     assert record["metadatas"][0]["source_id"] == source_id
     assert record["documents"][0].startswith("The mariner-signal-lattice")
 
-    results = await retriever.retrieve("mariner-signal-lattice", limit=3)
+    results = _query_ingested_docs(store, "mariner-signal-lattice")
     hit = next(
         result
         for result in results
@@ -132,8 +148,7 @@ async def test_retrieval_eval_repeat_ingest_is_stable(tmp_path, monkeypatch):
 
 
 # Retrieval Eval D
-@pytest.mark.asyncio
-async def test_retrieval_eval_updated_note_replaces_prior_content(
+def test_retrieval_eval_updated_note_replaces_prior_content(
     tmp_path, monkeypatch
 ):
     pytest.importorskip("chromadb")
@@ -155,7 +170,7 @@ async def test_retrieval_eval_updated_note_replaces_prior_content(
     note_path.write_text(updated_text, encoding="utf-8")
     ingest_cli.ingest_obsidian(str(vault_root))
 
-    store, retriever = _make_retriever()
+    store = VectorStore()
     collection = store.embedder._chroma_collection
     assert collection is not None
 
@@ -164,7 +179,7 @@ async def test_retrieval_eval_updated_note_replaces_prior_content(
     assert record["metadatas"][0]["source_content_hash"] != original_hash
     assert record["documents"][0] == updated_text
 
-    results = await retriever.retrieve(updated_text, limit=3)
+    results = _query_ingested_docs(store, updated_text)
     hit = next(
         result
         for result in results

@@ -1,3 +1,6 @@
+import { AxiosError } from "axios";
+import { getConfigurationSnapshot } from "@/features/configurationInspector/api";
+import { getAuthState } from "@/lib/authState";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -25,6 +28,44 @@ function normalizeHeaders(headers: RequestInit["headers"]): Record<string, strin
   }
   return { ...(headers as Record<string, string>) };
 }
+
+describe("Configuration Inspector account-session isolation", () => {
+  const originalAdapter = api.defaults.adapter;
+  afterEach(() => {
+    api.defaults.adapter = originalAdapter;
+    setAuthToken(null);
+    vi.unstubAllEnvs();
+  });
+
+  it.each([401, 403])("keeps remote account auth on operator denial %s", async (status) => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("account-session");
+    api.defaults.adapter = async (config) => {
+      throw new AxiosError("Operator authority required", undefined, config, undefined, {
+        data: {}, status, statusText: "Denied", headers: {}, config,
+      });
+    };
+    await expect(getConfigurationSnapshot()).rejects.toThrow("Operator authority required");
+    expect(sessionStorage.getItem("guardian.auth.token")).toBe("account-session");
+    expect(getAuthState().status).toBe("authenticated");
+  });
+
+  it("still invalidates the account when Guardian explicitly rejects an account session", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("invalid-account-session");
+    api.defaults.adapter = async (config) => {
+      throw new AxiosError("Account rejected", undefined, config, undefined, {
+        data: {}, status: 401, statusText: "Unauthorized",
+        headers: { "x-guardian-auth-failure": "ACCOUNT_SESSION_INVALID" }, config,
+      });
+    };
+    await expect(api.get("/chat/threads")).rejects.toThrow("Account rejected");
+    expect(sessionStorage.getItem("guardian.auth.token")).toBeNull();
+    expect(getAuthState().status).toBe("unauthenticated");
+  });
+});
 
 describe("desktop auth headers", () => {
   const originalAdapter = api.defaults.adapter;

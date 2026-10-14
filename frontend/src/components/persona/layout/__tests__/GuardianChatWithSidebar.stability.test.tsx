@@ -278,9 +278,12 @@ vi.mock("@/components/surface/FrameCard", () => ({
 
 vi.mock("@/lib/authState", () => ({
   useAuthState: () => authState,
+  getAuthState: () => authState,
   checkAuthGate: () => true,
   requireAuthReady: () => true,
 }));
+
+vi.mock("@/features/workspace/WorkspacePane", () => ({ default: () => null }));
 
 vi.mock("@/lib/runtimeConfig", () => ({
   isTauriRuntime: () => runtimeAuthState.isTauri,
@@ -439,7 +442,10 @@ function setupThreadApi(
     string,
     Record<number, { threads: ThreadRow[]; has_more: boolean }>
   >,
-  projects: Array<{ id: number | string; name: string }> = []
+  projects: Array<{ id: number | string; name: string; user_id: string }> = [
+    { id: 1, name: "Project one", user_id: "account-a" },
+    { id: 2, name: "Project two", user_id: "account-a" },
+  ]
 ) {
   mockApi.get.mockImplementation((url: string, config?: any) => {
     if (url === "/api/projects") {
@@ -471,6 +477,7 @@ function setupThreadApi(
 describe("GuardianChatWithSidebar stability contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.token = "test-token";
     __resetThreadRefreshGuardForTests();
     sessionSpineInstances.length = 0;
     sessionHooksState.railSlice = { tabs: [], activeTabId: null };
@@ -549,6 +556,60 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(
       mockApi.get.mock.calls.some(([url]) => url === "/ui/session")
     ).toBe(false);
+  });
+
+  it("restores the last Project on reopen without leaking it across accounts", async () => {
+    authState.token = "account-a-session";
+    const projectsByAccount = {
+      accountA: [
+        { id: 1, name: "General", user_id: "account-a" },
+        { id: 2, name: "A project", user_id: "account-a" },
+      ],
+      accountB: [{ id: 3, name: "B project", user_id: "account-b" }],
+    };
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === "/api/projects") {
+        return Promise.resolve({ data: { projects: authState.token === "account-b-session"
+          ? projectsByAccount.accountB
+          : projectsByAccount.accountA } });
+      }
+      return Promise.resolve({ data: { ok: true, threads: [], has_more: false } });
+    });
+
+    const user = userEvent.setup();
+    const first = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await waitFor(() => expect(sidebarPropsSpy.mock.calls.at(-1)?.[0]?.projectCache?.loadedForCurrentAuth).toBe(true));
+    await user.click(screen.getByTestId("sidebar-set-project-2"));
+    await waitFor(() => {
+      expect(window.localStorage.getItem("cfy.lastProjectId.account.account-a")).toBe("2");
+    });
+    expect(window.localStorage.getItem("cfy.lastProjectId")).toBe("2");
+
+    first.unmount();
+    const reopened = render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await waitFor(() => {
+      const props = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+      expect(props?.projectId).toBe("2");
+      expect(props?.persistence?.projectStorageKey).toBe("cfy.lastProjectId.account.account-a");
+    });
+
+    authState.token = "account-b-session";
+    reopened.rerender(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await waitFor(() => {
+      const props = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+      expect(props?.projectCache?.accountId).toBe("account-b");
+      expect(props?.projectId ?? null).toBeNull();
+    });
+    expect(window.localStorage.getItem("cfy.lastProjectId.account.account-a")).toBe("2");
+    expect(window.localStorage.getItem("cfy.lastProjectId.account.account-b")).toBeNull();
+
+    authState.token = "account-a-session";
+    reopened.rerender(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await waitFor(() => {
+      const props = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+      expect(props?.projectCache?.accountId).toBe("account-a");
+      expect(props?.projectId).toBe("2");
+    });
   });
 
   it("emits a lightweight sidebar snapshot without Guardian message bodies", async () => {
@@ -1071,7 +1132,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
           0: { threads: [], has_more: false },
         },
       },
-      [{ id: 2, name: "Bananas" }]
+      [{ id: 2, name: "Bananas", user_id: "account-a" }]
     );
 
     const user = userEvent.setup();
@@ -1286,6 +1347,21 @@ describe("GuardianChatWithSidebar stability contract", () => {
     await screen.findByTestId("thread-11");
     expect(latestGuardian()).toMatchObject({ presentationMode: "landing", isSidebarVisible: false });
     expect(sessionSpineInstances.at(-1).tabSetThread).not.toHaveBeenCalled();
+  });
+
+  it("preserves the chat instance when a draft becomes a durable thread", async () => {
+    seedActiveSession();
+    setupThreadApi({ all: { 0: { threads: [t(11)], has_more: false } } });
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+    expect(latestGuardian().presentationMode).toBe("landing");
+    const chat = screen.getByTestId("guardian-chat-mock");
+
+    act(() => latestGuardian().onThreadPersisted(11, "Thread 11"));
+
+    expect(latestGuardian().presentationMode).toBe("conversation");
+    expect(screen.getByTestId("active-thread-id")).toHaveTextContent("11");
+    expect(screen.getByTestId("guardian-chat-mock")).toBe(chat);
   });
 
   it("does not hint after the sidebar was discovered on landing", async () => {

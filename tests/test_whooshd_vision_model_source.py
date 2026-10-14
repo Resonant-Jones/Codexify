@@ -1,7 +1,7 @@
 """Tests for vision model source selection in the Whoosh'd integration.
 
-Confirms that LOCAL_VISION_MODEL env var takes precedence over fallback
-when image content is detected in a chat request.
+Checks the static operator-configured vision and GGUF inputs separately
+from the supported logical chat route. No live inference is exercised.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def test_local_vision_model_in_smoke_override():
     assert "LOCAL_VISION_MODEL" in backend_env, (
         "LOCAL_VISION_MODEL missing from smoke compose override"
     )
-    assert backend_env["LOCAL_VISION_MODEL"] == "qwen2-vl-2b-mlx"
+    assert backend_env["LOCAL_VISION_MODEL"] == "${LOCAL_VISION_MODEL:-}"
 
 
 def test_local_vision_model_in_settings_model():
@@ -45,29 +45,25 @@ def test_local_gguf_model_in_settings_model():
     )
 
 
-def test_vision_model_beats_fallback_for_image_turns():
-    """When LOCAL_VISION_MODEL is set, image turns use it (not fallback)."""
+def test_vision_model_has_no_implicit_physical_model_default():
+    """The optional vision input is supplied explicitly by the operator."""
     config = _load_smoke_compose()
     backend_env = config["services"]["backend"]["environment"]
     assert backend_env.get("LOCAL_VISION_MODEL") is not None
-    # The source should be 'local_vision_env' when the model is found
-    # (verified in live smoke: source=local_vision_env)
-    assert backend_env["LOCAL_VISION_MODEL"] == "qwen2-vl-2b-mlx"
+    assert backend_env["LOCAL_VISION_MODEL"] == "${LOCAL_VISION_MODEL:-}"
 
 
 def test_gguf_model_preserved_in_smoke_override():
     """Explicit GGUF model must be preserved in smoke override."""
     config = _load_smoke_compose()
     backend_env = config["services"]["backend"]["environment"]
-    assert backend_env.get("LOCAL_GGUF_MODEL") == "qwen2.5-0.5b-gguf"
+    assert backend_env.get("LOCAL_GGUF_MODEL") == "${LOCAL_GGUF_MODEL:-}"
 
 
-def test_chat_model_still_uses_local_chat_env():
-    """Text turns should still use LOCAL_CHAT_MODEL (not vision model)."""
+def test_chat_model_uses_supported_logical_route():
+    """The supported chat path requests Whoosh'd's stable logical route."""
     config = _load_smoke_compose()
     backend_env = config["services"]["backend"]["environment"]
-    assert backend_env["LOCAL_CHAT_MODEL"] == (
-        "mlx-community/gemma-4-e2b-it-4bit"
-    )
+    assert backend_env["LOCAL_CHAT_MODEL"] == "local-chat"
     # Text and vision models are different
     assert backend_env["LOCAL_CHAT_MODEL"] != backend_env["LOCAL_VISION_MODEL"]

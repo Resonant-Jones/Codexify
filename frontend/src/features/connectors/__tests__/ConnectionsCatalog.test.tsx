@@ -327,6 +327,7 @@ async function openConnectorsTab() {
 describe("Connections catalog bay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedApi.post.mockReset().mockResolvedValue({ data: {} });
     window.localStorage.clear();
     window.sessionStorage.clear();
   });
@@ -375,17 +376,19 @@ describe("Connections catalog bay", () => {
     expect(window.localStorage.getItem("integration_token")).toBeNull();
     expect(window.sessionStorage.getItem("integration_token")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("notion-validate"));
+    const validate = await screen.findByTestId("notion-validate");
+    await waitFor(() => expect(validate).toBeEnabled());
+    fireEvent.click(validate);
     await waitFor(() => {
       expect(mockedApi.post).toHaveBeenCalledWith(
         "/api/connect/notion/validate",
         {}
       );
     });
-    expect(screen.getByText(/Validation succeeded/)).toBeInTheDocument();
+    expect(await screen.findByText(/Validation succeeded/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
-    fireEvent.click(screen.getByTestId("notion-disconnect"));
+    fireEvent.click(await screen.findByTestId("notion-disconnect"));
     await waitFor(() => {
       expect(mockedApi.post).toHaveBeenCalledWith(
         "/api/connect/notion/disconnect",
@@ -433,8 +436,11 @@ describe("Connections catalog bay", () => {
     expect(window.localStorage.getItem("access_token")).toBeNull();
     expect(window.sessionStorage.getItem("refresh_token")).toBeNull();
 
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
+    });
     fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
-    fireEvent.click(screen.getByTestId("google-drive-disconnect"));
+    fireEvent.click(await screen.findByTestId("google-drive-disconnect"));
     await waitFor(() => {
       expect(mockedApi.post).toHaveBeenCalledWith(
         "/api/connect/google-drive/disconnect",

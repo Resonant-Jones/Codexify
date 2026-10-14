@@ -109,9 +109,11 @@ def _migrate_to_head(database_url: str) -> None:
     # Alembic env.py reads DATABASE_URL from os.environ at the start of the
     # upgrade; this overrides any project .env value the conftest may have
     # loaded so the migration targets the disposable database under test.
-    os.environ["DATABASE_URL"] = database_url
-    os.environ["GUARDIAN_DATABASE_URL"] = database_url
-    upgrade(config, "head")
+    config.config_file_name = None
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url)
+        patch.setenv("GUARDIAN_DATABASE_URL", database_url)
+        upgrade(config, "head")
 
 
 def _make_bundle() -> dict[str, list[dict[str, Any]]]:
@@ -218,6 +220,8 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": NOW,
                 "pinned": True,
                 "held": False,
+                "review_state": "approved",
+                "lifecycle_state": "active",
                 "extensions": {
                     "display_hint": "roundtrip",
                     "lifecycle_token": "episodic-open",
@@ -238,6 +242,8 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": LATER,
                 "pinned": False,
                 "held": True,
+                "review_state": "approved",
+                "lifecycle_state": "active",
                 "extensions": {
                     "display_hint": "sovereignty",
                     "lifecycle_token": "verified-frozen",
@@ -258,6 +264,8 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": None,
                 "pinned": False,
                 "held": False,
+                "review_state": "pending",
+                "lifecycle_state": "dormant",
                 "extensions": {
                     "display_hint": "tentative",
                     "lifecycle_token": "candidate-open",

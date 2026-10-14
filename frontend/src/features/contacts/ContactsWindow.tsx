@@ -1,3 +1,4 @@
+import PeopleSetupBanner from "@/features/onboarding/PeopleSetupBanner";
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -88,6 +89,7 @@ export default function ContactsWindow({
           </div>
         </header>
 
+        <PeopleSetupBanner />
         <div className="people-tabs" role="tablist" aria-label="People sections">
           <button
             type="button"
