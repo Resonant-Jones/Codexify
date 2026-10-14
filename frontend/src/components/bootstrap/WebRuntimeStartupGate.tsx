@@ -30,12 +30,21 @@ export default function WebRuntimeStartupGate({
   const [checking, setChecking] = React.useState(enabled);
   const [detail, setDetail] = React.useState<string | null>(null);
   const [retryNonce, setRetryNonce] = React.useState(0);
+  // Only a confirmed preflight failure may surface the notice. `failed` gates
+  // the failure wording so an unconfirmed startup probe never reads as a fault.
+  const [failed, setFailed] = React.useState(false);
+  // Acknowledgement is scoped to one uninterrupted failure episode. Retries,
+  // polling, and rerenders never clear it, so a dismissed notice stays dismissed
+  // until the connection recovers or the gate is disabled and re-enabled.
+  const [dismissed, setDismissed] = React.useState(false);
 
   React.useEffect(() => {
     if (!enabled) {
       setReady(true);
       setChecking(false);
       setDetail(null);
+      setFailed(false);
+      setDismissed(false);
       return;
     }
 
@@ -61,6 +70,10 @@ export default function WebRuntimeStartupGate({
         setReady(true);
         setChecking(false);
         setDetail(null);
+        setFailed(false);
+        // Recovery ends the current failure episode, so a later regression is
+        // free to raise its own notice instead of inheriting a stale dismissal.
+        setDismissed(false);
         return;
       }
 
@@ -69,6 +82,7 @@ export default function WebRuntimeStartupGate({
       setReady(false);
       setChecking(false);
       setDetail(nextDetail);
+      setFailed(true);
 
       const outageDelay = getBackendOutageRemainingMs();
       const backoffDelay = Math.min(
@@ -95,14 +109,23 @@ export default function WebRuntimeStartupGate({
     setRetryNonce((current) => current + 1);
   }, []);
 
+  // Acknowledgement is display-only. It deliberately touches no connection,
+  // health, or retry state, so recovery reporting and automatic retries keep
+  // running exactly as they did before the notice was dismissed.
+  const handleDismiss = React.useCallback(() => {
+    setDismissed(true);
+  }, []);
+
   if (!enabled) {
     return <>{children}</>;
   }
 
+  const showNotice = !ready && failed && !dismissed;
+
   return (
     <div className="relative min-h-screen w-full">
       {children}
-      {!ready && (
+      {showNotice && (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[1300] flex justify-center p-4 sm:p-6">
           <div
             className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[22px] border shadow-2xl backdrop-blur-xl"
@@ -153,8 +176,20 @@ export default function WebRuntimeStartupGate({
                 <Button type="button" onClick={handleRetry} disabled={checking}>
                   {checking ? "Checking..." : "Retry now"}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleDismiss}
+                  aria-label="Dismiss the backend connection notice"
+                >
+                  OK
+                </Button>
                 <span className="text-xs" style={{ color: "var(--muted)" }}>
                   Automatic retries continue without blocking the application shell.
+                </span>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>
+                  Live backend and Guardian diagnostics stay available in the
+                  header Health Status panel.
                 </span>
               </div>
             </div>

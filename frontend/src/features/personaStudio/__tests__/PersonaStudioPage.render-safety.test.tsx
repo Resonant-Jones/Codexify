@@ -41,15 +41,15 @@ import PersonaStudioPage from "../PersonaStudioPage";
 
 beforeEach(() => vi.clearAllMocks());
 
-describe("Persona Studio V2 render and authority safety", () => {
-  it("owns exactly the Assistant and Configuration primary frames with no page footer", () => {
+describe("Lens editor render and authority safety", () => {
+  it("owns exactly the Assistant and Lens Editor primary frames with no page footer", () => {
     render(<PersonaStudioPage />);
 
     const workspace = screen.getByTestId("persona-studio-workspace");
     expect(workspace.children).toHaveLength(2);
     expect(screen.getAllByTestId(/persona-studio-(assistant|configuration)-frame/)).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "Studio Assistant" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Configuration" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Lens Assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Lens Editor" })).toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-footer")).not.toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-save-status")).toHaveTextContent("Saved · rev 12");
@@ -66,7 +66,7 @@ describe("Persona Studio V2 render and authority safety", () => {
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: /^form$/i }));
+    await user.click(screen.getByTestId("persona-studio-advanced-toggle"));
     await user.click(screen.getByRole("button", { name: /activation & bindings/i }));
     expect(screen.getByTestId("persona-studio-form-section-bindings")).toHaveTextContent(/not editable/i);
     expect(screen.getByTestId("persona-studio-form-section-bindings")).toHaveTextContent(/not resolved/i);

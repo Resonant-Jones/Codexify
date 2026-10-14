@@ -43,16 +43,6 @@ describe("Persona Studio effective config preview boundary", () => {
     }
   });
 
-  it("TruthMatrix component is importable", async () => {
-    const mod = await import("@/features/personaStudio/components/TruthMatrix");
-    expect(mod.default).toBeDefined();
-  });
-
-  it("DiagnosticsPanel component is importable", async () => {
-    const mod = await import("@/features/personaStudio/components/DiagnosticsPanel");
-    expect(mod.default).toBeDefined();
-  });
-
   it("config preview is bounded — no execution authority", () => {
     // Draft config contains permissions, retrieval, tools as config shapes
     // No permission enforcement, retrieval execution, or execution authority

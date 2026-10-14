@@ -1204,7 +1204,7 @@ describe("AppShell settings utility trigger", () => {
         "Dashboard",
         "Documents",
         "Gallery",
-        "Persona Studio",
+        "Lens",
       ].includes(label)
     );
 
@@ -1213,17 +1213,17 @@ describe("AppShell settings utility trigger", () => {
       "Dashboard",
       "Documents",
       "Gallery",
-      "Persona Studio",
+      "Lens",
     ]);
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
     expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Lens" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
-    await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
+    await user.click(primaryNav.getByRole("button", { name: "Lens" }));
 
     expect(await screen.findByTestId("persona-studio-page")).toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();
