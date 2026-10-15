@@ -2788,6 +2788,12 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
     started = time.monotonic()
     worker_started_at = _utc_now_iso()
     turn_id = _extract_turn_id(task)
+    # Historical queue records carried the accepted identity only in the
+    # canonical origin segment. Promote that server-authored value onto the
+    # typed field so checkpoint validation and atomic assistant metadata use
+    # the same identity. A present typed value always takes precedence.
+    if not str(getattr(task, "turn_id", "") or "").strip() and turn_id:
+        task.turn_id = turn_id
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     lifecycle_timings: dict[str, Any] = {}
     queued_at = str(getattr(task, "created_at", "") or "").strip() or _utc_now_iso()

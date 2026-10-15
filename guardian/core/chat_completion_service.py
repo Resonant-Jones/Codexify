@@ -1316,6 +1316,20 @@ def _extract_latest_turn_message_id(task: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _canonical_task_turn_id(task: Any) -> str | None:
+    """Resolve the server-carried turn identity, with legacy origin fallback."""
+    explicit = str(getattr(task, "turn_id", "") or "").strip()
+    if explicit:
+        return explicit
+    origin = str(getattr(task, "origin", "") or "")
+    match = re.search(
+        r"(?:^|\|)turn_id=(?P<turn_id>[a-f0-9-]{36})(?:\||$)",
+        origin,
+        flags=re.IGNORECASE,
+    )
+    return match.group("turn_id").lower() if match else None
+
+
 # webui stores the latest user turn as "[username]: <message>" and the
 # "@guardian" mention is appended inline. Both tokens are noise to the embedder
 # and dominate the cosine match against the knowledge base, so strip them from
@@ -7581,6 +7595,7 @@ def run_chat_completion_task(
     if not persist_assistant_message:
         return result
 
+    assistant_turn_id = _canonical_task_turn_id(task)
     assistant_message_meta = {
         **(
             {"provider_replay_state": provider_replay_state}
@@ -7598,7 +7613,8 @@ def run_chat_completion_task(
             else {}
         ),
         "requestId": request_id,
-        "turnId": str(getattr(task, "turn_id", "") or "") or None,
+        "turn_id": assistant_turn_id,
+        "turnId": assistant_turn_id,
         "toolTurnId": result.get("toolTurnId"),
         "toolTurnState": result.get("toolTurnState"),
         "loopStopReason": result.get("loopStopReason"),
