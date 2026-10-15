@@ -53,8 +53,8 @@ def disposable_database(monkeypatch: pytest.MonkeyPatch):
     )
     config.set_main_option("sqlalchemy.url", test_dsn.replace("%", "%%"))
     try:
-        # This checkout currently has independent Alembic heads. The disposable
-        # proof database needs every branch's schema before seeding its records.
+        # Apply every current Alembic head so the disposable proof database has
+        # the repository's complete migration schema before records are seeded.
         command.upgrade(config, "heads")
         monkeypatch.setenv("DATABASE_URL", test_dsn)
         yield test_dsn
