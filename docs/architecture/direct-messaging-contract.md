@@ -14,7 +14,7 @@ contract is written so a future transport adapter can handle cross-node
 delivery without redefining message identity, profile identity,
 conversation semantics, or authorization.
 
-Last updated: 2026-10-02
+Last updated: 2026-10-07
 
 ## 1. Address hierarchy
 
@@ -235,12 +235,42 @@ authority.
 
 ## 9. Route posture
 
-Registered under the `direct_messages` route label. Enabled on the opt-in
-private-preview profile (`v1-whooshd-deepseek-web`) and hosted/private tester
-profile (`v1-friends-family-web`); every other supported profile leaves the
-label unlisted and route governance treats it as quarantined. These profiles
-use the existing authenticated account boundary and same-node messaging
-contract. Federation, Guardian execution, and share-link routes remain
+Registered under the `direct_messages` route label. The label is mounted on
+three supported profiles at three different postures, and the difference is
+deliberate:
+
+| Profile | Posture | Meaning |
+|---|---|---|
+| `v1-friends-family-web` (hosted/private tester) | `enabled` | routed normally for the opted-in tester lane |
+| `v1-whooshd-deepseek-web` (opt-in private preview) | `enabled` | routed normally for the opted-in private-preview lane |
+| `v1-local-core-web-mcp` (default local) | `internal_only` | mounted and routable for local experimentation, **not** part of the Beta support promise |
+
+The default local profile mounts this label as an **internal experimental
+capability**. `internal_only` is an intentional ADR-069 posture, not a
+half-enabled state: the routes are mounted, routable, and still subject to the
+existing authenticated account boundary and the same-node messaging contract,
+while remaining outside the Beta Supported release promise. Route governance
+additionally keeps `internal_only` paths out of the public OpenAPI contract,
+which is why OpenAPI is not a valid proxy for whether the capability is mounted.
+
+The motivation for mounting on the default local profile is to permit direct
+product experimentation — to exercise the implemented People/DM surface in the
+ordinary local environment so missing UX and runtime behavior can be discovered
+through actual use instead of being inferred from code.
+
+Three distinctions must not be collapsed:
+
+- **mounted/internal for local experimentation** ≠ **Beta Supported**
+- route availability ≠ release qualification
+- capability does not imply release support
+
+Every other supported profile leaves the label unlisted and route governance
+treats it as quarantined. No privacy, authorization, isolation, or context
+rule in §3, §7, or §8 changes with route posture: username search remains
+authenticated and bounded, peer-facing results remain limited to deliberate
+social fields, self-DM and nonlocal destinations remain rejected, and no DM
+operation triggers Guardian inference, retrieval, memory, or Project authority
+as a side effect. Federation, Guardian execution, and share-link routes remain
 quarantined on the private-preview profile.
 
 ## 10. Deferred (explicitly not implemented)
@@ -275,7 +305,7 @@ Recorded in ADR-079; they must not block the same-node implementation:
 
 ## 12. Future dependency order
 
-1. Inbox/global Conversation projection and person filter — **implemented** (opt-in private-preview/tester frontend projection; see §13; excluded from default Beta)
+1. Inbox/global Conversation projection and person filter — **implemented** (frontend projection gated by mounted-route truth; mounted as `internal_only` on the default local profile and `enabled` on the opted-in private-preview/tester profiles; see §9 and §13; still excluded from Beta Supported)
 2. Share Sheet / Project-origin interaction UX
 3. explicit Project Scope Offer / invitation contract
 4. provisional Conversation "summary so far" modal + export

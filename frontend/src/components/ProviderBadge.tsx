@@ -20,6 +20,7 @@
 
 import React from "react";
 import { usePreferredProvider } from "../hooks/usePreferredProvider";
+import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
 export type ProviderBadgeProps = {
   /** optional click handler (open provider picker, etc) */
@@ -70,19 +71,29 @@ export const ProviderBadge: React.FC<ProviderBadgeProps> = ({
         cursor: "pointer",
       }}
     >
-      {/* icon: little plug / circle with provider color. Keep SVG inline so there's no icon dependency */}
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden
-      >
-        <rect x="3" y="3" width="18" height="18" rx="6" fill="rgba(0,0,0,0.12)" />
-        <circle cx="12" cy="12" r="5" fill={meta.color} />
-        <path d="M12 7v-2" stroke="#fff" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-      </svg>
+      {provider === "local" || !provider || provider === "default" ? (
+        <img
+          src={codexifyMarkSrc}
+          width={size}
+          height={size}
+          alt=""
+          aria-hidden="true"
+          style={{ display: "block", objectFit: "contain" }}
+        />
+      ) : (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden
+        >
+          <rect x="3" y="3" width="18" height="18" rx="6" fill="rgba(0,0,0,0.12)" />
+          <circle cx="12" cy="12" r="5" fill={meta.color} />
+          <path d="M12 7v-2" stroke="#fff" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+        </svg>
+      )}
     </button>
   );
 };

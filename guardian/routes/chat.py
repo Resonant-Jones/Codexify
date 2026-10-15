@@ -73,6 +73,12 @@ from guardian.core.chat_completion_service import (
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
     enqueue_chat_completion,
+    enable_provider_request_capture,
+    provider_capture_scope,
+    read_provider_request_captures,
+    store_provider_request_capture,
+    PROVIDER_CAPTURE_MAX_BYTES,
+    PROVIDER_CAPTURE_ORIGIN_MARKER,
     reconcile_chat_attempt_receipts,
     _merge_thread_metadata_patch,
     resolve_thread_completion_settings,
@@ -82,7 +88,9 @@ from guardian.core.dependencies import (
     RequestUserScope,
     get_account_user_scope as get_request_user_scope,
     get_single_user_id,
+    require_service_capability,
 )
+from guardian.core.db import get_chat_completion_attempt_by_task_id
 from guardian.core.thread_access import require_thread_read_access
 from guardian.core.event_graph import get_event_writer
 from guardian.core.graph_write_inspection_store import (
@@ -2784,6 +2792,9 @@ async def chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
+    inspect_provider_request: bool = Header(
+        False, alias="X-Provider-Request-Inspection"
+    ),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
@@ -2814,6 +2825,13 @@ async def chat_complete(
         request_user_scope,
         thread=thread_exists if isinstance(thread_exists, dict) else None,
     )
+
+    capture_owner = None
+    capture_project_id = None
+    if inspect_provider_request is True:
+        capture_owner, capture_project_id = _require_provider_capture_owner(
+            thread_id, request_user_scope
+        )
 
     limit = int(body.max_context or 50)
     try:
@@ -3080,6 +3098,20 @@ async def chat_complete(
     )
     task.turn_id = turn_id
     task.request_id = root_request_id
+    if capture_owner is not None:
+        try:
+            capture_enabled = enable_provider_request_capture(
+                task_id=task.task_id,
+                request_id=root_request_id,
+                account_id=capture_owner,
+                thread_id=thread_id,
+                project_id=capture_project_id,
+            )
+        except Exception:
+            capture_enabled = False
+        if capture_enabled:
+            task.origin += f"|{PROVIDER_CAPTURE_ORIGIN_MARKER}"
+
     try:
         enqueue_result = enqueue_chat_completion(
             task,
@@ -5356,6 +5388,9 @@ async def api_chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
+    inspect_provider_request: bool = Header(
+        False, alias="X-Provider-Request-Inspection"
+    ),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
@@ -5365,6 +5400,7 @@ async def api_chat_complete(
         request=request,
         api_key=api_key,
         request_id=request_id,
+        inspect_provider_request=inspect_provider_request,
         request_user_scope=request_user_scope,
     )
 
@@ -5602,3 +5638,121 @@ def api_delete_thread(
         api_key=api_key,
         request_user_scope=request_user_scope,
     )
+
+
+# Capture ownership is stricter than legacy local-thread convenience: a service
+# key or X-User-ID alone never supplies an account principal, even in local mode.
+def _require_provider_capture_owner(thread_id, principal):
+    account_id = str(principal.account_id or "").strip()
+    if not account_id or not principal.subject_id:
+        raise HTTPException(status_code=401, detail="Authenticated account required")
+    thread = _require_thread_account_scope(thread_id, principal)
+    if str(thread.get("user_id") or "") != account_id:
+        raise HTTPException(status_code=403, detail="Capture ownership denied")
+    project_id = _coerce_project_id(thread.get("project_id"))
+    if project_id is not None:
+        project = _find_project_record(project_id)
+        if not project or str(project.get("user_id") or "") != account_id:
+            raise HTTPException(
+                status_code=403, detail="Capture Project ownership denied"
+            )
+    return account_id, project_id
+
+
+def _provider_capture_binding(task_id):
+    scope = provider_capture_scope(task_id)
+    if scope is None:
+        return None
+    attempt = get_chat_completion_attempt_by_task_id(chatlog_db, task_id)
+    if not attempt or (
+        attempt["request_id"] != scope["request_id"]
+        or attempt["thread_id"] != scope["thread_id"]
+    ):
+        return None
+    # Revalidate both independent canonical owners and containment. Moves or
+    # transfers invalidate old consent rather than granting access to new owners.
+    principal = RequestUserScope(
+        user_id=scope["account_id"],
+        account_id=scope["account_id"],
+        subject_id=scope["account_id"],
+        multi_user_enabled=True,
+    )
+    try:
+        _, project_id = _require_provider_capture_owner(scope["thread_id"], principal)
+    except HTTPException:
+        return None
+    return scope if project_id == scope["project_id"] else None
+
+
+@api_chat_router.get("/{thread_id}/debug/provider-requests/{task_id}", tags=["Debug"])
+def get_provider_request_captures(
+    thread_id: int,
+    task_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    account_id, project_id = _require_provider_capture_owner(
+        thread_id, request_user_scope
+    )
+    attempt = get_chat_completion_attempt_by_task_id(chatlog_db, task_id)
+    if attempt is None or attempt["thread_id"] != thread_id:
+        raise HTTPException(status_code=404, detail="Completion attempt not found")
+    scope = provider_capture_scope(task_id)
+    if scope is not None and (
+        scope["account_id"] != account_id
+        or scope["project_id"] != project_id
+        or scope["request_id"] != attempt["request_id"]
+    ):
+        raise HTTPException(status_code=403, detail="Capture scope changed")
+    payload = read_provider_request_captures(task_id)
+    payload.update(
+        request_id=attempt["request_id"], task_id=task_id, thread_id=thread_id
+    )
+    return JSONResponse(
+        payload, headers={"Cache-Control": "no-store", "Vary": "Authorization, Cookie"}
+    )
+
+
+@api_chat_router.get("/internal/provider-request-captures/{task_id}", tags=["Debug"])
+def provider_request_capture_permit(
+    task_id: str,
+    _capability: None = Depends(require_service_capability),
+):
+    # Service capability can check existing consent, never create it or read content.
+    return JSONResponse(
+        {"enabled": _provider_capture_binding(task_id) is not None},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@api_chat_router.post("/internal/provider-request-captures/{task_id}", tags=["Debug"])
+async def receive_provider_request_capture(
+    task_id: str,
+    request: Request,
+    request_id: str = Query(..., max_length=128),
+    attempt_id: str = Query(..., max_length=128),
+    dispatch_index: int = Query(..., ge=1, le=17),
+    provider: str = Query(..., max_length=32),
+    logical_model: str = Query(..., max_length=256),
+    byte_size: int = Query(..., ge=0),
+    _capability: None = Depends(require_service_capability),
+):
+    scope = _provider_capture_binding(task_id)
+    if scope is None or scope["request_id"] != request_id:
+        raise HTTPException(status_code=404, detail="Capture consent unavailable")
+    # Bound input before buffering it. Oversized bodies are unavailable in full.
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > PROVIDER_CAPTURE_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Capture body too large")
+        body.extend(chunk)
+    stored = store_provider_request_capture(
+        task_id=task_id,
+        request_id=request_id,
+        attempt_id=attempt_id,
+        dispatch_index=dispatch_index,
+        provider=provider,
+        logical_model=logical_model,
+        body=bytes(body),
+        byte_size=byte_size,
+    )
+    return JSONResponse({"stored": stored}, headers={"Cache-Control": "no-store"})

@@ -43,7 +43,9 @@ PR #865 retains its historical supported-Compose and native-candidate proof reco
 - Mainline has bounded evidence for topology, migrations, health, browser cold/warm chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Account import remains bounded: isolated evidence covers browser staging, materialization, ownership/readback, and later vector observations, not complete recall.
-- Same-node human messaging is enabled only in the opt-in Private Preview profile; it does not grant project, thread, Guardian, federation, attachment, or realtime authority.
+- Private Preview is opt-in: Whoosh'd remains default, DeepSeek is the only admitted cloud lane, and account activation remains gated; these are not public Beta support.
+- Same-node human messaging is *enabled* as a capability only in the opt-in Private Preview and tester profiles; it does not grant project, thread, Guardian, federation, attachment, or realtime authority.
+- Same-node direct messaging (`direct_messages`) is additionally mounted on the default local profile as an **internal experimental capability** (`internal_only` in `v1-local-core-web-mcp`), and is `enabled` on the opted-in private-preview/tester profiles. It is mounted there so the People/DM surface can be exercised directly and missing UX/runtime behavior discovered through real use. It is **not Beta Supported**, is same-node only, and mounting it is **not release qualification**; the latest complete supported-Compose qualification remains `HOLD`.
 
 ## Not yet true / do not assume
 

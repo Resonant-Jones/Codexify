@@ -1661,10 +1661,17 @@ async def stream_task_events(
     - Resumes from `last_id` query param or `Last-Event-ID` header.
     - Emits a `retry: 3000` hint on connect.
     - Stops streaming on task completion, failure, or cancellation.
+
+    Authorization (ADR-091 + ADR-092) completes before any transport side
+    effect: the caller must authenticate as exactly one principal lane, the
+    task must resolve through its durable `ChatCompletionAttempt` to a
+    canonical thread, and that thread must pass the shared thread-read policy.
+    `task_id` is an identifier, never authority. A denied request performs
+    zero Redis event reads.
     """
     from starlette.responses import StreamingResponse
 
-    # Authenticate, resolve the durable backend-task mapping, and authorize
+# Authenticate, resolve the durable backend-task mapping, and authorize
     # its canonical thread before constructing a response or reaching Redis.
     await asyncio.to_thread(
         authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
