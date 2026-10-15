@@ -9,6 +9,8 @@ from unittest.mock import Mock
 import pytest
 
 from guardian.core import chat_completion_service as service
+from guardian.core.db import ChatToolCheckpointError, _checkpoint_from_attempt
+from guardian.db.models import ChatCompletionAttempt
 from guardian.queue.redis_queue import QueueEnqueueError
 from guardian.queue.turn_lock import build_turn_lock_envelope
 from guardian.tasks.types import ChatCompletionTask, HostedRoomInvocationMetadata
@@ -194,3 +196,16 @@ def test_acceptance_record_failure_keeps_accepted_task(acceptance, monkeypatch):
     assert acceptance.rows[task.task_id]["accepted_at"] is None
     assert acceptance.rows[task.task_id]["deadline_snapshot"]["terminal_deadline_at"] == task.terminal_deadline_at
     assert "release" not in acceptance.events
+
+
+def test_partial_tool_checkpoint_fails_closed() -> None:
+    historical = ChatCompletionAttempt(
+        request_id="request-a",
+        backend_task_id="task-a",
+        thread_id=1,
+        turn_id="turn-a",
+    )
+    assert _checkpoint_from_attempt(historical) is None
+    historical.tool_command_id = "op::health"
+    with pytest.raises(ChatToolCheckpointError, match="invalid_tool_checkpoint"):
+        _checkpoint_from_attempt(historical)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -44,6 +46,10 @@ def _build_task(
         selection_source="explicit",
         origin=f"api:chat.complete|turn_id={TURN_ID}",
     )
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.turn_id = TURN_ID
     task.turn_lock_owner = task_id
     task.request_id = task_id
@@ -66,6 +72,34 @@ def _prepare_worker_harness(
         write_audit_log=lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    checkpoints: dict[str, dict[str, Any]] = {}
+
+    def _freeze(_db, **values):
+        request_id = values["request_id"]
+        existing = checkpoints.get(request_id)
+        if existing is None:
+            existing = {
+                "tool_turn_id": f"tool-turn-{request_id}",
+                "command_id": values["command_id"],
+                "args_hash": values["args_hash"],
+            }
+            checkpoints[request_id] = existing
+        elif (existing["command_id"], existing["args_hash"]) != (
+            values["command_id"], values["args_hash"]
+        ):
+            raise chat_worker._chat_completion_service.ChatToolCheckpointError(
+                "tool_decision_conflict"
+            )
+        return existing
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service, "freeze_chat_tool_decision", _freeze
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **values: checkpoints.get(values["request_id"]),
+    )
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
@@ -80,6 +114,13 @@ def _prepare_worker_harness(
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
+    # `main` added a durable assistant-message link on the successful completion
+    # path. These orchestration fixtures acknowledge durable writes through the
+    # same seam used for the terminal link; native database tests verify the
+    # attempt identity and fencing independently.
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_args: True
+    )
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -399,3 +440,39 @@ def test_returned_command_failure_cannot_persist_or_publish_chat_success(
     assert provider.call_count == command.call_count == 1
     persistence.assert_not_called()
     fallback.assert_not_called()
+
+
+def test_worker_replay_after_persisted_turn_deduplicates_before_execution(
+    monkeypatch,
+):
+    persisted_meta: list[dict[str, Any]] = []
+    published = _prepare_worker_harness(monkeypatch, persisted_meta=persisted_meta)
+    task = _build_task(task_id="task-worker-reentry-deduplicated")
+    provider_calls: list[Any] = []
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_for_turn",
+        lambda **_kwargs: 991,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: provider_calls.append(True),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        lambda **_kwargs: command_calls.append(True),
+    )
+
+    chat_worker._run_chat_task(task)
+
+    completed = next(
+        payload for kind, payload in published if kind == "task.completed"
+    )
+    assert completed["message_id"] == 991
+    assert completed["selection_source"] == "turn_id_dedupe"
+    assert provider_calls == []
+    assert command_calls == []
+    assert persisted_meta == []

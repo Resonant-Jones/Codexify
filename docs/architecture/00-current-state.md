@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-13
+2026-10-15
 
 ## Interpretation rule
 
@@ -18,14 +18,22 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-08 audit, only a 2026-10-09 release-accounting log landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-13 audit, `main` has added only corrections to the 2026-10-14 release-accounting log; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
+- Open PR #872 adds replay-safe Command Bus idempotency (a conflicting replay under an existing idempotency key is rejected on command identity and canonical argument hash, and a cross-principal replay is denied), a durable account-bound chat tool-decision checkpoint, a schema migration for that checkpoint, and bounded single-decision tool-result reentry. This is implementation and focused-test evidence on an open pull request: it is not merged into `main` while the PR is open, and it establishes no restart recovery, no supported-Compose or supported-runtime qualification, and no production readiness. The release gate remains `HOLD`.
+- Tool-decision checkpoint enforcement is scoped to tasks that claim the accepted-chat lifecycle, so unbound direct completion paths (voice) keep working while accepted chat attempts still fail closed against a missing or mismatched durable record.
+- Added only 2026-10-14 release-accounting log corrections since the prior audit; no implementation or runtime qualification changed.
 - PR #869 adds a bounded authenticated, local-only, ephemeral Chronicle preview and removes the persistent Coding Loop composer mode. These are implementation paths, not supported-runtime qualification.
+- Merged request-scoped Chronicle interpretation authorization with exact authenticated scope, explicit consent/treatment, fail-closed exclusions, and no-write/no-model boundaries.
+- Merged the ephemeral Migration Chronicle preview route with reviewed-evidence digests, per-message approval, strict local dispatch, cited output validation, and zero-write/no-store behavior.
+- Added focused route/service tests for Chronicle scope, exclusions, malformed output, citation integrity, strict local dispatch, and no Redis writes; this is code/test evidence only.
+- Added PostgreSQL-backed HTTP regression coverage for the Chronicle preflight; this is code/test evidence, not supported-runtime qualification.
 - Chronicle review repairs compare exact scope independently of order, reject canonical/importer instruction roles, classify local model outages as 503, and retain invalid reader budgets as 422.
-- The 2026-10-12 daily log reports `PASS_CONSTRAINED`, but this PR retains no reproducible qualification test or durable receipt for its referenced commit. That qualification is unverified; release status remains `HOLD`.
-- Since the prior refresh, `main` added only the 2026-10-09 no-change accounting artifact; no implementation or qualification claim changed.
+- Recorded the 2026-10-12 bounded Chronicle constrained-JSON qualification as `PASS_CONSTRAINED`; this repository retains no reproducible qualification test or durable receipt for its referenced commit, and missing retained telemetry and physical provenance keep release status at `HOLD`.
+- Recorded the 2026-10-13 and 2026-10-14 no-change release-accounting logs; neither changed supported-path qualification.
+- The prior refresh's imported-history evidence reader and authenticated inspection route remain bounded code/test paths, not a complete import-to-recall capability.
 - Merged opt-in, same-node Private Preview messaging with durable request, consent, idempotency, rate, privacy, and two-account proof; default Beta remains excluded.
 - Persisted authenticated account-intake provenance for coding runs and merged chat-only generic task-event SSE admission through durable completion-attempt and canonical-thread authority.
 - Closed focused credential-purpose, mixed-principal, Hosted Room invitation, task-event, and agent snapshot authorization cases on `main`.

@@ -139,6 +139,13 @@ from guardian.protocol_tokens import (
 )
 
 
+def test_command_bus_idempotency_conflict_token() -> None:
+    assert ErrorCode.COMMAND_BUS_IDEMPOTENCY_CONFLICT.value == (
+        "command_bus_idempotency_conflict"
+    )
+    assert ErrorCode.COMMAND_BUS_IDEMPOTENCY_CONFLICT.value in ERROR_CODES
+
+
 def test_acceptance_status_tokens() -> None:
     assert AcceptanceStatus.ACCEPTED.value == "accepted"
     assert AcceptanceStatus.ACCEPTED_DEGRADED.value == "accepted_degraded"
@@ -1080,6 +1087,7 @@ def test_error_code_tokens() -> None:
         == "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
     )
     assert ERROR_CODES == {
+        "command_bus_idempotency_conflict",
         "mixed_principal_credentials",
         "ACCOUNT_SESSION_INVALID",
         "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",

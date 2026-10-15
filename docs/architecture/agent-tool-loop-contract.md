@@ -1,5 +1,5 @@
 Purpose: Define the implemented bounded tool-augmented chat completion contract so the backend exposes one honest tool turn without implying a general autonomous agent loop.
-Last updated: 2026-04-22
+Last updated: 2026-10-14
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/core/ai_router.py
@@ -37,20 +37,120 @@ The completion service now normalizes provider output into one of two bounded ou
 2. A structured tool decision.
 
 If the provider returns plain output, the existing completion path continues.
+For a task that claims the accepted-chat lifecycle, this plain answer is still
+reconciled against the durable checkpoint first, so it can never replace an
+already frozen tool decision.
+
+## Checkpoint Scope For Direct Completions
+
+Checkpoint reconciliation is scoped to tasks that claim the accepted-chat
+lifecycle, identified by the ADR-087 accepted deadline snapshot that only
+`enqueue_chat_completion` mints alongside the durable `ChatCompletionAttempt`.
+
+This distinction exists because not every completion is an accepted chat
+attempt. The voice worker constructs a `ChatCompletionTask` directly and calls
+`run_chat_completion_task`, so it owns no accepted attempt and no attempt row;
+the hosted-room and chat-route paths both go through `enqueue_chat_completion`
+and therefore do own one. A missing request id is not the discriminator, because
+`ChatCompletionTask.__post_init__` synthesizes a `req_...` id for every task.
+
+The scoping preserves both directions:
+
+- An unbound direct completion is not rejected for lacking a checkpoint it was
+  never able to create, so ordinary voice turns still answer and persist.
+- A task that claims acceptance must still present a matching durable row and
+  fails closed when it does not; a claim is never downgraded to the unchecked
+  path because its record is absent or mismatched.
+- An unbound completion may not dispatch a replay-protected tool command at all,
+  even if tool IDs were advertised to it, because there is no accepted attempt
+  against which to freeze a checkpoint.
+
+A present-but-invalid acceptance snapshot is treated as a claim so that a
+corrupted acceptance envelope fails closed rather than silently becoming
+unbound.
 
 If the provider returns a structured tool decision:
 
-1. The runtime generates a `toolTurnId`.
+1. Guardian uses the accepted `requestId` and its durable
+   `ChatCompletionAttempt` to freeze one tool decision. The checkpoint records
+   the stable `toolTurnId`, canonical command ID, canonical arguments hash, and
+   creation time. It stores no raw arguments or provider payload.
 2. The runtime derives the canonical command IDs from the nonempty tool set authorized and advertised through `ChatCompletionTask.tools` for that request.
 3. The selected canonical `command_id` must belong to that exact set; missing or nonmatching advertised authority stops with `tool_command_blocked` before `execute_invoke`, with `toolTurnState=failed` and no `commandRunId`.
 4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
-5. The runtime executes exactly one authorized command through the command bus.
-6. The resulting `commandRunId` is captured.
-7. The command result is re-injected into the completion messages as bounded context.
-8. The runtime requests one final assistant answer.
-9. The runtime hard-stops after that final answer.
+5. After the advertised-subset gate and durable request, task, thread, turn,
+   and account binding checks, the first decision wins an atomic checkpoint
+   commit. The attempt row is committed before queue enqueue; the checkpoint
+   columns on that row are the checkpoint authority, and the row's `accepted_at`
+   column may be recorded later without being the checkpoint authority gate.
+   A matching retry uses its stored `toolTurnId`; a different command or
+   argument hash fails before Command Bus dispatch. A plain answer cannot
+   replace a previously frozen decision.
+6. The runtime executes exactly one authorized command through the command bus.
+   An idempotent Command Bus replay may reuse its existing run only when the
+   command identity, key, authorization subject, and canonical arguments hash
+   match the original invocation. Conflicting or missing stored identity
+   fails closed before returning a prior result or executing another command.
+7. The resulting `commandRunId` is captured. `CommandRun` remains the authority
+   for command status and result; a queued or running run is not a completed
+   tool result. Matching replay reuses its completed result and cannot execute
+   the command a second time under the same key.
+8. The command result is re-injected into the completion messages as bounded context.
+9. The runtime requests one final assistant answer.
+10. The runtime hard-stops after that final answer.
 
 No recursive retry choreography, planner loop, or second tool turn is part of this slice.
+
+## Same-Task Reentry Proof
+
+A deterministic PostgreSQL-backed integration test now demonstrates same-task
+reentry after a completed `CommandRun` and before assistant-message persistence.
+The first provider continuation is interrupted after command completion. A
+separate chat database handle reads the accepted attempt checkpoint, and a
+separate Command Bus store reads the completed run and its stored result. A
+matching replay retains the frozen `toolTurnId`, passes the original command
+and canonical arguments through the existing idempotency key, receives the
+original `commandRunId` and result, and persists one assistant answer. The
+loopback command transport is mocked and counted once; the PostgreSQL-backed
+checkpoint and CommandRun persistence are real. The test also confirms that
+`running` is rejected as incomplete, `failed` remains a terminal failure, and
+secret-bearing arguments are not present in persisted redacted arguments or
+assistant metadata.
+
+The durable recovery evidence is limited to the existing accepted
+`ChatCompletionAttempt` binding and frozen command ID, argument hash, and
+`toolTurnId`, plus the Command Bus `CommandRun` identity, status, authorization
+subject, argument hash, and completed result. A replay must use the original
+request/task/thread/turn/account binding. Changed command or arguments conflict
+before dispatch; a plain answer cannot replace a frozen tool decision; missing
+or mismatched ownership fails closed. CommandRun status remains authoritative:
+queued/running runs are not reinjected as completed results, and failed or
+blocked runs do not trigger an automatic side-effect retry.
+
+Reentry repeats provider inference. For DeepSeek, the continuation uses the
+newly returned raw assistant tool call and that response's own `tool_call_id`;
+the provider regression test uses a different ID after reentry and confirms
+the tool result is correlated to that current ID. Whoosh'd continues through
+its existing structured translator, and the generic provider path uses its
+existing bounded result message. Provider-private state is not reconstructed
+from canonical identity. If inference does not reproduce the frozen canonical
+decision, reentry fails closed. Recovery from an opaque provider session that
+requires prior private continuation bytes unavailable in the current provider
+response remains unsupported; no provider continuation payload is added to
+durable storage here.
+
+The persisted assistant message now carries the accepted `requestId`, authored
+`turnId`, stable `toolTurnId`, original `commandRunId`, provider/model, and
+terminal evidence in its existing `extra_meta`, committed atomically with the
+message row on the Postgres chat adapter. Existing worker turn deduplication
+prevents a second completion attempt from creating another answer after that
+turn is already persisted.
+
+This proof uses fresh database handles and deterministic injected provider
+outputs; it is not a full process restart. It does not prove dequeued-task
+redelivery, automatic worker resurrection, recovery after arbitrary process
+loss, live Compose restart recovery, or multi-step coding execution. Those
+remain separate proof requirements.
 
 ## Canonical Observability Fields
 
@@ -58,10 +158,15 @@ The bounded slice records these runtime fields at the backend seam, on task even
 
 - `messageId`
 - `requestId`
+- `turnId`
 - `toolTurnId`
 - `toolTurnState`
 - `loopStopReason`
 - `commandRunId`
+- `provider`
+- `model`
+- `terminalEvidence`
+- `commandStatus`
 
 These fields are surfaced as explicit observability data, not hidden in prose or inline literals.
 

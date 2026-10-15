@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from dataclasses import replace
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,6 +35,7 @@ from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
 from guardian.routes import health, projects
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.tools.chat_exposure import (
     HEALTH_COMMAND_ID,
@@ -210,6 +212,13 @@ def _task(*, provider: str, model: str) -> ChatCompletionTask:
         model=model,
         origin="api:chat.complete|turn_id=11111111-1111-4111-8111-111111111111",
     )
+    # This is an accepted chat completion: the ADR-087 acceptance snapshot is
+    # what marks the task as owning a durable ChatCompletionAttempt, and tool
+    # dispatch is only permitted for such a task.
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.latest_turn_message_id = 2
     task.turn_id = "11111111-1111-4111-8111-111111111111"
     return task
@@ -224,6 +233,38 @@ def _seed_completion(
 ) -> None:
     monkeypatch.setattr(chat_completion_service, "get_settings", lambda: settings)
     monkeypatch.setattr(chat_completion_service, "_command_bus_app", _command_bus_app)
+    # These tests exercise exposure/admission, not durable checkpoint storage, and
+    # they run without a chat database handle. Stub the checkpoint seam the same
+    # way the bounded tool-loop suites do; native PostgreSQL suites prove the
+    # real first-decision-wins behaviour independently.
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **_values: None,
+    )
+
+    frozen_decisions: dict[str, dict[str, Any]] = {}
+
+    def _freeze(_db: Any, **values: Any) -> dict[str, Any]:
+        request_id = values["request_id"]
+        existing = frozen_decisions.get(request_id)
+        if existing is None:
+            existing = {
+                "tool_turn_id": f"tool-turn-{request_id}",
+                "command_id": values["command_id"],
+                "args_hash": values["args_hash"],
+            }
+            frozen_decisions[request_id] = existing
+        elif (existing["command_id"], existing["args_hash"]) != (
+            values["command_id"],
+            values["args_hash"],
+        ):
+            raise chat_completion_service.ChatToolCheckpointError(
+                "tool_decision_conflict"
+            )
+        return existing
+
+    monkeypatch.setattr(chat_completion_service, "freeze_chat_tool_decision", _freeze)
     monkeypatch.setattr(
         chat_completion_service,
         "build_sanitized_payload_summary",
@@ -561,7 +602,14 @@ def test_ordinary_deepseek_health_tool_executes_once_and_plain_answer_is_optiona
         "execute_invoke",
         lambda *, payload, **_kwargs: (
             executions.append(payload)
-            or {"run_id": "run-stage2i-deepseek", "status": "completed"}
+            # Mirrors the real `execute_invoke` completed response, which always
+            # carries the stored command result for re-injection. A completed run
+            # with no stored result is not a reinjectable tool result.
+            or {
+                "run_id": "run-stage2i-deepseek",
+                "status": "completed",
+                "inline_result": {"status_code": 200, "body": {"ok": True}},
+            }
         ),
     )
 
@@ -1376,7 +1424,12 @@ def test_eligible_whooshd_executes_once_and_stale_response_identity_blocks(
         "execute_invoke",
         lambda *, payload, **_kwargs: (
             executions.append(payload)
-            or {"run_id": "run-stage2i-whooshd", "status": "completed"}
+            or {
+                "run_id": "run-stage2i-whooshd",
+                "status": "completed",
+                # Mirrors the real completed `execute_invoke` response shape.
+                "inline_result": {"status_code": 200, "body": {"ok": True}},
+            }
         ),
     )
     calls = 0

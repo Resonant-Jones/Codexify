@@ -36,6 +36,7 @@ from guardian.command_bus.contracts import (
     InvokeRequest,
 )
 from guardian.command_bus.invoke import execute_invoke
+from guardian.command_bus.redaction_policy import compute_args_hash
 from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
@@ -69,8 +70,12 @@ from guardian.context.retrieval_router_policy import (
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.db import (
+    ChatToolCheckpointError,
     create_chat_completion_attempt,
+    create_chat_message_with_metadata,
+    freeze_chat_tool_decision,
     get_chat_completion_attempt_by_task_id,
+    get_chat_tool_checkpoint,
     mark_chat_completion_attempt_accepted,
     reconcile_chat_completion_attempt_after_deadline,
 )
@@ -6062,6 +6067,38 @@ def _tool_exposure_payload(tool_exposure: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _claims_accepted_chat_attempt(task: ChatCompletionTask) -> bool:
+    """Whether this task carries the accepted-chat acceptance snapshot.
+
+    Only `enqueue_chat_completion` mints the accepted deadline and persists the
+    durable `ChatCompletionAttempt` row together. Direct completion producers
+    (for example the voice worker) call `run_chat_completion_task` without
+    either, so they hold no accepted-attempt authority to reconcile against.
+
+    This deliberately keys off the task's own acceptance *claim* rather than
+    the presence of a request id: `ChatCompletionTask.__post_init__` synthesizes
+    a `req_...` id for every task, so request-id presence cannot distinguish an
+    accepted attempt from an unbound direct completion. Using the claim also
+    keeps the fail-closed direction intact: a task that claims acceptance must
+    still present a matching durable row, and any mismatch is an error rather
+    than a silent downgrade to the unchecked path.
+
+    A present-but-invalid snapshot still counts as a claim so that a corrupted
+    acceptance envelope fails closed instead of quietly becoming unbound.
+    """
+
+    snapshot = {
+        name: getattr(task, name, None)
+        for name in ("accepted_at", "work_deadline_at", "terminal_deadline_at")
+    }
+    if all(value is None for value in snapshot.values()):
+        return False
+    try:
+        return accepted_chat_deadline_for_task(task) is not None
+    except (TypeError, ValueError):
+        return True
+
+
 def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
     tools = getattr(task, "tools", None)
     if not isinstance(tools, list):
@@ -6483,6 +6520,43 @@ def _execute_bounded_tool_turn_completion(
     )
     normalized_first_output = normalize_completion_output(first_attempt.output)
     if normalized_first_output.kind != "tool_decision":
+        # Checkpoint reconciliation only applies to tasks that claim the
+        # accepted-chat lifecycle, because only that lifecycle owns a durable
+        # `ChatCompletionAttempt` to reconcile against. Unbound direct
+        # completions (voice) have no accepted attempt, so they must not be
+        # rejected for lacking a checkpoint they were never able to create.
+        if _claims_accepted_chat_attempt(task):
+            try:
+                frozen = get_chat_tool_checkpoint(
+                    dependencies.chatlog_db,
+                    request_id=request_id or "",
+                    backend_task_id=str(getattr(task, "task_id", "") or ""),
+                    thread_id=task.thread_id,
+                    turn_id=str(getattr(task, "turn_id", "") or ""),
+                    account_id=str(getattr(task, "user_id", "") or ""),
+                )
+            except Exception as exc:
+                raise ToolLoopExecutionError(
+                    "tool_checkpoint_unavailable",
+                    metadata=_tool_loop_identity_fields(
+                        task=task,
+                        tool_turn_id=None,
+                        tool_turn_state=ToolTurnState.FAILED.value,
+                        loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                        command_run_id=None,
+                    ),
+                ) from exc
+            if frozen is not None:
+                raise ToolLoopExecutionError(
+                    "tool_decision_conflict",
+                    metadata=_tool_loop_identity_fields(
+                        task=task,
+                        tool_turn_id=frozen["tool_turn_id"],
+                        tool_turn_state=ToolTurnState.FAILED.value,
+                        loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                        command_run_id=None,
+                    ),
+                )
         assistant_text = normalized_first_output.text or ""
         if not assistant_text.strip():
             assistant_text = "No assistant response was generated."
@@ -6513,6 +6587,22 @@ def _execute_bounded_tool_turn_completion(
 
     _require_tool_work_budget()
     tool_turn_id = str(uuid.uuid4())
+    # A replay-protected tool decision must be frozen against a durable accepted
+    # attempt before dispatch. An unbound direct completion has no such record,
+    # so it must never reach Command Bus dispatch, even if tool ids were
+    # somehow advertised to it.
+    if not _claims_accepted_chat_attempt(task):
+        raise ToolLoopExecutionError(
+            ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            )
+            | {"command_id": normalized_first_output.command_id},
+        )
     if provider == "deepseek" and normalized_first_output.tool_call_count != 1:
         raise ToolLoopExecutionError(
             "tool_turn_limit_reached",
@@ -6615,6 +6705,37 @@ def _execute_bounded_tool_turn_completion(
         auth_subject = task.user_id
         inbound_headers = {"X-API-Key": local_api_key}
 
+    try:
+        checkpoint = freeze_chat_tool_decision(
+            dependencies.chatlog_db,
+            request_id=request_id or "",
+            backend_task_id=str(getattr(task, "task_id", "") or ""),
+            thread_id=task.thread_id,
+            turn_id=str(getattr(task, "turn_id", "") or ""),
+            account_id=str(getattr(task, "user_id", "") or ""),
+            command_id=command_id,
+            args_hash=compute_args_hash(
+                arguments.model_dump(mode="json", exclude_none=False)
+            ),
+        )
+    except Exception as exc:
+        reason = (
+            str(exc)
+            if isinstance(exc, ChatToolCheckpointError)
+            else "tool_checkpoint_unavailable"
+        )
+        raise ToolLoopExecutionError(
+            reason,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            ),
+        ) from exc
+    tool_turn_id = checkpoint["tool_turn_id"]
+    actor = actor.model_copy(update={"session_id": tool_turn_id})
     invocation = BoundedToolTurnInvocation(
         tool_turn_id=tool_turn_id,
         request_id=request_id or tool_turn_id,
@@ -6685,6 +6806,23 @@ def _execute_bounded_tool_turn_completion(
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
+# A queued or running Command Bus run is not a completed tool result, and a
+    # "completed" status carrying no inline result has nothing to reinject.
+    if (
+        not command_run_id
+        or command_status not in {"completed", "failed", "blocked"}
+        or (command_status == "completed" and "inline_result" not in command_result)
+    ):
+        raise ToolLoopExecutionError(
+            "tool_command_incomplete",
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.COMMAND_DISPATCHED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_FAILED.value,
+                command_run_id=command_run_id,
+            ),
+        )
     if command_status in {"failed", "blocked"}:
         loop_stop_reason = (
             ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
@@ -6697,7 +6835,7 @@ def _execute_bounded_tool_turn_completion(
             )[:1024],
         }
         raise ToolLoopExecutionError(
-            loop_stop_reason,
+            "tool_command_terminal_failure",
             metadata=_tool_loop_identity_fields(
                 task=task,
                 tool_turn_id=tool_turn_id,
@@ -7443,31 +7581,42 @@ def run_chat_completion_task(
     if not persist_assistant_message:
         return result
 
-    message_id = dependencies.chatlog_db.create_message(
+    assistant_message_meta = {
+        **(
+            {"provider_replay_state": provider_replay_state}
+            if provider == "deepseek" and isinstance(provider_replay_state, dict)
+            else {}
+        ),
+        **(
+            {"whooshd_runtime_provenance": completion_runtime_provenance}
+            if completion_runtime_provenance is not None
+            else {}
+        ),
+        **(
+            {"request_correlation": completion_request_correlation}
+            if completion_request_correlation is not None
+            else {}
+        ),
+        "requestId": request_id,
+        "turnId": str(getattr(task, "turn_id", "") or "") or None,
+        "toolTurnId": result.get("toolTurnId"),
+        "toolTurnState": result.get("toolTurnState"),
+        "loopStopReason": result.get("loopStopReason"),
+        "commandRunId": result.get("commandRunId"),
+        "commandStatus": (
+            result.get("command_status")
+            or payload_summary.get("command_status")
+        ),
+        "provider": provider,
+        "model": model,
+        "terminalEvidence": terminal_evidence.as_dict(),
+    }
+    message_id = create_chat_message_with_metadata(
+        dependencies.chatlog_db,
         task.thread_id,
         "assistant",
         assistant_text,
-        extra_meta=(
-            {
-                **(
-                    {"provider_replay_state": provider_replay_state}
-                    if provider == "deepseek"
-                    and isinstance(provider_replay_state, dict)
-                    else {}
-                ),
-                **(
-                    {"whooshd_runtime_provenance": completion_runtime_provenance}
-                    if completion_runtime_provenance is not None
-                    else {}
-                ),
-                **(
-                    {"request_correlation": completion_request_correlation}
-                    if completion_request_correlation is not None
-                    else {}
-                ),
-            }
-            or None
-        ),
+        extra_meta=assistant_message_meta,
     )
     result["message_id"] = message_id
     result["persistence_outcome"] = "persisted"
