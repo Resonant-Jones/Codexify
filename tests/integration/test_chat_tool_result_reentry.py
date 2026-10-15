@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,7 +30,8 @@ from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.db.models import ChatCompletionAttempt, ChatMessage, ChatThread, User
 from guardian.routes import command_bus as command_bus_routes
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
-from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.types import ChatCompletionTask, task_from_dict
+from guardian.workers import chat_worker
 
 
 @pytest.fixture
@@ -51,7 +53,9 @@ def disposable_database(monkeypatch: pytest.MonkeyPatch):
     )
     config.set_main_option("sqlalchemy.url", test_dsn.replace("%", "%%"))
     try:
-        command.upgrade(config, "head")
+        # This checkout currently has independent Alembic heads. The disposable
+        # proof database needs every branch's schema before seeding its records.
+        command.upgrade(config, "heads")
         monkeypatch.setenv("DATABASE_URL", test_dsn)
         yield test_dsn
     finally:
@@ -105,7 +109,11 @@ def _seed_attempt(db: GuardianDB) -> tuple[int, ChatCompletionTask]:
     ).to_dict().items():
         setattr(task, _name, _value)
     task.turn_id = turn_id
-    return thread_id, task
+    # Exercise the same JSON-safe serialize/deserialize boundary used by Redis.
+    queued_task = task_from_dict(json.loads(json.dumps(task.to_dict())))
+    assert isinstance(queued_task, ChatCompletionTask)
+    assert queued_task.turn_id == turn_id
+    return thread_id, queued_task
 
 
 @pytest.mark.integration
@@ -173,6 +181,20 @@ def test_completed_command_reentry_after_interruption_uses_durable_records_once(
         '{"type":"tool_decision","command_id":"op::health_check",'
         '"arguments":{"password":"secret-canary-value"}}'
     )
+
+    mismatched_task = task_from_dict(task.to_dict())
+    assert isinstance(mismatched_task, ChatCompletionTask)
+    mismatched_task.turn_id = "other-accepted-turn"
+    monkeypatch.setattr(
+        chat_completion_service, "chat_with_ai", lambda *_args, **_kwargs: decision
+    )
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="accepted_tool_attempt_unavailable",
+    ):
+        chat_completion_service.run_chat_completion_task(mismatched_task)
+    assert executions == 0
+
     provider_calls = 0
     interrupt = True
 
@@ -257,6 +279,7 @@ def test_completed_command_reentry_after_interruption_uses_durable_records_once(
         assert len(messages) == 1
         assert messages[0].content == "Health check completed."
         assert "secret-canary-value" not in str(messages[0].extra_meta)
+        assert messages[0].extra_meta["turn_id"] == task.turn_id
         assert messages[0].extra_meta["requestId"] == task.request_id
         assert messages[0].extra_meta["turnId"] == task.turn_id
         assert messages[0].extra_meta["toolTurnId"] == checkpoint["tool_turn_id"]
@@ -267,6 +290,39 @@ def test_completed_command_reentry_after_interruption_uses_durable_records_once(
         assert messages[0].extra_meta["provider"] == "groq"
         assert messages[0].extra_meta["model"] == "proof-model"
         assert messages[0].extra_meta["terminalEvidence"]["status"] == "success"
+        persisted_message_id = messages[0].id
+
+    # A new handle can find the message immediately from the atomic snake-case
+    # key; the worker-side metadata enrichment has not been called in this test.
+    fresh_chat_db = PostgresChatLogDB(database_url)
+    monkeypatch.setattr(dependencies, "chatlog_db", fresh_chat_db)
+    monkeypatch.setattr(chat_worker, "get_redis_client", lambda: SimpleNamespace())
+    assert (
+        chat_worker._find_assistant_message_for_turn(
+            thread_id=thread_id,
+            turn_id=task.turn_id,
+        )
+        == persisted_message_id
+    )
+
+    provider_calls_after_persist = provider_calls
+    monkeypatch.setattr(chat_worker, "_publish_task_state", lambda *_a, **_k: {})
+    monkeypatch.setattr(chat_worker, "_safe_publish", lambda *_a, **_k: {})
+    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_a, **_k: pytest.fail("persisted turn must deduplicate before inference"),
+    )
+    chat_worker._run_chat_task(task)
+    assert provider_calls == provider_calls_after_persist
+    with reentry_db.get_session() as session:
+        assert (
+            session.query(ChatMessage)
+            .filter_by(thread_id=thread_id, role="assistant")
+            .count()
+            == 1
+        )
 
     binding = {
         "request_id": task.request_id,
@@ -291,5 +347,6 @@ def test_completed_command_reentry_after_interruption_uses_durable_records_once(
 
     chat_db._sa_engine.dispose()
     reentry_chat_db._sa_engine.dispose()
+    fresh_chat_db._sa_engine.dispose()
     original_db.engine.dispose()
     reentry_db.engine.dispose()

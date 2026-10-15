@@ -234,6 +234,27 @@ Loop stop reasons are canonical tokens in `guardian/protocol_tokens.py`:
 - The runtime does not recurse on tool failure.
 - The runtime does not silently downgrade a structured tool decision into an undefined loop.
 
+## Accepted Turn Identity Through Queue and Persistence
+
+Accepted chat enqueue assigns the server-resolved authored `turn_id` to the
+typed `ChatCompletionTask` before queue serialization. The task serializer and
+deserializer preserve that value across the Redis boundary; client and provider
+output do not choose or replace it. Checkpoint authorization uses the restored
+accepted turn identity together with the durable request, task, thread, and
+account binding. Historical tasks without the typed field may derive the turn
+from the existing canonical `origin` segment, subject to the same durable
+authority checks.
+
+Assistant insertion stores canonical snake-case `turn_id` in `extra_meta` in
+the same message transaction as the assistant row, while retaining the existing
+`turnId` observability field. Worker deduplication queries the snake-case value,
+so a fresh database handle can find the assistant immediately after insertion;
+the later worker metadata enrichment remains compatible but is not required for
+deduplication. This preserves turn correlation when a worker stops after
+assistant insertion. It does not establish arbitrary concurrent-writer
+exactly-once behavior, full-process restart recovery, or automatic worker
+recovery.
+
 ## Contract Shape
 
 The normalized provider result is intentionally small:
