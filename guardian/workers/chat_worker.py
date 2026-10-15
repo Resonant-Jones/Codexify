@@ -2456,6 +2456,8 @@ def _run_chat_completion_task_compat(
     completed_truth = {**completion_truth, "completed": True}
     completed_final_provider_truth = {**final_provider_truth, "completed": True}
     atomic_completion_meta = {
+        "turn_id": turn_id or None,
+        "turnId": turn_id or None,
         "attempted_provider": attempted_provider,
         "attempted_model": attempted_model,
         "resolved_provider": provider,
