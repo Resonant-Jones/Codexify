@@ -1365,15 +1365,6 @@ class ChatCompletionAttempt(Base):
     tool_checkpoint_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
     )
-    __table_args__ = (
-        CheckConstraint(
-            "(tool_turn_id IS NULL AND tool_command_id IS NULL AND "
-            "tool_args_hash IS NULL AND tool_checkpoint_at IS NULL) OR "
-            "(tool_turn_id IS NOT NULL AND tool_command_id IS NOT NULL AND "
-            "tool_args_hash IS NOT NULL AND tool_checkpoint_at IS NOT NULL)",
-            name="ck_chat_completion_attempt_tool_checkpoint_complete",
-        ),
-    )
 
     __table_args__ = (
         CheckConstraint(
@@ -1397,6 +1388,18 @@ class ChatCompletionAttempt(Base):
             "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
             "AND length(trim(turn_lock_token)) > 0)",
             name="ck_chat_attempt_recovery_snapshot_pair",
+        ),
+        # The checkpoint columns are all-or-nothing. This must live in the same
+        # tuple as the constraints above: a second `__table_args__` assignment
+        # would silently replace this one, and `Base.metadata` would then build
+        # schemas that accept partially populated checkpoints that a migrated
+        # database rejects.
+        CheckConstraint(
+            "(tool_turn_id IS NULL AND tool_command_id IS NULL AND "
+            "tool_args_hash IS NULL AND tool_checkpoint_at IS NULL) OR "
+            "(tool_turn_id IS NOT NULL AND tool_command_id IS NOT NULL AND "
+            "tool_args_hash IS NOT NULL AND tool_checkpoint_at IS NOT NULL)",
+            name="ck_chat_completion_attempt_tool_checkpoint_complete",
         ),
     )
 

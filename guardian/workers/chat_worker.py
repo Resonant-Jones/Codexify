@@ -65,6 +65,7 @@ from guardian.core.db import (
     ChatAttemptReconciliation,
     GuardianDB,
     get_chat_completion_attempt_by_task_id,
+    load_guardian_db_from_env,
     observe_chat_completion_attempt_terminal,
     record_chat_completion_attempt_success,
     record_chat_completion_attempt_terminal_event,
@@ -2440,6 +2441,50 @@ def _run_chat_completion_task_compat(
             task,
         )
 
+    tool_loop_observability = _tool_loop_observability_payload(
+        result=result,
+        task=task,
+    )
+    # Build the bounded request/tool/terminal metadata before persistence so it
+    # can be written in the same transaction as the assistant message and its
+    # attempt binding. Accepted chat tasks previously got this only through a
+    # separate best-effort, exception-suppressed update, so an interruption or a
+    # failed write could leave a successfully linked assistant without it.
+    # Snapshot the truth dicts with the completed flag already set: these copies
+    # are what gets persisted, while the live dicts stay uncommitted until the
+    # write actually succeeds.
+    completed_truth = {**completion_truth, "completed": True}
+    completed_final_provider_truth = {**final_provider_truth, "completed": True}
+    atomic_completion_meta = {
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": provider,
+        "resolved_model": model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "selection_source": selection_source,
+        "model_selection": result.get("model_selection"),
+        "fallback_reason": fallback_reason,
+        "payload_summary": payload_summary,
+        "completion_truth": completed_truth,
+        "attempted_provider_truth": attempted_provider_truth,
+        "final_provider_truth": completed_final_provider_truth,
+        "retrieval_policy": result.get("retrieval_policy"),
+        "retrieval_posture": result.get("retrieval_posture"),
+        "retrieval_provenance": result.get("retrieval_provenance"),
+        "retrieval_suppression": result.get("retrieval_suppression"),
+        "retrieval_executed": result.get("retrieval_executed"),
+        "retrieval_absence_reason": result.get("retrieval_absence_reason"),
+        "image_routing_path": result.get("image_routing_path"),
+        "image_routing_absence_reason": result.get("image_routing_absence_reason"),
+        "execution": execution,
+        "tool_loop_execution": result.get("tool_loop_execution"),
+        "whooshd_runtime_provenance": result.get("runtime_provenance"),
+        "request_correlation": result.get("request_correlation"),
+        **tool_loop_observability,
+    }
+
+    metadata_persisted_atomically = False
     try:
         atomic_persist = getattr(
             type(dependencies.chatlog_db),
@@ -2467,8 +2512,10 @@ def _run_chat_completion_task_compat(
                     if hosted_room_context is not None
                     else None
                 ),
+                extra_meta=atomic_completion_meta,
             )
             result["_durable_completion_linked"] = completion_attempt_linked
+            metadata_persisted_atomically = True
         elif hosted_room_context is None:
             message_id = dependencies.chatlog_db.create_message(
                 task.thread_id,
@@ -2532,10 +2579,6 @@ def _run_chat_completion_task_compat(
     result["persistence_outcome"] = "persisted"
     completion_truth["completed"] = True
     final_provider_truth["completed"] = True
-    tool_loop_observability = _tool_loop_observability_payload(
-        result=result,
-        task=task,
-    )
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.COMPLETED,
@@ -2551,41 +2594,16 @@ def _run_chat_completion_task_compat(
             },
         )
 
-    with suppress(Exception):
-        _persist_message_extra_meta(
-            thread_id=task.thread_id,
-            message_id=message_id,
-            payload={
-                "attempted_provider": attempted_provider,
-                "attempted_model": attempted_model,
-                "resolved_provider": provider,
-                "resolved_model": model,
-                "final_provider": final_provider,
-                "final_model": final_model,
-                "selection_source": selection_source,
-                "model_selection": result.get("model_selection"),
-                "fallback_reason": fallback_reason,
-                "payload_summary": payload_summary,
-                "completion_truth": completion_truth,
-                "attempted_provider_truth": attempted_provider_truth,
-                "final_provider_truth": final_provider_truth,
-                "retrieval_policy": result.get("retrieval_policy"),
-                "retrieval_posture": result.get("retrieval_posture"),
-                "retrieval_provenance": result.get("retrieval_provenance"),
-                "retrieval_suppression": result.get("retrieval_suppression"),
-                "retrieval_executed": result.get("retrieval_executed"),
-                "retrieval_absence_reason": result.get("retrieval_absence_reason"),
-                "image_routing_path": result.get("image_routing_path"),
-                "image_routing_absence_reason": result.get(
-                    "image_routing_absence_reason"
-                ),
-                "execution": execution,
-                "tool_loop_execution": result.get("tool_loop_execution"),
-                "whooshd_runtime_provenance": result.get("runtime_provenance"),
-                "request_correlation": result.get("request_correlation"),
-                **tool_loop_observability,
-            },
-        )
+    if not metadata_persisted_atomically:
+        # Fallback adapters cannot write metadata with the message, so keep the
+        # best-effort follow-up for those paths only. The atomic path above
+        # already persisted it in the same transaction as the assistant row.
+        with suppress(Exception):
+            _persist_message_extra_meta(
+                thread_id=task.thread_id,
+                message_id=message_id,
+                payload=atomic_completion_meta,
+            )
 
     with suppress(Exception):
         dependencies.chatlog_db.write_audit_log(
@@ -3510,11 +3528,34 @@ def _chat_task_cancelled_before_dispatch(task: ChatCompletionTask) -> bool:
         return False
 
 
+def _configure_durable_command_bus_store() -> None:
+    """Give this worker process the durable Command Bus store it dispatches through.
+
+    In the supported Compose topology chat runs in its own process, and only
+    `guardian_api` wires `command_bus_routes.configure_db`. Left at the module
+    default, the worker's store is in-memory: after a restart or task
+    redelivery the frozen tool-decision checkpoint is still durable, but the
+    matching CommandRun is gone, so the retry would mint a fresh run and
+    execute the command a second time. That defeats at-most-once dispatch.
+    """
+
+    from guardian.routes import command_bus as command_bus_routes
+
+    guardian_db = load_guardian_db_from_env()
+    if guardian_db is None:
+        raise RuntimeError(
+            "durable_command_bus_store_unavailable: set GUARDIAN_DATABASE_URL "
+            "or DATABASE_URL so chat tool dispatches cannot replay"
+        )
+    command_bus_routes.configure_db(guardian_db)
+
+
 def _initialize_worker() -> None:
     db = dependencies.init_database()
     if db is None:
         raise RuntimeError("chatlog_db not configured")
     dependencies.init_services(db)
+    _configure_durable_command_bus_store()
     try:
         if dependencies.ENABLE_OUTBOX:
             event_bus.configure_event_store(db)

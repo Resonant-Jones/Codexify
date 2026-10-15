@@ -1521,8 +1521,14 @@ class PgDB(ChatDB):
         *,
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
+        extra_meta: dict[str, Any] | None = None,
     ) -> int:
-        """Insert a message row and return its id."""
+        """Insert a message row and return its id.
+
+        `extra_meta` is written in the same statement as the message, so a caller
+        never has to follow up with a separate best-effort update that a crash
+        or failed write could leave unapplied.
+        """
         validate_message_provenance(
             hosted_room_participant_id,
             sender_display_name_snapshot,
@@ -1533,6 +1539,13 @@ class PgDB(ChatDB):
             str(user_id or (thread or {}).get("user_id") or _default_user_id()).strip()
             or _default_user_id()
         )
+        serialized_extra_meta = (
+            json.dumps(extra_meta)
+            if isinstance(extra_meta, dict) and extra_meta
+            # chat_messages.extra_meta is NOT NULL with a `'{}'` server default;
+            # naming the column explicitly bypasses that default, so restate it.
+            else "{}"
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 if created_at is not None:
@@ -1541,9 +1554,10 @@ class PgDB(ChatDB):
                         INSERT INTO chat_messages (
                             thread_id, user_id, role, content, created_at,
                             hosted_room_participant_id,
-                            sender_display_name_snapshot
+                            sender_display_name_snapshot,
+                            extra_meta
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1554,6 +1568,7 @@ class PgDB(ChatDB):
                             created_at,
                             hosted_room_participant_id,
                             sender_display_name_snapshot,
+                            serialized_extra_meta,
                         ),
                     )
                 else:
@@ -1562,9 +1577,10 @@ class PgDB(ChatDB):
                         INSERT INTO chat_messages (
                             thread_id, user_id, role, content,
                             hosted_room_participant_id,
-                            sender_display_name_snapshot
+                            sender_display_name_snapshot,
+                            extra_meta
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1574,6 +1590,7 @@ class PgDB(ChatDB):
                             content,
                             hosted_room_participant_id,
                             sender_display_name_snapshot,
+                            serialized_extra_meta,
                         ),
                     )
                 row = cur.fetchone()
@@ -1606,8 +1623,14 @@ class PgDB(ChatDB):
         turn_id: str,
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
+        extra_meta: dict[str, Any] | None = None,
     ) -> tuple[int, bool]:
-        """Persist a successful assistant and bind it to its attempt atomically."""
+        """Persist a successful assistant and bind it to its attempt atomically.
+
+        `extra_meta` is written with the message inside the same transaction as
+        the attempt binding, so accepted chat turns never depend on a later
+        best-effort update that an interruption could leave unapplied.
+        """
         with self.conversation_transaction():
             with self._connect() as conn:
                 with conn.cursor() as cur:
@@ -1659,6 +1682,7 @@ class PgDB(ChatDB):
                 content,
                 hosted_room_participant_id=hosted_room_participant_id,
                 sender_display_name_snapshot=sender_display_name_snapshot,
+                extra_meta=extra_meta,
             )
             if attempt is None:
                 return message_id, False
